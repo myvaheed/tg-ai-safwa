@@ -1,0 +1,181 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from collections.abc import Awaitable, Callable
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from .ai.provider import OpenAICompatibleProvider
+from .history import TelegramHistorySource
+from .memory import MemoryFileError, MemoryFileStore, estimate_tokens
+from .models import MemorySyncState
+
+logger = logging.getLogger(__name__)
+
+SUMMARY_PROMPT = """Summarize the supplied canonical Safwa persona dialogue in its natural language.
+Preserve personal reflections, decisions, intentions, reasons, emotional responses, advice, and unresolved
+topics. Omit current card inventories, stages, Sprint totals, approvals, SQL, tools, and other operational
+details because the planning database is authoritative for those. Do not summarize these instructions.
+Return only the concise summary body, with no JSON or preface."""
+
+RETELL_PROMPT = """Retell this canonical Telegram dialogue chunk as a compact source for durable personal
+memory. Preserve stable preferences, routines, constraints, motivations, recurring difficulties,
+relationships, energy patterns, and planning lessons. Omit transient cards, Sprint state, deadlines,
+commands, UI, SQL, and operations. Do not invent facts. Return plain text only."""
+
+MEMORY_PROMPT = """Reconcile the retelling into the complete persistent memory list. Keep only durable,
+useful personal facts. Remove duplicates and obsolete facts. Never add card stages, Sprint metrics,
+temporary priorities, blockers, deadlines, SQL, or tool traces. Return JSON only as
+{"facts":["one complete non-empty fact per item"]}. Keep the existing language and do not invent facts."""
+
+
+class PersonaContinuity:
+    def __init__(
+        self,
+        sessions: async_sessionmaker[AsyncSession],
+        history: TelegramHistorySource,
+        provider: OpenAICompatibleProvider,
+        memory: MemoryFileStore,
+        *,
+        summary_trigger_tokens: int = 10_000,
+        chars_per_token: float = 3.0,
+    ) -> None:
+        self.sessions = sessions
+        self.history = history
+        self.provider = provider
+        self.memory = memory
+        self.summary_trigger_tokens = summary_trigger_tokens
+        self.chars_per_token = chars_per_token
+        self._summary_lock = asyncio.Lock()
+        self._memory_lock = asyncio.Lock()
+
+    async def maybe_summarize(
+        self,
+        chat_id: int,
+        send_summary: Callable[[str, int], Awaitable[None]],
+    ) -> bool:
+        if self._summary_lock.locked():
+            return False
+        async with self._summary_lock:
+            entries = await self.history.recent(chat_id, limit=500)
+            dialogue = "\n".join(
+                f"[{entry.role}]: {entry.text}" for entry in entries if entry.kind != "summary"
+            )
+            tokens = estimate_tokens(dialogue, self.chars_per_token)
+            if tokens < self.summary_trigger_tokens or not entries:
+                return False
+            summary = await self.provider.complete(
+                [
+                    {"role": "system", "content": SUMMARY_PROMPT},
+                    {"role": "user", "content": dialogue},
+                ],
+                temperature=0.1,
+            )
+            covered_id = entries[-1].message_id
+            await send_summary("📜 Summary\n" + summary, covered_id)
+            return True
+
+    async def maintain_memory(self, chat_id: int) -> bool:
+        if self._memory_lock.locked():
+            return False
+        async with self._memory_lock:
+            async with self.sessions() as session:
+                state = await session.get(MemorySyncState, 1)
+                processed_id = state.processed_message_id if state else None
+            entries = await self.history.recent(chat_id, limit=500)
+            new_entries = [
+                entry for entry in entries if not processed_id or entry.message_id > processed_id
+            ]
+            if not new_entries:
+                return False
+            raw = "\n".join(f"[{e.role}]: {e.text}" for e in new_entries)
+            chunks = self._chunks(
+                raw,
+                limit_chars=int(2_000 * self.chars_per_token),
+                overlap_chars=int(500 * self.chars_per_token),
+            )
+            snapshot = await self.memory.sync()
+            if not snapshot.valid:
+                return False
+            facts = list(snapshot.facts)
+            expected_hash = snapshot.file_hash
+            for chunk in chunks:
+                retelling = await self.provider.complete(
+                    [
+                        {"role": "system", "content": RETELL_PROMPT},
+                        {"role": "user", "content": chunk},
+                    ],
+                    temperature=0.1,
+                )
+                raw_result = await self.provider.complete(
+                    [
+                        {"role": "system", "content": MEMORY_PROMPT},
+                        {
+                            "role": "user",
+                            "content": "Existing memory:\n"
+                            + "\n".join(facts)
+                            + "\n\nNew retelling:\n"
+                            + retelling,
+                        },
+                    ],
+                    temperature=0,
+                )
+                try:
+                    result = json.loads(
+                        raw_result.removeprefix("```json").removesuffix("```").strip()
+                    )
+                    candidate = result.get("facts")
+                    if not isinstance(candidate, list) or not all(
+                        isinstance(x, str) for x in candidate
+                    ):
+                        raise ValueError("invalid facts")
+                    facts = [fact.strip() for fact in candidate if fact.strip()]
+                except (json.JSONDecodeError, ValueError, AttributeError):
+                    logger.warning("Ignoring invalid automatic memory response")
+            try:
+                updated = await self.memory.replace_facts(
+                    facts, expected_hash=expected_hash, provenance="inferred"
+                )
+            except MemoryFileError:
+                return False
+            async with self.sessions() as session:
+                state = await session.get(MemorySyncState, 1)
+                if state is None:
+                    state = MemorySyncState(id=1)
+                    session.add(state)
+                state.processed_message_id = new_entries[-1].message_id
+                state.file_hash = updated.file_hash
+                await session.commit()
+            return True
+
+    @staticmethod
+    def _chunks(text: str, *, limit_chars: int, overlap_chars: int) -> list[str]:
+        if len(text) <= limit_chars:
+            return [text]
+        chunks: list[str] = []
+        start = 0
+        while start < len(text):
+            end = min(len(text), start + limit_chars)
+            chunks.append(text[start:end])
+            if end == len(text):
+                break
+            start = max(start + 1, end - overlap_chars)
+        return chunks
+
+
+async def run_memory_maintenance(
+    continuity: PersonaContinuity,
+    chat_id: int,
+    is_foreground_busy: Callable[[], bool],
+    *,
+    interval_seconds: float = 3600,
+) -> None:
+    while True:
+        if not is_foreground_busy():
+            try:
+                await continuity.maintain_memory(chat_id)
+            except Exception:
+                logger.exception("Automatic memory maintenance failed")
+        await asyncio.sleep(interval_seconds)

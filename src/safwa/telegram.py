@@ -1,0 +1,1685 @@
+from __future__ import annotations
+
+import html
+import logging
+import secrets
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from aiogram import BaseMiddleware, F, Router
+from aiogram.enums import ChatAction, ParseMode
+from aiogram.exceptions import TelegramAPIError
+from aiogram.filters import Command
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    TelegramObject,
+)
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from .ai.service import AIAdvisor, ProposalService
+from .analytics import render_retrospective_png, retrospective_data, retrospective_recommendations
+from .continuity import PersonaContinuity
+from .domain import (
+    DomainError,
+    StaleStateError,
+    archive_subtree,
+    delete_subtree,
+    finish_action,
+    finish_sprint,
+    move_card,
+    set_feedback,
+    sprint_metrics,
+    start_sprint,
+)
+from .drafts import DraftService
+from .enums import (
+    CardKind,
+    CardStage,
+    Category,
+    DraftStatus,
+    EnergyType,
+    MessageKind,
+    Priority,
+)
+from .history import HistoryEntry, TelegramHistorySource, register_message
+from .memory import MemoryFileError, MemoryFileStore, estimate_tokens
+from .models import (
+    Board,
+    CallbackToken,
+    Card,
+    CardDraft,
+    CardDraftBundle,
+    ChangeProposal,
+    FeedbackQueue,
+    ProposalChange,
+    Sprint,
+    SummaryState,
+    UiSession,
+    UserProfile,
+    Value,
+    Workspace,
+)
+
+logger = logging.getLogger(__name__)
+router = Router(name="safwa")
+
+
+@dataclass
+class Services:
+    sessions: async_sessionmaker[AsyncSession]
+    advisor: AIAdvisor
+    history: TelegramHistorySource
+    memory: MemoryFileStore
+    continuity: PersonaContinuity
+    owner_id: int
+    guard: GenerationGuard
+
+
+class GenerationGuard:
+    def __init__(self) -> None:
+        self.active_source_id: int | None = None
+        self.dialogue_revision = 0
+
+    @property
+    def active(self) -> bool:
+        return self.active_source_id is not None
+
+    async def acquire(self, source_id: int) -> None:
+        if self.active_source_id not in {None, source_id}:
+            raise RuntimeError("Another foreground generation is active")
+        self.active_source_id = source_id
+
+    def reserve(self, source_id: int) -> bool:
+        if self.active_source_id is not None:
+            return self.active_source_id == source_id
+        self.active_source_id = source_id
+        return True
+
+    def release(self, source_id: int | None = None) -> None:
+        if source_id is not None and self.active_source_id != source_id:
+            return
+        self.active_source_id = None
+
+    def cancel(self) -> None:
+        self.dialogue_revision += 1
+        self.release()
+
+
+class OwnerAndWritingMiddleware(BaseMiddleware):
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        services: Services = data["services"]
+        user = getattr(event, "from_user", None)
+        chat = getattr(event, "chat", None) or getattr(
+            getattr(event, "message", None), "chat", None
+        )
+        if user is None or user.id != services.owner_id or (chat and chat.type != "private"):
+            return None
+        if isinstance(event, Message) and services.guard.active:
+            command = (event.text or "").lstrip().split(maxsplit=1)[0].split("@", 1)[0].casefold()
+            if command == "/cancel":
+                return await handler(event, data)
+            if event.message_id != services.guard.active_source_id:
+                try:
+                    await event.delete()
+                except TelegramAPIError:
+                    services.guard.cancel()
+                    return await handler(event, data)
+                return None
+        if isinstance(event, CallbackQuery) and services.guard.active:
+            await event.answer("Safwa is responding. Use /cancel to stop it.", show_alert=True)
+            return None
+        reserved = False
+        if (
+            isinstance(event, Message)
+            and not services.guard.active
+            and bool(event.text)
+            and not event.text.lstrip().startswith("/")
+        ):
+            reserved = services.guard.reserve(event.message_id)
+        try:
+            return await handler(event, data)
+        finally:
+            if reserved:
+                services.guard.release(event.message_id)
+
+
+async def token_button(
+    session: AsyncSession,
+    owner_id: int,
+    text: str,
+    action: str,
+    payload: dict[str, Any] | None = None,
+) -> InlineKeyboardButton:
+    token = secrets.token_urlsafe(9)
+    session.add(
+        CallbackToken(
+            token=token,
+            owner_id=owner_id,
+            action=action,
+            payload=payload or {},
+            expires_at=datetime.now(UTC) + timedelta(hours=24),
+        )
+    )
+    return InlineKeyboardButton(text=text, callback_data=f"cb:{token}")
+
+
+async def send_registered(
+    message: Message,
+    services: Services,
+    text: str,
+    *,
+    kind: MessageKind,
+    markup: InlineKeyboardMarkup | None = None,
+    related_id: str | None = None,
+) -> Message:
+    sent = await message.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+    async with services.sessions() as session:
+        await register_message(session, sent.chat.id, sent.message_id, "out", kind, related_id)
+        await session.commit()
+    return sent
+
+
+def menu_markup() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="☀️ Today", callback_data="nav:today"),
+                InlineKeyboardButton(text="🏃 Sprint", callback_data="nav:sprint"),
+            ],
+            [
+                InlineKeyboardButton(text="📚 Backlog", callback_data="nav:backlog"),
+                InlineKeyboardButton(text="➕ Add", callback_data="nav:add"),
+            ],
+            [
+                InlineKeyboardButton(text="📝 Drafts", callback_data="nav:drafts"),
+                InlineKeyboardButton(text="💎 Values", callback_data="nav:values"),
+            ],
+            [
+                InlineKeyboardButton(text="📊 Retro", callback_data="nav:retro"),
+                InlineKeyboardButton(text="⚙️ Settings", callback_data="nav:settings"),
+            ],
+        ]
+    )
+
+
+async def render_dashboard(
+    message: Message,
+    services: Services,
+    stage: CardStage,
+    *,
+    title: str,
+    page: int = 0,
+) -> None:
+    priority_order = {Priority.CRITICAL.value: 0, Priority.MEDIUM.value: 1, Priority.LOW.value: 2}
+    async with services.sessions() as session:
+        cards = list(
+            await session.scalars(
+                select(Card).where(
+                    Card.effective_stage == stage.value,
+                    Card.archived_at.is_(None),
+                )
+            )
+        )
+        cards.sort(key=lambda c: (not c.hard_time, priority_order[c.priority], c.created_at))
+        page_size = 5
+        max_page = max(0, (len(cards) - 1) // page_size)
+        page = min(max(page, 0), max_page)
+        visible = cards[page * page_size : (page + 1) * page_size]
+        rows: list[list[InlineKeyboardButton]] = []
+        for card in visible:
+            label = f"{'⏱ ' if card.hard_time else ''}{card.title} · {card.effort_points or '—'} EP"
+            rows.append(
+                [
+                    await token_button(
+                        session, services.owner_id, label[:60], "card_view", {"id": card.id}
+                    )
+                ]
+            )
+        paging: list[InlineKeyboardButton] = []
+        if page > 0:
+            paging.append(
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "◀ Previous",
+                    "dashboard_page",
+                    {"stage": stage.value, "title": title, "page": page - 1},
+                )
+            )
+        if page < max_page:
+            paging.append(
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "Next ▶",
+                    "dashboard_page",
+                    {"stage": stage.value, "title": title, "page": page + 1},
+                )
+            )
+        if paging:
+            rows.append(paging)
+        rows.append([InlineKeyboardButton(text="↩️ Menu", callback_data="nav:home")])
+        await session.commit()
+    text = f"<b>{html.escape(title)}</b> · page {page + 1}/{max_page + 1}\n"
+    text += "\n".join(f"• {html.escape(card.title)}" for card in visible) or "Nothing here yet."
+    await send_registered(
+        message,
+        services,
+        text,
+        kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(inline_keyboard=rows),
+    )
+
+
+async def draft_review_markup(
+    session: AsyncSession, services: Services, draft: CardDraft
+) -> InlineKeyboardMarkup:
+    fields = [
+        ("🧩 Kind", "draft_choose_kind", {"id": draft.id}),
+        ("✏️ Title", "draft_edit_text", {"id": draft.id, "field": "title"}),
+        ("🗂 Board", "draft_choose_board", {"id": draft.id}),
+        ("🌳 Parent", "draft_choose_parent", {"id": draft.id}),
+        ("📍 Stage", "draft_choose_stage", {"id": draft.id}),
+        ("📝 Note", "draft_edit_text", {"id": draft.id, "field": "note"}),
+        ("⚠️ Priority", "draft_choose_priority", {"id": draft.id}),
+        ("⏱ Hard Time", "draft_toggle", {"id": draft.id, "field": "hard_time"}),
+        ("🔢 Effort", "draft_choose_effort", {"id": draft.id}),
+        ("🔁 Repeat", "draft_toggle", {"id": draft.id, "field": "repeatable"}),
+        ("🏷 Categories", "draft_choose_categories", {"id": draft.id}),
+        ("⚡ Energy", "draft_choose_energy", {"id": draft.id}),
+        ("💎 Values", "draft_choose_values", {"id": draft.id}),
+        ("🚧 Blockers", "draft_choose_blockers", {"id": draft.id}),
+    ]
+    buttons = [await token_button(session, services.owner_id, *item) for item in fields]
+    rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
+    bundle_drafts = list(
+        await session.scalars(
+            select(CardDraft)
+            .where(
+                CardDraft.bundle_id == draft.bundle_id,
+                CardDraft.status != DraftStatus.DISCARDED.value,
+            )
+            .order_by(CardDraft.created_at, CardDraft.id)
+        )
+    )
+    if len(bundle_drafts) == 1 and not draft.validation_errors:
+        rows.append(
+            [
+                await token_button(
+                    session, services.owner_id, "✅ Create", "draft_commit", {"id": draft.id}
+                )
+            ]
+        )
+    elif len(bundle_drafts) > 1:
+        position = next(i for i, item in enumerate(bundle_drafts) if item.id == draft.id)
+        navigation: list[InlineKeyboardButton] = []
+        if position:
+            navigation.append(
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "◀ Previous",
+                    "draft_view",
+                    {"id": bundle_drafts[position - 1].id},
+                )
+            )
+        if position + 1 < len(bundle_drafts):
+            navigation.append(
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "Next ▶",
+                    "draft_view",
+                    {"id": bundle_drafts[position + 1].id},
+                )
+            )
+        if navigation:
+            rows.append(navigation)
+        if not draft.validation_errors and draft.reviewed_at is None:
+            rows.append(
+                [
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        "✓ Mark reviewed",
+                        "draft_mark_reviewed",
+                        {"id": draft.id},
+                    )
+                ]
+            )
+        if all(item.reviewed_at is not None for item in bundle_drafts):
+            rows.append(
+                [
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        f"✅ Create all {len(bundle_drafts)}",
+                        "bundle_commit",
+                        {"id": draft.bundle_id},
+                    )
+                ]
+            )
+    rows.append(
+        [
+            await token_button(
+                session, services.owner_id, "🗑 Discard", "draft_discard", {"id": draft.id}
+            )
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def render_draft(message: Message, services: Services, draft_id: str) -> None:
+    async with services.sessions() as session:
+        draft = await session.get(CardDraft, draft_id)
+        if draft is None:
+            await send_registered(
+                message, services, "Draft no longer exists.", kind=MessageKind.ERROR
+            )
+            return
+        await DraftService(session).validate(draft)
+        board = await session.get(Board, draft.board_id) if draft.board_id else None
+        parent = await session.get(Card, draft.parent_id) if draft.parent_id else None
+        # Draft tag rows are read with explicit imports to keep committed and draft data isolated.
+        from .models import DraftCategory, DraftDependency, DraftEnergyType, DraftValue
+
+        categories = list(
+            await session.scalars(
+                select(DraftCategory.category).where(DraftCategory.draft_id == draft.id)
+            )
+        )
+        energies = list(
+            await session.scalars(
+                select(DraftEnergyType.energy_type).where(DraftEnergyType.draft_id == draft.id)
+            )
+        )
+        value_ids = list(
+            await session.scalars(
+                select(DraftValue.value_id).where(DraftValue.draft_id == draft.id)
+            )
+        )
+        values = (
+            list(await session.scalars(select(Value).where(Value.id.in_(value_ids))))
+            if value_ids
+            else []
+        )
+        blocker_ids = list(
+            await session.scalars(
+                select(DraftDependency.blocker_card_id).where(DraftDependency.draft_id == draft.id)
+            )
+        )
+        blockers = (
+            list(await session.scalars(select(Card).where(Card.id.in_(blocker_ids))))
+            if blocker_ids
+            else []
+        )
+        markup = await draft_review_markup(session, services, draft)
+        await session.commit()
+        errors = "\n".join(f"⚠️ {html.escape(error)}" for error in draft.validation_errors)
+        text = (
+            "<b>Review card draft</b>\n"
+            f"Kind: {draft.kind.title()}\n"
+            f"Title: <b>{html.escape(draft.title or '—')}</b>\n"
+            f"Board: {html.escape(board.name if board else 'Unresolved')}\n"
+            f"Parent: {html.escape(parent.title if parent else ('Root' if draft.root_confirmed else 'Unresolved'))}\n"
+            f"Stage: {draft.stage.title()}\n"
+            f"Note: {html.escape(draft.note or '—')}\n"
+            f"Priority: {draft.priority.title()} · Hard Time: {'Yes' if draft.hard_time else 'No'}\n"
+            f"Effort: {draft.effort_points or 'Unresolved'}\n"
+            f"Repeatable: {'Yes' if draft.repeatable else 'No'}\n"
+            f"Categories: {', '.join(categories) or '—'}\n"
+            f"Energy: {', '.join(energies) or '—'}\n"
+            f"Values: {', '.join(value.name for value in values) or '—'}\n"
+            f"Blockers: {', '.join(card.title for card in blockers) or '—'}"
+        )
+        if errors:
+            text += "\n\n" + errors
+    await send_registered(
+        message,
+        services,
+        text,
+        kind=MessageKind.DRAFT_REVIEW,
+        markup=markup,
+        related_id=draft_id,
+    )
+
+
+async def start_manual_draft(message: Message, services: Services) -> None:
+    async with services.sessions() as session:
+        inbox = await session.scalar(select(Board).where(Board.name == "Inbox"))
+        if inbox is None:
+            raise DomainError("Inbox Board is missing")
+        bundle = await DraftService(session).create_bundle(
+            "manual",
+            [
+                {
+                    "kind": CardKind.ACTION.value,
+                    "title": "",
+                    "board_id": inbox.id,
+                    "expected_board_version": inbox.version,
+                    "root_confirmed": True,
+                    "stage": CardStage.BACKLOG.value,
+                }
+            ],
+        )
+        draft_id = bundle.active_draft_id
+        await session.commit()
+    if draft_id:
+        await render_draft(message, services, draft_id)
+
+
+@router.message(Command("start"))
+async def command_start(message: Message, services: Services) -> None:
+    await send_registered(
+        message,
+        services,
+        "<b>Safwa</b>\nYour personal agile advisor. Choose a dashboard or just write to me.",
+        kind=MessageKind.DASHBOARD,
+        markup=menu_markup(),
+    )
+
+
+@router.message(Command("today"))
+async def command_today(message: Message, services: Services) -> None:
+    await render_dashboard(message, services, CardStage.TODAY, title="Today")
+
+
+@router.message(Command("backlog"))
+async def command_backlog(message: Message, services: Services) -> None:
+    await render_dashboard(message, services, CardStage.BACKLOG, title="Backlog")
+
+
+@router.message(Command("sprint"))
+async def command_sprint(message: Message, services: Services) -> None:
+    async with services.sessions() as session:
+        workspace = await session.get(Workspace, 1)
+        if workspace and workspace.active_sprint_id:
+            sprint = await session.get(Sprint, workspace.active_sprint_id)
+            metrics = await sprint_metrics(session, workspace.active_sprint_id)
+            start = await token_button(
+                session, services.owner_id, "⏹ Finish early", "sprint_finish"
+            )
+            text = (
+                f"<b>Sprint {sprint.number}</b> · {sprint.planned_start_date}–{sprint.planned_end_date}\n"
+                f"Committed {metrics['committed']} · Added {metrics['added']} · "
+                f"Done {metrics['completed']} · Cancelled {metrics['cancelled']}"
+            )
+        else:
+            selected_effort = (
+                await session.scalar(
+                    select(func.coalesce(func.sum(Card.effort_points), 0)).where(
+                        Card.kind == CardKind.ACTION.value,
+                        Card.archived_at.is_(None),
+                        Card.effective_stage.in_(
+                            [
+                                CardStage.SPRINT.value,
+                                CardStage.TODAY.value,
+                            ]
+                        ),
+                    )
+                )
+                or 0
+            )
+            profile = await session.get(UserProfile, 1)
+            start = await token_button(
+                session, services.owner_id, "▶️ Start 14-day Sprint", "sprint_start"
+            )
+            warning = ""
+            if profile.capacity_effort_points and selected_effort > profile.capacity_effort_points:
+                warning = f"\n⚠️ Above configured capacity ({profile.capacity_effort_points} EP)."
+            text = (
+                "<b>Planning</b>\nCards in Sprint and Today are preselected for the next Sprint."
+                f"\nSelected effort: {selected_effort} EP{warning}"
+            )
+        await session.commit()
+    await send_registered(
+        message,
+        services,
+        text,
+        kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [start],
+                [InlineKeyboardButton(text="↩️ Menu", callback_data="nav:home")],
+            ]
+        ),
+    )
+
+
+@router.message(Command("add"))
+async def command_add(message: Message, services: Services) -> None:
+    await start_manual_draft(message, services)
+
+
+@router.message(Command("drafts"))
+async def command_drafts(message: Message, services: Services) -> None:
+    async with services.sessions() as session:
+        drafts = list(
+            await session.scalars(
+                select(CardDraft)
+                .where(
+                    CardDraft.status.in_(
+                        [
+                            DraftStatus.EDITING.value,
+                            DraftStatus.READY.value,
+                            DraftStatus.REVIEWED.value,
+                        ]
+                    )
+                )
+                .order_by(CardDraft.updated_at.desc())
+            )
+        )
+        rows = [
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    draft.title or "Untitled",
+                    "draft_view",
+                    {"id": draft.id},
+                )
+            ]
+            for draft in drafts[:20]
+        ]
+        await session.commit()
+    await send_registered(
+        message,
+        services,
+        f"<b>Drafts</b> · {len(drafts)} pending",
+        kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(
+            inline_keyboard=rows
+            or [[InlineKeyboardButton(text="↩️ Menu", callback_data="nav:home")]]
+        ),
+    )
+
+
+@router.message(Command("values"))
+async def command_values(message: Message, services: Services) -> None:
+    async with services.sessions() as session:
+        values = list(
+            await session.scalars(
+                select(Value).where(Value.archived_at.is_(None)).order_by(Value.name)
+            )
+        )
+        rows = [
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    f"{'✅' if value.active else '○'} {value.name}",
+                    "value_toggle",
+                    {"id": value.id},
+                )
+            ]
+            for value in values
+        ]
+        await session.commit()
+    await send_registered(
+        message,
+        services,
+        "<b>Values in focus</b>\nActive Values are injected into the advisor context.",
+        kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(
+            inline_keyboard=rows
+            or [[InlineKeyboardButton(text="↩️ Menu", callback_data="nav:home")]]
+        ),
+    )
+
+
+@router.message(Command("newvalue"))
+async def command_new_value(message: Message, services: Services) -> None:
+    name = (message.text or "").partition(" ")[2].strip()
+    if not name:
+        await send_registered(
+            message, services, "Usage: /newvalue Value name", kind=MessageKind.ERROR
+        )
+        return
+    async with services.sessions() as session:
+        session.add(Value(name=name))
+        workspace = await session.get(Workspace, 1)
+        workspace.revision += 1
+        await session.commit()
+    await command_values(message, services)
+
+
+@router.message(Command("newboard"))
+async def command_new_board(message: Message, services: Services) -> None:
+    name = (message.text or "").partition(" ")[2].strip()
+    if not name:
+        await send_registered(
+            message, services, "Usage: /newboard Board name", kind=MessageKind.ERROR
+        )
+        return
+    async with services.sessions() as session:
+        session.add(Board(name=name))
+        workspace = await session.get(Workspace, 1)
+        workspace.revision += 1
+        await session.commit()
+    await send_registered(
+        message, services, f"Created Board <b>{html.escape(name)}</b>.", kind=MessageKind.RECEIPT
+    )
+
+
+@router.message(Command("memory"))
+async def command_memory(message: Message, services: Services) -> None:
+    snapshot = await services.memory.sync()
+    if not snapshot.valid:
+        text = "<b>memory.md needs attention</b>\n" + html.escape(snapshot.error or "Invalid file")
+    else:
+        text = f"<b>Persistent memory</b> · {snapshot.estimated_tokens}/4000 tokens\n" + (
+            "\n".join(f"{i}. {html.escape(fact)}" for i, fact in enumerate(snapshot.facts, 1))
+            or "Empty"
+        )
+    await send_registered(message, services, text, kind=MessageKind.DASHBOARD)
+
+
+@router.message(Command("remember"))
+async def command_remember(message: Message, services: Services) -> None:
+    fact = (message.text or "").partition(" ")[2].strip()
+    if not fact:
+        await send_registered(
+            message, services, "Usage: /remember one durable fact", kind=MessageKind.ERROR
+        )
+        return
+    await services.memory.append_manual(fact)
+    await send_registered(message, services, "Remembered in memory.md.", kind=MessageKind.RECEIPT)
+
+
+@router.message(Command("forget"))
+async def command_forget(message: Message, services: Services) -> None:
+    raw = (message.text or "").partition(" ")[2].strip()
+    try:
+        line = int(raw)
+        await services.memory.forget_line(line)
+    except (ValueError, MemoryFileError) as error:
+        await send_registered(message, services, html.escape(str(error)), kind=MessageKind.ERROR)
+        return
+    await send_registered(
+        message, services, "Forgotten and memory.md updated.", kind=MessageKind.RECEIPT
+    )
+
+
+@router.message(Command("retro"))
+async def command_retro(message: Message, services: Services) -> None:
+    async with services.sessions() as session:
+        sprint = await session.scalar(
+            select(Sprint).where(Sprint.status == "finished").order_by(Sprint.number.desc())
+        )
+        if sprint is None:
+            await send_registered(
+                message, services, "No finished Sprint yet.", kind=MessageKind.DASHBOARD
+            )
+            return
+        data = await retrospective_data(session, sprint.id)
+    png = render_retrospective_png(data)
+    sent = await message.answer_photo(
+        BufferedInputFile(png, filename=f"sprint-{sprint.number}-retro.png"),
+        caption=f"Sprint {sprint.number} retrospective\n"
+        + "\n".join(retrospective_recommendations(data)),
+    )
+    async with services.sessions() as session:
+        await register_message(
+            session, sent.chat.id, sent.message_id, "out", MessageKind.RETROSPECTIVE_PNG, sprint.id
+        )
+        await session.commit()
+
+
+async def render_feedback(message: Message, services: Services) -> None:
+    async with services.sessions() as session:
+        pending = list(
+            await session.scalars(
+                select(FeedbackQueue)
+                .where(FeedbackQueue.answered_at.is_(None))
+                .order_by(FeedbackQueue.created_at)
+            )
+        )
+        if not pending:
+            await send_registered(
+                message, services, "No completion feedback pending.", kind=MessageKind.DASHBOARD
+            )
+            return
+        item = pending[0]
+        card = await session.get(Card, item.card_id)
+        yes = await token_button(
+            session, services.owner_id, "Yes 🙂", "feedback", {"id": item.id, "liked": True}
+        )
+        no = await token_button(
+            session, services.owner_id, "No 🙁", "feedback", {"id": item.id, "liked": False}
+        )
+        await session.commit()
+    await send_registered(
+        message,
+        services,
+        f"<b>Feedback 1/{len(pending)}</b>\nDid you like doing <b>{html.escape(card.title)}</b>?",
+        kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(inline_keyboard=[[yes, no]]),
+        related_id=card.id,
+    )
+
+
+@router.message(Command("feedback"))
+async def command_feedback(message: Message, services: Services) -> None:
+    await render_feedback(message, services)
+
+
+@router.message(Command("settings"))
+async def command_settings(message: Message, services: Services) -> None:
+    async with services.sessions() as session:
+        profile = await session.get(UserProfile, 1)
+    await send_registered(
+        message,
+        services,
+        "<b>Settings</b>\n"
+        f"About me: {html.escape(profile.about_me or '—')}\n"
+        f"Advisor instructions: {html.escape(profile.advisor_instructions or '—')}\n"
+        f"Wake/bed: {profile.wake_time or '—'} / {profile.bed_time or '—'}\n"
+        f"Quiet hours: {profile.quiet_start or '—'}–{profile.quiet_end or '—'}\n"
+        f"Sprint capacity: {profile.capacity_effort_points or '—'} EP\n"
+        "Edit with /setabout, /setadvisor, /setwake, /setbed, /setquiet, or /setcapacity.",
+        kind=MessageKind.DASHBOARD,
+    )
+
+
+@router.message(Command("setabout"))
+async def command_setabout(message: Message, services: Services) -> None:
+    value = (message.text or "").partition(" ")[2].strip()
+    async with services.sessions() as session:
+        profile = await session.get(UserProfile, 1)
+        profile.about_me = value
+        await session.commit()
+    await send_registered(message, services, "About Me updated.", kind=MessageKind.RECEIPT)
+
+
+@router.message(Command("setadvisor"))
+async def command_setadvisor(message: Message, services: Services) -> None:
+    value = (message.text or "").partition(" ")[2].strip()
+    async with services.sessions() as session:
+        profile = await session.get(UserProfile, 1)
+        profile.advisor_instructions = value
+        await session.commit()
+    await send_registered(
+        message, services, "Advisor Instructions updated.", kind=MessageKind.RECEIPT
+    )
+
+
+async def update_profile_field(
+    message: Message, services: Services, field: str, value: Any
+) -> None:
+    async with services.sessions() as session:
+        profile = await session.get(UserProfile, 1)
+        setattr(profile, field, value)
+        await session.commit()
+    await send_registered(message, services, "Settings updated.", kind=MessageKind.RECEIPT)
+
+
+@router.message(Command("setwake"))
+async def command_setwake(message: Message, services: Services) -> None:
+    value = datetime.strptime((message.text or "").partition(" ")[2].strip(), "%H:%M").time()
+    await update_profile_field(message, services, "wake_time", value)
+
+
+@router.message(Command("setbed"))
+async def command_setbed(message: Message, services: Services) -> None:
+    value = datetime.strptime((message.text or "").partition(" ")[2].strip(), "%H:%M").time()
+    await update_profile_field(message, services, "bed_time", value)
+
+
+@router.message(Command("setquiet"))
+async def command_setquiet(message: Message, services: Services) -> None:
+    raw = (message.text or "").partition(" ")[2].strip()
+    start, end = [datetime.strptime(item.strip(), "%H:%M").time() for item in raw.split("-", 1)]
+    async with services.sessions() as session:
+        profile = await session.get(UserProfile, 1)
+        profile.quiet_start = start
+        profile.quiet_end = end
+        await session.commit()
+    await send_registered(message, services, "Quiet hours updated.", kind=MessageKind.RECEIPT)
+
+
+@router.message(Command("setcapacity"))
+async def command_setcapacity(message: Message, services: Services) -> None:
+    raw = (message.text or "").partition(" ")[2].strip()
+    value = int(raw) if raw else None
+    if value is not None and value <= 0:
+        raise DomainError("Capacity must be positive or omitted")
+    await update_profile_field(message, services, "capacity_effort_points", value)
+
+
+@router.message(Command("status"))
+async def command_status(message: Message, services: Services) -> None:
+    memory = await services.memory.sync()
+    async with services.sessions() as session:
+        workspace = await session.get(Workspace, 1)
+        drafts = (
+            await session.scalar(
+                select(func.count(CardDraft.id)).where(
+                    CardDraft.status.in_(["editing", "ready", "reviewed"])
+                )
+            )
+            or 0
+        )
+        feedback = (
+            await session.scalar(
+                select(func.count(FeedbackQueue.id)).where(FeedbackQueue.answered_at.is_(None))
+            )
+            or 0
+        )
+    await send_registered(
+        message,
+        services,
+        f"<b>Status</b>\nMode: {workspace.mode}\nRevision: {workspace.revision}\n"
+        f"Drafts: {drafts}\nFeedback: {feedback}\nMemory: {'OK' if memory.valid else 'ERROR'}",
+        kind=MessageKind.DASHBOARD,
+    )
+
+
+@router.message(Command("cancel"))
+async def command_cancel(message: Message, services: Services) -> None:
+    services.guard.cancel()
+    await send_registered(
+        message, services, "Current generation cancelled.", kind=MessageKind.RECEIPT
+    )
+
+
+@router.callback_query(F.data.startswith("nav:"))
+async def navigation(callback: CallbackQuery, services: Services) -> None:
+    await callback.answer()
+    if not callback.message:
+        return
+    action = callback.data.split(":", 1)[1]
+    handlers = {
+        "home": command_start,
+        "today": command_today,
+        "sprint": command_sprint,
+        "backlog": command_backlog,
+        "add": command_add,
+        "drafts": command_drafts,
+        "values": command_values,
+        "retro": command_retro,
+        "settings": command_settings,
+    }
+    await handlers[action](callback.message, services)
+
+
+async def choice_screen(
+    message: Message,
+    services: Services,
+    title: str,
+    choices: list[tuple[str, str, dict[str, Any]]],
+) -> None:
+    async with services.sessions() as session:
+        rows = [
+            [await token_button(session, services.owner_id, text, action, payload)]
+            for text, action, payload in choices
+        ]
+        await session.commit()
+    await send_registered(
+        message,
+        services,
+        f"<b>{html.escape(title)}</b>",
+        kind=MessageKind.DRAFT_REVIEW,
+        markup=InlineKeyboardMarkup(inline_keyboard=rows),
+    )
+
+
+@router.callback_query(F.data.startswith("cb:"))
+async def callback_token_handler(callback: CallbackQuery, services: Services) -> None:
+    if not callback.message:
+        return
+    token_value = callback.data.split(":", 1)[1]
+    async with services.sessions() as session:
+        now = datetime.now(UTC)
+        claimed = (
+            await session.execute(
+                update(CallbackToken)
+                .where(
+                    CallbackToken.token == token_value,
+                    CallbackToken.owner_id == services.owner_id,
+                    CallbackToken.expires_at >= now,
+                    CallbackToken.consumed_at.is_(None),
+                )
+                .values(consumed_at=now)
+                .returning(CallbackToken.action, CallbackToken.payload)
+            )
+        ).one_or_none()
+        if claimed is None:
+            await callback.answer("This action expired. Reopen the screen.", show_alert=True)
+            return
+        action, payload = claimed
+        await session.commit()
+    await callback.answer()
+
+    try:
+        if action == "draft_view":
+            await render_draft(callback.message, services, payload["id"])
+        elif action == "dashboard_page":
+            await render_dashboard(
+                callback.message,
+                services,
+                CardStage(payload["stage"]),
+                title=payload["title"],
+                page=int(payload["page"]),
+            )
+        elif action == "draft_edit_text":
+            async with services.sessions() as session:
+                await session.execute(
+                    delete(UiSession).where(UiSession.owner_id == services.owner_id)
+                )
+                session.add(
+                    UiSession(
+                        owner_id=services.owner_id,
+                        kind="draft_text",
+                        state={"draft_id": payload["id"], "field": payload["field"]},
+                        expires_at=datetime.now(UTC) + timedelta(minutes=30),
+                    )
+                )
+                await session.commit()
+            await send_registered(
+                callback.message,
+                services,
+                f"Send the new {payload['field']}.",
+                kind=MessageKind.DRAFT_REVIEW,
+            )
+        elif action == "draft_toggle":
+            async with services.sessions() as session:
+                draft = await session.get(CardDraft, payload["id"])
+                await DraftService(session).update(
+                    draft.id, **{payload["field"]: not getattr(draft, payload["field"])}
+                )
+                await session.commit()
+            await render_draft(callback.message, services, payload["id"])
+        elif action.startswith("draft_choose_"):
+            await handle_draft_chooser(callback.message, services, action, payload["id"])
+        elif action == "draft_set":
+            async with services.sessions() as session:
+                await DraftService(session).update(
+                    payload["id"], **{payload["field"]: payload["value"]}
+                )
+                await session.commit()
+            await render_draft(callback.message, services, payload["id"])
+        elif action == "draft_toggle_category":
+            async with services.sessions() as session:
+                from .models import DraftCategory
+
+                current = set(
+                    await session.scalars(
+                        select(DraftCategory.category).where(
+                            DraftCategory.draft_id == payload["id"]
+                        )
+                    )
+                )
+                value = Category(payload["value"])
+                current.symmetric_difference_update({value.value})
+                await DraftService(session).set_categories(
+                    payload["id"], {Category(v) for v in current}
+                )
+                await session.commit()
+            await render_draft(callback.message, services, payload["id"])
+        elif action == "draft_toggle_energy":
+            async with services.sessions() as session:
+                from .models import DraftEnergyType
+
+                current = set(
+                    await session.scalars(
+                        select(DraftEnergyType.energy_type).where(
+                            DraftEnergyType.draft_id == payload["id"]
+                        )
+                    )
+                )
+                value = EnergyType(payload["value"])
+                current.symmetric_difference_update({value.value})
+                await DraftService(session).set_energy_types(
+                    payload["id"], {EnergyType(v) for v in current}
+                )
+                await session.commit()
+            await render_draft(callback.message, services, payload["id"])
+        elif action == "draft_toggle_value":
+            async with services.sessions() as session:
+                await DraftService(session).toggle_value(payload["id"], payload["value_id"])
+                await session.commit()
+            await render_draft(callback.message, services, payload["id"])
+        elif action == "draft_toggle_blocker":
+            async with services.sessions() as session:
+                await DraftService(session).toggle_dependency(payload["id"], payload["card_id"])
+                await session.commit()
+            await render_draft(callback.message, services, payload["id"])
+        elif action == "draft_set_parent":
+            async with services.sessions() as session:
+                card = await session.get(Card, payload["parent_id"])
+                await DraftService(session).update(
+                    payload["id"],
+                    parent_id=card.id,
+                    board_id=card.board_id,
+                    root_confirmed=False,
+                )
+                await session.commit()
+            await render_draft(callback.message, services, payload["id"])
+        elif action == "draft_set_root":
+            async with services.sessions() as session:
+                await DraftService(session).update(
+                    payload["id"], parent_id=None, root_confirmed=True
+                )
+                await session.commit()
+            await render_draft(callback.message, services, payload["id"])
+        elif action == "draft_commit":
+            async with services.sessions() as session:
+                draft = await DraftService(session).mark_reviewed(payload["id"])
+                cards = await DraftService(session).commit_bundle(draft.bundle_id)
+                await session.commit()
+            await send_registered(
+                callback.message,
+                services,
+                f"✅ Created <b>{html.escape(cards[0].title)}</b>.",
+                kind=MessageKind.RECEIPT,
+                related_id=cards[0].id,
+            )
+        elif action == "draft_mark_reviewed":
+            async with services.sessions() as session:
+                draft = await DraftService(session).mark_reviewed(payload["id"])
+                await session.commit()
+            await render_draft(callback.message, services, draft.id)
+        elif action == "bundle_commit":
+            async with services.sessions() as session:
+                cards = await DraftService(session).commit_bundle(payload["id"])
+                await session.commit()
+            await send_registered(
+                callback.message,
+                services,
+                f"✅ Created {len(cards)} reviewed cards.",
+                kind=MessageKind.RECEIPT,
+            )
+        elif action == "draft_discard":
+            async with services.sessions() as session:
+                await DraftService(session).discard(payload["id"])
+                await session.commit()
+            await send_registered(
+                callback.message, services, "Draft discarded.", kind=MessageKind.RECEIPT
+            )
+        elif action == "card_view":
+            await render_card(callback.message, services, payload["id"])
+        elif action == "card_move":
+            async with services.sessions() as session:
+                result = await move_card(session, payload["id"], CardStage(payload["stage"]))
+                await session.commit()
+            if result.warnings:
+                await send_registered(
+                    callback.message,
+                    services,
+                    "⚠️ " + html.escape("; ".join(result.warnings)),
+                    kind=MessageKind.ERROR,
+                )
+            await render_card(callback.message, services, payload["id"])
+        elif action == "card_edit_text":
+            async with services.sessions() as session:
+                await session.execute(
+                    delete(UiSession).where(UiSession.owner_id == services.owner_id)
+                )
+                session.add(
+                    UiSession(
+                        owner_id=services.owner_id,
+                        kind="card_text",
+                        state={"card_id": payload["id"], "field": payload["field"]},
+                        expires_at=datetime.now(UTC) + timedelta(minutes=30),
+                    )
+                )
+                await session.commit()
+            await send_registered(
+                callback.message,
+                services,
+                f"Send the new {payload['field']}.",
+                kind=MessageKind.DASHBOARD,
+            )
+        elif action == "card_archive":
+            async with services.sessions() as session:
+                count = len(await archive_subtree(session, payload["id"]))
+                undo = await token_button(
+                    session,
+                    services.owner_id,
+                    "Undo archive",
+                    "card_restore",
+                    {"id": payload["id"]},
+                )
+                await session.commit()
+            await send_registered(
+                callback.message,
+                services,
+                f"Archived {count} card(s).",
+                kind=MessageKind.RECEIPT,
+                markup=InlineKeyboardMarkup(inline_keyboard=[[undo]]),
+            )
+        elif action == "card_restore":
+            async with services.sessions() as session:
+                count = len(await archive_subtree(session, payload["id"], archive=False))
+                await session.commit()
+            await send_registered(
+                callback.message,
+                services,
+                f"Restored {count} card(s).",
+                kind=MessageKind.RECEIPT,
+            )
+        elif action == "card_delete_prompt":
+            async with services.sessions() as session:
+                confirm = await token_button(
+                    session,
+                    services.owner_id,
+                    "Permanently delete tree",
+                    "card_delete_confirm",
+                    {"id": payload["id"]},
+                )
+                await session.commit()
+            await send_registered(
+                callback.message,
+                services,
+                "<b>Final confirmation</b>\nThis removes the tree and its historical contribution.",
+                kind=MessageKind.APPROVAL,
+                markup=InlineKeyboardMarkup(inline_keyboard=[[confirm]]),
+            )
+        elif action == "card_delete_confirm":
+            async with services.sessions() as session:
+                count = await delete_subtree(session, payload["id"])
+                await session.commit()
+            await send_registered(
+                callback.message,
+                services,
+                f"Permanently deleted {count} card(s).",
+                kind=MessageKind.RECEIPT,
+            )
+        elif action == "card_finish":
+            async with services.sessions() as session:
+                result = await finish_action(session, payload["id"], CardStage(payload["stage"]))
+                await session.commit()
+            if result.warnings:
+                await send_registered(
+                    callback.message,
+                    services,
+                    "⚠️ " + html.escape("; ".join(result.warnings)),
+                    kind=MessageKind.ERROR,
+                )
+            if payload["stage"] == CardStage.DONE.value:
+                await render_feedback(callback.message, services)
+            else:
+                await send_registered(
+                    callback.message, services, "Card updated.", kind=MessageKind.RECEIPT
+                )
+        elif action == "feedback":
+            async with services.sessions() as session:
+                card = await set_feedback(session, payload["id"], bool(payload["liked"]))
+                await session.commit()
+            await render_feedback(callback.message, services)
+        elif action == "sprint_start":
+            async with services.sessions() as session:
+                profile = await session.get(UserProfile, 1)
+                sprint = await start_sprint(
+                    session, capacity=profile.capacity_effort_points if profile else None
+                )
+                await session.commit()
+            await send_registered(
+                callback.message,
+                services,
+                f"Sprint {sprint.number} started.",
+                kind=MessageKind.RECEIPT,
+            )
+        elif action == "sprint_finish":
+            async with services.sessions() as session:
+                sprint = await finish_sprint(session, reason="finished_early")
+                await session.commit()
+            await send_registered(
+                callback.message,
+                services,
+                f"Sprint {sprint.number} finished early.",
+                kind=MessageKind.RECEIPT,
+            )
+        elif action == "proposal_approve":
+            async with services.sessions() as session:
+                destructive = await session.scalar(
+                    select(ProposalChange.id).where(
+                        ProposalChange.proposal_id == payload["id"],
+                        ProposalChange.action == "delete",
+                    )
+                )
+                if destructive:
+                    confirm = await token_button(
+                        session,
+                        services.owner_id,
+                        "Permanently delete",
+                        "proposal_delete_confirm",
+                        {"id": payload["id"]},
+                    )
+                    await session.commit()
+                    await send_registered(
+                        callback.message,
+                        services,
+                        "<b>Final destructive confirmation</b>\nThis permanently removes the selected tree and its historical contribution.",
+                        kind=MessageKind.APPROVAL,
+                        markup=InlineKeyboardMarkup(inline_keyboard=[[confirm]]),
+                    )
+                    return
+                affected = await ProposalService(session).apply(payload["id"])
+                await session.commit()
+            await send_registered(
+                callback.message,
+                services,
+                f"Approved. Updated {len(affected)} item(s).",
+                kind=MessageKind.RECEIPT,
+            )
+            await render_feedback(callback.message, services)
+        elif action == "proposal_delete_confirm":
+            async with services.sessions() as session:
+                affected = await ProposalService(session).apply(
+                    payload["id"], allow_destructive=True
+                )
+                await session.commit()
+            await send_registered(
+                callback.message,
+                services,
+                f"Permanently deleted {len(affected)} selected item(s).",
+                kind=MessageKind.RECEIPT,
+            )
+        elif action == "proposal_reject":
+            async with services.sessions() as session:
+                await ProposalService(session).reject(payload["id"])
+                await session.commit()
+            await send_registered(
+                callback.message, services, "Proposal cancelled.", kind=MessageKind.RECEIPT
+            )
+        elif action == "value_toggle":
+            async with services.sessions() as session:
+                value = await session.get(Value, payload["id"])
+                value.active = not value.active
+                value.version += 1
+                workspace = await session.get(Workspace, 1)
+                workspace.revision += 1
+                await session.commit()
+            await command_values(callback.message, services)
+    except StaleStateError as error:
+        if action.startswith("proposal_") and payload.get("id"):
+            async with services.sessions() as session:
+                proposal = await session.get(ChangeProposal, payload["id"])
+                if proposal:
+                    proposal.status = "stale"
+                    await session.commit()
+        await send_registered(
+            callback.message, services, html.escape(str(error)), kind=MessageKind.ERROR
+        )
+    except DomainError as error:
+        await send_registered(
+            callback.message, services, html.escape(str(error)), kind=MessageKind.ERROR
+        )
+
+
+async def handle_draft_chooser(
+    message: Message, services: Services, action: str, draft_id: str
+) -> None:
+    choices: list[tuple[str, str, dict[str, Any]]] = []
+    if action == "draft_choose_kind":
+        choices = [
+            (
+                value.title(),
+                "draft_set",
+                {"id": draft_id, "field": "kind", "value": value.value},
+            )
+            for value in CardKind
+        ]
+    elif action == "draft_choose_stage":
+        choices = [
+            (stage.title(), "draft_set", {"id": draft_id, "field": "stage", "value": stage.value})
+            for stage in [CardStage.BACKLOG, CardStage.SPRINT, CardStage.TODAY]
+        ]
+    elif action == "draft_choose_priority":
+        choices = [
+            (
+                value.title(),
+                "draft_set",
+                {"id": draft_id, "field": "priority", "value": value.value},
+            )
+            for value in Priority
+        ]
+    elif action == "draft_choose_effort":
+        choices = [
+            (str(value), "draft_set", {"id": draft_id, "field": "effort_points", "value": value})
+            for value in [1, 2, 3, 5, 8, 13]
+        ]
+    elif action == "draft_choose_categories":
+        choices = [
+            (value.title(), "draft_toggle_category", {"id": draft_id, "value": value.value})
+            for value in Category
+        ]
+    elif action == "draft_choose_energy":
+        choices = [
+            (value.title(), "draft_toggle_energy", {"id": draft_id, "value": value.value})
+            for value in EnergyType
+        ]
+    elif action == "draft_choose_parent":
+        async with services.sessions() as session:
+            draft = await session.get(CardDraft, draft_id)
+            cards = list(
+                await session.scalars(
+                    select(Card)
+                    .where(
+                        Card.board_id == draft.board_id,
+                        Card.kind != CardKind.ACTION.value,
+                        Card.archived_at.is_(None),
+                    )
+                    .limit(20)
+                )
+            )
+        choices = [("Root", "draft_set_root", {"id": draft_id})] + [
+            (card.title, "draft_set_parent", {"id": draft_id, "parent_id": card.id})
+            for card in cards
+        ]
+    elif action == "draft_choose_board":
+        async with services.sessions() as session:
+            boards = list(
+                await session.scalars(
+                    select(Board).where(Board.archived_at.is_(None)).order_by(Board.name)
+                )
+            )
+        choices = [
+            (board.name, "draft_set", {"id": draft_id, "field": "board_id", "value": board.id})
+            for board in boards
+        ]
+    elif action == "draft_choose_values":
+        async with services.sessions() as session:
+            values = list(
+                await session.scalars(
+                    select(Value).where(Value.archived_at.is_(None)).order_by(Value.name).limit(30)
+                )
+            )
+        choices = [
+            (value.name, "draft_toggle_value", {"id": draft_id, "value_id": value.id})
+            for value in values
+        ]
+    elif action == "draft_choose_blockers":
+        async with services.sessions() as session:
+            cards = list(
+                await session.scalars(
+                    select(Card)
+                    .where(
+                        Card.archived_at.is_(None),
+                        Card.effective_stage.notin_(
+                            [CardStage.DONE.value, CardStage.CANCELLED.value]
+                        ),
+                    )
+                    .order_by(Card.title)
+                    .limit(30)
+                )
+            )
+        choices = [
+            (card.title, "draft_toggle_blocker", {"id": draft_id, "card_id": card.id})
+            for card in cards
+        ]
+    if not choices:
+        await send_registered(
+            message, services, "No available choices.", kind=MessageKind.DRAFT_REVIEW
+        )
+        return
+    await choice_screen(message, services, "Choose", choices)
+
+
+async def render_card(message: Message, services: Services, card_id: str) -> None:
+    async with services.sessions() as session:
+        card = await session.get(Card, card_id)
+        if card is None:
+            return
+        rows = [
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "Backlog",
+                    "card_move",
+                    {"id": card.id, "stage": "backlog"},
+                ),
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "Sprint",
+                    "card_move",
+                    {"id": card.id, "stage": "sprint"},
+                ),
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "Today",
+                    "card_move",
+                    {"id": card.id, "stage": "today"},
+                ),
+            ]
+        ]
+        rows.append(
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "✏️ Title",
+                    "card_edit_text",
+                    {"id": card.id, "field": "title"},
+                ),
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "📝 Note",
+                    "card_edit_text",
+                    {"id": card.id, "field": "note"},
+                ),
+            ]
+        )
+        if card.kind == CardKind.ACTION.value and card.effective_stage not in {"done", "cancelled"}:
+            rows.append(
+                [
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        "✅ Done",
+                        "card_finish",
+                        {"id": card.id, "stage": "done"},
+                    ),
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        "✖ Cancel",
+                        "card_finish",
+                        {"id": card.id, "stage": "cancelled"},
+                    ),
+                ]
+            )
+        rows.append(
+            [
+                await token_button(
+                    session, services.owner_id, "Archive", "card_archive", {"id": card.id}
+                ),
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "Delete",
+                    "card_delete_prompt",
+                    {"id": card.id},
+                ),
+            ]
+        )
+        await session.commit()
+    await send_registered(
+        message,
+        services,
+        f"<b>{html.escape(card.title)}</b>\n{card.kind.title()} · {card.effective_stage.title()} · {card.effort_points or '—'} EP\n{html.escape(card.note or '')}",
+        kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(inline_keyboard=rows),
+    )
+
+
+async def render_proposal(message: Message, services: Services, proposal_id: str) -> None:
+    async with services.sessions() as session:
+        proposal = await session.get(ChangeProposal, proposal_id)
+        changes = list(
+            await session.scalars(
+                select(ProposalChange)
+                .where(ProposalChange.proposal_id == proposal.id)
+                .order_by(ProposalChange.position)
+            )
+        )
+        approve = await token_button(
+            session, services.owner_id, "✅ Approve", "proposal_approve", {"id": proposal.id}
+        )
+        reject = await token_button(
+            session, services.owner_id, "✖ Cancel", "proposal_reject", {"id": proposal.id}
+        )
+        await session.commit()
+    await send_registered(
+        message,
+        services,
+        "<b>Review proposed changes</b>\n"
+        + html.escape(proposal.message)
+        + "\n\n"
+        + "\n".join(
+            f"• {html.escape(change.action)} {html.escape(change.entity)} "
+            f"{html.escape(change.entity_id or '')} {html.escape(str(change.values))}"
+            for change in changes
+        ),
+        kind=MessageKind.APPROVAL,
+        markup=InlineKeyboardMarkup(inline_keyboard=[[approve, reject]]),
+        related_id=proposal_id,
+    )
+
+
+@router.message(F.text)
+async def ordinary_text(message: Message, services: Services) -> None:
+    if not message.text or message.text.startswith("/"):
+        return
+    async with services.sessions() as session:
+        ui = await session.scalar(
+            select(UiSession)
+            .where(
+                UiSession.owner_id == services.owner_id, UiSession.expires_at > datetime.now(UTC)
+            )
+            .order_by(UiSession.created_at.desc())
+        )
+        if ui and ui.kind == "draft_text":
+            await DraftService(session).update(
+                ui.state["draft_id"], **{ui.state["field"]: message.text.strip()}
+            )
+            await register_message(
+                session, message.chat.id, message.message_id, "in", MessageKind.UI_INPUT
+            )
+            await session.delete(ui)
+            await session.commit()
+            await render_draft(message, services, ui.state["draft_id"])
+            return
+        if ui and ui.kind == "card_text":
+            card = await session.get(Card, ui.state["card_id"])
+            if card is None:
+                await session.delete(ui)
+                await session.commit()
+                return
+            value = message.text.strip()
+            if ui.state["field"] == "title" and not value:
+                raise DomainError("Card title cannot be empty")
+            setattr(card, ui.state["field"], value)
+            card.version += 1
+            workspace = await session.get(Workspace, 1)
+            workspace.revision += 1
+            await register_message(
+                session, message.chat.id, message.message_id, "in", MessageKind.UI_INPUT
+            )
+            await session.delete(ui)
+            await session.commit()
+            await render_card(message, services, card.id)
+            return
+        await register_message(
+            session, message.chat.id, message.message_id, "in", MessageKind.DIALOGUE_USER
+        )
+        await session.execute(
+            update(ChangeProposal).where(ChangeProposal.status == "pending").values(status="stale")
+        )
+        workspace = await session.get(Workspace, 1)
+        starting_workspace_revision = workspace.revision
+        await session.commit()
+    source = HistoryEntry(
+        message_id=message.message_id,
+        sender_id=message.from_user.id if message.from_user else None,
+        role="user",
+        text=message.text,
+        created_at=message.date.astimezone(UTC),
+        kind=MessageKind.DIALOGUE_USER.value,
+    )
+    dialogue_revision = services.guard.dialogue_revision
+    await services.guard.acquire(message.message_id)
+    try:
+        await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+        dialogue = await services.history.dialogue(message.chat.id, source_message=source)
+        outcome = await services.advisor.handle(
+            message.text,
+            source_message_id=message.message_id,
+            dialogue=dialogue[:-1],
+        )
+        async with services.sessions() as session:
+            workspace = await session.get(Workspace, 1)
+            if (
+                services.guard.dialogue_revision != dialogue_revision
+                or workspace.revision != starting_workspace_revision
+            ):
+                return
+        if outcome.kind in {"answer", "clarification"}:
+            await send_registered(
+                message, services, html.escape(outcome.message), kind=MessageKind.DIALOGUE_ASSISTANT
+            )
+        else:
+            for bundle_id in outcome.draft_bundle_ids:
+                async with services.sessions() as session:
+                    bundle = await session.get(CardDraftBundle, bundle_id)
+                    draft_id = bundle.active_draft_id
+                if draft_id:
+                    await render_draft(message, services, draft_id)
+            if outcome.proposal_id:
+                await render_proposal(message, services, outcome.proposal_id)
+            if not outcome.draft_bundle_ids and not outcome.proposal_id:
+                await send_registered(
+                    message,
+                    services,
+                    html.escape(outcome.message),
+                    kind=MessageKind.DIALOGUE_ASSISTANT,
+                )
+
+        async def send_summary(text: str, covered_id: int) -> None:
+            sent = await message.answer(html.escape(text))
+            async with services.sessions() as session:
+                await register_message(
+                    session,
+                    sent.chat.id,
+                    sent.message_id,
+                    "out",
+                    MessageKind.SUMMARY,
+                )
+                state = await session.get(SummaryState, 1)
+                if state is None:
+                    state = SummaryState(id=1)
+                    session.add(state)
+                state.summary_message_id = sent.message_id
+                state.covered_message_id = covered_id
+                state.estimated_tokens = estimate_tokens(text)
+                await session.commit()
+
+        await services.continuity.maybe_summarize(message.chat.id, send_summary)
+    except Exception as error:
+        logger.exception("Could not handle ordinary text")
+        await send_registered(
+            message,
+            services,
+            "Safwa could not complete that request. Your planning data was not changed.\n"
+            + html.escape(str(error)),
+            kind=MessageKind.ERROR,
+        )
+    finally:
+        services.guard.release(message.message_id)

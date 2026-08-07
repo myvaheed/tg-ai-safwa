@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..enums import CardStage
+from ..models import Card, UserProfile, Value, Workspace
+
+
+@dataclass(frozen=True)
+class DialogueMessage:
+    role: str
+    content: str
+
+
+SYSTEM_PROMPT = """You are Safwa, a thoughtful personal agile advisor in a private Telegram chat.
+Be concise, warm, practical, and faithful to the user's profile, active Values, and actual planning state.
+The database is the source of truth for cards and Sprints. Never claim a write happened before approval.
+Card creation is special: propose a card create change so the application can open mandatory draft review.
+Never provide or request write SQL. You may request one safe read-only SELECT over the documented ai_* views.
+Return exactly one JSON object matching the response contract. Do not wrap it in Markdown.
+
+For card creation include kind, title, note, stage, priority, hard_time, effort_points, repeatable,
+categories, energy_types, value_ids or value_query, board_id or board_query, and parent_id or parent_query
+when known. For a new parent and child in the same response, assign each create a draft_ref and set the
+child's parent_draft_ref to the parent's draft_ref. Leave uncertain effort null. If a requested parent cannot be uniquely identified, preserve
+parent_query so the review UI requires a choice.
+"""
+
+
+async def planning_context(session: AsyncSession) -> str:
+    workspace = await session.get(Workspace, 1)
+    profile = await session.get(UserProfile, 1)
+    active_values = list(
+        await session.scalars(
+            select(Value)
+            .where(Value.active.is_(True), Value.archived_at.is_(None))
+            .order_by(Value.name)
+        )
+    )
+    today = list(
+        await session.scalars(
+            select(Card)
+            .where(Card.effective_stage == CardStage.TODAY.value, Card.archived_at.is_(None))
+            .order_by(Card.hard_time.desc(), Card.priority, Card.created_at)
+        )
+    )
+    sprint = list(
+        await session.scalars(
+            select(Card)
+            .where(Card.effective_stage == CardStage.SPRINT.value, Card.archived_at.is_(None))
+            .order_by(Card.hard_time.desc(), Card.priority, Card.created_at)
+            .limit(40)
+        )
+    )
+    lines = [
+        f"Current local time: {datetime.now(ZoneInfo(workspace.timezone if workspace else 'Europe/Istanbul')).isoformat()}",
+        f"Workspace mode: {workspace.mode if workspace else 'planning'}",
+        f"Workspace revision: {workspace.revision if workspace else 0}",
+        f"About me: {(profile.about_me if profile else '').strip()}",
+        f"Advisor instructions: {(profile.advisor_instructions if profile else '').strip()}",
+        "Active Values: " + ", ".join(f"{v.name} [{v.id}]" for v in active_values),
+        "Today cards:",
+        *[f"- {c.title} [{c.id}] kind={c.kind} effort={c.effort_points}" for c in today],
+        "Sprint cards:",
+        *[f"- {c.title} [{c.id}] kind={c.kind} effort={c.effort_points}" for c in sprint],
+        "Read views: ai_cards, ai_boards, ai_values, ai_current_sprint, ai_current_sprint_metrics, ai_card_events.",
+    ]
+    return "\n".join(lines)
+
+
+async def lexical_candidates(session: AsyncSession, user_text: str, limit: int = 12) -> str:
+    words = [
+        word.casefold()
+        for word in re.findall(r"[\w-]{3,}", user_text, flags=re.UNICODE)
+        if word.casefold()
+        not in {"please", "card", "action", "goal", "idea", "today", "sprint", "move", "create"}
+    ][:8]
+    if not words:
+        return ""
+    match = " OR ".join(f'"{word.replace(chr(34), "")}"' for word in words)
+    try:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT c.id, c.title, c.kind, c.effective_stage "
+                    "FROM card_search s JOIN cards c ON c.id=s.card_id "
+                    "WHERE card_search MATCH :match AND c.archived_at IS NULL "
+                    "ORDER BY bm25(card_search) LIMIT :limit"
+                ),
+                {"match": match, "limit": limit},
+            )
+        ).all()
+    except Exception:
+        return ""
+    return "\n".join(
+        f"- {row.title} [{row.id}] kind={row.kind} stage={row.effective_stage}" for row in rows
+    )
