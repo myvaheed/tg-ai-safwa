@@ -61,7 +61,9 @@ class PersonaContinuity:
         async with self._summary_lock:
             entries = await self.history.recent(chat_id, limit=500)
             dialogue = "\n".join(
-                f"[{entry.role}]: {entry.text}" for entry in entries if entry.kind != "summary"
+                f"[{entry.role}]: {entry.text}"
+                for entry in entries
+                if entry.kind not in {"summary", "session_start"} and not entry.summary_context
             )
             tokens = estimate_tokens(dialogue, self.chars_per_token)
             if tokens < self.summary_trigger_tokens or not entries:

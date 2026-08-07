@@ -94,6 +94,26 @@ class LiveTelegramHarness:
             await asyncio.sleep(0.5)
         raise AssertionError(f"Safwa-QA did not produce the expected reply within {self.timeout}s")
 
+    async def wait_for_existing_bot_message(self, message_id: int, predicate) -> Message:
+        """Wait for an inline callback to edit its originating bot message."""
+        deadline = monotonic() + self.timeout
+        while monotonic() < deadline:
+            if self.app_task.done():
+                await self.app_task
+                raise AssertionError("Safwa-QA stopped before updating the UI")
+            message = await self.client.get_messages(self.bot_entity, ids=message_id)
+            if message and message.sender_id == self.bot_entity.id and predicate(message):
+                self.message_ids.add(message.id)
+                return message
+            await asyncio.sleep(0.5)
+        raise AssertionError(
+            f"Safwa-QA did not update bot message {message_id} within {self.timeout}s"
+        )
+
+    async def bot_messages_after(self, message_id: int) -> list[Message]:
+        messages = await self.client.get_messages(self.bot_entity, limit=50, min_id=message_id)
+        return [message for message in messages if message.sender_id == self.bot_entity.id]
+
     async def delete_test_messages(self) -> None:
         if self.keep_messages or not self.message_ids or not self.client.is_connected():
             return
@@ -194,6 +214,18 @@ async def test_qa_status_and_manual_card_review_flow(live_telegram_harness):
         )
         assert "Memory: OK" in status.raw_text
 
+        settings_command = await qa.send("/settings")
+        settings = await qa.wait_for_bot(
+            settings_command.id,
+            lambda message: "Settings" in message.raw_text and has_button(message, "Menu"),
+        )
+        await click_button(settings, "Menu")
+        home = await qa.wait_for_existing_bot_message(
+            settings.id,
+            lambda message: "Safwa" in message.raw_text and has_button(message, "Today"),
+        )
+        assert home.id == settings.id
+
         add_command = await qa.send("/add")
         review = await qa.wait_for_bot(
             add_command.id,
@@ -210,22 +242,37 @@ async def test_qa_status_and_manual_card_review_flow(live_telegram_harness):
             title_message.id,
             lambda message: title in message.raw_text and has_button(message, "Effort"),
         )
+        await click_button(titled_review, "Stage")
+        stage_choices = await qa.wait_for_existing_bot_message(
+            titled_review.id,
+            lambda message: has_button(message, "Back") and has_button(message, "Today"),
+        )
+        await click_button(stage_choices, "Back")
+        titled_review = await qa.wait_for_existing_bot_message(
+            stage_choices.id,
+            lambda message: title in message.raw_text and has_button(message, "Effort"),
+        )
         await click_button(titled_review, "Effort")
-        effort_prompt = await qa.wait_for_bot(
+        effort_prompt = await qa.wait_for_existing_bot_message(
             titled_review.id,
             lambda message: has_button(message, "2", exact=True),
         )
+        assert effort_prompt.id == titled_review.id
         await click_button(effort_prompt, "2", exact=True)
-        ready_review = await qa.wait_for_bot(
+        ready_review = await qa.wait_for_existing_bot_message(
             effort_prompt.id,
             lambda message: title in message.raw_text and has_button(message, "Create"),
         )
+        assert ready_review.id == titled_review.id
         await click_button(ready_review, "Create")
-        card_detail = await qa.wait_for_bot(
+        card_detail = await qa.wait_for_existing_bot_message(
             ready_review.id,
             lambda message: title in message.raw_text and not has_button(message, "Create"),
         )
+        assert card_detail.id == titled_review.id
         assert title in card_detail.raw_text
+        await asyncio.sleep(0.5)
+        assert not await qa.bot_messages_after(titled_review.id)
 
         with sqlite3.connect(qa.database_path) as connection:
             assert connection.execute(

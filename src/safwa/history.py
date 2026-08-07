@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import getpass
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,14 +14,14 @@ from telethon import TelegramClient
 from .ai.context import DialogueMessage
 from .config import Settings
 from .enums import MessageKind
-from .models import SummaryState, TelegramMessage
+from .models import TelegramMessage
 
-DIALOGUE_KINDS = {
-    MessageKind.DIALOGUE_USER.value,
-    MessageKind.DIALOGUE_ASSISTANT.value,
-    MessageKind.REMINDER.value,
-    MessageKind.SUMMARY.value,
-}
+_NEW_SESSION_RE = re.compile(
+    r"^/newsession(?:@[A-Za-z0-9_]+)?(?:\s+(?P<body>.*\S))?\s*$",
+    re.IGNORECASE | re.DOTALL,
+)
+_SUMMARY_RE = re.compile(r"^📜\s*Summary\s*\n(?P<body>[\s\S]*\S)\s*$", re.IGNORECASE)
+SUMMARY_CONTEXT_MESSAGE_LIMIT = 20
 
 
 @dataclass(frozen=True)
@@ -31,10 +32,11 @@ class HistoryEntry:
     text: str
     created_at: datetime
     kind: str
+    summary_context: bool = False
 
 
 class TelegramHistorySource:
-    """Read canonical persona dialogue from an authorized Telegram user session."""
+    """Read the canonical, filtered Safwa transcript from Telegram itself."""
 
     def __init__(
         self,
@@ -101,50 +103,124 @@ class TelegramHistorySource:
                     select(TelegramMessage).where(TelegramMessage.chat_id == chat_id)
                 )
             }
-            summary = await session.get(SummaryState, 1)
-            boundary = summary.summary_message_id if summary else None
         entity = await self.client.get_entity(chat_id)
-        result: list[HistoryEntry] = []
-        async for message in self.client.iter_messages(entity, limit=limit):
-            if not message.message:
+        selected: list[HistoryEntry] = []
+        summary_context: list[HistoryEntry] = []
+        boundary: HistoryEntry | None = None
+        scan_limit = max(1_000, limit * 20)
+        async for message in self.client.iter_messages(entity, limit=scan_limit):
+            raw_text = (getattr(message, "raw_text", None) or message.message or "").strip()
+            if not raw_text:
                 continue
             sender_id = int(message.sender_id) if message.sender_id else None
             kind = registry.get(message.id)
-            if sender_id == self.owner_id:
-                if kind and kind not in DIALOGUE_KINDS:
+            created_at = message.date.astimezone(UTC)
+
+            if sender_id == self.bot_user_id:
+                summary = self._summary_body(raw_text)
+                if summary is not None:
+                    if boundary is None:
+                        boundary = HistoryEntry(
+                            message_id=message.id,
+                            sender_id=sender_id,
+                            role="user",
+                            text=summary,
+                            created_at=created_at,
+                            kind=MessageKind.SUMMARY.value,
+                        )
+                    # An older summary is already represented by the nearest one.
                     continue
-                if not kind and message.message.lstrip().startswith("/"):
-                    continue
-                kind = kind or MessageKind.DIALOGUE_USER.value
-                role = "user"
-            elif sender_id == self.bot_user_id:
-                if kind not in DIALOGUE_KINDS:
+                if kind not in {
+                    MessageKind.DIALOGUE_ASSISTANT.value,
+                    MessageKind.REMINDER.value,
+                }:
                     continue
                 role = "assistant"
+            elif sender_id == self.owner_id:
+                initial_request = self._new_session_request(raw_text)
+                if initial_request is not None:
+                    if boundary is None:
+                        boundary = HistoryEntry(
+                            message_id=message.id,
+                            sender_id=sender_id,
+                            role="user",
+                            text=initial_request,
+                            created_at=created_at,
+                            kind=MessageKind.SESSION_START.value,
+                        )
+                    # A new Safwa session is always the outer history boundary.
+                    break
+                # Unknown human Telegram traffic is never dialogue.  This prevents
+                # pre-Safwa/private-chat history and UI/form input leaking to the LLM.
+                if kind != MessageKind.DIALOGUE_USER.value:
+                    continue
+                role = "user"
             else:
                 continue
-            result.append(
-                HistoryEntry(
-                    message_id=message.id,
-                    sender_id=sender_id,
-                    role=role,
-                    text=message.message,
-                    created_at=message.date.astimezone(UTC),
-                    kind=kind,
-                )
+
+            entry = HistoryEntry(
+                message_id=message.id,
+                sender_id=sender_id,
+                role=role,
+                text=raw_text,
+                created_at=created_at,
+                kind=kind or MessageKind.DIALOGUE_USER.value,
             )
-            if boundary and message.id == boundary:
-                break
-        result.reverse()
+            if boundary and boundary.kind == MessageKind.SUMMARY.value:
+                if len(summary_context) >= SUMMARY_CONTEXT_MESSAGE_LIMIT:
+                    break
+                summary_context.append(replace(entry, summary_context=True))
+                if len(summary_context) >= SUMMARY_CONTEXT_MESSAGE_LIMIT:
+                    break
+            elif len(selected) < limit:
+                selected.append(entry)
+
+        selected.reverse()
+        summary_context.reverse()
+        # A private bot chat may predate Safwa.  Until an explicit `/newsession`
+        # or visible Summary establishes a real boundary, no prior message is safe
+        # to treat as Safwa persona history.
+        result = ([boundary] + summary_context + selected) if boundary else []
         if source_message and all(item.message_id != source_message.message_id for item in result):
             result.append(source_message)
         return result
+
+    @staticmethod
+    def _new_session_request(text: str) -> str | None:
+        match = _NEW_SESSION_RE.match(text)
+        if match is None or not match.group("body"):
+            return None
+        return match.group("body").strip()
+
+    @staticmethod
+    def _summary_body(text: str) -> str | None:
+        match = _SUMMARY_RE.match(text)
+        return match.group("body").strip() if match else None
+
+    @staticmethod
+    def _dialogue_content(entry: HistoryEntry) -> str:
+        if entry.kind == MessageKind.SUMMARY.value:
+            return f"[Summary]: {entry.text}"
+        if entry.kind == MessageKind.SESSION_START.value:
+            return f"[Initial request]: {entry.text}"
+        if entry.summary_context:
+            stamp = entry.created_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+            return f"[{stamp}] {entry.role.title()}: {entry.text}"
+        return entry.text
 
     async def dialogue(
         self, chat_id: int, *, source_message: HistoryEntry | None = None
     ) -> list[DialogueMessage]:
         entries = await self.recent(chat_id, source_message=source_message)
-        return [DialogueMessage(role=item.role, content=item.text) for item in entries]
+        return [
+            DialogueMessage(
+                # Summary context is deliberately supplied after the Summary as
+                # timestamped reference material, rather than as a new assistant turn.
+                role="user" if entry.summary_context else entry.role,
+                content=self._dialogue_content(entry),
+            )
+            for entry in entries
+        ]
 
 
 async def register_message(

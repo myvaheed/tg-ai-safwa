@@ -183,8 +183,35 @@ async def send_registered(
     kind: MessageKind,
     markup: InlineKeyboardMarkup | None = None,
     related_id: str | None = None,
+    replace: bool | None = None,
 ) -> Message:
-    sent = await message.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+    """Render a UI state, replacing an inline-action screen when possible.
+
+    Command and ordinary-text handlers receive a user message, so their response
+    remains a new bot message.  Callback handlers receive the bot's previous
+    message and therefore update that message in place.  Text-entry actions opt
+    out explicitly because their prompt must be a separate conversational turn.
+    """
+    should_replace = (
+        bool(message.from_user and message.from_user.is_bot) if replace is None else replace
+    )
+    if should_replace:
+        try:
+            await message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+            sent = message
+        except TelegramAPIError as error:
+            # Telegram rejects a no-op edit.  It is still the same rendered state.
+            if "message is not modified" in str(error).casefold():
+                sent = message
+            else:
+                logger.warning(
+                    "Could not replace Telegram UI message %s; sending a new screen: %s",
+                    message.message_id,
+                    error,
+                )
+                sent = await message.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+    else:
+        sent = await message.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
     async with services.sessions() as session:
         await register_message(session, sent.chat.id, sent.message_id, "out", kind, related_id)
         await session.commit()
@@ -212,6 +239,16 @@ def menu_markup() -> InlineKeyboardMarkup:
             ],
         ]
     )
+
+
+def menu_row() -> list[InlineKeyboardButton]:
+    """A consistent escape hatch for a screen reached through quick actions."""
+    return [InlineKeyboardButton(text="↩️ Menu", callback_data="nav:home")]
+
+
+def retro_back_row() -> list[InlineKeyboardButton]:
+    """Return from a media-only retrospective without creating another screen."""
+    return [InlineKeyboardButton(text="↩️ Menu", callback_data="nav:retro_back")]
 
 
 async def render_dashboard(
@@ -270,7 +307,7 @@ async def render_dashboard(
             )
         if paging:
             rows.append(paging)
-        rows.append([InlineKeyboardButton(text="↩️ Menu", callback_data="nav:home")])
+        rows.append(menu_row())
         await session.commit()
     text = f"<b>{html.escape(title)}</b> · page {page + 1}/{max_page + 1}\n"
     text += "\n".join(f"• {html.escape(card.title)}" for card in visible) or "Nothing here yet."
@@ -378,6 +415,7 @@ async def draft_review_markup(
             )
         ]
     )
+    rows.append(menu_row())
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -491,6 +529,36 @@ async def command_start(message: Message, services: Services) -> None:
     )
 
 
+@router.message(Command("newsession"))
+async def command_newsession(message: Message, services: Services) -> None:
+    parts = (message.text or "").split(maxsplit=1)
+    initial_request = parts[1].strip() if len(parts) == 2 else ""
+    if not initial_request:
+        await send_registered(
+            message,
+            services,
+            "Usage: <code>/newsession your initial request or situation</code>",
+            kind=MessageKind.ERROR,
+        )
+        return
+    async with services.sessions() as session:
+        await register_message(
+            session,
+            message.chat.id,
+            message.message_id,
+            "in",
+            MessageKind.SESSION_START,
+        )
+        await session.commit()
+    await send_registered(
+        message,
+        services,
+        "🆕 New Safwa session started. I will use this initial request as the dialogue boundary.",
+        kind=MessageKind.RECEIPT,
+        markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
+    )
+
+
 @router.message(Command("today"))
 async def command_today(message: Message, services: Services) -> None:
     await render_dashboard(message, services, CardStage.TODAY, title="Today")
@@ -552,7 +620,7 @@ async def command_sprint(message: Message, services: Services) -> None:
         markup=InlineKeyboardMarkup(
             inline_keyboard=[
                 [start],
-                [InlineKeyboardButton(text="↩️ Menu", callback_data="nav:home")],
+                menu_row(),
             ]
         ),
     )
@@ -599,10 +667,7 @@ async def command_drafts(message: Message, services: Services) -> None:
         services,
         f"<b>Drafts</b> · {len(drafts)} pending",
         kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(
-            inline_keyboard=rows
-            or [[InlineKeyboardButton(text="↩️ Menu", callback_data="nav:home")]]
-        ),
+        markup=InlineKeyboardMarkup(inline_keyboard=rows + [menu_row()]),
     )
 
 
@@ -632,10 +697,7 @@ async def command_values(message: Message, services: Services) -> None:
         services,
         "<b>Values in focus</b>\nActive Values are injected into the advisor context.",
         kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(
-            inline_keyboard=rows
-            or [[InlineKeyboardButton(text="↩️ Menu", callback_data="nav:home")]]
-        ),
+        markup=InlineKeyboardMarkup(inline_keyboard=rows + [menu_row()]),
     )
 
 
@@ -720,7 +782,11 @@ async def command_retro(message: Message, services: Services) -> None:
         )
         if sprint is None:
             await send_registered(
-                message, services, "No finished Sprint yet.", kind=MessageKind.DASHBOARD
+                message,
+                services,
+                "No finished Sprint yet.",
+                kind=MessageKind.DASHBOARD,
+                markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
             )
             return
         data = await retrospective_data(session, sprint.id)
@@ -729,6 +795,7 @@ async def command_retro(message: Message, services: Services) -> None:
         BufferedInputFile(png, filename=f"sprint-{sprint.number}-retro.png"),
         caption=f"Sprint {sprint.number} retrospective\n"
         + "\n".join(retrospective_recommendations(data)),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[retro_back_row()]),
     )
     async with services.sessions() as session:
         await register_message(
@@ -765,7 +832,7 @@ async def render_feedback(message: Message, services: Services) -> None:
         services,
         f"<b>Feedback 1/{len(pending)}</b>\nDid you like doing <b>{html.escape(card.title)}</b>?",
         kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=[[yes, no]]),
+        markup=InlineKeyboardMarkup(inline_keyboard=[[yes, no], menu_row()]),
         related_id=card.id,
     )
 
@@ -790,6 +857,7 @@ async def command_settings(message: Message, services: Services) -> None:
         f"Sprint capacity: {profile.capacity_effort_points or '—'} EP\n"
         "Edit with /setabout, /setadvisor, /setwake, /setbed, /setquiet, or /setcapacity.",
         kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
     )
 
 
@@ -900,6 +968,12 @@ async def navigation(callback: CallbackQuery, services: Services) -> None:
     if not callback.message:
         return
     action = callback.data.split(":", 1)[1]
+    if action == "retro_back":
+        # Telegram cannot turn a photo message into a text message.  The screen
+        # underneath is still the menu that opened the retrospective, so remove
+        # only the media screen rather than sending an unnecessary new message.
+        await callback.message.delete()
+        return
     handlers = {
         "home": command_start,
         "today": command_today,
@@ -919,12 +993,16 @@ async def choice_screen(
     services: Services,
     title: str,
     choices: list[tuple[str, str, dict[str, Any]]],
+    *,
+    back: tuple[str, str, dict[str, Any]] | None = None,
 ) -> None:
     async with services.sessions() as session:
         rows = [
             [await token_button(session, services.owner_id, text, action, payload)]
             for text, action, payload in choices
         ]
+        if back:
+            rows.append([await token_button(session, services.owner_id, *back)])
         await session.commit()
     await send_registered(
         message,
@@ -992,6 +1070,7 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
                 services,
                 f"Send the new {payload['field']}.",
                 kind=MessageKind.DRAFT_REVIEW,
+                replace=False,
             )
         elif action == "draft_toggle":
             async with services.sessions() as session:
@@ -1105,9 +1184,7 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
             async with services.sessions() as session:
                 await DraftService(session).discard(payload["id"])
                 await session.commit()
-            await send_registered(
-                callback.message, services, "Draft discarded.", kind=MessageKind.RECEIPT
-            )
+            await command_start(callback.message, services)
         elif action == "card_view":
             await render_card(callback.message, services, payload["id"])
         elif action == "card_move":
@@ -1141,6 +1218,7 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
                 services,
                 f"Send the new {payload['field']}.",
                 kind=MessageKind.DASHBOARD,
+                replace=False,
             )
         elif action == "card_archive":
             async with services.sessions() as session:
@@ -1158,7 +1236,7 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
                 services,
                 f"Archived {count} card(s).",
                 kind=MessageKind.RECEIPT,
-                markup=InlineKeyboardMarkup(inline_keyboard=[[undo]]),
+                markup=InlineKeyboardMarkup(inline_keyboard=[[undo], menu_row()]),
             )
         elif action == "card_restore":
             async with services.sessions() as session:
@@ -1185,7 +1263,7 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
                 services,
                 "<b>Final confirmation</b>\nThis removes the tree and its historical contribution.",
                 kind=MessageKind.APPROVAL,
-                markup=InlineKeyboardMarkup(inline_keyboard=[[confirm]]),
+                markup=InlineKeyboardMarkup(inline_keyboard=[[confirm], menu_row()]),
             )
         elif action == "card_delete_confirm":
             async with services.sessions() as session:
@@ -1422,11 +1500,21 @@ async def handle_draft_chooser(
             for card in cards
         ]
     if not choices:
-        await send_registered(
-            message, services, "No available choices.", kind=MessageKind.DRAFT_REVIEW
+        await choice_screen(
+            message,
+            services,
+            "No available choices.",
+            [],
+            back=("↩️ Back", "draft_view", {"id": draft_id}),
         )
         return
-    await choice_screen(message, services, "Choose", choices)
+    await choice_screen(
+        message,
+        services,
+        "Choose",
+        choices,
+        back=("↩️ Back", "draft_view", {"id": draft_id}),
+    )
 
 
 async def render_card(message: Message, services: Services, card_id: str) -> None:
@@ -1510,6 +1598,7 @@ async def render_card(message: Message, services: Services, card_id: str) -> Non
                 ),
             ]
         )
+        rows.append(menu_row())
         await session.commit()
     await send_registered(
         message,
@@ -1549,7 +1638,7 @@ async def render_proposal(message: Message, services: Services, proposal_id: str
             for change in changes
         ),
         kind=MessageKind.APPROVAL,
-        markup=InlineKeyboardMarkup(inline_keyboard=[[approve, reject]]),
+        markup=InlineKeyboardMarkup(inline_keyboard=[[approve, reject], menu_row()]),
         related_id=proposal_id,
     )
 

@@ -125,7 +125,9 @@ class AIAdvisor:
                 messages.append(
                     {"role": "system", "content": "Lexical card candidates:\n" + candidates}
                 )
-            for item in (dialogue or [])[-30:]:
+            # The history source has already applied the real Telegram session or
+            # Summary boundary and the 20-message summary context policy.
+            for item in dialogue or []:
                 messages.append({"role": item.role, "content": item.content})
             if pending:
                 messages.append(

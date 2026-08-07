@@ -67,6 +67,7 @@ class ProposalStatus(StrEnum):
 
 
 class MessageKind(StrEnum):
+    SESSION_START = "session_start"
     DIALOGUE_USER = "dialogue_user"
     DIALOGUE_ASSISTANT = "dialogue_assistant"
     REMINDER = "reminder"
