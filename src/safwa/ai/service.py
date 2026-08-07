@@ -47,6 +47,11 @@ from .sql import ReadOnlyQueryRunner, UnsafeQueryError
 
 logger = logging.getLogger(__name__)
 
+SUBSESSION_RESULT_PROMPT = """Compress this isolated Safwa planning/advisory branch into one concise
+context message for the parent conversation. Preserve concrete outcomes, decisions, personal insights,
+unresolved issues, and any planning implications. Write in the conversation's language. Do not mention
+summaries, sessions, prompts, tools, SQL, or AI. Do not claim unapproved changes happened."""
+
 
 @dataclass
 class AIOutcome:
@@ -176,6 +181,25 @@ class AIAdvisor:
             logger.exception("AI advisor run failed")
             await self._finish_run(run.id, "failed", started, type(error).__name__)
             raise
+
+    async def compress_subsession(
+        self, dialogue: list[DialogueMessage], instruction: str = ""
+    ) -> str:
+        """Return a compact, natural-language result before a subsession is removed."""
+        transcript = "\n".join(f"[{item.role.title()}]: {item.content}" for item in dialogue)
+        if not transcript.strip():
+            raise DomainError("The subsession has no canonical Safwa dialogue to compress")
+        suffix = f"\n\nUser instruction:\n{instruction.strip()}" if instruction.strip() else ""
+        return await self.provider.complete(
+            [
+                {"role": "system", "content": SUBSESSION_RESULT_PROMPT},
+                {
+                    "role": "user",
+                    "content": f"<subsession_history>\n{transcript}\n</subsession_history>{suffix}",
+                },
+            ],
+            temperature=0.1,
+        )
 
     async def _complete_validated(self, messages: list[dict[str, str]]) -> AgentResponse:
         raw = await self.provider.complete(messages, json_schema=AGENT_RESPONSE_SCHEMA)

@@ -48,7 +48,7 @@ from .enums import (
     MessageKind,
     Priority,
 )
-from .history import HistoryEntry, TelegramHistorySource, register_message
+from .history import SUBSESSION_RESULT_HEADER, HistoryEntry, TelegramHistorySource, register_message
 from .memory import MemoryFileError, MemoryFileStore, estimate_tokens
 from .models import (
     Board,
@@ -249,6 +249,79 @@ def menu_row() -> list[InlineKeyboardButton]:
 def retro_back_row() -> list[InlineKeyboardButton]:
     """Return from a media-only retrospective without creating another screen."""
     return [InlineKeyboardButton(text="↩️ Menu", callback_data="nav:retro_back")]
+
+
+def split_telegram_text(text: str, limit: int = 3_900) -> list[str]:
+    """Split visible context messages without breaking the result protocol header."""
+    text = text.strip()
+    if not text:
+        return []
+    chunks: list[str] = []
+    while len(text) > limit:
+        cut = text.rfind("\n", 0, limit)
+        if cut < limit // 2:
+            cut = text.rfind(" ", 0, limit)
+        if cut < limit // 2:
+            cut = limit
+        chunks.append(text[:cut].rstrip())
+        text = text[cut:].lstrip()
+    chunks.append(text)
+    return chunks
+
+
+async def delete_message_range(message: Message, first_id: int, last_id: int) -> None:
+    if last_id < first_id:
+        return
+    for offset in range(first_id, last_id + 1, 100):
+        await message.bot.delete_messages(
+            chat_id=message.chat.id,
+            message_ids=list(range(offset, min(offset + 100, last_id + 1))),
+        )
+
+
+async def send_subsession_result(
+    message: Message, services: Services, initial_request: str, result: str
+) -> None:
+    payload = f"{initial_request.strip()}\n\nSubsession result\n{result.strip()}"
+    for index, chunk in enumerate(split_telegram_text(payload)):
+        header = (
+            SUBSESSION_RESULT_HEADER if index == 0 else f"{SUBSESSION_RESULT_HEADER} (continued)"
+        )
+        sent = await message.bot.send_message(
+            message.chat.id,
+            f"{header}\n{html.escape(chunk)}",
+            parse_mode=ParseMode.HTML,
+        )
+        async with services.sessions() as session:
+            await register_message(
+                session,
+                sent.chat.id,
+                sent.message_id,
+                "out",
+                MessageKind.SUBSESSION_RESULT,
+            )
+            await session.commit()
+
+
+async def end_subsession(
+    message: Message,
+    services: Services,
+    *,
+    start_message_id: int,
+    instruction: str,
+) -> None:
+    active_start = await services.history.active_session_start(message.chat.id)
+    if active_start is None or active_start.message_id != start_message_id:
+        raise StaleStateError("This subsession has changed or is no longer active")
+    await services.guard.acquire(message.message_id)
+    try:
+        await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+        transcript = await services.history.dialogue(message.chat.id)
+        result = await services.advisor.compress_subsession(transcript, instruction)
+        await delete_message_range(message, start_message_id, message.message_id)
+        await send_subsession_result(message, services, active_start.text, result)
+    finally:
+        services.guard.release(message.message_id)
 
 
 async def render_dashboard(
@@ -556,6 +629,54 @@ async def command_newsession(message: Message, services: Services) -> None:
         "🆕 New Safwa session started. I will use this initial request as the dialogue boundary.",
         kind=MessageKind.RECEIPT,
         markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
+    )
+
+
+@router.message(Command("endsession"))
+async def command_endsession(message: Message, services: Services) -> None:
+    active_start = await services.history.active_session_start(message.chat.id)
+    if active_start is None:
+        await send_registered(
+            message,
+            services,
+            "There is no active <code>/newsession</code> branch to end.",
+            kind=MessageKind.ERROR,
+            markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
+        )
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    instruction = parts[1].strip() if len(parts) == 2 else ""
+    async with services.sessions() as session:
+        confirm = await token_button(
+            session,
+            services.owner_id,
+            "✅ Compress and delete branch",
+            "subsession_confirm",
+            {
+                "start_message_id": active_start.message_id,
+                "instruction": instruction,
+            },
+        )
+        cancel = await token_button(
+            session,
+            services.owner_id,
+            "↩️ Keep branch",
+            "subsession_cancel",
+        )
+        await session.commit()
+    instruction_text = (
+        html.escape(instruction) if instruction else "Use a concise planning/advisory result."
+    )
+    await send_registered(
+        message,
+        services,
+        "<b>End this subsession?</b>\n"
+        "Safwa will compress everything since the active <code>/newsession</code>, delete that "
+        "branch from Telegram, and leave one compact context result.\n\n"
+        f"<b>Initial request:</b>\n<blockquote>{html.escape(active_start.text)}</blockquote>\n\n"
+        f"<b>Result instruction:</b>\n<blockquote>{instruction_text}</blockquote>",
+        kind=MessageKind.APPROVAL,
+        markup=InlineKeyboardMarkup(inline_keyboard=[[confirm], [cancel]]),
     )
 
 
@@ -1041,7 +1162,38 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
     await callback.answer()
 
     try:
-        if action == "draft_view":
+        if action == "subsession_confirm":
+            await send_registered(
+                callback.message,
+                services,
+                "<b>Compressing subsession…</b>",
+                kind=MessageKind.APPROVAL,
+            )
+            try:
+                await end_subsession(
+                    callback.message,
+                    services,
+                    start_message_id=int(payload["start_message_id"]),
+                    instruction=str(payload.get("instruction", "")),
+                )
+            except Exception:
+                logger.exception("Could not end Safwa subsession")
+                await send_registered(
+                    callback.message,
+                    services,
+                    "Safwa could not compress the subsession. The branch was not deleted.",
+                    kind=MessageKind.ERROR,
+                    markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
+                )
+        elif action == "subsession_cancel":
+            await send_registered(
+                callback.message,
+                services,
+                "Subsession end cancelled. The branch is unchanged.",
+                kind=MessageKind.RECEIPT,
+                markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
+            )
+        elif action == "draft_view":
             await render_draft(callback.message, services, payload["id"])
         elif action == "dashboard_page":
             await render_dashboard(

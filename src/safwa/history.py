@@ -21,6 +21,14 @@ _NEW_SESSION_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _SUMMARY_RE = re.compile(r"^📜\s*Summary\s*\n(?P<body>[\s\S]*\S)\s*$", re.IGNORECASE)
+SUBSESSION_RESULT_HEADER = "📦 Subsession request"
+_SUBSESSION_RESULT_START_RE = re.compile(
+    r"^📦\s*Subsession request\s*\n(?P<body>[\s\S]*\S)\s*$", re.IGNORECASE
+)
+_SUBSESSION_RESULT_CONTINUED_RE = re.compile(
+    r"^📦\s*Subsession request\s*\(continued\)\s*\n(?P<body>[\s\S]*\S)\s*$",
+    re.IGNORECASE,
+)
 SUMMARY_CONTEXT_MESSAGE_LIMIT = 20
 
 
@@ -107,6 +115,8 @@ class TelegramHistorySource:
         selected: list[HistoryEntry] = []
         summary_context: list[HistoryEntry] = []
         boundary: HistoryEntry | None = None
+        subsession_result_chunks: list[str] = []
+        subsession_result_seen = False
         scan_limit = max(1_000, limit * 20)
         async for message in self.client.iter_messages(entity, limit=scan_limit):
             raw_text = (getattr(message, "raw_text", None) or message.message or "").strip()
@@ -117,6 +127,24 @@ class TelegramHistorySource:
             created_at = message.date.astimezone(UTC)
 
             if sender_id == self.bot_user_id:
+                subsession_result = self._subsession_result_piece(raw_text)
+                if subsession_result is not None:
+                    subsession_result_seen = True
+                    is_start, body = subsession_result
+                    subsession_result_chunks.append(body)
+                    if is_start:
+                        selected.append(
+                            HistoryEntry(
+                                message_id=message.id,
+                                sender_id=sender_id,
+                                role="user",
+                                text="\n".join(reversed(subsession_result_chunks)),
+                                created_at=created_at,
+                                kind=MessageKind.SUBSESSION_RESULT.value,
+                            )
+                        )
+                        subsession_result_chunks.clear()
+                    continue
                 summary = self._summary_body(raw_text)
                 if summary is not None:
                     if boundary is None:
@@ -181,6 +209,8 @@ class TelegramHistorySource:
         # or visible Summary establishes a real boundary, no prior message is safe
         # to treat as Safwa persona history.
         result = ([boundary] + summary_context + selected) if boundary else []
+        if not boundary and subsession_result_seen:
+            result = selected
         if source_message and all(item.message_id != source_message.message_id for item in result):
             result.append(source_message)
         return result
@@ -198,11 +228,44 @@ class TelegramHistorySource:
         return match.group("body").strip() if match else None
 
     @staticmethod
+    def _subsession_result_piece(text: str) -> tuple[bool, str] | None:
+        start = _SUBSESSION_RESULT_START_RE.match(text)
+        if start is not None:
+            return True, start.group("body").strip()
+        continued = _SUBSESSION_RESULT_CONTINUED_RE.match(text)
+        if continued is not None:
+            return False, continued.group("body").strip()
+        return None
+
+    async def active_session_start(self, chat_id: int) -> HistoryEntry | None:
+        """Return the newest real `/newsession` boundary, if it is still visible."""
+        if self.client is None:
+            return None
+        entity = await self.client.get_entity(chat_id)
+        async for message in self.client.iter_messages(entity, limit=1_000):
+            raw_text = (getattr(message, "raw_text", None) or message.message or "").strip()
+            if not raw_text or int(message.sender_id or 0) != self.owner_id:
+                continue
+            initial_request = self._new_session_request(raw_text)
+            if initial_request is not None:
+                return HistoryEntry(
+                    message_id=message.id,
+                    sender_id=self.owner_id,
+                    role="user",
+                    text=initial_request,
+                    created_at=message.date.astimezone(UTC),
+                    kind=MessageKind.SESSION_START.value,
+                )
+        return None
+
+    @staticmethod
     def _dialogue_content(entry: HistoryEntry) -> str:
         if entry.kind == MessageKind.SUMMARY.value:
             return f"[Summary]: {entry.text}"
         if entry.kind == MessageKind.SESSION_START.value:
             return f"[Initial request]: {entry.text}"
+        if entry.kind == MessageKind.SUBSESSION_RESULT.value:
+            return f"[Subsession result]: {entry.text}"
         if entry.summary_context:
             stamp = entry.created_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
             return f"[{stamp}] {entry.role.title()}: {entry.text}"

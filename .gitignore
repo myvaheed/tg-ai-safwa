@@ -11,3 +11,4 @@ data/*.session*
 data/memory.md.tmp
 data/memory.md.bak
 config/providers.yaml
+telegram-bot-exampler/

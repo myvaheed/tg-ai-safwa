@@ -57,5 +57,10 @@ run; its inline buttons will be stale because the test database is temporary.
 Use `/start`, `/today`, `/sprint`, `/backlog`, `/add`, `/drafts`, `/values`, `/retro`,
 `/settings`, `/memory`, `/remember`, `/forget`, `/status`, and `/cancel`.
 
+`/newsession <initial request>` begins an isolated persona branch. `/endsession [result instruction]`
+asks for confirmation, compresses that branch into one visible `📦 Subsession request` context result,
+then removes the branch's Telegram messages. The result becomes part of the parent Safwa dialogue; card,
+Sprint, Value, and memory data are never deleted.
+
 Every new card is first stored as an isolated draft. It reaches Boards and metrics only after the
 review screen's **Create** action.

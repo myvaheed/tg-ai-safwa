@@ -70,6 +70,7 @@ async def test_history_fails_closed_and_starts_at_newsession(sessions) -> None:
     dialogue = await source.dialogue(chat_id)
     assert dialogue[0].content == "[Initial request]: Help me plan a calmer week"
     assert [message.role for message in dialogue] == ["user", "assistant", "user"]
+    assert (await source.active_session_start(chat_id)).message_id == 5
 
 
 async def test_summary_is_pinned_first_with_twenty_timestamped_prior_messages(sessions) -> None:
@@ -152,3 +153,37 @@ async def test_current_source_is_kept_but_unknown_historical_telegram_text_is_ex
     entries = await source.recent(chat_id, source_message=source_message)
 
     assert entries == [source_message]
+
+
+async def test_subsession_result_is_reassembled_as_parent_context(sessions) -> None:
+    chat_id, owner_id, bot_id = 103, 42, 99
+    at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
+    messages = [
+        FakeTelegramMessage(5, "What should I do next?", owner_id, at + timedelta(minutes=3)),
+        FakeTelegramMessage(
+            4,
+            "📦 Subsession request (continued)\nSecond result part.",
+            bot_id,
+            at + timedelta(minutes=2),
+        ),
+        FakeTelegramMessage(
+            3, "📦 Subsession request\nFirst result part.", bot_id, at + timedelta(minutes=1)
+        ),
+        FakeTelegramMessage(2, "Unrelated old private-chat text", owner_id, at),
+    ]
+    await register(sessions, chat_id, 5, "in", MessageKind.DIALOGUE_USER)
+    await register(sessions, chat_id, 4, "out", MessageKind.SUBSESSION_RESULT)
+    await register(sessions, chat_id, 3, "out", MessageKind.SUBSESSION_RESULT)
+    source = TelegramHistorySource(
+        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+    )
+
+    entries = await source.recent(chat_id)
+
+    assert [(entry.kind, entry.text) for entry in entries] == [
+        (MessageKind.SUBSESSION_RESULT.value, "First result part.\nSecond result part."),
+        (MessageKind.DIALOGUE_USER.value, "What should I do next?"),
+    ]
+    dialogue = await source.dialogue(chat_id)
+    assert dialogue[0].content == "[Subsession result]: First result part.\nSecond result part."
+    assert dialogue[1].content == "What should I do next?"
