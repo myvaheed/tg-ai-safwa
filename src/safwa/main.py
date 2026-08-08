@@ -114,12 +114,9 @@ async def run(settings: Settings) -> None:
             BotCommand(command="today", description="Today dashboard"),
             BotCommand(command="sprint", description="Planning or Sprint"),
             BotCommand(command="backlog", description="Backlog dashboard"),
-            BotCommand(command="add", description="Create a card draft"),
             BotCommand(command="drafts", description="Pending drafts"),
             BotCommand(command="values", description="Values in focus"),
-            BotCommand(command="newvalue", description="Create a Value"),
             BotCommand(command="tags", description="Manage Tags"),
-            BotCommand(command="newtag", description="Create a Tag"),
             BotCommand(command="requests", description="Saved AI Requests"),
             BotCommand(command="retro", description="Latest retrospective"),
             BotCommand(command="feedback", description="Pending completion feedback"),
@@ -129,6 +126,9 @@ async def run(settings: Settings) -> None:
             BotCommand(command="setquiet", description="Set quiet range HH:MM-HH:MM"),
             BotCommand(command="setcapacity", description="Set Sprint capacity"),
             BotCommand(command="snooze", description="Snooze reminders (minutes)"),
+            BotCommand(command="syncmem", description="Sync Telegram dialogue into memory"),
+            BotCommand(command="mem", description="Add a durable memory fact"),
+            BotCommand(command="setmemtime", description="Set daily memory sync time"),
             BotCommand(command="memory", description="Inspect memory.md"),
             BotCommand(command="status", description="Safwa diagnostics"),
             BotCommand(command="cancel", description="Cancel generation"),
@@ -201,8 +201,10 @@ async def run(settings: Settings) -> None:
     memory_maintenance_task = asyncio.create_task(
         run_memory_maintenance(
             continuity,
+            database.sessions,
             settings.telegram_owner_id,
             lambda: guard.active,
+            settings.timezone,
         ),
         name="memory-maintenance",
     )

@@ -43,7 +43,7 @@ from .models import (
     DraftValue,
     Tag,
     Value,
-    new_id,
+    new_correlation_id,
 )
 
 
@@ -127,7 +127,9 @@ class DraftService:
         for tag_id in payload.get("tag_ids", []):
             tag = await self.session.get(Tag, tag_id)
             if tag:
-                self.session.add(DraftTag(draft_id=draft.id, tag_id=tag.id, expected_version=tag.version))
+                self.session.add(
+                    DraftTag(draft_id=draft.id, tag_id=tag.id, expected_version=tag.version)
+                )
         for category in payload.get("categories", []):
             self.session.add(
                 DraftCategory(
@@ -154,7 +156,7 @@ class DraftService:
                     )
                 )
 
-    async def get_bundle_drafts(self, bundle_id: str) -> list[CardDraft]:
+    async def get_bundle_drafts(self, bundle_id: int) -> list[CardDraft]:
         return list(
             await self.session.scalars(
                 select(CardDraft)
@@ -237,7 +239,7 @@ class DraftService:
         draft.status = DraftStatus.READY.value if not errors else DraftStatus.EDITING.value
         return DraftValidation(not errors, tuple(draft.validation_errors))
 
-    async def update(self, draft_id: str, **fields) -> CardDraft:
+    async def update(self, draft_id: int, **fields) -> CardDraft:
         draft = await self.session.get(CardDraft, draft_id)
         if draft is None or draft.status in {
             DraftStatus.COMMITTED.value,
@@ -292,7 +294,7 @@ class DraftService:
         await self.validate(draft)
         return draft
 
-    async def mark_reviewed(self, draft_id: str) -> CardDraft:
+    async def mark_reviewed(self, draft_id: int) -> CardDraft:
         draft = await self.session.get(CardDraft, draft_id)
         if draft is None:
             raise DomainError("Draft does not exist")
@@ -303,7 +305,7 @@ class DraftService:
         draft.reviewed_at = utcnow()
         return draft
 
-    async def discard(self, draft_id: str) -> None:
+    async def discard(self, draft_id: int) -> None:
         draft = await self.session.get(CardDraft, draft_id)
         if draft is None:
             return
@@ -312,7 +314,7 @@ class DraftService:
 
     async def commit_bundle(
         self,
-        bundle_id: str,
+        bundle_id: int,
         *,
         actor: ActorType = ActorType.USER_UI,
     ) -> list[Card]:
@@ -358,9 +360,9 @@ class DraftService:
                     raise StaleStateError("A selected blocker changed; review the draft again")
 
         created: list[Card] = []
-        by_draft: dict[str, Card] = {}
+        by_draft: dict[int, Card] = {}
         pending = list(drafts)
-        correlation_id = new_id()
+        correlation_id = new_correlation_id()
         while pending:
             progressed = False
             for draft in list(pending):
@@ -380,10 +382,12 @@ class DraftService:
                     hard_time=draft.hard_time,
                     effort_points=draft.effort_points,
                     repeatable=draft.repeatable,
-                    repeat_series_id=new_id() if draft.repeatable else None,
+                    repeat_series_id=None,
                 )
                 self.session.add(card)
                 await self.session.flush()
+                if draft.repeatable:
+                    card.repeat_series_id = card.id
                 for item in await self.session.scalars(
                     select(DraftValue).where(DraftValue.draft_id == draft.id)
                 ):
@@ -428,7 +432,7 @@ class DraftService:
         await _bump_workspace(self.session)
         return created
 
-    async def set_categories(self, draft_id: str, categories: set[Category]) -> CardDraft:
+    async def set_categories(self, draft_id: int, categories: set[Category]) -> CardDraft:
         await self.session.execute(delete(DraftCategory).where(DraftCategory.draft_id == draft_id))
         for category in categories:
             self.session.add(DraftCategory(draft_id=draft_id, category=category.value))
@@ -439,7 +443,7 @@ class DraftService:
         await self.validate(draft)
         return draft
 
-    async def set_energy_types(self, draft_id: str, values: set[EnergyType]) -> CardDraft:
+    async def set_energy_types(self, draft_id: int, values: set[EnergyType]) -> CardDraft:
         await self.session.execute(
             delete(DraftEnergyType).where(DraftEnergyType.draft_id == draft_id)
         )
@@ -452,7 +456,7 @@ class DraftService:
         await self.validate(draft)
         return draft
 
-    async def toggle_value(self, draft_id: str, value_id: str) -> CardDraft:
+    async def toggle_value(self, draft_id: int, value_id: int) -> CardDraft:
         draft = await self.session.get(CardDraft, draft_id)
         value = await self.session.get(Value, value_id)
         if draft is None or value is None or value.archived_at is not None:
@@ -475,7 +479,7 @@ class DraftService:
         await self.validate(draft)
         return draft
 
-    async def toggle_tag(self, draft_id: str, tag_id: str) -> CardDraft:
+    async def toggle_tag(self, draft_id: int, tag_id: int) -> CardDraft:
         draft = await self.session.get(CardDraft, draft_id)
         tag = await self.session.get(Tag, tag_id)
         if draft is None or tag is None or tag.archived_at is not None:
@@ -484,7 +488,9 @@ class DraftService:
         if link:
             await self.session.delete(link)
         else:
-            self.session.add(DraftTag(draft_id=draft_id, tag_id=tag_id, expected_version=tag.version))
+            self.session.add(
+                DraftTag(draft_id=draft_id, tag_id=tag_id, expected_version=tag.version)
+            )
         provenance = dict(draft.field_provenance or {})
         provenance["unresolved"] = [
             item
@@ -496,7 +502,7 @@ class DraftService:
         await self.validate(draft)
         return draft
 
-    async def toggle_dependency(self, draft_id: str, blocker_id: str) -> CardDraft:
+    async def toggle_dependency(self, draft_id: int, blocker_id: int) -> CardDraft:
         draft = await self.session.get(CardDraft, draft_id)
         blocker = await self.session.get(Card, blocker_id)
         if draft is None or blocker is None or blocker.archived_at is not None:

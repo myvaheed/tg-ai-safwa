@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from safwa.ai.provider import ProviderTurn
 from safwa.ai.service import AIAdvisor
 from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from safwa.db import Database, upgrade_database
@@ -17,15 +18,26 @@ from safwa.memory import MemoryFileStore
 class ScriptedProvider:
     """Deterministic OpenAI-compatible boundary used by isolated E2E tests."""
 
-    def __init__(self, responses: list[str]) -> None:
+    def __init__(self, responses: list[str | ProviderTurn]) -> None:
         self.responses = deque(responses)
-        self.calls: list[list[dict[str, str]]] = []
+        self.calls: list[list[dict[str, object]]] = []
+        self.options: list[dict[str, object]] = []
 
-    async def complete(self, messages: list[dict[str, str]], **_kwargs) -> str:
+    async def complete(self, messages: list[dict[str, object]], **kwargs) -> str:
         self.calls.append([dict(message) for message in messages])
+        self.options.append(dict(kwargs))
         if not self.responses:
             raise AssertionError("The advisor made an unexpected provider call")
-        return self.responses.popleft()
+        response = self.responses.popleft()
+        return response.content if isinstance(response, ProviderTurn) else response
+
+    async def complete_turn(self, messages: list[dict[str, object]], **kwargs) -> ProviderTurn:
+        self.calls.append([dict(message) for message in messages])
+        self.options.append(dict(kwargs))
+        if not self.responses:
+            raise AssertionError("The advisor made an unexpected provider call")
+        response = self.responses.popleft()
+        return response if isinstance(response, ProviderTurn) else ProviderTurn(content=response)
 
 
 @dataclass
@@ -35,7 +47,7 @@ class E2EHarness:
     database_path: Path
     memory: MemoryFileStore
 
-    def advisor(self, responses: list[str]) -> tuple[AIAdvisor, ScriptedProvider]:
+    def advisor(self, responses: list[str | ProviderTurn]) -> tuple[AIAdvisor, ScriptedProvider]:
         provider = ScriptedProvider(responses)
         advisor = AIAdvisor(
             self.sessions,

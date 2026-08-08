@@ -16,6 +16,19 @@ class ProviderConfig:
     structured_output: bool = False
 
 
+@dataclass(frozen=True)
+class ProviderToolCall:
+    id: str
+    name: str
+    arguments: str
+
+
+@dataclass(frozen=True)
+class ProviderTurn:
+    content: str
+    tool_calls: tuple[ProviderToolCall, ...] = ()
+
+
 class OpenAICompatibleProvider:
     def __init__(self, config: ProviderConfig) -> None:
         self.config = config
@@ -33,6 +46,23 @@ class OpenAICompatibleProvider:
         json_schema: dict[str, Any] | None = None,
         temperature: float = 0.2,
     ) -> str:
+        turn = await self.complete_turn(
+            messages,
+            json_schema=json_schema,
+            temperature=temperature,
+        )
+        if not turn.content:
+            raise RuntimeError("AI provider returned an empty response")
+        return turn.content
+
+    async def complete_turn(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        json_schema: dict[str, Any] | None = None,
+        temperature: float = 0.2,
+    ) -> ProviderTurn:
         options: dict[str, Any] = {
             "model": self.config.model,
             "messages": messages,
@@ -45,10 +75,25 @@ class OpenAICompatibleProvider:
                 "type": "json_schema",
                 "json_schema": {"name": "safwa_response", "strict": True, "schema": json_schema},
             }
+        if tools:
+            options["tools"] = tools
+            options["tool_choice"] = "auto"
         response = await self.client.chat.completions.create(**options)
-        if not response.choices or not response.choices[0].message.content:
+        if not response.choices:
             raise RuntimeError("AI provider returned an empty response")
-        return response.choices[0].message.content.strip()
+        message = response.choices[0].message
+        tool_calls = tuple(
+            ProviderToolCall(
+                id=call.id,
+                name=call.function.name,
+                arguments=call.function.arguments,
+            )
+            for call in (message.tool_calls or [])
+        )
+        content = (message.content or "").strip()
+        if not content and not tool_calls:
+            raise RuntimeError("AI provider returned an empty response")
+        return ProviderTurn(content=content, tool_calls=tool_calls)
 
     async def close(self) -> None:
         await self.client.close()

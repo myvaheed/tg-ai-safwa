@@ -23,7 +23,7 @@ from .models import (
 )
 
 
-async def retrospective_data(session: AsyncSession, sprint_id: str) -> dict:
+async def retrospective_data(session: AsyncSession, sprint_id: int) -> dict:
     sprint = await session.get(Sprint, sprint_id)
     if sprint is None:
         raise ValueError("Sprint does not exist")

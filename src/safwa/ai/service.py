@@ -48,9 +48,9 @@ from ..models import (
     Workspace,
 )
 from ..saved_requests import RequestFilterError, normalize_filter_spec
-from .context import SYSTEM_PROMPT, DialogueMessage, lexical_candidates, planning_context
+from .context import SYSTEM_PROMPT, DialogueMessage, planning_context
 from .contracts import AGENT_RESPONSE_SCHEMA, AgentChange, AgentResponse
-from .provider import OpenAICompatibleProvider
+from .provider import OpenAICompatibleProvider, ProviderToolCall, ProviderTurn
 from .sql import ReadOnlyQueryRunner, UnsafeQueryError
 
 logger = logging.getLogger(__name__)
@@ -60,13 +60,37 @@ context message for the parent conversation. Preserve concrete outcomes, decisio
 unresolved issues, and any planning implications. Write in the conversation's language. Do not mention
 summaries, sessions, prompts, tools, SQL, or AI. Do not claim unapproved changes happened."""
 
+QUERY_SAFWA_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "query_safwa",
+        "description": (
+            "Explore Safwa's current planning data with one safe, read-only SQLite SELECT. "
+            "Use it to find Cards, Tags, Values, Requests, Sprint state, metrics, or events "
+            "before answering or preparing a change proposal."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "sql": {
+                    "type": "string",
+                    "description": "One SELECT or WITH ... SELECT over allowlisted ai_* views.",
+                }
+            },
+            "required": ["sql"],
+            "additionalProperties": False,
+        },
+    },
+}
+MAX_READ_TOOL_CALLS = 8
+
 
 @dataclass
 class AIOutcome:
     kind: str
     message: str
-    draft_bundle_ids: list[str] = field(default_factory=list)
-    proposal_id: str | None = None
+    draft_bundle_ids: list[int] = field(default_factory=list)
+    proposal_id: int | None = None
 
 
 def parse_response(raw: str) -> AgentResponse:
@@ -75,6 +99,35 @@ def parse_response(raw: str) -> AgentResponse:
         lines = text.splitlines()
         text = "\n".join(lines[1:-1])
     return AgentResponse.model_validate_json(text)
+
+
+def _log_preview(content: str, limit: int = 500) -> str:
+    compact = " ".join(content.split())
+    return compact if len(compact) <= limit else compact[: limit - 3] + "..."
+
+
+def _log_provider_request(messages: list[dict[str, Any]]) -> None:
+    lines: list[str] = []
+    for message in messages:
+        content = str(message.get("content") or "")
+        if message.get("tool_calls"):
+            content = "tool calls: " + ", ".join(
+                call["function"]["name"] for call in message["tool_calls"]
+            )
+        elif message.get("role") == "tool":
+            content = f"{message.get('name')}: {content}"
+        lines.append(f"  {message['role']:<9} {_log_preview(content)}")
+    logger.info("AI REQUEST ->\n%s\n%s", "\n".join(lines), "-" * 72)
+
+
+def _log_provider_response(turn: ProviderTurn) -> None:
+    if turn.tool_calls:
+        details = "\n".join(
+            f"  tool {call.name}({_log_preview(call.arguments, 700)})" for call in turn.tool_calls
+        )
+    else:
+        details = "  " + _log_preview(turn.content, 1_000)
+    logger.info("AI RESPONSE <-\n%s\n%s", details, "-" * 72)
 
 
 class AIAdvisor:
@@ -99,7 +152,7 @@ class AIAdvisor:
         *,
         source_message_id: int | None = None,
         dialogue: list[DialogueMessage] | None = None,
-        pending_draft_id: str | None = None,
+        pending_draft_id: int | None = None,
     ) -> AIOutcome:
         started = time.monotonic()
         run = AgentRun(
@@ -116,72 +169,28 @@ class AIAdvisor:
             memory = await self.memory.sync()
             async with self.sessions() as session:
                 state = await planning_context(session)
-                candidates = await lexical_candidates(session, text)
                 from ..models import CardDraft
 
                 pending = (
                     await session.get(CardDraft, pending_draft_id) if pending_draft_id else None
                 )
-            messages: list[dict[str, str]] = [
-                {
-                    "role": "system",
-                    "content": SYSTEM_PROMPT
-                    + "\n\nResponse JSON Schema:\n"
-                    + json.dumps(AGENT_RESPONSE_SCHEMA, ensure_ascii=False),
-                },
-                {
-                    "role": "system",
-                    "content": f"Current planning state:\n{state}\n\nPersistent memory:\n{memory.text}",
-                },
+            system_sections = [
+                SYSTEM_PROMPT,
+                "Response JSON Schema:\n" + json.dumps(AGENT_RESPONSE_SCHEMA, ensure_ascii=False),
+                f"Current planning state:\n{state}\n\nPersistent memory:\n{memory.text}",
             ]
-            if candidates:
-                messages.append(
-                    {"role": "system", "content": "Lexical card candidates:\n" + candidates}
-                )
+            if pending:
+                system_sections.append(f"Pending draft reference: {pending.id}")
+            messages: list[dict[str, Any]] = [
+                {"role": "system", "content": "\n\n".join(system_sections)}
+            ]
             # The history source has already applied the real Telegram session or
             # Summary boundary and the 20-message summary context policy.
             for item in dialogue or []:
                 messages.append({"role": item.role, "content": item.content})
-            if pending:
-                messages.append(
-                    {"role": "system", "content": f"Pending draft reference: {pending.id}"}
-                )
-            messages.append({"role": "user", "content": text})
-            response = await self._complete_validated(messages)
-            for query_index in range(2):
-                if response.kind != "query":
-                    break
-                try:
-                    rows = await self.query_runner.run(response.sql or "")
-                except (UnsafeQueryError, TimeoutError, OSError) as error:
-                    rows = [{"error": str(error)}]
-                async with self.sessions() as session:
-                    session.add(
-                        AgentStep(
-                            run_id=run.id,
-                            position=query_index + 1,
-                            kind="read_query",
-                            metadata_json={
-                                "sql": response.sql,
-                                "row_count": len(rows),
-                                "columns": list(rows[0]) if rows else [],
-                            },
-                        )
-                    )
-                    await session.commit()
-                messages.extend(
-                    [
-                        {"role": "assistant", "content": response.model_dump_json()},
-                        {
-                            "role": "system",
-                            "content": "Read-query result:\n"
-                            + json.dumps(rows, ensure_ascii=False, default=str),
-                        },
-                    ]
-                )
-                response = await self._complete_validated(messages)
-            if response.kind == "query":
-                raise DomainError("The advisor exceeded the read-query limit")
+            if not dialogue:
+                messages.append({"role": "user", "content": text})
+            response = await self._run_agent_loop(messages, run.id)
             outcome = await self._materialize(response)
             await self._finish_run(run.id, "completed", started)
             return outcome
@@ -209,24 +218,109 @@ class AIAdvisor:
             temperature=0.1,
         )
 
-    async def _complete_validated(self, messages: list[dict[str, str]]) -> AgentResponse:
-        raw = await self.provider.complete(messages, json_schema=AGENT_RESPONSE_SCHEMA)
-        try:
-            return parse_response(raw)
-        except (ValidationError, json.JSONDecodeError, ValueError) as first_error:
-            repaired = await self.provider.complete(
-                [
-                    *messages,
-                    {"role": "assistant", "content": raw},
-                    {
-                        "role": "system",
-                        "content": f"The response was invalid ({first_error}). Return corrected JSON only.",
-                    },
-                ],
+    async def _provider_turn(self, messages: list[dict[str, Any]]) -> ProviderTurn:
+        _log_provider_request(messages)
+        complete_turn = getattr(self.provider, "complete_turn", None)
+        if complete_turn is None:
+            raw = await self.provider.complete(messages, json_schema=AGENT_RESPONSE_SCHEMA)
+            turn = ProviderTurn(content=raw)
+        else:
+            turn = await complete_turn(
+                messages,
+                tools=[QUERY_SAFWA_TOOL],
                 json_schema=AGENT_RESPONSE_SCHEMA,
-                temperature=0,
             )
-            return parse_response(repaired)
+        _log_provider_response(turn)
+        return turn
+
+    async def _run_agent_loop(self, messages: list[dict[str, Any]], run_id: int) -> AgentResponse:
+        tool_count = 0
+        repair_count = 0
+        while True:
+            turn = await self._provider_turn(messages)
+            if turn.tool_calls:
+                assistant_tool_calls = [
+                    {
+                        "id": call.id,
+                        "type": "function",
+                        "function": {"name": call.name, "arguments": call.arguments},
+                    }
+                    for call in turn.tool_calls
+                ]
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": turn.content or None,
+                        "tool_calls": assistant_tool_calls,
+                    }
+                )
+                for call in turn.tool_calls:
+                    tool_count += 1
+                    if tool_count > MAX_READ_TOOL_CALLS:
+                        raise DomainError("The advisor exceeded the read-tool call limit")
+                    result = await self._execute_query_tool(call, run_id, tool_count)
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": call.id,
+                            "name": call.name,
+                            "content": json.dumps(result, ensure_ascii=False, default=str),
+                        }
+                    )
+                continue
+
+            try:
+                return parse_response(turn.content)
+            except (ValidationError, json.JSONDecodeError, ValueError) as error:
+                if repair_count >= 1:
+                    raise
+                repair_count += 1
+                messages.extend(
+                    [
+                        {"role": "assistant", "content": turn.content},
+                        {
+                            "role": "user",
+                            "content": f"[Invalid response]: {error}. Return corrected JSON only.",
+                        },
+                    ]
+                )
+
+    async def _execute_query_tool(
+        self, call: ProviderToolCall, run_id: int, position: int
+    ) -> list[dict[str, Any]]:
+        if call.name != "query_safwa":
+            rows: list[dict[str, Any]] = [{"error": f"Unknown tool: {call.name}"}]
+            sql = ""
+        else:
+            try:
+                arguments = json.loads(call.arguments)
+                sql = str(arguments["sql"])
+                rows = await self.query_runner.run(sql)
+            except (KeyError, TypeError, json.JSONDecodeError) as error:
+                sql = ""
+                rows = [{"error": f"Invalid tool arguments: {error}"}]
+            except (UnsafeQueryError, TimeoutError, OSError) as error:
+                rows = [{"error": str(error)}]
+        logger.info(
+            "AI TOOL query_safwa -> rows=%d sql=%s",
+            len(rows),
+            _log_preview(sql, 700),
+        )
+        async with self.sessions() as session:
+            session.add(
+                AgentStep(
+                    run_id=run_id,
+                    position=position,
+                    kind="read_query",
+                    metadata_json={
+                        "sql": sql,
+                        "row_count": len(rows),
+                        "columns": list(rows[0]) if rows else [],
+                    },
+                )
+            )
+            await session.commit()
+        return rows
 
     async def _materialize(self, response: AgentResponse) -> AIOutcome:
         if response.kind in {"answer", "clarification"}:
@@ -237,8 +331,8 @@ class AIAdvisor:
             if change.entity == "card" and change.action == "create"
         ]
         other = [change for change in response.changes if change not in creates]
-        draft_ids: list[str] = []
-        proposal_id: str | None = None
+        draft_ids: list[int] = []
+        proposal_id: int | None = None
         async with self.sessions() as session:
             if creates:
                 payloads = [await self._resolve_card_draft(session, change) for change in creates]
@@ -362,7 +456,7 @@ class AIAdvisor:
         return values
 
     async def _finish_run(
-        self, run_id: str, status: str, started: float, error_code: str | None = None
+        self, run_id: int, status: str, started: float, error_code: str | None = None
     ) -> None:
         async with self.sessions() as session:
             run = await session.get(AgentRun, run_id)
@@ -377,7 +471,7 @@ class ProposalService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def apply(self, proposal_id: str, *, allow_destructive: bool = False) -> list[str]:
+    async def apply(self, proposal_id: int, *, allow_destructive: bool = False) -> list[int]:
         proposal = await self.session.get(ChangeProposal, proposal_id)
         if proposal is None or proposal.status != ProposalStatus.PENDING.value:
             raise DomainError("Proposal is no longer pending")
@@ -392,7 +486,9 @@ class ProposalService:
                 .order_by(ProposalChange.position)
             )
         )
-        affected: list[str] = []
+        affected: list[int] = []
+        created_tag_ids: dict[str, int] = {}
+        created_value_ids: dict[str, int] = {}
         for change in changes:
             if change.entity == "card":
                 card = await self.session.get(Card, change.entity_id) if change.entity_id else None
@@ -441,15 +537,55 @@ class ProposalService:
                     if not allow_destructive:
                         raise DomainError("Permanent deletion needs a second confirmation")
                     await delete_subtree(self.session, card.id)
-                elif change.action in {"link", "unlink"} and change.values.get("value_id"):
-                    value_id = change.values["value_id"]
+                elif change.action in {"link", "unlink"} and (
+                    change.values.get("value_id") or change.values.get("value_query")
+                ):
+                    value_id = change.values.get("value_id")
+                    value_query = str(change.values.get("value_query", "")).strip()
+                    if not value_id and value_query:
+                        value_id = created_value_ids.get(value_query.casefold())
+                    if not value_id and value_query:
+                        matching_values = list(
+                            await self.session.scalars(
+                                select(Value).where(
+                                    Value.name.collate("NOCASE") == value_query,
+                                    Value.archived_at.is_(None),
+                                )
+                            )
+                        )
+                        if len(matching_values) == 1:
+                            value_id = matching_values[0].id
+                    if not value_id:
+                        raise DomainError(
+                            f"Value '{value_query}' is not available for this approved link"
+                        )
                     currently_linked = await self.session.get(
                         CardValue, {"card_id": card.id, "value_id": value_id}
                     )
                     if (change.action == "link") != (currently_linked is not None):
                         await toggle_card_value(self.session, card.id, value_id, actor=ActorType.AI)
-                elif change.action in {"link", "unlink"} and change.values.get("tag_id"):
-                    tag_id = change.values["tag_id"]
+                elif change.action in {"link", "unlink"} and (
+                    change.values.get("tag_id") or change.values.get("tag_query")
+                ):
+                    tag_id = change.values.get("tag_id")
+                    tag_query = str(change.values.get("tag_query", "")).strip()
+                    if not tag_id and tag_query:
+                        tag_id = created_tag_ids.get(tag_query.casefold())
+                    if not tag_id and tag_query:
+                        matching_tags = list(
+                            await self.session.scalars(
+                                select(Tag).where(
+                                    Tag.name.collate("NOCASE") == tag_query,
+                                    Tag.archived_at.is_(None),
+                                )
+                            )
+                        )
+                        if len(matching_tags) == 1:
+                            tag_id = matching_tags[0].id
+                    if not tag_id:
+                        raise DomainError(
+                            f"Tag '{tag_query}' is not available for this approved link"
+                        )
                     currently_linked = await self.session.get(
                         CardTag, {"card_id": card.id, "tag_id": tag_id}
                     )
@@ -473,16 +609,26 @@ class ProposalService:
                     raise DomainError(f"Unsupported approved Card action: {change.action}")
                 affected.append(card.id)
             elif change.entity == "tag":
-                tag = (
-                    await self.session.get(Tag, change.entity_id) if change.entity_id else None
-                )
+                tag = await self.session.get(Tag, change.entity_id) if change.entity_id else None
                 if change.action == "create":
+                    name = str(change.values.get("name", change.values.get("title", ""))).strip()
+                    if not name:
+                        raise DomainError("A new Tag needs a name")
+                    existing = await self.session.scalar(
+                        select(Tag).where(
+                            Tag.name.collate("NOCASE") == name,
+                            Tag.archived_at.is_(None),
+                        )
+                    )
+                    if existing is not None:
+                        raise DomainError(f"Tag '{name}' already exists; refresh the proposal")
                     tag = Tag(
-                        name=str(change.values["name"]).strip(),
+                        name=name,
                         description=str(change.values.get("description", "")).strip(),
                     )
                     self.session.add(tag)
                     await self.session.flush()
+                    created_tag_ids[name.casefold()] = tag.id
                 elif tag is None or tag.version != change.expected_version:
                     raise StaleStateError("A Tag changed; refresh this proposal")
                 elif change.action == "update":
@@ -503,13 +649,17 @@ class ProposalService:
                     await self.session.get(Value, change.entity_id) if change.entity_id else None
                 )
                 if change.action == "create":
+                    name = str(change.values["name"]).strip()
+                    if not name:
+                        raise DomainError("A new Value needs a name")
                     value = Value(
-                        name=str(change.values["name"]).strip(),
+                        name=name,
                         description=str(change.values.get("description", "")).strip(),
                         active=bool(change.values.get("active", False)),
                     )
                     self.session.add(value)
                     await self.session.flush()
+                    created_value_ids[name.casefold()] = value.id
                 elif value is None or value.version != change.expected_version:
                     raise StaleStateError("A Value changed; refresh this proposal")
                 elif change.action == "update":
@@ -587,7 +737,7 @@ class ProposalService:
         proposal.status = ProposalStatus.APPROVED.value
         return affected
 
-    async def reject(self, proposal_id: str) -> None:
+    async def reject(self, proposal_id: int) -> None:
         proposal = await self.session.get(ChangeProposal, proposal_id)
         if proposal and proposal.status == ProposalStatus.PENDING.value:
             proposal.status = ProposalStatus.REJECTED.value

@@ -119,7 +119,7 @@ Enums:
 - Semantic Telegram `MessageKind`
 - Typed `UiIntentType`
 
-Use UUIDs for durable entities. Telegram callback data contains only a short opaque token mapped to persisted server-side callback state.
+Use incrementing integer primary keys for durable entities. Telegram callback data contains only a short opaque token mapped to persisted server-side callback state.
 
 ### Database model
 

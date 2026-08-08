@@ -56,7 +56,6 @@ def validate_read_sql(sql: str) -> str:
 def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
     # Rebuild disposable read views so upgrades never retain an obsolete shape.
     for view_name in (
-        "ai_boards",
         "ai_tags",
         "ai_requests",
         "ai_cards",
@@ -111,7 +110,8 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
                (SELECT group_concat(t.name, ',') FROM card_tags ct
                 JOIN tags t ON t.id=ct.tag_id WHERE ct.card_id=c.id) AS direct_tags,
                (SELECT group_concat(cd.blocker_card_id, ',') FROM card_dependencies cd
-                WHERE cd.blocked_card_id=c.id) AS blocker_ids
+                WHERE cd.blocked_card_id=c.id) AS blocker_ids,
+               c.created_at
         FROM cards c
         WHERE c.archived_at IS NULL"""
     )

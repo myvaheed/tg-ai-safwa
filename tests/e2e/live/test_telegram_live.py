@@ -230,9 +230,9 @@ async def test_qa_status_and_manual_card_review_flow(live_telegram_harness):
         )
         assert home.id == settings.id
 
-        add_command = await qa.send("/add")
-        review = await qa.wait_for_bot(
-            add_command.id,
+        await click_button(home, "Add")
+        review = await qa.wait_for_existing_bot_message(
+            home.id,
             lambda message: has_button(message, "Title") and has_button(message, "Effort"),
         )
         await click_button(review, "Title")
@@ -293,9 +293,20 @@ async def test_qa_tags_and_requests_navigation(live_telegram_harness):
     qa = live_telegram_harness
     tag_name = f"QA family {uuid4().hex[:8]}"
     try:
-        new_tag = await qa.send(f"/newtag {tag_name}")
+        tags_command = await qa.send("/tags")
         tags = await qa.wait_for_bot(
-            new_tag.id,
+            tags_command.id,
+            lambda message: "Tags" in message.raw_text and has_button(message, "Add Tag"),
+        )
+        await click_button(tags, "Add Tag")
+        prompt = await qa.wait_for_bot(
+            tags.id,
+            lambda message: "Send the new Tag name" in message.raw_text,
+        )
+        assert prompt.id > tags.id
+        name_message = await qa.send(tag_name)
+        tags = await qa.wait_for_bot(
+            name_message.id,
             lambda message: "Tags" in message.raw_text and has_button(message, tag_name),
         )
         await click_button(tags, tag_name, exact=True)

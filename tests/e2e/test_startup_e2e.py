@@ -28,12 +28,14 @@ class FakeBot:
     def __init__(self, **_kwargs) -> None:
         self.session = FakeSession()
         self.commands_set = False
+        self.commands = []
         self.__class__.instances.append(self)
 
     async def get_me(self):
         return SimpleNamespace(id=9001)
 
     async def set_my_commands(self, commands) -> None:
+        self.commands = commands
         self.commands_set = bool(commands)
 
 
@@ -150,6 +152,8 @@ async def test_full_startup_reaches_polling_and_cleans_up(tmp_path: Path, monkey
 
     assert FakeDispatcher.instances[0].polling_started is True
     assert FakeBot.instances[0].commands_set is True
+    command_names = {command.command for command in FakeBot.instances[0].commands}
+    assert {"mem", "syncmem", "setmemtime"} <= command_names
     assert FakeBot.instances[0].session.closed is True
     assert FakeProvider.instances[0].closed is True
     assert FakeHistoryFactory.instance.started is True
@@ -157,7 +161,9 @@ async def test_full_startup_reaches_polling_and_cleans_up(tmp_path: Path, monkey
 
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM workspace").fetchone() == (1,)
-        assert connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='tags'").fetchone() == (1,)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='tags'"
+        ).fetchone() == (1,)
         assert connection.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='view' AND name='ai_cards'"
         ).fetchone() == (1,)

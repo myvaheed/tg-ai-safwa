@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class AgentChange(BaseModel):
@@ -21,26 +21,25 @@ class AgentChange(BaseModel):
         "start",
         "finish",
     ]
-    id: str | None = None
+    id: int | None = None
     values: dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentResponse(BaseModel):
-    kind: Literal["answer", "query", "clarification", "proposal"]
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["answer", "clarification", "proposal"]
     message: str
-    sql: str | None = None
     changes: list[AgentChange] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_shape(self) -> AgentResponse:
-        if self.kind == "answer" and (self.sql or self.changes):
-            raise ValueError("answer cannot contain SQL or changes")
-        if self.kind == "query" and (not self.sql or self.changes):
-            raise ValueError("query needs one SQL statement and no changes")
-        if self.kind == "clarification" and (self.sql or self.changes):
+        if self.kind == "answer" and self.changes:
+            raise ValueError("answer cannot contain changes")
+        if self.kind == "clarification" and self.changes:
             raise ValueError("clarification cannot contain operations")
-        if self.kind == "proposal" and (self.sql or not self.changes):
-            raise ValueError("proposal needs changes and no SQL")
+        if self.kind == "proposal" and not self.changes:
+            raise ValueError("proposal needs changes")
         return self
 
 

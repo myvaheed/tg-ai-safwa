@@ -28,6 +28,12 @@ def test_qa_config_inherits_safe_non_bot_defaults(tmp_path: Path):
         _env_file=None,
         telegram_bot_token="200:qa",
         telegram_user_session_path=tmp_path / "qa-user",
+        telegram_owner_id=None,
+        telegram_api_id=None,
+        telegram_api_hash=None,
+        ai_base_url=None,
+        ai_api_key=None,
+        ai_model=None,
     )
     resolved = resolve_qa_config(
         data_dir=tmp_path / "runtime",

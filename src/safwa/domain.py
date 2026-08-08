@@ -33,7 +33,7 @@ from .models import (
     UserProfile,
     Value,
     Workspace,
-    new_id,
+    new_correlation_id,
 )
 from .saved_requests import RequestFilterError, normalize_filter_spec
 
@@ -48,9 +48,9 @@ class StaleStateError(DomainError):
 
 @dataclass
 class OperationResult:
-    card_ids: list[str] = field(default_factory=list)
-    ancestor_ids: list[str] = field(default_factory=list)
-    successor_ids: list[str] = field(default_factory=list)
+    card_ids: list[int] = field(default_factory=list)
+    ancestor_ids: list[int] = field(default_factory=list)
+    successor_ids: list[int] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -130,7 +130,7 @@ async def create_saved_request(
 
 async def update_saved_request(
     session: AsyncSession,
-    request_id: str,
+    request_id: int,
     *,
     name: str | None = None,
     description: str | None = None,
@@ -164,7 +164,7 @@ async def update_saved_request(
     return request
 
 
-async def archive_saved_request(session: AsyncSession, request_id: str) -> SavedRequest:
+async def archive_saved_request(session: AsyncSession, request_id: int) -> SavedRequest:
     request = await session.get(SavedRequest, request_id)
     if request is None or request.archived_at is not None:
         raise DomainError("Request does not exist or is archived")
@@ -188,7 +188,7 @@ async def create_value(session: AsyncSession, name: str, description: str = "") 
 
 
 async def set_value_focus(
-    session: AsyncSession, value_id: str, active: bool | None = None
+    session: AsyncSession, value_id: int, active: bool | None = None
 ) -> Value:
     value = await session.get(Value, value_id)
     if value is None or value.archived_at is not None:
@@ -237,7 +237,7 @@ async def snooze_reminders(session: AsyncSession, until: datetime) -> ReminderSt
     return state
 
 
-async def edit_card_text(session: AsyncSession, card_id: str, field: str, value: str) -> Card:
+async def edit_card_text(session: AsyncSession, card_id: int, field: str, value: str) -> Card:
     if field not in {"title", "note"}:
         raise DomainError("Only a Card title or Note can be edited as text")
     card = await session.get(Card, card_id)
@@ -249,14 +249,16 @@ async def edit_card_text(session: AsyncSession, card_id: str, field: str, value:
     before = card_snapshot(card)
     setattr(card, field, normalized)
     card.version += 1
-    await _record_event(session, card, f"edit_{field}", ActorType.USER_UI, before, new_id())
+    await _record_event(
+        session, card, f"edit_{field}", ActorType.USER_UI, before, new_correlation_id()
+    )
     await _bump_workspace(session)
     return card
 
 
 async def update_card_fields(
     session: AsyncSession,
-    card_id: str,
+    card_id: int,
     fields: dict[str, Any],
     *,
     actor: ActorType = ActorType.USER_UI,
@@ -278,12 +280,12 @@ async def update_card_fields(
         setattr(card, name, value)
     validate_action_fields(card.kind, card.effort_points, card.repeatable)
     card.version += 1
-    await _record_event(session, card, "update", actor, before, new_id())
+    await _record_event(session, card, "update", actor, before, new_correlation_id())
     await _bump_workspace(session)
     return card
 
 
-async def set_card_parent(session: AsyncSession, card_id: str, parent_id: str | None) -> Card:
+async def set_card_parent(session: AsyncSession, card_id: int, parent_id: int | None) -> Card:
     """Attach a Card to a parent (or make it root-level) with full hierarchy repair."""
     card = await session.get(Card, card_id)
     if card is None or card.archived_at is not None:
@@ -296,7 +298,9 @@ async def set_card_parent(session: AsyncSession, card_id: str, parent_id: str | 
     before = card_snapshot(card)
     card.parent_id = parent_id
     card.version += 1
-    await _record_event(session, card, "set_parent", ActorType.USER_UI, before, new_id())
+    await _record_event(
+        session, card, "set_parent", ActorType.USER_UI, before, new_correlation_id()
+    )
     await propagate_ancestors(session, previous_parent_id)
     await propagate_ancestors(session, parent_id)
     await _bump_workspace(session)
@@ -304,7 +308,7 @@ async def set_card_parent(session: AsyncSession, card_id: str, parent_id: str | 
 
 
 async def toggle_card_value(
-    session: AsyncSession, card_id: str, value_id: str, *, actor: ActorType = ActorType.USER_UI
+    session: AsyncSession, card_id: int, value_id: int, *, actor: ActorType = ActorType.USER_UI
 ) -> bool:
     """Toggle a direct Value link and return whether it is now linked."""
     card = await session.get(Card, card_id)
@@ -324,13 +328,13 @@ async def toggle_card_value(
         await session.delete(link)
         operation, linked = "unlink_value", False
     card.version += 1
-    await _record_event(session, card, operation, actor, before, new_id())
+    await _record_event(session, card, operation, actor, before, new_correlation_id())
     await _bump_workspace(session)
     return linked
 
 
 async def toggle_card_tag(
-    session: AsyncSession, card_id: str, tag_id: str, *, actor: ActorType = ActorType.USER_UI
+    session: AsyncSession, card_id: int, tag_id: int, *, actor: ActorType = ActorType.USER_UI
 ) -> bool:
     """Toggle a direct Tag link and return whether it is now linked."""
     card = await session.get(Card, card_id)
@@ -350,15 +354,15 @@ async def toggle_card_tag(
         await session.delete(link)
         operation, linked = "unlink_tag", False
     card.version += 1
-    await _record_event(session, card, operation, actor, before, new_id())
+    await _record_event(session, card, operation, actor, before, new_correlation_id())
     await _bump_workspace(session)
     return linked
 
 
 async def toggle_card_dependency(
     session: AsyncSession,
-    blocked_card_id: str,
-    blocker_card_id: str,
+    blocked_card_id: int,
+    blocker_card_id: int,
     *,
     copy_to_repeat: bool = False,
     actor: ActorType = ActorType.USER_UI,
@@ -391,7 +395,7 @@ async def toggle_card_dependency(
         await session.delete(link)
         operation, linked = "unlink_dependency", False
     blocked.version += 1
-    await _record_event(session, blocked, operation, actor, before, new_id())
+    await _record_event(session, blocked, operation, actor, before, new_correlation_id())
     await _bump_workspace(session)
     return linked
 
@@ -412,9 +416,9 @@ async def _bump_workspace(session: AsyncSession) -> Workspace:
 async def validate_parent(
     session: AsyncSession,
     kind: CardKind | str,
-    parent_id: str | None,
+    parent_id: int | None,
     *,
-    card_id: str | None = None,
+    card_id: int | None = None,
 ) -> Card | None:
     kind = CardKind(kind)
     if parent_id is None:
@@ -453,7 +457,7 @@ def validate_action_fields(
         raise DomainError("Goal and Idea cards cannot have Action-only fields")
 
 
-async def _children(session: AsyncSession, card_id: str) -> list[Card]:
+async def _children(session: AsyncSession, card_id: int) -> list[Card]:
     return list(
         await session.scalars(
             select(Card).where(Card.parent_id == card_id, Card.archived_at.is_(None))
@@ -461,10 +465,10 @@ async def _children(session: AsyncSession, card_id: str) -> list[Card]:
     )
 
 
-async def effective_value_ids(session: AsyncSession, card_id: str) -> set[str]:
+async def effective_value_ids(session: AsyncSession, card_id: int) -> set[int]:
     """Direct Values plus descendant Values, without duplicating stored links."""
     pending = [card_id]
-    card_ids: list[str] = []
+    card_ids: list[int] = []
     while pending:
         current = pending.pop()
         card_ids.append(current)
@@ -474,7 +478,7 @@ async def effective_value_ids(session: AsyncSession, card_id: str) -> set[str]:
     )
 
 
-async def unresolved_blockers(session: AsyncSession, card_id: str) -> list[Card]:
+async def unresolved_blockers(session: AsyncSession, card_id: int) -> list[Card]:
     blocker_ids = list(
         await session.scalars(
             select(CardDependency.blocker_card_id).where(CardDependency.blocked_card_id == card_id)
@@ -492,7 +496,7 @@ async def unresolved_blockers(session: AsyncSession, card_id: str) -> list[Card]
 
 
 async def ensure_dependency_acyclic(
-    session: AsyncSession, blocked_card_id: str, blocker_card_id: str
+    session: AsyncSession, blocked_card_id: int, blocker_card_id: int
 ) -> None:
     if blocked_card_id == blocker_card_id:
         raise DomainError("A Card cannot block itself")
@@ -524,7 +528,7 @@ def aggregate_child_stages(children: list[Card]) -> CardStage:
     return CardStage.DONE
 
 
-async def propagate_ancestors(session: AsyncSession, start_parent_id: str | None) -> list[str]:
+async def propagate_ancestors(session: AsyncSession, start_parent_id: int | None) -> list[int]:
     changed: list[str] = []
     parent_id = start_parent_id
     while parent_id:
@@ -596,7 +600,7 @@ async def _sync_commitment_for_stage(
 
 async def move_card(
     session: AsyncSession,
-    card_id: str,
+    card_id: int,
     stage: CardStage,
     *,
     actor: ActorType = ActorType.USER_UI,
@@ -610,7 +614,7 @@ async def move_card(
         and await _children(session, card.id)
     ):
         raise DomainError("A populated Goal or Idea completes through its children")
-    correlation_id = new_id()
+    correlation_id = new_correlation_id()
     result = OperationResult(card_ids=[card.id])
     blockers = await unresolved_blockers(session, card.id)
     result.warnings.extend(f"Blocked by {blocker.title}" for blocker in blockers)
@@ -638,7 +642,7 @@ async def move_card(
 
 
 async def _copy_repeat_successor(session: AsyncSession, card: Card, live_stage: CardStage) -> Card:
-    series_id = card.repeat_series_id or new_id()
+    series_id = card.repeat_series_id or card.id
     card.repeat_series_id = series_id
     successor = Card(
         parent_id=card.parent_id,
@@ -686,7 +690,7 @@ async def _copy_repeat_successor(session: AsyncSession, card: Card, live_stage: 
 
 async def finish_action(
     session: AsyncSession,
-    card_id: str,
+    card_id: int,
     terminal_stage: CardStage,
     *,
     actor: ActorType = ActorType.USER_UI,
@@ -708,7 +712,7 @@ async def finish_action(
     card.completed_at = now if terminal_stage is CardStage.DONE else None
     card.cancelled_at = now if terminal_stage is CardStage.CANCELLED else None
     card.version += 1
-    correlation_id = new_id()
+    correlation_id = new_correlation_id()
     await _record_event(session, card, terminal_stage.value, actor, before, correlation_id)
     workspace = await _workspace(session)
     commitment = (
@@ -736,7 +740,7 @@ async def finish_action(
     return result
 
 
-async def set_feedback(session: AsyncSession, queue_id: str, liked: bool) -> Card:
+async def set_feedback(session: AsyncSession, queue_id: int, liked: bool) -> Card:
     item = await session.get(FeedbackQueue, queue_id)
     if item is None:
         raise DomainError("Feedback request no longer exists")
@@ -814,7 +818,7 @@ async def finish_sprint(session: AsyncSession, *, reason: str = "finished") -> S
     return sprint
 
 
-async def sprint_metrics(session: AsyncSession, sprint_id: str) -> dict[str, int]:
+async def sprint_metrics(session: AsyncSession, sprint_id: int) -> dict[str, int]:
     items = list(
         await session.scalars(
             select(SprintCommitment).where(SprintCommitment.sprint_id == sprint_id)
@@ -829,13 +833,13 @@ async def sprint_metrics(session: AsyncSession, sprint_id: str) -> dict[str, int
     }
 
 
-async def archive_subtree(session: AsyncSession, card_id: str, archive: bool = True) -> list[str]:
+async def archive_subtree(session: AsyncSession, card_id: int, archive: bool = True) -> list[int]:
     card = await session.get(Card, card_id)
     if card is None:
         raise DomainError("Card does not exist")
     changed: list[str] = []
     stamp = utcnow() if archive else None
-    correlation_id = new_id()
+    correlation_id = new_correlation_id()
 
     async def visit(node: Card) -> None:
         before = card_snapshot(node)
@@ -859,12 +863,12 @@ async def archive_subtree(session: AsyncSession, card_id: str, archive: bool = T
     return changed
 
 
-async def delete_subtree(session: AsyncSession, card_id: str) -> int:
+async def delete_subtree(session: AsyncSession, card_id: int) -> int:
     card = await session.get(Card, card_id)
     if card is None:
         raise DomainError("Card does not exist")
     parent_id = card.parent_id
-    ids: list[str] = []
+    ids: list[int] = []
 
     async def collect(node: Card) -> None:
         ids.append(node.id)

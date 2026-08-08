@@ -4,13 +4,16 @@ import asyncio
 import json
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, time
+from enum import StrEnum
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .ai.provider import OpenAICompatibleProvider
-from .history import TelegramHistorySource
+from .history import HistoryBoundaryMissing, TelegramHistorySource
 from .memory import MemoryFileError, MemoryFileStore, estimate_tokens
-from .models import MemorySyncState
+from .models import MemorySyncState, UserProfile
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +32,14 @@ MEMORY_PROMPT = """Reconcile the retelling into the complete persistent memory l
 useful personal facts. Remove duplicates and obsolete facts. Never add card stages, Sprint metrics,
 temporary priorities, blockers, deadlines, SQL, or tool traces. Return JSON only as
 {"facts":["one complete non-empty fact per item"]}. Keep the existing language and do not invent facts."""
+
+
+class MemoryMaintenanceResult(StrEnum):
+    UPDATED = "updated"
+    CURRENT = "current"
+    BUSY = "busy"
+    INVALID = "invalid"
+    BOUNDARY_MISSING = "boundary_missing"
 
 
 class PersonaContinuity:
@@ -79,28 +90,31 @@ class PersonaContinuity:
             await send_summary("📜 Summary\n" + summary, covered_id)
             return True
 
-    async def maintain_memory(self, chat_id: int) -> bool:
+    async def maintain_memory(self, chat_id: int) -> MemoryMaintenanceResult:
         if self._memory_lock.locked():
-            return False
+            return MemoryMaintenanceResult.BUSY
         async with self._memory_lock:
+            snapshot = await self.memory.sync()
+            if not snapshot.valid:
+                return MemoryMaintenanceResult.INVALID
             async with self.sessions() as session:
                 state = await session.get(MemorySyncState, 1)
                 processed_id = state.processed_message_id if state else None
-            entries = await self.history.recent(chat_id, limit=500)
+            try:
+                entries = await self.history.recent(chat_id, limit=500, require_boundary=True)
+            except HistoryBoundaryMissing:
+                return MemoryMaintenanceResult.BOUNDARY_MISSING
             new_entries = [
                 entry for entry in entries if not processed_id or entry.message_id > processed_id
             ]
             if not new_entries:
-                return False
+                return MemoryMaintenanceResult.CURRENT
             raw = "\n".join(f"[{e.role}]: {e.text}" for e in new_entries)
             chunks = self._chunks(
                 raw,
                 limit_chars=int(2_000 * self.chars_per_token),
                 overlap_chars=int(500 * self.chars_per_token),
             )
-            snapshot = await self.memory.sync()
-            if not snapshot.valid:
-                return False
             facts = list(snapshot.facts)
             expected_hash = snapshot.file_hash
             for chunk in chunks:
@@ -141,16 +155,16 @@ class PersonaContinuity:
                     facts, expected_hash=expected_hash, provenance="inferred"
                 )
             except MemoryFileError:
-                return False
+                return MemoryMaintenanceResult.INVALID
             async with self.sessions() as session:
                 state = await session.get(MemorySyncState, 1)
                 if state is None:
                     state = MemorySyncState(id=1)
                     session.add(state)
-                state.processed_message_id = new_entries[-1].message_id
+                state.processed_message_id = max(entry.message_id for entry in new_entries)
                 state.file_hash = updated.file_hash
                 await session.commit()
-            return True
+            return MemoryMaintenanceResult.UPDATED
 
     @staticmethod
     def _chunks(text: str, *, limit_chars: int, overlap_chars: int) -> list[str]:
@@ -169,15 +183,83 @@ class PersonaContinuity:
 
 async def run_memory_maintenance(
     continuity: PersonaContinuity,
+    sessions: async_sessionmaker[AsyncSession],
     chat_id: int,
     is_foreground_busy: Callable[[], bool],
+    timezone: str,
     *,
-    interval_seconds: float = 3600,
+    interval_seconds: float = 60,
 ) -> None:
     while True:
-        if not is_foreground_busy():
-            try:
-                await continuity.maintain_memory(chat_id)
-            except Exception:
-                logger.exception("Automatic memory maintenance failed")
+        try:
+            await run_due_memory_maintenance(
+                continuity,
+                sessions,
+                chat_id,
+                is_foreground_busy,
+                timezone,
+            )
+        except Exception:
+            logger.exception("Scheduled memory synchronization failed")
         await asyncio.sleep(interval_seconds)
+
+
+async def run_due_memory_maintenance(
+    continuity: PersonaContinuity,
+    sessions: async_sessionmaker[AsyncSession],
+    chat_id: int,
+    is_foreground_busy: Callable[[], bool],
+    timezone: str,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """Run the configured once-daily memory sync if it is due."""
+    if is_foreground_busy():
+        return False
+    zone = ZoneInfo(timezone)
+    local_now = now.astimezone(zone) if now else datetime.now(zone)
+    async with sessions() as session:
+        profile = await session.get(UserProfile, 1)
+        state = await session.get(MemorySyncState, 1)
+        update_time = profile.memory_update_time if profile else None
+        if update_time is None or local_now.time().replace(tzinfo=None) < update_time:
+            return False
+        if state and state.memory_last_run_at:
+            last_run = state.memory_last_run_at
+            if last_run.tzinfo is None:
+                last_run = last_run.replace(tzinfo=UTC)
+            if last_run.astimezone(zone).date() >= local_now.date():
+                return False
+
+    result = await continuity.maintain_memory(chat_id)
+    if result not in {MemoryMaintenanceResult.UPDATED, MemoryMaintenanceResult.CURRENT}:
+        return False
+    await record_memory_run(sessions, local_now.astimezone(UTC))
+    return True
+
+
+async def record_memory_run(
+    sessions: async_sessionmaker[AsyncSession],
+    occurred_at: datetime | None = None,
+) -> None:
+    async with sessions() as session:
+        state = await session.get(MemorySyncState, 1)
+        if state is None:
+            state = MemorySyncState(id=1)
+            session.add(state)
+        state.memory_last_run_at = occurred_at or datetime.now(UTC)
+        await session.commit()
+
+
+def parse_memory_update_time(value: str) -> time | None:
+    normalized = value.strip().lower()
+    if normalized == "off":
+        return None
+    if len(normalized) != 5 or normalized[2] != ":":
+        raise ValueError("Memory update time must use HH:MM, for example 03:00, or off.")
+    try:
+        return time.fromisoformat(normalized)
+    except ValueError as error:
+        raise ValueError(
+            "Memory update time must use a valid 24-hour HH:MM value, for example 03:00, or off."
+        ) from error

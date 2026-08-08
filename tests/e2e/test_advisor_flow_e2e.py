@@ -5,6 +5,8 @@ import json
 import pytest
 from sqlalchemy import func, select
 
+from safwa.ai.context import DialogueMessage
+from safwa.ai.provider import ProviderToolCall, ProviderTurn
 from safwa.ai.service import AIOutcome, ProposalService
 from safwa.analytics import render_retrospective_png, retrospective_data
 from safwa.domain import (
@@ -195,12 +197,17 @@ async def test_ai_read_query_round_trip_uses_safe_view(e2e_harness):
         await finish_action(session, action.id, CardStage.DONE)
         await session.commit()
 
-    query_response = json.dumps(
-        {
-            "kind": "query",
-            "message": "I will calculate the Sprint totals.",
-            "sql": "SELECT committed, completed FROM ai_current_sprint_metrics",
-        }
+    query_response = ProviderTurn(
+        content="",
+        tool_calls=(
+            ProviderToolCall(
+                id="read-1",
+                name="query_safwa",
+                arguments=json.dumps(
+                    {"sql": "SELECT committed, completed FROM ai_current_sprint_metrics"}
+                ),
+            ),
+        ),
     )
     answer_response = json.dumps(
         {
@@ -216,8 +223,9 @@ async def test_ai_read_query_round_trip_uses_safe_view(e2e_harness):
     assert outcome.kind == "answer"
     assert outcome.message == "You committed 5 effort points and completed all 5."
     assert len(provider.calls) == 2
-    follow_up_context = "\n".join(message["content"] for message in provider.calls[1])
-    assert "Read-query result" in follow_up_context
+    assert provider.calls[1][-2]["role"] == "assistant"
+    assert provider.calls[1][-1]["role"] == "tool"
+    follow_up_context = str(provider.calls[1][-1]["content"])
     assert '"committed": 5' in follow_up_context
     assert '"completed": 5' in follow_up_context
 
@@ -362,9 +370,7 @@ async def test_repeatable_action_preserves_tags_in_e2e_flow(e2e_harness):
     async with e2e_harness.sessions() as session:
         successor = await session.get(Card, completion.successor_ids[0])
         assert successor is not None
-        copied_tag = await session.get(
-            CardTag, {"card_id": successor.id, "tag_id": tag.id}
-        )
+        copied_tag = await session.get(CardTag, {"card_id": successor.id, "tag_id": tag.id})
         assert copied_tag is not None
 
 
@@ -386,11 +392,114 @@ async def test_ai_approved_tag_proposal_creates_a_reusable_tag(e2e_harness):
     outcome = await advisor.handle("Create a Learning tag")
 
     async with e2e_harness.sessions() as session:
-        affected = await ProposalService(session).apply(outcome.proposal_id or "")
+        affected = await ProposalService(session).apply(outcome.proposal_id or 0)
         await session.commit()
         tag = await session.get(Tag, affected[0])
         assert tag is not None
         assert (tag.name, tag.description) == ("Learning", "Study and practice.")
+
+
+async def test_ai_can_create_and_link_a_tag_in_one_approved_proposal(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        goal = await create_manual_card(
+            session, title="Release VrWalk", kind="goal", effort_points=None
+        )
+        action = await create_manual_card(session, title="Refactor design", effort_points=3)
+        await session.commit()
+
+    read_turn = ProviderTurn(
+        content="",
+        tool_calls=(
+            ProviderToolCall(
+                id="recent-cards",
+                name="query_safwa",
+                arguments=json.dumps(
+                    {
+                        "sql": "SELECT id, title, created_at FROM ai_cards "
+                        "ORDER BY created_at DESC LIMIT 10"
+                    }
+                ),
+            ),
+        ),
+    )
+    # The Tag `title` alias deliberately mirrors the imperfect local-model response.
+    response = json.dumps(
+        {
+            "kind": "proposal",
+            "message": "I prepared the VrWalk tag and its card link for approval.",
+            "changes": [
+                {
+                    "entity": "tag",
+                    "action": "create",
+                    "values": {"title": "VrWalk"},
+                },
+                {
+                    "entity": "card",
+                    "action": "link",
+                    "id": goal.id,
+                    "values": {"tag_query": "VrWalk"},
+                },
+                {
+                    "entity": "card",
+                    "action": "link",
+                    "id": action.id,
+                    "values": {"tag_query": "VrWalk"},
+                },
+            ],
+        }
+    )
+    advisor, provider = e2e_harness.advisor([read_turn, response])
+    outcome = await advisor.handle("Create VrWalk and attach it to my recent cards")
+
+    async with e2e_harness.sessions() as session:
+        affected = await ProposalService(session).apply(outcome.proposal_id or "")
+        await session.commit()
+        tag = await session.scalar(select(Tag).where(Tag.name == "VrWalk"))
+        assert tag is not None
+        assert set(affected) == {tag.id, goal.id, action.id}
+        for card_id in (goal.id, action.id):
+            assert await session.get(CardTag, {"card_id": card_id, "tag_id": tag.id}) is not None
+    assert provider.calls[1][-1]["role"] == "tool"
+    assert str(goal.id) in str(provider.calls[1][-1]["content"])
+    assert str(action.id) in str(provider.calls[1][-1]["content"])
+
+
+async def test_ai_can_create_and_link_a_value_in_one_approved_proposal(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        action = await create_manual_card(session, title="Morning run", effort_points=2)
+        await session.commit()
+
+    response = json.dumps(
+        {
+            "kind": "proposal",
+            "message": "I prepared the Health Value and its Card link for approval.",
+            "changes": [
+                {
+                    "entity": "value",
+                    "action": "create",
+                    "values": {"name": "Health", "active": True},
+                },
+                {
+                    "entity": "card",
+                    "action": "link",
+                    "id": action.id,
+                    "values": {"value_query": "Health"},
+                },
+            ],
+        }
+    )
+    advisor, _provider = e2e_harness.advisor([response])
+    outcome = await advisor.handle("Create Health and link it to Morning run")
+
+    async with e2e_harness.sessions() as session:
+        affected = await ProposalService(session).apply(outcome.proposal_id or 0)
+        await session.commit()
+        value = await session.scalar(select(Value).where(Value.name == "Health"))
+        assert value is not None and value.active is True
+        assert set(affected) == {value.id, action.id}
+        assert (
+            await session.get(CardValue, {"card_id": action.id, "value_id": value.id}) is not None
+        )
 
 
 async def test_ai_request_update_is_rejected_when_the_request_becomes_stale(e2e_harness):
@@ -444,23 +553,24 @@ async def test_ai_can_query_saved_requests_through_the_safe_view(e2e_harness):
         await session.commit()
 
     responses = [
-        json.dumps(
-            {
-                "kind": "query",
-                "message": "I will check your saved Requests.",
-                "sql": "SELECT name FROM ai_requests",
-            }
+        ProviderTurn(
+            content="",
+            tool_calls=(
+                ProviderToolCall(
+                    id="read-requests",
+                    name="query_safwa",
+                    arguments=json.dumps({"sql": "SELECT name FROM ai_requests"}),
+                ),
+            ),
         ),
-        json.dumps(
-            {"kind": "answer", "message": "You have a saved Request named All goals."}
-        ),
+        json.dumps({"kind": "answer", "message": "You have a saved Request named All goals."}),
     ]
     advisor, provider = e2e_harness.advisor(responses)
     outcome = await advisor.handle("What saved Requests do I have?")
 
     assert outcome.kind == "answer"
     assert len(provider.calls) == 2
-    follow_up_context = "\n".join(message["content"] for message in provider.calls[1])
+    follow_up_context = str(provider.calls[1][-1]["content"])
     assert '"name": "All goals"' in follow_up_context
 
 
@@ -577,3 +687,40 @@ async def test_ai_request_supports_nested_all_any_filter_logic(e2e_harness):
         )
         assert {card.id for card in matches} == {today.id, critical.id}
         assert ordinary.id not in {card.id for card in matches}
+
+
+async def test_advisor_sends_one_system_message_and_canonical_dialogue(e2e_harness):
+    response = json.dumps({"kind": "answer", "message": "I remember the context."})
+    advisor, provider = e2e_harness.advisor([response])
+    dialogue = [
+        DialogueMessage(role="user", content="[Initial request]: Plan this week."),
+        DialogueMessage(role="assistant", content="What matters most this week?"),
+        DialogueMessage(
+            role="user",
+            content="[User]: Health and work.\n[User]: I also need time with family.",
+        ),
+    ]
+
+    outcome = await advisor.handle("I also want a calmer evening.", dialogue=dialogue)
+
+    assert outcome.kind == "answer"
+    messages = provider.calls[0]
+    assert [message["role"] for message in messages] == [
+        "system",
+        "user",
+        "assistant",
+        "user",
+    ]
+    assert sum(message["role"] == "system" for message in messages) == 1
+    assert messages[-1]["content"] == dialogue[-1].content
+    system = str(messages[0]["content"])
+    assert "query_safwa" in system
+    assert "ai_cards(id, title" in system
+    assert "Workspace revision:" not in system
+    assert "Saved Requests:" not in system
+    assert "Sprint cards:" not in system
+    assert "Recent cards" not in system
+    assert "Lexical card candidates" not in system
+    tools = provider.options[0]["tools"]
+    assert isinstance(tools, list) and len(tools) == 1
+    assert tools[0]["function"]["name"] == "query_safwa"

@@ -32,6 +32,10 @@ _SUBSESSION_RESULT_CONTINUED_RE = re.compile(
 SUMMARY_CONTEXT_MESSAGE_LIMIT = 20
 
 
+class HistoryBoundaryMissing(RuntimeError):
+    """Raised when dialogue has no visible /newsession or Summary cut place."""
+
+
 @dataclass(frozen=True)
 class HistoryEntry:
     message_id: int
@@ -101,35 +105,49 @@ class TelegramHistorySource:
         *,
         limit: int = 120,
         source_message: HistoryEntry | None = None,
+        require_boundary: bool = False,
     ) -> list[HistoryEntry]:
         if self.client is None:
+            if require_boundary:
+                raise HistoryBoundaryMissing(
+                    "No Telegram history boundary is available. Start with /newsession followed "
+                    "by your initial request."
+                )
             return [source_message] if source_message else []
         async with self.sessions() as session:
-            registry = {
-                row.message_id: row.kind
-                for row in await session.scalars(
+            registry = list(
+                await session.scalars(
                     select(TelegramMessage).where(TelegramMessage.chat_id == chat_id)
                 )
-            }
-        entity = await self.client.get_entity(chat_id)
+            )
+        used_registry_ids: set[str] = set()
+        # In a private Bot API chat, ``chat_id`` is the owner's user ID.  A
+        # Telethon user session must read its dialog with the bot peer instead;
+        # resolving ``chat_id`` would read the owner's Saved Messages.
+        entity = await self.client.get_entity(self.bot_user_id)
         selected: list[HistoryEntry] = []
         summary_context: list[HistoryEntry] = []
         boundary: HistoryEntry | None = None
         subsession_result_chunks: list[str] = []
-        subsession_result_seen = False
         scan_limit = max(1_000, limit * 20)
         async for message in self.client.iter_messages(entity, limit=scan_limit):
             raw_text = (getattr(message, "raw_text", None) or message.message or "").strip()
             if not raw_text:
                 continue
             sender_id = int(message.sender_id) if message.sender_id else None
-            kind = registry.get(message.id)
             created_at = message.date.astimezone(UTC)
+            direction = "out" if sender_id == self.bot_user_id else "in"
+            kind = self._registered_kind(
+                registry,
+                used_registry_ids,
+                message_id=message.id,
+                direction=direction,
+                created_at=created_at,
+            )
 
             if sender_id == self.bot_user_id:
                 subsession_result = self._subsession_result_piece(raw_text)
                 if subsession_result is not None:
-                    subsession_result_seen = True
                     is_start, body = subsession_result
                     subsession_result_chunks.append(body)
                     if is_start:
@@ -205,15 +223,60 @@ class TelegramHistorySource:
 
         selected.reverse()
         summary_context.reverse()
-        # A private bot chat may predate Safwa.  Until an explicit `/newsession`
-        # or visible Summary establishes a real boundary, no prior message is safe
-        # to treat as Safwa persona history.
-        result = ([boundary] + summary_context + selected) if boundary else []
-        if not boundary and subsession_result_seen:
-            result = selected
+        has_subsession_result = any(
+            entry.kind == MessageKind.SUBSESSION_RESULT.value for entry in selected
+        )
+        if require_boundary and boundary is None and not has_subsession_result:
+            raise HistoryBoundaryMissing(
+                "No /newsession or Summary boundary was found in Telegram. Start with "
+                "/newsession followed by your initial request."
+            )
+        result = ([boundary] + summary_context + selected) if boundary else selected
         if source_message and all(item.message_id != source_message.message_id for item in result):
             result.append(source_message)
         return result
+
+    @staticmethod
+    def _registered_kind(
+        registry: list[TelegramMessage],
+        used_registry_ids: set[str],
+        *,
+        message_id: int,
+        direction: str,
+        created_at: datetime,
+    ) -> str | None:
+        """Correlate Bot API registrations with Telethon's private-chat ID space."""
+        exact = next(
+            (
+                row
+                for row in registry
+                if row.id not in used_registry_ids
+                and row.direction == direction
+                and row.message_id == message_id
+            ),
+            None,
+        )
+        if exact is not None:
+            used_registry_ids.add(exact.id)
+            return exact.kind
+
+        candidates: list[tuple[float, int, TelegramMessage]] = []
+        for row in registry:
+            if row.id in used_registry_ids or row.direction != direction:
+                continue
+            registered_at = row.created_at
+            if registered_at.tzinfo is None:
+                registered_at = registered_at.replace(tzinfo=UTC)
+            difference = abs((registered_at.astimezone(UTC) - created_at).total_seconds())
+            if difference <= 15:
+                # Scanning is newest-first, so prefer the larger Bot API ID when
+                # two registrations have the same timestamp distance.
+                candidates.append((difference, -row.message_id, row))
+        if not candidates:
+            return None
+        matched = min(candidates, key=lambda item: (item[0], item[1]))[2]
+        used_registry_ids.add(matched.id)
+        return matched.kind
 
     @staticmethod
     def _new_session_request(text: str) -> str | None:
@@ -241,7 +304,7 @@ class TelegramHistorySource:
         """Return the newest real `/newsession` boundary, if it is still visible."""
         if self.client is None:
             return None
-        entity = await self.client.get_entity(chat_id)
+        entity = await self.client.get_entity(self.bot_user_id)
         async for message in self.client.iter_messages(entity, limit=1_000):
             raw_text = (getattr(message, "raw_text", None) or message.message or "").strip()
             if not raw_text or int(message.sender_id or 0) != self.owner_id:
@@ -274,16 +337,38 @@ class TelegramHistorySource:
     async def dialogue(
         self, chat_id: int, *, source_message: HistoryEntry | None = None
     ) -> list[DialogueMessage]:
-        entries = await self.recent(chat_id, source_message=source_message)
-        return [
-            DialogueMessage(
-                # Summary context is deliberately supplied after the Summary as
-                # timestamped reference material, rather than as a new assistant turn.
-                role="user" if entry.summary_context else entry.role,
-                content=self._dialogue_content(entry),
-            )
-            for entry in entries
-        ]
+        entries = await self.recent(chat_id, source_message=source_message, require_boundary=True)
+        dialogue: list[DialogueMessage] = []
+        pending_user: list[str] = []
+
+        def flush_user() -> None:
+            if pending_user:
+                dialogue.append(DialogueMessage(role="user", content="\n".join(pending_user)))
+                pending_user.clear()
+
+        for entry in entries:
+            content = self._dialogue_content(entry)
+            if entry.role == "assistant" and not entry.summary_context:
+                flush_user()
+                if dialogue and dialogue[-1].role == "assistant":
+                    dialogue[-1] = replace(
+                        dialogue[-1], content=dialogue[-1].content + "\n" + content
+                    )
+                else:
+                    dialogue.append(DialogueMessage(role="assistant", content=content))
+                continue
+            # Summaries, the initial request, and the 20 timestamped messages
+            # beside a Summary already have their own bracketed labels.
+            if entry.summary_context or entry.kind in {
+                MessageKind.SUMMARY.value,
+                MessageKind.SESSION_START.value,
+                MessageKind.SUBSESSION_RESULT.value,
+            }:
+                pending_user.append(content)
+            else:
+                pending_user.append(f"[User]: {content}")
+        flush_user()
+        return dialogue
 
 
 async def register_message(
@@ -292,7 +377,7 @@ async def register_message(
     message_id: int,
     direction: str,
     kind: MessageKind,
-    related_id: str | None = None,
+    related_id: int | None = None,
 ) -> None:
     existing = await session.scalar(
         select(TelegramMessage).where(

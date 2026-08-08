@@ -3,8 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+import pytest
+from sqlalchemy import update
+
 from safwa.enums import MessageKind
-from safwa.history import HistoryEntry, TelegramHistorySource, register_message
+from safwa.history import (
+    HistoryBoundaryMissing,
+    HistoryEntry,
+    TelegramHistorySource,
+    register_message,
+)
+from safwa.models import TelegramMessage
 
 
 @dataclass
@@ -18,8 +27,10 @@ class FakeTelegramMessage:
 class FakeTelegramClient:
     def __init__(self, messages: list[FakeTelegramMessage]) -> None:
         self.messages = messages
+        self.entity_ids: list[int] = []
 
     async def get_entity(self, chat_id: int) -> int:
+        self.entity_ids.append(chat_id)
         return chat_id
 
     async def iter_messages(self, _entity: int, *, limit: int):
@@ -71,6 +82,7 @@ async def test_history_fails_closed_and_starts_at_newsession(sessions) -> None:
     assert dialogue[0].content == "[Initial request]: Help me plan a calmer week"
     assert [message.role for message in dialogue] == ["user", "assistant", "user"]
     assert (await source.active_session_start(chat_id)).message_id == 5
+    assert source.client.entity_ids == [bot_id, bot_id, bot_id]
 
 
 async def test_summary_is_pinned_first_with_twenty_timestamped_prior_messages(sessions) -> None:
@@ -114,14 +126,49 @@ async def test_summary_is_pinned_first_with_twenty_timestamped_prior_messages(se
     assert [entry.message_id for entry in entries[21:]] == [99, 100]
 
     dialogue = await source.dialogue(chat_id)
-    assert dialogue[0].content == "[Summary]: The important earlier context."
-    assert dialogue[1].role == "user"
-    assert dialogue[1].content == "[2026-08-08 13:18 UTC] User: Older Safwa dialogue 78"
+    assert dialogue[0].role == "user"
+    assert dialogue[0].content.startswith("[Summary]: The important earlier context.")
+    assert "[2026-08-08 13:18 UTC] User: Older Safwa dialogue 78" in dialogue[0].content
     assert dialogue[-2].role == "assistant"
-    assert dialogue[-1].content == "Current turn"
+    assert dialogue[-1].content == "[User]: Current turn"
 
 
-async def test_current_source_is_kept_but_unknown_historical_telegram_text_is_excluded(
+async def test_private_chat_correlates_telethon_and_bot_api_message_ids(sessions) -> None:
+    chat_id, owner_id, bot_id = 104, 42, 99
+    at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
+    messages = [
+        FakeTelegramMessage(95_003, "Continue", owner_id, at + timedelta(seconds=2)),
+        FakeTelegramMessage(95_002, "Safwa answer", bot_id, at + timedelta(seconds=1)),
+        FakeTelegramMessage(95_001, "/newsession Initial request", owner_id, at),
+    ]
+    await register(sessions, chat_id, 13, "in", MessageKind.DIALOGUE_USER)
+    await register(sessions, chat_id, 12, "out", MessageKind.DIALOGUE_ASSISTANT)
+    async with sessions() as session:
+        await session.execute(
+            update(TelegramMessage)
+            .where(TelegramMessage.chat_id == chat_id, TelegramMessage.message_id == 13)
+            .values(created_at=at + timedelta(seconds=3))
+        )
+        await session.execute(
+            update(TelegramMessage)
+            .where(TelegramMessage.chat_id == chat_id, TelegramMessage.message_id == 12)
+            .values(created_at=at + timedelta(seconds=2))
+        )
+        await session.commit()
+    source = TelegramHistorySource(
+        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+    )
+
+    entries = await source.recent(chat_id, require_boundary=True)
+
+    assert [(entry.kind, entry.text) for entry in entries] == [
+        (MessageKind.SESSION_START.value, "Initial request"),
+        (MessageKind.DIALOGUE_ASSISTANT.value, "Safwa answer"),
+        (MessageKind.DIALOGUE_USER.value, "Continue"),
+    ]
+
+
+async def test_dialogue_requires_a_newsession_or_summary_boundary(
     sessions,
 ) -> None:
     chat_id, owner_id, bot_id = 102, 42, 99
@@ -146,13 +193,10 @@ async def test_current_source_is_kept_but_unknown_historical_telegram_text_is_ex
         bot_user_id=bot_id,
         owner_id=owner_id,
     )
-    # Even a semantically registered older message is excluded without an
-    # explicit session or Summary boundary.
     await register(sessions, chat_id, 2, "in", MessageKind.DIALOGUE_USER)
 
-    entries = await source.recent(chat_id, source_message=source_message)
-
-    assert entries == [source_message]
+    with pytest.raises(HistoryBoundaryMissing, match="/newsession or Summary"):
+        await source.dialogue(chat_id, source_message=source_message)
 
 
 async def test_subsession_result_is_reassembled_as_parent_context(sessions) -> None:
@@ -185,5 +229,32 @@ async def test_subsession_result_is_reassembled_as_parent_context(sessions) -> N
         (MessageKind.DIALOGUE_USER.value, "What should I do next?"),
     ]
     dialogue = await source.dialogue(chat_id)
-    assert dialogue[0].content == "[Subsession result]: First result part.\nSecond result part."
-    assert dialogue[1].content == "What should I do next?"
+    assert dialogue == [
+        type(dialogue[0])(
+            role="user",
+            content="[Subsession result]: First result part.\nSecond result part.\n"
+            "[User]: What should I do next?",
+        )
+    ]
+
+
+async def test_dialogue_groups_every_user_message_until_the_next_ai_response(sessions) -> None:
+    source = TelegramHistorySource(None, sessions, bot_user_id=99, owner_id=42)
+    entries = [
+        HistoryEntry(1, 42, "user", "First thought", datetime.now(UTC), "dialogue_user"),
+        HistoryEntry(2, 42, "user", "Second thought", datetime.now(UTC), "dialogue_user"),
+        HistoryEntry(3, 99, "assistant", "Safwa reply", datetime.now(UTC), "dialogue_assistant"),
+        HistoryEntry(4, 42, "user", "Follow-up", datetime.now(UTC), "dialogue_user"),
+    ]
+
+    async def recent(*_args, **_kwargs):
+        return entries
+
+    source.recent = recent  # type: ignore[method-assign]
+    dialogue = await source.dialogue(100)
+
+    assert [(item.role, item.content) for item in dialogue] == [
+        ("user", "[User]: First thought\n[User]: Second thought"),
+        ("assistant", "Safwa reply"),
+        ("user", "[User]: Follow-up"),
+    ]

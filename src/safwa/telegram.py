@@ -25,7 +25,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .ai.service import AIAdvisor, ProposalService
 from .analytics import render_retrospective_png, retrospective_data, retrospective_recommendations
-from .continuity import PersonaContinuity
+from .continuity import (
+    MemoryMaintenanceResult,
+    PersonaContinuity,
+    parse_memory_update_time,
+    record_memory_run,
+)
 from .domain import (
     DomainError,
     StaleStateError,
@@ -58,7 +63,13 @@ from .enums import (
     MessageKind,
     Priority,
 )
-from .history import SUBSESSION_RESULT_HEADER, HistoryEntry, TelegramHistorySource, register_message
+from .history import (
+    SUBSESSION_RESULT_HEADER,
+    HistoryBoundaryMissing,
+    HistoryEntry,
+    TelegramHistorySource,
+    register_message,
+)
 from .memory import MemoryFileError, MemoryFileStore, estimate_tokens
 from .models import (
     CallbackToken,
@@ -197,7 +208,7 @@ async def send_registered(
     *,
     kind: MessageKind,
     markup: InlineKeyboardMarkup | None = None,
-    related_id: str | None = None,
+    related_id: int | None = None,
     replace: bool | None = None,
 ) -> Message:
     """Render a UI state, replacing an inline-action screen when possible.
@@ -548,7 +559,7 @@ async def draft_review_markup(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-async def render_draft(message: Message, services: Services, draft_id: str) -> None:
+async def render_draft(message: Message, services: Services, draft_id: int) -> None:
     async with services.sessions() as session:
         draft = await session.get(CardDraft, draft_id)
         if draft is None:
@@ -584,7 +595,9 @@ async def render_draft(message: Message, services: Services, draft_id: str) -> N
         tag_ids = list(
             await session.scalars(select(DraftTag.tag_id).where(DraftTag.draft_id == draft.id))
         )
-        tags = list(await session.scalars(select(Tag).where(Tag.id.in_(tag_ids)))) if tag_ids else []
+        tags = (
+            list(await session.scalars(select(Tag).where(Tag.id.in_(tag_ids)))) if tag_ids else []
+        )
         blocker_ids = list(
             await session.scalars(
                 select(DraftDependency.blocker_card_id).where(DraftDependency.draft_id == draft.id)
@@ -806,7 +819,6 @@ async def command_sprint(message: Message, services: Services) -> None:
     )
 
 
-@router.message(Command("add"))
 async def command_add(message: Message, services: Services) -> None:
     await start_manual_draft(message, services)
 
@@ -883,6 +895,13 @@ async def command_values(message: Message, services: Services) -> None:
             ]
             for value in values
         ]
+        rows.append(
+            [
+                await token_button(
+                    session, services.owner_id, "➕ Add Value", "value_create_prompt", {}
+                )
+            ]
+        )
         await session.commit()
     await send_registered(
         message,
@@ -891,20 +910,6 @@ async def command_values(message: Message, services: Services) -> None:
         kind=MessageKind.DASHBOARD,
         markup=InlineKeyboardMarkup(inline_keyboard=rows + [menu_row()]),
     )
-
-
-@router.message(Command("newvalue"))
-async def command_new_value(message: Message, services: Services) -> None:
-    name = (message.text or "").partition(" ")[2].strip()
-    if not name:
-        await send_registered(
-            message, services, "Usage: /newvalue Value name", kind=MessageKind.ERROR
-        )
-        return
-    async with services.sessions() as session:
-        await create_value(session, name)
-        await session.commit()
-    await command_values(message, services)
 
 
 @router.message(Command("tags"))
@@ -917,6 +922,9 @@ async def command_tags(message: Message, services: Services) -> None:
             [await token_button(session, services.owner_id, tag.name, "tag_view", {"id": tag.id})]
             for tag in tags
         ]
+        rows.append(
+            [await token_button(session, services.owner_id, "➕ Add Tag", "tag_create_prompt", {})]
+        )
         await session.commit()
     await send_registered(
         message,
@@ -960,7 +968,7 @@ async def command_requests(message: Message, services: Services) -> None:
     )
 
 
-async def render_saved_request(message: Message, services: Services, request_id: str) -> None:
+async def render_saved_request(message: Message, services: Services, request_id: int) -> None:
     async with services.sessions() as session:
         request = await session.get(SavedRequest, request_id)
         if request is None or request.archived_at is not None:
@@ -1011,20 +1019,6 @@ async def render_saved_request(message: Message, services: Services, request_id:
     )
 
 
-@router.message(Command("newtag"))
-async def command_new_tag(message: Message, services: Services) -> None:
-    name = (message.text or "").partition(" ")[2].strip()
-    if not name:
-        await send_registered(
-            message, services, "Usage: /newtag Tag name", kind=MessageKind.ERROR
-        )
-        return
-    async with services.sessions() as session:
-        await create_tag(session, name)
-        await session.commit()
-    await command_tags(message, services)
-
-
 @router.message(Command("memory"))
 async def command_memory(message: Message, services: Services) -> None:
     snapshot = await services.memory.sync()
@@ -1038,12 +1032,47 @@ async def command_memory(message: Message, services: Services) -> None:
     await send_registered(message, services, text, kind=MessageKind.DASHBOARD)
 
 
+@router.message(Command("syncmem"))
+async def command_syncmem(message: Message, services: Services) -> None:
+    if (message.text or "").partition(" ")[2].strip():
+        await send_registered(message, services, "Usage: /syncmem", kind=MessageKind.ERROR)
+        return
+    if services.guard.active:
+        await send_registered(
+            message,
+            services,
+            "Wait for the current advisor response, then retry /syncmem.",
+            kind=MessageKind.ERROR,
+        )
+        return
+    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    result = await services.continuity.maintain_memory(message.chat.id)
+    if result == MemoryMaintenanceResult.UPDATED:
+        await record_memory_run(services.sessions)
+        text, kind = "Memory synchronized from Telegram dialogue.", MessageKind.RECEIPT
+    elif result == MemoryMaintenanceResult.CURRENT:
+        await record_memory_run(services.sessions)
+        text, kind = "Memory is already synchronized.", MessageKind.RECEIPT
+    elif result == MemoryMaintenanceResult.BUSY:
+        text, kind = "Memory synchronization is already running.", MessageKind.ERROR
+    elif result == MemoryMaintenanceResult.BOUNDARY_MISSING:
+        text, kind = (
+            "No /newsession or Summary boundary was found in Telegram. "
+            "Start with /newsession followed by your initial request.",
+            MessageKind.ERROR,
+        )
+    else:
+        text, kind = "memory.md needs attention; synchronization was not run.", MessageKind.ERROR
+    await send_registered(message, services, text, kind=kind)
+
+
+@router.message(Command("mem"))
 @router.message(Command("remember"))
 async def command_remember(message: Message, services: Services) -> None:
     fact = (message.text or "").partition(" ")[2].strip()
     if not fact:
         await send_registered(
-            message, services, "Usage: /remember one durable fact", kind=MessageKind.ERROR
+            message, services, "Usage: /mem one durable fact", kind=MessageKind.ERROR
         )
         return
     await services.memory.append_manual(fact)
@@ -1136,6 +1165,10 @@ async def command_feedback(message: Message, services: Services) -> None:
 async def command_settings(message: Message, services: Services) -> None:
     async with services.sessions() as session:
         profile = await session.get(UserProfile, 1)
+        workspace = await session.get(Workspace, 1)
+    memory_update_time = (
+        profile.memory_update_time.strftime("%H:%M") if profile.memory_update_time else "off"
+    )
     await send_registered(
         message,
         services,
@@ -1145,7 +1178,9 @@ async def command_settings(message: Message, services: Services) -> None:
         f"Wake/bed: {profile.wake_time or '—'} / {profile.bed_time or '—'}\n"
         f"Quiet hours: {profile.quiet_start or '—'}–{profile.quiet_end or '—'}\n"
         f"Sprint capacity: {profile.capacity_effort_points or '—'} EP\n"
-        "Edit with /setabout, /setadvisor, /setwake, /setbed, /setquiet, or /setcapacity.",
+        f"Memory sync: {memory_update_time} ({workspace.timezone})\n"
+        "Edit with /setabout, /setadvisor, /setwake, /setbed, /setquiet, /setcapacity, "
+        "or /setmemtime HH:MM|off.",
         kind=MessageKind.DASHBOARD,
         markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
     )
@@ -1223,6 +1258,17 @@ async def command_setcapacity(message: Message, services: Services) -> None:
     if value is not None and value <= 0:
         raise DomainError("Capacity must be positive or omitted")
     await update_profile_field(message, services, "capacity_effort_points", value)
+
+
+@router.message(Command("setmemtime"))
+async def command_setmemtime(message: Message, services: Services) -> None:
+    raw = (message.text or "").partition(" ")[2].strip()
+    try:
+        value = parse_memory_update_time(raw)
+    except ValueError as error:
+        await send_registered(message, services, html.escape(str(error)), kind=MessageKind.ERROR)
+        return
+    await update_profile_field(message, services, "memory_update_time", value)
 
 
 @router.message(Command("status"))
@@ -1343,6 +1389,48 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
     await callback.answer()
 
     try:
+        if action in {"value_create_prompt", "tag_create_prompt"}:
+            entity = "value" if action == "value_create_prompt" else "tag"
+            async with services.sessions() as session:
+                await session.execute(
+                    delete(UiSession).where(UiSession.owner_id == services.owner_id)
+                )
+                session.add(
+                    UiSession(
+                        owner_id=services.owner_id,
+                        kind=f"{entity}_create",
+                        state={},
+                        expires_at=datetime.now(UTC) + timedelta(minutes=30),
+                    )
+                )
+                cancel = await token_button(
+                    session,
+                    services.owner_id,
+                    "Cancel",
+                    "ui_create_cancel",
+                    {"entity": entity},
+                )
+                await session.commit()
+            await send_registered(
+                callback.message,
+                services,
+                f"Send the new {entity.title()} name.",
+                kind=MessageKind.DASHBOARD,
+                markup=InlineKeyboardMarkup(inline_keyboard=[[cancel]]),
+                replace=False,
+            )
+            return
+        if action == "ui_create_cancel":
+            async with services.sessions() as session:
+                await session.execute(
+                    delete(UiSession).where(UiSession.owner_id == services.owner_id)
+                )
+                await session.commit()
+            if payload.get("entity") == "value":
+                await command_values(callback.message, services)
+            else:
+                await command_tags(callback.message, services)
+            return
         if action == "tag_view":
             async with services.sessions() as session:
                 tag = await session.get(Tag, payload["id"])
@@ -1793,7 +1881,7 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
 
 
 async def handle_draft_chooser(
-    message: Message, services: Services, action: str, draft_id: str
+    message: Message, services: Services, action: str, draft_id: int
 ) -> None:
     choices: list[tuple[str, str, dict[str, Any]]] = []
     if action == "draft_choose_kind":
@@ -1864,7 +1952,9 @@ async def handle_draft_chooser(
     elif action == "draft_choose_tags":
         async with services.sessions() as session:
             tags = list(
-                await session.scalars(select(Tag).where(Tag.archived_at.is_(None)).order_by(Tag.name).limit(30))
+                await session.scalars(
+                    select(Tag).where(Tag.archived_at.is_(None)).order_by(Tag.name).limit(30)
+                )
             )
         choices = [
             (tag.name, "draft_toggle_tag", {"id": draft_id, "tag_id": tag.id}) for tag in tags
@@ -1907,7 +1997,7 @@ async def handle_draft_chooser(
 
 
 async def render_card_choices(
-    message: Message, services: Services, action: str, card_id: str
+    message: Message, services: Services, action: str, card_id: int
 ) -> None:
     """Render relationship selectors for an already committed Card.
 
@@ -1968,7 +2058,9 @@ async def render_card_choices(
                 await session.scalars(select(CardTag.tag_id).where(CardTag.card_id == card.id))
             )
             tags = list(
-                await session.scalars(select(Tag).where(Tag.archived_at.is_(None)).order_by(Tag.name).limit(30))
+                await session.scalars(
+                    select(Tag).where(Tag.archived_at.is_(None)).order_by(Tag.name).limit(30)
+                )
             )
             choices = [
                 (
@@ -2016,7 +2108,7 @@ async def render_card_choices(
     )
 
 
-async def render_card(message: Message, services: Services, card_id: str) -> None:
+async def render_card(message: Message, services: Services, card_id: int) -> None:
     async with services.sessions() as session:
         card = await session.get(Card, card_id)
         if card is None:
@@ -2189,7 +2281,7 @@ async def render_card(message: Message, services: Services, card_id: str) -> Non
     )
 
 
-async def render_proposal_edits(message: Message, services: Services, proposal_id: str) -> None:
+async def render_proposal_edits(message: Message, services: Services, proposal_id: int) -> None:
     """Allow the owner to remove individual proposed changes before approval."""
     async with services.sessions() as session:
         proposal = await session.get(ChangeProposal, proposal_id)
@@ -2231,7 +2323,7 @@ async def render_proposal_edits(message: Message, services: Services, proposal_i
     )
 
 
-async def render_proposal(message: Message, services: Services, proposal_id: str) -> None:
+async def render_proposal(message: Message, services: Services, proposal_id: int) -> None:
     async with services.sessions() as session:
         proposal = await session.get(ChangeProposal, proposal_id)
         changes = list(
@@ -2280,6 +2372,23 @@ async def ordinary_text(message: Message, services: Services) -> None:
             )
             .order_by(UiSession.created_at.desc())
         )
+        if ui and ui.kind in {"value_create", "tag_create"}:
+            name = message.text.strip()
+            if ui.kind == "value_create":
+                await create_value(session, name)
+            else:
+                await create_tag(session, name)
+            await register_message(
+                session, message.chat.id, message.message_id, "in", MessageKind.UI_INPUT
+            )
+            entity = ui.kind.removesuffix("_create")
+            await session.delete(ui)
+            await session.commit()
+            if entity == "value":
+                await command_values(message, services)
+            else:
+                await command_tags(message, services)
+            return
         if ui and ui.kind == "draft_text":
             await DraftService(session).update(
                 ui.state["draft_id"], **{ui.state["field"]: message.text.strip()}
@@ -2326,7 +2435,7 @@ async def ordinary_text(message: Message, services: Services) -> None:
         outcome = await services.advisor.handle(
             message.text,
             source_message_id=message.message_id,
-            dialogue=dialogue[:-1],
+            dialogue=dialogue,
         )
         async with services.sessions() as session:
             workspace = await session.get(Workspace, 1)
@@ -2376,6 +2485,13 @@ async def ordinary_text(message: Message, services: Services) -> None:
                 await session.commit()
 
         await services.continuity.maybe_summarize(message.chat.id, send_summary)
+    except HistoryBoundaryMissing as error:
+        await send_registered(
+            message,
+            services,
+            html.escape(str(error)),
+            kind=MessageKind.ERROR,
+        )
     except Exception as error:
         logger.exception("Could not handle ordinary text")
         await send_registered(
