@@ -76,15 +76,6 @@ class UserProfile(Base, TimestampMixin):
     capacity_effort_points: Mapped[int | None] = mapped_column(Integer)
 
 
-class Board(Base, TimestampMixin):
-    __tablename__ = "boards"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    name: Mapped[str] = mapped_column(String(200), unique=True)
-    description: Mapped[str] = mapped_column(Text, default="")
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    version: Mapped[int] = mapped_column(Integer, default=1)
-
-
 class Value(Base, TimestampMixin):
     __tablename__ = "values"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -98,7 +89,6 @@ class Value(Base, TimestampMixin):
 class Card(Base, TimestampMixin):
     __tablename__ = "cards"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    board_id: Mapped[str] = mapped_column(ForeignKey("boards.id", ondelete="RESTRICT"), index=True)
     parent_id: Mapped[str | None] = mapped_column(
         ForeignKey("cards.id", ondelete="CASCADE"), index=True
     )
@@ -121,7 +111,6 @@ class Card(Base, TimestampMixin):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
 
-    board: Mapped[Board] = relationship()
     parent: Mapped[Card | None] = relationship(
         remote_side="Card.id", foreign_keys=[parent_id], back_populates="children"
     )
@@ -145,6 +134,21 @@ class CardValue(Base):
     value_id: Mapped[str] = mapped_column(
         ForeignKey("values.id", ondelete="CASCADE"), primary_key=True
     )
+
+
+class Tag(Base, TimestampMixin):
+    __tablename__ = "tags"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(200), unique=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class CardTag(Base):
+    __tablename__ = "card_tags"
+    card_id: Mapped[str] = mapped_column(ForeignKey("cards.id", ondelete="CASCADE"), primary_key=True)
+    tag_id: Mapped[str] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
 
 
 class CardCategory(Base):
@@ -232,8 +236,6 @@ class CardDraft(Base, TimestampMixin):
     bundle_id: Mapped[str] = mapped_column(
         ForeignKey("card_draft_bundles.id", ondelete="CASCADE"), index=True
     )
-    board_id: Mapped[str | None] = mapped_column(ForeignKey("boards.id", ondelete="SET NULL"))
-    expected_board_version: Mapped[int | None] = mapped_column(Integer)
     parent_id: Mapped[str | None] = mapped_column(ForeignKey("cards.id", ondelete="SET NULL"))
     expected_parent_version: Mapped[int | None] = mapped_column(Integer)
     parent_draft_id: Mapped[str | None] = mapped_column(ForeignKey("card_drafts.id"))
@@ -261,6 +263,15 @@ class DraftValue(Base):
     value_id: Mapped[str] = mapped_column(
         ForeignKey("values.id", ondelete="CASCADE"), primary_key=True
     )
+    expected_version: Mapped[int] = mapped_column(Integer)
+
+
+class DraftTag(Base):
+    __tablename__ = "draft_tags"
+    draft_id: Mapped[str] = mapped_column(
+        ForeignKey("card_drafts.id", ondelete="CASCADE"), primary_key=True
+    )
+    tag_id: Mapped[str] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
     expected_version: Mapped[int] = mapped_column(Integer)
 
 

@@ -16,7 +16,7 @@ Every card creation uses the same draft-and-review workflow, whether initiated m
 The review UI shows:
 
 - title and kind;
-- Board and parent;
+- Tags and parent;
 - intended stage;
 - Note;
 - priority and Hard Time;
@@ -30,7 +30,7 @@ The review UI shows:
 Quick actions:
 
 - `✏️ Title`
-- `🗂 Board`
+- `🏷 Tags`
 - `🌳 Parent`
 - `📍 Stage`
 - `📝 Note`
@@ -50,7 +50,7 @@ For the example:
 - Kind: Action
 - Title: Push ups 30 times
 - Parent: uniquely matched `To be fit`
-- Board: inherited from that parent
+- Tags: optional direct links, independent of parent
 - Stage: Backlog unless the message specifies Sprint or Today
 - Priority: Medium
 - Effort: unresolved unless confidently supplied or estimated; the user must select/confirm it before creation
@@ -77,13 +77,13 @@ If `To be fit` has multiple matches, the draft shows `Parent: unresolved`, offer
 - Python 3.12 modular monolith under `src/safwa/`.
 - Keep `telegram-bot-exampler/tg-ai-dialog` unchanged as a behavioral reference.
 - Telegram quick actions and ordinary text are the v1 interfaces; Mini App is deferred.
-- One global active Sprint, with multiple Boards.
+- One global active Sprint with a shared personal card collection.
 - Default Sprint length is 14 calendar days.
 - SQLite, SQLAlchemy 2, aiosqlite, Alembic, WAL, foreign keys, busy timeout, and serialized writes.
 - LM Studio is the default OpenAI-compatible provider.
 - No arbitrary model-generated write SQL.
 - No manual ranks. Live cards sort by Hard Time, Critical/Medium/Low priority, and creation time.
-- Create a default `Inbox` Board during initial setup.
+- Tags are optional and can be defined at any time.
 - Today persists across midnight.
 
 ---
@@ -129,12 +129,12 @@ Core tables:
   - mode, active Sprint, Telegram owner, timezone, monotonic revision.
 - `user_profile`
   - About Me, Advisor Instructions, schedule, reminder policy, provider configuration, optional capacity.
-- `boards`
+- `tags`
   - name, description, archive state, version.
 - `values`
   - name, description, active-focus flag, archive state, version.
 - `cards`
-  - Board, parent, kind, title, Note, manual/effective stages, priority, Hard Time, effort, repeat fields, liked feedback, archive and terminal state, optimistic version.
+  - parent, kind, title, Note, manual/effective stages, priority, Hard Time, effort, repeat fields, liked feedback, archive and terminal state, optimistic version.
 - Junction tables for direct Values, Action categories, and Action energy types.
 - `card_dependencies`
   - blocked card, blocker card, repeat-copy flag.
@@ -166,7 +166,7 @@ Drafts are persisted so they survive restart, but remain outside the planning do
 
 - Draft tables have no effect on Card queries, hierarchy, parent stages, Sprint metrics, reminders, retrospectives, or FTS card search.
 - Committed Card IDs are allocated only during final draft commit.
-- Existing parent, Board, Value, and dependency references store expected versions.
+- Existing parent, Tag, Value, and dependency references store expected versions.
 - Draft changes do not increment workspace revision.
 - Draft commit increments workspace revision and emits normal Card events.
 - Drafts are visible through a `Drafts N` navigation action.
@@ -180,9 +180,8 @@ A draft cannot become Ready until:
 
 - title is non-empty;
 - kind is valid;
-- Board exists and is active;
+- linked Tags exist and are active;
 - parent relationship is valid or explicitly root;
-- parent and Board agree;
 - Action effort is one of `1, 2, 3, 5, 8, 13`;
 - Goal/Idea do not have Action-only effort, repeatability, categories, energy, or liked feedback;
 - stage is valid for current workspace mode;
@@ -220,15 +219,15 @@ When AI suggests multiple Cards:
 
 ### Card hierarchy
 
-- Every committed Card belongs to one Board.
+- Cards may link to any number of defined Tags.
 - A Card has at most one parent.
 - Goal is root-only.
 - Idea may be root or directly under Goal.
 - Action may be root or directly under Goal or Idea.
 - Action cannot have children.
-- A subtree moved to another Board moves atomically.
+- Moving a subtree does not alter its Tags.
 - Parent and dependency cycles are prohibited.
-- Dependencies may cross Boards and are warning-only.
+- Dependencies are warning-only.
 - Done satisfies a dependency; Cancelled does not.
 - Values may link directly to any Card.
 - A parent’s effective Values are the union of its own and its descendants’ direct links.
@@ -257,7 +256,7 @@ Completing or cancelling a repeatable Action:
 1. Leaves the current instance terminal.
 2. Creates a successor in the same transaction.
 3. Uses the prior live stage for the successor.
-4. Copies title, Note, Board, parent, priority, Hard Time, effort, categories, energy types, Values, and repeat series.
+4. Copies title, Note, parent, priority, Hard Time, effort, categories, energy types, Values, Tags, and repeat series.
 5. Clears liked feedback and terminal timestamps.
 6. Copies only dependencies marked reusable for repetition.
 7. Counts the successor as added Sprint scope when appropriate.
@@ -316,7 +315,7 @@ Use one shallow schema:
   "sql": "optional read-only SELECT",
   "changes": [
     {
-      "entity": "card | board | value | sprint | settings",
+      "entity": "card | tag | value | sprint | settings",
       "action": "create | update | move | complete | cancel | reopen | archive | delete | link | unlink | start | finish",
       "id": "optional ID",
       "values": {}
@@ -338,7 +337,7 @@ Use one shallow schema:
 `entity=card, action=create` is special:
 
 - Translate it into `CardDraft` data, never directly into a domain Card command.
-- Resolve Boards, parents, Values, and dependencies by ID or candidate matching.
+- Resolve Tags, parents, Values, and dependencies by ID or candidate matching.
 - Store confidence/provenance for each inferred field.
 - Open the card review UI.
 - Do not create a general AI proposal requiring separate approval.
@@ -518,7 +517,7 @@ Hooks include:
 
 - Card draft created, draft incomplete, ambiguous reference, draft stale, draft ready, draft committed, draft discarded, and batch review progress.
 - AI update approval, destructive action, stale proposal, dependency/capacity warning.
-- Multiple/no Card match and parent/Board/Value/dependency selectors.
+- Multiple/no Card match and parent/Tag/Value/dependency selectors.
 - Completion feedback, repeat successor, ancestor changes, parent reopen, archive undo, operation error.
 - Sprint start/finish, early finish, carryover, Planning required, midpoint/end.
 - Morning/evening check-in, stale Today work, pending feedback, capacity risk, neglected Value, repeat drift, inactivity, and incomplete Planning.
@@ -585,7 +584,7 @@ Multi-category/energy Cards contribute their complete effort to every selected d
 - Manual Card creation always reaches review before insertion.
 - AI Card creation creates a draft and no Card row.
 - Draft is absent from dashboards, stage aggregation, search, metrics, reminders, and retrospectives.
-- Example “Push ups 30 times” resolves the unique `To be fit` Goal, inherits its Board, and opens review.
+- Example “Push ups 30 times” resolves the unique `To be fit` Goal and opens review.
 - Multiple matching parents disable Create and show selectors.
 - Missing parent does not silently create a root Action.
 - Action effort is confirmed before commit.

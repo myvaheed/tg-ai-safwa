@@ -14,7 +14,7 @@ class UnsafeQueryError(ValueError):
 
 ALLOWED_VIEWS = {
     "ai_cards",
-    "ai_boards",
+    "ai_tags",
     "ai_values",
     "ai_current_sprint",
     "ai_current_sprint_metrics",
@@ -53,6 +53,17 @@ def validate_read_sql(sql: str) -> str:
 
 
 def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
+    # Rebuild disposable read views so upgrades never retain an obsolete shape.
+    for view_name in (
+        "ai_boards",
+        "ai_tags",
+        "ai_cards",
+        "ai_values",
+        "ai_current_sprint",
+        "ai_current_sprint_metrics",
+        "ai_card_events",
+    ):
+        connection.exec_driver_sql(f"DROP VIEW IF EXISTS {view_name}")
     connection.exec_driver_sql(
         "CREATE VIRTUAL TABLE IF NOT EXISTS card_search USING fts5(card_id UNINDEXED, title, note)"
     )
@@ -74,8 +85,8 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
         DELETE FROM card_search WHERE card_id=old.id; END"""
     )
     connection.exec_driver_sql(
-        """CREATE VIEW IF NOT EXISTS ai_boards AS
-        SELECT id, name, description FROM boards WHERE archived_at IS NULL"""
+        """CREATE VIEW IF NOT EXISTS ai_tags AS
+        SELECT id, name, description FROM tags WHERE archived_at IS NULL"""
     )
     connection.exec_driver_sql(
         """CREATE VIEW IF NOT EXISTS ai_values AS
@@ -85,16 +96,17 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
         """CREATE VIEW IF NOT EXISTS ai_cards AS
         SELECT c.id, c.title, c.note, c.kind, c.effective_stage AS stage, c.priority,
                c.hard_time, c.effort_points, c.repeatable, c.parent_id,
-               b.id AS board_id, b.name AS board_name,
                (SELECT group_concat(cc.category, ',') FROM card_categories cc
                 WHERE cc.card_id=c.id) AS categories,
                (SELECT group_concat(ce.energy_type, ',') FROM card_energy_types ce
                 WHERE ce.card_id=c.id) AS energy_types,
                (SELECT group_concat(v.name, ',') FROM card_values cv
                 JOIN "values" v ON v.id=cv.value_id WHERE cv.card_id=c.id) AS direct_values,
+               (SELECT group_concat(t.name, ',') FROM card_tags ct
+                JOIN tags t ON t.id=ct.tag_id WHERE ct.card_id=c.id) AS direct_tags,
                (SELECT group_concat(cd.blocker_card_id, ',') FROM card_dependencies cd
                 WHERE cd.blocked_card_id=c.id) AS blocker_ids
-        FROM cards c JOIN boards b ON b.id = c.board_id
+        FROM cards c
         WHERE c.archived_at IS NULL"""
     )
     connection.exec_driver_sql(

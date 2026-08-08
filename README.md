@@ -1,7 +1,7 @@
 # Safwa
 
 Safwa is a single-owner personal agile organizer and AI advisor delivered through a Telegram bot.
-It supports Boards, hierarchical Goal/Idea/Action cards, Planning and two-week Sprints,
+It supports Tags, hierarchical Goal/Idea/Action cards, Planning and two-week Sprints,
 repeatable Actions, Values, energy/category analysis, mandatory card-draft review, reminders,
 retrospective PNGs, and an OpenAI-compatible persona.
 
@@ -15,7 +15,7 @@ uv run safwa
 ```
 
 LM Studio defaults to `http://localhost:1234/v1`. Set the model and Telegram credentials in
-`.env`. Safwa upgrades its SQLite schema at startup and creates an `Inbox` Board automatically.
+`.env`. Safwa upgrades its SQLite schema at startup.
 
 `data/memory.md` is the authoritative persistent persona memory. Keep exactly one non-empty fact
 per line. Safwa imports local edits automatically and never treats its SQLite mirror as canonical.
@@ -81,5 +81,5 @@ asks for confirmation, compresses that branch into one visible `📦 Subsession 
 then removes the branch's Telegram messages. The result becomes part of the parent Safwa dialogue; card,
 Sprint, Value, and memory data are never deleted.
 
-Every new card is first stored as an isolated draft. It reaches Boards and metrics only after the
+Every new card is first stored as an isolated draft. It reaches dashboards and metrics only after the
 review screen's **Create** action.

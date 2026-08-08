@@ -17,17 +17,18 @@ from .enums import (
     WorkspaceMode,
 )
 from .models import (
-    Board,
     Card,
     CardCategory,
     CardDependency,
     CardEnergyType,
     CardEvent,
+    CardTag,
     CardValue,
     FeedbackQueue,
     ReminderState,
     Sprint,
     SprintCommitment,
+    Tag,
     UserProfile,
     Value,
     Workspace,
@@ -58,7 +59,6 @@ def utcnow() -> datetime:
 def card_snapshot(card: Card) -> dict[str, Any]:
     return {
         "id": card.id,
-        "board_id": card.board_id,
         "parent_id": card.parent_id,
         "kind": card.kind,
         "title": card.title,
@@ -80,24 +80,21 @@ async def bootstrap_workspace(session: AsyncSession, owner_id: int, timezone: st
     profile = await session.get(UserProfile, 1)
     if profile is None:
         session.add(UserProfile(id=1))
-    inbox = await session.scalar(select(Board).where(Board.name == "Inbox"))
-    if inbox is None:
-        session.add(Board(name="Inbox", description="Default board"))
     await session.flush()
     return workspace
 
 
-async def create_board(session: AsyncSession, name: str, description: str = "") -> Board:
+async def create_tag(session: AsyncSession, name: str, description: str = "") -> Tag:
     normalized = name.strip()
     if not normalized:
-        raise DomainError("Board name cannot be empty")
-    existing = await session.scalar(select(Board).where(Board.name == normalized))
+        raise DomainError("Tag name cannot be empty")
+    existing = await session.scalar(select(Tag).where(Tag.name == normalized))
     if existing is not None:
-        raise DomainError("A Board with this name already exists")
-    board = Board(name=normalized, description=description.strip())
-    session.add(board)
+        raise DomainError("A Tag with this name already exists")
+    tag = Tag(name=normalized, description=description.strip())
+    session.add(tag)
     await _bump_workspace(session)
-    return board
+    return tag
 
 
 async def create_value(session: AsyncSession, name: str, description: str = "") -> Value:
@@ -214,7 +211,7 @@ async def set_card_parent(session: AsyncSession, card_id: str, parent_id: str | 
     card = await session.get(Card, card_id)
     if card is None or card.archived_at is not None:
         raise DomainError("Card does not exist or is archived")
-    await validate_parent(session, card.kind, card.board_id, parent_id, card_id=card.id)
+    await validate_parent(session, card.kind, parent_id, card_id=card.id)
     if card.parent_id == parent_id:
         return card
 
@@ -249,6 +246,32 @@ async def toggle_card_value(
     else:
         await session.delete(link)
         operation, linked = "unlink_value", False
+    card.version += 1
+    await _record_event(session, card, operation, actor, before, new_id())
+    await _bump_workspace(session)
+    return linked
+
+
+async def toggle_card_tag(
+    session: AsyncSession, card_id: str, tag_id: str, *, actor: ActorType = ActorType.USER_UI
+) -> bool:
+    """Toggle a direct Tag link and return whether it is now linked."""
+    card = await session.get(Card, card_id)
+    tag = await session.get(Tag, tag_id)
+    if card is None or card.archived_at is not None:
+        raise DomainError("Card does not exist or is archived")
+    if tag is None or tag.archived_at is not None:
+        raise DomainError("Tag does not exist or is archived")
+    link = await session.scalar(
+        select(CardTag).where(CardTag.card_id == card_id, CardTag.tag_id == tag_id)
+    )
+    before = card_snapshot(card)
+    if link is None:
+        session.add(CardTag(card_id=card_id, tag_id=tag_id))
+        operation, linked = "link_tag", True
+    else:
+        await session.delete(link)
+        operation, linked = "unlink_tag", False
     card.version += 1
     await _record_event(session, card, operation, actor, before, new_id())
     await _bump_workspace(session)
@@ -312,7 +335,6 @@ async def _bump_workspace(session: AsyncSession) -> Workspace:
 async def validate_parent(
     session: AsyncSession,
     kind: CardKind | str,
-    board_id: str,
     parent_id: str | None,
     *,
     card_id: str | None = None,
@@ -325,8 +347,6 @@ async def validate_parent(
     parent = await session.get(Card, parent_id)
     if parent is None or parent.archived_at is not None:
         raise DomainError("Parent does not exist or is archived")
-    if parent.board_id != board_id:
-        raise DomainError("Parent and child must be on the same Board")
     if parent.kind == CardKind.ACTION.value:
         raise DomainError("An Action cannot have children")
     if kind is CardKind.IDEA and parent.kind != CardKind.GOAL.value:
@@ -544,7 +564,6 @@ async def _copy_repeat_successor(session: AsyncSession, card: Card, live_stage: 
     series_id = card.repeat_series_id or new_id()
     card.repeat_series_id = series_id
     successor = Card(
-        board_id=card.board_id,
         parent_id=card.parent_id,
         kind=card.kind,
         title=card.title,
@@ -562,6 +581,8 @@ async def _copy_repeat_successor(session: AsyncSession, card: Card, live_stage: 
     await session.flush()
     for link in await session.scalars(select(CardValue).where(CardValue.card_id == card.id)):
         session.add(CardValue(card_id=successor.id, value_id=link.value_id))
+    for link in await session.scalars(select(CardTag).where(CardTag.card_id == card.id)):
+        session.add(CardTag(card_id=successor.id, tag_id=link.tag_id))
     for link in await session.scalars(select(CardCategory).where(CardCategory.card_id == card.id)):
         session.add(CardCategory(card_id=successor.id, category=link.category))
     for link in await session.scalars(

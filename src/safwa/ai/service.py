@@ -21,6 +21,7 @@ from ..domain import (
     move_card,
     start_sprint,
     toggle_card_dependency,
+    toggle_card_tag,
     toggle_card_value,
     update_card_fields,
     utcnow,
@@ -31,12 +32,13 @@ from ..memory import MemoryFileStore
 from ..models import (
     AgentRun,
     AgentStep,
-    Board,
     Card,
     CardDependency,
+    CardTag,
     CardValue,
     ChangeProposal,
     ProposalChange,
+    Tag,
     UserProfile,
     Value,
     Workspace,
@@ -253,8 +255,8 @@ class AIAdvisor:
                     if change.id and change.entity == "card":
                         entity = await session.get(Card, change.id)
                         expected_version = entity.version if entity else None
-                    elif change.id and change.entity == "board":
-                        entity = await session.get(Board, change.id)
+                    elif change.id and change.entity == "tag":
+                        entity = await session.get(Tag, change.id)
                         expected_version = entity.version if entity else None
                     elif change.id and change.entity == "value":
                         entity = await session.get(Value, change.id)
@@ -280,7 +282,6 @@ class AIAdvisor:
         values = dict(change.values)
         provenance = values.setdefault("field_provenance", {})
         unresolved: list[str] = provenance.setdefault("unresolved", [])
-        board: Board | None = None
         parent: Card | None = None
         if values.get("parent_id"):
             parent = await session.get(Card, values["parent_id"])
@@ -297,29 +298,9 @@ class AIAdvisor:
             if len(matches) != 1:
                 provenance["parent_query"] = values["parent_query"]
         if parent:
-            board = await session.get(Board, parent.board_id)
             values["parent_id"] = parent.id
             values["expected_parent_version"] = parent.version
             values["root_confirmed"] = False
-        elif values.get("board_id"):
-            board = await session.get(Board, values["board_id"])
-        elif values.get("board_query"):
-            matches = list(
-                await session.scalars(
-                    select(Board).where(
-                        Board.name.collate("NOCASE") == str(values["board_query"]),
-                        Board.archived_at.is_(None),
-                    )
-                )
-            )
-            board = matches[0] if len(matches) == 1 else None
-            if board is None:
-                unresolved.append(f"board '{values['board_query']}'")
-        if board is None and not values.get("board_query"):
-            board = await session.scalar(select(Board).where(Board.name == "Inbox"))
-        if board:
-            values["board_id"] = board.id
-            values["expected_board_version"] = board.version
         parent_was_requested = bool(values.get("parent_query") or values.get("parent_id"))
         if not parent_was_requested:
             values["root_confirmed"] = True
@@ -341,6 +322,24 @@ class AIAdvisor:
             else:
                 unresolved.append(f"Value '{query}'")
         values["value_ids"] = list(dict.fromkeys(value_ids))
+        requested_tags = values.pop("tag_query", None)
+        if isinstance(requested_tags, str):
+            requested_tags = [requested_tags]
+        tag_ids = list(values.get("tag_ids", []))
+        for query in requested_tags or []:
+            matches = list(
+                await session.scalars(
+                    select(Tag).where(
+                        Tag.name.collate("NOCASE") == str(query),
+                        Tag.archived_at.is_(None),
+                    )
+                )
+            )
+            if len(matches) == 1:
+                tag_ids.append(matches[0].id)
+            else:
+                unresolved.append(f"Tag '{query}'")
+        values["tag_ids"] = list(dict.fromkeys(tag_ids))
         provenance["origin"] = "ai"
         return values
 
@@ -431,6 +430,13 @@ class ProposalService:
                     )
                     if (change.action == "link") != (currently_linked is not None):
                         await toggle_card_value(self.session, card.id, value_id, actor=ActorType.AI)
+                elif change.action in {"link", "unlink"} and change.values.get("tag_id"):
+                    tag_id = change.values["tag_id"]
+                    currently_linked = await self.session.get(
+                        CardTag, {"card_id": card.id, "tag_id": tag_id}
+                    )
+                    if (change.action == "link") != (currently_linked is not None):
+                        await toggle_card_tag(self.session, card.id, tag_id, actor=ActorType.AI)
                 elif change.action in {"link", "unlink"} and change.values.get("blocker_id"):
                     blocker_id = change.values["blocker_id"]
                     link = await self.session.get(
@@ -448,32 +454,32 @@ class ProposalService:
                 else:
                     raise DomainError(f"Unsupported approved Card action: {change.action}")
                 affected.append(card.id)
-            elif change.entity == "board":
-                board = (
-                    await self.session.get(Board, change.entity_id) if change.entity_id else None
+            elif change.entity == "tag":
+                tag = (
+                    await self.session.get(Tag, change.entity_id) if change.entity_id else None
                 )
                 if change.action == "create":
-                    board = Board(
+                    tag = Tag(
                         name=str(change.values["name"]).strip(),
                         description=str(change.values.get("description", "")).strip(),
                     )
-                    self.session.add(board)
+                    self.session.add(tag)
                     await self.session.flush()
-                elif board is None or board.version != change.expected_version:
-                    raise StaleStateError("A Board changed; refresh this proposal")
+                elif tag is None or tag.version != change.expected_version:
+                    raise StaleStateError("A Tag changed; refresh this proposal")
                 elif change.action == "update":
                     if "name" in change.values:
-                        board.name = str(change.values["name"]).strip()
+                        tag.name = str(change.values["name"]).strip()
                     if "description" in change.values:
-                        board.description = str(change.values["description"]).strip()
-                    board.version += 1
+                        tag.description = str(change.values["description"]).strip()
+                    tag.version += 1
                 elif change.action == "archive":
-                    board.archived_at = utcnow()
-                    board.version += 1
+                    tag.archived_at = utcnow()
+                    tag.version += 1
                 else:
-                    raise DomainError(f"Unsupported Board action: {change.action}")
+                    raise DomainError(f"Unsupported Tag action: {change.action}")
                 workspace.revision += 1
-                affected.append(board.id)
+                affected.append(tag.id)
             elif change.entity == "value":
                 value = (
                     await self.session.get(Value, change.entity_id) if change.entity_id else None

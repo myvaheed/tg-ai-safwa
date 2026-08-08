@@ -13,13 +13,14 @@ from safwa.enums import CardStage, DraftStatus
 from safwa.models import (
     AgentRun,
     AgentStep,
-    Board,
     Card,
     CardCategory,
     CardDraft,
     CardEnergyType,
+    CardTag,
     CardValue,
     FeedbackQueue,
+    Tag,
     Value,
     Workspace,
 )
@@ -28,13 +29,9 @@ pytestmark = pytest.mark.e2e
 
 
 async def create_manual_card(session, **overrides) -> Card:
-    inbox = await session.scalar(select(Board).where(Board.name == "Inbox"))
-    assert inbox is not None
     payload = {
         "title": "Action",
         "kind": "action",
-        "board_id": inbox.id,
-        "expected_board_version": inbox.version,
         "root_confirmed": True,
         "stage": "backlog",
         "effort_points": 3,
@@ -56,7 +53,9 @@ async def test_ai_card_review_to_repeat_sprint_and_retrospective(e2e_harness):
             effort_points=None,
         )
         fitness = Value(name="Fitness", description="Build a healthy body", active=True)
+        family = Tag(name="Family")
         session.add(fitness)
+        session.add(family)
         await session.commit()
 
     response = json.dumps(
@@ -76,6 +75,7 @@ async def test_ai_card_review_to_repeat_sprint_and_retrospective(e2e_harness):
                         "categories": ["self"],
                         "energy_types": ["physical"],
                         "value_query": "Fitness",
+                        "tag_query": "Family",
                     },
                 }
             ],
@@ -97,7 +97,6 @@ async def test_ai_card_review_to_repeat_sprint_and_retrospective(e2e_harness):
         draft = (await DraftService(session).get_bundle_drafts(bundle_id))[0]
         assert draft.status == DraftStatus.EDITING.value
         assert draft.parent_id == goal.id
-        assert draft.board_id == goal.board_id
         assert any("effort" in error.lower() for error in draft.validation_errors)
 
         await DraftService(session).update(draft.id, effort_points=2)
@@ -126,6 +125,12 @@ async def test_ai_card_review_to_repeat_sprint_and_retrospective(e2e_harness):
         assert (
             await session.scalar(
                 select(func.count(CardValue.card_id)).where(CardValue.card_id == action.id)
+            )
+            == 1
+        )
+        assert (
+            await session.scalar(
+                select(func.count(CardTag.card_id)).where(CardTag.card_id == action.id)
             )
             == 1
         )

@@ -9,7 +9,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..enums import CardStage
-from ..models import Card, UserProfile, Value, Workspace
+from ..models import Card, Tag, UserProfile, Value, Workspace
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,7 @@ For every Action creation, actively infer and provide effort_points, categories,
 the requested work—even when the user did not state them verbatim. Estimate effort only as 1, 2, 3, 5,
 8, or 13. Use empty fields only when no reasonable inference is possible; the review UI remains the user’s
 final authority. Include kind, title, note, stage, priority, hard_time, effort_points, repeatable,
-categories, energy_types, value_ids or value_query, board_id or board_query, and parent_id or parent_query
+categories, energy_types, value_ids or value_query, tag_ids or tag_query, and parent_id or parent_query
 when known. For a new parent and child in the same response, assign each create a draft_ref and set the
 child's parent_draft_ref to the parent's draft_ref. If a requested parent cannot be uniquely identified,
 preserve parent_query so the review UI requires a choice.
@@ -60,6 +60,11 @@ async def planning_context(session: AsyncSession) -> str:
             .order_by(Value.name)
         )
     )
+    tags = list(
+        await session.scalars(
+            select(Tag).where(Tag.archived_at.is_(None)).order_by(Tag.name)
+        )
+    )
     today = list(
         await session.scalars(
             select(Card)
@@ -82,6 +87,7 @@ async def planning_context(session: AsyncSession) -> str:
         f"About me: {(profile.about_me if profile else '').strip()}",
         f"Advisor instructions: {(profile.advisor_instructions if profile else '').strip()}",
         "Active Values: " + ", ".join(f"{v.name} [{v.id}]" for v in active_values),
+        "Available Tags: " + ", ".join(f"{tag.name} [{tag.id}]" for tag in tags),
         "Today cards:",
         *[f"- {c.title} [{c.id}] kind={c.kind} effort={c.effort_points}" for c in today],
         "Sprint cards:",

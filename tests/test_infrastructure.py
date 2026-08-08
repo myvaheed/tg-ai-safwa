@@ -25,15 +25,17 @@ async def test_read_only_query_runner_reads_only_ai_views(tmp_path):
     with engine.begin() as connection:
         create_ai_views(connection)
         connection.exec_driver_sql(
-            "INSERT INTO boards(id,name,description,version,created_at,updated_at) "
-            "VALUES ('b','Inbox','',1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
+            "INSERT INTO tags(id,name,description,version,created_at,updated_at) "
+            "VALUES ('t','Family','',1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
         )
         connection.exec_driver_sql(
-            "INSERT INTO cards(id,board_id,kind,title,note,manual_stage,effective_stage,priority,"
+            "INSERT INTO cards(id,kind,title,note,manual_stage,effective_stage,priority,"
             "hard_time,repeatable,version,created_at,updated_at) "
-            "VALUES ('c','b','action','Read','Book','backlog','backlog','medium',0,0,1,"
+            "VALUES ('c','action','Read','Book','backlog','backlog','medium',0,0,1,"
             "CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
         )
+        connection.exec_driver_sql("INSERT INTO card_tags(card_id,tag_id) VALUES ('c','t')")
     runner = ReadOnlyQueryRunner(path)
     assert await runner.run("SELECT title FROM ai_cards") == [{"title": "Read"}]
+    assert await runner.run("SELECT name FROM ai_tags") == [{"name": "Family"}]
     engine.dispose()

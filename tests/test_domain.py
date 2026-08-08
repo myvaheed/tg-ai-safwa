@@ -5,7 +5,7 @@ from sqlalchemy import select
 from safwa.domain import (
     DomainError,
     archive_subtree,
-    create_board,
+    create_tag,
     create_value,
     edit_card_text,
     effective_value_ids,
@@ -17,17 +17,19 @@ from safwa.domain import (
     sprint_metrics,
     start_sprint,
     toggle_card_dependency,
+    toggle_card_tag,
     toggle_card_value,
     update_profile,
 )
 from safwa.drafts import DraftService
 from safwa.enums import CardStage
 from safwa.models import (
-    Board,
     Card,
     CardEvent,
+    CardTag,
     CardValue,
     FeedbackQueue,
+    Tag,
     UserProfile,
     Value,
     Workspace,
@@ -35,12 +37,9 @@ from safwa.models import (
 
 
 async def create_card(session, **overrides):
-    inbox = await session.scalar(select(Board).where(Board.name == "Inbox"))
     payload = {
         "title": "Action",
         "kind": "action",
-        "board_id": inbox.id,
-        "expected_board_version": inbox.version,
         "root_confirmed": True,
         "stage": "backlog",
         "effort_points": 3,
@@ -119,12 +118,11 @@ async def test_parent_effective_values_are_derived_from_descendants(sessions):
 
 async def test_ui_mutations_use_domain_services_and_are_audited(sessions):
     async with sessions() as session:
-        board = await create_board(session, "Personal")
+        tag = await create_tag(session, "Personal")
         value = await create_value(session, "Consistency")
         await set_value_focus(session, value.id, True)
-        card = await create_card(
-            session, title="Original", board_id=board.id, expected_board_version=board.version
-        )
+        card = await create_card(session, title="Original")
+        assert await toggle_card_tag(session, card.id, tag.id) is True
         await edit_card_text(session, card.id, "title", "Renamed")
         await update_profile(session, about_me="Prefers calm, practical planning")
         await archive_subtree(session, card.id)
@@ -134,6 +132,7 @@ async def test_ui_mutations_use_domain_services_and_are_audited(sessions):
         assert profile.about_me == "Prefers calm, practical planning"
         assert (await session.get(Value, value.id)).active is True
         assert (await session.get(Card, card.id)).title == "Renamed"
+        assert await session.get(CardTag, {"card_id": card.id, "tag_id": tag.id}) is not None
         events = list(await session.scalars(select(CardEvent).where(CardEvent.card_id == card.id)))
         assert {event.operation for event in events} >= {"edit_title", "archive"}
 
@@ -163,6 +162,11 @@ async def test_committed_card_relationships_are_validated_propagated_and_audited
         assert await toggle_card_value(session, action.id, value.id) is True
         assert await effective_value_ids(session, second_goal.id) == {value.id}
         assert await toggle_card_value(session, action.id, value.id) is False
+
+        tag = Tag(name="Family")
+        session.add(tag)
+        await session.flush()
+        assert await toggle_card_tag(session, action.id, tag.id) is True
 
         assert await toggle_card_dependency(session, action.id, blocker.id) is True
         try:

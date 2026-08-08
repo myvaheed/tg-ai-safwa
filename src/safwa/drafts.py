@@ -28,18 +28,20 @@ from .enums import (
     Priority,
 )
 from .models import (
-    Board,
     Card,
     CardCategory,
     CardDependency,
     CardDraft,
     CardDraftBundle,
     CardEnergyType,
+    CardTag,
     CardValue,
     DraftCategory,
     DraftDependency,
     DraftEnergyType,
+    DraftTag,
     DraftValue,
+    Tag,
     Value,
     new_id,
 )
@@ -70,8 +72,6 @@ class DraftService:
             provenance["draft_ref"] = draft_ref
             draft = CardDraft(
                 bundle_id=bundle.id,
-                board_id=payload.get("board_id"),
-                expected_board_version=payload.get("expected_board_version"),
                 parent_id=payload.get("parent_id"),
                 expected_parent_version=payload.get("expected_parent_version"),
                 parent_draft_id=None,
@@ -116,6 +116,10 @@ class DraftService:
                 self.session.add(
                     DraftValue(draft_id=draft.id, value_id=value.id, expected_version=value.version)
                 )
+        for tag_id in payload.get("tag_ids", []):
+            tag = await self.session.get(Tag, tag_id)
+            if tag:
+                self.session.add(DraftTag(draft_id=draft.id, tag_id=tag.id, expected_version=tag.version))
         for category in payload.get("categories", []):
             self.session.add(
                 DraftCategory(
@@ -160,16 +164,12 @@ class DraftService:
             errors.append("Choose a valid card kind")
         if not draft.title.strip():
             errors.append("Add a title")
-        board = await self.session.get(Board, draft.board_id) if draft.board_id else None
-        if board is None or board.archived_at is not None:
-            errors.append("Choose an active Board")
         if not draft.parent_id and not draft.parent_draft_id and not draft.root_confirmed:
             errors.append("Choose a parent or explicitly make the card root-level")
-        if board:
-            try:
-                await validate_parent(self.session, kind, board.id, draft.parent_id)
-            except DomainError as error:
-                errors.append(str(error))
+        try:
+            await validate_parent(self.session, kind, draft.parent_id)
+        except DomainError as error:
+            errors.append(str(error))
         if draft.parent_draft_id:
             parent_draft = await self.session.get(CardDraft, draft.parent_draft_id)
             if parent_draft is None or parent_draft.bundle_id != draft.bundle_id:
@@ -221,7 +221,6 @@ class DraftService:
         }:
             raise DomainError("Draft is not editable")
         allowed = {
-            "board_id",
             "parent_id",
             "parent_draft_id",
             "root_confirmed",
@@ -247,9 +246,6 @@ class DraftService:
             await self.session.execute(
                 delete(DraftEnergyType).where(DraftEnergyType.draft_id == draft.id)
             )
-        if "board_id" in fields and fields["board_id"]:
-            board = await self.session.get(Board, fields["board_id"])
-            draft.expected_board_version = board.version if board else None
         if "parent_id" in fields:
             parent = (
                 await self.session.get(Card, fields["parent_id"]) if fields["parent_id"] else None
@@ -257,10 +253,6 @@ class DraftService:
             draft.expected_parent_version = parent.version if parent else None
         provenance = dict(draft.field_provenance or {})
         unresolved = list(provenance.get("unresolved", []))
-        if "board_id" in fields and fields["board_id"]:
-            unresolved = [
-                item for item in unresolved if not str(item).casefold().startswith("board")
-            ]
         if "parent_id" in fields or fields.get("root_confirmed"):
             provenance.pop("parent_query", None)
             unresolved = [
@@ -318,9 +310,6 @@ class DraftService:
             validation = await self.validate(draft)
             if not validation.valid or draft.reviewed_at is None:
                 raise DomainError("Every card must be valid and reviewed before Create all")
-            board = await self.session.get(Board, draft.board_id)
-            if board is None or board.version != draft.expected_board_version:
-                raise StaleStateError("A selected Board changed; review the draft again")
             if draft.parent_id:
                 parent = await self.session.get(Card, draft.parent_id)
                 if parent is None or parent.version != draft.expected_parent_version:
@@ -331,6 +320,12 @@ class DraftService:
                 value = await self.session.get(Value, value_link.value_id)
                 if value is None or value.version != value_link.expected_version:
                     raise StaleStateError("A selected Value changed; review the draft again")
+            for tag_link in await self.session.scalars(
+                select(DraftTag).where(DraftTag.draft_id == draft.id)
+            ):
+                tag = await self.session.get(Tag, tag_link.tag_id)
+                if tag is None or tag.version != tag_link.expected_version:
+                    raise StaleStateError("A selected Tag changed; review the draft again")
             for dependency in await self.session.scalars(
                 select(DraftDependency).where(DraftDependency.draft_id == draft.id)
             ):
@@ -351,7 +346,6 @@ class DraftService:
                     by_draft[draft.parent_draft_id].id if draft.parent_draft_id else draft.parent_id
                 )
                 card = Card(
-                    board_id=draft.board_id or "",
                     parent_id=parent_id,
                     kind=draft.kind,
                     title=draft.title.strip(),
@@ -370,6 +364,10 @@ class DraftService:
                     select(DraftValue).where(DraftValue.draft_id == draft.id)
                 ):
                     self.session.add(CardValue(card_id=card.id, value_id=item.value_id))
+                for item in await self.session.scalars(
+                    select(DraftTag).where(DraftTag.draft_id == draft.id)
+                ):
+                    self.session.add(CardTag(card_id=card.id, tag_id=item.tag_id))
                 for item in await self.session.scalars(
                     select(DraftCategory).where(DraftCategory.draft_id == draft.id)
                 ):
@@ -447,6 +445,27 @@ class DraftService:
             item
             for item in provenance.get("unresolved", [])
             if not str(item).casefold().startswith("value")
+        ]
+        draft.field_provenance = provenance
+        draft.reviewed_at = None
+        await self.validate(draft)
+        return draft
+
+    async def toggle_tag(self, draft_id: str, tag_id: str) -> CardDraft:
+        draft = await self.session.get(CardDraft, draft_id)
+        tag = await self.session.get(Tag, tag_id)
+        if draft is None or tag is None or tag.archived_at is not None:
+            raise DomainError("Draft or Tag does not exist")
+        link = await self.session.get(DraftTag, {"draft_id": draft_id, "tag_id": tag_id})
+        if link:
+            await self.session.delete(link)
+        else:
+            self.session.add(DraftTag(draft_id=draft_id, tag_id=tag_id, expected_version=tag.version))
+        provenance = dict(draft.field_provenance or {})
+        provenance["unresolved"] = [
+            item
+            for item in provenance.get("unresolved", [])
+            if not str(item).casefold().startswith("tag")
         ]
         draft.field_provenance = provenance
         draft.reviewed_at = None

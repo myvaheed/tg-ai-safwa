@@ -157,9 +157,7 @@ async def test_full_startup_reaches_polling_and_cleans_up(tmp_path: Path, monkey
 
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM workspace").fetchone() == (1,)
-        assert connection.execute("SELECT COUNT(*) FROM boards WHERE name='Inbox'").fetchone() == (
-            1,
-        )
+        assert connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='tags'").fetchone() == (1,)
         assert connection.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='view' AND name='ai_cards'"
         ).fetchone() == (1,)

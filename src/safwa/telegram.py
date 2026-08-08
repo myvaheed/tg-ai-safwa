@@ -30,7 +30,7 @@ from .domain import (
     DomainError,
     StaleStateError,
     archive_subtree,
-    create_board,
+    create_tag,
     create_value,
     delete_subtree,
     edit_card_text,
@@ -44,6 +44,7 @@ from .domain import (
     sprint_metrics,
     start_sprint,
     toggle_card_dependency,
+    toggle_card_tag,
     toggle_card_value,
     update_profile,
 )
@@ -60,18 +61,19 @@ from .enums import (
 from .history import SUBSESSION_RESULT_HEADER, HistoryEntry, TelegramHistorySource, register_message
 from .memory import MemoryFileError, MemoryFileStore, estimate_tokens
 from .models import (
-    Board,
     CallbackToken,
     Card,
     CardDependency,
     CardDraft,
     CardDraftBundle,
+    CardTag,
     CardValue,
     ChangeProposal,
     FeedbackQueue,
     ProposalChange,
     Sprint,
     SummaryState,
+    Tag,
     UiSession,
     UserProfile,
     Value,
@@ -243,9 +245,10 @@ def menu_markup() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="📝 Drafts", callback_data="nav:drafts"),
                 InlineKeyboardButton(text="💎 Values", callback_data="nav:values"),
-                InlineKeyboardButton(text="💬 Advisor", callback_data="nav:advisor"),
+                InlineKeyboardButton(text="🏷 Tags", callback_data="nav:tags"),
             ],
             [
+                InlineKeyboardButton(text="💬 Advisor", callback_data="nav:advisor"),
                 InlineKeyboardButton(text="📊 Retro", callback_data="nav:retro"),
                 InlineKeyboardButton(text="⚙️ Settings", callback_data="nav:settings"),
             ],
@@ -434,7 +437,6 @@ async def draft_review_markup(
     fields = [
         ("🧩 Kind", "draft_choose_kind", {"id": draft.id}),
         ("✏️ Title", "draft_edit_text", {"id": draft.id, "field": "title"}),
-        ("🗂 Board", "draft_choose_board", {"id": draft.id}),
         ("🌳 Parent", "draft_choose_parent", {"id": draft.id}),
         ("📍 Stage", "draft_choose_stage", {"id": draft.id}),
         ("📝 Note", "draft_edit_text", {"id": draft.id, "field": "note"}),
@@ -445,6 +447,7 @@ async def draft_review_markup(
         ("🏷 Categories", "draft_choose_categories", {"id": draft.id}),
         ("⚡ Energy", "draft_choose_energy", {"id": draft.id}),
         ("💎 Values", "draft_choose_values", {"id": draft.id}),
+        ("🏷 Tags", "draft_choose_tags", {"id": draft.id}),
         ("🚧 Blockers", "draft_choose_blockers", {"id": draft.id}),
     ]
     if draft.kind != CardKind.ACTION.value:
@@ -551,10 +554,9 @@ async def render_draft(message: Message, services: Services, draft_id: str) -> N
             )
             return
         await DraftService(session).validate(draft)
-        board = await session.get(Board, draft.board_id) if draft.board_id else None
         parent = await session.get(Card, draft.parent_id) if draft.parent_id else None
         # Draft tag rows are read with explicit imports to keep committed and draft data isolated.
-        from .models import DraftCategory, DraftDependency, DraftEnergyType, DraftValue
+        from .models import DraftCategory, DraftDependency, DraftEnergyType, DraftTag, DraftValue
 
         categories = list(
             await session.scalars(
@@ -576,6 +578,10 @@ async def render_draft(message: Message, services: Services, draft_id: str) -> N
             if value_ids
             else []
         )
+        tag_ids = list(
+            await session.scalars(select(DraftTag.tag_id).where(DraftTag.draft_id == draft.id))
+        )
+        tags = list(await session.scalars(select(Tag).where(Tag.id.in_(tag_ids)))) if tag_ids else []
         blocker_ids = list(
             await session.scalars(
                 select(DraftDependency.blocker_card_id).where(DraftDependency.draft_id == draft.id)
@@ -593,7 +599,6 @@ async def render_draft(message: Message, services: Services, draft_id: str) -> N
             "<b>Review card draft</b>\n"
             f"Kind: {draft.kind.title()}\n"
             f"Title: <b>{html.escape(draft.title or '—')}</b>\n"
-            f"Board: {html.escape(board.name if board else 'Unresolved')}\n"
             f"Parent: {html.escape(parent.title if parent else ('Root' if draft.root_confirmed else 'Unresolved'))}\n"
             f"Stage: {draft.stage.title()}\n"
             f"Note: {html.escape(draft.note or '—')}\n"
@@ -603,6 +608,7 @@ async def render_draft(message: Message, services: Services, draft_id: str) -> N
             f"Categories: {', '.join(categories) or '—'}\n"
             f"Energy: {', '.join(energies) or '—'}\n"
             f"Values: {', '.join(value.name for value in values) or '—'}\n"
+            f"Tags: {', '.join(tag.name for tag in tags) or '—'}\n"
             f"Blockers: {', '.join(card.title for card in blockers) or '—'}"
         )
         if errors:
@@ -619,17 +625,12 @@ async def render_draft(message: Message, services: Services, draft_id: str) -> N
 
 async def start_manual_draft(message: Message, services: Services) -> None:
     async with services.sessions() as session:
-        inbox = await session.scalar(select(Board).where(Board.name == "Inbox"))
-        if inbox is None:
-            raise DomainError("Inbox Board is missing")
         bundle = await DraftService(session).create_bundle(
             "manual",
             [
                 {
                     "kind": CardKind.ACTION.value,
                     "title": "",
-                    "board_id": inbox.id,
-                    "expected_board_version": inbox.version,
                     "root_confirmed": True,
                     "stage": CardStage.BACKLOG.value,
                 }
@@ -898,20 +899,38 @@ async def command_new_value(message: Message, services: Services) -> None:
     await command_values(message, services)
 
 
-@router.message(Command("newboard"))
-async def command_new_board(message: Message, services: Services) -> None:
+@router.message(Command("tags"))
+async def command_tags(message: Message, services: Services) -> None:
+    async with services.sessions() as session:
+        tags = list(
+            await session.scalars(select(Tag).where(Tag.archived_at.is_(None)).order_by(Tag.name))
+        )
+        rows = [
+            [await token_button(session, services.owner_id, tag.name, "tag_view", {"id": tag.id})]
+            for tag in tags
+        ]
+        await session.commit()
+    await send_registered(
+        message,
+        services,
+        "<b>Tags</b>\nUse Tags to group Cards independently of Values.",
+        kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(inline_keyboard=rows + [menu_row()]),
+    )
+
+
+@router.message(Command("newtag"))
+async def command_new_tag(message: Message, services: Services) -> None:
     name = (message.text or "").partition(" ")[2].strip()
     if not name:
         await send_registered(
-            message, services, "Usage: /newboard Board name", kind=MessageKind.ERROR
+            message, services, "Usage: /newtag Tag name", kind=MessageKind.ERROR
         )
         return
     async with services.sessions() as session:
-        await create_board(session, name)
+        await create_tag(session, name)
         await session.commit()
-    await send_registered(
-        message, services, f"Created Board <b>{html.escape(name)}</b>.", kind=MessageKind.RECEIPT
-    )
+    await command_tags(message, services)
 
 
 @router.message(Command("memory"))
@@ -1170,6 +1189,7 @@ async def navigation(callback: CallbackQuery, services: Services) -> None:
         "add": command_add,
         "drafts": command_drafts,
         "values": command_values,
+        "tags": command_tags,
         "advisor": command_advisor,
         "retro": command_retro,
         "settings": command_settings,
@@ -1230,6 +1250,20 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
     await callback.answer()
 
     try:
+        if action == "tag_view":
+            async with services.sessions() as session:
+                tag = await session.get(Tag, payload["id"])
+                if tag is None or tag.archived_at is not None:
+                    raise DomainError("Tag does not exist")
+                await session.commit()
+            await send_registered(
+                callback.message,
+                services,
+                f"<b>{html.escape(tag.name)}</b>\n{html.escape(tag.description or 'No description.')}",
+                kind=MessageKind.DASHBOARD,
+                markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
+            )
+            return
         if action == "subsession_confirm":
             await send_registered(
                 callback.message,
@@ -1350,6 +1384,11 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
                 await DraftService(session).toggle_value(payload["id"], payload["value_id"])
                 await session.commit()
             await render_draft(callback.message, services, payload["id"])
+        elif action == "draft_toggle_tag":
+            async with services.sessions() as session:
+                await DraftService(session).toggle_tag(payload["id"], payload["tag_id"])
+                await session.commit()
+            await render_draft(callback.message, services, payload["id"])
         elif action == "draft_toggle_blocker":
             async with services.sessions() as session:
                 await DraftService(session).toggle_dependency(payload["id"], payload["card_id"])
@@ -1361,7 +1400,6 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
                 await DraftService(session).update(
                     payload["id"],
                     parent_id=card.id,
-                    board_id=card.board_id,
                     root_confirmed=False,
                 )
                 await session.commit()
@@ -1456,6 +1494,13 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
             await render_card_choices(
                 callback.message, services, "card_choose_values", payload["id"]
             )
+        elif action == "card_choose_tags":
+            await render_card_choices(callback.message, services, action, payload["id"])
+        elif action == "card_toggle_tag":
+            async with services.sessions() as session:
+                await toggle_card_tag(session, payload["id"], payload["tag_id"])
+                await session.commit()
+            await render_card_choices(callback.message, services, "card_choose_tags", payload["id"])
         elif action == "card_choose_blockers":
             await render_card_choices(callback.message, services, action, payload["id"])
         elif action == "card_toggle_blocker":
@@ -1695,12 +1740,10 @@ async def handle_draft_chooser(
         ]
     elif action == "draft_choose_parent":
         async with services.sessions() as session:
-            draft = await session.get(CardDraft, draft_id)
             cards = list(
                 await session.scalars(
                     select(Card)
                     .where(
-                        Card.board_id == draft.board_id,
                         Card.kind != CardKind.ACTION.value,
                         Card.archived_at.is_(None),
                     )
@@ -1710,17 +1753,6 @@ async def handle_draft_chooser(
         choices = [("Root", "draft_set_root", {"id": draft_id})] + [
             (card.title, "draft_set_parent", {"id": draft_id, "parent_id": card.id})
             for card in cards
-        ]
-    elif action == "draft_choose_board":
-        async with services.sessions() as session:
-            boards = list(
-                await session.scalars(
-                    select(Board).where(Board.archived_at.is_(None)).order_by(Board.name)
-                )
-            )
-        choices = [
-            (board.name, "draft_set", {"id": draft_id, "field": "board_id", "value": board.id})
-            for board in boards
         ]
     elif action == "draft_choose_values":
         async with services.sessions() as session:
@@ -1732,6 +1764,14 @@ async def handle_draft_chooser(
         choices = [
             (value.name, "draft_toggle_value", {"id": draft_id, "value_id": value.id})
             for value in values
+        ]
+    elif action == "draft_choose_tags":
+        async with services.sessions() as session:
+            tags = list(
+                await session.scalars(select(Tag).where(Tag.archived_at.is_(None)).order_by(Tag.name).limit(30))
+            )
+        choices = [
+            (tag.name, "draft_toggle_tag", {"id": draft_id, "tag_id": tag.id}) for tag in tags
         ]
     elif action == "draft_choose_blockers":
         async with services.sessions() as session:
@@ -1788,7 +1828,6 @@ async def render_card_choices(
                 await session.scalars(
                     select(Card)
                     .where(
-                        Card.board_id == card.board_id,
                         Card.id != card.id,
                         Card.kind != CardKind.ACTION.value,
                         Card.archived_at.is_(None),
@@ -1828,6 +1867,22 @@ async def render_card_choices(
                 for value in values
             ]
             title = "Direct Values"
+        elif action == "card_choose_tags":
+            selected_ids = set(
+                await session.scalars(select(CardTag.tag_id).where(CardTag.card_id == card.id))
+            )
+            tags = list(
+                await session.scalars(select(Tag).where(Tag.archived_at.is_(None)).order_by(Tag.name).limit(30))
+            )
+            choices = [
+                (
+                    f"{'✅ ' if tag.id in selected_ids else ''}{tag.name}",
+                    "card_toggle_tag",
+                    {"id": card.id, "tag_id": tag.id},
+                )
+                for tag in tags
+            ]
+            title = "Tags"
         elif action == "card_choose_blockers":
             selected_ids = set(
                 await session.scalars(
@@ -1877,6 +1932,14 @@ async def render_card(message: Message, services: Services, card_id: str) -> Non
         direct_values = (
             list(await session.scalars(select(Value).where(Value.id.in_(direct_value_ids))))
             if direct_value_ids
+            else []
+        )
+        direct_tag_ids = list(
+            await session.scalars(select(CardTag.tag_id).where(CardTag.card_id == card.id))
+        )
+        direct_tags = (
+            list(await session.scalars(select(Tag).where(Tag.id.in_(direct_tag_ids))))
+            if direct_tag_ids
             else []
         )
         blocker_ids = list(
@@ -1950,6 +2013,13 @@ async def render_card(message: Message, services: Services, card_id: str) -> Non
                     "card_choose_values",
                     {"id": card.id},
                 ),
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "🏷 Tags",
+                    "card_choose_tags",
+                    {"id": card.id},
+                ),
             ]
         )
         rows.append(
@@ -2007,6 +2077,8 @@ async def render_card(message: Message, services: Services, card_id: str) -> Non
         details.append("Repeatable")
     if direct_values:
         details.append("Values: " + ", ".join(value.name for value in direct_values))
+    if direct_tags:
+        details.append("Tags: " + ", ".join(tag.name for tag in direct_tags))
     if blockers:
         details.append("Blockers: " + ", ".join(blocker.title for blocker in blockers))
     if card.note:
