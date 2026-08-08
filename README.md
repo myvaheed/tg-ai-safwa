@@ -52,9 +52,28 @@ stops the test bot. It never uses the production bot token, database, `memory.md
 provider. Set `SAFWA_QA_KEEP_MESSAGES=true` when you want the QA conversation to remain visible after a
 run; its inline buttons will be stale because the test database is temporary.
 
+## Local backup and restore
+
+Create a portable ZIP backup of the SQLite database and authoritative `data/memory.md`:
+
+```powershell
+uv run safwa-backup
+```
+
+The archive is written to `data/backups/` by default. To restore, stop Safwa first, then use the
+explicit confirmation flag. Safwa validates the archive and creates a safety backup of the current data
+before replacing it:
+
+```powershell
+uv run safwa-restore data\backups\safwa-YYYYMMDDTHHMMSSZ.zip --yes
+```
+
+Start Safwa again after the restore. A missing `memory.md` in a backup intentionally restores an empty
+file-backed memory state.
+
 ## Bot navigation
 
-Use `/start`, `/today`, `/sprint`, `/backlog`, `/add`, `/drafts`, `/values`, `/retro`,
+Use `/start`, `/today`, `/sprint`, `/backlog`, `/add`, `/drafts`, `/values`, `/advisor`, `/retro`,
 `/settings`, `/memory`, `/remember`, `/forget`, `/status`, and `/cancel`.
 
 `/newsession <initial request>` begins an isolated persona branch. `/endsession [result instruction]`

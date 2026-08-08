@@ -25,9 +25,11 @@ from .models import (
     CardEvent,
     CardValue,
     FeedbackQueue,
+    ReminderState,
     Sprint,
     SprintCommitment,
     UserProfile,
+    Value,
     Workspace,
     new_id,
 )
@@ -83,6 +85,215 @@ async def bootstrap_workspace(session: AsyncSession, owner_id: int, timezone: st
         session.add(Board(name="Inbox", description="Default board"))
     await session.flush()
     return workspace
+
+
+async def create_board(session: AsyncSession, name: str, description: str = "") -> Board:
+    normalized = name.strip()
+    if not normalized:
+        raise DomainError("Board name cannot be empty")
+    existing = await session.scalar(select(Board).where(Board.name == normalized))
+    if existing is not None:
+        raise DomainError("A Board with this name already exists")
+    board = Board(name=normalized, description=description.strip())
+    session.add(board)
+    await _bump_workspace(session)
+    return board
+
+
+async def create_value(session: AsyncSession, name: str, description: str = "") -> Value:
+    normalized = name.strip()
+    if not normalized:
+        raise DomainError("Value name cannot be empty")
+    existing = await session.scalar(select(Value).where(Value.name == normalized))
+    if existing is not None:
+        raise DomainError("A Value with this name already exists")
+    value = Value(name=normalized, description=description.strip())
+    session.add(value)
+    await _bump_workspace(session)
+    return value
+
+
+async def set_value_focus(
+    session: AsyncSession, value_id: str, active: bool | None = None
+) -> Value:
+    value = await session.get(Value, value_id)
+    if value is None or value.archived_at is not None:
+        raise DomainError("Value does not exist or is archived")
+    value.active = (not value.active) if active is None else active
+    value.version += 1
+    await _bump_workspace(session)
+    return value
+
+
+async def update_profile(session: AsyncSession, **fields: Any) -> UserProfile:
+    allowed = {
+        "about_me",
+        "advisor_instructions",
+        "wake_time",
+        "bed_time",
+        "quiet_start",
+        "quiet_end",
+        "morning_checkin",
+        "evening_checkin",
+        "capacity_effort_points",
+        "proactive_limit",
+        "reminder_cooldown_minutes",
+        "reminders_enabled",
+        "weekend_enabled",
+    }
+    unknown = set(fields).difference(allowed)
+    if unknown:
+        raise DomainError("Unsupported profile field: " + ", ".join(sorted(unknown)))
+    profile = await session.get(UserProfile, 1)
+    if profile is None:
+        raise DomainError("User profile is not initialized")
+    for field_name, value in fields.items():
+        setattr(profile, field_name, value)
+    await _bump_workspace(session)
+    return profile
+
+
+async def snooze_reminders(session: AsyncSession, until: datetime) -> ReminderState:
+    state = await session.get(ReminderState, "global")
+    if state is None:
+        state = ReminderState(kind="global")
+        session.add(state)
+    state.snoozed_until = until
+    await _bump_workspace(session)
+    return state
+
+
+async def edit_card_text(session: AsyncSession, card_id: str, field: str, value: str) -> Card:
+    if field not in {"title", "note"}:
+        raise DomainError("Only a Card title or Note can be edited as text")
+    card = await session.get(Card, card_id)
+    if card is None or card.archived_at is not None:
+        raise DomainError("Card does not exist or is archived")
+    normalized = value.strip()
+    if field == "title" and not normalized:
+        raise DomainError("Card title cannot be empty")
+    before = card_snapshot(card)
+    setattr(card, field, normalized)
+    card.version += 1
+    await _record_event(session, card, f"edit_{field}", ActorType.USER_UI, before, new_id())
+    await _bump_workspace(session)
+    return card
+
+
+async def update_card_fields(
+    session: AsyncSession,
+    card_id: str,
+    fields: dict[str, Any],
+    *,
+    actor: ActorType = ActorType.USER_UI,
+) -> Card:
+    """Apply validated editable Card fields through the domain/audit boundary."""
+    card = await session.get(Card, card_id)
+    if card is None or card.archived_at is not None:
+        raise DomainError("Card does not exist or is archived")
+    allowed = {"title", "note", "priority", "hard_time", "effort_points", "repeatable"}
+    unknown = set(fields) - allowed
+    if unknown:
+        raise DomainError("Unsupported Card fields: " + ", ".join(sorted(unknown)))
+    before = card_snapshot(card)
+    for name, value in fields.items():
+        if name in {"title", "note"}:
+            value = str(value).strip()
+        if name == "title" and not value:
+            raise DomainError("Card title cannot be empty")
+        setattr(card, name, value)
+    validate_action_fields(card.kind, card.effort_points, card.repeatable)
+    card.version += 1
+    await _record_event(session, card, "update", actor, before, new_id())
+    await _bump_workspace(session)
+    return card
+
+
+async def set_card_parent(session: AsyncSession, card_id: str, parent_id: str | None) -> Card:
+    """Attach a Card to a parent (or make it root-level) with full hierarchy repair."""
+    card = await session.get(Card, card_id)
+    if card is None or card.archived_at is not None:
+        raise DomainError("Card does not exist or is archived")
+    await validate_parent(session, card.kind, card.board_id, parent_id, card_id=card.id)
+    if card.parent_id == parent_id:
+        return card
+
+    previous_parent_id = card.parent_id
+    before = card_snapshot(card)
+    card.parent_id = parent_id
+    card.version += 1
+    await _record_event(session, card, "set_parent", ActorType.USER_UI, before, new_id())
+    await propagate_ancestors(session, previous_parent_id)
+    await propagate_ancestors(session, parent_id)
+    await _bump_workspace(session)
+    return card
+
+
+async def toggle_card_value(
+    session: AsyncSession, card_id: str, value_id: str, *, actor: ActorType = ActorType.USER_UI
+) -> bool:
+    """Toggle a direct Value link and return whether it is now linked."""
+    card = await session.get(Card, card_id)
+    value = await session.get(Value, value_id)
+    if card is None or card.archived_at is not None:
+        raise DomainError("Card does not exist or is archived")
+    if value is None or value.archived_at is not None:
+        raise DomainError("Value does not exist or is archived")
+    link = await session.scalar(
+        select(CardValue).where(CardValue.card_id == card_id, CardValue.value_id == value_id)
+    )
+    before = card_snapshot(card)
+    if link is None:
+        session.add(CardValue(card_id=card_id, value_id=value_id))
+        operation, linked = "link_value", True
+    else:
+        await session.delete(link)
+        operation, linked = "unlink_value", False
+    card.version += 1
+    await _record_event(session, card, operation, actor, before, new_id())
+    await _bump_workspace(session)
+    return linked
+
+
+async def toggle_card_dependency(
+    session: AsyncSession,
+    blocked_card_id: str,
+    blocker_card_id: str,
+    *,
+    copy_to_repeat: bool = False,
+    actor: ActorType = ActorType.USER_UI,
+) -> bool:
+    """Toggle a warning-only blocker link and return whether it is now linked."""
+    blocked = await session.get(Card, blocked_card_id)
+    blocker = await session.get(Card, blocker_card_id)
+    if blocked is None or blocked.archived_at is not None:
+        raise DomainError("Blocked Card does not exist or is archived")
+    if blocker is None or blocker.archived_at is not None:
+        raise DomainError("Blocker Card does not exist or is archived")
+    link = await session.scalar(
+        select(CardDependency).where(
+            CardDependency.blocked_card_id == blocked_card_id,
+            CardDependency.blocker_card_id == blocker_card_id,
+        )
+    )
+    before = card_snapshot(blocked)
+    if link is None:
+        await ensure_dependency_acyclic(session, blocked_card_id, blocker_card_id)
+        session.add(
+            CardDependency(
+                blocked_card_id=blocked_card_id,
+                blocker_card_id=blocker_card_id,
+                copy_to_repeat=copy_to_repeat,
+            )
+        )
+        operation, linked = "link_dependency", True
+    else:
+        await session.delete(link)
+        operation, linked = "unlink_dependency", False
+    blocked.version += 1
+    await _record_event(session, blocked, operation, actor, before, new_id())
+    await _bump_workspace(session)
+    return linked
 
 
 async def _workspace(session: AsyncSession) -> Workspace:
@@ -526,10 +737,20 @@ async def archive_subtree(session: AsyncSession, card_id: str, archive: bool = T
         raise DomainError("Card does not exist")
     changed: list[str] = []
     stamp = utcnow() if archive else None
+    correlation_id = new_id()
 
     async def visit(node: Card) -> None:
+        before = card_snapshot(node)
         node.archived_at = stamp
         node.version += 1
+        await _record_event(
+            session,
+            node,
+            "archive" if archive else "restore",
+            ActorType.USER_UI,
+            before,
+            correlation_id,
+        )
         changed.append(node.id)
         for child in await session.scalars(select(Card).where(Card.parent_id == node.id)):
             await visit(child)

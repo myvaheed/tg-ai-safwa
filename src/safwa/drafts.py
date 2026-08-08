@@ -261,6 +261,10 @@ class DraftService:
         provenance["unresolved"] = unresolved
         draft.field_provenance = provenance
         draft.reviewed_at = None
+        bundle = await self.session.get(CardDraftBundle, draft.bundle_id)
+        if bundle is not None:
+            # Editing is activity: retain the draft for another configured default window.
+            bundle.expires_at = utcnow() + timedelta(days=7)
         await self.validate(draft)
         return draft
 
@@ -292,6 +296,7 @@ class DraftService:
         if bundle is None or bundle.status in {
             DraftStatus.COMMITTED.value,
             DraftStatus.DISCARDED.value,
+            DraftStatus.EXPIRED.value,
         }:
             raise DomainError("Draft bundle is not committable")
         drafts = [

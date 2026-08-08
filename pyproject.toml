@@ -33,6 +33,8 @@ dev = [
 safwa = "safwa.main:main"
 safwa-auth = "safwa.history:auth_main"
 safwa-qa-auth = "safwa.qa:auth_main"
+safwa-backup = "safwa.backup:backup_main"
+safwa-restore = "safwa.backup:restore_main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/safwa"]

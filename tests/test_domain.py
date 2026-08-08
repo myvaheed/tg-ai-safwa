@@ -3,16 +3,35 @@ from __future__ import annotations
 from sqlalchemy import select
 
 from safwa.domain import (
+    DomainError,
+    archive_subtree,
+    create_board,
+    create_value,
+    edit_card_text,
     effective_value_ids,
     finish_action,
     finish_sprint,
     move_card,
+    set_card_parent,
+    set_value_focus,
     sprint_metrics,
     start_sprint,
+    toggle_card_dependency,
+    toggle_card_value,
+    update_profile,
 )
 from safwa.drafts import DraftService
 from safwa.enums import CardStage
-from safwa.models import Board, Card, CardValue, FeedbackQueue, Value, Workspace
+from safwa.models import (
+    Board,
+    Card,
+    CardEvent,
+    CardValue,
+    FeedbackQueue,
+    UserProfile,
+    Value,
+    Workspace,
+)
 
 
 async def create_card(session, **overrides):
@@ -96,3 +115,72 @@ async def test_parent_effective_values_are_derived_from_descendants(sessions):
         session.add(CardValue(card_id=action.id, value_id=value.id))
         await session.flush()
         assert await effective_value_ids(session, goal.id) == {value.id}
+
+
+async def test_ui_mutations_use_domain_services_and_are_audited(sessions):
+    async with sessions() as session:
+        board = await create_board(session, "Personal")
+        value = await create_value(session, "Consistency")
+        await set_value_focus(session, value.id, True)
+        card = await create_card(
+            session, title="Original", board_id=board.id, expected_board_version=board.version
+        )
+        await edit_card_text(session, card.id, "title", "Renamed")
+        await update_profile(session, about_me="Prefers calm, practical planning")
+        await archive_subtree(session, card.id)
+        await session.commit()
+
+        profile = await session.get(UserProfile, 1)
+        assert profile.about_me == "Prefers calm, practical planning"
+        assert (await session.get(Value, value.id)).active is True
+        assert (await session.get(Card, card.id)).title == "Renamed"
+        events = list(await session.scalars(select(CardEvent).where(CardEvent.card_id == card.id)))
+        assert {event.operation for event in events} >= {"edit_title", "archive"}
+
+
+async def test_committed_card_relationships_are_validated_propagated_and_audited(sessions):
+    async with sessions() as session:
+        first_goal = await create_card(session, title="First goal", kind="goal", effort_points=None)
+        second_goal = await create_card(
+            session, title="Second goal", kind="goal", effort_points=None
+        )
+        action = await create_card(
+            session,
+            title="Move me",
+            parent_id=first_goal.id,
+            expected_parent_version=first_goal.version,
+            root_confirmed=False,
+        )
+        blocker = await create_card(session, title="Blocker")
+        value = await create_value(session, "Health")
+        await move_card(session, action.id, CardStage.TODAY)
+
+        await set_card_parent(session, action.id, second_goal.id)
+        assert action.parent_id == second_goal.id
+        assert first_goal.effective_stage == CardStage.BACKLOG.value
+        assert second_goal.effective_stage == CardStage.TODAY.value
+
+        assert await toggle_card_value(session, action.id, value.id) is True
+        assert await effective_value_ids(session, second_goal.id) == {value.id}
+        assert await toggle_card_value(session, action.id, value.id) is False
+
+        assert await toggle_card_dependency(session, action.id, blocker.id) is True
+        try:
+            await toggle_card_dependency(session, blocker.id, action.id)
+        except DomainError:
+            pass
+        else:
+            raise AssertionError("dependency cycle should be rejected")
+        assert await toggle_card_dependency(session, action.id, blocker.id) is False
+        await session.commit()
+
+        events = list(
+            await session.scalars(select(CardEvent).where(CardEvent.card_id == action.id))
+        )
+        assert {event.operation for event in events} >= {
+            "set_parent",
+            "link_value",
+            "unlink_value",
+            "link_dependency",
+            "unlink_dependency",
+        }

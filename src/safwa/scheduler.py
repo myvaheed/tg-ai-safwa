@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from .enums import CardStage, MessageKind
+from .enums import CardKind, CardStage, MessageKind
 from .models import (
     Card,
     CardDependency,
@@ -26,14 +27,16 @@ logger = logging.getLogger(__name__)
 
 
 class ReminderPolicy:
-    def __init__(self, timezone: str) -> None:
+    def __init__(self, timezone: str, *, now: Callable[[], datetime] | None = None) -> None:
         self.timezone = ZoneInfo(timezone)
+        self.now = now or (lambda: datetime.now(UTC))
 
     async def eligible(self, session: AsyncSession, kind: str, dedupe_key: str) -> bool:
         profile = await session.get(UserProfile, 1)
         if profile is None or not profile.reminders_enabled:
             return False
-        local = datetime.now(UTC).astimezone(self.timezone)
+        current_utc = self.now()
+        local = current_utc.astimezone(self.timezone)
         local_midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
         daily_count = (
             await session.scalar(
@@ -57,11 +60,14 @@ class ReminderPolicy:
             if quiet:
                 return False
         state = await session.get(ReminderState, kind)
-        if state and state.snoozed_until and state.snoozed_until > datetime.now(UTC):
+        global_state = await session.get(ReminderState, "global")
+        if global_state and global_state.snoozed_until and global_state.snoozed_until > current_utc:
+            return False
+        if state and state.snoozed_until and state.snoozed_until > current_utc:
             return False
         if state and state.last_sent_at:
             cooldown = timedelta(minutes=profile.reminder_cooldown_minutes)
-            if state.last_sent_at + cooldown > datetime.now(UTC):
+            if state.last_sent_at + cooldown > current_utc:
                 return False
             if state.dedupe_key == dedupe_key:
                 return False
@@ -70,7 +76,10 @@ class ReminderPolicy:
     async def candidates(self, session: AsyncSession) -> list[tuple[str, str, str]]:
         candidates: list[tuple[str, str, str]] = []
         profile = await session.get(UserProfile, 1)
-        local = datetime.now(UTC).astimezone(self.timezone)
+        if profile is None:
+            return candidates
+        current_utc = self.now()
+        local = current_utc.astimezone(self.timezone)
         for kind, configured, text in [
             (
                 "morning",
@@ -114,6 +123,75 @@ class ReminderPolicy:
             if await self.eligible(session, "today", key):
                 candidates.append(
                     ("today", key, f"Your Today focus contains {len(today)} Action(s).")
+                )
+            if local.hour >= 15 and await self.eligible(
+                session, "stale_today", f"{key}:{local.date()}"
+            ):
+                candidates.append(
+                    (
+                        "stale_today",
+                        f"{key}:{local.date()}",
+                        "Your Today work is still open; choose what matters for the rest of the day.",
+                    )
+                )
+        committed_effort = (
+            await session.scalar(
+                select(func.coalesce(func.sum(Card.effort_points), 0)).where(
+                    Card.kind == CardKind.ACTION.value,
+                    Card.archived_at.is_(None),
+                    Card.effective_stage.in_([CardStage.SPRINT.value, CardStage.TODAY.value]),
+                )
+            )
+            or 0
+        )
+        if profile.capacity_effort_points and committed_effort > profile.capacity_effort_points:
+            key = f"{committed_effort}/{profile.capacity_effort_points}"
+            if await self.eligible(session, "capacity", key):
+                candidates.append(
+                    (
+                        "capacity",
+                        key,
+                        f"Committed effort is {key} EP, above your configured capacity.",
+                    )
+                )
+        drifting_repeats = list(
+            await session.scalars(
+                select(Card).where(
+                    Card.kind == CardKind.ACTION.value,
+                    Card.repeatable.is_(True),
+                    Card.archived_at.is_(None),
+                    Card.effective_stage == CardStage.BACKLOG.value,
+                )
+            )
+        )
+        if drifting_repeats:
+            key = ",".join(sorted(card.id for card in drifting_repeats))
+            if await self.eligible(session, "repeat_drift", key):
+                candidates.append(
+                    (
+                        "repeat_drift",
+                        key,
+                        f"{len(drifting_repeats)} repeatable Action(s) are waiting in Backlog.",
+                    )
+                )
+        last_user_message = await session.scalar(
+            select(TelegramMessage.created_at)
+            .where(
+                TelegramMessage.direction == "in",
+                TelegramMessage.kind == MessageKind.DIALOGUE_USER.value,
+            )
+            .order_by(TelegramMessage.created_at.desc())
+            .limit(1)
+        )
+        if last_user_message and current_utc - last_user_message >= timedelta(days=3):
+            key = last_user_message.date().isoformat()
+            if await self.eligible(session, "inactivity", key):
+                candidates.append(
+                    (
+                        "inactivity",
+                        key,
+                        "It has been a few days. Would a small planning check-in help?",
+                    )
                 )
         workspace = await session.get(Workspace, 1)
         if workspace and workspace.active_sprint_id:

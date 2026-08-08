@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from sqlalchemy import func, select
 
 from safwa.ai.contracts import AgentChange
@@ -7,6 +9,7 @@ from safwa.ai.service import AIAdvisor
 from safwa.drafts import DraftService
 from safwa.enums import CardKind, CardStage, DraftStatus
 from safwa.models import Board, Card, CardDraft
+from safwa.recovery import recover_startup
 
 
 async def test_draft_is_isolated_until_review_and_commit(sessions):
@@ -140,3 +143,32 @@ async def test_ai_pushups_example_resolves_unique_goal_but_requires_effort(sessi
         assert draft.board_id == goal.board_id
         assert any("effort" in error.lower() for error in draft.validation_errors)
         assert await session.scalar(select(func.count(Card.id))) == 1
+
+
+async def test_startup_marks_inactive_expired_drafts_recoverable_but_uncommittable(sessions):
+    async with sessions() as session:
+        inbox = await session.scalar(select(Board).where(Board.name == "Inbox"))
+        bundle = await DraftService(session).create_bundle(
+            "manual",
+            [
+                {
+                    "title": "Expired action",
+                    "kind": CardKind.ACTION.value,
+                    "board_id": inbox.id,
+                    "expected_board_version": inbox.version,
+                    "root_confirmed": True,
+                    "effort_points": 1,
+                }
+            ],
+        )
+        bundle.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        await recover_startup(session)
+        draft = await session.get(CardDraft, bundle.active_draft_id)
+        assert bundle.status == DraftStatus.EXPIRED.value
+        assert draft.status == DraftStatus.EXPIRED.value
+        try:
+            await DraftService(session).commit_bundle(bundle.id)
+        except ValueError as error:
+            assert "not committable" in str(error)
+        else:
+            raise AssertionError("Expired drafts must not commit")

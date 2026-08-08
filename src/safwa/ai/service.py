@@ -16,13 +16,14 @@ from ..domain import (
     StaleStateError,
     archive_subtree,
     delete_subtree,
-    ensure_dependency_acyclic,
     finish_action,
     finish_sprint,
     move_card,
     start_sprint,
+    toggle_card_dependency,
+    toggle_card_value,
+    update_card_fields,
     utcnow,
-    validate_action_fields,
 )
 from ..drafts import DraftService
 from ..enums import ActorType, CardStage, ProposalStatus
@@ -399,19 +400,24 @@ class ProposalService:
                         actor=ActorType.AI,
                     )
                 elif change.action == "update":
-                    for name in {
-                        "title",
-                        "note",
-                        "priority",
-                        "hard_time",
-                        "effort_points",
-                        "repeatable",
-                    }:
-                        if name in change.values:
-                            setattr(card, name, change.values[name])
-                    validate_action_fields(card.kind, card.effort_points, card.repeatable)
-                    card.version += 1
-                    workspace.revision += 1
+                    await update_card_fields(
+                        self.session,
+                        card.id,
+                        {
+                            name: value
+                            for name, value in change.values.items()
+                            if name
+                            in {
+                                "title",
+                                "note",
+                                "priority",
+                                "hard_time",
+                                "effort_points",
+                                "repeatable",
+                            }
+                        },
+                        actor=ActorType.AI,
+                    )
                 elif change.action == "archive":
                     await archive_subtree(self.session, card.id)
                 elif change.action == "delete":
@@ -420,37 +426,25 @@ class ProposalService:
                     await delete_subtree(self.session, card.id)
                 elif change.action in {"link", "unlink"} and change.values.get("value_id"):
                     value_id = change.values["value_id"]
-                    value = await self.session.get(Value, value_id)
-                    if value is None:
-                        raise DomainError("Value does not exist")
-                    link = await self.session.get(
+                    currently_linked = await self.session.get(
                         CardValue, {"card_id": card.id, "value_id": value_id}
                     )
-                    if change.action == "link" and link is None:
-                        self.session.add(CardValue(card_id=card.id, value_id=value_id))
-                    elif change.action == "unlink" and link:
-                        await self.session.delete(link)
-                    card.version += 1
-                    workspace.revision += 1
+                    if (change.action == "link") != (currently_linked is not None):
+                        await toggle_card_value(self.session, card.id, value_id, actor=ActorType.AI)
                 elif change.action in {"link", "unlink"} and change.values.get("blocker_id"):
                     blocker_id = change.values["blocker_id"]
-                    await ensure_dependency_acyclic(self.session, card.id, blocker_id)
                     link = await self.session.get(
                         CardDependency,
                         {"blocked_card_id": card.id, "blocker_card_id": blocker_id},
                     )
-                    if change.action == "link" and link is None:
-                        self.session.add(
-                            CardDependency(
-                                blocked_card_id=card.id,
-                                blocker_card_id=blocker_id,
-                                copy_to_repeat=bool(change.values.get("copy_to_repeat", False)),
-                            )
+                    if (change.action == "link") != (link is not None):
+                        await toggle_card_dependency(
+                            self.session,
+                            card.id,
+                            blocker_id,
+                            copy_to_repeat=bool(change.values.get("copy_to_repeat", False)),
+                            actor=ActorType.AI,
                         )
-                    elif change.action == "unlink" and link:
-                        await self.session.delete(link)
-                    card.version += 1
-                    workspace.revision += 1
                 else:
                     raise DomainError(f"Unsupported approved Card action: {change.action}")
                 affected.append(card.id)

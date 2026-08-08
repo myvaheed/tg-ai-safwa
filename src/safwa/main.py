@@ -126,6 +126,7 @@ async def run(settings: Settings) -> None:
             BotCommand(command="setbed", description="Set bed time HH:MM"),
             BotCommand(command="setquiet", description="Set quiet range HH:MM-HH:MM"),
             BotCommand(command="setcapacity", description="Set Sprint capacity"),
+            BotCommand(command="snooze", description="Snooze reminders (minutes)"),
             BotCommand(command="memory", description="Inspect memory.md"),
             BotCommand(command="status", description="Safwa diagnostics"),
             BotCommand(command="cancel", description="Cancel generation"),
