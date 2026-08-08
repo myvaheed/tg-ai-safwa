@@ -35,7 +35,7 @@ from safwa.models import (
     Value,
     Workspace,
 )
-from safwa.saved_requests import request_cards_statement
+from safwa.saved_requests import request_cards
 
 pytestmark = pytest.mark.e2e
 
@@ -56,6 +56,16 @@ async def create_manual_card(session, **overrides) -> Card:
     return (await drafts.commit_bundle(bundle.id))[0]
 
 
+def mutation_turn(*calls: tuple[str, dict[str, object]]) -> ProviderTurn:
+    return ProviderTurn(
+        content="",
+        tool_calls=tuple(
+            ProviderToolCall(id=f"mutation-{index}", name=name, arguments=json.dumps(arguments))
+            for index, (name, arguments) in enumerate(calls, start=1)
+        ),
+    )
+
+
 async def test_ai_card_review_to_repeat_sprint_and_retrospective(e2e_harness):
     async with e2e_harness.sessions() as session:
         goal = await create_manual_card(
@@ -70,30 +80,23 @@ async def test_ai_card_review_to_repeat_sprint_and_retrospective(e2e_harness):
         session.add(family)
         await session.commit()
 
-    response = json.dumps(
-        {
-            "kind": "proposal",
-            "message": "I prepared the Action for your review.",
-            "changes": [
-                {
-                    "entity": "card",
-                    "action": "create",
-                    "values": {
-                        "kind": "action",
-                        "title": "Push ups 30 times",
-                        "parent_query": "To be fit",
-                        "effort_points": None,
-                        "repeatable": True,
-                        "categories": ["self"],
-                        "energy_types": ["physical"],
-                        "value_query": "Fitness",
-                        "tag_query": "Family",
-                    },
-                }
-            ],
-        }
+    response = mutation_turn(
+        (
+            "card",
+            {
+                "mode": "draft",
+                "kind": "action",
+                "title": "Push ups 30 times",
+                "parent_query": "To be fit",
+                "repeatable": True,
+                "categories": ["self"],
+                "energy_types": ["physical"],
+                "value_query": "Fitness",
+                "tag_query": "Family",
+            },
+        )
     )
-    advisor, provider = e2e_harness.advisor([response])
+    advisor, provider = e2e_harness.advisor([response, "I prepared the Action for your review."])
     outcome: AIOutcome = await advisor.handle(
         "Please create a new action Push ups 30 times and link it to To be fit goal"
     )
@@ -101,7 +104,7 @@ async def test_ai_card_review_to_repeat_sprint_and_retrospective(e2e_harness):
     assert outcome.kind == "proposal"
     assert len(outcome.draft_bundle_ids) == 1
     assert outcome.proposal_id is None
-    assert len(provider.calls) == 1
+    assert len(provider.calls) == 2
 
     bundle_id = outcome.draft_bundle_ids[0]
     async with e2e_harness.sessions() as session:
@@ -209,12 +212,7 @@ async def test_ai_read_query_round_trip_uses_safe_view(e2e_harness):
             ),
         ),
     )
-    answer_response = json.dumps(
-        {
-            "kind": "answer",
-            "message": "You committed 5 effort points and completed all 5.",
-        }
-    )
+    answer_response = "You committed 5 effort points and completed all 5."
     advisor, provider = e2e_harness.advisor([query_response, answer_response])
     outcome = await advisor.handle(
         "How many effort points did I commit and complete in this sprint?"
@@ -241,46 +239,34 @@ async def test_ai_read_query_round_trip_uses_safe_view(e2e_harness):
 
 
 async def test_multi_card_ai_bundle_is_reviewed_and_committed_atomically(e2e_harness):
-    response = json.dumps(
-        {
-            "kind": "proposal",
-            "message": "I prepared a Goal and two Actions for review.",
-            "changes": [
-                {
-                    "entity": "card",
-                    "action": "create",
-                    "values": {
-                        "kind": "goal",
-                        "title": "Read more",
-                        "draft_ref": "goal",
-                    },
-                },
-                {
-                    "entity": "card",
-                    "action": "create",
-                    "values": {
-                        "kind": "action",
-                        "title": "Read ten pages",
-                        "effort_points": 2,
-                        "draft_ref": "read",
-                        "parent_draft_ref": "goal",
-                    },
-                },
-                {
-                    "entity": "card",
-                    "action": "create",
-                    "values": {
-                        "kind": "action",
-                        "title": "Write reading notes",
-                        "effort_points": 2,
-                        "draft_ref": "notes",
-                        "parent_draft_ref": "goal",
-                    },
-                },
-            ],
-        }
+    response = mutation_turn(
+        ("card", {"mode": "draft", "kind": "goal", "title": "Read more", "draft_ref": "goal"}),
+        (
+            "card",
+            {
+                "mode": "draft",
+                "kind": "action",
+                "title": "Read ten pages",
+                "effort_points": 2,
+                "draft_ref": "read",
+                "parent_draft_ref": "goal",
+            },
+        ),
+        (
+            "card",
+            {
+                "mode": "draft",
+                "kind": "action",
+                "title": "Write reading notes",
+                "effort_points": 2,
+                "draft_ref": "notes",
+                "parent_draft_ref": "goal",
+            },
+        ),
     )
-    advisor, _provider = e2e_harness.advisor([response])
+    advisor, _provider = e2e_harness.advisor(
+        [response, "I prepared a Goal and two Actions for review."]
+    )
     outcome = await advisor.handle("Create a reading goal with two supporting actions")
     bundle_id = outcome.draft_bundle_ids[0]
 
@@ -312,33 +298,21 @@ async def test_ai_creates_an_approved_saved_tag_request(e2e_harness):
         session.add(CardTag(card_id=action.id, tag_id=family.id))
         await session.commit()
 
-    response = json.dumps(
-        {
-            "kind": "proposal",
-            "message": "I prepared a reusable Family-actions Request for approval.",
-            "changes": [
-                {
-                    "entity": "request",
-                    "action": "create",
-                    "values": {
-                        "name": "Family actions",
-                        "description": "All active Actions tagged Family.",
-                        "filter": {
-                            "all": [
-                                {"field": "kind", "op": "eq", "value": "action"},
-                                {
-                                    "field": "tag_id",
-                                    "op": "any_of",
-                                    "value": [family.id],
-                                },
-                            ]
-                        },
-                    },
-                }
-            ],
-        }
+    response = mutation_turn(
+        (
+            "request",
+            {
+                "mode": "create",
+                "name": "Family actions",
+                "description": "All active Actions tagged Family.",
+                "sql": "SELECT id FROM ai_cards WHERE kind = 'action' "
+                "AND direct_tags LIKE '%Family%'",
+            },
+        )
     )
-    advisor, _provider = e2e_harness.advisor([response])
+    advisor, _provider = e2e_harness.advisor(
+        [response, "I prepared a reusable Family-actions Request for approval."]
+    )
     outcome = await advisor.handle("Create a Request for my Family actions")
 
     assert outcome.proposal_id is not None
@@ -347,7 +321,7 @@ async def test_ai_creates_an_approved_saved_tag_request(e2e_harness):
         await session.commit()
         request = await session.get(SavedRequest, affected[0])
         assert request is not None
-        matches = list(await session.scalars(request_cards_statement(request.filter_spec)))
+        matches = await request_cards(session, request.query_sql)
         assert [card.id for card in matches] == [action.id]
 
 
@@ -375,20 +349,10 @@ async def test_repeatable_action_preserves_tags_in_e2e_flow(e2e_harness):
 
 
 async def test_ai_approved_tag_proposal_creates_a_reusable_tag(e2e_harness):
-    response = json.dumps(
-        {
-            "kind": "proposal",
-            "message": "I prepared the new Tag for approval.",
-            "changes": [
-                {
-                    "entity": "tag",
-                    "action": "create",
-                    "values": {"name": "Learning", "description": "Study and practice."},
-                }
-            ],
-        }
+    response = mutation_turn(
+        ("tag", {"mode": "create", "name": "Learning", "description": "Study and practice."})
     )
-    advisor, _provider = e2e_harness.advisor([response])
+    advisor, _provider = e2e_harness.advisor([response, "I prepared the new Tag for approval."])
     outcome = await advisor.handle("Create a Learning tag")
 
     async with e2e_harness.sessions() as session:
@@ -422,33 +386,14 @@ async def test_ai_can_create_and_link_a_tag_in_one_approved_proposal(e2e_harness
             ),
         ),
     )
-    # The Tag `title` alias deliberately mirrors the imperfect local-model response.
-    response = json.dumps(
-        {
-            "kind": "proposal",
-            "message": "I prepared the VrWalk tag and its card link for approval.",
-            "changes": [
-                {
-                    "entity": "tag",
-                    "action": "create",
-                    "values": {"title": "VrWalk"},
-                },
-                {
-                    "entity": "card",
-                    "action": "link",
-                    "id": goal.id,
-                    "values": {"tag_query": "VrWalk"},
-                },
-                {
-                    "entity": "card",
-                    "action": "link",
-                    "id": action.id,
-                    "values": {"tag_query": "VrWalk"},
-                },
-            ],
-        }
+    response = mutation_turn(
+        ("tag", {"mode": "create", "name": "VrWalk"}),
+        ("card", {"mode": "link", "id": goal.id, "tag_query": "VrWalk"}),
+        ("card", {"mode": "link", "id": action.id, "tag_query": "VrWalk"}),
     )
-    advisor, provider = e2e_harness.advisor([read_turn, response])
+    advisor, provider = e2e_harness.advisor(
+        [read_turn, response, "I prepared the VrWalk tag and its card link for approval."]
+    )
     outcome = await advisor.handle("Create VrWalk and attach it to my recent cards")
 
     async with e2e_harness.sessions() as session:
@@ -460,8 +405,7 @@ async def test_ai_can_create_and_link_a_tag_in_one_approved_proposal(e2e_harness
         for card_id in (goal.id, action.id):
             assert await session.get(CardTag, {"card_id": card_id, "tag_id": tag.id}) is not None
     assert provider.calls[1][-1]["role"] == "tool"
-    assert str(goal.id) in str(provider.calls[1][-1]["content"])
-    assert str(action.id) in str(provider.calls[1][-1]["content"])
+    assert provider.calls[2][-1]["role"] == "tool"
 
 
 async def test_ai_can_create_and_link_a_value_in_one_approved_proposal(e2e_harness):
@@ -469,26 +413,13 @@ async def test_ai_can_create_and_link_a_value_in_one_approved_proposal(e2e_harne
         action = await create_manual_card(session, title="Morning run", effort_points=2)
         await session.commit()
 
-    response = json.dumps(
-        {
-            "kind": "proposal",
-            "message": "I prepared the Health Value and its Card link for approval.",
-            "changes": [
-                {
-                    "entity": "value",
-                    "action": "create",
-                    "values": {"name": "Health", "active": True},
-                },
-                {
-                    "entity": "card",
-                    "action": "link",
-                    "id": action.id,
-                    "values": {"value_query": "Health"},
-                },
-            ],
-        }
+    response = mutation_turn(
+        ("value", {"mode": "create", "name": "Health", "active": True}),
+        ("card", {"mode": "link", "id": action.id, "value_query": "Health"}),
     )
-    advisor, _provider = e2e_harness.advisor([response])
+    advisor, _provider = e2e_harness.advisor(
+        [response, "I prepared the Health Value and its Card link for approval."]
+    )
     outcome = await advisor.handle("Create Health and link it to Morning run")
 
     async with e2e_harness.sessions() as session:
@@ -507,25 +438,19 @@ async def test_ai_request_update_is_rejected_when_the_request_becomes_stale(e2e_
         request = await create_saved_request(
             session,
             "All goals",
-            {"all": [{"field": "kind", "op": "eq", "value": "goal"}]},
+            "SELECT id FROM ai_cards WHERE kind = 'goal'",
         )
         await session.commit()
 
-    response = json.dumps(
-        {
-            "kind": "proposal",
-            "message": "I prepared a clearer Request description.",
-            "changes": [
-                {
-                    "entity": "request",
-                    "action": "update",
-                    "id": request.id,
-                    "values": {"description": "Every active Goal."},
-                }
-            ],
-        }
+    response = mutation_turn(
+        (
+            "request",
+            {"mode": "edit", "id": request.id, "description": "Every active Goal."},
+        )
     )
-    advisor, _provider = e2e_harness.advisor([response])
+    advisor, _provider = e2e_harness.advisor(
+        [response, "I prepared a clearer Request description."]
+    )
     outcome = await advisor.handle("Clarify my All goals Request")
 
     async with e2e_harness.sessions() as session:
@@ -548,7 +473,7 @@ async def test_ai_can_query_saved_requests_through_the_safe_view(e2e_harness):
         await create_saved_request(
             session,
             "All goals",
-            {"all": [{"field": "kind", "op": "eq", "value": "goal"}]},
+            "SELECT id FROM ai_cards WHERE kind = 'goal'",
         )
         await session.commit()
 
@@ -563,7 +488,7 @@ async def test_ai_can_query_saved_requests_through_the_safe_view(e2e_harness):
                 ),
             ),
         ),
-        json.dumps({"kind": "answer", "message": "You have a saved Request named All goals."}),
+        "You have a saved Request named All goals.",
     ]
     advisor, provider = e2e_harness.advisor(responses)
     outcome = await advisor.handle("What saved Requests do I have?")
@@ -574,7 +499,7 @@ async def test_ai_can_query_saved_requests_through_the_safe_view(e2e_harness):
     assert '"name": "All goals"' in follow_up_context
 
 
-async def test_ai_request_filters_values_and_ignores_archived_cards(e2e_harness):
+async def test_ai_request_query_values_and_ignores_archived_cards(e2e_harness):
     async with e2e_harness.sessions() as session:
         value = Value(name="Family")
         session.add(value)
@@ -590,28 +515,20 @@ async def test_ai_request_filters_values_and_ignores_archived_cards(e2e_harness)
         archived.archived_at = archived.created_at
         await session.commit()
 
-    response = json.dumps(
-        {
-            "kind": "proposal",
-            "message": "I prepared the family-value Request for approval.",
-            "changes": [
-                {
-                    "entity": "request",
-                    "action": "create",
-                    "values": {
-                        "name": "Family value actions",
-                        "filter": {
-                            "all": [
-                                {"field": "kind", "op": "eq", "value": "action"},
-                                {"field": "value_id", "op": "any_of", "value": [value.id]},
-                            ]
-                        },
-                    },
-                }
-            ],
-        }
+    response = mutation_turn(
+        (
+            "request",
+            {
+                "mode": "create",
+                "name": "Family value actions",
+                "sql": "SELECT id FROM ai_cards WHERE kind = 'action' "
+                "AND direct_values LIKE '%Family%'",
+            },
+        )
     )
-    advisor, _provider = e2e_harness.advisor([response])
+    advisor, _provider = e2e_harness.advisor(
+        [response, "I prepared the family-value Request for approval."]
+    )
     outcome = await advisor.handle("Create a Request for Family value actions")
 
     async with e2e_harness.sessions() as session:
@@ -619,11 +536,11 @@ async def test_ai_request_filters_values_and_ignores_archived_cards(e2e_harness)
         await session.commit()
         request = await session.get(SavedRequest, affected[0])
         assert request is not None
-        matches = list(await session.scalars(request_cards_statement(request.filter_spec)))
+        matches = await request_cards(session, request.query_sql)
         assert [card.id for card in matches] == [live.id]
 
 
-async def test_ai_request_supports_nested_all_any_filter_logic(e2e_harness):
+async def test_ai_request_query_supports_complex_boolean_logic(e2e_harness):
     async with e2e_harness.sessions() as session:
         today = await create_manual_card(
             session,
@@ -640,41 +557,20 @@ async def test_ai_request_supports_nested_all_any_filter_logic(e2e_harness):
         ordinary = await create_manual_card(session, title="Ordinary action", effort_points=1)
         await session.commit()
 
-    response = json.dumps(
-        {
-            "kind": "proposal",
-            "message": "I prepared the urgent-actions Request for approval.",
-            "changes": [
-                {
-                    "entity": "request",
-                    "action": "create",
-                    "values": {
-                        "name": "Urgent actions",
-                        "filter": {
-                            "all": [
-                                {"field": "kind", "op": "eq", "value": "action"},
-                                {
-                                    "any": [
-                                        {
-                                            "field": "stage",
-                                            "op": "eq",
-                                            "value": "today",
-                                        },
-                                        {
-                                            "field": "priority",
-                                            "op": "eq",
-                                            "value": "critical",
-                                        },
-                                    ]
-                                },
-                            ]
-                        },
-                    },
-                }
-            ],
-        }
+    response = mutation_turn(
+        (
+            "request",
+            {
+                "mode": "create",
+                "name": "Urgent actions",
+                "sql": "SELECT id FROM ai_cards WHERE kind = 'action' "
+                "AND (stage = 'today' OR priority = 'critical') ORDER BY title",
+            },
+        )
     )
-    advisor, _provider = e2e_harness.advisor([response])
+    advisor, _provider = e2e_harness.advisor(
+        [response, "I prepared the urgent-actions Request for approval."]
+    )
     outcome = await advisor.handle("Create an urgent actions Request")
 
     async with e2e_harness.sessions() as session:
@@ -682,15 +578,13 @@ async def test_ai_request_supports_nested_all_any_filter_logic(e2e_harness):
         await session.commit()
         request = await session.get(SavedRequest, affected[0])
         assert request is not None
-        matches = list(
-            await session.scalars(request_cards_statement(request.filter_spec).order_by(Card.title))
-        )
+        matches = await request_cards(session, request.query_sql)
         assert {card.id for card in matches} == {today.id, critical.id}
         assert ordinary.id not in {card.id for card in matches}
 
 
 async def test_advisor_sends_one_system_message_and_canonical_dialogue(e2e_harness):
-    response = json.dumps({"kind": "answer", "message": "I remember the context."})
+    response = "I remember the context."
     advisor, provider = e2e_harness.advisor([response])
     dialogue = [
         DialogueMessage(role="user", content="[Initial request]: Plan this week."),
@@ -722,5 +616,11 @@ async def test_advisor_sends_one_system_message_and_canonical_dialogue(e2e_harne
     assert "Recent cards" not in system
     assert "Lexical card candidates" not in system
     tools = provider.options[0]["tools"]
-    assert isinstance(tools, list) and len(tools) == 1
-    assert tools[0]["function"]["name"] == "query_safwa"
+    assert isinstance(tools, list) and [tool["function"]["name"] for tool in tools] == [
+        "query_safwa",
+        "card",
+        "value",
+        "tag",
+        "request",
+        "remove",
+    ]

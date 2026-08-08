@@ -91,7 +91,7 @@ from .models import (
     Value,
     Workspace,
 )
-from .saved_requests import request_cards_statement
+from .saved_requests import request_cards
 
 logger = logging.getLogger(__name__)
 router = Router(name="safwa")
@@ -937,7 +937,7 @@ async def command_tags(message: Message, services: Services) -> None:
 
 @router.message(Command("requests"))
 async def command_requests(message: Message, services: Services) -> None:
-    """Show AI-authored saved filters; creation intentionally remains advisor-only."""
+    """Show AI-authored saved queries; creation intentionally remains advisor-only."""
     async with services.sessions() as session:
         requests = list(
             await session.scalars(
@@ -962,7 +962,7 @@ async def command_requests(message: Message, services: Services) -> None:
     await send_registered(
         message,
         services,
-        "<b>Requests</b>\nSaved card filters created by your advisor.",
+        "<b>Requests</b>\nSaved card queries created by your advisor.",
         kind=MessageKind.DASHBOARD,
         markup=InlineKeyboardMarkup(inline_keyboard=rows + [menu_row()]),
     )
@@ -973,13 +973,7 @@ async def render_saved_request(message: Message, services: Services, request_id:
         request = await session.get(SavedRequest, request_id)
         if request is None or request.archived_at is not None:
             raise DomainError("Request no longer exists")
-        cards = list(
-            await session.scalars(
-                request_cards_statement(request.filter_spec)
-                .order_by(Card.hard_time.desc(), Card.created_at)
-                .limit(25)
-            )
-        )
+        cards = (await request_cards(session, request.query_sql))[:25]
         rows = [
             [
                 await token_button(

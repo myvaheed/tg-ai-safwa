@@ -321,6 +321,6 @@ async def test_qa_tags_and_requests_navigation(live_telegram_harness):
             requests_command.id,
             lambda message: "Requests" in message.raw_text and has_button(message, "Menu"),
         )
-        assert "Saved card filters" in requests.raw_text
+        assert "Saved card queries" in requests.raw_text
     finally:
         await qa.delete_test_messages()

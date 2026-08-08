@@ -47,9 +47,9 @@ from ..models import (
     Value,
     Workspace,
 )
-from ..saved_requests import RequestFilterError, normalize_filter_spec
+from ..saved_requests import RequestQueryError, normalize_request_sql
 from .context import SYSTEM_PROMPT, DialogueMessage, planning_context
-from .contracts import AGENT_RESPONSE_SCHEMA, AgentChange, AgentResponse
+from .contracts import MUTATION_TOOL_MODELS, AgentChange, mutation_change_from_tool
 from .provider import OpenAICompatibleProvider, ProviderToolCall, ProviderTurn
 from .sql import ReadOnlyQueryRunner, UnsafeQueryError
 
@@ -82,7 +82,26 @@ QUERY_SAFWA_TOOL: dict[str, Any] = {
         },
     },
 }
-MAX_READ_TOOL_CALLS = 8
+MUTATION_TOOL_DESCRIPTIONS = {
+    "card": "Prepare a Card draft or a proposed Card change.",
+    "value": "Prepare a Value creation or edit proposal.",
+    "tag": "Prepare a Tag creation or edit proposal.",
+    "request": "Prepare a saved Request creation or edit proposal.",
+    "remove": "Prepare an archive or permanent Card-deletion confirmation.",
+}
+MUTATION_TOOLS: tuple[dict[str, Any], ...] = tuple(
+    {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": MUTATION_TOOL_DESCRIPTIONS[name],
+            "parameters": model.model_json_schema(),
+        },
+    }
+    for name, model in MUTATION_TOOL_MODELS.items()
+)
+SAFWA_TOOLS = (QUERY_SAFWA_TOOL, *MUTATION_TOOLS)
+MAX_TOOL_CALLS = 16
 
 
 @dataclass
@@ -91,14 +110,6 @@ class AIOutcome:
     message: str
     draft_bundle_ids: list[int] = field(default_factory=list)
     proposal_id: int | None = None
-
-
-def parse_response(raw: str) -> AgentResponse:
-    text = raw.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        text = "\n".join(lines[1:-1])
-    return AgentResponse.model_validate_json(text)
 
 
 def _log_preview(content: str, limit: int = 500) -> str:
@@ -176,7 +187,6 @@ class AIAdvisor:
                 )
             system_sections = [
                 SYSTEM_PROMPT,
-                "Response JSON Schema:\n" + json.dumps(AGENT_RESPONSE_SCHEMA, ensure_ascii=False),
                 f"Current planning state:\n{state}\n\nPersistent memory:\n{memory.text}",
             ]
             if pending:
@@ -190,8 +200,8 @@ class AIAdvisor:
                 messages.append({"role": item.role, "content": item.content})
             if not dialogue:
                 messages.append({"role": "user", "content": text})
-            response = await self._run_agent_loop(messages, run.id)
-            outcome = await self._materialize(response)
+            response_text, changes = await self._run_agent_loop(messages, run.id)
+            outcome = await self._materialize(response_text, changes)
             await self._finish_run(run.id, "completed", started)
             return outcome
         except Exception as error:
@@ -222,20 +232,21 @@ class AIAdvisor:
         _log_provider_request(messages)
         complete_turn = getattr(self.provider, "complete_turn", None)
         if complete_turn is None:
-            raw = await self.provider.complete(messages, json_schema=AGENT_RESPONSE_SCHEMA)
+            raw = await self.provider.complete(messages)
             turn = ProviderTurn(content=raw)
         else:
             turn = await complete_turn(
                 messages,
-                tools=[QUERY_SAFWA_TOOL],
-                json_schema=AGENT_RESPONSE_SCHEMA,
+                tools=list(SAFWA_TOOLS),
             )
         _log_provider_response(turn)
         return turn
 
-    async def _run_agent_loop(self, messages: list[dict[str, Any]], run_id: int) -> AgentResponse:
+    async def _run_agent_loop(
+        self, messages: list[dict[str, Any]], run_id: int
+    ) -> tuple[str, list[AgentChange]]:
         tool_count = 0
-        repair_count = 0
+        changes: list[AgentChange] = []
         while True:
             turn = await self._provider_turn(messages)
             if turn.tool_calls:
@@ -256,9 +267,14 @@ class AIAdvisor:
                 )
                 for call in turn.tool_calls:
                     tool_count += 1
-                    if tool_count > MAX_READ_TOOL_CALLS:
-                        raise DomainError("The advisor exceeded the read-tool call limit")
-                    result = await self._execute_query_tool(call, run_id, tool_count)
+                    if tool_count > MAX_TOOL_CALLS:
+                        raise DomainError("The advisor exceeded the tool-call limit")
+                    if call.name == "query_safwa":
+                        result = await self._execute_query_tool(call, run_id, tool_count)
+                    else:
+                        change, result = await self._execute_mutation_tool(call, run_id, tool_count)
+                        if change is not None:
+                            changes.append(change)
                     messages.append(
                         {
                             "role": "tool",
@@ -269,21 +285,9 @@ class AIAdvisor:
                     )
                 continue
 
-            try:
-                return parse_response(turn.content)
-            except (ValidationError, json.JSONDecodeError, ValueError) as error:
-                if repair_count >= 1:
-                    raise
-                repair_count += 1
-                messages.extend(
-                    [
-                        {"role": "assistant", "content": turn.content},
-                        {
-                            "role": "user",
-                            "content": f"[Invalid response]: {error}. Return corrected JSON only.",
-                        },
-                    ]
-                )
+            if not turn.content:
+                raise DomainError("The advisor finished without a response")
+            return turn.content, changes
 
     async def _execute_query_tool(
         self, call: ProviderToolCall, run_id: int, position: int
@@ -322,15 +326,48 @@ class AIAdvisor:
             await session.commit()
         return rows
 
-    async def _materialize(self, response: AgentResponse) -> AIOutcome:
-        if response.kind in {"answer", "clarification"}:
-            return AIOutcome(response.kind, response.message)
+    async def _execute_mutation_tool(
+        self, call: ProviderToolCall, run_id: int, position: int
+    ) -> tuple[AgentChange | None, dict[str, Any]]:
+        try:
+            arguments = json.loads(call.arguments)
+            if not isinstance(arguments, dict):
+                raise ValueError("Tool arguments must be an object")
+            change = mutation_change_from_tool(call.name, arguments)
+        except (ValueError, ValidationError, json.JSONDecodeError) as error:
+            logger.info("AI TOOL %s rejected: %s", call.name, error)
+            return None, {"status": "rejected", "error": str(error)}
+        logger.info("AI TOOL %s prepared %s.%s", call.name, change.entity, change.action)
+        async with self.sessions() as session:
+            session.add(
+                AgentStep(
+                    run_id=run_id,
+                    position=position,
+                    kind="mutation_intent",
+                    metadata_json={
+                        "tool": call.name,
+                        "entity": change.entity,
+                        "action": change.action,
+                        "id": change.id,
+                    },
+                )
+            )
+            await session.commit()
+        return change, {
+            "status": "prepared",
+            "entity": change.entity,
+            "action": change.action,
+            "id": change.id,
+            "next": "Wait for the user's review or approval; do not say it is complete.",
+        }
+
+    async def _materialize(self, message: str, changes: list[AgentChange]) -> AIOutcome:
+        if not changes:
+            return AIOutcome("answer", message)
         creates = [
-            change
-            for change in response.changes
-            if change.entity == "card" and change.action == "create"
+            change for change in changes if change.entity == "card" and change.action == "create"
         ]
-        other = [change for change in response.changes if change not in creates]
+        other = [change for change in changes if change not in creates]
         draft_ids: list[int] = []
         proposal_id: int | None = None
         async with self.sessions() as session:
@@ -343,7 +380,7 @@ class AIAdvisor:
                 if workspace is None:
                     raise DomainError("Workspace is missing")
                 proposal = ChangeProposal(
-                    message=response.message,
+                    message=message,
                     workspace_revision=workspace.revision,
                     expires_at=utcnow() + timedelta(hours=24),
                 )
@@ -364,15 +401,11 @@ class AIAdvisor:
                         entity = await session.get(Value, change.id)
                         expected_version = entity.version if entity else None
                     values = dict(change.values)
-                    if change.entity == "request" and (
-                        "filter" in values or "filter_spec" in values
-                    ):
+                    if change.entity == "request" and "sql" in values:
                         try:
-                            values["filter_spec"] = normalize_filter_spec(
-                                values.pop("filter", values.get("filter_spec"))
-                            )
-                        except RequestFilterError as error:
-                            raise DomainError(f"Invalid Request filter: {error}") from error
+                            values["query_sql"] = normalize_request_sql(values.pop("sql"))
+                        except RequestQueryError as error:
+                            raise DomainError(f"Invalid Request SQL: {error}") from error
                     session.add(
                         ProposalChange(
                             proposal_id=proposal.id,
@@ -386,7 +419,7 @@ class AIAdvisor:
                     )
                 proposal_id = proposal.id
             await session.commit()
-        return AIOutcome("proposal", response.message, draft_ids, proposal_id)
+        return AIOutcome("proposal", message, draft_ids, proposal_id)
 
     async def _resolve_card_draft(
         self, session: AsyncSession, change: AgentChange
@@ -687,7 +720,7 @@ class ProposalService:
                     request = await create_saved_request(
                         self.session,
                         str(change.values["name"]),
-                        change.values["filter_spec"],
+                        change.values["query_sql"],
                         str(change.values.get("description", "")),
                     )
                 elif request is None or request.version != change.expected_version:
@@ -702,7 +735,7 @@ class ProposalService:
                             if "description" in change.values
                             else None
                         ),
-                        filter_spec=change.values.get("filter_spec"),
+                        query_sql=change.values.get("query_sql"),
                     )
                 elif change.action == "archive":
                     request = await archive_saved_request(self.session, request.id)

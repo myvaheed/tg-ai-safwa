@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import select
 
+from safwa.ai.sql import create_ai_views
 from safwa.domain import DomainError, create_saved_request
 from safwa.models import Card, CardTag, SavedRequest, Tag
-from safwa.saved_requests import request_cards_statement
+from safwa.saved_requests import request_cards
 
 
-async def test_saved_request_combines_action_tag_and_nested_stage_filters(sessions):
+async def test_saved_request_runs_a_safe_card_query(sessions):
     async with sessions() as session:
+        await (await session.connection()).run_sync(create_ai_views)
         family = Tag(name="Family")
         work = Tag(name="Work")
         family_today = Card(
@@ -16,7 +19,6 @@ async def test_saved_request_combines_action_tag_and_nested_stage_filters(sessio
             title="Call family",
             manual_stage="today",
             effective_stage="today",
-            priority="medium",
             effort_points=1,
         )
         family_backlog = Card(
@@ -24,16 +26,14 @@ async def test_saved_request_combines_action_tag_and_nested_stage_filters(sessio
             title="Plan family trip",
             manual_stage="backlog",
             effective_stage="backlog",
-            priority="medium",
             effort_points=3,
         )
         work_today = Card(
             kind="action",
-            title="Work meeting",
+            title="Prepare report",
             manual_stage="today",
             effective_stage="today",
-            priority="medium",
-            effort_points=1,
+            effort_points=3,
         )
         session.add_all([family, work, family_today, family_backlog, work_today])
         await session.flush()
@@ -47,40 +47,30 @@ async def test_saved_request_combines_action_tag_and_nested_stage_filters(sessio
         request = await create_saved_request(
             session,
             "Family actions to work on",
-            {
-                "all": [
-                    {"field": "kind", "op": "eq", "value": "action"},
-                    {"field": "tag_id", "op": "any_of", "value": [family.id]},
-                    {
-                        "any": [
-                            {"field": "stage", "op": "eq", "value": "today"},
-                            {"field": "stage", "op": "eq", "value": "backlog"},
-                        ]
-                    },
-                ]
-            },
+            "SELECT id FROM ai_cards WHERE kind = 'action' "
+            "AND direct_tags LIKE '%Family%' AND stage IN ('today', 'backlog') ORDER BY title",
             "Family tasks that are live.",
         )
         await session.commit()
 
     async with sessions() as session:
         stored = await session.get(SavedRequest, request.id)
-        cards = list(
-            await session.scalars(request_cards_statement(stored.filter_spec).order_by(Card.title))
-        )
+        assert stored is not None
+        cards = await request_cards(session, stored.query_sql)
         assert [card.title for card in cards] == ["Call family", "Plan family trip"]
 
 
-async def test_saved_request_rejects_unknown_or_unsafe_filter_fields(sessions):
+@pytest.mark.parametrize(
+    "query_sql",
+    [
+        "DELETE FROM ai_cards",
+        "SELECT id FROM cards",
+        "SELECT id FROM ai_tags",
+        "SELECT title FROM ai_cards",
+    ],
+)
+async def test_saved_request_rejects_non_read_or_non_card_queries(sessions, query_sql):
     async with sessions() as session:
-        try:
-            await create_saved_request(
-                session,
-                "Unsafe request",
-                {"all": [{"field": "sql", "op": "contains", "value": "DROP"}]},
-            )
-        except DomainError as error:
-            assert "Unknown filter field" in str(error)
-        else:
-            raise AssertionError("Unsafe request filters must be rejected")
+        with pytest.raises(DomainError):
+            await create_saved_request(session, "Unsafe request", query_sql)
         assert list(await session.scalars(select(SavedRequest))) == []

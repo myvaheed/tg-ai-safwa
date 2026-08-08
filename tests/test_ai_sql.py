@@ -2,14 +2,26 @@ from __future__ import annotations
 
 import pytest
 
-from safwa.ai.contracts import AgentResponse
+from safwa.ai.contracts import CardToolInput, mutation_change_from_tool
 from safwa.ai.sql import UnsafeQueryError, validate_read_sql
 
 
-def test_agent_response_shapes():
-    assert AgentResponse(kind="answer", message="ok").kind == "answer"
+def test_native_mutation_tools_become_typed_change_intents():
+    draft = CardToolInput(mode="draft", kind="action", title="Read one page", effort_points=1)
+    assert draft.kind == "action"
+    change = mutation_change_from_tool("card", {"mode": "edit", "id": 42, "priority": "critical"})
+    assert (change.entity, change.action, change.id, change.values) == (
+        "card",
+        "update",
+        42,
+        {"priority": "critical"},
+    )
+    remove = mutation_change_from_tool("remove", {"type": "card", "id": 42, "permanent": True})
+    assert (remove.entity, remove.action, remove.id) == ("card", "delete", 42)
     with pytest.raises(ValueError):
-        AgentResponse(kind="answer", message="bad", sql="SELECT * FROM ai_cards")
+        CardToolInput(mode="draft", kind="action")
+    with pytest.raises(ValueError):
+        mutation_change_from_tool("remove", {"type": "tag", "id": 42, "permanent": True})
 
 
 @pytest.mark.parametrize(
@@ -17,6 +29,7 @@ def test_agent_response_shapes():
     [
         "DELETE FROM ai_cards",
         "SELECT * FROM cards",
+        'SELECT * FROM "cards"',
         "PRAGMA table_info(ai_cards)",
         "SELECT * FROM ai_cards; SELECT * FROM ai_values",
     ],

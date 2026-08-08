@@ -37,7 +37,11 @@ def validate_read_sql(sql: str) -> str:
         raise UnsafeQueryError("Unsafe SQL keyword")
     names = {
         match.group(1).casefold()
-        for match in re.finditer(r"\b(?:from|join)\s+([A-Za-z_][A-Za-z0-9_]*)", statement, re.I)
+        for match in re.finditer(
+            r"\b(?:from|join)\s+[\"`\[]?([A-Za-z_][A-Za-z0-9_]*)[\"`\]]?",
+            statement,
+            re.I,
+        )
     }
     cte_names = {
         match.group(1).casefold()
@@ -91,7 +95,7 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
     )
     connection.exec_driver_sql(
         """CREATE VIEW IF NOT EXISTS ai_requests AS
-        SELECT id, name, description, filter_spec FROM saved_requests WHERE archived_at IS NULL"""
+        SELECT id, name, description, query_sql FROM saved_requests WHERE archived_at IS NULL"""
     )
     connection.exec_driver_sql(
         """CREATE VIEW IF NOT EXISTS ai_values AS

@@ -35,7 +35,7 @@ from .models import (
     Workspace,
     new_correlation_id,
 )
-from .saved_requests import RequestFilterError, normalize_filter_spec
+from .saved_requests import RequestQueryError, normalize_request_sql
 
 
 class DomainError(ValueError):
@@ -102,15 +102,15 @@ async def create_tag(session: AsyncSession, name: str, description: str = "") ->
 async def create_saved_request(
     session: AsyncSession,
     name: str,
-    filter_spec: dict[str, Any],
+    query_sql: str,
     description: str = "",
 ) -> SavedRequest:
     normalized_name = name.strip()
     if not normalized_name:
         raise DomainError("Request name cannot be empty")
     try:
-        normalized_filter = normalize_filter_spec(filter_spec)
-    except RequestFilterError as error:
+        normalized_query = normalize_request_sql(query_sql)
+    except RequestQueryError as error:
         raise DomainError(str(error)) from error
     existing = await session.scalar(
         select(SavedRequest).where(SavedRequest.name.collate("NOCASE") == normalized_name)
@@ -120,7 +120,7 @@ async def create_saved_request(
     request = SavedRequest(
         name=normalized_name,
         description=description.strip(),
-        filter_spec=normalized_filter,
+        query_sql=normalized_query,
     )
     session.add(request)
     await session.flush()
@@ -134,7 +134,7 @@ async def update_saved_request(
     *,
     name: str | None = None,
     description: str | None = None,
-    filter_spec: dict[str, Any] | None = None,
+    query_sql: str | None = None,
 ) -> SavedRequest:
     request = await session.get(SavedRequest, request_id)
     if request is None or request.archived_at is not None:
@@ -154,10 +154,10 @@ async def update_saved_request(
         request.name = normalized_name
     if description is not None:
         request.description = description.strip()
-    if filter_spec is not None:
+    if query_sql is not None:
         try:
-            request.filter_spec = normalize_filter_spec(filter_spec)
-        except RequestFilterError as error:
+            request.query_sql = normalize_request_sql(query_sql)
+        except RequestQueryError as error:
             raise DomainError(str(error)) from error
     request.version += 1
     await _bump_workspace(session)

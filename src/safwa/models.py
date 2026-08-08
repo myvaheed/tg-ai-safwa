@@ -156,13 +156,13 @@ class CardTag(Base):
 
 
 class SavedRequest(Base, TimestampMixin):
-    """A user-visible, AI-authored saved filter over committed Cards."""
+    """A user-visible, AI-authored read-only Card query."""
 
     __tablename__ = "saved_requests"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(200), unique=True)
     description: Mapped[str] = mapped_column(Text, default="")
-    filter_spec: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    query_sql: Mapped[str] = mapped_column(Text)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     version: Mapped[int] = mapped_column(Integer, default=1)
 
