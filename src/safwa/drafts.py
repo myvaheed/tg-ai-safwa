@@ -117,10 +117,18 @@ class DraftService:
                     DraftValue(draft_id=draft.id, value_id=value.id, expected_version=value.version)
                 )
         for category in payload.get("categories", []):
-            self.session.add(DraftCategory(draft_id=draft.id, category=Category(category).value))
+            self.session.add(
+                DraftCategory(
+                    draft_id=draft.id,
+                    category=Category(str(category).strip().casefold()).value,
+                )
+            )
         for energy in payload.get("energy_types", []):
             self.session.add(
-                DraftEnergyType(draft_id=draft.id, energy_type=EnergyType(energy).value)
+                DraftEnergyType(
+                    draft_id=draft.id,
+                    energy_type=EnergyType(str(energy).strip().casefold()).value,
+                )
             )
         for dependency in payload.get("dependencies", []):
             card = await self.session.get(Card, dependency["card_id"])

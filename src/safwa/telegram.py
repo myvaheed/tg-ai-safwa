@@ -447,6 +447,18 @@ async def draft_review_markup(
         ("💎 Values", "draft_choose_values", {"id": draft.id}),
         ("🚧 Blockers", "draft_choose_blockers", {"id": draft.id}),
     ]
+    if draft.kind != CardKind.ACTION.value:
+        action_only = {
+            "draft_choose_effort",
+            "draft_choose_categories",
+            "draft_choose_energy",
+        }
+        fields = [
+            field
+            for field in fields
+            if field[1] not in action_only
+            and not (field[1] == "draft_toggle" and field[2].get("field") == "repeatable")
+        ]
     buttons = [await token_button(session, services.owner_id, *item) for item in fields]
     rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
     bundle_drafts = list(
@@ -504,7 +516,10 @@ async def draft_review_markup(
                     )
                 ]
             )
-        if all(item.reviewed_at is not None for item in bundle_drafts):
+        ready_to_commit = all(
+            item.reviewed_at is not None and not item.validation_errors for item in bundle_drafts
+        )
+        if ready_to_commit:
             rows.append(
                 [
                     await token_button(
