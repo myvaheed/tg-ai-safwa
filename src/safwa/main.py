@@ -120,6 +120,7 @@ async def run(settings: Settings) -> None:
             BotCommand(command="newvalue", description="Create a Value"),
             BotCommand(command="tags", description="Manage Tags"),
             BotCommand(command="newtag", description="Create a Tag"),
+            BotCommand(command="requests", description="Saved AI Requests"),
             BotCommand(command="retro", description="Latest retrospective"),
             BotCommand(command="feedback", description="Pending completion feedback"),
             BotCommand(command="settings", description="Profile and reminders"),

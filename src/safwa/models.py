@@ -151,6 +151,18 @@ class CardTag(Base):
     tag_id: Mapped[str] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
 
 
+class SavedRequest(Base, TimestampMixin):
+    """A user-visible, AI-authored saved filter over committed Cards."""
+
+    __tablename__ = "saved_requests"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(200), unique=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    filter_spec: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+
 class CardCategory(Base):
     __tablename__ = "card_categories"
     card_id: Mapped[str] = mapped_column(

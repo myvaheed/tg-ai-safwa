@@ -235,6 +235,13 @@ When AI suggests multiple Cards:
 - Action effort is mandatory.
 - Priority defaults to Medium; Hard Time is an independent boolean.
 
+### Saved Requests
+
+- A Request is an AI-authored, named, reusable filter over committed Cards.
+- Requests use a validated nested `all`/`any` filter expression and never execute model-supplied SQL.
+- Filters may combine Card kind, stage, priority, effort, parent, text, blockers, direct Tags, and direct Values.
+- Requests are created, updated, or archived only through a normal version-checked AI proposal; Telegram provides browsing and result navigation, not a manual filter editor.
+
 ### Stage aggregation
 
 Store a retained `manual_stage` and materialized `effective_stage`.

@@ -9,7 +9,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..enums import CardStage
-from ..models import Card, Tag, UserProfile, Value, Workspace
+from ..models import Card, SavedRequest, Tag, UserProfile, Value, Workspace
 
 
 @dataclass(frozen=True)
@@ -47,6 +47,15 @@ Energy types may overlap: Physical is bodily exertion or physical capacity; Cogn
 reasoning, learning, or mental intensity; Social is interaction, communication, or coordination; Values
 is energy drawn from or spent on acting in alignment with a personally important Value. Select every
 genuinely relevant energy type. These are estimates to help planning, not facts about the user.
+
+Saved Requests are named, reusable filters over committed Cards. They can only be created or changed
+through an approved AI proposal. To create one, return entity="request", action="create", with name,
+optional description, and filter. A filter is a nested object using all and/or any arrays. Each predicate
+is {"field": ..., "op": ..., "value": ...}. Fields: kind, stage, priority (eq/in); hard_time,
+repeatable, liked, has_blockers (eq true/false); effort_points (eq/in/gte/lte); parent_id (eq/is_null);
+title or note (contains); tag_id or value_id (any_of/all_of/none_of). Use IDs shown in context for Tag
+and Value predicates. Example Family actions: {"all":[{"field":"kind","op":"eq","value":"action"},
+{"field":"tag_id","op":"any_of","value":["TAG-ID"]}]}. Never use SQL or unknown fields.
 """
 
 
@@ -63,6 +72,14 @@ async def planning_context(session: AsyncSession) -> str:
     tags = list(
         await session.scalars(
             select(Tag).where(Tag.archived_at.is_(None)).order_by(Tag.name)
+        )
+    )
+    requests = list(
+        await session.scalars(
+            select(SavedRequest)
+            .where(SavedRequest.archived_at.is_(None))
+            .order_by(SavedRequest.name)
+            .limit(20)
         )
     )
     today = list(
@@ -88,6 +105,7 @@ async def planning_context(session: AsyncSession) -> str:
         f"Advisor instructions: {(profile.advisor_instructions if profile else '').strip()}",
         "Active Values: " + ", ".join(f"{v.name} [{v.id}]" for v in active_values),
         "Available Tags: " + ", ".join(f"{tag.name} [{tag.id}]" for tag in tags),
+        "Saved Requests: " + ", ".join(f"{request.name} [{request.id}]" for request in requests),
         "Today cards:",
         *[f"- {c.title} [{c.id}] kind={c.kind} effort={c.effort_points}" for c in today],
         "Sprint cards:",

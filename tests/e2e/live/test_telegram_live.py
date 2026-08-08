@@ -19,6 +19,7 @@ from safwa import main as safwa_main
 from safwa.db import upgrade_database
 from safwa.history import TelegramHistorySource
 from safwa.qa import resolve_qa_config
+from safwa.telegram import router as safwa_router
 
 pytestmark = [pytest.mark.e2e, pytest.mark.live_telegram]
 
@@ -198,6 +199,9 @@ async def live_telegram_harness(tmp_path: Path, monkeypatch) -> LiveTelegramHarn
         app_task.cancel()
         with suppress(asyncio.CancelledError):
             await app_task
+        # Aiogram routers are singleton module objects in the application.  A
+        # fresh live harness needs to attach it to its own Dispatcher.
+        safwa_router._parent_router = None  # type: ignore[attr-defined]
         if client.is_connected():
             await client.disconnect()
         assert NoAIProvider.calls == 0
@@ -281,5 +285,31 @@ async def test_qa_status_and_manual_card_review_flow(live_telegram_harness):
             assert connection.execute(
                 "SELECT COUNT(*) FROM card_drafts WHERE title=? AND status='committed'", (title,)
             ).fetchone() == (1,)
+    finally:
+        await qa.delete_test_messages()
+
+
+async def test_qa_tags_and_requests_navigation(live_telegram_harness):
+    qa = live_telegram_harness
+    tag_name = f"QA family {uuid4().hex[:8]}"
+    try:
+        new_tag = await qa.send(f"/newtag {tag_name}")
+        tags = await qa.wait_for_bot(
+            new_tag.id,
+            lambda message: "Tags" in message.raw_text and has_button(message, tag_name),
+        )
+        await click_button(tags, tag_name, exact=True)
+        tag_detail = await qa.wait_for_existing_bot_message(
+            tags.id,
+            lambda message: tag_name in message.raw_text and has_button(message, "Menu"),
+        )
+        assert tag_detail.id == tags.id
+
+        requests_command = await qa.send("/requests")
+        requests = await qa.wait_for_bot(
+            requests_command.id,
+            lambda message: "Requests" in message.raw_text and has_button(message, "Menu"),
+        )
+        assert "Saved card filters" in requests.raw_text
     finally:
         await qa.delete_test_messages()

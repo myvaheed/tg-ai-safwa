@@ -71,6 +71,7 @@ from .models import (
     ChangeProposal,
     FeedbackQueue,
     ProposalChange,
+    SavedRequest,
     Sprint,
     SummaryState,
     Tag,
@@ -79,6 +80,7 @@ from .models import (
     Value,
     Workspace,
 )
+from .saved_requests import request_cards_statement
 
 logger = logging.getLogger(__name__)
 router = Router(name="safwa")
@@ -249,6 +251,7 @@ def menu_markup() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="💬 Advisor", callback_data="nav:advisor"),
+                InlineKeyboardButton(text="🔎 Requests", callback_data="nav:requests"),
                 InlineKeyboardButton(text="📊 Retro", callback_data="nav:retro"),
                 InlineKeyboardButton(text="⚙️ Settings", callback_data="nav:settings"),
             ],
@@ -919,6 +922,90 @@ async def command_tags(message: Message, services: Services) -> None:
     )
 
 
+@router.message(Command("requests"))
+async def command_requests(message: Message, services: Services) -> None:
+    """Show AI-authored saved filters; creation intentionally remains advisor-only."""
+    async with services.sessions() as session:
+        requests = list(
+            await session.scalars(
+                select(SavedRequest)
+                .where(SavedRequest.archived_at.is_(None))
+                .order_by(SavedRequest.name)
+            )
+        )
+        rows = [
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    request.name,
+                    "request_view",
+                    {"id": request.id},
+                )
+            ]
+            for request in requests
+        ]
+        await session.commit()
+    await send_registered(
+        message,
+        services,
+        "<b>Requests</b>\nSaved card filters created by your advisor.",
+        kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(inline_keyboard=rows + [menu_row()]),
+    )
+
+
+async def render_saved_request(message: Message, services: Services, request_id: str) -> None:
+    async with services.sessions() as session:
+        request = await session.get(SavedRequest, request_id)
+        if request is None or request.archived_at is not None:
+            raise DomainError("Request no longer exists")
+        cards = list(
+            await session.scalars(
+                request_cards_statement(request.filter_spec)
+                .order_by(Card.hard_time.desc(), Card.created_at)
+                .limit(25)
+            )
+        )
+        rows = [
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    f"{card.kind.title()} · {card.title}"[:60],
+                    "card_view",
+                    {"id": card.id},
+                )
+            ]
+            for card in cards
+        ]
+        rows.append(
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "↻ Refresh",
+                    "request_view",
+                    {"id": request.id},
+                )
+            ]
+        )
+        rows.append(menu_row())
+        await session.commit()
+    details = request.description or "No description."
+    details += f"\n\n{len(cards)} matching card{'s' if len(cards) != 1 else ''}"
+    if len(cards) == 25:
+        details += " (showing first 25)"
+    await send_registered(
+        message,
+        services,
+        f"<b>{html.escape(request.name)}</b>\n{html.escape(details)}",
+        kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        related_id=request.id,
+    )
+
+
 @router.message(Command("newtag"))
 async def command_new_tag(message: Message, services: Services) -> None:
     name = (message.text or "").partition(" ")[2].strip()
@@ -1190,6 +1277,7 @@ async def navigation(callback: CallbackQuery, services: Services) -> None:
         "drafts": command_drafts,
         "values": command_values,
         "tags": command_tags,
+        "requests": command_requests,
         "advisor": command_advisor,
         "retro": command_retro,
         "settings": command_settings,
@@ -1263,6 +1351,9 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
                 kind=MessageKind.DASHBOARD,
                 markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
             )
+            return
+        if action == "request_view":
+            await render_saved_request(callback.message, services, payload["id"])
             return
         if action == "subsession_confirm":
             await send_registered(

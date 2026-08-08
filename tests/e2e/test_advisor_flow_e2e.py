@@ -5,9 +5,17 @@ import json
 import pytest
 from sqlalchemy import func, select
 
-from safwa.ai.service import AIOutcome
+from safwa.ai.service import AIOutcome, ProposalService
 from safwa.analytics import render_retrospective_png, retrospective_data
-from safwa.domain import finish_action, finish_sprint, move_card, sprint_metrics, start_sprint
+from safwa.domain import (
+    StaleStateError,
+    create_saved_request,
+    finish_action,
+    finish_sprint,
+    move_card,
+    sprint_metrics,
+    start_sprint,
+)
 from safwa.drafts import DraftService
 from safwa.enums import CardStage, DraftStatus
 from safwa.models import (
@@ -20,10 +28,12 @@ from safwa.models import (
     CardTag,
     CardValue,
     FeedbackQueue,
+    SavedRequest,
     Tag,
     Value,
     Workspace,
 )
+from safwa.saved_requests import request_cards_statement
 
 pytestmark = pytest.mark.e2e
 
@@ -284,3 +294,286 @@ async def test_multi_card_ai_bundle_is_reviewed_and_committed_atomically(e2e_har
             draft.status == DraftStatus.COMMITTED.value
             for draft in await DraftService(session).get_bundle_drafts(bundle_id)
         )
+
+
+async def test_ai_creates_an_approved_saved_tag_request(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        family = Tag(name="Family")
+        session.add(family)
+        action = await create_manual_card(session, title="Call parents", effort_points=1)
+        session.add(CardTag(card_id=action.id, tag_id=family.id))
+        await session.commit()
+
+    response = json.dumps(
+        {
+            "kind": "proposal",
+            "message": "I prepared a reusable Family-actions Request for approval.",
+            "changes": [
+                {
+                    "entity": "request",
+                    "action": "create",
+                    "values": {
+                        "name": "Family actions",
+                        "description": "All active Actions tagged Family.",
+                        "filter": {
+                            "all": [
+                                {"field": "kind", "op": "eq", "value": "action"},
+                                {
+                                    "field": "tag_id",
+                                    "op": "any_of",
+                                    "value": [family.id],
+                                },
+                            ]
+                        },
+                    },
+                }
+            ],
+        }
+    )
+    advisor, _provider = e2e_harness.advisor([response])
+    outcome = await advisor.handle("Create a Request for my Family actions")
+
+    assert outcome.proposal_id is not None
+    async with e2e_harness.sessions() as session:
+        affected = await ProposalService(session).apply(outcome.proposal_id)
+        await session.commit()
+        request = await session.get(SavedRequest, affected[0])
+        assert request is not None
+        matches = list(await session.scalars(request_cards_statement(request.filter_spec)))
+        assert [card.id for card in matches] == [action.id]
+
+
+async def test_repeatable_action_preserves_tags_in_e2e_flow(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        tag = Tag(name="Health")
+        session.add(tag)
+        action = await create_manual_card(
+            session,
+            title="Run outside",
+            stage=CardStage.TODAY.value,
+            effort_points=2,
+            repeatable=True,
+        )
+        session.add(CardTag(card_id=action.id, tag_id=tag.id))
+        await session.flush()
+        completion = await finish_action(session, action.id, CardStage.DONE)
+        await session.commit()
+
+    async with e2e_harness.sessions() as session:
+        successor = await session.get(Card, completion.successor_ids[0])
+        assert successor is not None
+        copied_tag = await session.get(
+            CardTag, {"card_id": successor.id, "tag_id": tag.id}
+        )
+        assert copied_tag is not None
+
+
+async def test_ai_approved_tag_proposal_creates_a_reusable_tag(e2e_harness):
+    response = json.dumps(
+        {
+            "kind": "proposal",
+            "message": "I prepared the new Tag for approval.",
+            "changes": [
+                {
+                    "entity": "tag",
+                    "action": "create",
+                    "values": {"name": "Learning", "description": "Study and practice."},
+                }
+            ],
+        }
+    )
+    advisor, _provider = e2e_harness.advisor([response])
+    outcome = await advisor.handle("Create a Learning tag")
+
+    async with e2e_harness.sessions() as session:
+        affected = await ProposalService(session).apply(outcome.proposal_id or "")
+        await session.commit()
+        tag = await session.get(Tag, affected[0])
+        assert tag is not None
+        assert (tag.name, tag.description) == ("Learning", "Study and practice.")
+
+
+async def test_ai_request_update_is_rejected_when_the_request_becomes_stale(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        request = await create_saved_request(
+            session,
+            "All goals",
+            {"all": [{"field": "kind", "op": "eq", "value": "goal"}]},
+        )
+        await session.commit()
+
+    response = json.dumps(
+        {
+            "kind": "proposal",
+            "message": "I prepared a clearer Request description.",
+            "changes": [
+                {
+                    "entity": "request",
+                    "action": "update",
+                    "id": request.id,
+                    "values": {"description": "Every active Goal."},
+                }
+            ],
+        }
+    )
+    advisor, _provider = e2e_harness.advisor([response])
+    outcome = await advisor.handle("Clarify my All goals Request")
+
+    async with e2e_harness.sessions() as session:
+        changed = await session.get(SavedRequest, request.id)
+        assert changed is not None
+        changed.version += 1
+        await session.commit()
+
+    async with e2e_harness.sessions() as session:
+        try:
+            await ProposalService(session).apply(outcome.proposal_id or "")
+        except StaleStateError:
+            pass
+        else:
+            raise AssertionError("Request proposal must reject a stale version")
+
+
+async def test_ai_can_query_saved_requests_through_the_safe_view(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        await create_saved_request(
+            session,
+            "All goals",
+            {"all": [{"field": "kind", "op": "eq", "value": "goal"}]},
+        )
+        await session.commit()
+
+    responses = [
+        json.dumps(
+            {
+                "kind": "query",
+                "message": "I will check your saved Requests.",
+                "sql": "SELECT name FROM ai_requests",
+            }
+        ),
+        json.dumps(
+            {"kind": "answer", "message": "You have a saved Request named All goals."}
+        ),
+    ]
+    advisor, provider = e2e_harness.advisor(responses)
+    outcome = await advisor.handle("What saved Requests do I have?")
+
+    assert outcome.kind == "answer"
+    assert len(provider.calls) == 2
+    follow_up_context = "\n".join(message["content"] for message in provider.calls[1])
+    assert '"name": "All goals"' in follow_up_context
+
+
+async def test_ai_request_filters_values_and_ignores_archived_cards(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        value = Value(name="Family")
+        session.add(value)
+        await session.flush()
+        live = await create_manual_card(session, title="Call parents", effort_points=1)
+        archived = await create_manual_card(session, title="Old family task", effort_points=1)
+        session.add_all(
+            [
+                CardValue(card_id=live.id, value_id=value.id),
+                CardValue(card_id=archived.id, value_id=value.id),
+            ]
+        )
+        archived.archived_at = archived.created_at
+        await session.commit()
+
+    response = json.dumps(
+        {
+            "kind": "proposal",
+            "message": "I prepared the family-value Request for approval.",
+            "changes": [
+                {
+                    "entity": "request",
+                    "action": "create",
+                    "values": {
+                        "name": "Family value actions",
+                        "filter": {
+                            "all": [
+                                {"field": "kind", "op": "eq", "value": "action"},
+                                {"field": "value_id", "op": "any_of", "value": [value.id]},
+                            ]
+                        },
+                    },
+                }
+            ],
+        }
+    )
+    advisor, _provider = e2e_harness.advisor([response])
+    outcome = await advisor.handle("Create a Request for Family value actions")
+
+    async with e2e_harness.sessions() as session:
+        affected = await ProposalService(session).apply(outcome.proposal_id or "")
+        await session.commit()
+        request = await session.get(SavedRequest, affected[0])
+        assert request is not None
+        matches = list(await session.scalars(request_cards_statement(request.filter_spec)))
+        assert [card.id for card in matches] == [live.id]
+
+
+async def test_ai_request_supports_nested_all_any_filter_logic(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        today = await create_manual_card(
+            session,
+            title="Today action",
+            stage=CardStage.TODAY.value,
+            effort_points=1,
+        )
+        critical = await create_manual_card(
+            session,
+            title="Critical action",
+            effort_points=1,
+            priority="critical",
+        )
+        ordinary = await create_manual_card(session, title="Ordinary action", effort_points=1)
+        await session.commit()
+
+    response = json.dumps(
+        {
+            "kind": "proposal",
+            "message": "I prepared the urgent-actions Request for approval.",
+            "changes": [
+                {
+                    "entity": "request",
+                    "action": "create",
+                    "values": {
+                        "name": "Urgent actions",
+                        "filter": {
+                            "all": [
+                                {"field": "kind", "op": "eq", "value": "action"},
+                                {
+                                    "any": [
+                                        {
+                                            "field": "stage",
+                                            "op": "eq",
+                                            "value": "today",
+                                        },
+                                        {
+                                            "field": "priority",
+                                            "op": "eq",
+                                            "value": "critical",
+                                        },
+                                    ]
+                                },
+                            ]
+                        },
+                    },
+                }
+            ],
+        }
+    )
+    advisor, _provider = e2e_harness.advisor([response])
+    outcome = await advisor.handle("Create an urgent actions Request")
+
+    async with e2e_harness.sessions() as session:
+        affected = await ProposalService(session).apply(outcome.proposal_id or "")
+        await session.commit()
+        request = await session.get(SavedRequest, affected[0])
+        assert request is not None
+        matches = list(
+            await session.scalars(request_cards_statement(request.filter_spec).order_by(Card.title))
+        )
+        assert {card.id for card in matches} == {today.id, critical.id}
+        assert ordinary.id not in {card.id for card in matches}

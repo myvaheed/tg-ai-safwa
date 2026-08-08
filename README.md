@@ -1,7 +1,7 @@
 # Safwa
 
 Safwa is a single-owner personal agile organizer and AI advisor delivered through a Telegram bot.
-It supports Tags, hierarchical Goal/Idea/Action cards, Planning and two-week Sprints,
+It supports Tags, AI-authored saved Requests, hierarchical Goal/Idea/Action cards, Planning and two-week Sprints,
 repeatable Actions, Values, energy/category analysis, mandatory card-draft review, reminders,
 retrospective PNGs, and an OpenAI-compatible persona.
 

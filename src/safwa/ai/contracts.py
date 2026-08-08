@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class AgentChange(BaseModel):
-    entity: Literal["card", "tag", "value", "sprint", "settings"]
+    entity: Literal["card", "tag", "value", "request", "sprint", "settings"]
     action: Literal[
         "create",
         "update",

@@ -35,7 +35,12 @@ async def test_read_only_query_runner_reads_only_ai_views(tmp_path):
             "CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
         )
         connection.exec_driver_sql("INSERT INTO card_tags(card_id,tag_id) VALUES ('c','t')")
+        connection.exec_driver_sql(
+            "INSERT INTO saved_requests(id,name,description,filter_spec,version,created_at,updated_at) "
+            "VALUES ('r','Family actions','', '{\"all\":[{\"field\":\"tag_id\",\"op\":\"any_of\",\"value\":[\"t\"]}]}',1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
+        )
     runner = ReadOnlyQueryRunner(path)
     assert await runner.run("SELECT title FROM ai_cards") == [{"title": "Read"}]
     assert await runner.run("SELECT name FROM ai_tags") == [{"name": "Family"}]
+    assert await runner.run("SELECT name FROM ai_requests") == [{"name": "Family actions"}]
     engine.dispose()

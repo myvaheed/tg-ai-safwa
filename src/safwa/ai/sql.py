@@ -15,6 +15,7 @@ class UnsafeQueryError(ValueError):
 ALLOWED_VIEWS = {
     "ai_cards",
     "ai_tags",
+    "ai_requests",
     "ai_values",
     "ai_current_sprint",
     "ai_current_sprint_metrics",
@@ -57,6 +58,7 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
     for view_name in (
         "ai_boards",
         "ai_tags",
+        "ai_requests",
         "ai_cards",
         "ai_values",
         "ai_current_sprint",
@@ -87,6 +89,10 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
     connection.exec_driver_sql(
         """CREATE VIEW IF NOT EXISTS ai_tags AS
         SELECT id, name, description FROM tags WHERE archived_at IS NULL"""
+    )
+    connection.exec_driver_sql(
+        """CREATE VIEW IF NOT EXISTS ai_requests AS
+        SELECT id, name, description, filter_spec FROM saved_requests WHERE archived_at IS NULL"""
     )
     connection.exec_driver_sql(
         """CREATE VIEW IF NOT EXISTS ai_values AS

@@ -14,7 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..domain import (
     DomainError,
     StaleStateError,
+    archive_saved_request,
     archive_subtree,
+    create_saved_request,
     delete_subtree,
     finish_action,
     finish_sprint,
@@ -24,6 +26,7 @@ from ..domain import (
     toggle_card_tag,
     toggle_card_value,
     update_card_fields,
+    update_saved_request,
     utcnow,
 )
 from ..drafts import DraftService
@@ -38,11 +41,13 @@ from ..models import (
     CardValue,
     ChangeProposal,
     ProposalChange,
+    SavedRequest,
     Tag,
     UserProfile,
     Value,
     Workspace,
 )
+from ..saved_requests import RequestFilterError, normalize_filter_spec
 from .context import SYSTEM_PROMPT, DialogueMessage, lexical_candidates, planning_context
 from .contracts import AGENT_RESPONSE_SCHEMA, AgentChange, AgentResponse
 from .provider import OpenAICompatibleProvider
@@ -258,9 +263,22 @@ class AIAdvisor:
                     elif change.id and change.entity == "tag":
                         entity = await session.get(Tag, change.id)
                         expected_version = entity.version if entity else None
+                    elif change.id and change.entity == "request":
+                        entity = await session.get(SavedRequest, change.id)
+                        expected_version = entity.version if entity else None
                     elif change.id and change.entity == "value":
                         entity = await session.get(Value, change.id)
                         expected_version = entity.version if entity else None
+                    values = dict(change.values)
+                    if change.entity == "request" and (
+                        "filter" in values or "filter_spec" in values
+                    ):
+                        try:
+                            values["filter_spec"] = normalize_filter_spec(
+                                values.pop("filter", values.get("filter_spec"))
+                            )
+                        except RequestFilterError as error:
+                            raise DomainError(f"Invalid Request filter: {error}") from error
                     session.add(
                         ProposalChange(
                             proposal_id=proposal.id,
@@ -269,7 +287,7 @@ class AIAdvisor:
                             action=change.action,
                             entity_id=change.id,
                             expected_version=expected_version,
-                            values=change.values,
+                            values=values,
                         )
                     )
                 proposal_id = proposal.id
@@ -509,6 +527,38 @@ class ProposalService:
                     raise DomainError(f"Unsupported Value action: {change.action}")
                 workspace.revision += 1
                 affected.append(value.id)
+            elif change.entity == "request":
+                request = (
+                    await self.session.get(SavedRequest, change.entity_id)
+                    if change.entity_id
+                    else None
+                )
+                if change.action == "create":
+                    request = await create_saved_request(
+                        self.session,
+                        str(change.values["name"]),
+                        change.values["filter_spec"],
+                        str(change.values.get("description", "")),
+                    )
+                elif request is None or request.version != change.expected_version:
+                    raise StaleStateError("A Request changed; refresh this proposal")
+                elif change.action == "update":
+                    request = await update_saved_request(
+                        self.session,
+                        request.id,
+                        name=(str(change.values["name"]) if "name" in change.values else None),
+                        description=(
+                            str(change.values["description"])
+                            if "description" in change.values
+                            else None
+                        ),
+                        filter_spec=change.values.get("filter_spec"),
+                    )
+                elif change.action == "archive":
+                    request = await archive_saved_request(self.session, request.id)
+                else:
+                    raise DomainError(f"Unsupported Request action: {change.action}")
+                affected.append(request.id)
             elif change.entity == "sprint":
                 if change.action == "start":
                     sprint = await start_sprint(self.session)
