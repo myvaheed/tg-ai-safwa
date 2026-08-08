@@ -8,7 +8,7 @@ from safwa.ai.contracts import AgentChange
 from safwa.ai.service import AIAdvisor
 from safwa.drafts import DraftService
 from safwa.enums import CardKind, CardStage, DraftStatus
-from safwa.models import Card, CardDraft
+from safwa.models import Card, CardDraft, DraftCategory, DraftEnergyType
 from safwa.recovery import recover_startup
 
 
@@ -154,3 +154,67 @@ async def test_startup_marks_inactive_expired_drafts_recoverable_but_uncommittab
             assert "not committable" in str(error)
         else:
             raise AssertionError("Expired drafts must not commit")
+
+
+async def test_goal_draft_strips_ai_action_only_fields_before_review(sessions):
+    async with sessions() as session:
+        bundle = await DraftService(session).create_bundle(
+            "ai",
+            [
+                {
+                    "title": "Release VrWalk",
+                    "kind": CardKind.GOAL.value,
+                    "root_confirmed": True,
+                    "effort_points": 5,
+                    "repeatable": True,
+                    "categories": ["work"],
+                    "energy_types": ["cognitive"],
+                }
+            ],
+        )
+        draft = await session.get(CardDraft, bundle.active_draft_id)
+        validation = await DraftService(session).validate(draft)
+
+        assert validation.valid
+        assert draft.effort_points is None
+        assert draft.repeatable is False
+        assert (
+            await session.scalar(
+                select(func.count(DraftCategory.draft_id)).where(DraftCategory.draft_id == draft.id)
+            )
+            == 0
+        )
+        assert (
+            await session.scalar(
+                select(func.count(DraftEnergyType.draft_id)).where(
+                    DraftEnergyType.draft_id == draft.id
+                )
+            )
+            == 0
+        )
+        await DraftService(session).mark_reviewed(draft.id)
+        cards = await DraftService(session).commit_bundle(bundle.id)
+        await session.commit()
+        assert cards[0].kind == CardKind.GOAL.value
+
+
+async def test_unknown_ai_stage_is_normalized_to_backlog(sessions):
+    async with sessions() as session:
+        bundle = await DraftService(session).create_bundle(
+            "ai",
+            [
+                {
+                    "title": "Release VrWalk",
+                    "kind": CardKind.GOAL.value,
+                    "root_confirmed": True,
+                    "stage": "Todo",
+                }
+            ],
+        )
+        draft = await session.get(CardDraft, bundle.active_draft_id)
+        assert draft.stage == CardStage.BACKLOG.value
+
+        # Validation also repairs a persisted legacy/model spelling.
+        draft.stage = "To Do"
+        await DraftService(session).validate(draft)
+        assert draft.stage == CardStage.BACKLOG.value

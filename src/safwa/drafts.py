@@ -79,7 +79,7 @@ class DraftService:
                 kind=payload.get("kind", CardKind.ACTION.value),
                 title=str(payload.get("title", "")).strip(),
                 note=str(payload.get("note", "")).strip(),
-                stage=payload.get("stage", CardStage.BACKLOG.value),
+                stage=self._normalize_stage(payload.get("stage")),
                 priority=payload.get("priority", Priority.MEDIUM.value),
                 hard_time=bool(payload.get("hard_time", False)),
                 effort_points=payload.get("effort_points"),
@@ -108,6 +108,14 @@ class DraftService:
         for draft in created:
             await self.validate(draft)
         return bundle
+
+    @staticmethod
+    def _normalize_stage(value: object) -> str:
+        """Accept only persisted stage enums; unknown model vocabulary means Backlog."""
+        try:
+            return CardStage(str(value).strip().casefold()).value
+        except ValueError:
+            return CardStage.BACKLOG.value
 
     async def _set_links(self, draft: CardDraft, payload: dict) -> None:
         for value_id in payload.get("value_ids", []):
@@ -162,6 +170,22 @@ class DraftService:
         except ValueError:
             kind = CardKind.ACTION
             errors.append("Choose a valid card kind")
+        if kind is not CardKind.ACTION:
+            # AI may occasionally infer Action-only planning fields before it
+            # settles on a Goal or Idea.  These fields are invalid by design,
+            # so sanitize the persisted draft rather than trapping the owner
+            # in an uncreatable review screen.
+            draft.effort_points = None
+            draft.repeatable = False
+            await self.session.execute(
+                delete(DraftCategory).where(DraftCategory.draft_id == draft.id)
+            )
+            await self.session.execute(
+                delete(DraftEnergyType).where(DraftEnergyType.draft_id == draft.id)
+            )
+        normalized_stage = self._normalize_stage(draft.stage)
+        if draft.stage != normalized_stage:
+            draft.stage = normalized_stage
         if not draft.title.strip():
             errors.append("Add a title")
         if not draft.parent_id and not draft.parent_draft_id and not draft.root_confirmed:
@@ -236,7 +260,7 @@ class DraftService:
         for name, value in fields.items():
             if name not in allowed:
                 raise DomainError(f"Unsupported draft field: {name}")
-            setattr(draft, name, value)
+            setattr(draft, name, self._normalize_stage(value) if name == "stage" else value)
         if "kind" in fields and fields["kind"] != CardKind.ACTION.value:
             draft.effort_points = None
             draft.repeatable = False

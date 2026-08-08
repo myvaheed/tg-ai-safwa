@@ -598,6 +598,14 @@ async def render_draft(message: Message, services: Services, draft_id: str) -> N
         markup = await draft_review_markup(session, services, draft)
         await session.commit()
         errors = "\n".join(f"⚠️ {html.escape(error)}" for error in draft.validation_errors)
+        action_details = ""
+        if draft.kind == CardKind.ACTION.value:
+            action_details = (
+                f"Effort: {draft.effort_points or 'Unresolved'}\n"
+                f"Repeatable: {'Yes' if draft.repeatable else 'No'}\n"
+                f"Categories: {', '.join(categories) or '—'}\n"
+                f"Energy: {', '.join(energies) or '—'}\n"
+            )
         text = (
             "<b>Review card draft</b>\n"
             f"Kind: {draft.kind.title()}\n"
@@ -606,10 +614,7 @@ async def render_draft(message: Message, services: Services, draft_id: str) -> N
             f"Stage: {draft.stage.title()}\n"
             f"Note: {html.escape(draft.note or '—')}\n"
             f"Priority: {draft.priority.title()} · Hard Time: {'Yes' if draft.hard_time else 'No'}\n"
-            f"Effort: {draft.effort_points or 'Unresolved'}\n"
-            f"Repeatable: {'Yes' if draft.repeatable else 'No'}\n"
-            f"Categories: {', '.join(categories) or '—'}\n"
-            f"Energy: {', '.join(energies) or '—'}\n"
+            f"{action_details}"
             f"Values: {', '.join(value.name for value in values) or '—'}\n"
             f"Tags: {', '.join(tag.name for tag in tags) or '—'}\n"
             f"Blockers: {', '.join(card.title for card in blockers) or '—'}"

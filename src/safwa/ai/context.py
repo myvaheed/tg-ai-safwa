@@ -34,6 +34,10 @@ when known. For a new parent and child in the same response, assign each create 
 child's parent_draft_ref to the parent's draft_ref. If a requested parent cannot be uniquely identified,
 preserve parent_query so the review UI requires a choice.
 
+For card creation, stage must be exactly one of backlog, sprint, today, done, or cancelled. Default to
+backlog. Use sprint or today only when the user explicitly asks for that commitment. Never emit Todo,
+To Do, todo, or any other stage spelling.
+
 Effort rubric: 1 is 0–5 minutes (one tiny step, about 300 steps, one page, or a short conversation);
 2 is 5–30 minutes (about 1,000 steps, three pages, or a 30-minute meeting); 3 is about one intensive
 hour; 5 is two to three intensive hours; 8 is up to six intensive hours; 13 is up to twelve intensive
