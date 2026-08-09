@@ -16,7 +16,9 @@
 - A text-field action replaces the current UI with a focused prompt and a Back button. After input, Safwa deletes the typed field value and restores the same item screen with the new value.
 - Card, Tag, and Value creation and viewing/editing share the same field-oriented base UI. Manual screens end with Back; AI proposal screens end with Save and Discard, and proposed edits show old-to-new differences.
 - An interaction UI may only be the latest chat element. New ordinary dialogue removes obsolete menus and automatically discards an unanswered AI proposal, replacing it with a static assistant message that records the complete proposed change.
-- When one AI turn prepares several independent changes, Safwa persists them as one suspended batch and shows Save/Discard screens sequentially in the same Telegram message. Read tools run immediately, but the AI resumes only once every screen is resolved; that continuation receives one approved/discarded result per mutation plus every read-tool result.
+- Every mutation tool call becomes its own item-style proposal screen; dependent calls are not combined into one approval. Safwa keeps their original order and replaces the same Telegram message with each next Save/Discard screen.
+- Save, Discard, or a save failure resolves only the current proposal and advances the queue. After the last item, the same message shows a consolidated Saved/Discarded/Failed result list; failures such as a discarded Tag needed by a later Card link are explicit.
+- Read tools run immediately, but the AI resumes only once every proposal is resolved. That continuation receives every mutation result and read-tool result.
 - Every Card creation remains a draft until reviewed and explicitly created. Discarded AI Card creation records all proposed fields; Goal and Idea screens never expose Action-only fields.
 - UI prompts, selections, SQL, and internal tool-result payloads are not persona dialogue. The final generated outcome after the approval queue is resolved becomes the assistant history record.
 

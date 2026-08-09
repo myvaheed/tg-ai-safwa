@@ -18,6 +18,8 @@ from ..domain import (
     archive_saved_request,
     archive_subtree,
     create_saved_request,
+    create_tag,
+    create_value,
     delete_subtree,
     finish_action,
     finish_sprint,
@@ -28,6 +30,8 @@ from ..domain import (
     toggle_card_value,
     update_card_fields,
     update_saved_request,
+    update_tag_fields,
+    update_value_fields,
     utcnow,
 )
 from ..drafts import DraftService
@@ -136,6 +140,51 @@ def _log_preview(content: str, limit: int = 500) -> str:
 
 def _json_safe(value: Any) -> Any:
     return json.loads(json.dumps(value, ensure_ascii=False, default=str))
+
+
+def _result_value(value: Any) -> str:
+    return " ".join(str(value).split())[:100]
+
+
+def _approval_change_label(tool: dict[str, Any]) -> str:
+    change = dict(tool.get("change") or {})
+    entity = str(change.get("entity", tool.get("name", "item"))).title()
+    action = str(change.get("action", "change")).title()
+    entity_id = change.get("id")
+    values = dict(change.get("values") or {})
+    label = f"{action} {entity}"
+    if entity_id is not None:
+        label += f" #{entity_id}"
+    name = values.get("name") or values.get("title")
+    if name:
+        label += f" “{_result_value(name)}”"
+    if values.get("tag_query"):
+        label += f" → Tag “{_result_value(values['tag_query'])}”"
+    elif values.get("value_query"):
+        label += f" → Value “{_result_value(values['value_query'])}”"
+    elif values.get("stage"):
+        label += f" → {_result_value(values['stage']).title()}"
+    return label
+
+
+def _approval_results_summary(tools: list[dict[str, Any]]) -> str:
+    lines = ["Proposal results:"]
+    for tool in tools:
+        if not tool.get("target"):
+            continue
+        result = dict(tool.get("result") or {})
+        status = str(result.get("status", "failed"))
+        prefix = {
+            "approved": "✅ Saved",
+            "discarded": "🗑 Discarded",
+            "failed": "⚠️ Failed",
+        }.get(status, f"⚠️ {status.title()}")
+        line = f"{prefix} — {_approval_change_label(tool)}"
+        error = result.get("error")
+        if error:
+            line += f": {_result_value(error)}"
+        lines.append(line)
+    return "\n".join(lines) if len(lines) > 1 else ""
 
 
 def _log_provider_request(messages: list[dict[str, Any]]) -> None:
@@ -421,31 +470,6 @@ class AIAdvisor:
             "next": "Wait for the user's review or approval; do not say it is complete.",
         }
 
-    @staticmethod
-    def _proposal_groups(tools: list[PendingTool]) -> list[list[PendingTool]]:
-        """Keep create-and-link dependencies atomic; review unrelated changes separately."""
-        claimed: set[int] = set()
-        groups: list[list[PendingTool]] = []
-        for index, tool in enumerate(tools):
-            if index in claimed or tool.change is None:
-                continue
-            change = tool.change
-            group = [tool]
-            if change.entity in {"tag", "value"} and change.action == "create":
-                name = str(change.values.get("name", "")).strip().casefold()
-                query_field = f"{change.entity}_query"
-                if name:
-                    for later_index, later in enumerate(tools[index + 1 :], start=index + 1):
-                        if later.change is None or later.change.entity != "card":
-                            continue
-                        query = str(later.change.values.get(query_field, "")).strip().casefold()
-                        if query == name:
-                            group.append(later)
-                            claimed.add(later_index)
-            groups.append(group)
-            claimed.add(index)
-        return groups
-
     async def _create_proposal(
         self,
         session: AsyncSession,
@@ -527,17 +551,26 @@ class AIAdvisor:
                 bundle = await DraftService(session).create_bundle("ai", payloads)
                 first_index = min(result.pending_tools.index(tool) for tool in creates)
                 targets.append((first_index, {"type": "draft_bundle", "id": bundle.id}, creates))
-            for group in self._proposal_groups(other):
-                proposal = await self._create_proposal(session, result.message, group)
-                first_index = min(result.pending_tools.index(tool) for tool in group)
-                targets.append((first_index, {"type": "proposal", "id": proposal.id}, group))
+            for tool in other:
+                proposal = await self._create_proposal(session, result.message, [tool])
+                targets.append(
+                    (
+                        result.pending_tools.index(tool),
+                        {"type": "proposal", "id": proposal.id},
+                        [tool],
+                    )
+                )
             targets.sort(key=lambda item: item[0])
             tool_targets: dict[str, dict[str, Any]] = {}
             queue: list[dict[str, Any]] = []
-            for _index, target, tools in targets:
+            for position, (_index, target, tools) in enumerate(targets, start=1):
                 call_ids = [tool.call.id for tool in tools]
                 queue_item = {**target, "call_ids": call_ids, "status": "pending"}
                 queue.append(queue_item)
+                if len(targets) > 1 and target["type"] == "proposal":
+                    proposal = await session.get(ChangeProposal, int(target["id"]))
+                    if proposal is not None:
+                        proposal.message = f"Proposal {position}/{len(targets)}\n{result.message}"
                 for call_id in call_ids:
                     tool_targets[call_id] = target
             tool_results = []
@@ -551,6 +584,16 @@ class AIAdvisor:
                         "status": "pending" if target else "resolved",
                         "result": None if target else _json_safe(tool.result),
                         "target": target,
+                        "change": (
+                            {
+                                "entity": tool.change.entity,
+                                "action": tool.change.action,
+                                "id": tool.change.id,
+                                "values": _json_safe(tool.change.values),
+                            }
+                            if tool.change is not None
+                            else None
+                        ),
                     }
                 )
             session.add(
@@ -604,6 +647,11 @@ class AIAdvisor:
                 return step
         return None
 
+    async def has_pending_approval(self, target_type: str, target_id: int) -> bool:
+        """Return whether a UI target belongs to a suspended agent turn."""
+        async with self.sessions() as session:
+            return await self._pending_batch_for_target(session, target_type, target_id) is not None
+
     async def _refresh_queued_proposal(
         self,
         session: AsyncSession,
@@ -643,6 +691,10 @@ class AIAdvisor:
             batch = await self._pending_batch_for_target(session, target_type, target_id)
             if batch is None:
                 return None
+            if decision == "failed" and target_type == "proposal":
+                proposal = await session.get(ChangeProposal, target_id)
+                if proposal is not None and proposal.status == ProposalStatus.PENDING.value:
+                    proposal.status = ProposalStatus.FAILED.value
             metadata = dict(batch.metadata_json or {})
             queue = [dict(item) for item in metadata.get("queue", [])]
             tools = [dict(item) for item in metadata.get("tool_calls", [])]
@@ -712,6 +764,9 @@ class AIAdvisor:
                 run_id,
                 tool_count=prior_tool_count,
             )
+            result_summary = _approval_results_summary(tools)
+            if result_summary:
+                loop_result.message = f"{result_summary}\n\n{loop_result.message}".strip()
             outcome = await self._materialize(loop_result, run_id)
             async with self.sessions() as session:
                 stored_batch = await session.get(AgentStep, batch.id)
@@ -724,14 +779,24 @@ class AIAdvisor:
             await self._finish_run(run_id, run_status, started)
             return outcome
         except Exception as error:
+            logger.exception("AI continuation failed after the approval queue was resolved")
             async with self.sessions() as session:
                 stored_batch = await session.get(AgentStep, batch.id)
                 if stored_batch is not None:
-                    failed_metadata = dict(stored_batch.metadata_json or {})
-                    failed_metadata["status"] = "failed"
-                    stored_batch.metadata_json = failed_metadata
+                    final_metadata = dict(stored_batch.metadata_json or {})
+                    final_metadata["status"] = "completed"
+                    final_metadata["continuation_error"] = type(error).__name__
+                    stored_batch.metadata_json = final_metadata
                     await session.commit()
             await self._finish_run(run_id, "failed", started, type(error).__name__)
+            result_summary = _approval_results_summary(tools)
+            if result_summary:
+                return AIOutcome(
+                    "answer",
+                    f"{result_summary}\n\n"
+                    "⚠️ Safwa could not generate its follow-up. "
+                    "You can continue with a new message.",
+                )
             raise
 
     async def cancel_approval_for_target(self, target_type: str, target_id: int) -> bool:
@@ -1035,35 +1100,29 @@ class ProposalService:
                     name = str(change.values.get("name", change.values.get("title", ""))).strip()
                     if not name:
                         raise DomainError("A new Tag needs a name")
-                    existing = await self.session.scalar(
-                        select(Tag).where(
-                            Tag.name.collate("NOCASE") == name,
-                            Tag.archived_at.is_(None),
-                        )
+                    tag = await create_tag(
+                        self.session,
+                        name,
+                        change.values.get("description"),
                     )
-                    if existing is not None:
-                        raise DomainError(f"Tag '{name}' already exists; refresh the proposal")
-                    tag = Tag(
-                        name=name,
-                        description=str(change.values.get("description", "")).strip(),
-                    )
-                    self.session.add(tag)
                     await self.session.flush()
                     created_tag_ids[name.casefold()] = tag.id
-                elif tag is None or tag.version != change.expected_version:
-                    raise StaleStateError("A Tag changed; refresh this proposal")
-                elif change.action == "update":
-                    if "name" in change.values:
-                        tag.name = str(change.values["name"]).strip()
-                    if "description" in change.values:
-                        tag.description = str(change.values["description"]).strip()
-                    tag.version += 1
-                elif change.action == "archive":
-                    tag.archived_at = utcnow()
-                    tag.version += 1
                 else:
-                    raise DomainError(f"Unsupported Tag action: {change.action}")
-                workspace.revision += 1
+                    if tag is None or tag.version != change.expected_version:
+                        raise StaleStateError("A Tag changed; refresh this proposal")
+                    if change.action == "update":
+                        tag = await update_tag_fields(
+                            self.session,
+                            tag.id,
+                            name=change.values.get("name"),
+                            description=change.values.get("description"),
+                        )
+                    elif change.action == "archive":
+                        tag.archived_at = utcnow()
+                        tag.version += 1
+                        workspace.revision += 1
+                    else:
+                        raise DomainError(f"Unsupported Tag action: {change.action}")
                 affected.append(tag.id)
             elif change.entity == "value":
                 value = (
@@ -1073,30 +1132,31 @@ class ProposalService:
                     name = str(change.values["name"]).strip()
                     if not name:
                         raise DomainError("A new Value needs a name")
-                    value = Value(
-                        name=name,
-                        description=str(change.values.get("description", "")).strip(),
-                        active=bool(change.values.get("active", False)),
+                    value = await create_value(
+                        self.session,
+                        name,
+                        change.values.get("description"),
+                        active=change.values.get("active"),
                     )
-                    self.session.add(value)
                     await self.session.flush()
                     created_value_ids[name.casefold()] = value.id
-                elif value is None or value.version != change.expected_version:
-                    raise StaleStateError("A Value changed; refresh this proposal")
-                elif change.action == "update":
-                    if "name" in change.values:
-                        value.name = str(change.values["name"]).strip()
-                    if "description" in change.values:
-                        value.description = str(change.values["description"]).strip()
-                    if "active" in change.values:
-                        value.active = bool(change.values["active"])
-                    value.version += 1
-                elif change.action == "archive":
-                    value.archived_at = utcnow()
-                    value.version += 1
                 else:
-                    raise DomainError(f"Unsupported Value action: {change.action}")
-                workspace.revision += 1
+                    if value is None or value.version != change.expected_version:
+                        raise StaleStateError("A Value changed; refresh this proposal")
+                    if change.action == "update":
+                        value = await update_value_fields(
+                            self.session,
+                            value.id,
+                            name=change.values.get("name"),
+                            description=change.values.get("description"),
+                            active=change.values.get("active"),
+                        )
+                    elif change.action == "archive":
+                        value.archived_at = utcnow()
+                        value.version += 1
+                        workspace.revision += 1
+                    else:
+                        raise DomainError(f"Unsupported Value action: {change.action}")
                 affected.append(value.id)
             elif change.entity == "request":
                 request = (
@@ -1109,7 +1169,7 @@ class ProposalService:
                         self.session,
                         str(change.values["name"]),
                         change.values["query_sql"],
-                        str(change.values.get("description", "")),
+                        change.values.get("description"),
                     )
                 elif request is None or request.version != change.expected_version:
                     raise StaleStateError("A Request changed; refresh this proposal")

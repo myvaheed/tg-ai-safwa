@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,6 +27,25 @@ from .recovery import recover_startup
 from .scheduler import ReminderPolicy, run_scheduler
 from .telegram import GenerationGuard, OwnerAndWritingMiddleware, Services, router
 
+logger = logging.getLogger(__name__)
+_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
+
+
+def configure_logging(level_name: str) -> None:
+    level = getattr(logging, level_name.upper(), logging.INFO)
+    logging.basicConfig(level=level, format=_LOG_FORMAT, force=True)
+
+    # Keep Safwa's own request/response and error logs visible even if a
+    # dependency reconfigures the root logger after startup.
+    safwa_logger = logging.getLogger("safwa")
+    safwa_logger.handlers.clear()
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+    safwa_logger.addHandler(handler)
+    safwa_logger.setLevel(level)
+    safwa_logger.propagate = False
+    safwa_logger.disabled = False
+
 
 def database_path(database_url: str) -> Path:
     if not database_url.startswith("sqlite:///"):
@@ -34,11 +54,8 @@ def database_path(database_url: str) -> Path:
 
 
 async def run(settings: Settings) -> None:
-    logging.basicConfig(
-        level=settings.log_level.upper(),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-        force=True,
-    )
+    configure_logging(settings.log_level)
+    logger.info("Safwa console logging enabled (level=%s)", settings.log_level.upper())
     if settings.telegram_history_required and not settings.telegram_history_enabled:
         raise RuntimeError(
             "Canonical Telegram history is required. Set SAFWA_TELEGRAM_API_ID and "

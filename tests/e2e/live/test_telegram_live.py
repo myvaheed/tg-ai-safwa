@@ -236,16 +236,18 @@ async def test_qa_status_and_manual_card_review_flow(live_telegram_harness):
             lambda message: has_button(message, "Title") and has_button(message, "Effort"),
         )
         await click_button(review, "Title")
-        await qa.wait_for_bot(
+        title_prompt = await qa.wait_for_existing_bot_message(
             review.id,
-            lambda message: "Send the new title" in message.raw_text,
+            lambda message: "Set new Title" in message.raw_text,
         )
+        assert title_prompt.id == review.id
 
-        title_message = await qa.send(title)
-        titled_review = await qa.wait_for_bot(
-            title_message.id,
+        await qa.send(title)
+        titled_review = await qa.wait_for_existing_bot_message(
+            review.id,
             lambda message: title in message.raw_text and has_button(message, "Effort"),
         )
+        assert titled_review.id == review.id
         await click_button(titled_review, "Stage")
         stage_choices = await qa.wait_for_existing_bot_message(
             titled_review.id,
@@ -269,14 +271,12 @@ async def test_qa_status_and_manual_card_review_flow(live_telegram_harness):
         )
         assert ready_review.id == titled_review.id
         await click_button(ready_review, "Create")
-        card_detail = await qa.wait_for_existing_bot_message(
+        created = await qa.wait_for_existing_bot_message(
             ready_review.id,
             lambda message: title in message.raw_text and not has_button(message, "Create"),
         )
-        assert card_detail.id == titled_review.id
-        assert title in card_detail.raw_text
-        await asyncio.sleep(0.5)
-        assert not await qa.bot_messages_after(titled_review.id)
+        assert created.id == titled_review.id
+        assert title in created.raw_text
 
         with sqlite3.connect(qa.database_path) as connection:
             assert connection.execute(
@@ -299,20 +299,47 @@ async def test_qa_tags_and_requests_navigation(live_telegram_harness):
             lambda message: "Tags" in message.raw_text and has_button(message, "Add Tag"),
         )
         await click_button(tags, "Add Tag")
-        prompt = await qa.wait_for_bot(
+        editor = await qa.wait_for_existing_bot_message(
             tags.id,
-            lambda message: "Send the new Tag name" in message.raw_text,
+            lambda message: (
+                "Create Tag" in message.raw_text
+                and has_button(message, "Name")
+                and has_button(message, "Description")
+            ),
         )
-        assert prompt.id > tags.id
-        name_message = await qa.send(tag_name)
-        tags = await qa.wait_for_bot(
-            name_message.id,
+        assert editor.id == tags.id
+        await click_button(editor, "Name")
+        prompt = await qa.wait_for_existing_bot_message(
+            editor.id,
+            lambda message: "Set new Name" in message.raw_text,
+        )
+        assert prompt.id == tags.id
+        await qa.send(tag_name)
+        ready = await qa.wait_for_existing_bot_message(
+            editor.id,
+            lambda message: tag_name in message.raw_text and has_button(message, "Create Tag"),
+        )
+        assert ready.id == tags.id
+        await click_button(ready, "Create Tag")
+        tag_detail = await qa.wait_for_existing_bot_message(
+            tags.id,
+            lambda message: (
+                tag_name in message.raw_text
+                and has_button(message, "Name")
+                and has_button(message, "Back")
+                and not has_button(message, "Create Tag")
+            ),
+        )
+        assert tag_detail.id == tags.id
+        await click_button(tag_detail, "Back")
+        tags = await qa.wait_for_existing_bot_message(
+            tag_detail.id,
             lambda message: "Tags" in message.raw_text and has_button(message, tag_name),
         )
         await click_button(tags, tag_name, exact=True)
         tag_detail = await qa.wait_for_existing_bot_message(
             tags.id,
-            lambda message: tag_name in message.raw_text and has_button(message, "Menu"),
+            lambda message: tag_name in message.raw_text and has_button(message, "Back"),
         )
         assert tag_detail.id == tags.id
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import select
 
 from safwa.domain import (
@@ -20,6 +21,7 @@ from safwa.domain import (
     toggle_card_tag,
     toggle_card_value,
     update_profile,
+    utcnow,
 )
 from safwa.drafts import DraftService
 from safwa.enums import CardStage
@@ -135,6 +137,46 @@ async def test_ui_mutations_use_domain_services_and_are_audited(sessions):
         assert await session.get(CardTag, {"card_id": card.id, "tag_id": tag.id}) is not None
         events = list(await session.scalars(select(CardEvent).where(CardEvent.card_id == card.id)))
         assert {event.operation for event in events} >= {"edit_title", "archive"}
+
+
+async def test_create_tag_and_value_restore_archived_names(sessions):
+    async with sessions() as session:
+        tag = await create_tag(session, "VrWalk", "Original Tag")
+        value = await create_value(session, "Fitness", "Original Value", active=True)
+        await session.flush()
+        tag_id = tag.id
+        value_id = value.id
+        tag.archived_at = utcnow()
+        value.archived_at = utcnow()
+        await session.commit()
+
+        restored_tag = await create_tag(session, "vrwalk")
+        restored_value = await create_value(session, "FITNESS")
+        await session.commit()
+
+        assert restored_tag.id == tag_id
+        assert restored_tag.archived_at is None
+        assert restored_tag.description == "Original Tag"
+        assert restored_value.id == value_id
+        assert restored_value.archived_at is None
+        assert restored_value.description == "Original Value"
+        assert restored_value.active is True
+        assert len(list(await session.scalars(select(Tag)))) == 1
+        assert len(list(await session.scalars(select(Value)))) == 1
+
+        with pytest.raises(DomainError, match="already exists"):
+            await create_tag(session, "VRWALK")
+        with pytest.raises(DomainError, match="already exists"):
+            await create_value(session, "fitness")
+
+        restored_tag.archived_at = utcnow()
+        restored_value.archived_at = utcnow()
+        await session.commit()
+        restored_tag = await create_tag(session, "VrWalk", "")
+        restored_value = await create_value(session, "Fitness", "New Value", active=False)
+        assert restored_tag.description == ""
+        assert restored_value.description == "New Value"
+        assert restored_value.active is False
 
 
 async def test_committed_card_relationships_are_validated_propagated_and_audited(sessions):

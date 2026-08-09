@@ -2744,15 +2744,64 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
                 if proposal:
                     proposal.status = "stale"
                     await session.commit()
+        if action in {
+            "proposal_approve",
+            "proposal_delete_confirm",
+        } and await continue_agent_approval(
+            callback.message,
+            services,
+            "proposal",
+            payload["id"],
+            decision="failed",
+            result={"error": str(error)},
+        ):
+            return
         await send_registered(
             callback.message, services, html.escape(str(error)), kind=MessageKind.ERROR
         )
     except DomainError as error:
+        if action in {
+            "proposal_approve",
+            "proposal_delete_confirm",
+        } and await continue_agent_approval(
+            callback.message,
+            services,
+            "proposal",
+            payload["id"],
+            decision="failed",
+            result={"error": str(error)},
+        ):
+            return
+        if action.startswith("proposal_") and payload.get("id"):
+            try:
+                await render_proposal(
+                    callback.message,
+                    services,
+                    payload["id"],
+                    notice=f"⚠️ {error}",
+                )
+                return
+            except DomainError:
+                pass
         await send_registered(
             callback.message, services, html.escape(str(error)), kind=MessageKind.ERROR
         )
     except Exception:
         logger.exception("Telegram callback failed: action=%s payload=%s", action, payload)
+        if action.startswith("proposal_") and payload.get("id"):
+            try:
+                await render_proposal(
+                    callback.message,
+                    services,
+                    payload["id"],
+                    notice=(
+                        "⚠️ This action failed. The proposal is still pending; "
+                        "you can retry or discard it."
+                    ),
+                )
+                return
+            except Exception:
+                logger.exception("Could not restore proposal UI after callback failure")
         await send_registered(
             callback.message,
             services,
@@ -3334,6 +3383,7 @@ async def render_proposal(
     proposal_id: int,
     *,
     replace_message_id: int | None = None,
+    notice: str | None = None,
 ) -> None:
     async with services.sessions() as session:
         proposal = await session.get(ChangeProposal, proposal_id)
@@ -3353,7 +3403,10 @@ async def render_proposal(
             session, services.owner_id, "🗑 Discard", "proposal_reject", {"id": proposal.id}
         )
         rows: list[list[InlineKeyboardButton]] = []
-        text_parts = ["<b>Review proposal</b>", html.escape(proposal.message)]
+        text_parts = ["<b>Review proposal</b>"]
+        if notice:
+            text_parts.append(html.escape(notice))
+        text_parts.append(html.escape(proposal.message))
         if len(changes) == 1 and changes[0].entity in {"card", "tag", "value"}:
             change = changes[0]
             current, proposed = await _proposal_item_state(session, change)
@@ -3517,7 +3570,13 @@ async def continue_agent_approval(
     """Advance a persisted approval queue, resuming the model only after its last item."""
     if getattr(services, "advisor", None) is None or getattr(services, "history", None) is None:
         return False
-    resolved_text = "✅ Saved." if decision == "approved" else "🗑 Discarded."
+    if not await services.advisor.has_pending_approval(target_type, target_id):
+        return False
+    resolved_text = {
+        "approved": "✅ Saved.",
+        "discarded": "🗑 Discarded.",
+        "failed": "⚠️ Failed.",
+    }.get(decision, "Resolved.")
     await send_registered(
         message,
         services,

@@ -88,14 +88,21 @@ async def bootstrap_workspace(session: AsyncSession, owner_id: int, timezone: st
     return workspace
 
 
-async def create_tag(session: AsyncSession, name: str, description: str = "") -> Tag:
+async def create_tag(session: AsyncSession, name: str, description: str | None = None) -> Tag:
     normalized = name.strip()
     if not normalized:
         raise DomainError("Tag name cannot be empty")
-    existing = await session.scalar(select(Tag).where(Tag.name == normalized))
+    existing = await session.scalar(select(Tag).where(Tag.name.collate("NOCASE") == normalized))
     if existing is not None:
-        raise DomainError("A Tag with this name already exists")
-    tag = Tag(name=normalized, description=description.strip())
+        if existing.archived_at is None:
+            raise DomainError("A Tag with this name already exists")
+        existing.archived_at = None
+        if description is not None:
+            existing.description = description.strip()
+        existing.version += 1
+        await _bump_workspace(session)
+        return existing
+    tag = Tag(name=normalized, description=(description or "").strip())
     session.add(tag)
     await _bump_workspace(session)
     return tag
@@ -116,7 +123,10 @@ async def update_tag_fields(
         if not normalized:
             raise DomainError("Tag name cannot be empty")
         duplicate = await session.scalar(
-            select(Tag).where(Tag.name == normalized, Tag.id != tag.id)
+            select(Tag).where(
+                Tag.name.collate("NOCASE") == normalized,
+                Tag.id != tag.id,
+            )
         )
         if duplicate is not None:
             raise DomainError("A Tag with this name already exists")
@@ -132,7 +142,7 @@ async def create_saved_request(
     session: AsyncSession,
     name: str,
     query_sql: str,
-    description: str = "",
+    description: str | None = None,
 ) -> SavedRequest:
     normalized_name = name.strip()
     if not normalized_name:
@@ -145,10 +155,18 @@ async def create_saved_request(
         select(SavedRequest).where(SavedRequest.name.collate("NOCASE") == normalized_name)
     )
     if existing is not None:
-        raise DomainError("A Request with this name already exists")
+        if existing.archived_at is None:
+            raise DomainError("A Request with this name already exists")
+        existing.archived_at = None
+        existing.query_sql = normalized_query
+        if description is not None:
+            existing.description = description.strip()
+        existing.version += 1
+        await _bump_workspace(session)
+        return existing
     request = SavedRequest(
         name=normalized_name,
-        description=description.strip(),
+        description=(description or "").strip(),
         query_sql=normalized_query,
     )
     session.add(request)
@@ -203,14 +221,33 @@ async def archive_saved_request(session: AsyncSession, request_id: int) -> Saved
     return request
 
 
-async def create_value(session: AsyncSession, name: str, description: str = "") -> Value:
+async def create_value(
+    session: AsyncSession,
+    name: str,
+    description: str | None = None,
+    *,
+    active: bool | None = None,
+) -> Value:
     normalized = name.strip()
     if not normalized:
         raise DomainError("Value name cannot be empty")
-    existing = await session.scalar(select(Value).where(Value.name == normalized))
+    existing = await session.scalar(select(Value).where(Value.name.collate("NOCASE") == normalized))
     if existing is not None:
-        raise DomainError("A Value with this name already exists")
-    value = Value(name=normalized, description=description.strip())
+        if existing.archived_at is None:
+            raise DomainError("A Value with this name already exists")
+        existing.archived_at = None
+        if description is not None:
+            existing.description = description.strip()
+        if active is not None:
+            existing.active = active
+        existing.version += 1
+        await _bump_workspace(session)
+        return existing
+    value = Value(
+        name=normalized,
+        description=(description or "").strip(),
+        active=bool(active),
+    )
     session.add(value)
     await _bump_workspace(session)
     return value
@@ -222,6 +259,7 @@ async def update_value_fields(
     *,
     name: str | None = None,
     description: str | None = None,
+    active: bool | None = None,
 ) -> Value:
     value = await session.get(Value, value_id)
     if value is None or value.archived_at is not None:
@@ -231,13 +269,18 @@ async def update_value_fields(
         if not normalized:
             raise DomainError("Value name cannot be empty")
         duplicate = await session.scalar(
-            select(Value).where(Value.name == normalized, Value.id != value.id)
+            select(Value).where(
+                Value.name.collate("NOCASE") == normalized,
+                Value.id != value.id,
+            )
         )
         if duplicate is not None:
             raise DomainError("A Value with this name already exists")
         value.name = normalized
     if description is not None:
         value.description = description.strip()
+    if active is not None:
+        value.active = active
     value.version += 1
     await _bump_workspace(session)
     return value

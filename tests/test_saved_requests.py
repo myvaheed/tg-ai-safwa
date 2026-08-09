@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import select
 
 from safwa.ai.sql import create_ai_views
-from safwa.domain import DomainError, create_saved_request
+from safwa.domain import DomainError, archive_saved_request, create_saved_request
 from safwa.models import Card, CardTag, SavedRequest, Tag
 from safwa.saved_requests import request_cards
 
@@ -74,3 +74,35 @@ async def test_saved_request_rejects_non_read_or_non_card_queries(sessions, quer
         with pytest.raises(DomainError):
             await create_saved_request(session, "Unsafe request", query_sql)
         assert list(await session.scalars(select(SavedRequest))) == []
+
+
+async def test_create_request_restores_an_archived_name(sessions):
+    async with sessions() as session:
+        request = await create_saved_request(
+            session,
+            "All goals",
+            "SELECT id FROM ai_cards WHERE kind = 'goal'",
+            "Original description",
+        )
+        request_id = request.id
+        await archive_saved_request(session, request.id)
+        await session.commit()
+
+        restored = await create_saved_request(
+            session,
+            "all GOALS",
+            "SELECT id FROM ai_cards WHERE kind = 'goal' AND stage = 'backlog'",
+        )
+        await session.commit()
+
+        assert restored.id == request_id
+        assert restored.archived_at is None
+        assert restored.description == "Original description"
+        assert "stage = 'backlog'" in restored.query_sql
+        assert len(list(await session.scalars(select(SavedRequest)))) == 1
+        with pytest.raises(DomainError, match="already exists"):
+            await create_saved_request(
+                session,
+                "ALL GOALS",
+                "SELECT id FROM ai_cards WHERE kind = 'goal'",
+            )
