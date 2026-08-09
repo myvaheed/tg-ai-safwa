@@ -120,7 +120,8 @@ class TelegramHistorySource:
                     select(TelegramMessage).where(TelegramMessage.chat_id == chat_id)
                 )
             )
-        used_registry_ids: set[str] = set()
+        used_registry_ids: set[int] = set()
+        source_registration_seen = False
         # In a private Bot API chat, ``chat_id`` is the owner's user ID.  A
         # Telethon user session must read its dialog with the bot peer instead;
         # resolving ``chat_id`` would read the owner's Saved Messages.
@@ -137,13 +138,21 @@ class TelegramHistorySource:
             sender_id = int(message.sender_id) if message.sender_id else None
             created_at = message.date.astimezone(UTC)
             direction = "out" if sender_id == self.bot_user_id else "in"
-            kind = self._registered_kind(
+            registration = self._registered_message(
                 registry,
                 used_registry_ids,
                 message_id=message.id,
                 direction=direction,
                 created_at=created_at,
             )
+            kind = registration.kind if registration is not None else None
+            if (
+                source_message is not None
+                and registration is not None
+                and direction == "in"
+                and registration.message_id == source_message.message_id
+            ):
+                source_registration_seen = True
 
             if sender_id == self.bot_user_id:
                 subsession_result = self._subsession_result_piece(raw_text)
@@ -232,19 +241,23 @@ class TelegramHistorySource:
                 "/newsession followed by your initial request."
             )
         result = ([boundary] + summary_context + selected) if boundary else selected
-        if source_message and all(item.message_id != source_message.message_id for item in result):
+        if (
+            source_message
+            and not source_registration_seen
+            and all(item.message_id != source_message.message_id for item in result)
+        ):
             result.append(source_message)
         return result
 
     @staticmethod
-    def _registered_kind(
+    def _registered_message(
         registry: list[TelegramMessage],
-        used_registry_ids: set[str],
+        used_registry_ids: set[int],
         *,
         message_id: int,
         direction: str,
         created_at: datetime,
-    ) -> str | None:
+    ) -> TelegramMessage | None:
         """Correlate Bot API registrations with Telethon's private-chat ID space."""
         exact = next(
             (
@@ -258,7 +271,7 @@ class TelegramHistorySource:
         )
         if exact is not None:
             used_registry_ids.add(exact.id)
-            return exact.kind
+            return exact
 
         candidates: list[tuple[float, int, TelegramMessage]] = []
         for row in registry:
@@ -276,7 +289,7 @@ class TelegramHistorySource:
             return None
         matched = min(candidates, key=lambda item: (item[0], item[1]))[2]
         used_registry_ids.add(matched.id)
-        return matched.kind
+        return matched
 
     @staticmethod
     def _new_session_request(text: str) -> str | None:

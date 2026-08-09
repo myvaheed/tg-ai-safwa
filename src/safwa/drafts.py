@@ -312,6 +312,23 @@ class DraftService:
         draft.status = DraftStatus.DISCARDED.value
         draft.reviewed_at = None
 
+    async def discard_bundle(self, bundle_id: int) -> list[CardDraft]:
+        """Discard every remaining draft in a bundle as one UI-level decision."""
+        bundle = await self.session.get(CardDraftBundle, bundle_id)
+        if bundle is None:
+            return []
+        drafts = await self.get_bundle_drafts(bundle_id)
+        for draft in drafts:
+            if draft.status not in {
+                DraftStatus.COMMITTED.value,
+                DraftStatus.DISCARDED.value,
+            }:
+                draft.status = DraftStatus.DISCARDED.value
+                draft.reviewed_at = None
+        bundle.status = DraftStatus.DISCARDED.value
+        bundle.active_draft_id = None
+        return drafts
+
     async def commit_bundle(
         self,
         bundle_id: int,

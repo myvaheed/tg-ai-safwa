@@ -42,12 +42,22 @@ class CardToolInput(BaseModel):
     energy_types: list[Literal["physical", "cognitive", "social", "values"]] | None = None
     value_id: int | None = None
     value_ids: list[int] | None = None
-    value_query: str | list[str] | None = None
+    value_query: str | list[str] | None = Field(
+        default=None, description="One or more exact Value names; this is not SQL."
+    )
     tag_id: int | None = None
     tag_ids: list[int] | None = None
-    tag_query: str | list[str] | None = None
+    tag_query: str | list[str] | None = Field(
+        default=None, description="One or more exact Tag names; this is not SQL."
+    )
     parent_id: int | None = None
-    parent_query: str | None = None
+    parent_query: str | None = Field(
+        default=None,
+        description=(
+            "A safe read-only SELECT over ai_cards that returns exactly one id, for example "
+            "SELECT id FROM ai_cards WHERE title = 'My Goal'. An exact Card title is also accepted."
+        ),
+    )
     draft_ref: str | None = None
     parent_draft_ref: str | None = None
     blocker_id: int | None = None

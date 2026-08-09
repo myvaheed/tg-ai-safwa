@@ -168,6 +168,46 @@ async def test_private_chat_correlates_telethon_and_bot_api_message_ids(sessions
     ]
 
 
+async def test_current_source_is_not_duplicated_across_telegram_id_spaces(sessions) -> None:
+    chat_id, owner_id, bot_id = 105, 42, 99
+    at = datetime(2026, 8, 9, 12, 47, tzinfo=UTC)
+    messages = [
+        FakeTelegramMessage(95_003, "Как дела?", owner_id, at + timedelta(seconds=2)),
+        FakeTelegramMessage(95_002, "Safwa answer", bot_id, at + timedelta(seconds=1)),
+        FakeTelegramMessage(95_001, "/newsession Initial request", owner_id, at),
+    ]
+    await register(sessions, chat_id, 13, "in", MessageKind.DIALOGUE_USER)
+    await register(sessions, chat_id, 12, "out", MessageKind.DIALOGUE_ASSISTANT)
+    async with sessions() as session:
+        await session.execute(
+            update(TelegramMessage)
+            .where(TelegramMessage.chat_id == chat_id, TelegramMessage.message_id == 13)
+            .values(created_at=at + timedelta(seconds=3))
+        )
+        await session.execute(
+            update(TelegramMessage)
+            .where(TelegramMessage.chat_id == chat_id, TelegramMessage.message_id == 12)
+            .values(created_at=at + timedelta(seconds=2))
+        )
+        await session.commit()
+    source = TelegramHistorySource(
+        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+    )
+    current = HistoryEntry(
+        message_id=13,
+        sender_id=owner_id,
+        role="user",
+        text="Как дела?",
+        created_at=at + timedelta(seconds=3),
+        kind=MessageKind.DIALOGUE_USER.value,
+    )
+
+    dialogue = await source.dialogue(chat_id, source_message=current)
+
+    assert dialogue[-1].role == "user"
+    assert dialogue[-1].content == "[User]: Как дела?"
+
+
 async def test_dialogue_requires_a_newsession_or_summary_boundary(
     sessions,
 ) -> None:

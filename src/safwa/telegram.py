@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import json
 import logging
 import secrets
 from collections.abc import Awaitable, Callable
@@ -23,7 +24,7 @@ from aiogram.types import (
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from .ai.service import AIAdvisor, ProposalService
+from .ai.service import AIAdvisor, AIOutcome, ProposalService
 from .analytics import render_retrospective_png, retrospective_data, retrospective_recommendations
 from .continuity import (
     MemoryMaintenanceResult,
@@ -48,10 +49,15 @@ from .domain import (
     snooze_reminders,
     sprint_metrics,
     start_sprint,
+    toggle_card_category,
     toggle_card_dependency,
+    toggle_card_energy_type,
     toggle_card_tag,
     toggle_card_value,
+    update_card_fields,
     update_profile,
+    update_tag_fields,
+    update_value_fields,
 )
 from .drafts import DraftService
 from .enums import (
@@ -74,9 +80,11 @@ from .memory import MemoryFileError, MemoryFileStore, estimate_tokens
 from .models import (
     CallbackToken,
     Card,
+    CardCategory,
     CardDependency,
     CardDraft,
     CardDraftBundle,
+    CardEnergyType,
     CardTag,
     CardValue,
     ChangeProposal,
@@ -86,6 +94,7 @@ from .models import (
     Sprint,
     SummaryState,
     Tag,
+    TelegramMessage,
     UiSession,
     UserProfile,
     Value,
@@ -152,16 +161,32 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
         )
         if user is None or user.id != services.owner_id or (chat and chat.type != "private"):
             return None
-        if isinstance(event, Message) and services.guard.active:
-            command = (event.text or "").lstrip().split(maxsplit=1)[0].split("@", 1)[0].casefold()
-            if command == "/cancel":
-                return await handler(event, data)
-            if event.message_id != services.guard.active_source_id:
+        command = ""
+        command_deleted = False
+        if isinstance(event, Message):
+            command_text = (event.text or "").lstrip()
+            command_token = command_text.split(maxsplit=1)[0] if command_text else ""
+            if command_token.startswith("/"):
+                command = command_token.split("@", 1)[0].casefold()
+            if command and command != "/newsession":
                 try:
                     await event.delete()
-                except TelegramAPIError:
-                    services.guard.cancel()
-                    return await handler(event, data)
+                    command_deleted = True
+                except TelegramAPIError as error:
+                    logger.warning("Could not delete operational command %s: %s", command, error)
+        if isinstance(event, Message) and services.guard.active:
+            if command == "/cancel":
+                return await handler(event, data)
+            if command == "/newsession":
+                services.guard.cancel()
+                return await handler(event, data)
+            if event.message_id != services.guard.active_source_id:
+                if not command_deleted:
+                    try:
+                        await event.delete()
+                    except TelegramAPIError:
+                        services.guard.cancel()
+                        return await handler(event, data)
                 return None
         if isinstance(event, CallbackQuery) and services.guard.active:
             await event.answer("Safwa is responding. Use /cancel to stop it.", show_alert=True)
@@ -242,6 +267,364 @@ async def send_registered(
         await register_message(session, sent.chat.id, sent.message_id, "out", kind, related_id)
         await session.commit()
     return sent
+
+
+async def edit_registered_message(
+    message: Message,
+    services: Services,
+    message_id: int,
+    text: str,
+    *,
+    kind: MessageKind,
+    markup: InlineKeyboardMarkup | None = None,
+    related_id: int | None = None,
+) -> None:
+    """Replace a known bot UI message after consuming a separate user text message."""
+    try:
+        await message.bot.edit_message_text(
+            text,
+            chat_id=message.chat.id,
+            message_id=message_id,
+            reply_markup=markup,
+            parse_mode=ParseMode.HTML,
+        )
+    except TelegramAPIError as error:
+        if "message is not modified" not in str(error).casefold():
+            raise
+    async with services.sessions() as session:
+        await register_message(
+            session,
+            message.chat.id,
+            message_id,
+            "out",
+            kind,
+            related_id,
+        )
+        await session.commit()
+
+
+async def delete_text_input(message: Message, services: Services) -> bool:
+    """Text entered into a field is operational UI input, not dialogue history."""
+    async with services.sessions() as session:
+        await register_message(
+            session,
+            message.chat.id,
+            message.message_id,
+            "in",
+            MessageKind.UI_INPUT,
+        )
+        await session.commit()
+    try:
+        await message.delete()
+    except TelegramAPIError as error:
+        logger.warning("Could not delete UI field input %s: %s", message.message_id, error)
+        return False
+    return True
+
+
+async def clear_message_markup(message: Message, message_id: int) -> None:
+    try:
+        await message.bot.edit_message_reply_markup(
+            chat_id=message.chat.id,
+            message_id=message_id,
+            reply_markup=None,
+        )
+    except TelegramAPIError:
+        pass
+
+
+def proposal_change_summary(change: ProposalChange) -> str:
+    target = f" #{change.entity_id}" if change.entity_id is not None else ""
+    values = ", ".join(f"{key}={value!r}" for key, value in change.values.items())
+    suffix = f": {values}" if values else ""
+    return f"{change.action.title()} {change.entity.title()}{target}{suffix}"
+
+
+def _draft_list(values: list[object]) -> str:
+    return ", ".join(html.escape(str(value)) for value in values) or "—"
+
+
+def _draft_provenance(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except TypeError:
+        return repr(value)
+
+
+async def card_draft_discard_summary(session: AsyncSession, draft: CardDraft) -> str:
+    """Render every user-visible field of one proposed Card before discarding it."""
+    from .models import DraftCategory, DraftDependency, DraftEnergyType, DraftTag, DraftValue
+
+    parent_text: str
+    if draft.parent_draft_id is not None:
+        parent_draft = await session.get(CardDraft, draft.parent_draft_id)
+        parent_text = (
+            f"{parent_draft.title or '(untitled)'} (proposed {parent_draft.kind.title()})"
+            if parent_draft is not None
+            else f"Missing proposed card #{draft.parent_draft_id}"
+        )
+    elif draft.parent_id is not None:
+        parent = await session.get(Card, draft.parent_id)
+        parent_text = parent.title if parent is not None else f"Missing card #{draft.parent_id}"
+    else:
+        parent_text = "Root" if draft.root_confirmed else "Unresolved"
+
+    categories = list(
+        await session.scalars(
+            select(DraftCategory.category)
+            .where(DraftCategory.draft_id == draft.id)
+            .order_by(DraftCategory.category)
+        )
+    )
+    energies = list(
+        await session.scalars(
+            select(DraftEnergyType.energy_type)
+            .where(DraftEnergyType.draft_id == draft.id)
+            .order_by(DraftEnergyType.energy_type)
+        )
+    )
+    value_ids = list(
+        await session.scalars(select(DraftValue.value_id).where(DraftValue.draft_id == draft.id))
+    )
+    values = (
+        list(
+            await session.scalars(
+                select(Value.name).where(Value.id.in_(value_ids)).order_by(Value.name)
+            )
+        )
+        if value_ids
+        else []
+    )
+    tag_ids = list(
+        await session.scalars(select(DraftTag.tag_id).where(DraftTag.draft_id == draft.id))
+    )
+    tags = (
+        list(await session.scalars(select(Tag.name).where(Tag.id.in_(tag_ids)).order_by(Tag.name)))
+        if tag_ids
+        else []
+    )
+    dependencies = list(
+        await session.scalars(
+            select(DraftDependency)
+            .where(DraftDependency.draft_id == draft.id)
+            .order_by(DraftDependency.blocker_card_id)
+        )
+    )
+    blocker_ids = [dependency.blocker_card_id for dependency in dependencies]
+    blocker_cards = (
+        {
+            card.id: card
+            for card in await session.scalars(select(Card).where(Card.id.in_(blocker_ids)))
+        }
+        if blocker_ids
+        else {}
+    )
+    blockers = []
+    for dependency in dependencies:
+        blocker = blocker_cards.get(dependency.blocker_card_id)
+        label = (
+            blocker.title if blocker is not None else f"Missing card #{dependency.blocker_card_id}"
+        )
+        if dependency.copy_to_repeat:
+            label += " (copy to repeat)"
+        blockers.append(label)
+
+    assumptions = [
+        f"{field}: {_draft_provenance(value)}"
+        for field, value in sorted((draft.field_provenance or {}).items())
+        if field not in {"draft_ref", "unresolved"}
+    ]
+    validation = list(draft.validation_errors or [])
+
+    lines = [
+        f"• <b>Create {html.escape(draft.kind.title())}: "
+        f"{html.escape(draft.title or '(untitled)')}</b>",
+        f"Parent: {html.escape(parent_text)}",
+        f"Stage: {html.escape(draft.stage.title())}",
+        f"Note: {html.escape(draft.note or '—')}",
+        f"Priority: {html.escape(draft.priority.title())}",
+        f"Hard Time: {'Yes' if draft.hard_time else 'No'}",
+    ]
+    if draft.kind == CardKind.ACTION.value:
+        lines.extend(
+            [
+                f"Effort: {draft.effort_points if draft.effort_points is not None else 'Unresolved'}",
+                f"Repeatable: {'Yes' if draft.repeatable else 'No'}",
+                f"Categories: {_draft_list(categories)}",
+                f"Energy: {_draft_list(energies)}",
+            ]
+        )
+    lines.extend(
+        [
+            f"Values: {_draft_list(values)}",
+            f"Tags: {_draft_list(tags)}",
+            f"Blockers: {_draft_list(blockers)}",
+            f"AI assumptions: {_draft_list(assumptions)}",
+            f"Unresolved / validation: {_draft_list(validation)}",
+        ]
+    )
+    return "\n".join(lines)
+
+
+async def discarded_card_bundle_message(
+    session: AsyncSession,
+    drafts: list[CardDraft],
+    *,
+    continued_conversation: bool,
+) -> str:
+    details = [
+        await card_draft_discard_summary(session, draft)
+        for draft in drafts
+        if draft.status not in {DraftStatus.COMMITTED.value, DraftStatus.DISCARDED.value}
+    ]
+    reason = (
+        "You continued the conversation without saving it."
+        if continued_conversation
+        else "Nothing was saved."
+    )
+    return "<b>Proposal discarded</b>\n" + reason + "\n\n" + "\n\n".join(details)
+
+
+async def dismiss_prior_ui(message: Message, services: Services) -> None:
+    """Ensure an interaction screen is never left active above new dialogue."""
+    ui_kinds = {
+        MessageKind.DASHBOARD.value,
+        MessageKind.DRAFT_REVIEW.value,
+        MessageKind.APPROVAL.value,
+    }
+    async with services.sessions() as session:
+        screens = list(
+            await session.scalars(
+                select(TelegramMessage)
+                .where(
+                    TelegramMessage.chat_id == message.chat.id,
+                    TelegramMessage.direction == "out",
+                    TelegramMessage.kind.in_(ui_kinds),
+                    TelegramMessage.message_id < message.message_id,
+                )
+                .order_by(TelegramMessage.message_id.desc())
+            )
+        )
+
+    resolved_proposals: set[int] = set()
+    resolved_bundles: set[int] = set()
+    for screen in screens:
+        replacement: str | None = None
+        if screen.kind == MessageKind.APPROVAL.value and screen.related_id:
+            async with services.sessions() as session:
+                proposal = await session.get(ChangeProposal, screen.related_id)
+                if proposal is not None and proposal.status == "pending":
+                    changes = list(
+                        await session.scalars(
+                            select(ProposalChange)
+                            .where(ProposalChange.proposal_id == proposal.id)
+                            .order_by(ProposalChange.position)
+                        )
+                    )
+                    proposal.status = "rejected"
+                    replacement = (
+                        "<b>Proposal discarded</b>\n"
+                        "You continued the conversation without saving it.\n\n"
+                        + "\n".join(
+                            f"• {html.escape(proposal_change_summary(change))}"
+                            for change in changes
+                        )
+                    )
+                    await session.commit()
+                    resolved_proposals.add(proposal.id)
+                    advisor = getattr(services, "advisor", None)
+                    if advisor is not None:
+                        await advisor.cancel_approval_for_target("proposal", proposal.id)
+                elif screen.related_id in resolved_proposals:
+                    replacement = None
+        elif screen.kind == MessageKind.DRAFT_REVIEW.value and screen.related_id:
+            async with services.sessions() as session:
+                draft = await session.get(CardDraft, screen.related_id)
+                bundle = (
+                    await session.get(CardDraftBundle, draft.bundle_id)
+                    if draft is not None
+                    else None
+                )
+                if (
+                    bundle is not None
+                    and bundle.origin == "ai"
+                    and bundle.status not in {"committed", "discarded", "expired"}
+                ):
+                    draft_service = DraftService(session)
+                    drafts = await draft_service.get_bundle_drafts(bundle.id)
+                    replacement = await discarded_card_bundle_message(
+                        session,
+                        drafts,
+                        continued_conversation=True,
+                    )
+                    await draft_service.discard_bundle(bundle.id)
+                    await session.commit()
+                    resolved_bundles.add(bundle.id)
+                    advisor = getattr(services, "advisor", None)
+                    if advisor is not None:
+                        await advisor.cancel_approval_for_target("draft_bundle", bundle.id)
+                elif bundle is not None and bundle.id in resolved_bundles:
+                    replacement = None
+
+        if replacement is not None:
+            try:
+                await message.bot.edit_message_text(
+                    replacement,
+                    chat_id=message.chat.id,
+                    message_id=screen.message_id,
+                    parse_mode=ParseMode.HTML,
+                )
+            except TelegramAPIError as error:
+                logger.warning("Could not freeze proposal UI %s: %s", screen.message_id, error)
+                try:
+                    await message.bot.edit_message_reply_markup(
+                        chat_id=message.chat.id,
+                        message_id=screen.message_id,
+                        reply_markup=None,
+                    )
+                except TelegramAPIError:
+                    pass
+                continue
+            async with services.sessions() as session:
+                await register_message(
+                    session,
+                    message.chat.id,
+                    screen.message_id,
+                    "out",
+                    MessageKind.DIALOGUE_ASSISTANT,
+                    screen.related_id,
+                )
+                await session.commit()
+            continue
+
+        try:
+            await message.bot.delete_message(message.chat.id, screen.message_id)
+        except TelegramAPIError:
+            try:
+                await message.bot.edit_message_reply_markup(
+                    chat_id=message.chat.id,
+                    message_id=screen.message_id,
+                    reply_markup=None,
+                )
+            except TelegramAPIError:
+                pass
+        else:
+            async with services.sessions() as session:
+                stored = await session.scalar(
+                    select(TelegramMessage).where(
+                        TelegramMessage.chat_id == message.chat.id,
+                        TelegramMessage.message_id == screen.message_id,
+                    )
+                )
+                if stored is not None:
+                    await session.delete(stored)
+                    await session.commit()
+
+    async with services.sessions() as session:
+        await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
+        await session.commit()
 
 
 def menu_markup() -> InlineKeyboardMarkup:
@@ -403,7 +786,19 @@ async def render_dashboard(
             rows.append(
                 [
                     await token_button(
-                        session, services.owner_id, label[:60], "card_view", {"id": card.id}
+                        session,
+                        services.owner_id,
+                        label[:60],
+                        "card_view",
+                        {
+                            "id": card.id,
+                            "back": {
+                                "kind": "dashboard",
+                                "stage": stage.value,
+                                "title": title,
+                                "page": page,
+                            },
+                        },
                     )
                 ]
             )
@@ -488,11 +883,17 @@ async def draft_review_markup(
             .order_by(CardDraft.created_at, CardDraft.id)
         )
     )
+    bundle = await session.get(CardDraftBundle, draft.bundle_id)
+    ai_origin = bundle is not None and bundle.origin == "ai"
     if len(bundle_drafts) == 1 and not draft.validation_errors:
         rows.append(
             [
                 await token_button(
-                    session, services.owner_id, "✅ Create", "draft_commit", {"id": draft.id}
+                    session,
+                    services.owner_id,
+                    "✅ Save" if ai_origin else "✅ Create",
+                    "draft_commit",
+                    {"id": draft.id},
                 )
             ]
         )
@@ -542,7 +943,11 @@ async def draft_review_markup(
                     await token_button(
                         session,
                         services.owner_id,
-                        f"✅ Create all {len(bundle_drafts)}",
+                        (
+                            f"✅ Save all {len(bundle_drafts)}"
+                            if ai_origin
+                            else f"✅ Create all {len(bundle_drafts)}"
+                        ),
                         "bundle_commit",
                         {"id": draft.bundle_id},
                     )
@@ -555,11 +960,18 @@ async def draft_review_markup(
             )
         ]
     )
-    rows.append(menu_row())
+    if not ai_origin:
+        rows.append([InlineKeyboardButton(text="↩️ Back", callback_data="nav:drafts")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-async def render_draft(message: Message, services: Services, draft_id: int) -> None:
+async def render_draft(
+    message: Message,
+    services: Services,
+    draft_id: int,
+    *,
+    replace_message_id: int | None = None,
+) -> None:
     async with services.sessions() as session:
         draft = await session.get(CardDraft, draft_id)
         if draft is None:
@@ -634,14 +1046,25 @@ async def render_draft(message: Message, services: Services, draft_id: int) -> N
         )
         if errors:
             text += "\n\n" + errors
-    await send_registered(
-        message,
-        services,
-        text,
-        kind=MessageKind.DRAFT_REVIEW,
-        markup=markup,
-        related_id=draft_id,
-    )
+    if replace_message_id is not None:
+        await edit_registered_message(
+            message,
+            services,
+            replace_message_id,
+            text,
+            kind=MessageKind.DRAFT_REVIEW,
+            markup=markup,
+            related_id=draft_id,
+        )
+    else:
+        await send_registered(
+            message,
+            services,
+            text,
+            kind=MessageKind.DRAFT_REVIEW,
+            markup=markup,
+            related_id=draft_id,
+        )
 
 
 async def start_manual_draft(message: Message, services: Services) -> None:
@@ -889,8 +1312,8 @@ async def command_values(message: Message, services: Services) -> None:
                     session,
                     services.owner_id,
                     f"{'✅' if value.active else '○'} {value.name}",
-                    "value_toggle",
-                    {"id": value.id},
+                    "item_view",
+                    {"entity": "value", "id": value.id},
                 )
             ]
             for value in values
@@ -919,7 +1342,15 @@ async def command_tags(message: Message, services: Services) -> None:
             await session.scalars(select(Tag).where(Tag.archived_at.is_(None)).order_by(Tag.name))
         )
         rows = [
-            [await token_button(session, services.owner_id, tag.name, "tag_view", {"id": tag.id})]
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    tag.name,
+                    "item_view",
+                    {"entity": "tag", "id": tag.id},
+                )
+            ]
             for tag in tags
         ]
         rows.append(
@@ -932,6 +1363,166 @@ async def command_tags(message: Message, services: Services) -> None:
         "<b>Tags</b>\nUse Tags to group Cards independently of Values.",
         kind=MessageKind.DASHBOARD,
         markup=InlineKeyboardMarkup(inline_keyboard=rows + [menu_row()]),
+    )
+
+
+async def render_item_editor(
+    message: Message,
+    services: Services,
+    entity: str,
+    *,
+    mode: str,
+    item_id: int | None = None,
+    values: dict[str, str] | None = None,
+    replace_message_id: int | None = None,
+) -> None:
+    if entity not in {"tag", "value"} or mode not in {"create", "view"}:
+        raise DomainError("Unsupported item editor")
+    async with services.sessions() as session:
+        item: Tag | Value | None = None
+        if mode == "view":
+            model = Tag if entity == "tag" else Value
+            item = await session.get(model, item_id)
+            if item is None or item.archived_at is not None:
+                raise DomainError(f"{entity.title()} does not exist")
+            editor_values = {"name": item.name, "description": item.description}
+        else:
+            editor_values = {"name": "", "description": "", **(values or {})}
+
+        await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
+        state: dict[str, Any] = {
+            "entity": entity,
+            "mode": mode,
+            "item_id": item_id,
+            "values": editor_values,
+            "message_id": replace_message_id or message.message_id,
+        }
+        session.add(
+            UiSession(
+                owner_id=services.owner_id,
+                kind="item_editor",
+                state=state,
+                expires_at=datetime.now(UTC) + timedelta(minutes=30),
+            )
+        )
+        name = await token_button(
+            session,
+            services.owner_id,
+            "✏️ Name",
+            "item_edit_text",
+            {"entity": entity, "mode": mode, "id": item_id, "field": "name"},
+        )
+        description = await token_button(
+            session,
+            services.owner_id,
+            "📝 Description",
+            "item_edit_text",
+            {"entity": entity, "mode": mode, "id": item_id, "field": "description"},
+        )
+        rows: list[list[InlineKeyboardButton]] = [[name, description]]
+        if entity == "value" and mode == "view" and isinstance(item, Value):
+            rows.append(
+                [
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        f"💎 Focus: {'On' if item.active else 'Off'}",
+                        "item_toggle_focus",
+                        {"id": item.id},
+                    )
+                ]
+            )
+        if mode == "create" and editor_values["name"].strip():
+            rows.append(
+                [
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        f"✅ Create {entity.title()}",
+                        "item_create",
+                        {"entity": entity},
+                    )
+                ]
+            )
+        rows.append(
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "↩️ Back",
+                    "item_back",
+                    {"entity": entity},
+                )
+            ]
+        )
+        await session.commit()
+
+    title = f"Create {entity.title()}" if mode == "create" else entity.title()
+    body = (
+        f"<b>{title}</b>\n"
+        f"Name: {html.escape(editor_values['name'] or '—')}\n"
+        f"Description: {html.escape(editor_values['description'] or '—')}"
+    )
+    markup = InlineKeyboardMarkup(inline_keyboard=rows)
+    if replace_message_id is not None:
+        await edit_registered_message(
+            message,
+            services,
+            replace_message_id,
+            body,
+            kind=MessageKind.DASHBOARD,
+            markup=markup,
+            related_id=item_id,
+        )
+    else:
+        await send_registered(
+            message,
+            services,
+            body,
+            kind=MessageKind.DASHBOARD,
+            markup=markup,
+            related_id=item_id,
+        )
+
+
+async def render_item_text_prompt(
+    message: Message,
+    services: Services,
+    *,
+    entity: str,
+    mode: str,
+    item_id: int | None,
+    field: str,
+) -> None:
+    if field not in {"name", "description"}:
+        raise DomainError("Unsupported text field")
+    async with services.sessions() as session:
+        editor = await session.scalar(
+            select(UiSession).where(UiSession.owner_id == services.owner_id)
+        )
+        if editor is None or editor.kind != "item_editor":
+            raise DomainError("Item editor expired")
+        state = dict(editor.state)
+        state["field"] = field
+        state["message_id"] = message.message_id
+        editor.kind = "item_text"
+        editor.state = state
+        back = await token_button(
+            session,
+            services.owner_id,
+            "↩️ Back",
+            "item_text_back",
+            {"entity": entity, "mode": mode, "id": item_id},
+        )
+        await session.commit()
+    current = str(state.get("values", {}).get(field, ""))
+    await send_registered(
+        message,
+        services,
+        f"<b>Current {html.escape(field)}</b>: {html.escape(current or '—')}\n\n"
+        f"Set new {html.escape(field.title())}",
+        kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(inline_keyboard=[[back]]),
     )
 
 
@@ -981,7 +1572,7 @@ async def render_saved_request(message: Message, services: Services, request_id:
                     services.owner_id,
                     f"{card.kind.title()} · {card.title}"[:60],
                     "card_view",
-                    {"id": card.id},
+                    {"id": card.id, "back": {"kind": "request", "id": request.id}},
                 )
             ]
             for card in cards
@@ -1385,59 +1976,89 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
     try:
         if action in {"value_create_prompt", "tag_create_prompt"}:
             entity = "value" if action == "value_create_prompt" else "tag"
-            async with services.sessions() as session:
-                await session.execute(
-                    delete(UiSession).where(UiSession.owner_id == services.owner_id)
-                )
-                session.add(
-                    UiSession(
-                        owner_id=services.owner_id,
-                        kind=f"{entity}_create",
-                        state={},
-                        expires_at=datetime.now(UTC) + timedelta(minutes=30),
-                    )
-                )
-                cancel = await token_button(
-                    session,
-                    services.owner_id,
-                    "Cancel",
-                    "ui_create_cancel",
-                    {"entity": entity},
-                )
-                await session.commit()
-            await send_registered(
+            await render_item_editor(callback.message, services, entity, mode="create")
+            return
+        if action == "item_view":
+            await render_item_editor(
                 callback.message,
                 services,
-                f"Send the new {entity.title()} name.",
-                kind=MessageKind.DASHBOARD,
-                markup=InlineKeyboardMarkup(inline_keyboard=[[cancel]]),
-                replace=False,
+                payload["entity"],
+                mode="view",
+                item_id=payload["id"],
             )
             return
-        if action == "ui_create_cancel":
+        if action == "item_edit_text":
+            await render_item_text_prompt(
+                callback.message,
+                services,
+                entity=payload["entity"],
+                mode=payload["mode"],
+                item_id=payload.get("id"),
+                field=payload["field"],
+            )
+            return
+        if action == "item_text_back":
+            async with services.sessions() as session:
+                editor = await session.scalar(
+                    select(UiSession).where(UiSession.owner_id == services.owner_id)
+                )
+                values = dict(editor.state.get("values", {})) if editor is not None else {}
+            await render_item_editor(
+                callback.message,
+                services,
+                payload["entity"],
+                mode=payload["mode"],
+                item_id=payload.get("id"),
+                values=values,
+            )
+            return
+        if action == "item_create":
+            async with services.sessions() as session:
+                editor = await session.scalar(
+                    select(UiSession).where(UiSession.owner_id == services.owner_id)
+                )
+                if editor is None or editor.kind != "item_editor":
+                    raise DomainError("Item editor expired")
+                values = dict(editor.state.get("values", {}))
+                if payload["entity"] == "value":
+                    item = await create_value(
+                        session, values.get("name", ""), values.get("description", "")
+                    )
+                else:
+                    item = await create_tag(
+                        session, values.get("name", ""), values.get("description", "")
+                    )
+                await session.commit()
+            await render_item_editor(
+                callback.message,
+                services,
+                payload["entity"],
+                mode="view",
+                item_id=item.id,
+            )
+            return
+        if action == "item_toggle_focus":
+            async with services.sessions() as session:
+                await set_value_focus(session, payload["id"])
+                await session.commit()
+            await render_item_editor(
+                callback.message,
+                services,
+                "value",
+                mode="view",
+                item_id=payload["id"],
+            )
+            return
+        if action == "item_back":
             async with services.sessions() as session:
                 await session.execute(
                     delete(UiSession).where(UiSession.owner_id == services.owner_id)
                 )
                 await session.commit()
-            if payload.get("entity") == "value":
+            if payload["entity"] == "value":
                 await command_values(callback.message, services)
             else:
                 await command_tags(callback.message, services)
-            return
-        if action == "tag_view":
-            async with services.sessions() as session:
-                tag = await session.get(Tag, payload["id"])
-                if tag is None or tag.archived_at is not None:
-                    raise DomainError("Tag does not exist")
-                await session.commit()
-            await send_registered(
-                callback.message,
-                services,
-                f"<b>{html.escape(tag.name)}</b>\n{html.escape(tag.description or 'No description.')}",
-                kind=MessageKind.DASHBOARD,
-                markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
-            )
             return
         if action == "request_view":
             await render_saved_request(callback.message, services, payload["id"])
@@ -1488,21 +2109,39 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
                 await session.execute(
                     delete(UiSession).where(UiSession.owner_id == services.owner_id)
                 )
+                draft = await session.get(CardDraft, payload["id"])
+                if draft is None:
+                    raise DomainError("Draft does not exist")
                 session.add(
                     UiSession(
                         owner_id=services.owner_id,
                         kind="draft_text",
-                        state={"draft_id": payload["id"], "field": payload["field"]},
+                        state={
+                            "draft_id": payload["id"],
+                            "field": payload["field"],
+                            "message_id": callback.message.message_id,
+                        },
                         expires_at=datetime.now(UTC) + timedelta(minutes=30),
                     )
                 )
+                back = await token_button(
+                    session,
+                    services.owner_id,
+                    "↩️ Back",
+                    "draft_view",
+                    {"id": payload["id"]},
+                )
                 await session.commit()
+            current = str(getattr(draft, payload["field"]) or "")
             await send_registered(
                 callback.message,
                 services,
-                f"Send the new {payload['field']}.",
+                f"<b>Current {html.escape(payload['field'])}</b>: "
+                f"{html.escape(current or '—')}\n\n"
+                f"Set new {html.escape(payload['field'].title())}",
                 kind=MessageKind.DRAFT_REVIEW,
-                replace=False,
+                markup=InlineKeyboardMarkup(inline_keyboard=[[back]]),
+                related_id=payload["id"],
             )
         elif action == "draft_toggle":
             async with services.sessions() as session:
@@ -1593,12 +2232,27 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
             async with services.sessions() as session:
                 draft = await DraftService(session).mark_reviewed(payload["id"])
                 cards = await DraftService(session).commit_bundle(draft.bundle_id)
+                bundle_id = draft.bundle_id
                 await session.commit()
+            if await continue_agent_approval(
+                callback.message,
+                services,
+                "draft_bundle",
+                bundle_id,
+                decision="approved",
+                result={
+                    "created_card_ids": [card.id for card in cards],
+                    "created_titles": [card.title for card in cards],
+                },
+            ):
+                return
             await send_registered(
                 callback.message,
                 services,
                 f"✅ Created <b>{html.escape(cards[0].title)}</b>.",
-                kind=MessageKind.RECEIPT,
+                # This is a visible, meaningful assistant outcome, not an internal
+                # operation receipt. Keep it in the canonical Telegram dialogue.
+                kind=MessageKind.DIALOGUE_ASSISTANT,
                 related_id=cards[0].id,
             )
         elif action == "draft_mark_reviewed":
@@ -1610,19 +2264,94 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
             async with services.sessions() as session:
                 cards = await DraftService(session).commit_bundle(payload["id"])
                 await session.commit()
+            if await continue_agent_approval(
+                callback.message,
+                services,
+                "draft_bundle",
+                payload["id"],
+                decision="approved",
+                result={
+                    "created_card_ids": [card.id for card in cards],
+                    "created_titles": [card.title for card in cards],
+                },
+            ):
+                return
             await send_registered(
                 callback.message,
                 services,
                 f"✅ Created {len(cards)} reviewed cards.",
-                kind=MessageKind.RECEIPT,
+                kind=MessageKind.DIALOGUE_ASSISTANT,
             )
         elif action == "draft_discard":
             async with services.sessions() as session:
-                await DraftService(session).discard(payload["id"])
+                draft = await session.get(CardDraft, payload["id"])
+                title = draft.title if draft is not None else "card"
+                bundle = (
+                    await session.get(CardDraftBundle, draft.bundle_id)
+                    if draft is not None
+                    else None
+                )
+                discarded_message = None
+                if bundle is not None and bundle.origin == "ai":
+                    draft_service = DraftService(session)
+                    discarded = await draft_service.get_bundle_drafts(bundle.id)
+                    discarded_message = await discarded_card_bundle_message(
+                        session,
+                        discarded,
+                        continued_conversation=False,
+                    )
+                    await draft_service.discard_bundle(bundle.id)
+                else:
+                    await DraftService(session).discard(payload["id"])
                 await session.commit()
+            if bundle is not None and bundle.origin == "ai":
+                if await continue_agent_approval(
+                    callback.message,
+                    services,
+                    "draft_bundle",
+                    bundle.id,
+                    decision="discarded",
+                    result={"proposal": discarded_message or "Card draft discarded"},
+                ):
+                    return
+                await send_registered(
+                    callback.message,
+                    services,
+                    discarded_message or "<b>Proposal discarded</b>\nNothing was saved.",
+                    kind=MessageKind.DIALOGUE_ASSISTANT,
+                )
+                return
+            # Restore the normal menu in place. Its semantic kind is UI-only and
+            # must not replace the durable conversational receipt below.
             await command_start(callback.message, services)
+            await send_registered(
+                callback.message,
+                services,
+                f"🗑 Discarded draft <b>{html.escape(title)}</b>.",
+                kind=MessageKind.DIALOGUE_ASSISTANT,
+                replace=False,
+            )
         elif action == "card_view":
-            await render_card(callback.message, services, payload["id"])
+            await render_card(
+                callback.message,
+                services,
+                payload["id"],
+                back=payload.get("back"),
+            )
+        elif action == "card_back":
+            back = payload.get("back") or {"kind": "home"}
+            if back["kind"] == "dashboard":
+                await render_dashboard(
+                    callback.message,
+                    services,
+                    CardStage(back["stage"]),
+                    title=back["title"],
+                    page=int(back.get("page", 0)),
+                )
+            elif back["kind"] == "request":
+                await render_saved_request(callback.message, services, int(back["id"]))
+            else:
+                await command_start(callback.message, services)
         elif action == "card_move":
             async with services.sessions() as session:
                 result = await move_card(session, payload["id"], CardStage(payload["stage"]))
@@ -1637,27 +2366,96 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
             await render_card(callback.message, services, payload["id"])
         elif action == "card_edit_text":
             async with services.sessions() as session:
+                editor = await session.scalar(
+                    select(UiSession).where(UiSession.owner_id == services.owner_id)
+                )
+                back_state = (
+                    dict(editor.state.get("back", {}))
+                    if editor is not None and editor.kind == "card_editor"
+                    else {}
+                )
                 await session.execute(
                     delete(UiSession).where(UiSession.owner_id == services.owner_id)
                 )
+                card = await session.get(Card, payload["id"])
+                if card is None:
+                    raise DomainError("Card does not exist")
                 session.add(
                     UiSession(
                         owner_id=services.owner_id,
                         kind="card_text",
-                        state={"card_id": payload["id"], "field": payload["field"]},
+                        state={
+                            "card_id": payload["id"],
+                            "field": payload["field"],
+                            "message_id": callback.message.message_id,
+                            "back": back_state,
+                        },
                         expires_at=datetime.now(UTC) + timedelta(minutes=30),
                     )
                 )
+                back = await token_button(
+                    session,
+                    services.owner_id,
+                    "↩️ Back",
+                    "card_view",
+                    {"id": payload["id"]},
+                )
                 await session.commit()
+            current = str(getattr(card, payload["field"]) or "")
             await send_registered(
                 callback.message,
                 services,
-                f"Send the new {payload['field']}.",
+                f"<b>Current {html.escape(payload['field'])}</b>: "
+                f"{html.escape(current or '—')}\n\n"
+                f"Set new {html.escape(payload['field'].title())}",
                 kind=MessageKind.DASHBOARD,
-                replace=False,
+                markup=InlineKeyboardMarkup(inline_keyboard=[[back]]),
+                related_id=payload["id"],
             )
-        elif action == "card_choose_parent":
+        elif action in {
+            "card_choose_parent",
+            "card_choose_stage",
+            "card_choose_priority",
+            "card_choose_effort",
+            "card_choose_categories",
+            "card_choose_energy",
+        }:
             await render_card_choices(callback.message, services, action, payload["id"])
+        elif action == "card_set_field":
+            async with services.sessions() as session:
+                await update_card_fields(
+                    session,
+                    payload["id"],
+                    {payload["field"]: payload["value"]},
+                )
+                await session.commit()
+            await render_card(callback.message, services, payload["id"])
+        elif action == "card_toggle_field":
+            async with services.sessions() as session:
+                card = await session.get(Card, payload["id"])
+                if card is None:
+                    raise DomainError("Card does not exist")
+                await update_card_fields(
+                    session,
+                    card.id,
+                    {payload["field"]: not bool(getattr(card, payload["field"]))},
+                )
+                await session.commit()
+            await render_card(callback.message, services, payload["id"])
+        elif action == "card_toggle_category":
+            async with services.sessions() as session:
+                await toggle_card_category(session, payload["id"], Category(payload["value"]))
+                await session.commit()
+            await render_card_choices(
+                callback.message, services, "card_choose_categories", payload["id"]
+            )
+        elif action == "card_toggle_energy":
+            async with services.sessions() as session:
+                await toggle_card_energy_type(session, payload["id"], EnergyType(payload["value"]))
+                await session.commit()
+            await render_card_choices(
+                callback.message, services, "card_choose_energy", payload["id"]
+            )
         elif action == "card_set_parent":
             async with services.sessions() as session:
                 await set_card_parent(session, payload["id"], payload.get("parent_id"))
@@ -1790,6 +2588,58 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
             )
         elif action == "proposal_view":
             await render_proposal(callback.message, services, payload["id"])
+        elif action == "proposal_item_edit_text":
+            async with services.sessions() as session:
+                change = await session.get(ProposalChange, payload["change_id"])
+                if change is None or change.proposal_id != payload["id"]:
+                    raise DomainError("Proposal change does not exist")
+                _current, proposed = await _proposal_item_state(session, change)
+                await session.execute(
+                    delete(UiSession).where(UiSession.owner_id == services.owner_id)
+                )
+                session.add(
+                    UiSession(
+                        owner_id=services.owner_id,
+                        kind="proposal_item_text",
+                        state={
+                            "proposal_id": payload["id"],
+                            "change_id": change.id,
+                            "field": payload["field"],
+                            "message_id": callback.message.message_id,
+                        },
+                        expires_at=datetime.now(UTC) + timedelta(minutes=30),
+                    )
+                )
+                back = await token_button(
+                    session,
+                    services.owner_id,
+                    "↩️ Back",
+                    "proposal_view",
+                    {"id": payload["id"]},
+                )
+                await session.commit()
+            current = _display_diff_value(proposed.get(payload["field"]))
+            await send_registered(
+                callback.message,
+                services,
+                f"<b>Current {html.escape(payload['field'])}</b>: "
+                f"{html.escape(current)}\n\n"
+                f"Set new {html.escape(payload['field'].title())}",
+                kind=MessageKind.APPROVAL,
+                markup=InlineKeyboardMarkup(inline_keyboard=[[back]]),
+                related_id=payload["id"],
+            )
+        elif action == "proposal_toggle_field":
+            async with services.sessions() as session:
+                change = await session.get(ProposalChange, payload["change_id"])
+                if change is None or change.proposal_id != payload["id"]:
+                    raise DomainError("Proposal change does not exist")
+                _current, proposed = await _proposal_item_state(session, change)
+                values = dict(change.values)
+                values[payload["field"]] = not bool(proposed.get(payload["field"]))
+                change.values = values
+                await session.commit()
+            await render_proposal(callback.message, services, payload["id"])
         elif action == "proposal_approve":
             async with services.sessions() as session:
                 destructive = await session.scalar(
@@ -1817,19 +2667,36 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
                     return
                 affected = await ProposalService(session).apply(payload["id"])
                 await session.commit()
+            if await continue_agent_approval(
+                callback.message,
+                services,
+                "proposal",
+                payload["id"],
+                decision="approved",
+                result={"affected_ids": affected},
+            ):
+                return
             await send_registered(
                 callback.message,
                 services,
-                f"Approved. Updated {len(affected)} item(s).",
-                kind=MessageKind.RECEIPT,
+                f"✅ Saved proposal. Updated {len(affected)} item(s).",
+                kind=MessageKind.DIALOGUE_ASSISTANT,
             )
-            await render_feedback(callback.message, services)
         elif action == "proposal_delete_confirm":
             async with services.sessions() as session:
                 affected = await ProposalService(session).apply(
                     payload["id"], allow_destructive=True
                 )
                 await session.commit()
+            if await continue_agent_approval(
+                callback.message,
+                services,
+                "proposal",
+                payload["id"],
+                decision="approved",
+                result={"affected_ids": affected, "destructive": True},
+            ):
+                return
             await send_registered(
                 callback.message,
                 services,
@@ -1850,8 +2717,20 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
             async with services.sessions() as session:
                 await ProposalService(session).reject(payload["id"])
                 await session.commit()
+            if await continue_agent_approval(
+                callback.message,
+                services,
+                "proposal",
+                payload["id"],
+                decision="discarded",
+                result={"message": "The user discarded this proposed change."},
+            ):
+                return
             await send_registered(
-                callback.message, services, "Proposal cancelled.", kind=MessageKind.RECEIPT
+                callback.message,
+                services,
+                "🗑 Proposal discarded.",
+                kind=MessageKind.DIALOGUE_ASSISTANT,
             )
         elif action == "value_toggle":
             async with services.sessions() as session:
@@ -1871,6 +2750,14 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
     except DomainError as error:
         await send_registered(
             callback.message, services, html.escape(str(error)), kind=MessageKind.ERROR
+        )
+    except Exception:
+        logger.exception("Telegram callback failed: action=%s payload=%s", action, payload)
+        await send_registered(
+            callback.message,
+            services,
+            "Safwa could not finish this action. Reopen the screen and try again.",
+            kind=MessageKind.ERROR,
         )
 
 
@@ -2003,7 +2890,67 @@ async def render_card_choices(
         card = await session.get(Card, card_id)
         if card is None or card.archived_at is not None:
             raise DomainError("Card does not exist or is archived")
-        if action == "card_choose_parent":
+        if action == "card_choose_stage":
+            choices = [
+                (
+                    f"{'✓ ' if card.effective_stage == stage.value else ''}{stage.value.title()}",
+                    "card_move",
+                    {"id": card.id, "stage": stage.value},
+                )
+                for stage in (CardStage.BACKLOG, CardStage.SPRINT, CardStage.TODAY)
+            ]
+            title = "Choose Stage"
+        elif action == "card_choose_priority":
+            choices = [
+                (
+                    f"{'✓ ' if card.priority == priority.value else ''}{priority.value.title()}",
+                    "card_set_field",
+                    {"id": card.id, "field": "priority", "value": priority.value},
+                )
+                for priority in Priority
+            ]
+            title = "Choose Priority"
+        elif action == "card_choose_effort":
+            choices = [
+                (
+                    f"{'✓ ' if card.effort_points == effort else ''}{effort} EP",
+                    "card_set_field",
+                    {"id": card.id, "field": "effort_points", "value": effort},
+                )
+                for effort in (1, 2, 3, 5, 8, 13)
+            ]
+            title = "Choose Effort"
+        elif action == "card_choose_categories":
+            selected = set(
+                await session.scalars(
+                    select(CardCategory.category).where(CardCategory.card_id == card.id)
+                )
+            )
+            choices = [
+                (
+                    f"{'✓ ' if category.value in selected else ''}{category.value.title()}",
+                    "card_toggle_category",
+                    {"id": card.id, "value": category.value},
+                )
+                for category in Category
+            ]
+            title = "Categories"
+        elif action == "card_choose_energy":
+            selected = set(
+                await session.scalars(
+                    select(CardEnergyType.energy_type).where(CardEnergyType.card_id == card.id)
+                )
+            )
+            choices = [
+                (
+                    f"{'✓ ' if energy.value in selected else ''}{energy.value.title()}",
+                    "card_toggle_energy",
+                    {"id": card.id, "value": energy.value},
+                )
+                for energy in EnergyType
+            ]
+            title = "Energy"
+        elif action == "card_choose_parent":
             candidates = list(
                 await session.scalars(
                     select(Card)
@@ -2102,8 +3049,26 @@ async def render_card_choices(
     )
 
 
-async def render_card(message: Message, services: Services, card_id: int) -> None:
+async def render_card(
+    message: Message,
+    services: Services,
+    card_id: int,
+    *,
+    replace_message_id: int | None = None,
+    back: dict[str, Any] | None = None,
+) -> None:
     async with services.sessions() as session:
+        existing_editor = await session.scalar(
+            select(UiSession).where(UiSession.owner_id == services.owner_id)
+        )
+        if (
+            back is None
+            and existing_editor is not None
+            and existing_editor.kind == "card_editor"
+            and existing_editor.state.get("card_id") == card_id
+        ):
+            back = dict(existing_editor.state.get("back", {}))
+        back = back or {"kind": "home"}
         card = await session.get(Card, card_id)
         if card is None:
             return
@@ -2136,85 +3101,46 @@ async def render_card(message: Message, services: Services, card_id: int) -> Non
             if blocker_ids
             else []
         )
-        rows = [
-            [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "Backlog",
-                    "card_move",
-                    {"id": card.id, "stage": "backlog"},
-                ),
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "Sprint",
-                    "card_move",
-                    {"id": card.id, "stage": "sprint"},
-                ),
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "Today",
-                    "card_move",
-                    {"id": card.id, "stage": "today"},
-                ),
-            ]
+        categories = list(
+            await session.scalars(
+                select(CardCategory.category).where(CardCategory.card_id == card.id)
+            )
+        )
+        energy_types = list(
+            await session.scalars(
+                select(CardEnergyType.energy_type).where(CardEnergyType.card_id == card.id)
+            )
+        )
+        field_specs = [
+            ("✏️ Title", "card_edit_text", {"id": card.id, "field": "title"}),
+            ("📝 Note", "card_edit_text", {"id": card.id, "field": "note"}),
+            ("🌳 Parent", "card_choose_parent", {"id": card.id}),
+            ("📍 Stage", "card_choose_stage", {"id": card.id}),
+            ("⚠️ Priority", "card_choose_priority", {"id": card.id}),
+            ("⏱ Hard Time", "card_toggle_field", {"id": card.id, "field": "hard_time"}),
         ]
-        rows.append(
+        if card.kind == CardKind.ACTION.value:
+            field_specs.extend(
+                [
+                    ("🔢 Effort", "card_choose_effort", {"id": card.id}),
+                    (
+                        "🔁 Repeat",
+                        "card_toggle_field",
+                        {"id": card.id, "field": "repeatable"},
+                    ),
+                    ("🏷 Categories", "card_choose_categories", {"id": card.id}),
+                    ("⚡ Energy", "card_choose_energy", {"id": card.id}),
+                ]
+            )
+        field_specs.extend(
             [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "✏️ Title",
-                    "card_edit_text",
-                    {"id": card.id, "field": "title"},
-                ),
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "📝 Note",
-                    "card_edit_text",
-                    {"id": card.id, "field": "note"},
-                ),
+                ("💎 Values", "card_choose_values", {"id": card.id}),
+                ("🏷 Tags", "card_choose_tags", {"id": card.id}),
+                ("🚧 Blockers", "card_choose_blockers", {"id": card.id}),
             ]
         )
-        rows.append(
-            [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "🌳 Parent",
-                    "card_choose_parent",
-                    {"id": card.id},
-                ),
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "💎 Values",
-                    "card_choose_values",
-                    {"id": card.id},
-                ),
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "🏷 Tags",
-                    "card_choose_tags",
-                    {"id": card.id},
-                ),
-            ]
-        )
-        rows.append(
-            [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "🚧 Blockers",
-                    "card_choose_blockers",
-                    {"id": card.id},
-                )
-            ]
-        )
+        buttons = [await token_button(session, services.owner_id, *spec) for spec in field_specs]
+        rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
         if card.kind == CardKind.ACTION.value and card.effective_stage not in {"done", "cancelled"}:
             rows.append(
                 [
@@ -2248,31 +3174,75 @@ async def render_card(message: Message, services: Services, card_id: int) -> Non
                 ),
             ]
         )
-        rows.append(menu_row())
+        rows.append(
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "↩️ Back",
+                    "card_back",
+                    {"back": back},
+                )
+            ]
+        )
+        await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
+        session.add(
+            UiSession(
+                owner_id=services.owner_id,
+                kind="card_editor",
+                state={
+                    "card_id": card.id,
+                    "back": back,
+                    "message_id": replace_message_id or message.message_id,
+                },
+                expires_at=datetime.now(UTC) + timedelta(minutes=30),
+            )
+        )
         await session.commit()
-    details = [
-        f"{card.kind.title()} · {card.effective_stage.title()} · {card.effort_points or '—'} EP",
-        f"Priority: {card.priority.title()}{' · Hard time' if card.hard_time else ''}",
-        f"Parent: {parent.title if parent else 'Root'}",
-    ]
-    if card.repeatable:
-        details.append("Repeatable")
-    if direct_values:
-        details.append("Values: " + ", ".join(value.name for value in direct_values))
-    if direct_tags:
-        details.append("Tags: " + ", ".join(tag.name for tag in direct_tags))
-    if blockers:
-        details.append("Blockers: " + ", ".join(blocker.title for blocker in blockers))
-    if card.note:
-        details.append(card.note)
-    await send_registered(
-        message,
-        services,
-        f"<b>{html.escape(card.title)}</b>\n"
-        + "\n".join(html.escape(detail) for detail in details),
-        kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=rows),
+    text = "<b>Card</b>\n" + "\n".join(
+        [
+            f"Kind: {html.escape(card.kind.title())}",
+            f"Title: <b>{html.escape(card.title)}</b>",
+            f"Parent: {html.escape(parent.title if parent else 'Root')}",
+            f"Stage: {html.escape(card.effective_stage.title())}",
+            f"Note: {html.escape(card.note or '—')}",
+            f"Priority: {html.escape(card.priority.title())} · Hard Time: "
+            f"{'Yes' if card.hard_time else 'No'}",
+            *(
+                [
+                    f"Effort: {card.effort_points or '—'}",
+                    f"Repeatable: {'Yes' if card.repeatable else 'No'}",
+                    f"Categories: {html.escape(', '.join(categories) or '—')}",
+                    f"Energy: {html.escape(', '.join(energy_types) or '—')}",
+                ]
+                if card.kind == CardKind.ACTION.value
+                else []
+            ),
+            f"Values: {html.escape(', '.join(value.name for value in direct_values) or '—')}",
+            f"Tags: {html.escape(', '.join(tag.name for tag in direct_tags) or '—')}",
+            f"Blockers: {html.escape(', '.join(blocker.title for blocker in blockers) or '—')}",
+        ]
     )
+    markup = InlineKeyboardMarkup(inline_keyboard=rows)
+    if replace_message_id is not None:
+        await edit_registered_message(
+            message,
+            services,
+            replace_message_id,
+            text,
+            kind=MessageKind.DASHBOARD,
+            markup=markup,
+            related_id=card.id,
+        )
+    else:
+        await send_registered(
+            message,
+            services,
+            text,
+            kind=MessageKind.DASHBOARD,
+            markup=markup,
+            related_id=card.id,
+        )
 
 
 async def render_proposal_edits(message: Message, services: Services, proposal_id: int) -> None:
@@ -2317,9 +3287,58 @@ async def render_proposal_edits(message: Message, services: Services, proposal_i
     )
 
 
-async def render_proposal(message: Message, services: Services, proposal_id: int) -> None:
+async def _proposal_item_state(
+    session: AsyncSession, change: ProposalChange
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    current: dict[str, Any] = {}
+    if change.entity == "card" and change.entity_id:
+        card = await session.get(Card, change.entity_id)
+        if card is not None:
+            current = {
+                "kind": card.kind,
+                "title": card.title,
+                "note": card.note,
+                "stage": card.effective_stage,
+                "priority": card.priority,
+                "hard_time": card.hard_time,
+                "effort_points": card.effort_points,
+                "repeatable": card.repeatable,
+            }
+    elif change.entity == "tag" and change.entity_id:
+        tag = await session.get(Tag, change.entity_id)
+        if tag is not None:
+            current = {"name": tag.name, "description": tag.description}
+    elif change.entity == "value" and change.entity_id:
+        value = await session.get(Value, change.entity_id)
+        if value is not None:
+            current = {
+                "name": value.name,
+                "description": value.description,
+                "active": value.active,
+            }
+    proposed = {**current, **dict(change.values)}
+    return current, proposed
+
+
+def _display_diff_value(value: Any) -> str:
+    if value is None or value == "":
+        return "—"
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    return str(value)
+
+
+async def render_proposal(
+    message: Message,
+    services: Services,
+    proposal_id: int,
+    *,
+    replace_message_id: int | None = None,
+) -> None:
     async with services.sessions() as session:
         proposal = await session.get(ChangeProposal, proposal_id)
+        if proposal is None or proposal.status != "pending":
+            raise DomainError("Proposal is no longer pending")
         changes = list(
             await session.scalars(
                 select(ProposalChange)
@@ -2327,31 +3346,235 @@ async def render_proposal(message: Message, services: Services, proposal_id: int
                 .order_by(ProposalChange.position)
             )
         )
-        approve = await token_button(
-            session, services.owner_id, "✅ Approve", "proposal_approve", {"id": proposal.id}
+        save = await token_button(
+            session, services.owner_id, "✅ Save", "proposal_approve", {"id": proposal.id}
         )
-        edit = await token_button(
-            session, services.owner_id, "✏️ Edit", "proposal_edit", {"id": proposal.id}
+        discard = await token_button(
+            session, services.owner_id, "🗑 Discard", "proposal_reject", {"id": proposal.id}
         )
-        reject = await token_button(
-            session, services.owner_id, "✖ Cancel", "proposal_reject", {"id": proposal.id}
-        )
+        rows: list[list[InlineKeyboardButton]] = []
+        text_parts = ["<b>Review proposal</b>", html.escape(proposal.message)]
+        if len(changes) == 1 and changes[0].entity in {"card", "tag", "value"}:
+            change = changes[0]
+            current, proposed = await _proposal_item_state(session, change)
+            item_name = change.entity.title()
+            mode_name = "Create" if change.action == "create" else "Edit"
+            text_parts[0] = f"<b>{mode_name} {item_name} · AI proposal</b>"
+            if change.entity in {"tag", "value"}:
+                text_parts.append(
+                    f"Name: {html.escape(_display_diff_value(proposed.get('name')))}\n"
+                    f"Description: "
+                    f"{html.escape(_display_diff_value(proposed.get('description')))}"
+                )
+                if change.action in {"create", "update"}:
+                    rows.append(
+                        [
+                            await token_button(
+                                session,
+                                services.owner_id,
+                                "✏️ Name",
+                                "proposal_item_edit_text",
+                                {"id": proposal.id, "change_id": change.id, "field": "name"},
+                            ),
+                            await token_button(
+                                session,
+                                services.owner_id,
+                                "📝 Description",
+                                "proposal_item_edit_text",
+                                {
+                                    "id": proposal.id,
+                                    "change_id": change.id,
+                                    "field": "description",
+                                },
+                            ),
+                        ]
+                    )
+                if change.entity == "value" and change.action in {"create", "update"}:
+                    rows.append(
+                        [
+                            await token_button(
+                                session,
+                                services.owner_id,
+                                f"💎 Focus: {'On' if proposed.get('active') else 'Off'}",
+                                "proposal_toggle_field",
+                                {"id": proposal.id, "change_id": change.id, "field": "active"},
+                            )
+                        ]
+                    )
+            elif change.entity == "card":
+                text_parts.append(
+                    "\n".join(
+                        [
+                            f"Kind: {html.escape(_display_diff_value(proposed.get('kind')))}",
+                            f"Title: <b>{html.escape(_display_diff_value(proposed.get('title')))}</b>",
+                            f"Stage: {html.escape(_display_diff_value(proposed.get('stage')))}",
+                            f"Note: {html.escape(_display_diff_value(proposed.get('note')))}",
+                            f"Priority: {html.escape(_display_diff_value(proposed.get('priority')))}",
+                            f"Hard Time: {html.escape(_display_diff_value(proposed.get('hard_time')))}",
+                        ]
+                    )
+                )
+                if change.action == "update":
+                    rows.append(
+                        [
+                            await token_button(
+                                session,
+                                services.owner_id,
+                                "✏️ Title",
+                                "proposal_item_edit_text",
+                                {"id": proposal.id, "change_id": change.id, "field": "title"},
+                            ),
+                            await token_button(
+                                session,
+                                services.owner_id,
+                                "📝 Note",
+                                "proposal_item_edit_text",
+                                {"id": proposal.id, "change_id": change.id, "field": "note"},
+                            ),
+                        ]
+                    )
+            diffs = [
+                f"• {field.replace('_', ' ').title()}: "
+                f"{html.escape(_display_diff_value(current.get(field)))} → "
+                f"{html.escape(_display_diff_value(new_value))}"
+                for field, new_value in change.values.items()
+                if current.get(field) != new_value
+            ]
+            if diffs:
+                text_parts.append("<b>Proposed changes</b>\n" + "\n".join(diffs))
+        else:
+            text_parts.append(
+                "\n".join(f"• {html.escape(proposal_change_summary(change))}" for change in changes)
+            )
+        rows.append([save, discard])
         await session.commit()
+    text = "\n\n".join(part for part in text_parts if part)
+    markup = InlineKeyboardMarkup(inline_keyboard=rows)
+    if replace_message_id is not None:
+        await edit_registered_message(
+            message,
+            services,
+            replace_message_id,
+            text,
+            kind=MessageKind.APPROVAL,
+            markup=markup,
+            related_id=proposal_id,
+        )
+    else:
+        await send_registered(
+            message,
+            services,
+            text,
+            kind=MessageKind.APPROVAL,
+            markup=markup,
+            related_id=proposal_id,
+        )
+
+
+async def render_ai_outcome(
+    message: Message,
+    services: Services,
+    outcome: AIOutcome,
+) -> None:
+    """Render one agent state; suspended approval batches expose only their head item."""
+    if outcome.kind in {"answer", "clarification"}:
+        await send_registered(
+            message,
+            services,
+            html.escape(outcome.message),
+            kind=MessageKind.DIALOGUE_ASSISTANT,
+        )
+        return
+    if outcome.draft_bundle_ids:
+        bundle_id = outcome.draft_bundle_ids[0]
+        async with services.sessions() as session:
+            bundle = await session.get(CardDraftBundle, bundle_id)
+            draft_id = bundle.active_draft_id if bundle is not None else None
+        if draft_id is None:
+            raise DomainError("The queued Card draft is no longer available")
+        await render_draft(message, services, draft_id)
+        return
+    if outcome.proposal_id:
+        await render_proposal(message, services, outcome.proposal_id)
+        return
     await send_registered(
         message,
         services,
-        "<b>Review proposed changes</b>\n"
-        + html.escape(proposal.message)
-        + "\n\n"
-        + "\n".join(
-            f"• {html.escape(change.action)} {html.escape(change.entity)} "
-            f"{html.escape(change.entity_id or '')} {html.escape(str(change.values))}"
-            for change in changes
-        ),
-        kind=MessageKind.APPROVAL,
-        markup=InlineKeyboardMarkup(inline_keyboard=[[approve, edit, reject], menu_row()]),
-        related_id=proposal_id,
+        html.escape(outcome.message),
+        kind=MessageKind.DIALOGUE_ASSISTANT,
     )
+
+
+async def continue_agent_approval(
+    message: Message,
+    services: Services,
+    target_type: str,
+    target_id: int,
+    *,
+    decision: str,
+    result: dict[str, Any],
+) -> bool:
+    """Advance a persisted approval queue, resuming the model only after its last item."""
+    if getattr(services, "advisor", None) is None or getattr(services, "history", None) is None:
+        return False
+    resolved_text = "✅ Saved." if decision == "approved" else "🗑 Discarded."
+    await send_registered(
+        message,
+        services,
+        f"{resolved_text} Safwa is continuing…",
+        kind=MessageKind.RECEIPT,
+    )
+    try:
+        await services.guard.acquire(message.message_id)
+    except Exception:
+        logger.exception(
+            "Could not acquire continuation lease after %s %s #%s",
+            decision,
+            target_type,
+            target_id,
+        )
+        await send_registered(
+            message,
+            services,
+            f"{resolved_text}\n"
+            "⚠️ The change is resolved, but the advisor follow-up was deferred. "
+            "You can continue with a new message.",
+            kind=MessageKind.DIALOGUE_ASSISTANT,
+        )
+        return True
+    try:
+        try:
+            await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+            dialogue = await services.history.dialogue(message.chat.id)
+            outcome = await services.advisor.resolve_approval(
+                target_type,
+                target_id,
+                decision=decision,
+                result=result,
+                dialogue=dialogue,
+            )
+        except Exception:
+            logger.exception(
+                "AI continuation failed after %s %s #%s",
+                decision,
+                target_type,
+                target_id,
+            )
+            await send_registered(
+                message,
+                services,
+                f"{resolved_text}\n"
+                "⚠️ The change is resolved, but Safwa could not generate its follow-up. "
+                "You can continue with a new message.",
+                kind=MessageKind.DIALOGUE_ASSISTANT,
+            )
+            return True
+        if outcome is None:
+            return False
+        await render_ai_outcome(message, services, outcome)
+        return True
+    finally:
+        services.guard.release(message.message_id)
 
 
 @router.message(F.text)
@@ -2366,49 +3589,102 @@ async def ordinary_text(message: Message, services: Services) -> None:
             )
             .order_by(UiSession.created_at.desc())
         )
-        if ui and ui.kind in {"value_create", "tag_create"}:
-            name = message.text.strip()
-            if ui.kind == "value_create":
-                await create_value(session, name)
-            else:
-                await create_tag(session, name)
-            await register_message(
-                session, message.chat.id, message.message_id, "in", MessageKind.UI_INPUT
-            )
-            entity = ui.kind.removesuffix("_create")
-            await session.delete(ui)
+        ui_kind = ui.kind if ui is not None else None
+        ui_state = dict(ui.state) if ui is not None else {}
+
+    if ui_kind == "item_text":
+        entity = str(ui_state["entity"])
+        mode = str(ui_state["mode"])
+        field = str(ui_state["field"])
+        item_id = ui_state.get("item_id")
+        message_id = int(ui_state["message_id"])
+        values = dict(ui_state.get("values", {}))
+        values[field] = message.text.strip()
+        async with services.sessions() as session:
+            if mode == "view":
+                if entity == "value":
+                    await update_value_fields(session, int(item_id), **{field: values[field]})
+                else:
+                    await update_tag_fields(session, int(item_id), **{field: values[field]})
+            await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
             await session.commit()
-            if entity == "value":
-                await command_values(message, services)
-            else:
-                await command_tags(message, services)
-            return
-        if ui and ui.kind == "draft_text":
+        input_deleted = await delete_text_input(message, services)
+        if not input_deleted:
+            await clear_message_markup(message, message_id)
+        await render_item_editor(
+            message,
+            services,
+            entity,
+            mode=mode,
+            item_id=int(item_id) if item_id is not None else None,
+            values=values,
+            replace_message_id=message_id if input_deleted else None,
+        )
+        return
+    if ui_kind == "draft_text":
+        async with services.sessions() as session:
             await DraftService(session).update(
-                ui.state["draft_id"], **{ui.state["field"]: message.text.strip()}
+                ui_state["draft_id"], **{ui_state["field"]: message.text.strip()}
             )
-            await register_message(
-                session, message.chat.id, message.message_id, "in", MessageKind.UI_INPUT
-            )
-            await session.delete(ui)
+            await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
             await session.commit()
-            await render_draft(message, services, ui.state["draft_id"])
-            return
-        if ui and ui.kind == "card_text":
+        input_deleted = await delete_text_input(message, services)
+        if not input_deleted:
+            await clear_message_markup(message, int(ui_state["message_id"]))
+        await render_draft(
+            message,
+            services,
+            ui_state["draft_id"],
+            replace_message_id=int(ui_state["message_id"]) if input_deleted else None,
+        )
+        return
+    if ui_kind == "card_text":
+        async with services.sessions() as session:
             value = message.text.strip()
-            card = await edit_card_text(session, ui.state["card_id"], ui.state["field"], value)
-            await register_message(
-                session, message.chat.id, message.message_id, "in", MessageKind.UI_INPUT
-            )
-            await session.delete(ui)
+            card = await edit_card_text(session, ui_state["card_id"], ui_state["field"], value)
+            await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
             await session.commit()
-            await render_card(message, services, card.id)
-            return
+        input_deleted = await delete_text_input(message, services)
+        if not input_deleted:
+            await clear_message_markup(message, int(ui_state["message_id"]))
+        await render_card(
+            message,
+            services,
+            card.id,
+            replace_message_id=int(ui_state["message_id"]) if input_deleted else None,
+            back=dict(ui_state.get("back", {})),
+        )
+        return
+    if ui_kind == "proposal_item_text":
+        proposal_id = int(ui_state["proposal_id"])
+        message_id = int(ui_state["message_id"])
+        new_value = message.text.strip()
+        if ui_state["field"] in {"name", "title"} and not new_value:
+            raise DomainError(f"{str(ui_state['field']).title()} cannot be empty")
+        async with services.sessions() as session:
+            change = await session.get(ProposalChange, int(ui_state["change_id"]))
+            if change is None or change.proposal_id != proposal_id:
+                raise DomainError("Proposal change does not exist")
+            values = dict(change.values)
+            values[str(ui_state["field"])] = new_value
+            change.values = values
+            await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
+            await session.commit()
+        input_deleted = await delete_text_input(message, services)
+        if not input_deleted:
+            await clear_message_markup(message, message_id)
+        await render_proposal(
+            message,
+            services,
+            proposal_id,
+            replace_message_id=message_id if input_deleted else None,
+        )
+        return
+
+    await dismiss_prior_ui(message, services)
+    async with services.sessions() as session:
         await register_message(
             session, message.chat.id, message.message_id, "in", MessageKind.DIALOGUE_USER
-        )
-        await session.execute(
-            update(ChangeProposal).where(ChangeProposal.status == "pending").values(status="stale")
         )
         workspace = await session.get(Workspace, 1)
         starting_workspace_revision = workspace.revision
@@ -2438,26 +3714,11 @@ async def ordinary_text(message: Message, services: Services) -> None:
                 or workspace.revision != starting_workspace_revision
             ):
                 return
-        if outcome.kind in {"answer", "clarification"}:
-            await send_registered(
-                message, services, html.escape(outcome.message), kind=MessageKind.DIALOGUE_ASSISTANT
-            )
-        else:
-            for bundle_id in outcome.draft_bundle_ids:
-                async with services.sessions() as session:
-                    bundle = await session.get(CardDraftBundle, bundle_id)
-                    draft_id = bundle.active_draft_id
-                if draft_id:
-                    await render_draft(message, services, draft_id)
-            if outcome.proposal_id:
-                await render_proposal(message, services, outcome.proposal_id)
-            if not outcome.draft_bundle_ids and not outcome.proposal_id:
-                await send_registered(
-                    message,
-                    services,
-                    html.escape(outcome.message),
-                    kind=MessageKind.DIALOGUE_ASSISTANT,
-                )
+        await render_ai_outcome(message, services, outcome)
+        # The foreground response is now visible. Release its lease before any
+        # optional continuity work so proposal callbacks and new dialogue are not
+        # rejected while summary generation is running.
+        services.guard.release(message.message_id)
 
         async def send_summary(text: str, covered_id: int) -> None:
             sent = await message.answer(html.escape(text))

@@ -7,7 +7,18 @@
 - With a `/newsession` boundary, its text is sent as `[Initial request]`, followed by canonical dialogue after it.
 - With a Summary boundary, the Summary is sent first, then up to 20 older canonical messages with short UTC timestamps for local context, then the newer dialogue.
 - Real Safwa dialogue replies use the `assistant` role. Consecutive human messages and other user-side context are combined into one `user` turn with tags such as `[User]`, `[Summary]`, and `[Initial request]`.
-- Commands, callbacks, menus, dashboards, forms, approvals, receipts, drafts, SQL/tool traces, errors, and retrospective PNGs are excluded. Only registered user dialogue, generated Safwa dialogue, persona reminders, boundaries, and subsession results can enter history.
+- Commands, callbacks, menus, dashboards, forms, approvals, receipts, drafts, SQL/tool traces, errors, and retrospective PNGs are excluded. Every slash command is deleted from Telegram immediately except `/newsession`, which remains visible as the history boundary.
+- The current user message is correlated across the Bot API and Telethon ID spaces and included exactly once. Only registered user dialogue, generated Safwa dialogue, persona reminders, boundaries, and subsession results can enter history.
+
+## Telegram UI lifecycle
+
+- Quick selections, booleans, and navigation update the current UI message instead of creating another one.
+- A text-field action replaces the current UI with a focused prompt and a Back button. After input, Safwa deletes the typed field value and restores the same item screen with the new value.
+- Card, Tag, and Value creation and viewing/editing share the same field-oriented base UI. Manual screens end with Back; AI proposal screens end with Save and Discard, and proposed edits show old-to-new differences.
+- An interaction UI may only be the latest chat element. New ordinary dialogue removes obsolete menus and automatically discards an unanswered AI proposal, replacing it with a static assistant message that records the complete proposed change.
+- When one AI turn prepares several independent changes, Safwa persists them as one suspended batch and shows Save/Discard screens sequentially in the same Telegram message. Read tools run immediately, but the AI resumes only once every screen is resolved; that continuation receives one approved/discarded result per mutation plus every read-tool result.
+- Every Card creation remains a draft until reviewed and explicitly created. Discarded AI Card creation records all proposed fields; Goal and Idea screens never expose Action-only fields.
+- UI prompts, selections, SQL, and internal tool-result payloads are not persona dialogue. The final generated outcome after the approval queue is resolved becomes the assistant history record.
 
 ## Sessions and subsessions
 
@@ -43,4 +54,3 @@
 - A lightweight scheduler checks eligibility once per minute. It does not call the LLM on startup or every hour: it runs only when the configured time is due and no successful run was recorded that day.
 - Foreground advisor generation has priority. If Safwa is busy, the scheduled sync waits for a later check.
 - The five-second `memory.md` watcher is separate from scheduled AI synchronization; it only notices and imports local file edits.
-

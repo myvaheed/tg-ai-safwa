@@ -14,6 +14,8 @@ from .enums import (
     ActorType,
     CardKind,
     CardStage,
+    Category,
+    EnergyType,
     WorkspaceMode,
 )
 from .models import (
@@ -95,6 +97,33 @@ async def create_tag(session: AsyncSession, name: str, description: str = "") ->
         raise DomainError("A Tag with this name already exists")
     tag = Tag(name=normalized, description=description.strip())
     session.add(tag)
+    await _bump_workspace(session)
+    return tag
+
+
+async def update_tag_fields(
+    session: AsyncSession,
+    tag_id: int,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+) -> Tag:
+    tag = await session.get(Tag, tag_id)
+    if tag is None or tag.archived_at is not None:
+        raise DomainError("Tag does not exist or is archived")
+    if name is not None:
+        normalized = name.strip()
+        if not normalized:
+            raise DomainError("Tag name cannot be empty")
+        duplicate = await session.scalar(
+            select(Tag).where(Tag.name == normalized, Tag.id != tag.id)
+        )
+        if duplicate is not None:
+            raise DomainError("A Tag with this name already exists")
+        tag.name = normalized
+    if description is not None:
+        tag.description = description.strip()
+    tag.version += 1
     await _bump_workspace(session)
     return tag
 
@@ -183,6 +212,33 @@ async def create_value(session: AsyncSession, name: str, description: str = "") 
         raise DomainError("A Value with this name already exists")
     value = Value(name=normalized, description=description.strip())
     session.add(value)
+    await _bump_workspace(session)
+    return value
+
+
+async def update_value_fields(
+    session: AsyncSession,
+    value_id: int,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+) -> Value:
+    value = await session.get(Value, value_id)
+    if value is None or value.archived_at is not None:
+        raise DomainError("Value does not exist or is archived")
+    if name is not None:
+        normalized = name.strip()
+        if not normalized:
+            raise DomainError("Value name cannot be empty")
+        duplicate = await session.scalar(
+            select(Value).where(Value.name == normalized, Value.id != value.id)
+        )
+        if duplicate is not None:
+            raise DomainError("A Value with this name already exists")
+        value.name = normalized
+    if description is not None:
+        value.description = description.strip()
+    value.version += 1
     await _bump_workspace(session)
     return value
 
@@ -353,6 +409,68 @@ async def toggle_card_tag(
     else:
         await session.delete(link)
         operation, linked = "unlink_tag", False
+    card.version += 1
+    await _record_event(session, card, operation, actor, before, new_correlation_id())
+    await _bump_workspace(session)
+    return linked
+
+
+async def toggle_card_category(
+    session: AsyncSession,
+    card_id: int,
+    category: Category,
+    *,
+    actor: ActorType = ActorType.USER_UI,
+) -> bool:
+    card = await session.get(Card, card_id)
+    if card is None or card.archived_at is not None:
+        raise DomainError("Card does not exist or is archived")
+    if card.kind != CardKind.ACTION.value:
+        raise DomainError("Only Actions can have Categories")
+    link = await session.scalar(
+        select(CardCategory).where(
+            CardCategory.card_id == card_id,
+            CardCategory.category == category.value,
+        )
+    )
+    before = card_snapshot(card)
+    if link is None:
+        session.add(CardCategory(card_id=card_id, category=category.value))
+        operation, linked = "link_category", True
+    else:
+        await session.delete(link)
+        operation, linked = "unlink_category", False
+    card.version += 1
+    await _record_event(session, card, operation, actor, before, new_correlation_id())
+    await _bump_workspace(session)
+    return linked
+
+
+async def toggle_card_energy_type(
+    session: AsyncSession,
+    card_id: int,
+    energy_type: EnergyType,
+    *,
+    actor: ActorType = ActorType.USER_UI,
+) -> bool:
+    card = await session.get(Card, card_id)
+    if card is None or card.archived_at is not None:
+        raise DomainError("Card does not exist or is archived")
+    if card.kind != CardKind.ACTION.value:
+        raise DomainError("Only Actions can have Energy types")
+    link = await session.scalar(
+        select(CardEnergyType).where(
+            CardEnergyType.card_id == card_id,
+            CardEnergyType.energy_type == energy_type.value,
+        )
+    )
+    before = card_snapshot(card)
+    if link is None:
+        session.add(CardEnergyType(card_id=card_id, energy_type=energy_type.value))
+        operation, linked = "link_energy", True
+    else:
+        await session.delete(link)
+        operation, linked = "unlink_energy", False
     card.version += 1
     await _record_event(session, card, operation, actor, before, new_correlation_id())
     await _bump_workspace(session)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import func, select
@@ -23,12 +24,14 @@ from safwa.enums import CardStage, DraftStatus
 from safwa.models import (
     AgentRun,
     AgentStep,
+    CallbackToken,
     Card,
     CardCategory,
     CardDraft,
     CardEnergyType,
     CardTag,
     CardValue,
+    ChangeProposal,
     FeedbackQueue,
     SavedRequest,
     Tag,
@@ -36,6 +39,7 @@ from safwa.models import (
     Workspace,
 )
 from safwa.saved_requests import request_cards
+from safwa.telegram import GenerationGuard, callback_token_handler, render_proposal
 
 pytestmark = pytest.mark.e2e
 
@@ -66,6 +70,67 @@ def mutation_turn(*calls: tuple[str, dict[str, object]]) -> ProviderTurn:
     )
 
 
+async def test_ai_parent_query_sql_resolves_before_draft_review(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        parent = await create_manual_card(
+            session,
+            title="Реализовать новый Дизайн",
+            kind="idea",
+            effort_points=None,
+        )
+        await session.commit()
+
+    response = mutation_turn(
+        (
+            "card",
+            {
+                "mode": "draft",
+                "kind": "action",
+                "title": "Применить новый дизайн",
+                "parent_query": (
+                    "SELECT id FROM ai_cards WHERE title = 'Реализовать новый Дизайн'"
+                ),
+                "effort_points": 5,
+            },
+        )
+    )
+    advisor, _provider = e2e_harness.advisor([response])
+
+    outcome = await advisor.handle("Создай экшен для идеи Реализовать новый Дизайн")
+
+    async with e2e_harness.sessions() as session:
+        draft = (await DraftService(session).get_bundle_drafts(outcome.draft_bundle_ids[0]))[0]
+        assert draft.parent_id == parent.id
+        assert not any("parent" in error.casefold() for error in draft.validation_errors)
+        assert "parent_query" not in draft.field_provenance
+
+
+async def test_ai_parent_query_rejects_non_ai_card_sql_and_leaves_review_unresolved(
+    e2e_harness,
+):
+    response = mutation_turn(
+        (
+            "card",
+            {
+                "mode": "draft",
+                "kind": "action",
+                "title": "Unsafe parent lookup",
+                "parent_query": "SELECT id FROM cards WHERE title = 'Hidden table'",
+                "effort_points": 2,
+            },
+        )
+    )
+    advisor, _provider = e2e_harness.advisor([response])
+
+    outcome = await advisor.handle("Create an action under that parent")
+
+    async with e2e_harness.sessions() as session:
+        draft = (await DraftService(session).get_bundle_drafts(outcome.draft_bundle_ids[0]))[0]
+        assert draft.parent_id is None
+        assert "Parent query was invalid or unsafe" in draft.field_provenance["unresolved"]
+        assert any("parent" in error.casefold() for error in draft.validation_errors)
+
+
 async def test_ai_card_review_to_repeat_sprint_and_retrospective(e2e_harness):
     async with e2e_harness.sessions() as session:
         goal = await create_manual_card(
@@ -87,7 +152,7 @@ async def test_ai_card_review_to_repeat_sprint_and_retrospective(e2e_harness):
                 "mode": "draft",
                 "kind": "action",
                 "title": "Push ups 30 times",
-                "parent_query": "To be fit",
+                "parent_query": "SELECT id FROM ai_cards WHERE title = 'To be fit'",
                 "repeatable": True,
                 "categories": ["self"],
                 "energy_types": ["physical"],
@@ -96,7 +161,7 @@ async def test_ai_card_review_to_repeat_sprint_and_retrospective(e2e_harness):
             },
         )
     )
-    advisor, provider = e2e_harness.advisor([response, "I prepared the Action for your review."])
+    advisor, provider = e2e_harness.advisor([response])
     outcome: AIOutcome = await advisor.handle(
         "Please create a new action Push ups 30 times and link it to To be fit goal"
     )
@@ -104,7 +169,8 @@ async def test_ai_card_review_to_repeat_sprint_and_retrospective(e2e_harness):
     assert outcome.kind == "proposal"
     assert len(outcome.draft_bundle_ids) == 1
     assert outcome.proposal_id is None
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 1
+    assert not provider.responses
 
     bundle_id = outcome.draft_bundle_ids[0]
     async with e2e_harness.sessions() as session:
@@ -264,9 +330,7 @@ async def test_multi_card_ai_bundle_is_reviewed_and_committed_atomically(e2e_har
             },
         ),
     )
-    advisor, _provider = e2e_harness.advisor(
-        [response, "I prepared a Goal and two Actions for review."]
-    )
+    advisor, _provider = e2e_harness.advisor([response])
     outcome = await advisor.handle("Create a reading goal with two supporting actions")
     bundle_id = outcome.draft_bundle_ids[0]
 
@@ -310,9 +374,7 @@ async def test_ai_creates_an_approved_saved_tag_request(e2e_harness):
             },
         )
     )
-    advisor, _provider = e2e_harness.advisor(
-        [response, "I prepared a reusable Family-actions Request for approval."]
-    )
+    advisor, _provider = e2e_harness.advisor([response])
     outcome = await advisor.handle("Create a Request for my Family actions")
 
     assert outcome.proposal_id is not None
@@ -352,7 +414,7 @@ async def test_ai_approved_tag_proposal_creates_a_reusable_tag(e2e_harness):
     response = mutation_turn(
         ("tag", {"mode": "create", "name": "Learning", "description": "Study and practice."})
     )
-    advisor, _provider = e2e_harness.advisor([response, "I prepared the new Tag for approval."])
+    advisor, _provider = e2e_harness.advisor([response])
     outcome = await advisor.handle("Create a Learning tag")
 
     async with e2e_harness.sessions() as session:
@@ -391,9 +453,7 @@ async def test_ai_can_create_and_link_a_tag_in_one_approved_proposal(e2e_harness
         ("card", {"mode": "link", "id": goal.id, "tag_query": "VrWalk"}),
         ("card", {"mode": "link", "id": action.id, "tag_query": "VrWalk"}),
     )
-    advisor, provider = e2e_harness.advisor(
-        [read_turn, response, "I prepared the VrWalk tag and its card link for approval."]
-    )
+    advisor, provider = e2e_harness.advisor([read_turn, response])
     outcome = await advisor.handle("Create VrWalk and attach it to my recent cards")
 
     async with e2e_harness.sessions() as session:
@@ -405,7 +465,6 @@ async def test_ai_can_create_and_link_a_tag_in_one_approved_proposal(e2e_harness
         for card_id in (goal.id, action.id):
             assert await session.get(CardTag, {"card_id": card_id, "tag_id": tag.id}) is not None
     assert provider.calls[1][-1]["role"] == "tool"
-    assert provider.calls[2][-1]["role"] == "tool"
 
 
 async def test_ai_can_create_and_link_a_value_in_one_approved_proposal(e2e_harness):
@@ -417,9 +476,7 @@ async def test_ai_can_create_and_link_a_value_in_one_approved_proposal(e2e_harne
         ("value", {"mode": "create", "name": "Health", "active": True}),
         ("card", {"mode": "link", "id": action.id, "value_query": "Health"}),
     )
-    advisor, _provider = e2e_harness.advisor(
-        [response, "I prepared the Health Value and its Card link for approval."]
-    )
+    advisor, _provider = e2e_harness.advisor([response])
     outcome = await advisor.handle("Create Health and link it to Morning run")
 
     async with e2e_harness.sessions() as session:
@@ -448,9 +505,7 @@ async def test_ai_request_update_is_rejected_when_the_request_becomes_stale(e2e_
             {"mode": "edit", "id": request.id, "description": "Every active Goal."},
         )
     )
-    advisor, _provider = e2e_harness.advisor(
-        [response, "I prepared a clearer Request description."]
-    )
+    advisor, _provider = e2e_harness.advisor([response])
     outcome = await advisor.handle("Clarify my All goals Request")
 
     async with e2e_harness.sessions() as session:
@@ -526,9 +581,7 @@ async def test_ai_request_query_values_and_ignores_archived_cards(e2e_harness):
             },
         )
     )
-    advisor, _provider = e2e_harness.advisor(
-        [response, "I prepared the family-value Request for approval."]
-    )
+    advisor, _provider = e2e_harness.advisor([response])
     outcome = await advisor.handle("Create a Request for Family value actions")
 
     async with e2e_harness.sessions() as session:
@@ -568,9 +621,7 @@ async def test_ai_request_query_supports_complex_boolean_logic(e2e_harness):
             },
         )
     )
-    advisor, _provider = e2e_harness.advisor(
-        [response, "I prepared the urgent-actions Request for approval."]
-    )
+    advisor, _provider = e2e_harness.advisor([response])
     outcome = await advisor.handle("Create an urgent actions Request")
 
     async with e2e_harness.sessions() as session:
@@ -624,3 +675,397 @@ async def test_advisor_sends_one_system_message_and_canonical_dialogue(e2e_harne
         "request",
         "remove",
     ]
+
+
+async def test_mixed_query_and_mutation_resumes_only_after_approval(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        card = await create_manual_card(session, title="Release VrWalk", effort_points=3)
+        await session.commit()
+
+    mixed_turn = ProviderTurn(
+        content="",
+        tool_calls=(
+            ProviderToolCall(
+                id="create-tag",
+                name="tag",
+                arguments=json.dumps({"mode": "create", "name": "VrWalk"}),
+            ),
+            ProviderToolCall(
+                id="recent-cards",
+                name="query_safwa",
+                arguments=json.dumps(
+                    {"sql": "SELECT id, title FROM ai_cards ORDER BY created_at DESC LIMIT 10"}
+                ),
+            ),
+        ),
+    )
+    advisor, provider = e2e_harness.advisor([mixed_turn, "The tag was saved."])
+
+    outcome = await advisor.handle("Create VrWalk and tag my recent cards")
+
+    assert outcome.proposal_id is not None
+    assert len(provider.calls) == 1
+    async with e2e_harness.sessions() as session:
+        affected = await ProposalService(session).apply(outcome.proposal_id)
+        await session.commit()
+
+    resumed = await advisor.resolve_approval(
+        "proposal",
+        outcome.proposal_id,
+        decision="approved",
+        result={"affected_ids": affected},
+        dialogue=[
+            DialogueMessage(
+                role="user",
+                content="[Initial request]: Create VrWalk and tag my recent cards",
+            )
+        ],
+    )
+
+    assert resumed is not None and resumed.kind == "answer"
+    assert resumed.message == "The tag was saved."
+    assert len(provider.calls) == 2
+    tool_messages = [message for message in provider.calls[1] if message["role"] == "tool"]
+    assert [message["name"] for message in tool_messages] == ["tag", "query_safwa"]
+    assert '"status": "approved"' in str(tool_messages[0]["content"])
+    assert f'"id": {card.id}' in str(tool_messages[1]["content"])
+
+    async with e2e_harness.sessions() as session:
+        run = await session.scalar(select(AgentRun).order_by(AgentRun.id.desc()))
+        batch = await session.scalar(
+            select(AgentStep)
+            .where(AgentStep.run_id == run.id, AgentStep.kind == "approval_batch")
+            .order_by(AgentStep.id.desc())
+        )
+        assert run.status == "completed"
+        assert batch.metadata_json["status"] == "completed"
+
+
+async def test_independent_mutations_are_reviewed_in_order_before_one_resume(e2e_harness):
+    advisor, provider = e2e_harness.advisor(
+        [
+            mutation_turn(
+                ("tag", {"mode": "create", "name": "VrWalk"}),
+                ("value", {"mode": "create", "name": "Health"}),
+            ),
+            "Both decisions are resolved.",
+        ]
+    )
+    first = await advisor.handle("Create a VrWalk tag and a Health value")
+    assert first.proposal_id is not None
+
+    async with e2e_harness.sessions() as session:
+        first_ids = await ProposalService(session).apply(first.proposal_id)
+        await session.commit()
+    second = await advisor.resolve_approval(
+        "proposal",
+        first.proposal_id,
+        decision="approved",
+        result={"affected_ids": first_ids},
+        dialogue=[DialogueMessage(role="user", content="[Initial request]: Create both")],
+    )
+
+    assert second is not None and second.proposal_id is not None
+    assert second.proposal_id != first.proposal_id
+    assert len(provider.calls) == 1
+    async with e2e_harness.sessions() as session:
+        second_ids = await ProposalService(session).apply(second.proposal_id)
+        await session.commit()
+    final = await advisor.resolve_approval(
+        "proposal",
+        second.proposal_id,
+        decision="approved",
+        result={"affected_ids": second_ids},
+        dialogue=[DialogueMessage(role="user", content="[Initial request]: Create both")],
+    )
+
+    assert final is not None and final.message == "Both decisions are resolved."
+    assert len(provider.calls) == 2
+    tool_messages = [message for message in provider.calls[1] if message["role"] == "tool"]
+    assert len(tool_messages) == 2
+    assert all('"status": "approved"' in str(message["content"]) for message in tool_messages)
+
+
+async def test_discarded_proposal_result_is_returned_with_later_approval(e2e_harness):
+    advisor, provider = e2e_harness.advisor(
+        [
+            mutation_turn(
+                ("tag", {"mode": "create", "name": "Skip me"}),
+                ("value", {"mode": "create", "name": "Keep me"}),
+            ),
+            "I kept only the Value.",
+        ]
+    )
+    first = await advisor.handle("Prepare two independent changes")
+    assert first.proposal_id is not None
+    async with e2e_harness.sessions() as session:
+        await ProposalService(session).reject(first.proposal_id)
+        await session.commit()
+    second = await advisor.resolve_approval(
+        "proposal",
+        first.proposal_id,
+        decision="discarded",
+        result={"message": "The user discarded this proposed change."},
+        dialogue=[DialogueMessage(role="user", content="[Initial request]: Prepare changes")],
+    )
+    assert second is not None and second.proposal_id is not None
+
+    async with e2e_harness.sessions() as session:
+        affected = await ProposalService(session).apply(second.proposal_id)
+        await session.commit()
+    final = await advisor.resolve_approval(
+        "proposal",
+        second.proposal_id,
+        decision="approved",
+        result={"affected_ids": affected},
+        dialogue=[DialogueMessage(role="user", content="[Initial request]: Prepare changes")],
+    )
+
+    assert final is not None and final.message == "I kept only the Value."
+    tool_messages = [message for message in provider.calls[1] if message["role"] == "tool"]
+    assert '"status": "discarded"' in str(tool_messages[0]["content"])
+    assert '"status": "approved"' in str(tool_messages[1]["content"])
+
+
+async def test_new_dialogue_cancels_every_unresolved_item_in_suspended_batch(e2e_harness):
+    advisor, provider = e2e_harness.advisor(
+        [
+            mutation_turn(
+                ("tag", {"mode": "create", "name": "VrWalk"}),
+                ("value", {"mode": "create", "name": "Health"}),
+            )
+        ]
+    )
+    first = await advisor.handle("Prepare two changes")
+    assert first.proposal_id is not None
+
+    cancelled = await advisor.cancel_approval_for_target("proposal", first.proposal_id)
+
+    assert cancelled is True
+    assert len(provider.calls) == 1
+    async with e2e_harness.sessions() as session:
+        proposals = list(await session.scalars(select(ChangeProposal).order_by(ChangeProposal.id)))
+        run = await session.scalar(select(AgentRun).order_by(AgentRun.id.desc()))
+        batch = await session.scalar(
+            select(AgentStep).where(
+                AgentStep.run_id == run.id,
+                AgentStep.kind == "approval_batch",
+            )
+        )
+        assert [proposal.status for proposal in proposals] == ["rejected", "rejected"]
+        assert run.status == "cancelled"
+        assert batch.metadata_json["status"] == "cancelled"
+
+
+async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        goal = await create_manual_card(
+            session, title="Release VrWalk", kind="goal", effort_points=None
+        )
+        action = await create_manual_card(session, title="Refactor VrWalk design")
+        await session.commit()
+
+    first_turn = ProviderTurn(
+        content="",
+        tool_calls=(
+            ProviderToolCall(
+                id="tag-create",
+                name="tag",
+                arguments=json.dumps({"mode": "create", "name": "VrWalk"}),
+            ),
+            ProviderToolCall(
+                id="find-recent",
+                name="query_safwa",
+                arguments=json.dumps(
+                    {"sql": "SELECT id, title FROM ai_cards ORDER BY created_at DESC LIMIT 10"}
+                ),
+            ),
+        ),
+    )
+    link_turn = mutation_turn(
+        ("card", {"mode": "link", "id": goal.id, "tag_query": "VrWalk"}),
+        ("card", {"mode": "link", "id": action.id, "tag_query": "VrWalk"}),
+    )
+    advisor, provider = e2e_harness.advisor(
+        [first_turn, link_turn, "VrWalk is now linked to both recent cards."]
+    )
+    first = await advisor.handle("Create VrWalk and attach it to recent cards")
+    assert first.proposal_id is not None
+
+    async with e2e_harness.sessions() as session:
+        created_tag_ids = await ProposalService(session).apply(first.proposal_id)
+        await session.commit()
+    first_link = await advisor.resolve_approval(
+        "proposal",
+        first.proposal_id,
+        decision="approved",
+        result={"affected_ids": created_tag_ids},
+        dialogue=[DialogueMessage(role="user", content="[Initial request]: Tag recent cards")],
+    )
+    assert first_link is not None and first_link.proposal_id is not None
+    assert len(provider.calls) == 2
+
+    async with e2e_harness.sessions() as session:
+        first_link_ids = await ProposalService(session).apply(first_link.proposal_id)
+        await session.commit()
+    second_link = await advisor.resolve_approval(
+        "proposal",
+        first_link.proposal_id,
+        decision="approved",
+        result={"affected_ids": first_link_ids},
+        dialogue=[DialogueMessage(role="user", content="[Initial request]: Tag recent cards")],
+    )
+    assert second_link is not None and second_link.proposal_id is not None
+    assert len(provider.calls) == 2
+
+    async with e2e_harness.sessions() as session:
+        second_link_ids = await ProposalService(session).apply(second_link.proposal_id)
+        await session.commit()
+    final = await advisor.resolve_approval(
+        "proposal",
+        second_link.proposal_id,
+        decision="approved",
+        result={"affected_ids": second_link_ids},
+        dialogue=[DialogueMessage(role="user", content="[Initial request]: Tag recent cards")],
+    )
+    assert final is not None and final.kind == "answer"
+    assert len(provider.calls) == 3
+
+    async with e2e_harness.sessions() as session:
+        tag = await session.scalar(select(Tag).where(Tag.name == "VrWalk"))
+        assert tag is not None
+        assert await session.get(CardTag, {"card_id": goal.id, "tag_id": tag.id}) is not None
+        assert await session.get(CardTag, {"card_id": action.id, "tag_id": tag.id}) is not None
+
+
+class _QueueTestBot:
+    def __init__(self) -> None:
+        self.typing_calls = 0
+
+    async def send_chat_action(self, _chat_id, _action) -> None:
+        self.typing_calls += 1
+
+
+class _QueueTestMessage:
+    def __init__(self) -> None:
+        self.message_id = 900
+        self.chat = SimpleNamespace(id=700, type="private")
+        self.from_user = SimpleNamespace(id=42, is_bot=True)
+        self.bot = _QueueTestBot()
+        self.text = ""
+        self.rendered: list[str] = []
+
+    async def edit_text(self, text, *, reply_markup=None, parse_mode=None):
+        del reply_markup, parse_mode
+        self.rendered.append(text)
+        return self
+
+    async def answer(self, text, *, reply_markup=None, parse_mode=None):
+        del reply_markup, parse_mode
+        self.rendered.append(text)
+        return self
+
+
+class _QueueTestCallback:
+    def __init__(self, token: str, message: _QueueTestMessage) -> None:
+        self.data = f"cb:{token}"
+        self.message = message
+
+    async def answer(self, text=None, *, show_alert=False) -> None:
+        del text, show_alert
+
+
+class _QueueTestHistory:
+    async def dialogue(self, _chat_id):
+        return [DialogueMessage(role="user", content="[Initial request]: Create a VrWalk tag")]
+
+
+@pytest.mark.parametrize(
+    ("callback_action", "expected_status", "final_text"),
+    [
+        ("proposal_approve", "approved", "The VrWalk tag was saved."),
+        ("proposal_reject", "rejected", "The VrWalk tag was discarded."),
+    ],
+)
+async def test_single_tag_proposal_save_and_discard_callbacks_resume_agent(
+    e2e_harness,
+    callback_action,
+    expected_status,
+    final_text,
+):
+    advisor, provider = e2e_harness.advisor(
+        [
+            mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
+            final_text,
+        ]
+    )
+    outcome = await advisor.handle("Create a VrWalk tag")
+    assert outcome.proposal_id is not None
+    message = _QueueTestMessage()
+    services = SimpleNamespace(
+        sessions=e2e_harness.sessions,
+        advisor=advisor,
+        history=_QueueTestHistory(),
+        owner_id=42,
+        guard=GenerationGuard(),
+    )
+    await render_proposal(message, services, outcome.proposal_id)
+    async with e2e_harness.sessions() as session:
+        token = await session.scalar(
+            select(CallbackToken).where(CallbackToken.action == callback_action)
+        )
+        assert token is not None
+
+    await callback_token_handler(_QueueTestCallback(token.token, message), services)
+
+    async with e2e_harness.sessions() as session:
+        proposal = await session.get(ChangeProposal, outcome.proposal_id)
+        tag = await session.scalar(select(Tag).where(Tag.name == "VrWalk"))
+    assert proposal.status == expected_status
+    assert (tag is not None) is (callback_action == "proposal_approve")
+    assert message.rendered[-1] == final_text
+    assert message.bot.typing_calls == 1
+    assert len(provider.calls) == 2
+
+
+@pytest.mark.parametrize(
+    ("callback_action", "expected_status", "resolved_text"),
+    [
+        ("proposal_approve", "approved", "Saved"),
+        ("proposal_reject", "rejected", "Discarded"),
+    ],
+)
+async def test_single_tag_callback_never_leaves_dead_buttons_when_follow_up_fails(
+    e2e_harness,
+    callback_action,
+    expected_status,
+    resolved_text,
+):
+    advisor, provider = e2e_harness.advisor(
+        [mutation_turn(("tag", {"mode": "create", "name": "VrWalk"}))]
+    )
+    outcome = await advisor.handle("Create a VrWalk tag")
+    assert outcome.proposal_id is not None
+    message = _QueueTestMessage()
+    services = SimpleNamespace(
+        sessions=e2e_harness.sessions,
+        advisor=advisor,
+        history=_QueueTestHistory(),
+        owner_id=42,
+        guard=GenerationGuard(),
+    )
+    await render_proposal(message, services, outcome.proposal_id)
+    async with e2e_harness.sessions() as session:
+        token = await session.scalar(
+            select(CallbackToken).where(CallbackToken.action == callback_action)
+        )
+        assert token is not None
+
+    await callback_token_handler(_QueueTestCallback(token.token, message), services)
+
+    async with e2e_harness.sessions() as session:
+        proposal = await session.get(ChangeProposal, outcome.proposal_id)
+    assert proposal.status == expected_status
+    assert resolved_text in message.rendered[-1]
+    assert "could not generate its follow-up" in message.rendered[-1]
+    assert len(provider.calls) == 2
