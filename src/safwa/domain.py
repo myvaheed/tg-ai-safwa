@@ -138,6 +138,24 @@ async def update_tag_fields(
     return tag
 
 
+async def archive_tag(session: AsyncSession, tag_id: int) -> tuple[Tag, int]:
+    """Archive a Tag and remove every direct Card link in the same transaction."""
+    tag = await session.get(Tag, tag_id)
+    if tag is None or tag.archived_at is not None:
+        raise DomainError("Tag does not exist or is archived")
+    linked_count = int(
+        await session.scalar(
+            select(func.count()).select_from(CardTag).where(CardTag.tag_id == tag.id)
+        )
+        or 0
+    )
+    await session.execute(delete(CardTag).where(CardTag.tag_id == tag.id))
+    tag.archived_at = utcnow()
+    tag.version += 1
+    await _bump_workspace(session)
+    return tag, linked_count
+
+
 async def create_saved_request(
     session: AsyncSession,
     name: str,
@@ -286,6 +304,25 @@ async def update_value_fields(
     return value
 
 
+async def archive_value(session: AsyncSession, value_id: int) -> tuple[Value, int]:
+    """Archive a Value and remove every direct Card link in the same transaction."""
+    value = await session.get(Value, value_id)
+    if value is None or value.archived_at is not None:
+        raise DomainError("Value does not exist or is archived")
+    linked_count = int(
+        await session.scalar(
+            select(func.count()).select_from(CardValue).where(CardValue.value_id == value.id)
+        )
+        or 0
+    )
+    await session.execute(delete(CardValue).where(CardValue.value_id == value.id))
+    value.active = False
+    value.archived_at = utcnow()
+    value.version += 1
+    await _bump_workspace(session)
+    return value, linked_count
+
+
 async def set_value_focus(
     session: AsyncSession, value_id: int, active: bool | None = None
 ) -> Value:
@@ -384,7 +421,13 @@ async def update_card_fields(
     return card
 
 
-async def set_card_parent(session: AsyncSession, card_id: int, parent_id: int | None) -> Card:
+async def set_card_parent(
+    session: AsyncSession,
+    card_id: int,
+    parent_id: int | None,
+    *,
+    actor: ActorType = ActorType.USER_UI,
+) -> Card:
     """Attach a Card to a parent (or make it root-level) with full hierarchy repair."""
     card = await session.get(Card, card_id)
     if card is None or card.archived_at is not None:
@@ -397,9 +440,7 @@ async def set_card_parent(session: AsyncSession, card_id: int, parent_id: int | 
     before = card_snapshot(card)
     card.parent_id = parent_id
     card.version += 1
-    await _record_event(
-        session, card, "set_parent", ActorType.USER_UI, before, new_correlation_id()
-    )
+    await _record_event(session, card, "set_parent", actor, before, new_correlation_id())
     await propagate_ancestors(session, previous_parent_id)
     await propagate_ancestors(session, parent_id)
     await _bump_workspace(session)

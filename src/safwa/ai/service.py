@@ -17,6 +17,8 @@ from ..domain import (
     StaleStateError,
     archive_saved_request,
     archive_subtree,
+    archive_tag,
+    archive_value,
     create_saved_request,
     create_tag,
     create_value,
@@ -24,8 +26,11 @@ from ..domain import (
     finish_action,
     finish_sprint,
     move_card,
+    set_card_parent,
     start_sprint,
+    toggle_card_category,
     toggle_card_dependency,
+    toggle_card_energy_type,
     toggle_card_tag,
     toggle_card_value,
     update_card_fields,
@@ -35,14 +40,16 @@ from ..domain import (
     utcnow,
 )
 from ..drafts import DraftService
-from ..enums import ActorType, CardStage, ProposalStatus
+from ..enums import ActorType, CardKind, CardStage, Category, EnergyType, ProposalStatus
 from ..memory import MemoryFileStore
 from ..models import (
     AgentRun,
     AgentStep,
     Card,
+    CardCategory,
     CardDependency,
     CardDraftBundle,
+    CardEnergyType,
     CardTag,
     CardValue,
     ChangeProposal,
@@ -89,9 +96,14 @@ QUERY_SAFWA_TOOL: dict[str, Any] = {
     },
 }
 MUTATION_TOOL_DESCRIPTIONS = {
-    "card": "Prepare a Card draft or a proposed Card change.",
-    "value": "Prepare a Value creation or edit proposal.",
-    "tag": "Prepare a Tag creation or edit proposal.",
+    "card": (
+        "Open the Card review UI. draft creates an uncommitted Card draft; edit proposes exact "
+        "field/set replacements; link and unlink add or remove one relationship type; move, "
+        "complete, cancel, and reopen propose only that lifecycle action. Nothing is saved until "
+        "the user presses Save/Create."
+    ),
+    "value": "Open the Value editor with a creation or edit proposal;",
+    "tag": "Open the Tag editor with a creation or edit proposal;",
     "request": "Prepare a saved Request creation or edit proposal.",
     "remove": "Prepare an archive or permanent Card-deletion confirmation.",
 }
@@ -490,6 +502,7 @@ class AIAdvisor:
             change = tool.change
             if change is None:
                 continue
+            entity: Card | Tag | Value | SavedRequest | None = None
             expected_version = None
             if change.id and change.entity == "card":
                 entity = await session.get(Card, change.id)
@@ -504,6 +517,50 @@ class AIAdvisor:
                 entity = await session.get(Value, change.id)
                 expected_version = entity.version if entity else None
             values = dict(change.values)
+            if (
+                change.entity == "card"
+                and entity is not None
+                and entity.kind != CardKind.ACTION.value
+            ):
+                for action_only_field in {
+                    "effort_points",
+                    "repeatable",
+                    "categories",
+                    "energy_types",
+                }:
+                    values.pop(action_only_field, None)
+                if entity.kind == CardKind.GOAL.value:
+                    values.pop("parent_id", None)
+                    values.pop("parent_query", None)
+                if change.action == "update" and not values:
+                    raise DomainError("The Card proposal contains no applicable fields")
+            if change.entity == "card" and "parent_query" in values:
+                parent_query = str(values.pop("parent_query")).strip()
+                parent_ids: list[int] = []
+                if parent_query.casefold().startswith(("select", "with")):
+                    try:
+                        rows = await self.query_runner.run(normalize_request_sql(parent_query))
+                    except (
+                        RequestQueryError,
+                        UnsafeQueryError,
+                        sqlite3.Error,
+                        TimeoutError,
+                    ) as error:
+                        raise DomainError(f"Invalid parent query: {error}") from error
+                    if len(rows) == 1 and set(rows[0]) == {"id"}:
+                        parent_ids = [rows[0]["id"]]
+                else:
+                    parent_ids = list(
+                        await session.scalars(
+                            select(Card.id).where(
+                                Card.title.collate("NOCASE") == parent_query,
+                                Card.archived_at.is_(None),
+                            )
+                        )
+                    )
+                if len(parent_ids) != 1 or not isinstance(parent_ids[0], int):
+                    raise DomainError("The proposed parent did not resolve to exactly one Card")
+                values["parent_id"] = parent_ids[0]
             if change.entity == "request" and "sql" in values:
                 try:
                     values["query_sql"] = normalize_request_sql(values.pop("sql"))
@@ -957,6 +1014,208 @@ class ProposalService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    @staticmethod
+    def _items(value: Any) -> list[Any]:
+        if value is None:
+            return []
+        return value if isinstance(value, list) else [value]
+
+    async def _named_ids(
+        self,
+        values: dict[str, Any],
+        *,
+        singular_key: str,
+        plural_key: str,
+        query_key: str,
+        model: type[Tag] | type[Value],
+        label: str,
+        created: dict[str, int],
+    ) -> set[int]:
+        ids = {
+            int(item)
+            for item in [
+                *self._items(values.get(singular_key)),
+                *self._items(values.get(plural_key)),
+            ]
+        }
+        for raw_name in self._items(values.get(query_key)):
+            name = str(raw_name).strip()
+            if not name:
+                continue
+            entity_id = created.get(name.casefold())
+            if entity_id is None:
+                matches = list(
+                    await self.session.scalars(
+                        select(model).where(
+                            model.name.collate("NOCASE") == name,
+                            model.archived_at.is_(None),
+                        )
+                    )
+                )
+                if len(matches) == 1:
+                    entity_id = matches[0].id
+            if entity_id is None:
+                raise DomainError(f"{label} '{name}' is not available for this approved link")
+            ids.add(entity_id)
+        return ids
+
+    async def _replace_card_sets(
+        self,
+        card: Card,
+        values: dict[str, Any],
+        *,
+        created_tag_ids: dict[str, int],
+        created_value_ids: dict[str, int],
+    ) -> None:
+        if "categories" in values:
+            current = set(
+                await self.session.scalars(
+                    select(CardCategory.category).where(CardCategory.card_id == card.id)
+                )
+            )
+            target = set(values["categories"] or [])
+            for category in sorted(current ^ target):
+                await toggle_card_category(
+                    self.session, card.id, Category(category), actor=ActorType.AI
+                )
+        if "energy_types" in values:
+            current = set(
+                await self.session.scalars(
+                    select(CardEnergyType.energy_type).where(CardEnergyType.card_id == card.id)
+                )
+            )
+            target = set(values["energy_types"] or [])
+            for energy_type in sorted(current ^ target):
+                await toggle_card_energy_type(
+                    self.session, card.id, EnergyType(energy_type), actor=ActorType.AI
+                )
+
+        value_fields = {"value_id", "value_ids", "value_query"}
+        if value_fields & values.keys():
+            current = set(
+                await self.session.scalars(
+                    select(CardValue.value_id).where(CardValue.card_id == card.id)
+                )
+            )
+            target = await self._named_ids(
+                values,
+                singular_key="value_id",
+                plural_key="value_ids",
+                query_key="value_query",
+                model=Value,
+                label="Value",
+                created=created_value_ids,
+            )
+            for value_id in sorted(current ^ target):
+                await toggle_card_value(self.session, card.id, value_id, actor=ActorType.AI)
+
+        tag_fields = {"tag_id", "tag_ids", "tag_query"}
+        if tag_fields & values.keys():
+            current = set(
+                await self.session.scalars(select(CardTag.tag_id).where(CardTag.card_id == card.id))
+            )
+            target = await self._named_ids(
+                values,
+                singular_key="tag_id",
+                plural_key="tag_ids",
+                query_key="tag_query",
+                model=Tag,
+                label="Tag",
+                created=created_tag_ids,
+            )
+            for tag_id in sorted(current ^ target):
+                await toggle_card_tag(self.session, card.id, tag_id, actor=ActorType.AI)
+
+        blocker_fields = {"blocker_id", "blocker_ids"}
+        if blocker_fields & values.keys():
+            current = set(
+                await self.session.scalars(
+                    select(CardDependency.blocker_card_id).where(
+                        CardDependency.blocked_card_id == card.id
+                    )
+                )
+            )
+            target = {
+                int(item)
+                for item in [
+                    *self._items(values.get("blocker_id")),
+                    *self._items(values.get("blocker_ids")),
+                ]
+            }
+            for blocker_id in sorted(current ^ target):
+                await toggle_card_dependency(
+                    self.session,
+                    card.id,
+                    blocker_id,
+                    copy_to_repeat=bool(values.get("copy_to_repeat", False)),
+                    actor=ActorType.AI,
+                )
+
+    async def _apply_card_links(
+        self,
+        card: Card,
+        values: dict[str, Any],
+        *,
+        linked: bool,
+        created_tag_ids: dict[str, int],
+        created_value_ids: dict[str, int],
+    ) -> None:
+        if {"value_id", "value_ids", "value_query"} & values.keys():
+            target_ids = await self._named_ids(
+                values,
+                singular_key="value_id",
+                plural_key="value_ids",
+                query_key="value_query",
+                model=Value,
+                label="Value",
+                created=created_value_ids,
+            )
+            for value_id in sorted(target_ids):
+                exists = await self.session.get(
+                    CardValue, {"card_id": card.id, "value_id": value_id}
+                )
+                if linked != (exists is not None):
+                    await toggle_card_value(self.session, card.id, value_id, actor=ActorType.AI)
+            return
+        if {"tag_id", "tag_ids", "tag_query"} & values.keys():
+            target_ids = await self._named_ids(
+                values,
+                singular_key="tag_id",
+                plural_key="tag_ids",
+                query_key="tag_query",
+                model=Tag,
+                label="Tag",
+                created=created_tag_ids,
+            )
+            for tag_id in sorted(target_ids):
+                exists = await self.session.get(CardTag, {"card_id": card.id, "tag_id": tag_id})
+                if linked != (exists is not None):
+                    await toggle_card_tag(self.session, card.id, tag_id, actor=ActorType.AI)
+            return
+        if {"blocker_id", "blocker_ids"} & values.keys():
+            target_ids = {
+                int(item)
+                for item in [
+                    *self._items(values.get("blocker_id")),
+                    *self._items(values.get("blocker_ids")),
+                ]
+            }
+            for blocker_id in sorted(target_ids):
+                exists = await self.session.get(
+                    CardDependency,
+                    {"blocked_card_id": card.id, "blocker_card_id": blocker_id},
+                )
+                if linked != (exists is not None):
+                    await toggle_card_dependency(
+                        self.session,
+                        card.id,
+                        blocker_id,
+                        copy_to_repeat=bool(values.get("copy_to_repeat", False)),
+                        actor=ActorType.AI,
+                    )
+            return
+        raise DomainError("A Card link proposal needs one relationship type")
+
     async def apply(self, proposal_id: int, *, allow_destructive: bool = False) -> list[int]:
         proposal = await self.session.get(ChangeProposal, proposal_id)
         if proposal is None or proposal.status != ProposalStatus.PENDING.value:
@@ -999,23 +1258,43 @@ class ProposalService:
                         actor=ActorType.AI,
                     )
                 elif change.action == "update":
-                    await update_card_fields(
-                        self.session,
-                        card.id,
-                        {
-                            name: value
-                            for name, value in change.values.items()
-                            if name
-                            in {
-                                "title",
-                                "note",
-                                "priority",
-                                "hard_time",
-                                "effort_points",
-                                "repeatable",
-                            }
-                        },
-                        actor=ActorType.AI,
+                    scalar_fields = {
+                        name: value
+                        for name, value in change.values.items()
+                        if name
+                        in {
+                            "title",
+                            "note",
+                            "priority",
+                            "hard_time",
+                            "effort_points",
+                            "repeatable",
+                        }
+                    }
+                    if scalar_fields:
+                        await update_card_fields(
+                            self.session, card.id, scalar_fields, actor=ActorType.AI
+                        )
+                    if "parent_id" in change.values:
+                        await set_card_parent(
+                            self.session,
+                            card.id,
+                            change.values["parent_id"],
+                            actor=ActorType.AI,
+                        )
+                    if "stage" in change.values:
+                        target_stage = CardStage(change.values["stage"])
+                        if target_stage in {CardStage.DONE, CardStage.CANCELLED}:
+                            await finish_action(
+                                self.session, card.id, target_stage, actor=ActorType.AI
+                            )
+                        else:
+                            await move_card(self.session, card.id, target_stage, actor=ActorType.AI)
+                    await self._replace_card_sets(
+                        card,
+                        change.values,
+                        created_tag_ids=created_tag_ids,
+                        created_value_ids=created_value_ids,
                     )
                 elif change.action == "archive":
                     await archive_subtree(self.session, card.id)
@@ -1023,74 +1302,14 @@ class ProposalService:
                     if not allow_destructive:
                         raise DomainError("Permanent deletion needs a second confirmation")
                     await delete_subtree(self.session, card.id)
-                elif change.action in {"link", "unlink"} and (
-                    change.values.get("value_id") or change.values.get("value_query")
-                ):
-                    value_id = change.values.get("value_id")
-                    value_query = str(change.values.get("value_query", "")).strip()
-                    if not value_id and value_query:
-                        value_id = created_value_ids.get(value_query.casefold())
-                    if not value_id and value_query:
-                        matching_values = list(
-                            await self.session.scalars(
-                                select(Value).where(
-                                    Value.name.collate("NOCASE") == value_query,
-                                    Value.archived_at.is_(None),
-                                )
-                            )
-                        )
-                        if len(matching_values) == 1:
-                            value_id = matching_values[0].id
-                    if not value_id:
-                        raise DomainError(
-                            f"Value '{value_query}' is not available for this approved link"
-                        )
-                    currently_linked = await self.session.get(
-                        CardValue, {"card_id": card.id, "value_id": value_id}
+                elif change.action in {"link", "unlink"}:
+                    await self._apply_card_links(
+                        card,
+                        change.values,
+                        linked=change.action == "link",
+                        created_tag_ids=created_tag_ids,
+                        created_value_ids=created_value_ids,
                     )
-                    if (change.action == "link") != (currently_linked is not None):
-                        await toggle_card_value(self.session, card.id, value_id, actor=ActorType.AI)
-                elif change.action in {"link", "unlink"} and (
-                    change.values.get("tag_id") or change.values.get("tag_query")
-                ):
-                    tag_id = change.values.get("tag_id")
-                    tag_query = str(change.values.get("tag_query", "")).strip()
-                    if not tag_id and tag_query:
-                        tag_id = created_tag_ids.get(tag_query.casefold())
-                    if not tag_id and tag_query:
-                        matching_tags = list(
-                            await self.session.scalars(
-                                select(Tag).where(
-                                    Tag.name.collate("NOCASE") == tag_query,
-                                    Tag.archived_at.is_(None),
-                                )
-                            )
-                        )
-                        if len(matching_tags) == 1:
-                            tag_id = matching_tags[0].id
-                    if not tag_id:
-                        raise DomainError(
-                            f"Tag '{tag_query}' is not available for this approved link"
-                        )
-                    currently_linked = await self.session.get(
-                        CardTag, {"card_id": card.id, "tag_id": tag_id}
-                    )
-                    if (change.action == "link") != (currently_linked is not None):
-                        await toggle_card_tag(self.session, card.id, tag_id, actor=ActorType.AI)
-                elif change.action in {"link", "unlink"} and change.values.get("blocker_id"):
-                    blocker_id = change.values["blocker_id"]
-                    link = await self.session.get(
-                        CardDependency,
-                        {"blocked_card_id": card.id, "blocker_card_id": blocker_id},
-                    )
-                    if (change.action == "link") != (link is not None):
-                        await toggle_card_dependency(
-                            self.session,
-                            card.id,
-                            blocker_id,
-                            copy_to_repeat=bool(change.values.get("copy_to_repeat", False)),
-                            actor=ActorType.AI,
-                        )
                 else:
                     raise DomainError(f"Unsupported approved Card action: {change.action}")
                 affected.append(card.id)
@@ -1118,9 +1337,7 @@ class ProposalService:
                             description=change.values.get("description"),
                         )
                     elif change.action == "archive":
-                        tag.archived_at = utcnow()
-                        tag.version += 1
-                        workspace.revision += 1
+                        tag, _unlinked_count = await archive_tag(self.session, tag.id)
                     else:
                         raise DomainError(f"Unsupported Tag action: {change.action}")
                 affected.append(tag.id)
@@ -1152,9 +1369,7 @@ class ProposalService:
                             active=change.values.get("active"),
                         )
                     elif change.action == "archive":
-                        value.archived_at = utcnow()
-                        value.version += 1
-                        workspace.revision += 1
+                        value, _unlinked_count = await archive_value(self.session, value.id)
                     else:
                         raise DomainError(f"Unsupported Value action: {change.action}")
                 affected.append(value.id)

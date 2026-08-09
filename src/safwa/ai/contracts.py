@@ -66,13 +66,67 @@ class CardToolInput(BaseModel):
 
     @model_validator(mode="after")
     def validate_target(self) -> CardToolInput:
+        supplied = set(self.model_fields_set) - {"mode", "id"}
         if self.mode == "draft":
             if self.id is not None:
                 raise ValueError("a draft must not include an id")
             if self.kind is None or not (self.title or "").strip():
                 raise ValueError("a draft needs kind and title")
-        elif self.id is None:
+            return self
+        if self.id is None:
             raise ValueError(f"card mode '{self.mode}' needs an id")
+        editable = {
+            "title",
+            "note",
+            "stage",
+            "priority",
+            "hard_time",
+            "effort_points",
+            "repeatable",
+            "categories",
+            "energy_types",
+            "value_id",
+            "value_ids",
+            "value_query",
+            "tag_id",
+            "tag_ids",
+            "tag_query",
+            "parent_id",
+            "parent_query",
+            "blocker_id",
+            "blocker_ids",
+            "copy_to_repeat",
+        }
+        if self.mode == "edit":
+            if not supplied:
+                raise ValueError("an edited Card needs at least one proposed field")
+            if unsupported := supplied - editable:
+                raise ValueError("Card edit does not accept: " + ", ".join(sorted(unsupported)))
+            if self.stage in {"done", "cancelled"}:
+                raise ValueError("use complete or cancel mode for a terminal Card stage")
+            if "copy_to_repeat" in supplied and not supplied & {"blocker_id", "blocker_ids"}:
+                raise ValueError("copy_to_repeat requires proposed blockers")
+        elif self.mode == "move":
+            if supplied != {"stage"} or self.stage is None:
+                raise ValueError("Card move needs only a stage")
+        elif self.mode in {"complete", "cancel"}:
+            if supplied:
+                raise ValueError(f"Card {self.mode} does not accept fields")
+        elif self.mode == "reopen":
+            if supplied - {"stage"}:
+                raise ValueError("Card reopen accepts only an optional stage")
+        elif self.mode in {"link", "unlink"}:
+            groups = [
+                supplied & {"value_id", "value_ids", "value_query"},
+                supplied & {"tag_id", "tag_ids", "tag_query"},
+                supplied & {"blocker_id", "blocker_ids"},
+            ]
+            selected = [group for group in groups if group]
+            if len(selected) != 1:
+                raise ValueError(f"Card {self.mode} needs exactly one relationship type")
+            allowed = selected[0] | ({"copy_to_repeat"} if groups[2] else set())
+            if supplied - allowed:
+                raise ValueError(f"Card {self.mode} mixes unrelated fields")
         return self
 
 
@@ -91,6 +145,8 @@ class ValueToolInput(BaseModel):
             raise ValueError("a new Value needs a name")
         if self.mode == "edit" and self.id is None:
             raise ValueError("an edited Value needs an id")
+        if self.mode == "edit" and not (self.model_fields_set - {"mode", "id"}):
+            raise ValueError("an edited Value needs at least one proposed field")
         return self
 
 
@@ -108,6 +164,8 @@ class TagToolInput(BaseModel):
             raise ValueError("a new Tag needs a name")
         if self.mode == "edit" and self.id is None:
             raise ValueError("an edited Tag needs an id")
+        if self.mode == "edit" and not (self.model_fields_set - {"mode", "id"}):
+            raise ValueError("an edited Tag needs at least one proposed field")
         return self
 
 
@@ -134,6 +192,8 @@ class RequestToolInput(BaseModel):
             raise ValueError("a new Request needs name and sql")
         if self.mode == "edit" and self.id is None:
             raise ValueError("an edited Request needs an id")
+        if self.mode == "edit" and not (self.model_fields_set - {"mode", "id"}):
+            raise ValueError("an edited Request needs at least one proposed field")
         return self
 
 
@@ -165,11 +225,11 @@ def mutation_change_from_tool(name: str, arguments: dict[str, Any]) -> AgentChan
     model = MUTATION_TOOL_MODELS.get(name)
     if model is None:
         raise ValueError(f"Unknown mutation tool: {name}")
-    payload = model.model_validate(arguments).model_dump(exclude_none=True)
+    payload = model.model_validate(arguments).model_dump(exclude_unset=True)
     if name == "remove":
         return AgentChange(
             entity=payload["type"],
-            action="delete" if payload["permanent"] else "archive",
+            action="delete" if payload.get("permanent", False) else "archive",
             id=payload["id"],
         )
     mode = payload.pop("mode")

@@ -6,14 +6,19 @@ from types import SimpleNamespace
 from sqlalchemy import select
 
 from safwa.ai.context import DialogueMessage
-from safwa.ai.service import AIOutcome
+from safwa.ai.service import AIOutcome, ProposalService
 from safwa.drafts import DraftService
 from safwa.enums import DraftStatus, MessageKind
 from safwa.models import (
     CallbackToken,
     Card,
+    CardCategory,
+    CardDependency,
     CardDraft,
     CardDraftBundle,
+    CardEnergyType,
+    CardTag,
+    CardValue,
     ChangeProposal,
     ProposalChange,
     Tag,
@@ -458,6 +463,58 @@ async def test_tag_field_input_reuses_editor_message_and_deletes_input(sessions)
         assert classified.kind == MessageKind.UI_INPUT.value
 
 
+async def test_manual_tag_and_value_archive_unlinks_cards(sessions) -> None:
+    async with sessions() as session:
+        card = Card(kind="action", title="Family walk", effort_points=2)
+        tag = Tag(name="Family")
+        value = Value(name="Connection", active=True)
+        session.add_all([card, tag, value])
+        await session.flush()
+        session.add_all(
+            [
+                CardTag(card_id=card.id, tag_id=tag.id),
+                CardValue(card_id=card.id, value_id=value.id),
+            ]
+        )
+        await session.commit()
+        tag_id, value_id = tag.id, value.id
+
+    services = services_for(sessions)
+    for index, (entity, item_id) in enumerate((("tag", tag_id), ("value", value_id)), start=70):
+        message = FakeMessage(index, bot_message=True)
+        await render_item_editor(message, services, entity, mode="view", item_id=item_id)
+        text, markup = message.edits[-1]
+        assert "Linked Cards: 1" in text
+        archive = next(
+            button
+            for row in markup.inline_keyboard
+            for button in row
+            if button.text == f"Archive {entity.title()}"
+        )
+        await callback_token_handler(
+            FakeCallback(archive.callback_data.split(":", 1)[1], message), services
+        )
+        confirm = next(
+            button
+            for row in message.edits[-1][1].inline_keyboard
+            for button in row
+            if button.text == f"Archive {entity.title()}"
+        )
+        await callback_token_handler(
+            FakeCallback(confirm.callback_data.split(":", 1)[1], message), services
+        )
+        assert "Removed 1 Card link(s)" in message.edits[-1][0]
+
+    async with sessions() as session:
+        tag = await session.get(Tag, tag_id)
+        value = await session.get(Value, value_id)
+        assert tag.archived_at is not None
+        assert value.archived_at is not None
+        assert value.active is False
+        assert await session.get(CardTag, {"card_id": card.id, "tag_id": tag_id}) is None
+        assert await session.get(CardValue, {"card_id": card.id, "value_id": value_id}) is None
+
+
 async def test_card_note_input_updates_same_review_message(sessions) -> None:
     async with sessions() as session:
         bundle = await DraftService(session).create_bundle(
@@ -556,5 +613,176 @@ async def test_item_proposal_shows_diffs_and_only_save_discard_footer(sessions) 
     assert "Relationships and home" in text
     assert "→" in text
     buttons = button_texts(markup)
-    assert buttons[-2:] == ["✅ Save", "🗑 Discard"]
+    assert buttons == ["✅ Save", "🗑 Discard"]
     assert "↩️ Back" not in buttons
+
+
+async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions) -> None:
+    async with sessions() as session:
+        card = Card(
+            kind="action",
+            title="Evening walk",
+            note="After work",
+            effort_points=3,
+        )
+        session.add(card)
+        await session.flush()
+        session.add(CardCategory(card_id=card.id, category="self"))
+        workspace = await session.get(Workspace, 1)
+        proposal = ChangeProposal(
+            message="Change the Action's energy profile",
+            workspace_revision=workspace.revision,
+            status="pending",
+        )
+        session.add(proposal)
+        await session.flush()
+        session.add(
+            ProposalChange(
+                proposal_id=proposal.id,
+                position=0,
+                entity="card",
+                action="update",
+                entity_id=card.id,
+                expected_version=card.version,
+                values={
+                    "categories": ["contribution", "rest"],
+                    "energy_types": ["physical", "social"],
+                },
+            )
+        )
+        await session.commit()
+        proposal_id = proposal.id
+
+    message = FakeMessage(61, bot_message=True)
+    await render_proposal(message, services_for(sessions), proposal_id)
+    text, markup = message.edits[-1]
+
+    assert "Card overview" in text
+    assert "Title: <b>Evening walk</b>" in text
+    assert "Effort: 3" in text
+    assert "Categories: Self → Contribution, Rest" in text
+    assert "Energy: — → Physical, Social" in text
+    buttons = button_texts(markup)
+    assert buttons == ["✅ Save", "🗑 Discard"]
+    assert "↩️ Back" not in buttons
+
+
+async def test_move_proposal_exposes_only_stage_control(sessions) -> None:
+    async with sessions() as session:
+        card = Card(kind="action", title="Evening walk", effort_points=3)
+        session.add(card)
+        await session.flush()
+        workspace = await session.get(Workspace, 1)
+        proposal = ChangeProposal(
+            message="Move the Action to Today",
+            workspace_revision=workspace.revision,
+            status="pending",
+        )
+        session.add(proposal)
+        await session.flush()
+        session.add(
+            ProposalChange(
+                proposal_id=proposal.id,
+                position=0,
+                entity="card",
+                action="move",
+                entity_id=card.id,
+                expected_version=card.version,
+                values={"stage": "today"},
+            )
+        )
+        await session.commit()
+        proposal_id = proposal.id
+
+    message = FakeMessage(63, bot_message=True)
+    await render_proposal(message, services_for(sessions), proposal_id)
+    text, markup = message.edits[-1]
+
+    assert "Stage: Backlog → Today" in text
+    assert button_texts(markup) == ["✅ Save", "🗑 Discard"]
+
+
+async def test_saving_card_proposal_applies_every_editable_field(sessions) -> None:
+    async with sessions() as session:
+        parent = Card(kind="goal", title="Be healthy")
+        blocker = Card(kind="action", title="Buy shoes", effort_points=1)
+        card = Card(kind="action", title="Walk", effort_points=2)
+        value = Value(name="Health")
+        tag = Tag(name="Outside")
+        session.add_all([parent, blocker, card, value, tag])
+        await session.flush()
+        session.add_all(
+            [
+                CardCategory(card_id=card.id, category="self"),
+                CardEnergyType(card_id=card.id, energy_type="cognitive"),
+            ]
+        )
+        workspace = await session.get(Workspace, 1)
+        proposal = ChangeProposal(
+            message="Update the Action",
+            workspace_revision=workspace.revision,
+            status="pending",
+        )
+        session.add(proposal)
+        await session.flush()
+        session.add(
+            ProposalChange(
+                proposal_id=proposal.id,
+                position=0,
+                entity="card",
+                action="update",
+                entity_id=card.id,
+                expected_version=card.version,
+                values={
+                    "priority": "critical",
+                    "hard_time": True,
+                    "effort_points": 5,
+                    "parent_id": parent.id,
+                    "categories": ["rest", "work"],
+                    "energy_types": ["physical", "social"],
+                    "value_ids": [value.id],
+                    "tag_ids": [tag.id],
+                    "blocker_ids": [blocker.id],
+                },
+            )
+        )
+        await session.commit()
+        proposal_id = proposal.id
+        card_id = card.id
+
+    async with sessions() as session:
+        affected = await ProposalService(session).apply(proposal_id)
+        await session.commit()
+
+    assert affected == [card_id]
+    async with sessions() as session:
+        card = await session.get(Card, card_id)
+        assert (card.priority, card.hard_time, card.effort_points, card.parent_id) == (
+            "critical",
+            True,
+            5,
+            parent.id,
+        )
+        assert set(
+            await session.scalars(
+                select(CardCategory.category).where(CardCategory.card_id == card_id)
+            )
+        ) == {"rest", "work"}
+        assert set(
+            await session.scalars(
+                select(CardEnergyType.energy_type).where(CardEnergyType.card_id == card_id)
+            )
+        ) == {"physical", "social"}
+        assert set(
+            await session.scalars(select(CardValue.value_id).where(CardValue.card_id == card_id))
+        ) == {value.id}
+        assert set(
+            await session.scalars(select(CardTag.tag_id).where(CardTag.card_id == card_id))
+        ) == {tag.id}
+        assert set(
+            await session.scalars(
+                select(CardDependency.blocker_card_id).where(
+                    CardDependency.blocked_card_id == card_id
+                )
+            )
+        ) == {blocker.id}

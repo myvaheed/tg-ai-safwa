@@ -36,6 +36,8 @@ from .domain import (
     DomainError,
     StaleStateError,
     archive_subtree,
+    archive_tag,
+    archive_value,
     create_tag,
     create_value,
     delete_subtree,
@@ -1378,6 +1380,7 @@ async def render_item_editor(
 ) -> None:
     if entity not in {"tag", "value"} or mode not in {"create", "view"}:
         raise DomainError("Unsupported item editor")
+    linked_count = 0
     async with services.sessions() as session:
         item: Tag | Value | None = None
         if mode == "view":
@@ -1386,6 +1389,14 @@ async def render_item_editor(
             if item is None or item.archived_at is not None:
                 raise DomainError(f"{entity.title()} does not exist")
             editor_values = {"name": item.name, "description": item.description}
+            link_model = CardTag if entity == "tag" else CardValue
+            link_field = CardTag.tag_id if entity == "tag" else CardValue.value_id
+            linked_count = int(
+                await session.scalar(
+                    select(func.count()).select_from(link_model).where(link_field == item.id)
+                )
+                or 0
+            )
         else:
             editor_values = {"name": "", "description": "", **(values or {})}
 
@@ -1444,6 +1455,18 @@ async def render_item_editor(
                     )
                 ]
             )
+        if mode == "view" and item is not None:
+            rows.append(
+                [
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        f"Archive {entity.title()}",
+                        "item_archive_prompt",
+                        {"entity": entity, "id": item.id},
+                    )
+                ]
+            )
         rows.append(
             [
                 await token_button(
@@ -1462,6 +1485,7 @@ async def render_item_editor(
         f"<b>{title}</b>\n"
         f"Name: {html.escape(editor_values['name'] or '—')}\n"
         f"Description: {html.escape(editor_values['description'] or '—')}"
+        + (f"\nLinked Cards: {linked_count}" if mode == "view" else "")
     )
     markup = InlineKeyboardMarkup(inline_keyboard=rows)
     if replace_message_id is not None:
@@ -2049,6 +2073,72 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
                 item_id=payload["id"],
             )
             return
+        if action == "item_archive_prompt":
+            async with services.sessions() as session:
+                model = Tag if payload["entity"] == "tag" else Value
+                item = await session.get(model, payload["id"])
+                if item is None or item.archived_at is not None:
+                    raise DomainError(f"{payload['entity'].title()} does not exist")
+                link_model = CardTag if payload["entity"] == "tag" else CardValue
+                link_field = CardTag.tag_id if payload["entity"] == "tag" else CardValue.value_id
+                linked_count = int(
+                    await session.scalar(
+                        select(func.count()).select_from(link_model).where(link_field == item.id)
+                    )
+                    or 0
+                )
+                confirm = await token_button(
+                    session,
+                    services.owner_id,
+                    f"Archive {payload['entity'].title()}",
+                    "item_archive_confirm",
+                    {"entity": payload["entity"], "id": item.id},
+                )
+                back = await token_button(
+                    session,
+                    services.owner_id,
+                    "↩️ Back",
+                    "item_view",
+                    {"entity": payload["entity"], "id": item.id},
+                )
+                await session.commit()
+            await send_registered(
+                callback.message,
+                services,
+                f"<b>Archive {html.escape(payload['entity'].title())}?</b>\n"
+                f"{html.escape(item.name)} will be removed from active lists and unlinked from "
+                f"{linked_count} Card(s).",
+                kind=MessageKind.APPROVAL,
+                markup=InlineKeyboardMarkup(inline_keyboard=[[confirm], [back]]),
+                related_id=item.id,
+            )
+            return
+        if action == "item_archive_confirm":
+            async with services.sessions() as session:
+                if payload["entity"] == "tag":
+                    item, linked_count = await archive_tag(session, payload["id"])
+                else:
+                    item, linked_count = await archive_value(session, payload["id"])
+                await session.execute(
+                    delete(UiSession).where(UiSession.owner_id == services.owner_id)
+                )
+                back = await token_button(
+                    session,
+                    services.owner_id,
+                    f"Back to {payload['entity'].title()}s",
+                    "item_back",
+                    {"entity": payload["entity"]},
+                )
+                await session.commit()
+            await send_registered(
+                callback.message,
+                services,
+                f"Archived <b>{html.escape(item.name)}</b>. Removed {linked_count} Card link(s).",
+                kind=MessageKind.RECEIPT,
+                markup=InlineKeyboardMarkup(inline_keyboard=[[back]]),
+                related_id=item.id,
+            )
+            return
         if action == "item_back":
             async with services.sessions() as session:
                 await session.execute(
@@ -2588,58 +2678,6 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
             )
         elif action == "proposal_view":
             await render_proposal(callback.message, services, payload["id"])
-        elif action == "proposal_item_edit_text":
-            async with services.sessions() as session:
-                change = await session.get(ProposalChange, payload["change_id"])
-                if change is None or change.proposal_id != payload["id"]:
-                    raise DomainError("Proposal change does not exist")
-                _current, proposed = await _proposal_item_state(session, change)
-                await session.execute(
-                    delete(UiSession).where(UiSession.owner_id == services.owner_id)
-                )
-                session.add(
-                    UiSession(
-                        owner_id=services.owner_id,
-                        kind="proposal_item_text",
-                        state={
-                            "proposal_id": payload["id"],
-                            "change_id": change.id,
-                            "field": payload["field"],
-                            "message_id": callback.message.message_id,
-                        },
-                        expires_at=datetime.now(UTC) + timedelta(minutes=30),
-                    )
-                )
-                back = await token_button(
-                    session,
-                    services.owner_id,
-                    "↩️ Back",
-                    "proposal_view",
-                    {"id": payload["id"]},
-                )
-                await session.commit()
-            current = _display_diff_value(proposed.get(payload["field"]))
-            await send_registered(
-                callback.message,
-                services,
-                f"<b>Current {html.escape(payload['field'])}</b>: "
-                f"{html.escape(current)}\n\n"
-                f"Set new {html.escape(payload['field'].title())}",
-                kind=MessageKind.APPROVAL,
-                markup=InlineKeyboardMarkup(inline_keyboard=[[back]]),
-                related_id=payload["id"],
-            )
-        elif action == "proposal_toggle_field":
-            async with services.sessions() as session:
-                change = await session.get(ProposalChange, payload["change_id"])
-                if change is None or change.proposal_id != payload["id"]:
-                    raise DomainError("Proposal change does not exist")
-                _current, proposed = await _proposal_item_state(session, change)
-                values = dict(change.values)
-                values[payload["field"]] = not bool(proposed.get(payload["field"]))
-                change.values = values
-                await session.commit()
-            await render_proposal(callback.message, services, payload["id"])
         elif action == "proposal_approve":
             async with services.sessions() as session:
                 destructive = await session.scalar(
@@ -3098,6 +3136,36 @@ async def render_card_choices(
     )
 
 
+def _card_overview_text(state: dict[str, Any], *, heading: str = "Card") -> str:
+    kind = str(state.get("kind") or "")
+    lines = [
+        f"Kind: {html.escape(kind.title())}",
+        f"Title: <b>{html.escape(str(state.get('title') or '—'))}</b>",
+        f"Parent: {html.escape(str(state.get('parent_name') or 'Root'))}",
+        f"Stage: {html.escape(str(state.get('stage') or 'backlog').title())}",
+        f"Note: {html.escape(str(state.get('note') or '—'))}",
+        f"Priority: {html.escape(str(state.get('priority') or 'medium').title())} · Hard Time: "
+        f"{'Yes' if state.get('hard_time') else 'No'}",
+    ]
+    if kind == CardKind.ACTION.value:
+        lines.extend(
+            [
+                f"Effort: {state.get('effort_points') or '—'}",
+                f"Repeatable: {'Yes' if state.get('repeatable') else 'No'}",
+                f"Categories: {html.escape(', '.join(state.get('categories', [])) or '—')}",
+                f"Energy: {html.escape(', '.join(state.get('energy_types', [])) or '—')}",
+            ]
+        )
+    lines.extend(
+        [
+            f"Values: {html.escape(', '.join(state.get('value_names', [])) or '—')}",
+            f"Tags: {html.escape(', '.join(state.get('tag_names', [])) or '—')}",
+            f"Blockers: {html.escape(', '.join(state.get('blocker_names', [])) or '—')}",
+        ]
+    )
+    return f"<b>{html.escape(heading)}</b>\n" + "\n".join(lines)
+
+
 async def render_card(
     message: Message,
     services: Services,
@@ -3248,29 +3316,23 @@ async def render_card(
             )
         )
         await session.commit()
-    text = "<b>Card</b>\n" + "\n".join(
-        [
-            f"Kind: {html.escape(card.kind.title())}",
-            f"Title: <b>{html.escape(card.title)}</b>",
-            f"Parent: {html.escape(parent.title if parent else 'Root')}",
-            f"Stage: {html.escape(card.effective_stage.title())}",
-            f"Note: {html.escape(card.note or '—')}",
-            f"Priority: {html.escape(card.priority.title())} · Hard Time: "
-            f"{'Yes' if card.hard_time else 'No'}",
-            *(
-                [
-                    f"Effort: {card.effort_points or '—'}",
-                    f"Repeatable: {'Yes' if card.repeatable else 'No'}",
-                    f"Categories: {html.escape(', '.join(categories) or '—')}",
-                    f"Energy: {html.escape(', '.join(energy_types) or '—')}",
-                ]
-                if card.kind == CardKind.ACTION.value
-                else []
-            ),
-            f"Values: {html.escape(', '.join(value.name for value in direct_values) or '—')}",
-            f"Tags: {html.escape(', '.join(tag.name for tag in direct_tags) or '—')}",
-            f"Blockers: {html.escape(', '.join(blocker.title for blocker in blockers) or '—')}",
-        ]
+    text = _card_overview_text(
+        {
+            "kind": card.kind,
+            "title": card.title,
+            "parent_name": parent.title if parent else "Root",
+            "stage": card.effective_stage,
+            "note": card.note,
+            "priority": card.priority,
+            "hard_time": card.hard_time,
+            "effort_points": card.effort_points,
+            "repeatable": card.repeatable,
+            "categories": categories,
+            "energy_types": energy_types,
+            "value_names": [value.name for value in direct_values],
+            "tag_names": [tag.name for tag in direct_tags],
+            "blocker_names": [blocker.title for blocker in blockers],
+        }
     )
     markup = InlineKeyboardMarkup(inline_keyboard=rows)
     if replace_message_id is not None:
@@ -3352,6 +3414,32 @@ async def _proposal_item_state(
                 "hard_time": card.hard_time,
                 "effort_points": card.effort_points,
                 "repeatable": card.repeatable,
+                "parent_id": card.parent_id,
+                "categories": sorted(
+                    await session.scalars(
+                        select(CardCategory.category).where(CardCategory.card_id == card.id)
+                    )
+                ),
+                "energy_types": sorted(
+                    await session.scalars(
+                        select(CardEnergyType.energy_type).where(CardEnergyType.card_id == card.id)
+                    )
+                ),
+                "value_ids": sorted(
+                    await session.scalars(
+                        select(CardValue.value_id).where(CardValue.card_id == card.id)
+                    )
+                ),
+                "tag_ids": sorted(
+                    await session.scalars(select(CardTag.tag_id).where(CardTag.card_id == card.id))
+                ),
+                "blocker_ids": sorted(
+                    await session.scalars(
+                        select(CardDependency.blocker_card_id).where(
+                            CardDependency.blocked_card_id == card.id
+                        )
+                    )
+                ),
             }
     elif change.entity == "tag" and change.entity_id:
         tag = await session.get(Tag, change.entity_id)
@@ -3366,6 +3454,71 @@ async def _proposal_item_state(
                 "active": value.active,
             }
     proposed = {**current, **dict(change.values)}
+    if change.entity in {"tag", "value"} and change.action in {"archive", "delete"}:
+        current["status"] = "Active"
+        proposed["status"] = "Archived" if change.action == "archive" else "Deleted"
+    if change.entity == "card":
+        if change.action == "complete":
+            proposed["stage"] = CardStage.DONE.value
+        elif change.action == "cancel":
+            proposed["stage"] = CardStage.CANCELLED.value
+        elif change.action == "reopen":
+            proposed["stage"] = change.values.get("stage", CardStage.BACKLOG.value)
+        elif change.action in {"archive", "delete"}:
+            current["status"] = "Active"
+            proposed["status"] = "Archived" if change.action == "archive" else "Deleted"
+
+        unresolved_references: list[tuple[str, str]] = []
+        relation_specs = (
+            ("value_ids", "value_id", "value_query", Value),
+            ("tag_ids", "tag_id", "tag_query", Tag),
+        )
+        for plural_key, singular_key, query_key, model in relation_specs:
+            if not ({plural_key, singular_key, query_key} & change.values.keys()):
+                continue
+            target_ids = {
+                int(item)
+                for item in (
+                    ([change.values[singular_key]] if change.values.get(singular_key) else [])
+                    + list(change.values.get(plural_key) or [])
+                )
+            }
+            queries = change.values.get(query_key) or []
+            if isinstance(queries, str):
+                queries = [queries]
+            for name in queries:
+                match = await session.scalar(
+                    select(model.id).where(
+                        model.name.collate("NOCASE") == str(name),
+                        model.archived_at.is_(None),
+                    )
+                )
+                if match is not None:
+                    target_ids.add(match)
+                else:
+                    unresolved_references.append((query_key, str(name)))
+            if change.action == "link":
+                proposed[plural_key] = sorted(set(current.get(plural_key, [])) | target_ids)
+            elif change.action == "unlink":
+                proposed[plural_key] = sorted(set(current.get(plural_key, [])) - target_ids)
+            else:
+                proposed[plural_key] = sorted(target_ids)
+        if unresolved_references:
+            proposed["_unresolved_references"] = unresolved_references
+        if {"blocker_id", "blocker_ids"} & change.values.keys():
+            target_ids = {
+                int(item)
+                for item in (
+                    ([change.values["blocker_id"]] if change.values.get("blocker_id") else [])
+                    + list(change.values.get("blocker_ids") or [])
+                )
+            }
+            if change.action == "link":
+                proposed["blocker_ids"] = sorted(set(current.get("blocker_ids", [])) | target_ids)
+            elif change.action == "unlink":
+                proposed["blocker_ids"] = sorted(set(current.get("blocker_ids", [])) - target_ids)
+            else:
+                proposed["blocker_ids"] = sorted(target_ids)
     return current, proposed
 
 
@@ -3375,6 +3528,84 @@ def _display_diff_value(value: Any) -> str:
     if isinstance(value, bool):
         return "Yes" if value else "No"
     return str(value)
+
+
+async def _proposal_card_display_state(
+    session: AsyncSession, state: dict[str, Any]
+) -> dict[str, Any]:
+    display = dict(state)
+    parent = await session.get(Card, state.get("parent_id")) if state.get("parent_id") else None
+    display["parent_name"] = parent.title if parent else "Root"
+    for ids_key, names_key, model, name_field in (
+        ("value_ids", "value_names", Value, "name"),
+        ("tag_ids", "tag_names", Tag, "name"),
+        ("blocker_ids", "blocker_names", Card, "title"),
+    ):
+        ids = list(state.get(ids_key) or [])
+        entities = (
+            list(await session.scalars(select(model).where(model.id.in_(ids)))) if ids else []
+        )
+        by_id = {entity.id: getattr(entity, name_field) for entity in entities}
+        display[names_key] = [by_id[item_id] for item_id in ids if item_id in by_id]
+    return display
+
+
+async def _proposal_diff_value(session: AsyncSession, field: str, value: Any) -> str:
+    if field == "parent_id":
+        if value is None:
+            return "Root"
+        parent = await session.get(Card, value)
+        return parent.title if parent else f"Card #{value}"
+    relation_specs = {
+        "value_ids": (Value, "name"),
+        "tag_ids": (Tag, "name"),
+        "blocker_ids": (Card, "title"),
+    }
+    if field in relation_specs:
+        model, name_field = relation_specs[field]
+        ids = list(value or [])
+        entities = (
+            list(await session.scalars(select(model).where(model.id.in_(ids)))) if ids else []
+        )
+        by_id = {entity.id: getattr(entity, name_field) for entity in entities}
+        return ", ".join(by_id[item_id] for item_id in ids if item_id in by_id) or "—"
+    if field in {"categories", "energy_types"}:
+        return ", ".join(str(item).title() for item in (value or [])) or "—"
+    if field in {"stage", "priority"} and value:
+        return str(value).title()
+    return _display_diff_value(value)
+
+
+async def _proposal_card_diffs(
+    session: AsyncSession, current: dict[str, Any], proposed: dict[str, Any]
+) -> list[str]:
+    labels = {
+        "title": "Title",
+        "note": "Note",
+        "parent_id": "Parent",
+        "stage": "Stage",
+        "priority": "Priority",
+        "hard_time": "Hard Time",
+        "effort_points": "Effort",
+        "repeatable": "Repeatable",
+        "categories": "Categories",
+        "energy_types": "Energy",
+        "value_ids": "Values",
+        "tag_ids": "Tags",
+        "blocker_ids": "Blockers",
+        "status": "Status",
+    }
+    diffs: list[str] = []
+    for field, label in labels.items():
+        if current.get(field) == proposed.get(field):
+            continue
+        old = await _proposal_diff_value(session, field, current.get(field))
+        new = await _proposal_diff_value(session, field, proposed.get(field))
+        diffs.append(f"• {label}: {html.escape(old)} → {html.escape(new)}")
+    for query_key, name in proposed.get("_unresolved_references", []):
+        label = query_key.replace("_", " ").title()
+        diffs.append(f"• {label}: — → {html.escape(name)} (not found)")
+    return diffs
 
 
 async def render_proposal(
@@ -3419,80 +3650,19 @@ async def render_proposal(
                     f"Description: "
                     f"{html.escape(_display_diff_value(proposed.get('description')))}"
                 )
-                if change.action in {"create", "update"}:
-                    rows.append(
-                        [
-                            await token_button(
-                                session,
-                                services.owner_id,
-                                "✏️ Name",
-                                "proposal_item_edit_text",
-                                {"id": proposal.id, "change_id": change.id, "field": "name"},
-                            ),
-                            await token_button(
-                                session,
-                                services.owner_id,
-                                "📝 Description",
-                                "proposal_item_edit_text",
-                                {
-                                    "id": proposal.id,
-                                    "change_id": change.id,
-                                    "field": "description",
-                                },
-                            ),
-                        ]
-                    )
-                if change.entity == "value" and change.action in {"create", "update"}:
-                    rows.append(
-                        [
-                            await token_button(
-                                session,
-                                services.owner_id,
-                                f"💎 Focus: {'On' if proposed.get('active') else 'Off'}",
-                                "proposal_toggle_field",
-                                {"id": proposal.id, "change_id": change.id, "field": "active"},
-                            )
-                        ]
-                    )
             elif change.entity == "card":
-                text_parts.append(
-                    "\n".join(
-                        [
-                            f"Kind: {html.escape(_display_diff_value(proposed.get('kind')))}",
-                            f"Title: <b>{html.escape(_display_diff_value(proposed.get('title')))}</b>",
-                            f"Stage: {html.escape(_display_diff_value(proposed.get('stage')))}",
-                            f"Note: {html.escape(_display_diff_value(proposed.get('note')))}",
-                            f"Priority: {html.escape(_display_diff_value(proposed.get('priority')))}",
-                            f"Hard Time: {html.escape(_display_diff_value(proposed.get('hard_time')))}",
-                        ]
-                    )
-                )
-                if change.action == "update":
-                    rows.append(
-                        [
-                            await token_button(
-                                session,
-                                services.owner_id,
-                                "✏️ Title",
-                                "proposal_item_edit_text",
-                                {"id": proposal.id, "change_id": change.id, "field": "title"},
-                            ),
-                            await token_button(
-                                session,
-                                services.owner_id,
-                                "📝 Note",
-                                "proposal_item_edit_text",
-                                {"id": proposal.id, "change_id": change.id, "field": "note"},
-                            ),
-                        ]
-                    )
-            diffs = [
-                f"• {field.replace('_', ' ').title()}: "
-                f"{html.escape(_display_diff_value(current.get(field)))} → "
-                f"{html.escape(_display_diff_value(new_value))}"
-                for field, new_value in change.values.items()
-                if current.get(field) != new_value
-            ]
+                display = await _proposal_card_display_state(session, proposed)
+                text_parts.append(_card_overview_text(display, heading="Card overview"))
+            if change.entity == "card":
+                diffs = await _proposal_card_diffs(session, current, proposed)
+            else:
+                diffs = [
+                    f"• {field.replace('_', ' ').title()}: "
+                    f"{html.escape(_display_diff_value(current.get(field)))} → "
+                    f"{html.escape(_display_diff_value(new_value))}"
+                    for field, new_value in proposed.items()
+                    if current.get(field) != new_value
+                ]
             if diffs:
                 text_parts.append("<b>Proposed changes</b>\n" + "\n".join(diffs))
         else:
@@ -3714,32 +3884,6 @@ async def ordinary_text(message: Message, services: Services) -> None:
             back=dict(ui_state.get("back", {})),
         )
         return
-    if ui_kind == "proposal_item_text":
-        proposal_id = int(ui_state["proposal_id"])
-        message_id = int(ui_state["message_id"])
-        new_value = message.text.strip()
-        if ui_state["field"] in {"name", "title"} and not new_value:
-            raise DomainError(f"{str(ui_state['field']).title()} cannot be empty")
-        async with services.sessions() as session:
-            change = await session.get(ProposalChange, int(ui_state["change_id"]))
-            if change is None or change.proposal_id != proposal_id:
-                raise DomainError("Proposal change does not exist")
-            values = dict(change.values)
-            values[str(ui_state["field"])] = new_value
-            change.values = values
-            await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
-            await session.commit()
-        input_deleted = await delete_text_input(message, services)
-        if not input_deleted:
-            await clear_message_markup(message, message_id)
-        await render_proposal(
-            message,
-            services,
-            proposal_id,
-            replace_message_id=message_id if input_deleted else None,
-        )
-        return
-
     await dismiss_prior_ui(message, services)
     async with services.sessions() as session:
         await register_message(

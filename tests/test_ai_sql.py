@@ -24,6 +24,30 @@ def test_native_mutation_tools_become_typed_change_intents():
         mutation_change_from_tool("remove", {"type": "tag", "id": 42, "permanent": True})
 
 
+def test_card_tool_modes_reject_ambiguous_mutations():
+    change = mutation_change_from_tool(
+        "card",
+        {
+            "mode": "edit",
+            "id": 42,
+            "categories": ["contribution", "rest"],
+            "energy_types": ["physical", "social"],
+        },
+    )
+    assert change.values == {
+        "categories": ["contribution", "rest"],
+        "energy_types": ["physical", "social"],
+    }
+    root = mutation_change_from_tool("card", {"mode": "edit", "id": 42, "parent_id": None})
+    assert root.values == {"parent_id": None}
+    with pytest.raises(ValueError):
+        CardToolInput(mode="move", id=42, stage="today", categories=["work"])
+    with pytest.raises(ValueError):
+        CardToolInput(mode="complete", id=42, note="also change this")
+    with pytest.raises(ValueError):
+        CardToolInput(mode="link", id=42, tag_id=3, value_id=4)
+
+
 @pytest.mark.parametrize(
     "sql",
     [
