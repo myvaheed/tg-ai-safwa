@@ -16,12 +16,12 @@ from .enums import (
     CardStage,
     Category,
     EnergyType,
+    Priority,
     WorkspaceMode,
 )
 from .models import (
     Card,
     CardCategory,
-    CardDependency,
     CardEnergyType,
     CardEvent,
     CardTag,
@@ -68,6 +68,8 @@ def card_snapshot(card: Card) -> dict[str, Any]:
         "title": card.title,
         "stage": card.effective_stage,
         "priority": card.priority,
+        "blocked": card.blocked,
+        "blocked_description": card.blocked_description,
         "effort_points": card.effort_points,
         "repeatable": card.repeatable,
         "version": card.version,
@@ -86,6 +88,94 @@ async def bootstrap_workspace(session: AsyncSession, owner_id: int, timezone: st
         session.add(UserProfile(id=1))
     await session.flush()
     return workspace
+
+
+async def create_card(
+    session: AsyncSession,
+    *,
+    kind: CardKind | str,
+    title: str,
+    note: str = "",
+    stage: CardStage | str = CardStage.BACKLOG,
+    priority: Priority | str = Priority.MEDIUM,
+    hard_time: bool = False,
+    blocked: bool = False,
+    blocked_description: str = "",
+    effort_points: int | None = None,
+    repeatable: bool = False,
+    parent_id: int | None = None,
+    categories: set[Category | str] | None = None,
+    energy_types: set[EnergyType | str] | None = None,
+    value_ids: set[int] | None = None,
+    tag_ids: set[int] | None = None,
+    actor: ActorType = ActorType.USER_UI,
+) -> Card:
+    """Create one reviewed Card through the same domain boundary used by UI and AI."""
+    card_kind = CardKind(kind)
+    card_stage = CardStage(stage)
+    card_priority = Priority(priority)
+    clean_title = title.strip()
+    clean_description = blocked_description.strip()
+    if not clean_title:
+        raise DomainError("Card title cannot be empty")
+    if card_stage in TERMINAL_STAGES:
+        raise DomainError("A new Card must start in Backlog, Sprint, or Today")
+    category_values = {Category(item).value for item in (categories or set())}
+    energy_values = {EnergyType(item).value for item in (energy_types or set())}
+    if card_kind is not CardKind.ACTION:
+        effort_points = None
+        repeatable = False
+        category_values.clear()
+        energy_values.clear()
+    validate_action_fields(
+        card_kind,
+        effort_points,
+        repeatable,
+        category_values,
+        energy_values,
+    )
+    validate_blocked_fields(blocked, clean_description)
+    await validate_parent(session, card_kind, parent_id)
+
+    for value_id in value_ids or set():
+        value = await session.get(Value, value_id)
+        if value is None or value.archived_at is not None:
+            raise DomainError(f"Value #{value_id} does not exist or is archived")
+    for tag_id in tag_ids or set():
+        tag = await session.get(Tag, tag_id)
+        if tag is None or tag.archived_at is not None:
+            raise DomainError(f"Tag #{tag_id} does not exist or is archived")
+
+    card = Card(
+        parent_id=parent_id,
+        kind=card_kind.value,
+        title=clean_title,
+        note=note.strip(),
+        manual_stage=card_stage.value,
+        effective_stage=card_stage.value,
+        priority=card_priority.value,
+        hard_time=hard_time,
+        blocked=blocked,
+        blocked_description=clean_description if blocked else "",
+        effort_points=effort_points,
+        repeatable=repeatable,
+    )
+    session.add(card)
+    await session.flush()
+    for category in sorted(category_values):
+        session.add(CardCategory(card_id=card.id, category=category))
+    for energy_type in sorted(energy_values):
+        session.add(CardEnergyType(card_id=card.id, energy_type=energy_type))
+    for value_id in sorted(value_ids or set()):
+        session.add(CardValue(card_id=card.id, value_id=value_id))
+    for tag_id in sorted(tag_ids or set()):
+        session.add(CardTag(card_id=card.id, tag_id=tag_id))
+    await _record_event(session, card, "create", actor, None, new_correlation_id())
+    if card_kind is CardKind.ACTION:
+        await _sync_commitment_for_stage(session, card)
+    await propagate_ancestors(session, parent_id)
+    await _bump_workspace(session)
+    return card
 
 
 async def create_tag(session: AsyncSession, name: str, description: str | None = None) -> Tag:
@@ -374,8 +464,8 @@ async def snooze_reminders(session: AsyncSession, until: datetime) -> ReminderSt
 
 
 async def edit_card_text(session: AsyncSession, card_id: int, field: str, value: str) -> Card:
-    if field not in {"title", "note"}:
-        raise DomainError("Only a Card title or Note can be edited as text")
+    if field not in {"title", "note", "blocked_description"}:
+        raise DomainError("Only a Card title, Note, or blocked description can be edited as text")
     card = await session.get(Card, card_id)
     if card is None or card.archived_at is not None:
         raise DomainError("Card does not exist or is archived")
@@ -384,6 +474,7 @@ async def edit_card_text(session: AsyncSession, card_id: int, field: str, value:
         raise DomainError("Card title cannot be empty")
     before = card_snapshot(card)
     setattr(card, field, normalized)
+    validate_blocked_fields(card.blocked, card.blocked_description)
     card.version += 1
     await _record_event(
         session, card, f"edit_{field}", ActorType.USER_UI, before, new_correlation_id()
@@ -403,7 +494,16 @@ async def update_card_fields(
     card = await session.get(Card, card_id)
     if card is None or card.archived_at is not None:
         raise DomainError("Card does not exist or is archived")
-    allowed = {"title", "note", "priority", "hard_time", "effort_points", "repeatable"}
+    allowed = {
+        "title",
+        "note",
+        "priority",
+        "hard_time",
+        "blocked",
+        "blocked_description",
+        "effort_points",
+        "repeatable",
+    }
     unknown = set(fields) - allowed
     if unknown:
         raise DomainError("Unsupported Card fields: " + ", ".join(sorted(unknown)))
@@ -415,6 +515,9 @@ async def update_card_fields(
             raise DomainError("Card title cannot be empty")
         setattr(card, name, value)
     validate_action_fields(card.kind, card.effort_points, card.repeatable)
+    if not card.blocked:
+        card.blocked_description = ""
+    validate_blocked_fields(card.blocked, card.blocked_description)
     card.version += 1
     await _record_event(session, card, "update", actor, before, new_correlation_id())
     await _bump_workspace(session)
@@ -561,47 +664,6 @@ async def toggle_card_energy_type(
     return linked
 
 
-async def toggle_card_dependency(
-    session: AsyncSession,
-    blocked_card_id: int,
-    blocker_card_id: int,
-    *,
-    copy_to_repeat: bool = False,
-    actor: ActorType = ActorType.USER_UI,
-) -> bool:
-    """Toggle a warning-only blocker link and return whether it is now linked."""
-    blocked = await session.get(Card, blocked_card_id)
-    blocker = await session.get(Card, blocker_card_id)
-    if blocked is None or blocked.archived_at is not None:
-        raise DomainError("Blocked Card does not exist or is archived")
-    if blocker is None or blocker.archived_at is not None:
-        raise DomainError("Blocker Card does not exist or is archived")
-    link = await session.scalar(
-        select(CardDependency).where(
-            CardDependency.blocked_card_id == blocked_card_id,
-            CardDependency.blocker_card_id == blocker_card_id,
-        )
-    )
-    before = card_snapshot(blocked)
-    if link is None:
-        await ensure_dependency_acyclic(session, blocked_card_id, blocker_card_id)
-        session.add(
-            CardDependency(
-                blocked_card_id=blocked_card_id,
-                blocker_card_id=blocker_card_id,
-                copy_to_repeat=copy_to_repeat,
-            )
-        )
-        operation, linked = "link_dependency", True
-    else:
-        await session.delete(link)
-        operation, linked = "unlink_dependency", False
-    blocked.version += 1
-    await _record_event(session, blocked, operation, actor, before, new_correlation_id())
-    await _bump_workspace(session)
-    return linked
-
-
 async def _workspace(session: AsyncSession) -> Workspace:
     workspace = await session.get(Workspace, 1)
     if workspace is None:
@@ -659,6 +721,11 @@ def validate_action_fields(
         raise DomainError("Goal and Idea cards cannot have Action-only fields")
 
 
+def validate_blocked_fields(blocked: bool, description: str | None) -> None:
+    if blocked and not (description or "").strip():
+        raise DomainError("A blocked Card needs a blocked description")
+
+
 async def _children(session: AsyncSession, card_id: int) -> list[Card]:
     return list(
         await session.scalars(
@@ -680,44 +747,33 @@ async def effective_value_ids(session: AsyncSession, card_id: int) -> set[int]:
     )
 
 
-async def unresolved_blockers(session: AsyncSession, card_id: int) -> list[Card]:
-    blocker_ids = list(
-        await session.scalars(
-            select(CardDependency.blocker_card_id).where(CardDependency.blocked_card_id == card_id)
-        )
-    )
-    if not blocker_ids:
-        return []
-    return list(
-        await session.scalars(
-            select(Card).where(
-                Card.id.in_(blocker_ids), Card.effective_stage != CardStage.DONE.value
-            )
-        )
-    )
-
-
-async def ensure_dependency_acyclic(
-    session: AsyncSession, blocked_card_id: int, blocker_card_id: int
-) -> None:
-    if blocked_card_id == blocker_card_id:
-        raise DomainError("A Card cannot block itself")
-    pending = [blocker_card_id]
-    seen: set[str] = set()
+async def card_progress(session: AsyncSession, card_id: int) -> dict[str, int]:
+    """Return recursive Action effort and direct-child completion for a Goal or Idea."""
+    cards = list(await session.scalars(select(Card).where(Card.archived_at.is_(None))))
+    children_by_parent: dict[int, list[Card]] = {}
+    for card in cards:
+        if card.parent_id is not None:
+            children_by_parent.setdefault(card.parent_id, []).append(card)
+    direct_children = children_by_parent.get(card_id, [])
+    descendants: list[Card] = []
+    pending = list(direct_children)
     while pending:
-        current = pending.pop()
-        if current == blocked_card_id:
-            raise DomainError("Card dependencies cannot contain a cycle")
-        if current in seen:
-            continue
-        seen.add(current)
-        pending.extend(
-            await session.scalars(
-                select(CardDependency.blocker_card_id).where(
-                    CardDependency.blocked_card_id == current
-                )
-            )
-        )
+        descendant = pending.pop()
+        descendants.append(descendant)
+        pending.extend(children_by_parent.get(descendant.id, []))
+    actions = [card for card in descendants if card.kind == CardKind.ACTION.value]
+    return {
+        "completed_effort": sum(
+            card.effort_points or 0
+            for card in actions
+            if card.effective_stage == CardStage.DONE.value
+        ),
+        "total_effort": sum(card.effort_points or 0 for card in actions),
+        "completed_children": sum(
+            child.effective_stage == CardStage.DONE.value for child in direct_children
+        ),
+        "total_children": len(direct_children),
+    }
 
 
 def aggregate_child_stages(children: list[Card]) -> CardStage:
@@ -818,8 +874,8 @@ async def move_card(
         raise DomainError("A populated Goal or Idea completes through its children")
     correlation_id = new_correlation_id()
     result = OperationResult(card_ids=[card.id])
-    blockers = await unresolved_blockers(session, card.id)
-    result.warnings.extend(f"Blocked by {blocker.title}" for blocker in blockers)
+    if card.blocked:
+        result.warnings.append(f"Blocked: {card.blocked_description}")
 
     async def move_subtree(node: Card) -> None:
         before = card_snapshot(node)
@@ -855,6 +911,8 @@ async def _copy_repeat_successor(session: AsyncSession, card: Card, live_stage: 
         effective_stage=live_stage.value,
         priority=card.priority,
         hard_time=card.hard_time,
+        blocked=card.blocked,
+        blocked_description=card.blocked_description,
         effort_points=card.effort_points,
         repeatable=True,
         repeat_series_id=series_id,
@@ -872,20 +930,6 @@ async def _copy_repeat_successor(session: AsyncSession, card: Card, live_stage: 
         select(CardEnergyType).where(CardEnergyType.card_id == card.id)
     ):
         session.add(CardEnergyType(card_id=successor.id, energy_type=link.energy_type))
-    dependencies = await session.scalars(
-        select(CardDependency).where(
-            CardDependency.blocked_card_id == card.id,
-            CardDependency.copy_to_repeat.is_(True),
-        )
-    )
-    for dependency in dependencies:
-        session.add(
-            CardDependency(
-                blocked_card_id=successor.id,
-                blocker_card_id=dependency.blocker_card_id,
-                copy_to_repeat=True,
-            )
-        )
     await _sync_commitment_for_stage(session, successor)
     return successor
 
@@ -930,8 +974,8 @@ async def finish_action(
     if commitment:
         commitment.result = terminal_stage.value
     result = OperationResult(card_ids=[card.id])
-    blockers = await unresolved_blockers(session, card.id)
-    result.warnings.extend(f"Blocked by {blocker.title}" for blocker in blockers)
+    if card.blocked:
+        result.warnings.append(f"Blocked: {card.blocked_description}")
     if terminal_stage is CardStage.DONE:
         session.add(FeedbackQueue(card_id=card.id))
     if card.repeatable:

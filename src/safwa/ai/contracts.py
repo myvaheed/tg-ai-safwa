@@ -28,7 +28,7 @@ class AgentChange(BaseModel):
 class CardToolInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    mode: Literal["draft", "edit", "move", "complete", "cancel", "reopen", "link", "unlink"]
+    mode: Literal["create", "edit", "move", "complete", "cancel", "reopen", "link", "unlink"]
     id: int | None = None
     kind: Literal["goal", "idea", "action"] | None = None
     title: str | None = None
@@ -36,6 +36,8 @@ class CardToolInput(BaseModel):
     stage: Literal["backlog", "sprint", "today", "done", "cancelled"] | None = None
     priority: Literal["critical", "medium", "low"] | None = None
     hard_time: bool | None = None
+    blocked: bool | None = None
+    blocked_description: str | None = None
     effort_points: Literal[1, 2, 3, 5, 8, 13] | None = None
     repeatable: bool | None = None
     categories: list[Literal["self", "contribution", "work", "rest"]] | None = None
@@ -58,20 +60,18 @@ class CardToolInput(BaseModel):
             "SELECT id FROM ai_cards WHERE title = 'My Goal'. An exact Card title is also accepted."
         ),
     )
-    draft_ref: str | None = None
-    parent_draft_ref: str | None = None
-    blocker_id: int | None = None
-    blocker_ids: list[int] | None = None
-    copy_to_repeat: bool | None = None
-
     @model_validator(mode="after")
     def validate_target(self) -> CardToolInput:
         supplied = set(self.model_fields_set) - {"mode", "id"}
-        if self.mode == "draft":
+        if self.mode == "create":
             if self.id is not None:
-                raise ValueError("a draft must not include an id")
+                raise ValueError("a new Card must not include an id")
             if self.kind is None or not (self.title or "").strip():
-                raise ValueError("a draft needs kind and title")
+                raise ValueError("a new Card needs kind and title")
+            if self.kind == "action" and self.effort_points is None:
+                raise ValueError("a new Action needs effort_points")
+            if self.blocked and not (self.blocked_description or "").strip():
+                raise ValueError("a blocked Card needs blocked_description")
             return self
         if self.id is None:
             raise ValueError(f"card mode '{self.mode}' needs an id")
@@ -81,6 +81,8 @@ class CardToolInput(BaseModel):
             "stage",
             "priority",
             "hard_time",
+            "blocked",
+            "blocked_description",
             "effort_points",
             "repeatable",
             "categories",
@@ -93,9 +95,6 @@ class CardToolInput(BaseModel):
             "tag_query",
             "parent_id",
             "parent_query",
-            "blocker_id",
-            "blocker_ids",
-            "copy_to_repeat",
         }
         if self.mode == "edit":
             if not supplied:
@@ -104,8 +103,8 @@ class CardToolInput(BaseModel):
                 raise ValueError("Card edit does not accept: " + ", ".join(sorted(unsupported)))
             if self.stage in {"done", "cancelled"}:
                 raise ValueError("use complete or cancel mode for a terminal Card stage")
-            if "copy_to_repeat" in supplied and not supplied & {"blocker_id", "blocker_ids"}:
-                raise ValueError("copy_to_repeat requires proposed blockers")
+            if self.blocked and not (self.blocked_description or "").strip():
+                raise ValueError("a blocked Card needs blocked_description")
         elif self.mode == "move":
             if supplied != {"stage"} or self.stage is None:
                 raise ValueError("Card move needs only a stage")
@@ -119,12 +118,11 @@ class CardToolInput(BaseModel):
             groups = [
                 supplied & {"value_id", "value_ids", "value_query"},
                 supplied & {"tag_id", "tag_ids", "tag_query"},
-                supplied & {"blocker_id", "blocker_ids"},
             ]
             selected = [group for group in groups if group]
             if len(selected) != 1:
                 raise ValueError(f"Card {self.mode} needs exactly one relationship type")
-            allowed = selected[0] | ({"copy_to_repeat"} if groups[2] else set())
+            allowed = selected[0]
             if supplied - allowed:
                 raise ValueError(f"Card {self.mode} mixes unrelated fields")
         return self
@@ -234,6 +232,6 @@ def mutation_change_from_tool(name: str, arguments: dict[str, Any]) -> AgentChan
         )
     mode = payload.pop("mode")
     entity = name
-    action = "create" if mode == "draft" else "update" if mode == "edit" else mode
+    action = "update" if mode == "edit" else mode
     identifier = payload.pop("id", None)
     return AgentChange(entity=entity, action=action, id=identifier, values=payload)

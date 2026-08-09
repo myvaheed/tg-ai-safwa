@@ -19,6 +19,7 @@ from ..domain import (
     archive_subtree,
     archive_tag,
     archive_value,
+    create_card,
     create_saved_request,
     create_tag,
     create_value,
@@ -29,7 +30,6 @@ from ..domain import (
     set_card_parent,
     start_sprint,
     toggle_card_category,
-    toggle_card_dependency,
     toggle_card_energy_type,
     toggle_card_tag,
     toggle_card_value,
@@ -39,7 +39,6 @@ from ..domain import (
     update_value_fields,
     utcnow,
 )
-from ..drafts import DraftService
 from ..enums import ActorType, CardKind, CardStage, Category, EnergyType, ProposalStatus
 from ..memory import MemoryFileStore
 from ..models import (
@@ -47,8 +46,6 @@ from ..models import (
     AgentStep,
     Card,
     CardCategory,
-    CardDependency,
-    CardDraftBundle,
     CardEnergyType,
     CardTag,
     CardValue,
@@ -97,10 +94,10 @@ QUERY_SAFWA_TOOL: dict[str, Any] = {
 }
 MUTATION_TOOL_DESCRIPTIONS = {
     "card": (
-        "Open the Card review UI. draft creates an uncommitted Card draft; edit proposes exact "
+        "Open the Card review UI. create proposes a new Card; edit proposes exact "
         "field/set replacements; link and unlink add or remove one relationship type; move, "
         "complete, cancel, and reopen propose only that lifecycle action. Nothing is saved until "
-        "the user presses Save/Create."
+        "the user presses Save."
     ),
     "value": "Open the Value editor with a creation or edit proposal;",
     "tag": "Open the Tag editor with a creation or edit proposal;",
@@ -126,7 +123,6 @@ MAX_TOOL_CALLS = 16
 class AIOutcome:
     kind: str
     message: str
-    draft_bundle_ids: list[int] = field(default_factory=list)
     proposal_id: int | None = None
 
 
@@ -245,7 +241,6 @@ class AIAdvisor:
         *,
         source_message_id: int | None = None,
         dialogue: list[DialogueMessage] | None = None,
-        pending_draft_id: int | None = None,
     ) -> AIOutcome:
         started = time.monotonic()
         run = AgentRun(
@@ -259,7 +254,7 @@ class AIAdvisor:
             await session.commit()
 
         try:
-            messages = await self._context_messages(dialogue or [], pending_draft_id)
+            messages = await self._context_messages(dialogue or [])
             if not dialogue:
                 messages.append({"role": "user", "content": text})
             result = await self._run_agent_loop(messages, run.id)
@@ -275,20 +270,14 @@ class AIAdvisor:
     async def _context_messages(
         self,
         dialogue: list[DialogueMessage],
-        pending_draft_id: int | None = None,
     ) -> list[dict[str, Any]]:
         memory = await self.memory.sync()
         async with self.sessions() as session:
             state = await planning_context(session)
-            from ..models import CardDraft
-
-            pending = await session.get(CardDraft, pending_draft_id) if pending_draft_id else None
         system_sections = [
             SYSTEM_PROMPT,
             f"Current planning state:\n{state}\n\nPersistent memory:\n{memory.text}",
         ]
-        if pending:
-            system_sections.append(f"Pending draft reference: {pending.id}")
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": "\n\n".join(system_sections)}
         ]
@@ -387,9 +376,9 @@ class AIAdvisor:
                         if change.entity == "card" and change.action == "create"
                     ]
                     if card_creates and len(card_creates) == len(changes):
-                        message = "I prepared the card draft for your review."
+                        message = "I prepared the Card proposal for your review."
                     elif card_creates:
-                        message = "I prepared card drafts and proposed changes for your review."
+                        message = "I prepared Card proposals and other changes for your review."
                     else:
                         message = "I prepared the proposed changes for your approval."
                     return AgentLoopResult(
@@ -517,11 +506,12 @@ class AIAdvisor:
                 entity = await session.get(Value, change.id)
                 expected_version = entity.version if entity else None
             values = dict(change.values)
-            if (
-                change.entity == "card"
-                and entity is not None
-                and entity.kind != CardKind.ACTION.value
-            ):
+            proposed_kind = (
+                values.get("kind")
+                if change.entity == "card" and change.action == "create"
+                else getattr(entity, "kind", None)
+            )
+            if change.entity == "card" and proposed_kind != CardKind.ACTION.value:
                 for action_only_field in {
                     "effort_points",
                     "repeatable",
@@ -529,7 +519,7 @@ class AIAdvisor:
                     "energy_types",
                 }:
                     values.pop(action_only_field, None)
-                if entity.kind == CardKind.GOAL.value:
+                if proposed_kind == CardKind.GOAL.value:
                     values.pop("parent_id", None)
                     values.pop("parent_query", None)
                 if change.action == "update" and not values:
@@ -581,34 +571,15 @@ class AIAdvisor:
 
     @staticmethod
     def _target_outcome(message: str, target: dict[str, Any]) -> AIOutcome:
-        if target["type"] == "draft_bundle":
-            return AIOutcome("proposal", message, [int(target["id"])])
         return AIOutcome("proposal", message, proposal_id=int(target["id"]))
 
     async def _materialize(self, result: AgentLoopResult, run_id: int) -> AIOutcome:
         if not result.pending_tools:
             return AIOutcome("answer", result.message)
         mutation_tools = [tool for tool in result.pending_tools if tool.change is not None]
-        creates = [
-            tool
-            for tool in mutation_tools
-            if tool.change is not None
-            and tool.change.entity == "card"
-            and tool.change.action == "create"
-        ]
-        other = [tool for tool in mutation_tools if tool not in creates]
         targets: list[tuple[int, dict[str, Any], list[PendingTool]]] = []
         async with self.sessions() as session:
-            if creates:
-                payloads = [
-                    await self._resolve_card_draft(session, tool.change)
-                    for tool in creates
-                    if tool.change is not None
-                ]
-                bundle = await DraftService(session).create_bundle("ai", payloads)
-                first_index = min(result.pending_tools.index(tool) for tool in creates)
-                targets.append((first_index, {"type": "draft_bundle", "id": bundle.id}, creates))
-            for tool in other:
+            for tool in mutation_tools:
                 proposal = await self._create_proposal(session, result.message, [tool])
                 targets.append(
                     (
@@ -877,10 +848,6 @@ class AIAdvisor:
                     proposal = await session.get(ChangeProposal, item_id)
                     if proposal is not None and proposal.status == ProposalStatus.PENDING.value:
                         proposal.status = ProposalStatus.REJECTED.value
-                elif item_type == "draft_bundle":
-                    bundle = await session.get(CardDraftBundle, item_id)
-                    if bundle is not None and bundle.status not in {"committed", "discarded"}:
-                        await DraftService(session).discard_bundle(item_id)
             for tool in tools:
                 if str(tool.get("id")) in pending_call_ids:
                     tool["status"] = "resolved"
@@ -895,108 +862,6 @@ class AIAdvisor:
                 run.status = "cancelled"
             await session.commit()
             return True
-
-    async def _resolve_card_draft(
-        self, session: AsyncSession, change: AgentChange
-    ) -> dict[str, Any]:
-        values = dict(change.values)
-        provenance = values.setdefault("field_provenance", {})
-        unresolved: list[str] = provenance.setdefault("unresolved", [])
-        parent: Card | None = None
-        parent_query = values.pop("parent_query", None)
-        parent_was_requested = bool(parent_query or values.get("parent_id"))
-        if values.get("parent_id"):
-            parent = await session.get(Card, values["parent_id"])
-            if parent is None:
-                unresolved.append(f"Parent Card #{values['parent_id']} does not exist")
-        elif parent_query:
-            query_text = str(parent_query).strip()
-            is_sql = query_text.casefold().startswith(("select", "with"))
-            if is_sql:
-                query_error_recorded = False
-                try:
-                    statement = normalize_request_sql(query_text)
-                    rows = await self.query_runner.run(statement)
-                except (RequestQueryError, UnsafeQueryError, sqlite3.Error, TimeoutError) as error:
-                    logger.warning("Parent query was rejected: %s", error)
-                    rows = []
-                    unresolved.append("Parent query was invalid or unsafe")
-                    query_error_recorded = True
-                if len(rows) == 1 and set(rows[0]) == {"id"}:
-                    parent_id = rows[0]["id"]
-                    parent = (
-                        await session.get(Card, parent_id) if isinstance(parent_id, int) else None
-                    )
-                    if parent is None:
-                        unresolved.append("Parent query did not return an existing Card id")
-                elif not query_error_recorded:
-                    unresolved.append(
-                        "Parent query returned no Cards"
-                        if not rows
-                        else "Parent query must return exactly one Card id"
-                    )
-            else:
-                matches = list(
-                    await session.scalars(
-                        select(Card).where(
-                            Card.title.collate("NOCASE") == query_text,
-                            Card.archived_at.is_(None),
-                        )
-                    )
-                )
-                parent = matches[0] if len(matches) == 1 else None
-                if len(matches) != 1:
-                    unresolved.append(
-                        f"Parent '{query_text}' was not found"
-                        if not matches
-                        else f"Parent '{query_text}' matched multiple Cards"
-                    )
-            if parent is None:
-                provenance["parent_query"] = query_text
-        if parent:
-            values["parent_id"] = parent.id
-            values["expected_parent_version"] = parent.version
-            values["root_confirmed"] = False
-        if not parent_was_requested:
-            values["root_confirmed"] = True
-        requested_values = values.pop("value_query", None)
-        if isinstance(requested_values, str):
-            requested_values = [requested_values]
-        value_ids = list(values.get("value_ids", []))
-        for query in requested_values or []:
-            matches = list(
-                await session.scalars(
-                    select(Value).where(
-                        Value.name.collate("NOCASE") == str(query),
-                        Value.archived_at.is_(None),
-                    )
-                )
-            )
-            if len(matches) == 1:
-                value_ids.append(matches[0].id)
-            else:
-                unresolved.append(f"Value '{query}'")
-        values["value_ids"] = list(dict.fromkeys(value_ids))
-        requested_tags = values.pop("tag_query", None)
-        if isinstance(requested_tags, str):
-            requested_tags = [requested_tags]
-        tag_ids = list(values.get("tag_ids", []))
-        for query in requested_tags or []:
-            matches = list(
-                await session.scalars(
-                    select(Tag).where(
-                        Tag.name.collate("NOCASE") == str(query),
-                        Tag.archived_at.is_(None),
-                    )
-                )
-            )
-            if len(matches) == 1:
-                tag_ids.append(matches[0].id)
-            else:
-                unresolved.append(f"Tag '{query}'")
-        values["tag_ids"] = list(dict.fromkeys(tag_ids))
-        provenance["origin"] = "ai"
-        return values
 
     async def _finish_run(
         self, run_id: int, status: str, started: float, error_code: str | None = None
@@ -1126,31 +991,6 @@ class ProposalService:
             for tag_id in sorted(current ^ target):
                 await toggle_card_tag(self.session, card.id, tag_id, actor=ActorType.AI)
 
-        blocker_fields = {"blocker_id", "blocker_ids"}
-        if blocker_fields & values.keys():
-            current = set(
-                await self.session.scalars(
-                    select(CardDependency.blocker_card_id).where(
-                        CardDependency.blocked_card_id == card.id
-                    )
-                )
-            )
-            target = {
-                int(item)
-                for item in [
-                    *self._items(values.get("blocker_id")),
-                    *self._items(values.get("blocker_ids")),
-                ]
-            }
-            for blocker_id in sorted(current ^ target):
-                await toggle_card_dependency(
-                    self.session,
-                    card.id,
-                    blocker_id,
-                    copy_to_repeat=bool(values.get("copy_to_repeat", False)),
-                    actor=ActorType.AI,
-                )
-
     async def _apply_card_links(
         self,
         card: Card,
@@ -1192,28 +1032,6 @@ class ProposalService:
                 if linked != (exists is not None):
                     await toggle_card_tag(self.session, card.id, tag_id, actor=ActorType.AI)
             return
-        if {"blocker_id", "blocker_ids"} & values.keys():
-            target_ids = {
-                int(item)
-                for item in [
-                    *self._items(values.get("blocker_id")),
-                    *self._items(values.get("blocker_ids")),
-                ]
-            }
-            for blocker_id in sorted(target_ids):
-                exists = await self.session.get(
-                    CardDependency,
-                    {"blocked_card_id": card.id, "blocker_card_id": blocker_id},
-                )
-                if linked != (exists is not None):
-                    await toggle_card_dependency(
-                        self.session,
-                        card.id,
-                        blocker_id,
-                        copy_to_repeat=bool(values.get("copy_to_repeat", False)),
-                        actor=ActorType.AI,
-                    )
-            return
         raise DomainError("A Card link proposal needs one relationship type")
 
     async def apply(self, proposal_id: int, *, allow_destructive: bool = False) -> list[int]:
@@ -1236,6 +1054,47 @@ class ProposalService:
         created_value_ids: dict[str, int] = {}
         for change in changes:
             if change.entity == "card":
+                if change.action == "create":
+                    values = dict(change.values)
+                    value_ids = await self._named_ids(
+                        values,
+                        singular_key="value_id",
+                        plural_key="value_ids",
+                        query_key="value_query",
+                        model=Value,
+                        label="Value",
+                        created=created_value_ids,
+                    )
+                    tag_ids = await self._named_ids(
+                        values,
+                        singular_key="tag_id",
+                        plural_key="tag_ids",
+                        query_key="tag_query",
+                        model=Tag,
+                        label="Tag",
+                        created=created_tag_ids,
+                    )
+                    card = await create_card(
+                        self.session,
+                        kind=values["kind"],
+                        title=values["title"],
+                        note=values.get("note", ""),
+                        stage=values.get("stage", CardStage.BACKLOG.value),
+                        priority=values.get("priority", "medium"),
+                        hard_time=bool(values.get("hard_time", False)),
+                        blocked=bool(values.get("blocked", False)),
+                        blocked_description=values.get("blocked_description", ""),
+                        effort_points=values.get("effort_points"),
+                        repeatable=bool(values.get("repeatable", False)),
+                        parent_id=values.get("parent_id"),
+                        categories=set(values.get("categories") or []),
+                        energy_types=set(values.get("energy_types") or []),
+                        value_ids=value_ids,
+                        tag_ids=tag_ids,
+                        actor=ActorType.AI,
+                    )
+                    affected.append(card.id)
+                    continue
                 card = await self.session.get(Card, change.entity_id) if change.entity_id else None
                 if card is None or card.version != change.expected_version:
                     proposal.status = ProposalStatus.STALE.value
@@ -1267,6 +1126,8 @@ class ProposalService:
                             "note",
                             "priority",
                             "hard_time",
+                            "blocked",
+                            "blocked_description",
                             "effort_points",
                             "repeatable",
                         }

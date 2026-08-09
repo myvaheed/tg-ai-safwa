@@ -7,7 +7,7 @@
 - With a `/newsession` boundary, its text is sent as `[Initial request]`, followed by canonical dialogue after it.
 - With a Summary boundary, the Summary is sent first, then up to 20 older canonical messages with short UTC timestamps for local context, then the newer dialogue.
 - Real Safwa dialogue replies use the `assistant` role. Consecutive human messages and other user-side context are combined into one `user` turn with tags such as `[User]`, `[Summary]`, and `[Initial request]`.
-- Commands, callbacks, menus, dashboards, forms, approvals, receipts, drafts, SQL/tool traces, errors, and retrospective PNGs are excluded. Every slash command is deleted from Telegram immediately except `/newsession`, which remains visible as the history boundary.
+- Commands, callbacks, menus, dashboards, forms, approvals, receipts, unsaved item editors, SQL/tool traces, errors, and retrospective PNGs are excluded. Every slash command is deleted from Telegram immediately except `/newsession`, which remains visible as the history boundary.
 - The current user message is correlated across the Bot API and Telethon ID spaces and included exactly once. Only registered user dialogue, generated Safwa dialogue, persona reminders, boundaries, and subsession results can enter history.
 
 ## Telegram UI lifecycle
@@ -21,7 +21,7 @@
 - Every mutation tool call becomes its own item-style proposal screen; dependent calls are not combined into one approval. Safwa keeps their original order and replaces the same Telegram message with each next Save/Discard screen.
 - Save, Discard, or a save failure resolves only the current proposal and advances the queue. After the last item, the same message shows a consolidated Saved/Discarded/Failed result list; failures such as a discarded Tag needed by a later Card link are explicit.
 - Read tools run immediately, but the AI resumes only once every proposal is resolved. That continuation receives every mutation result and read-tool result.
-- Every Card creation remains a draft until reviewed and explicitly created. Discarded AI Card creation records all proposed fields; Goal and Idea screens never expose Action-only fields.
+- Manual Card creation exists only in the current transient editor and is inserted on Save; leaving or discarding it creates no persistent record. AI Card creation is an ordinary queued proposal and is inserted only on Save. A discarded AI Card proposal records all proposed fields in its static result message; Goal and Idea screens never expose Action-only fields.
 - UI prompts, selections, SQL, and internal tool-result payloads are not persona dialogue. The final generated outcome after the approval queue is resolved becomes the assistant history record.
 
 ## Sessions and subsessions

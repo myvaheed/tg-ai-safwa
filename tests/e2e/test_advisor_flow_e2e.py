@@ -11,7 +11,9 @@ from safwa.ai.provider import ProviderToolCall, ProviderTurn
 from safwa.ai.service import AIOutcome, ProposalService
 from safwa.analytics import render_retrospective_png, retrospective_data
 from safwa.domain import (
+    DomainError,
     StaleStateError,
+    create_card,
     create_saved_request,
     finish_action,
     finish_sprint,
@@ -20,15 +22,13 @@ from safwa.domain import (
     start_sprint,
     utcnow,
 )
-from safwa.drafts import DraftService
-from safwa.enums import CardStage, DraftStatus
+from safwa.enums import CardStage
 from safwa.models import (
     AgentRun,
     AgentStep,
     CallbackToken,
     Card,
     CardCategory,
-    CardDraft,
     CardEnergyType,
     CardTag,
     CardValue,
@@ -50,16 +50,13 @@ async def create_manual_card(session, **overrides) -> Card:
     payload = {
         "title": "Action",
         "kind": "action",
-        "root_confirmed": True,
         "stage": "backlog",
         "effort_points": 3,
     }
     payload.update(overrides)
-    drafts = DraftService(session)
-    bundle = await drafts.create_bundle("manual", [payload])
-    draft = (await drafts.get_bundle_drafts(bundle.id))[0]
-    await drafts.mark_reviewed(draft.id)
-    return (await drafts.commit_bundle(bundle.id))[0]
+    payload.pop("root_confirmed", None)
+    payload.pop("expected_parent_version", None)
+    return await create_card(session, **payload)
 
 
 def mutation_turn(*calls: tuple[str, dict[str, object]]) -> ProviderTurn:
@@ -72,7 +69,7 @@ def mutation_turn(*calls: tuple[str, dict[str, object]]) -> ProviderTurn:
     )
 
 
-async def test_ai_parent_query_sql_resolves_before_draft_review(e2e_harness):
+async def test_ai_parent_query_sql_resolves_before_card_proposal(e2e_harness):
     async with e2e_harness.sessions() as session:
         parent = await create_manual_card(
             session,
@@ -86,7 +83,7 @@ async def test_ai_parent_query_sql_resolves_before_draft_review(e2e_harness):
         (
             "card",
             {
-                "mode": "draft",
+                "mode": "create",
                 "kind": "action",
                 "title": "Применить новый дизайн",
                 "parent_query": (
@@ -101,20 +98,23 @@ async def test_ai_parent_query_sql_resolves_before_draft_review(e2e_harness):
     outcome = await advisor.handle("Создай экшен для идеи Реализовать новый Дизайн")
 
     async with e2e_harness.sessions() as session:
-        draft = (await DraftService(session).get_bundle_drafts(outcome.draft_bundle_ids[0]))[0]
-        assert draft.parent_id == parent.id
-        assert not any("parent" in error.casefold() for error in draft.validation_errors)
-        assert "parent_query" not in draft.field_provenance
+        change = await session.scalar(
+            select(ProposalChange).where(ProposalChange.proposal_id == outcome.proposal_id)
+        )
+        assert change.action == "create"
+        assert change.values["parent_id"] == parent.id
+        assert "parent_query" not in change.values
+        assert await session.scalar(select(func.count(Card.id))) == 1
 
 
-async def test_ai_parent_query_rejects_non_ai_card_sql_and_leaves_review_unresolved(
+async def test_ai_parent_query_rejects_non_ai_card_sql(
     e2e_harness,
 ):
     response = mutation_turn(
         (
             "card",
             {
-                "mode": "draft",
+                "mode": "create",
                 "kind": "action",
                 "title": "Unsafe parent lookup",
                 "parent_query": "SELECT id FROM cards WHERE title = 'Hidden table'",
@@ -124,16 +124,11 @@ async def test_ai_parent_query_rejects_non_ai_card_sql_and_leaves_review_unresol
     )
     advisor, _provider = e2e_harness.advisor([response])
 
-    outcome = await advisor.handle("Create an action under that parent")
-
-    async with e2e_harness.sessions() as session:
-        draft = (await DraftService(session).get_bundle_drafts(outcome.draft_bundle_ids[0]))[0]
-        assert draft.parent_id is None
-        assert "Parent query was invalid or unsafe" in draft.field_provenance["unresolved"]
-        assert any("parent" in error.casefold() for error in draft.validation_errors)
+    with pytest.raises(DomainError, match="Invalid parent query"):
+        await advisor.handle("Create an action under that parent")
 
 
-async def test_ai_card_review_to_repeat_sprint_and_retrospective(e2e_harness):
+async def test_ai_card_proposal_to_repeat_sprint_and_retrospective(e2e_harness):
     async with e2e_harness.sessions() as session:
         goal = await create_manual_card(
             session,
@@ -151,7 +146,7 @@ async def test_ai_card_review_to_repeat_sprint_and_retrospective(e2e_harness):
         (
             "card",
             {
-                "mode": "draft",
+                "mode": "create",
                 "kind": "action",
                 "title": "Push ups 30 times",
                 "parent_query": "SELECT id FROM ai_cards WHERE title = 'To be fit'",
@@ -160,6 +155,7 @@ async def test_ai_card_review_to_repeat_sprint_and_retrospective(e2e_harness):
                 "energy_types": ["physical"],
                 "value_query": "Fitness",
                 "tag_query": "Family",
+                "effort_points": 2,
             },
         )
     )
@@ -169,24 +165,17 @@ async def test_ai_card_review_to_repeat_sprint_and_retrospective(e2e_harness):
     )
 
     assert outcome.kind == "proposal"
-    assert len(outcome.draft_bundle_ids) == 1
-    assert outcome.proposal_id is None
+    assert outcome.proposal_id is not None
     assert len(provider.calls) == 1
     assert not provider.responses
 
-    bundle_id = outcome.draft_bundle_ids[0]
     async with e2e_harness.sessions() as session:
         assert await session.scalar(select(func.count(Card.id))) == 1
-        draft = (await DraftService(session).get_bundle_drafts(bundle_id))[0]
-        assert draft.status == DraftStatus.EDITING.value
-        assert draft.parent_id == goal.id
-        assert any("effort" in error.lower() for error in draft.validation_errors)
-
-        await DraftService(session).update(draft.id, effort_points=2)
-        await DraftService(session).mark_reviewed(draft.id)
-        action = (await DraftService(session).commit_bundle(bundle_id))[0]
+        affected = await ProposalService(session).apply(outcome.proposal_id)
         await session.commit()
+        action = await session.get(Card, affected[0])
 
+        assert action is not None
         assert action.title == "Push ups 30 times"
         assert action.parent_id == goal.id
         assert action.repeatable is True
@@ -306,54 +295,58 @@ async def test_ai_read_query_round_trip_uses_safe_view(e2e_harness):
         assert set(step.metadata_json["columns"]) == {"committed", "completed"}
 
 
-async def test_multi_card_ai_bundle_is_reviewed_and_committed_atomically(e2e_harness):
+async def test_multiple_ai_card_creations_are_reviewed_sequentially(e2e_harness):
     response = mutation_turn(
-        ("card", {"mode": "draft", "kind": "goal", "title": "Read more", "draft_ref": "goal"}),
+        ("card", {"mode": "create", "kind": "goal", "title": "Read more"}),
         (
             "card",
             {
-                "mode": "draft",
+                "mode": "create",
                 "kind": "action",
                 "title": "Read ten pages",
                 "effort_points": 2,
-                "draft_ref": "read",
-                "parent_draft_ref": "goal",
             },
         ),
         (
             "card",
             {
-                "mode": "draft",
+                "mode": "create",
                 "kind": "action",
                 "title": "Write reading notes",
                 "effort_points": 2,
-                "draft_ref": "notes",
-                "parent_draft_ref": "goal",
             },
         ),
     )
-    advisor, _provider = e2e_harness.advisor([response])
-    outcome = await advisor.handle("Create a reading goal with two supporting actions")
-    bundle_id = outcome.draft_bundle_ids[0]
+    advisor, provider = e2e_harness.advisor([response, "The three cards were reviewed."])
+    current = await advisor.handle("Create a reading goal and two actions")
+    proposal_ids: list[int] = []
 
-    async with e2e_harness.sessions() as session:
-        assert await session.scalar(select(func.count(Card.id))) == 0
-        drafts = await DraftService(session).get_bundle_drafts(bundle_id)
-        assert len(drafts) == 3
-        for draft in drafts:
-            await DraftService(session).mark_reviewed(draft.id)
-        cards = await DraftService(session).commit_bundle(bundle_id)
-        await session.commit()
-
-        assert len(cards) == 3
-        goal = next(card for card in cards if card.kind == "goal")
-        actions = [card for card in cards if card.kind == "action"]
-        assert {action.parent_id for action in actions} == {goal.id}
-        assert await session.scalar(select(func.count(CardDraft.id))) == 3
-        assert all(
-            draft.status == DraftStatus.COMMITTED.value
-            for draft in await DraftService(session).get_bundle_drafts(bundle_id)
+    for _ in range(3):
+        assert current.proposal_id is not None
+        proposal_ids.append(current.proposal_id)
+        async with e2e_harness.sessions() as session:
+            affected = await ProposalService(session).apply(current.proposal_id)
+            await session.commit()
+        current = await advisor.resolve_approval(
+            "proposal",
+            proposal_ids[-1],
+            decision="approved",
+            result={"affected_ids": affected},
+            dialogue=[DialogueMessage(role="user", content="[Initial request]: Create cards")],
         )
+        assert current is not None
+
+    assert len(set(proposal_ids)) == 3
+    assert current.kind == "answer"
+    assert "The three cards were reviewed." in current.message
+    assert len(provider.calls) == 2
+    async with e2e_harness.sessions() as session:
+        cards = list(await session.scalars(select(Card).order_by(Card.id)))
+        assert [card.title for card in cards] == [
+            "Read more",
+            "Read ten pages",
+            "Write reading notes",
+        ]
 
 
 async def test_ai_creates_an_approved_saved_tag_request(e2e_harness):

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import html
-import json
 import logging
 import secrets
 from collections.abc import Awaitable, Callable
@@ -38,6 +37,8 @@ from .domain import (
     archive_subtree,
     archive_tag,
     archive_value,
+    card_progress,
+    create_card,
     create_tag,
     create_value,
     delete_subtree,
@@ -45,14 +46,12 @@ from .domain import (
     finish_action,
     finish_sprint,
     move_card,
-    set_card_parent,
     set_feedback,
     set_value_focus,
     snooze_reminders,
     sprint_metrics,
     start_sprint,
     toggle_card_category,
-    toggle_card_dependency,
     toggle_card_energy_type,
     toggle_card_tag,
     toggle_card_value,
@@ -61,12 +60,10 @@ from .domain import (
     update_tag_fields,
     update_value_fields,
 )
-from .drafts import DraftService
 from .enums import (
     CardKind,
     CardStage,
     Category,
-    DraftStatus,
     EnergyType,
     MessageKind,
     Priority,
@@ -83,9 +80,6 @@ from .models import (
     CallbackToken,
     Card,
     CardCategory,
-    CardDependency,
-    CardDraft,
-    CardDraftBundle,
     CardEnergyType,
     CardTag,
     CardValue,
@@ -342,158 +336,11 @@ def proposal_change_summary(change: ProposalChange) -> str:
     return f"{change.action.title()} {change.entity.title()}{target}{suffix}"
 
 
-def _draft_list(values: list[object]) -> str:
-    return ", ".join(html.escape(str(value)) for value in values) or "—"
-
-
-def _draft_provenance(value: object) -> str:
-    if isinstance(value, str):
-        return value
-    try:
-        return json.dumps(value, ensure_ascii=False, sort_keys=True)
-    except TypeError:
-        return repr(value)
-
-
-async def card_draft_discard_summary(session: AsyncSession, draft: CardDraft) -> str:
-    """Render every user-visible field of one proposed Card before discarding it."""
-    from .models import DraftCategory, DraftDependency, DraftEnergyType, DraftTag, DraftValue
-
-    parent_text: str
-    if draft.parent_draft_id is not None:
-        parent_draft = await session.get(CardDraft, draft.parent_draft_id)
-        parent_text = (
-            f"{parent_draft.title or '(untitled)'} (proposed {parent_draft.kind.title()})"
-            if parent_draft is not None
-            else f"Missing proposed card #{draft.parent_draft_id}"
-        )
-    elif draft.parent_id is not None:
-        parent = await session.get(Card, draft.parent_id)
-        parent_text = parent.title if parent is not None else f"Missing card #{draft.parent_id}"
-    else:
-        parent_text = "Root" if draft.root_confirmed else "Unresolved"
-
-    categories = list(
-        await session.scalars(
-            select(DraftCategory.category)
-            .where(DraftCategory.draft_id == draft.id)
-            .order_by(DraftCategory.category)
-        )
-    )
-    energies = list(
-        await session.scalars(
-            select(DraftEnergyType.energy_type)
-            .where(DraftEnergyType.draft_id == draft.id)
-            .order_by(DraftEnergyType.energy_type)
-        )
-    )
-    value_ids = list(
-        await session.scalars(select(DraftValue.value_id).where(DraftValue.draft_id == draft.id))
-    )
-    values = (
-        list(
-            await session.scalars(
-                select(Value.name).where(Value.id.in_(value_ids)).order_by(Value.name)
-            )
-        )
-        if value_ids
-        else []
-    )
-    tag_ids = list(
-        await session.scalars(select(DraftTag.tag_id).where(DraftTag.draft_id == draft.id))
-    )
-    tags = (
-        list(await session.scalars(select(Tag.name).where(Tag.id.in_(tag_ids)).order_by(Tag.name)))
-        if tag_ids
-        else []
-    )
-    dependencies = list(
-        await session.scalars(
-            select(DraftDependency)
-            .where(DraftDependency.draft_id == draft.id)
-            .order_by(DraftDependency.blocker_card_id)
-        )
-    )
-    blocker_ids = [dependency.blocker_card_id for dependency in dependencies]
-    blocker_cards = (
-        {
-            card.id: card
-            for card in await session.scalars(select(Card).where(Card.id.in_(blocker_ids)))
-        }
-        if blocker_ids
-        else {}
-    )
-    blockers = []
-    for dependency in dependencies:
-        blocker = blocker_cards.get(dependency.blocker_card_id)
-        label = (
-            blocker.title if blocker is not None else f"Missing card #{dependency.blocker_card_id}"
-        )
-        if dependency.copy_to_repeat:
-            label += " (copy to repeat)"
-        blockers.append(label)
-
-    assumptions = [
-        f"{field}: {_draft_provenance(value)}"
-        for field, value in sorted((draft.field_provenance or {}).items())
-        if field not in {"draft_ref", "unresolved"}
-    ]
-    validation = list(draft.validation_errors or [])
-
-    lines = [
-        f"• <b>Create {html.escape(draft.kind.title())}: "
-        f"{html.escape(draft.title or '(untitled)')}</b>",
-        f"Parent: {html.escape(parent_text)}",
-        f"Stage: {html.escape(draft.stage.title())}",
-        f"Note: {html.escape(draft.note or '—')}",
-        f"Priority: {html.escape(draft.priority.title())}",
-        f"Hard Time: {'Yes' if draft.hard_time else 'No'}",
-    ]
-    if draft.kind == CardKind.ACTION.value:
-        lines.extend(
-            [
-                f"Effort: {draft.effort_points if draft.effort_points is not None else 'Unresolved'}",
-                f"Repeatable: {'Yes' if draft.repeatable else 'No'}",
-                f"Categories: {_draft_list(categories)}",
-                f"Energy: {_draft_list(energies)}",
-            ]
-        )
-    lines.extend(
-        [
-            f"Values: {_draft_list(values)}",
-            f"Tags: {_draft_list(tags)}",
-            f"Blockers: {_draft_list(blockers)}",
-            f"AI assumptions: {_draft_list(assumptions)}",
-            f"Unresolved / validation: {_draft_list(validation)}",
-        ]
-    )
-    return "\n".join(lines)
-
-
-async def discarded_card_bundle_message(
-    session: AsyncSession,
-    drafts: list[CardDraft],
-    *,
-    continued_conversation: bool,
-) -> str:
-    details = [
-        await card_draft_discard_summary(session, draft)
-        for draft in drafts
-        if draft.status not in {DraftStatus.COMMITTED.value, DraftStatus.DISCARDED.value}
-    ]
-    reason = (
-        "You continued the conversation without saving it."
-        if continued_conversation
-        else "Nothing was saved."
-    )
-    return "<b>Proposal discarded</b>\n" + reason + "\n\n" + "\n\n".join(details)
-
-
 async def dismiss_prior_ui(message: Message, services: Services) -> None:
     """Ensure an interaction screen is never left active above new dialogue."""
     ui_kinds = {
         MessageKind.DASHBOARD.value,
-        MessageKind.DRAFT_REVIEW.value,
+        MessageKind.CARD_EDITOR.value,
         MessageKind.APPROVAL.value,
     }
     async with services.sessions() as session:
@@ -511,7 +358,6 @@ async def dismiss_prior_ui(message: Message, services: Services) -> None:
         )
 
     resolved_proposals: set[int] = set()
-    resolved_bundles: set[int] = set()
     for screen in screens:
         replacement: str | None = None
         if screen.kind == MessageKind.APPROVAL.value and screen.related_id:
@@ -541,35 +387,6 @@ async def dismiss_prior_ui(message: Message, services: Services) -> None:
                         await advisor.cancel_approval_for_target("proposal", proposal.id)
                 elif screen.related_id in resolved_proposals:
                     replacement = None
-        elif screen.kind == MessageKind.DRAFT_REVIEW.value and screen.related_id:
-            async with services.sessions() as session:
-                draft = await session.get(CardDraft, screen.related_id)
-                bundle = (
-                    await session.get(CardDraftBundle, draft.bundle_id)
-                    if draft is not None
-                    else None
-                )
-                if (
-                    bundle is not None
-                    and bundle.origin == "ai"
-                    and bundle.status not in {"committed", "discarded", "expired"}
-                ):
-                    draft_service = DraftService(session)
-                    drafts = await draft_service.get_bundle_drafts(bundle.id)
-                    replacement = await discarded_card_bundle_message(
-                        session,
-                        drafts,
-                        continued_conversation=True,
-                    )
-                    await draft_service.discard_bundle(bundle.id)
-                    await session.commit()
-                    resolved_bundles.add(bundle.id)
-                    advisor = getattr(services, "advisor", None)
-                    if advisor is not None:
-                        await advisor.cancel_approval_for_target("draft_bundle", bundle.id)
-                elif bundle is not None and bundle.id in resolved_bundles:
-                    replacement = None
-
         if replacement is not None:
             try:
                 await message.bot.edit_message_text(
@@ -641,7 +458,6 @@ def menu_markup() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="➕ Add", callback_data="nav:add"),
             ],
             [
-                InlineKeyboardButton(text="📝 Drafts", callback_data="nav:drafts"),
                 InlineKeyboardButton(text="💎 Values", callback_data="nav:values"),
                 InlineKeyboardButton(text="🏷 Tags", callback_data="nav:tags"),
             ],
@@ -752,6 +568,7 @@ async def render_dashboard(
             await session.scalars(
                 select(Card).where(
                     Card.effective_stage == stage.value,
+                    Card.kind == CardKind.ACTION.value,
                     Card.archived_at.is_(None),
                 )
             )
@@ -764,14 +581,6 @@ async def render_dashboard(
         rows: list[list[InlineKeyboardButton]] = []
         descriptions: list[str] = []
         for card in visible:
-            blocker_count = int(
-                await session.scalar(
-                    select(func.count())
-                    .select_from(CardDependency)
-                    .where(CardDependency.blocked_card_id == card.id)
-                )
-                or 0
-            )
             metadata = [
                 card.kind.title(),
                 card.priority.title(),
@@ -781,8 +590,8 @@ async def render_dashboard(
                 metadata.append("Hard time")
             if card.repeatable:
                 metadata.append("Repeat")
-            if blocker_count:
-                metadata.append(f"{blocker_count} blocker{'s' if blocker_count != 1 else ''}")
+            if card.blocked:
+                metadata.append("Blocked")
             label = f"{card.title} · {' · '.join(metadata)}"
             descriptions.append(f"• {label}")
             rows.append(
@@ -842,250 +651,198 @@ async def render_dashboard(
     )
 
 
-async def draft_review_markup(
-    session: AsyncSession, services: Services, draft: CardDraft
-) -> InlineKeyboardMarkup:
-    fields = [
-        ("🧩 Kind", "draft_choose_kind", {"id": draft.id}),
-        ("✏️ Title", "draft_edit_text", {"id": draft.id, "field": "title"}),
-        ("🌳 Parent", "draft_choose_parent", {"id": draft.id}),
-        ("📍 Stage", "draft_choose_stage", {"id": draft.id}),
-        ("📝 Note", "draft_edit_text", {"id": draft.id, "field": "note"}),
-        ("⚠️ Priority", "draft_choose_priority", {"id": draft.id}),
-        ("⏱ Hard Time", "draft_toggle", {"id": draft.id, "field": "hard_time"}),
-        ("🔢 Effort", "draft_choose_effort", {"id": draft.id}),
-        ("🔁 Repeat", "draft_toggle", {"id": draft.id, "field": "repeatable"}),
-        ("🏷 Categories", "draft_choose_categories", {"id": draft.id}),
-        ("⚡ Energy", "draft_choose_energy", {"id": draft.id}),
-        ("💎 Values", "draft_choose_values", {"id": draft.id}),
-        ("🏷 Tags", "draft_choose_tags", {"id": draft.id}),
-        ("🚧 Blockers", "draft_choose_blockers", {"id": draft.id}),
-    ]
-    if draft.kind != CardKind.ACTION.value:
-        action_only = {
-            "draft_choose_effort",
-            "draft_choose_categories",
-            "draft_choose_energy",
-        }
-        fields = [
-            field
-            for field in fields
-            if field[1] not in action_only
-            and not (field[1] == "draft_toggle" and field[2].get("field") == "repeatable")
-        ]
-    buttons = [await token_button(session, services.owner_id, *item) for item in fields]
-    rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
-    bundle_drafts = list(
-        await session.scalars(
-            select(CardDraft)
-            .where(
-                CardDraft.bundle_id == draft.bundle_id,
-                CardDraft.status != DraftStatus.DISCARDED.value,
-            )
-            .order_by(CardDraft.created_at, CardDraft.id)
+def _new_card_creation_state() -> dict[str, Any]:
+    return {
+        "kind": CardKind.ACTION.value,
+        "title": "",
+        "note": "",
+        "stage": CardStage.BACKLOG.value,
+        "priority": Priority.MEDIUM.value,
+        "hard_time": False,
+        "blocked": False,
+        "blocked_description": "",
+        "effort_points": None,
+        "repeatable": False,
+        "categories": [],
+        "energy_types": [],
+        "value_ids": [],
+        "tag_ids": [],
+    }
+
+
+def _sanitize_card_creation_state(state: dict[str, Any]) -> dict[str, Any]:
+    clean = {**_new_card_creation_state(), **state}
+    try:
+        clean["kind"] = CardKind(clean["kind"]).value
+    except ValueError:
+        clean["kind"] = CardKind.ACTION.value
+    try:
+        clean["stage"] = CardStage(clean["stage"]).value
+    except ValueError:
+        clean["stage"] = CardStage.BACKLOG.value
+    if clean["stage"] in {CardStage.DONE.value, CardStage.CANCELLED.value}:
+        clean["stage"] = CardStage.BACKLOG.value
+    if clean["kind"] != CardKind.ACTION.value:
+        clean.update(
+            effort_points=None,
+            repeatable=False,
+            categories=[],
+            energy_types=[],
         )
-    )
-    bundle = await session.get(CardDraftBundle, draft.bundle_id)
-    ai_origin = bundle is not None and bundle.origin == "ai"
-    if len(bundle_drafts) == 1 and not draft.validation_errors:
-        rows.append(
+    if not clean["blocked"]:
+        clean["blocked_description"] = ""
+    for field in ("categories", "energy_types", "value_ids", "tag_ids"):
+        clean[field] = list(dict.fromkeys(clean.get(field) or []))
+    return clean
+
+
+def _card_creation_errors(state: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if not str(state.get("title", "")).strip():
+        errors.append("Add a title")
+    if state["kind"] == CardKind.ACTION.value and state.get("effort_points") not in {
+        1,
+        2,
+        3,
+        5,
+        8,
+        13,
+    }:
+        errors.append("Choose Action effort: 1, 2, 3, 5, 8, or 13")
+    if state.get("blocked") and not str(state.get("blocked_description", "")).strip():
+        errors.append("Describe why the Card is blocked")
+    return errors
+
+
+async def card_creation_markup(
+    session: AsyncSession, services: Services, state: dict[str, Any]
+) -> InlineKeyboardMarkup:
+    fields: list[tuple[str, str, dict[str, Any]]] = [
+        ("🧩 Kind", "card_create_choose_kind", {}),
+        ("✏️ Title", "card_create_edit_text", {"field": "title"}),
+        ("📍 Stage", "card_create_choose_stage", {}),
+        ("📝 Note", "card_create_edit_text", {"field": "note"}),
+        ("⚠️ Priority", "card_create_choose_priority", {}),
+        ("⏱ Hard Time", "card_create_toggle", {"field": "hard_time"}),
+        ("🚧 Blocked", "card_create_toggle", {"field": "blocked"}),
+    ]
+    if state.get("blocked"):
+        fields.append(
+            (
+                "📝 Blocked reason",
+                "card_create_edit_text",
+                {"field": "blocked_description"},
+            )
+        )
+    if state["kind"] == CardKind.ACTION.value:
+        fields.extend(
             [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "✅ Save" if ai_origin else "✅ Create",
-                    "draft_commit",
-                    {"id": draft.id},
-                )
+                ("🔢 Effort", "card_create_choose_effort", {}),
+                ("🔁 Repeat", "card_create_toggle", {"field": "repeatable"}),
+                ("🏷 Categories", "card_create_choose_categories", {}),
+                ("⚡ Energy", "card_create_choose_energy", {}),
             ]
         )
-    elif len(bundle_drafts) > 1:
-        position = next(i for i, item in enumerate(bundle_drafts) if item.id == draft.id)
-        navigation: list[InlineKeyboardButton] = []
-        if position:
-            navigation.append(
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "◀ Previous",
-                    "draft_view",
-                    {"id": bundle_drafts[position - 1].id},
-                )
-            )
-        if position + 1 < len(bundle_drafts):
-            navigation.append(
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "Next ▶",
-                    "draft_view",
-                    {"id": bundle_drafts[position + 1].id},
-                )
-            )
-        if navigation:
-            rows.append(navigation)
-        if not draft.validation_errors and draft.reviewed_at is None:
-            rows.append(
-                [
-                    await token_button(
-                        session,
-                        services.owner_id,
-                        "✓ Mark reviewed",
-                        "draft_mark_reviewed",
-                        {"id": draft.id},
-                    )
-                ]
-            )
-        ready_to_commit = all(
-            item.reviewed_at is not None and not item.validation_errors for item in bundle_drafts
-        )
-        if ready_to_commit:
-            rows.append(
-                [
-                    await token_button(
-                        session,
-                        services.owner_id,
-                        (
-                            f"✅ Save all {len(bundle_drafts)}"
-                            if ai_origin
-                            else f"✅ Create all {len(bundle_drafts)}"
-                        ),
-                        "bundle_commit",
-                        {"id": draft.bundle_id},
-                    )
-                ]
-            )
-    rows.append(
+    fields.extend(
         [
-            await token_button(
-                session, services.owner_id, "🗑 Discard", "draft_discard", {"id": draft.id}
-            )
+            ("💎 Values", "card_create_choose_values", {}),
+            ("🏷 Tags", "card_create_choose_tags", {}),
         ]
     )
-    if not ai_origin:
-        rows.append([InlineKeyboardButton(text="↩️ Back", callback_data="nav:drafts")])
+    buttons = [await token_button(session, services.owner_id, *field) for field in fields]
+    rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
+    if not _card_creation_errors(state):
+        rows.append(
+            [await token_button(session, services.owner_id, "✅ Save", "card_create_save")]
+        )
+    rows.append(
+        [await token_button(session, services.owner_id, "🗑 Discard", "card_create_discard")]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-async def render_draft(
+async def render_card_creation(
     message: Message,
     services: Services,
-    draft_id: int,
     *,
     replace_message_id: int | None = None,
 ) -> None:
     async with services.sessions() as session:
-        draft = await session.get(CardDraft, draft_id)
-        if draft is None:
+        editor = await session.scalar(
+            select(UiSession).where(
+                UiSession.owner_id == services.owner_id,
+                UiSession.kind == "card_create",
+            )
+        )
+        if editor is None:
             await send_registered(
-                message, services, "Draft no longer exists.", kind=MessageKind.ERROR
+                message,
+                services,
+                "Card creation is no longer active.",
+                kind=MessageKind.ERROR,
+                markup=menu_markup(),
             )
             return
-        await DraftService(session).validate(draft)
-        parent = await session.get(Card, draft.parent_id) if draft.parent_id else None
-        # Draft tag rows are read with explicit imports to keep committed and draft data isolated.
-        from .models import DraftCategory, DraftDependency, DraftEnergyType, DraftTag, DraftValue
-
-        categories = list(
-            await session.scalars(
-                select(DraftCategory.category).where(DraftCategory.draft_id == draft.id)
-            )
-        )
-        energies = list(
-            await session.scalars(
-                select(DraftEnergyType.energy_type).where(DraftEnergyType.draft_id == draft.id)
-            )
-        )
-        value_ids = list(
-            await session.scalars(
-                select(DraftValue.value_id).where(DraftValue.draft_id == draft.id)
-            )
-        )
+        state = _sanitize_card_creation_state(dict(editor.state or {}))
+        editor.state = state
+        value_ids = list(state["value_ids"])
+        tag_ids = list(state["tag_ids"])
         values = (
             list(await session.scalars(select(Value).where(Value.id.in_(value_ids))))
             if value_ids
             else []
         )
-        tag_ids = list(
-            await session.scalars(select(DraftTag.tag_id).where(DraftTag.draft_id == draft.id))
-        )
         tags = (
-            list(await session.scalars(select(Tag).where(Tag.id.in_(tag_ids)))) if tag_ids else []
-        )
-        blocker_ids = list(
-            await session.scalars(
-                select(DraftDependency.blocker_card_id).where(DraftDependency.draft_id == draft.id)
-            )
-        )
-        blockers = (
-            list(await session.scalars(select(Card).where(Card.id.in_(blocker_ids))))
-            if blocker_ids
+            list(await session.scalars(select(Tag).where(Tag.id.in_(tag_ids))))
+            if tag_ids
             else []
         )
-        markup = await draft_review_markup(session, services, draft)
-        await session.commit()
-        errors = "\n".join(f"⚠️ {html.escape(error)}" for error in draft.validation_errors)
-        action_details = ""
-        if draft.kind == CardKind.ACTION.value:
-            action_details = (
-                f"Effort: {draft.effort_points or 'Unresolved'}\n"
-                f"Repeatable: {'Yes' if draft.repeatable else 'No'}\n"
-                f"Categories: {', '.join(categories) or '—'}\n"
-                f"Energy: {', '.join(energies) or '—'}\n"
-            )
-        text = (
-            "<b>Review card draft</b>\n"
-            f"Kind: {draft.kind.title()}\n"
-            f"Title: <b>{html.escape(draft.title or '—')}</b>\n"
-            f"Parent: {html.escape(parent.title if parent else ('Root' if draft.root_confirmed else 'Unresolved'))}\n"
-            f"Stage: {draft.stage.title()}\n"
-            f"Note: {html.escape(draft.note or '—')}\n"
-            f"Priority: {draft.priority.title()} · Hard Time: {'Yes' if draft.hard_time else 'No'}\n"
-            f"{action_details}"
-            f"Values: {', '.join(value.name for value in values) or '—'}\n"
-            f"Tags: {', '.join(tag.name for tag in tags) or '—'}\n"
-            f"Blockers: {', '.join(card.title for card in blockers) or '—'}"
-        )
+        display = {
+            **state,
+            "value_names": [value.name for value in values],
+            "tag_names": [tag.name for tag in tags],
+        }
+        text = _card_overview_text(display, heading="Create Card")
+        errors = _card_creation_errors(state)
         if errors:
-            text += "\n\n" + errors
+            text += "\n\n" + "\n".join(f"⚠️ {html.escape(error)}" for error in errors)
+        markup = await card_creation_markup(session, services, state)
+        editor_id = editor.id
+        await session.commit()
     if replace_message_id is not None:
         await edit_registered_message(
             message,
             services,
             replace_message_id,
             text,
-            kind=MessageKind.DRAFT_REVIEW,
+            kind=MessageKind.CARD_EDITOR,
             markup=markup,
-            related_id=draft_id,
+            related_id=editor_id,
         )
     else:
         await send_registered(
             message,
             services,
             text,
-            kind=MessageKind.DRAFT_REVIEW,
+            kind=MessageKind.CARD_EDITOR,
             markup=markup,
-            related_id=draft_id,
+            related_id=editor_id,
         )
 
 
-async def start_manual_draft(message: Message, services: Services) -> None:
+async def start_manual_card_creation(message: Message, services: Services) -> None:
     async with services.sessions() as session:
-        bundle = await DraftService(session).create_bundle(
-            "manual",
-            [
-                {
-                    "kind": CardKind.ACTION.value,
-                    "title": "",
-                    "root_confirmed": True,
-                    "stage": CardStage.BACKLOG.value,
-                }
-            ],
+        await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
+        session.add(
+            UiSession(
+                owner_id=services.owner_id,
+                kind="card_create",
+                state=_new_card_creation_state(),
+                expires_at=datetime.now(UTC) + timedelta(hours=24),
+            )
         )
-        draft_id = bundle.active_draft_id
         await session.commit()
-    if draft_id:
-        await render_draft(message, services, draft_id)
+    await render_card_creation(message, services)
 
 
 @router.message(Command("start"))
@@ -1245,47 +1002,7 @@ async def command_sprint(message: Message, services: Services) -> None:
 
 
 async def command_add(message: Message, services: Services) -> None:
-    await start_manual_draft(message, services)
-
-
-@router.message(Command("drafts"))
-async def command_drafts(message: Message, services: Services) -> None:
-    async with services.sessions() as session:
-        drafts = list(
-            await session.scalars(
-                select(CardDraft)
-                .where(
-                    CardDraft.status.in_(
-                        [
-                            DraftStatus.EDITING.value,
-                            DraftStatus.READY.value,
-                            DraftStatus.REVIEWED.value,
-                        ]
-                    )
-                )
-                .order_by(CardDraft.updated_at.desc())
-            )
-        )
-        rows = [
-            [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    draft.title or "Untitled",
-                    "draft_view",
-                    {"id": draft.id},
-                )
-            ]
-            for draft in drafts[:20]
-        ]
-        await session.commit()
-    await send_registered(
-        message,
-        services,
-        f"<b>Drafts</b> · {len(drafts)} pending",
-        kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=rows + [menu_row()]),
-    )
+    await start_manual_card_creation(message, services)
 
 
 @router.message(Command("advisor"))
@@ -1885,14 +1602,6 @@ async def command_status(message: Message, services: Services) -> None:
     memory = await services.memory.sync()
     async with services.sessions() as session:
         workspace = await session.get(Workspace, 1)
-        drafts = (
-            await session.scalar(
-                select(func.count(CardDraft.id)).where(
-                    CardDraft.status.in_(["editing", "ready", "reviewed"])
-                )
-            )
-            or 0
-        )
         feedback = (
             await session.scalar(
                 select(func.count(FeedbackQueue.id)).where(FeedbackQueue.answered_at.is_(None))
@@ -1903,7 +1612,7 @@ async def command_status(message: Message, services: Services) -> None:
         message,
         services,
         f"<b>Status</b>\nMode: {workspace.mode}\nRevision: {workspace.revision}\n"
-        f"Drafts: {drafts}\nFeedback: {feedback}\nMemory: {'OK' if memory.valid else 'ERROR'}",
+        f"Feedback: {feedback}\nMemory: {'OK' if memory.valid else 'ERROR'}",
         kind=MessageKind.DASHBOARD,
     )
 
@@ -1934,7 +1643,6 @@ async def navigation(callback: CallbackQuery, services: Services) -> None:
         "sprint": command_sprint,
         "backlog": command_backlog,
         "add": command_add,
-        "drafts": command_drafts,
         "values": command_values,
         "tags": command_tags,
         "requests": command_requests,
@@ -1942,6 +1650,10 @@ async def navigation(callback: CallbackQuery, services: Services) -> None:
         "retro": command_retro,
         "settings": command_settings,
     }
+    if action != "add":
+        async with services.sessions() as session:
+            await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
+            await session.commit()
     await handlers[action](callback.message, services)
 
 
@@ -1965,7 +1677,7 @@ async def choice_screen(
         message,
         services,
         f"<b>{html.escape(title)}</b>",
-        kind=MessageKind.DRAFT_REVIEW,
+        kind=MessageKind.CARD_EDITOR,
         markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )
 
@@ -2184,8 +1896,160 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
                 kind=MessageKind.RECEIPT,
                 markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
             )
-        elif action == "draft_view":
-            await render_draft(callback.message, services, payload["id"])
+        elif action == "card_create_view":
+            async with services.sessions() as session:
+                editor = await session.scalar(
+                    select(UiSession).where(UiSession.owner_id == services.owner_id)
+                )
+                if editor is None:
+                    raise DomainError("Card creation is no longer active")
+                state = dict(editor.state or {})
+                state.pop("input_field", None)
+                state.pop("message_id", None)
+                editor.kind = "card_create"
+                editor.state = _sanitize_card_creation_state(state)
+                await session.commit()
+            await render_card_creation(callback.message, services)
+        elif action == "card_create_edit_text":
+            async with services.sessions() as session:
+                editor = await session.scalar(
+                    select(UiSession).where(
+                        UiSession.owner_id == services.owner_id,
+                        UiSession.kind == "card_create",
+                    )
+                )
+                if editor is None:
+                    raise DomainError("Card creation is no longer active")
+                state = dict(editor.state or {})
+                current = str(state.get(payload["field"]) or "")
+                state.update(input_field=payload["field"], message_id=callback.message.message_id)
+                editor.kind = "card_create_text"
+                editor.state = state
+                back = await token_button(
+                    session,
+                    services.owner_id,
+                    "↩️ Back",
+                    "card_create_view",
+                )
+                await session.commit()
+            await send_registered(
+                callback.message,
+                services,
+                f"<b>Current {html.escape(payload['field'].replace('_', ' '))}</b>: "
+                f"{html.escape(current or '—')}\n\n"
+                f"Set new {html.escape(payload['field'].replace('_', ' ').title())}",
+                kind=MessageKind.CARD_EDITOR,
+                markup=InlineKeyboardMarkup(inline_keyboard=[[back]]),
+            )
+        elif action == "card_create_toggle":
+            async with services.sessions() as session:
+                editor = await session.scalar(
+                    select(UiSession).where(
+                        UiSession.owner_id == services.owner_id,
+                        UiSession.kind == "card_create",
+                    )
+                )
+                if editor is None:
+                    raise DomainError("Card creation is no longer active")
+                state = dict(editor.state or {})
+                field = payload["field"]
+                state[field] = not bool(state.get(field))
+                editor.state = _sanitize_card_creation_state(state)
+                await session.commit()
+            await render_card_creation(callback.message, services)
+        elif action.startswith("card_create_choose_"):
+            await handle_card_creation_chooser(callback.message, services, action)
+        elif action == "card_create_set":
+            async with services.sessions() as session:
+                editor = await session.scalar(
+                    select(UiSession).where(
+                        UiSession.owner_id == services.owner_id,
+                        UiSession.kind == "card_create",
+                    )
+                )
+                if editor is None:
+                    raise DomainError("Card creation is no longer active")
+                state = dict(editor.state or {})
+                state[payload["field"]] = payload["value"]
+                editor.state = _sanitize_card_creation_state(state)
+                await session.commit()
+            await render_card_creation(callback.message, services)
+        elif action in {
+            "card_create_toggle_category",
+            "card_create_toggle_energy",
+            "card_create_toggle_value",
+            "card_create_toggle_tag",
+        }:
+            field_by_action = {
+                "card_create_toggle_category": ("categories", "value"),
+                "card_create_toggle_energy": ("energy_types", "value"),
+                "card_create_toggle_value": ("value_ids", "value_id"),
+                "card_create_toggle_tag": ("tag_ids", "tag_id"),
+            }
+            field, payload_key = field_by_action[action]
+            async with services.sessions() as session:
+                editor = await session.scalar(
+                    select(UiSession).where(
+                        UiSession.owner_id == services.owner_id,
+                        UiSession.kind == "card_create",
+                    )
+                )
+                if editor is None:
+                    raise DomainError("Card creation is no longer active")
+                state = dict(editor.state or {})
+                selected = set(state.get(field) or [])
+                selected.symmetric_difference_update({payload[payload_key]})
+                state[field] = sorted(selected)
+                editor.state = _sanitize_card_creation_state(state)
+                await session.commit()
+            await render_card_creation(callback.message, services)
+        elif action == "card_create_save":
+            async with services.sessions() as session:
+                editor = await session.scalar(
+                    select(UiSession).where(
+                        UiSession.owner_id == services.owner_id,
+                        UiSession.kind == "card_create",
+                    )
+                )
+                if editor is None:
+                    raise DomainError("Card creation is no longer active")
+                state = _sanitize_card_creation_state(dict(editor.state or {}))
+                errors = _card_creation_errors(state)
+                if errors:
+                    raise DomainError("Card is incomplete: " + "; ".join(errors))
+                card = await create_card(
+                    session,
+                    kind=state["kind"],
+                    title=state["title"],
+                    note=state["note"],
+                    stage=state["stage"],
+                    priority=state["priority"],
+                    hard_time=state["hard_time"],
+                    blocked=state["blocked"],
+                    blocked_description=state["blocked_description"],
+                    effort_points=state["effort_points"],
+                    repeatable=state["repeatable"],
+                    categories=set(state["categories"]),
+                    energy_types=set(state["energy_types"]),
+                    value_ids=set(state["value_ids"]),
+                    tag_ids=set(state["tag_ids"]),
+                )
+                await session.delete(editor)
+                await session.commit()
+            await send_registered(
+                callback.message,
+                services,
+                f"✅ Created <b>{html.escape(card.title)}</b>.",
+                kind=MessageKind.DIALOGUE_ASSISTANT,
+                related_id=card.id,
+            )
+        elif action == "card_create_discard":
+            async with services.sessions() as session:
+                await session.execute(
+                    delete(UiSession).where(UiSession.owner_id == services.owner_id)
+                )
+                await session.commit()
+            await command_start(callback.message, services)
         elif action == "dashboard_page":
             await render_dashboard(
                 callback.message,
@@ -2194,238 +2058,19 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
                 title=payload["title"],
                 page=int(payload["page"]),
             )
-        elif action == "draft_edit_text":
-            async with services.sessions() as session:
-                await session.execute(
-                    delete(UiSession).where(UiSession.owner_id == services.owner_id)
-                )
-                draft = await session.get(CardDraft, payload["id"])
-                if draft is None:
-                    raise DomainError("Draft does not exist")
-                session.add(
-                    UiSession(
-                        owner_id=services.owner_id,
-                        kind="draft_text",
-                        state={
-                            "draft_id": payload["id"],
-                            "field": payload["field"],
-                            "message_id": callback.message.message_id,
-                        },
-                        expires_at=datetime.now(UTC) + timedelta(minutes=30),
-                    )
-                )
-                back = await token_button(
-                    session,
-                    services.owner_id,
-                    "↩️ Back",
-                    "draft_view",
-                    {"id": payload["id"]},
-                )
-                await session.commit()
-            current = str(getattr(draft, payload["field"]) or "")
-            await send_registered(
-                callback.message,
-                services,
-                f"<b>Current {html.escape(payload['field'])}</b>: "
-                f"{html.escape(current or '—')}\n\n"
-                f"Set new {html.escape(payload['field'].title())}",
-                kind=MessageKind.DRAFT_REVIEW,
-                markup=InlineKeyboardMarkup(inline_keyboard=[[back]]),
-                related_id=payload["id"],
-            )
-        elif action == "draft_toggle":
-            async with services.sessions() as session:
-                draft = await session.get(CardDraft, payload["id"])
-                await DraftService(session).update(
-                    draft.id, **{payload["field"]: not getattr(draft, payload["field"])}
-                )
-                await session.commit()
-            await render_draft(callback.message, services, payload["id"])
-        elif action.startswith("draft_choose_"):
-            await handle_draft_chooser(callback.message, services, action, payload["id"])
-        elif action == "draft_set":
-            async with services.sessions() as session:
-                await DraftService(session).update(
-                    payload["id"], **{payload["field"]: payload["value"]}
-                )
-                await session.commit()
-            await render_draft(callback.message, services, payload["id"])
-        elif action == "draft_toggle_category":
-            async with services.sessions() as session:
-                from .models import DraftCategory
-
-                current = set(
-                    await session.scalars(
-                        select(DraftCategory.category).where(
-                            DraftCategory.draft_id == payload["id"]
-                        )
-                    )
-                )
-                value = Category(payload["value"])
-                current.symmetric_difference_update({value.value})
-                await DraftService(session).set_categories(
-                    payload["id"], {Category(v) for v in current}
-                )
-                await session.commit()
-            await render_draft(callback.message, services, payload["id"])
-        elif action == "draft_toggle_energy":
-            async with services.sessions() as session:
-                from .models import DraftEnergyType
-
-                current = set(
-                    await session.scalars(
-                        select(DraftEnergyType.energy_type).where(
-                            DraftEnergyType.draft_id == payload["id"]
-                        )
-                    )
-                )
-                value = EnergyType(payload["value"])
-                current.symmetric_difference_update({value.value})
-                await DraftService(session).set_energy_types(
-                    payload["id"], {EnergyType(v) for v in current}
-                )
-                await session.commit()
-            await render_draft(callback.message, services, payload["id"])
-        elif action == "draft_toggle_value":
-            async with services.sessions() as session:
-                await DraftService(session).toggle_value(payload["id"], payload["value_id"])
-                await session.commit()
-            await render_draft(callback.message, services, payload["id"])
-        elif action == "draft_toggle_tag":
-            async with services.sessions() as session:
-                await DraftService(session).toggle_tag(payload["id"], payload["tag_id"])
-                await session.commit()
-            await render_draft(callback.message, services, payload["id"])
-        elif action == "draft_toggle_blocker":
-            async with services.sessions() as session:
-                await DraftService(session).toggle_dependency(payload["id"], payload["card_id"])
-                await session.commit()
-            await render_draft(callback.message, services, payload["id"])
-        elif action == "draft_set_parent":
-            async with services.sessions() as session:
-                card = await session.get(Card, payload["parent_id"])
-                await DraftService(session).update(
-                    payload["id"],
-                    parent_id=card.id,
-                    root_confirmed=False,
-                )
-                await session.commit()
-            await render_draft(callback.message, services, payload["id"])
-        elif action == "draft_set_root":
-            async with services.sessions() as session:
-                await DraftService(session).update(
-                    payload["id"], parent_id=None, root_confirmed=True
-                )
-                await session.commit()
-            await render_draft(callback.message, services, payload["id"])
-        elif action == "draft_commit":
-            async with services.sessions() as session:
-                draft = await DraftService(session).mark_reviewed(payload["id"])
-                cards = await DraftService(session).commit_bundle(draft.bundle_id)
-                bundle_id = draft.bundle_id
-                await session.commit()
-            if await continue_agent_approval(
-                callback.message,
-                services,
-                "draft_bundle",
-                bundle_id,
-                decision="approved",
-                result={
-                    "created_card_ids": [card.id for card in cards],
-                    "created_titles": [card.title for card in cards],
-                },
-            ):
-                return
-            await send_registered(
-                callback.message,
-                services,
-                f"✅ Created <b>{html.escape(cards[0].title)}</b>.",
-                # This is a visible, meaningful assistant outcome, not an internal
-                # operation receipt. Keep it in the canonical Telegram dialogue.
-                kind=MessageKind.DIALOGUE_ASSISTANT,
-                related_id=cards[0].id,
-            )
-        elif action == "draft_mark_reviewed":
-            async with services.sessions() as session:
-                draft = await DraftService(session).mark_reviewed(payload["id"])
-                await session.commit()
-            await render_draft(callback.message, services, draft.id)
-        elif action == "bundle_commit":
-            async with services.sessions() as session:
-                cards = await DraftService(session).commit_bundle(payload["id"])
-                await session.commit()
-            if await continue_agent_approval(
-                callback.message,
-                services,
-                "draft_bundle",
-                payload["id"],
-                decision="approved",
-                result={
-                    "created_card_ids": [card.id for card in cards],
-                    "created_titles": [card.title for card in cards],
-                },
-            ):
-                return
-            await send_registered(
-                callback.message,
-                services,
-                f"✅ Created {len(cards)} reviewed cards.",
-                kind=MessageKind.DIALOGUE_ASSISTANT,
-            )
-        elif action == "draft_discard":
-            async with services.sessions() as session:
-                draft = await session.get(CardDraft, payload["id"])
-                title = draft.title if draft is not None else "card"
-                bundle = (
-                    await session.get(CardDraftBundle, draft.bundle_id)
-                    if draft is not None
-                    else None
-                )
-                discarded_message = None
-                if bundle is not None and bundle.origin == "ai":
-                    draft_service = DraftService(session)
-                    discarded = await draft_service.get_bundle_drafts(bundle.id)
-                    discarded_message = await discarded_card_bundle_message(
-                        session,
-                        discarded,
-                        continued_conversation=False,
-                    )
-                    await draft_service.discard_bundle(bundle.id)
-                else:
-                    await DraftService(session).discard(payload["id"])
-                await session.commit()
-            if bundle is not None and bundle.origin == "ai":
-                if await continue_agent_approval(
-                    callback.message,
-                    services,
-                    "draft_bundle",
-                    bundle.id,
-                    decision="discarded",
-                    result={"proposal": discarded_message or "Card draft discarded"},
-                ):
-                    return
-                await send_registered(
-                    callback.message,
-                    services,
-                    discarded_message or "<b>Proposal discarded</b>\nNothing was saved.",
-                    kind=MessageKind.DIALOGUE_ASSISTANT,
-                )
-                return
-            # Restore the normal menu in place. Its semantic kind is UI-only and
-            # must not replace the durable conversational receipt below.
-            await command_start(callback.message, services)
-            await send_registered(
-                callback.message,
-                services,
-                f"🗑 Discarded draft <b>{html.escape(title)}</b>.",
-                kind=MessageKind.DIALOGUE_ASSISTANT,
-                replace=False,
-            )
         elif action == "card_view":
             await render_card(
                 callback.message,
                 services,
                 payload["id"],
+                back=payload.get("back"),
+            )
+        elif action == "card_children":
+            await render_children(
+                callback.message,
+                services,
+                payload["id"],
+                page=int(payload.get("page", 0)),
                 back=payload.get("back"),
             )
         elif action == "card_back":
@@ -2440,6 +2085,21 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
                 )
             elif back["kind"] == "request":
                 await render_saved_request(callback.message, services, int(back["id"]))
+            elif back["kind"] == "card":
+                await render_card(
+                    callback.message,
+                    services,
+                    int(back["id"]),
+                    back=back.get("back"),
+                )
+            elif back["kind"] == "children":
+                await render_children(
+                    callback.message,
+                    services,
+                    int(back["id"]),
+                    page=int(back.get("page", 0)),
+                    back=back.get("back"),
+                )
             else:
                 await command_start(callback.message, services)
         elif action == "card_move":
@@ -2503,7 +2163,6 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
                 related_id=payload["id"],
             )
         elif action in {
-            "card_choose_parent",
             "card_choose_stage",
             "card_choose_priority",
             "card_choose_effort",
@@ -2525,6 +2184,46 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
                 card = await session.get(Card, payload["id"])
                 if card is None:
                     raise DomainError("Card does not exist")
+                if payload["field"] == "blocked" and not card.blocked:
+                    editor = await session.scalar(
+                        select(UiSession).where(UiSession.owner_id == services.owner_id)
+                    )
+                    back_state = (
+                        dict(editor.state.get("back", {}))
+                        if editor is not None and editor.kind == "card_editor"
+                        else {}
+                    )
+                    await session.execute(
+                        delete(UiSession).where(UiSession.owner_id == services.owner_id)
+                    )
+                    session.add(
+                        UiSession(
+                            owner_id=services.owner_id,
+                            kind="card_blocked_text",
+                            state={
+                                "card_id": card.id,
+                                "message_id": callback.message.message_id,
+                                "back": back_state,
+                            },
+                            expires_at=datetime.now(UTC) + timedelta(minutes=30),
+                        )
+                    )
+                    back_button = await token_button(
+                        session,
+                        services.owner_id,
+                        "↩️ Back",
+                        "card_view",
+                        {"id": card.id, "back": back_state},
+                    )
+                    await session.commit()
+                    await send_registered(
+                        callback.message,
+                        services,
+                        "<b>Mark Card as blocked</b>\n\nDescribe what is blocking it.",
+                        kind=MessageKind.CARD_EDITOR,
+                        markup=InlineKeyboardMarkup(inline_keyboard=[[back_button]]),
+                    )
+                    return
                 await update_card_fields(
                     session,
                     card.id,
@@ -2546,11 +2245,6 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
             await render_card_choices(
                 callback.message, services, "card_choose_energy", payload["id"]
             )
-        elif action == "card_set_parent":
-            async with services.sessions() as session:
-                await set_card_parent(session, payload["id"], payload.get("parent_id"))
-                await session.commit()
-            await render_card(callback.message, services, payload["id"])
         elif action == "card_choose_values":
             await render_card_choices(callback.message, services, action, payload["id"])
         elif action == "card_toggle_value":
@@ -2567,15 +2261,6 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
                 await toggle_card_tag(session, payload["id"], payload["tag_id"])
                 await session.commit()
             await render_card_choices(callback.message, services, "card_choose_tags", payload["id"])
-        elif action == "card_choose_blockers":
-            await render_card_choices(callback.message, services, action, payload["id"])
-        elif action == "card_toggle_blocker":
-            async with services.sessions() as session:
-                await toggle_card_dependency(session, payload["id"], payload["card_id"])
-                await session.commit()
-            await render_card_choices(
-                callback.message, services, "card_choose_blockers", payload["id"]
-            )
         elif action == "card_archive":
             async with services.sessions() as session:
                 count = len(await archive_subtree(session, payload["id"]))
@@ -2848,119 +2533,113 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
         )
 
 
-async def handle_draft_chooser(
-    message: Message, services: Services, action: str, draft_id: int
+async def handle_card_creation_chooser(
+    message: Message, services: Services, action: str
 ) -> None:
-    choices: list[tuple[str, str, dict[str, Any]]] = []
-    if action == "draft_choose_kind":
-        choices = [
-            (
-                value.title(),
-                "draft_set",
-                {"id": draft_id, "field": "kind", "value": value.value},
+    async with services.sessions() as session:
+        editor = await session.scalar(
+            select(UiSession).where(
+                UiSession.owner_id == services.owner_id,
+                UiSession.kind == "card_create",
             )
-            for value in CardKind
-        ]
-    elif action == "draft_choose_stage":
-        choices = [
-            (stage.title(), "draft_set", {"id": draft_id, "field": "stage", "value": stage.value})
-            for stage in [CardStage.BACKLOG, CardStage.SPRINT, CardStage.TODAY]
-        ]
-    elif action == "draft_choose_priority":
-        choices = [
-            (
-                value.title(),
-                "draft_set",
-                {"id": draft_id, "field": "priority", "value": value.value},
-            )
-            for value in Priority
-        ]
-    elif action == "draft_choose_effort":
-        choices = [
-            (str(value), "draft_set", {"id": draft_id, "field": "effort_points", "value": value})
-            for value in [1, 2, 3, 5, 8, 13]
-        ]
-    elif action == "draft_choose_categories":
-        choices = [
-            (value.title(), "draft_toggle_category", {"id": draft_id, "value": value.value})
-            for value in Category
-        ]
-    elif action == "draft_choose_energy":
-        choices = [
-            (value.title(), "draft_toggle_energy", {"id": draft_id, "value": value.value})
-            for value in EnergyType
-        ]
-    elif action == "draft_choose_parent":
-        async with services.sessions() as session:
-            cards = list(
-                await session.scalars(
-                    select(Card)
-                    .where(
-                        Card.kind != CardKind.ACTION.value,
-                        Card.archived_at.is_(None),
-                    )
-                    .limit(20)
+        )
+        if editor is None:
+            raise DomainError("Card creation is no longer active")
+        state = _sanitize_card_creation_state(dict(editor.state or {}))
+        choices: list[tuple[str, str, dict[str, Any]]] = []
+        if action == "card_create_choose_kind":
+            choices = [
+                (
+                    f"{'✓ ' if state['kind'] == value.value else ''}{value.value.title()}",
+                    "card_create_set",
+                    {"field": "kind", "value": value.value},
                 )
-            )
-        choices = [("Root", "draft_set_root", {"id": draft_id})] + [
-            (card.title, "draft_set_parent", {"id": draft_id, "parent_id": card.id})
-            for card in cards
-        ]
-    elif action == "draft_choose_values":
-        async with services.sessions() as session:
+                for value in CardKind
+            ]
+        elif action == "card_create_choose_stage":
+            choices = [
+                (
+                    f"{'✓ ' if state['stage'] == value.value else ''}{value.value.title()}",
+                    "card_create_set",
+                    {"field": "stage", "value": value.value},
+                )
+                for value in (CardStage.BACKLOG, CardStage.SPRINT, CardStage.TODAY)
+            ]
+        elif action == "card_create_choose_priority":
+            choices = [
+                (
+                    f"{'✓ ' if state['priority'] == value.value else ''}{value.value.title()}",
+                    "card_create_set",
+                    {"field": "priority", "value": value.value},
+                )
+                for value in Priority
+            ]
+        elif action == "card_create_choose_effort":
+            choices = [
+                (
+                    f"{'✓ ' if state['effort_points'] == value else ''}{value}",
+                    "card_create_set",
+                    {"field": "effort_points", "value": value},
+                )
+                for value in (1, 2, 3, 5, 8, 13)
+            ]
+        elif action == "card_create_choose_categories":
+            selected = set(state["categories"])
+            choices = [
+                (
+                    f"{'✓ ' if value.value in selected else ''}{value.value.title()}",
+                    "card_create_toggle_category",
+                    {"value": value.value},
+                )
+                for value in Category
+            ]
+        elif action == "card_create_choose_energy":
+            selected = set(state["energy_types"])
+            choices = [
+                (
+                    f"{'✓ ' if value.value in selected else ''}{value.value.title()}",
+                    "card_create_toggle_energy",
+                    {"value": value.value},
+                )
+                for value in EnergyType
+            ]
+        elif action == "card_create_choose_values":
+            selected = set(state["value_ids"])
             values = list(
                 await session.scalars(
                     select(Value).where(Value.archived_at.is_(None)).order_by(Value.name).limit(30)
                 )
             )
-        choices = [
-            (value.name, "draft_toggle_value", {"id": draft_id, "value_id": value.id})
-            for value in values
-        ]
-    elif action == "draft_choose_tags":
-        async with services.sessions() as session:
+            choices = [
+                (
+                    f"{'✓ ' if value.id in selected else ''}{value.name}",
+                    "card_create_toggle_value",
+                    {"value_id": value.id},
+                )
+                for value in values
+            ]
+        elif action == "card_create_choose_tags":
+            selected = set(state["tag_ids"])
             tags = list(
                 await session.scalars(
                     select(Tag).where(Tag.archived_at.is_(None)).order_by(Tag.name).limit(30)
                 )
             )
-        choices = [
-            (tag.name, "draft_toggle_tag", {"id": draft_id, "tag_id": tag.id}) for tag in tags
-        ]
-    elif action == "draft_choose_blockers":
-        async with services.sessions() as session:
-            cards = list(
-                await session.scalars(
-                    select(Card)
-                    .where(
-                        Card.archived_at.is_(None),
-                        Card.effective_stage.notin_(
-                            [CardStage.DONE.value, CardStage.CANCELLED.value]
-                        ),
-                    )
-                    .order_by(Card.title)
-                    .limit(30)
+            choices = [
+                (
+                    f"{'✓ ' if tag.id in selected else ''}{tag.name}",
+                    "card_create_toggle_tag",
+                    {"tag_id": tag.id},
                 )
-            )
-        choices = [
-            (card.title, "draft_toggle_blocker", {"id": draft_id, "card_id": card.id})
-            for card in cards
-        ]
-    if not choices:
-        await choice_screen(
-            message,
-            services,
-            "No available choices.",
-            [],
-            back=("↩️ Back", "draft_view", {"id": draft_id}),
-        )
-        return
+                for tag in tags
+            ]
+        await session.commit()
     await choice_screen(
         message,
         services,
         "Choose",
         choices,
-        back=("↩️ Back", "draft_view", {"id": draft_id}),
+        back=("↩️ Back", "card_create_view", {}),
     )
 
 
@@ -2969,7 +2648,7 @@ async def render_card_choices(
 ) -> None:
     """Render relationship selectors for an already committed Card.
 
-    These selectors deliberately mirror their draft counterparts while routing every
+    These selectors route every mutation through the domain layer while remaining
     mutation through the domain layer.  They are kept outside the persona dialogue.
     """
     choices: list[tuple[str, str, dict[str, Any]]] = []
@@ -3037,30 +2716,6 @@ async def render_card_choices(
                 for energy in EnergyType
             ]
             title = "Energy"
-        elif action == "card_choose_parent":
-            candidates = list(
-                await session.scalars(
-                    select(Card)
-                    .where(
-                        Card.id != card.id,
-                        Card.kind != CardKind.ACTION.value,
-                        Card.archived_at.is_(None),
-                    )
-                    .order_by(Card.title)
-                    .limit(30)
-                )
-            )
-            root_label = "✓ Root" if card.parent_id is None else "Root"
-            choices = [(root_label, "card_set_parent", {"id": card.id, "parent_id": None})]
-            choices.extend(
-                (
-                    f"{'✓ ' if candidate.id == card.parent_id else ''}{candidate.title}",
-                    "card_set_parent",
-                    {"id": card.id, "parent_id": candidate.id},
-                )
-                for candidate in candidates
-            )
-            title = "Choose parent"
         elif action == "card_choose_values":
             selected_ids = set(
                 await session.scalars(
@@ -3099,31 +2754,6 @@ async def render_card_choices(
                 for tag in tags
             ]
             title = "Tags"
-        elif action == "card_choose_blockers":
-            selected_ids = set(
-                await session.scalars(
-                    select(CardDependency.blocker_card_id).where(
-                        CardDependency.blocked_card_id == card.id
-                    )
-                )
-            )
-            candidates = list(
-                await session.scalars(
-                    select(Card)
-                    .where(Card.id != card.id, Card.archived_at.is_(None))
-                    .order_by(Card.title)
-                    .limit(30)
-                )
-            )
-            choices = [
-                (
-                    f"{'✓ ' if candidate.id in selected_ids else ''}{candidate.title}",
-                    "card_toggle_blocker",
-                    {"id": card.id, "card_id": candidate.id},
-                )
-                for candidate in candidates
-            ]
-            title = "Blockers"
         else:
             raise DomainError("Unknown Card relationship selector")
         await session.commit()
@@ -3141,12 +2771,23 @@ def _card_overview_text(state: dict[str, Any], *, heading: str = "Card") -> str:
     lines = [
         f"Kind: {html.escape(kind.title())}",
         f"Title: <b>{html.escape(str(state.get('title') or '—'))}</b>",
-        f"Parent: {html.escape(str(state.get('parent_name') or 'Root'))}",
-        f"Stage: {html.escape(str(state.get('stage') or 'backlog').title())}",
-        f"Note: {html.escape(str(state.get('note') or '—'))}",
-        f"Priority: {html.escape(str(state.get('priority') or 'medium').title())} · Hard Time: "
-        f"{'Yes' if state.get('hard_time') else 'No'}",
     ]
+    if state.get("parent_name"):
+        lines.append(f"Parent: {html.escape(str(state['parent_name']))}")
+    lines.extend(
+        [
+            f"Stage: {html.escape(str(state.get('stage') or 'backlog').title())}",
+            f"Note: {html.escape(str(state.get('note') or '—'))}",
+            f"Priority: {html.escape(str(state.get('priority') or 'medium').title())} · "
+            f"Hard Time: {'Yes' if state.get('hard_time') else 'No'}",
+            f"Blocked: {'Yes' if state.get('blocked') else 'No'}",
+        ]
+    )
+    if state.get("blocked"):
+        lines.append(
+            "Blocked description: "
+            + html.escape(str(state.get("blocked_description") or "Required"))
+        )
     if kind == CardKind.ACTION.value:
         lines.extend(
             [
@@ -3156,14 +2797,128 @@ def _card_overview_text(state: dict[str, Any], *, heading: str = "Card") -> str:
                 f"Energy: {html.escape(', '.join(state.get('energy_types', [])) or '—')}",
             ]
         )
+    else:
+        lines.extend(
+            [
+                f"Effort: {state.get('completed_effort', 0)}/{state.get('total_effort', 0)} EP",
+                "Children: "
+                f"{state.get('completed_children', 0)}/{state.get('total_children', 0)} completed",
+            ]
+        )
     lines.extend(
         [
             f"Values: {html.escape(', '.join(state.get('value_names', [])) or '—')}",
             f"Tags: {html.escape(', '.join(state.get('tag_names', [])) or '—')}",
-            f"Blockers: {html.escape(', '.join(state.get('blocker_names', [])) or '—')}",
         ]
     )
     return f"<b>{html.escape(heading)}</b>\n" + "\n".join(lines)
+
+
+async def render_children(
+    message: Message,
+    services: Services,
+    parent_id: int,
+    *,
+    page: int = 0,
+    back: dict[str, Any] | None = None,
+) -> None:
+    back = back or {"kind": "home"}
+    priority_order = {
+        Priority.CRITICAL.value: 0,
+        Priority.MEDIUM.value: 1,
+        Priority.LOW.value: 2,
+    }
+    async with services.sessions() as session:
+        parent = await session.get(Card, parent_id)
+        if parent is None or parent.archived_at is not None:
+            raise DomainError("Parent Card does not exist or is archived")
+        children = list(
+            await session.scalars(
+                select(Card).where(
+                    Card.parent_id == parent.id,
+                    Card.archived_at.is_(None),
+                )
+            )
+        )
+        children.sort(
+            key=lambda card: (
+                not card.hard_time,
+                priority_order[card.priority],
+                card.created_at,
+            )
+        )
+        page_size = 5
+        max_page = max(0, (len(children) - 1) // page_size)
+        page = min(max(page, 0), max_page)
+        visible = children[page * page_size : (page + 1) * page_size]
+        rows: list[list[InlineKeyboardButton]] = []
+        for child in visible:
+            label = (
+                f"{child.kind.title()} · {child.title} · {child.effective_stage.title()}"
+            )
+            rows.append(
+                [
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        label[:60],
+                        "card_view",
+                        {
+                            "id": child.id,
+                            "back": {
+                                "kind": "children",
+                                "id": parent.id,
+                                "page": page,
+                                "back": back,
+                            },
+                        },
+                    )
+                ]
+            )
+        paging: list[InlineKeyboardButton] = []
+        if page > 0:
+            paging.append(
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "◀ Previous",
+                    "card_children",
+                    {"id": parent.id, "page": page - 1, "back": back},
+                )
+            )
+        if page < max_page:
+            paging.append(
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "Next ▶",
+                    "card_children",
+                    {"id": parent.id, "page": page + 1, "back": back},
+                )
+            )
+        if paging:
+            rows.append(paging)
+        rows.append(
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "↩️ Back",
+                    "card_view",
+                    {"id": parent.id, "back": back},
+                )
+            ]
+        )
+        await session.commit()
+    await send_registered(
+        message,
+        services,
+        f"<b>Children of {html.escape(parent.title)}</b> · "
+        f"{len(children)} total · page {page + 1}/{max_page + 1}",
+        kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        related_id=parent.id,
+    )
 
 
 async def render_card(
@@ -3206,18 +2961,6 @@ async def render_card(
             if direct_tag_ids
             else []
         )
-        blocker_ids = list(
-            await session.scalars(
-                select(CardDependency.blocker_card_id).where(
-                    CardDependency.blocked_card_id == card.id
-                )
-            )
-        )
-        blockers = (
-            list(await session.scalars(select(Card).where(Card.id.in_(blocker_ids))))
-            if blocker_ids
-            else []
-        )
         categories = list(
             await session.scalars(
                 select(CardCategory.category).where(CardCategory.card_id == card.id)
@@ -3231,11 +2974,19 @@ async def render_card(
         field_specs = [
             ("✏️ Title", "card_edit_text", {"id": card.id, "field": "title"}),
             ("📝 Note", "card_edit_text", {"id": card.id, "field": "note"}),
-            ("🌳 Parent", "card_choose_parent", {"id": card.id}),
             ("📍 Stage", "card_choose_stage", {"id": card.id}),
             ("⚠️ Priority", "card_choose_priority", {"id": card.id}),
             ("⏱ Hard Time", "card_toggle_field", {"id": card.id, "field": "hard_time"}),
+            ("🚧 Blocked", "card_toggle_field", {"id": card.id, "field": "blocked"}),
         ]
+        if card.blocked:
+            field_specs.append(
+                (
+                    "📝 Blocked reason",
+                    "card_edit_text",
+                    {"id": card.id, "field": "blocked_description"},
+                )
+            )
         if card.kind == CardKind.ACTION.value:
             field_specs.extend(
                 [
@@ -3253,11 +3004,39 @@ async def render_card(
             [
                 ("💎 Values", "card_choose_values", {"id": card.id}),
                 ("🏷 Tags", "card_choose_tags", {"id": card.id}),
-                ("🚧 Blockers", "card_choose_blockers", {"id": card.id}),
             ]
         )
         buttons = [await token_button(session, services.owner_id, *spec) for spec in field_specs]
         rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
+        relationship_rows: list[list[InlineKeyboardButton]] = []
+        if parent is not None:
+            relationship_rows.append(
+                [
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        f"🌳 Parent: {parent.title}"[:60],
+                        "card_view",
+                        {
+                            "id": parent.id,
+                            "back": {"kind": "card", "id": card.id, "back": back},
+                        },
+                    )
+                ]
+            )
+        if card.kind in {CardKind.GOAL.value, CardKind.IDEA.value}:
+            relationship_rows.append(
+                [
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        "👥 Children",
+                        "card_children",
+                        {"id": card.id, "page": 0, "back": back},
+                    )
+                ]
+            )
+        rows = relationship_rows + rows
         if card.kind == CardKind.ACTION.value and card.effective_stage not in {"done", "cancelled"}:
             rows.append(
                 [
@@ -3315,23 +3094,30 @@ async def render_card(
                 expires_at=datetime.now(UTC) + timedelta(minutes=30),
             )
         )
+        progress = (
+            await card_progress(session, card.id)
+            if card.kind in {CardKind.GOAL.value, CardKind.IDEA.value}
+            else {}
+        )
         await session.commit()
     text = _card_overview_text(
         {
             "kind": card.kind,
             "title": card.title,
-            "parent_name": parent.title if parent else "Root",
+            "parent_name": parent.title if parent else None,
             "stage": card.effective_stage,
             "note": card.note,
             "priority": card.priority,
             "hard_time": card.hard_time,
+            "blocked": card.blocked,
+            "blocked_description": card.blocked_description,
             "effort_points": card.effort_points,
             "repeatable": card.repeatable,
             "categories": categories,
             "energy_types": energy_types,
             "value_names": [value.name for value in direct_values],
             "tag_names": [tag.name for tag in direct_tags],
-            "blocker_names": [blocker.title for blocker in blockers],
+            **progress,
         }
     )
     markup = InlineKeyboardMarkup(inline_keyboard=rows)
@@ -3406,12 +3192,15 @@ async def _proposal_item_state(
         card = await session.get(Card, change.entity_id)
         if card is not None:
             current = {
+                "id": card.id,
                 "kind": card.kind,
                 "title": card.title,
                 "note": card.note,
                 "stage": card.effective_stage,
                 "priority": card.priority,
                 "hard_time": card.hard_time,
+                "blocked": card.blocked,
+                "blocked_description": card.blocked_description,
                 "effort_points": card.effort_points,
                 "repeatable": card.repeatable,
                 "parent_id": card.parent_id,
@@ -3432,13 +3221,6 @@ async def _proposal_item_state(
                 ),
                 "tag_ids": sorted(
                     await session.scalars(select(CardTag.tag_id).where(CardTag.card_id == card.id))
-                ),
-                "blocker_ids": sorted(
-                    await session.scalars(
-                        select(CardDependency.blocker_card_id).where(
-                            CardDependency.blocked_card_id == card.id
-                        )
-                    )
                 ),
             }
     elif change.entity == "tag" and change.entity_id:
@@ -3505,20 +3287,6 @@ async def _proposal_item_state(
                 proposed[plural_key] = sorted(target_ids)
         if unresolved_references:
             proposed["_unresolved_references"] = unresolved_references
-        if {"blocker_id", "blocker_ids"} & change.values.keys():
-            target_ids = {
-                int(item)
-                for item in (
-                    ([change.values["blocker_id"]] if change.values.get("blocker_id") else [])
-                    + list(change.values.get("blocker_ids") or [])
-                )
-            }
-            if change.action == "link":
-                proposed["blocker_ids"] = sorted(set(current.get("blocker_ids", [])) | target_ids)
-            elif change.action == "unlink":
-                proposed["blocker_ids"] = sorted(set(current.get("blocker_ids", [])) - target_ids)
-            else:
-                proposed["blocker_ids"] = sorted(target_ids)
     return current, proposed
 
 
@@ -3535,11 +3303,10 @@ async def _proposal_card_display_state(
 ) -> dict[str, Any]:
     display = dict(state)
     parent = await session.get(Card, state.get("parent_id")) if state.get("parent_id") else None
-    display["parent_name"] = parent.title if parent else "Root"
+    display["parent_name"] = parent.title if parent else None
     for ids_key, names_key, model, name_field in (
         ("value_ids", "value_names", Value, "name"),
         ("tag_ids", "tag_names", Tag, "name"),
-        ("blocker_ids", "blocker_names", Card, "title"),
     ):
         ids = list(state.get(ids_key) or [])
         entities = (
@@ -3547,6 +3314,11 @@ async def _proposal_card_display_state(
         )
         by_id = {entity.id: getattr(entity, name_field) for entity in entities}
         display[names_key] = [by_id[item_id] for item_id in ids if item_id in by_id]
+    if display.get("id") and display.get("kind") in {
+        CardKind.GOAL.value,
+        CardKind.IDEA.value,
+    }:
+        display.update(await card_progress(session, int(display["id"])))
     return display
 
 
@@ -3559,7 +3331,6 @@ async def _proposal_diff_value(session: AsyncSession, field: str, value: Any) ->
     relation_specs = {
         "value_ids": (Value, "name"),
         "tag_ids": (Tag, "name"),
-        "blocker_ids": (Card, "title"),
     }
     if field in relation_specs:
         model, name_field = relation_specs[field]
@@ -3586,13 +3357,14 @@ async def _proposal_card_diffs(
         "stage": "Stage",
         "priority": "Priority",
         "hard_time": "Hard Time",
+        "blocked": "Blocked",
+        "blocked_description": "Blocked Description",
         "effort_points": "Effort",
         "repeatable": "Repeatable",
         "categories": "Categories",
         "energy_types": "Energy",
         "value_ids": "Values",
         "tag_ids": "Tags",
-        "blocker_ids": "Blockers",
         "status": "Status",
     }
     diffs: list[str] = []
@@ -3707,15 +3479,6 @@ async def render_ai_outcome(
             html.escape(outcome.message),
             kind=MessageKind.DIALOGUE_ASSISTANT,
         )
-        return
-    if outcome.draft_bundle_ids:
-        bundle_id = outcome.draft_bundle_ids[0]
-        async with services.sessions() as session:
-            bundle = await session.get(CardDraftBundle, bundle_id)
-            draft_id = bundle.active_draft_id if bundle is not None else None
-        if draft_id is None:
-            raise DomainError("The queued Card draft is no longer available")
-        await render_draft(message, services, draft_id)
         return
     if outcome.proposal_id:
         await render_proposal(message, services, outcome.proposal_id)
@@ -3850,27 +3613,56 @@ async def ordinary_text(message: Message, services: Services) -> None:
             replace_message_id=message_id if input_deleted else None,
         )
         return
-    if ui_kind == "draft_text":
+    if ui_kind == "card_create_text":
         async with services.sessions() as session:
-            await DraftService(session).update(
-                ui_state["draft_id"], **{ui_state["field"]: message.text.strip()}
+            editor = await session.scalar(
+                select(UiSession).where(UiSession.owner_id == services.owner_id)
             )
-            await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
+            if editor is None:
+                raise DomainError("Card creation is no longer active")
+            state = dict(editor.state or {})
+            field = str(state.pop("input_field"))
+            message_id = int(state.pop("message_id"))
+            state[field] = message.text.strip()
+            editor.kind = "card_create"
+            editor.state = _sanitize_card_creation_state(state)
             await session.commit()
         input_deleted = await delete_text_input(message, services)
         if not input_deleted:
-            await clear_message_markup(message, int(ui_state["message_id"]))
-        await render_draft(
+            await clear_message_markup(message, message_id)
+        await render_card_creation(
             message,
             services,
-            ui_state["draft_id"],
-            replace_message_id=int(ui_state["message_id"]) if input_deleted else None,
+            replace_message_id=message_id if input_deleted else None,
         )
         return
     if ui_kind == "card_text":
         async with services.sessions() as session:
             value = message.text.strip()
             card = await edit_card_text(session, ui_state["card_id"], ui_state["field"], value)
+            await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
+            await session.commit()
+        input_deleted = await delete_text_input(message, services)
+        if not input_deleted:
+            await clear_message_markup(message, int(ui_state["message_id"]))
+        await render_card(
+            message,
+            services,
+            card.id,
+            replace_message_id=int(ui_state["message_id"]) if input_deleted else None,
+            back=dict(ui_state.get("back", {})),
+        )
+        return
+    if ui_kind == "card_blocked_text":
+        async with services.sessions() as session:
+            card = await update_card_fields(
+                session,
+                ui_state["card_id"],
+                {
+                    "blocked": True,
+                    "blocked_description": message.text.strip(),
+                },
+            )
             await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
             await session.commit()
         input_deleted = await delete_text_input(message, services)

@@ -267,13 +267,13 @@ async def test_qa_status_and_manual_card_review_flow(live_telegram_harness):
         await click_button(effort_prompt, "2", exact=True)
         ready_review = await qa.wait_for_existing_bot_message(
             effort_prompt.id,
-            lambda message: title in message.raw_text and has_button(message, "Create"),
+            lambda message: title in message.raw_text and has_button(message, "Save"),
         )
         assert ready_review.id == titled_review.id
-        await click_button(ready_review, "Create")
+        await click_button(ready_review, "Save")
         created = await qa.wait_for_existing_bot_message(
             ready_review.id,
-            lambda message: title in message.raw_text and not has_button(message, "Create"),
+            lambda message: title in message.raw_text and not has_button(message, "Save"),
         )
         assert created.id == titled_review.id
         assert title in created.raw_text
@@ -281,9 +281,6 @@ async def test_qa_status_and_manual_card_review_flow(live_telegram_harness):
         with sqlite3.connect(qa.database_path) as connection:
             assert connection.execute(
                 "SELECT COUNT(*) FROM cards WHERE title=?", (title,)
-            ).fetchone() == (1,)
-            assert connection.execute(
-                "SELECT COUNT(*) FROM card_drafts WHERE title=? AND status='committed'", (title,)
             ).fetchone() == (1,)
     finally:
         await qa.delete_test_messages()

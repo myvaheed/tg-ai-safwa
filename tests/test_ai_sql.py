@@ -7,8 +7,10 @@ from safwa.ai.sql import UnsafeQueryError, validate_read_sql
 
 
 def test_native_mutation_tools_become_typed_change_intents():
-    draft = CardToolInput(mode="draft", kind="action", title="Read one page", effort_points=1)
-    assert draft.kind == "action"
+    creation = CardToolInput(
+        mode="create", kind="action", title="Read one page", effort_points=1
+    )
+    assert creation.kind == "action"
     change = mutation_change_from_tool("card", {"mode": "edit", "id": 42, "priority": "critical"})
     assert (change.entity, change.action, change.id, change.values) == (
         "card",
@@ -19,7 +21,7 @@ def test_native_mutation_tools_become_typed_change_intents():
     remove = mutation_change_from_tool("remove", {"type": "card", "id": 42, "permanent": True})
     assert (remove.entity, remove.action, remove.id) == ("card", "delete", 42)
     with pytest.raises(ValueError):
-        CardToolInput(mode="draft", kind="action")
+        CardToolInput(mode="create", kind="action")
     with pytest.raises(ValueError):
         mutation_change_from_tool("remove", {"type": "tag", "id": 42, "permanent": True})
 

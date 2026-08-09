@@ -1,6 +1,9 @@
-"""Initial Safwa schema.
+"""Fresh Safwa schema baseline.
 
 Revision ID: 0001
+
+This project currently starts from an empty database; compatibility upgrades
+from pre-baseline development schemas are intentionally not retained.
 """
 
 from alembic import op

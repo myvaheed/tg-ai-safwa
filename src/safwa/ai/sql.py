@@ -91,20 +91,23 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
     )
     connection.exec_driver_sql(
         """CREATE VIEW IF NOT EXISTS ai_tags AS
-        SELECT id, name, description FROM tags WHERE archived_at IS NULL"""
+        SELECT id, name, description, created_at, updated_at FROM tags WHERE archived_at IS NULL"""
     )
     connection.exec_driver_sql(
         """CREATE VIEW IF NOT EXISTS ai_requests AS
-        SELECT id, name, description, query_sql FROM saved_requests WHERE archived_at IS NULL"""
+        SELECT id, name, description, query_sql, created_at, updated_at
+        FROM saved_requests WHERE archived_at IS NULL"""
     )
     connection.exec_driver_sql(
         """CREATE VIEW IF NOT EXISTS ai_values AS
-        SELECT id, name, description, active FROM "values" WHERE archived_at IS NULL"""
+        SELECT id, name, description, active, created_at, updated_at
+        FROM "values" WHERE archived_at IS NULL"""
     )
     connection.exec_driver_sql(
         """CREATE VIEW IF NOT EXISTS ai_cards AS
         SELECT c.id, c.title, c.note, c.kind, c.effective_stage AS stage, c.priority,
-               c.hard_time, c.effort_points, c.repeatable, c.parent_id,
+               c.hard_time, c.blocked, c.blocked_description,
+               c.effort_points, c.repeatable, c.parent_id,
                (SELECT group_concat(cc.category, ',') FROM card_categories cc
                 WHERE cc.card_id=c.id) AS categories,
                (SELECT group_concat(ce.energy_type, ',') FROM card_energy_types ce
@@ -113,9 +116,7 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
                 JOIN "values" v ON v.id=cv.value_id WHERE cv.card_id=c.id) AS direct_values,
                (SELECT group_concat(t.name, ',') FROM card_tags ct
                 JOIN tags t ON t.id=ct.tag_id WHERE ct.card_id=c.id) AS direct_tags,
-               (SELECT group_concat(cd.blocker_card_id, ',') FROM card_dependencies cd
-                WHERE cd.blocked_card_id=c.id) AS blocker_ids,
-               c.created_at
+               c.created_at, c.updated_at
         FROM cards c
         WHERE c.archived_at IS NULL"""
     )

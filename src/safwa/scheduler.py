@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from .enums import CardKind, CardStage, MessageKind
 from .models import (
     Card,
-    CardDependency,
     CardValue,
     FeedbackQueue,
     ReminderState,
@@ -218,20 +217,24 @@ class ReminderPolicy:
                         f"Sprint {sprint.number} is near its planned end; offer a finish or adjustment check-in.",
                     )
                 )
-        blocker_count = (
+        blocked_count = (
             await session.scalar(
-                select(func.count(CardDependency.blocked_card_id))
-                .join(Card, Card.id == CardDependency.blocker_card_id)
-                .where(Card.effective_stage != CardStage.DONE.value)
+                select(func.count(Card.id)).where(
+                    Card.blocked.is_(True),
+                    Card.archived_at.is_(None),
+                    Card.effective_stage.notin_(
+                        [CardStage.DONE.value, CardStage.CANCELLED.value]
+                    ),
+                )
             )
             or 0
         )
-        if blocker_count and await self.eligible(session, "blockers", str(blocker_count)):
+        if blocked_count and await self.eligible(session, "blocked", str(blocked_count)):
             candidates.append(
                 (
-                    "blockers",
-                    str(blocker_count),
-                    f"There are {blocker_count} unresolved blocker warning(s).",
+                    "blocked",
+                    str(blocked_count),
+                    f"There are {blocked_count} blocked Card(s) to review.",
                 )
             )
         active_values = list(await session.scalars(select(Value).where(Value.active.is_(True))))

@@ -23,9 +23,7 @@ from sqlalchemy.sql import func
 
 from .enums import (
     ActorType,
-    CardKind,
     CardStage,
-    DraftStatus,
     MessageKind,
     Priority,
     ProposalStatus,
@@ -103,6 +101,8 @@ class Card(Base, TimestampMixin):
     )
     priority: Mapped[str] = mapped_column(String(20), default=Priority.MEDIUM.value)
     hard_time: Mapped[bool] = mapped_column(Boolean, default=False)
+    blocked: Mapped[bool] = mapped_column(Boolean, default=False)
+    blocked_description: Mapped[str] = mapped_column(Text, default="")
     effort_points: Mapped[int | None] = mapped_column(Integer)
     repeatable: Mapped[bool] = mapped_column(Boolean, default=False)
     repeat_series_id: Mapped[int | None] = mapped_column(Integer, index=True)
@@ -183,17 +183,6 @@ class CardEnergyType(Base):
     energy_type: Mapped[str] = mapped_column(String(30), primary_key=True)
 
 
-class CardDependency(Base, TimestampMixin):
-    __tablename__ = "card_dependencies"
-    blocked_card_id: Mapped[int] = mapped_column(
-        ForeignKey("cards.id", ondelete="CASCADE"), primary_key=True
-    )
-    blocker_card_id: Mapped[int] = mapped_column(
-        ForeignKey("cards.id", ondelete="CASCADE"), primary_key=True
-    )
-    copy_to_repeat: Mapped[bool] = mapped_column(Boolean, default=False)
-
-
 class Sprint(Base, TimestampMixin):
     __tablename__ = "sprints"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -234,89 +223,6 @@ class CardEvent(Base):
     after: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     correlation_id: Mapped[str] = mapped_column(String(16), default=new_correlation_id, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-
-class CardDraftBundle(Base, TimestampMixin):
-    __tablename__ = "card_draft_bundles"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    origin: Mapped[str] = mapped_column(String(20))
-    status: Mapped[str] = mapped_column(String(20), default=DraftStatus.EDITING.value)
-    active_draft_id: Mapped[int | None] = mapped_column(Integer)
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    committed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-
-class CardDraft(Base, TimestampMixin):
-    __tablename__ = "card_drafts"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    bundle_id: Mapped[int] = mapped_column(
-        ForeignKey("card_draft_bundles.id", ondelete="CASCADE"), index=True
-    )
-    parent_id: Mapped[int | None] = mapped_column(ForeignKey("cards.id", ondelete="SET NULL"))
-    expected_parent_version: Mapped[int | None] = mapped_column(Integer)
-    parent_draft_id: Mapped[int | None] = mapped_column(ForeignKey("card_drafts.id"))
-    root_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
-    kind: Mapped[str] = mapped_column(String(20), default=CardKind.ACTION.value)
-    title: Mapped[str] = mapped_column(String(500), default="")
-    note: Mapped[str] = mapped_column(Text, default="")
-    stage: Mapped[str] = mapped_column(String(20), default=CardStage.BACKLOG.value)
-    priority: Mapped[str] = mapped_column(String(20), default=Priority.MEDIUM.value)
-    hard_time: Mapped[bool] = mapped_column(Boolean, default=False)
-    effort_points: Mapped[int | None] = mapped_column(Integer)
-    repeatable: Mapped[bool] = mapped_column(Boolean, default=False)
-    status: Mapped[str] = mapped_column(String(20), default=DraftStatus.EDITING.value)
-    field_provenance: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    validation_errors: Mapped[list[str]] = mapped_column(JSON, default=list)
-    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    committed_card_id: Mapped[int | None] = mapped_column(ForeignKey("cards.id"))
-
-
-class DraftValue(Base):
-    __tablename__ = "draft_values"
-    draft_id: Mapped[int] = mapped_column(
-        ForeignKey("card_drafts.id", ondelete="CASCADE"), primary_key=True
-    )
-    value_id: Mapped[int] = mapped_column(
-        ForeignKey("values.id", ondelete="CASCADE"), primary_key=True
-    )
-    expected_version: Mapped[int] = mapped_column(Integer)
-
-
-class DraftTag(Base):
-    __tablename__ = "draft_tags"
-    draft_id: Mapped[int] = mapped_column(
-        ForeignKey("card_drafts.id", ondelete="CASCADE"), primary_key=True
-    )
-    tag_id: Mapped[int] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
-    expected_version: Mapped[int] = mapped_column(Integer)
-
-
-class DraftCategory(Base):
-    __tablename__ = "draft_categories"
-    draft_id: Mapped[int] = mapped_column(
-        ForeignKey("card_drafts.id", ondelete="CASCADE"), primary_key=True
-    )
-    category: Mapped[str] = mapped_column(String(30), primary_key=True)
-
-
-class DraftEnergyType(Base):
-    __tablename__ = "draft_energy_types"
-    draft_id: Mapped[int] = mapped_column(
-        ForeignKey("card_drafts.id", ondelete="CASCADE"), primary_key=True
-    )
-    energy_type: Mapped[str] = mapped_column(String(30), primary_key=True)
-
-
-class DraftDependency(Base):
-    __tablename__ = "draft_dependencies"
-    draft_id: Mapped[int] = mapped_column(
-        ForeignKey("card_drafts.id", ondelete="CASCADE"), primary_key=True
-    )
-    blocker_card_id: Mapped[int] = mapped_column(
-        ForeignKey("cards.id", ondelete="CASCADE"), primary_key=True
-    )
-    expected_version: Mapped[int] = mapped_column(Integer)
-    copy_to_repeat: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class ChangeProposal(Base, TimestampMixin):

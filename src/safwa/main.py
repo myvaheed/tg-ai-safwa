@@ -131,7 +131,6 @@ async def run(settings: Settings) -> None:
             BotCommand(command="today", description="Today dashboard"),
             BotCommand(command="sprint", description="Planning or Sprint"),
             BotCommand(command="backlog", description="Backlog dashboard"),
-            BotCommand(command="drafts", description="Pending drafts"),
             BotCommand(command="values", description="Values in focus"),
             BotCommand(command="tags", description="Manage Tags"),
             BotCommand(command="requests", description="Saved AI Requests"),

@@ -14,7 +14,6 @@ from .enums import CardStage
 from .models import (
     Card,
     CardCategory,
-    CardDependency,
     CardEnergyType,
     CardValue,
     Sprint,
@@ -82,14 +81,7 @@ async def retrospective_data(session: AsyncSession, sprint_id: int) -> dict:
         "yes": sum(1 for card in cards if card.liked is True),
         "no": sum(1 for card in cards if card.liked is False),
     }
-    had_blockers = bool(
-        card_ids
-        and await session.scalar(
-            select(CardDependency.blocked_card_id)
-            .where(CardDependency.blocked_card_id.in_(card_ids))
-            .limit(1)
-        )
-    )
+    had_blocked_work = any(card.blocked for card in cards)
     active_value_ids = set(await session.scalars(select(Value.id).where(Value.active.is_(True))))
     active_value_cards = (
         set(
@@ -115,7 +107,7 @@ async def retrospective_data(session: AsyncSession, sprint_id: int) -> dict:
         "energies": dict(energies),
         "hard_time": hard_time,
         "liked": liked,
-        "had_blockers": had_blockers,
+        "had_blocked_work": had_blocked_work,
         "active_value_completed": active_value_completed,
     }
 
@@ -175,7 +167,7 @@ def retrospective_recommendations(data: dict) -> list[str]:
         )
     if totals["cancelled"]:
         recommendations.append(
-            "Review cancelled Actions for unclear intent, blockers, or poor timing."
+            "Review cancelled Actions for unclear intent, obstacles, or poor timing."
         )
     hard_time = data.get("hard_time", {})
     if hard_time.get("committed", 0) and hard_time.get("completed", 0) < hard_time["committed"]:
@@ -185,8 +177,8 @@ def retrospective_recommendations(data: dict) -> list[str]:
         recommendations.append(
             "More completed work felt unpleasant than enjoyable; adjust method or timing."
         )
-    if data.get("had_blockers"):
-        recommendations.append("Review blocker warnings before committing the next Sprint.")
+    if data.get("had_blocked_work"):
+        recommendations.append("Review blocked work before committing the next Sprint.")
     if data.get("active_value_completed", 0) == 0:
         recommendations.append(
             "No completed effort linked to active Values; check alignment in Planning."

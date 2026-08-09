@@ -30,7 +30,7 @@ commands, UI, SQL, and operations. Do not invent facts. Return plain text only."
 
 MEMORY_PROMPT = """Reconcile the retelling into the complete persistent memory list. Keep only durable,
 useful personal facts. Remove duplicates and obsolete facts. Never add card stages, Sprint metrics,
-temporary priorities, blockers, deadlines, SQL, or tool traces. Return JSON only as
+temporary priorities, obstacles, deadlines, SQL, or tool traces. Return JSON only as
 {"facts":["one complete non-empty fact per item"]}. Keep the existing language and do not invent facts."""
 
 

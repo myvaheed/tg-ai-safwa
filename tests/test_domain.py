@@ -6,6 +6,7 @@ from sqlalchemy import select
 from safwa.domain import (
     DomainError,
     archive_subtree,
+    card_progress,
     create_tag,
     create_value,
     edit_card_text,
@@ -17,13 +18,13 @@ from safwa.domain import (
     set_value_focus,
     sprint_metrics,
     start_sprint,
-    toggle_card_dependency,
     toggle_card_tag,
     toggle_card_value,
+    update_card_fields,
     update_profile,
     utcnow,
 )
-from safwa.drafts import DraftService
+from safwa.domain import create_card as create_domain_card
 from safwa.enums import CardStage
 from safwa.models import (
     Card,
@@ -42,15 +43,13 @@ async def create_card(session, **overrides):
     payload = {
         "title": "Action",
         "kind": "action",
-        "root_confirmed": True,
         "stage": "backlog",
         "effort_points": 3,
     }
     payload.update(overrides)
-    bundle = await DraftService(session).create_bundle("manual", [payload])
-    draft = (await DraftService(session).get_bundle_drafts(bundle.id))[0]
-    await DraftService(session).mark_reviewed(draft.id)
-    return (await DraftService(session).commit_bundle(bundle.id))[0]
+    payload.pop("root_confirmed", None)
+    payload.pop("expected_parent_version", None)
+    return await create_domain_card(session, **payload)
 
 
 async def test_parent_stage_propagation_and_reopen(sessions):
@@ -192,7 +191,6 @@ async def test_committed_card_relationships_are_validated_propagated_and_audited
             expected_parent_version=first_goal.version,
             root_confirmed=False,
         )
-        blocker = await create_card(session, title="Blocker")
         value = await create_value(session, "Health")
         await move_card(session, action.id, CardStage.TODAY)
 
@@ -210,14 +208,13 @@ async def test_committed_card_relationships_are_validated_propagated_and_audited
         await session.flush()
         assert await toggle_card_tag(session, action.id, tag.id) is True
 
-        assert await toggle_card_dependency(session, action.id, blocker.id) is True
-        try:
-            await toggle_card_dependency(session, blocker.id, action.id)
-        except DomainError:
-            pass
-        else:
-            raise AssertionError("dependency cycle should be rejected")
-        assert await toggle_card_dependency(session, action.id, blocker.id) is False
+        await update_card_fields(
+            session,
+            action.id,
+            {"blocked": True, "blocked_description": "Waiting for access"},
+        )
+        assert action.blocked is True
+        assert action.blocked_description == "Waiting for access"
         await session.commit()
 
         events = list(
@@ -227,6 +224,39 @@ async def test_committed_card_relationships_are_validated_propagated_and_audited
             "set_parent",
             "link_value",
             "unlink_value",
-            "link_dependency",
-            "unlink_dependency",
+            "update",
+        }
+
+
+async def test_goal_progress_is_recursive_but_children_count_is_direct(sessions):
+    async with sessions() as session:
+        goal = await create_card(session, title="Goal", kind="goal", effort_points=None)
+        idea = await create_card(
+            session,
+            title="Idea",
+            kind="idea",
+            effort_points=None,
+            parent_id=goal.id,
+        )
+        done = await create_card(
+            session,
+            title="Done",
+            effort_points=3,
+            parent_id=idea.id,
+        )
+        await create_card(
+            session,
+            title="Remaining",
+            effort_points=5,
+            parent_id=goal.id,
+        )
+        await finish_action(session, done.id, CardStage.DONE)
+
+        progress = await card_progress(session, goal.id)
+
+        assert progress == {
+            "completed_effort": 3,
+            "total_effort": 8,
+            "completed_children": 1,
+            "total_children": 2,
         }

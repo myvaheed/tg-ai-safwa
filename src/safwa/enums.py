@@ -49,15 +49,6 @@ class ActorType(StrEnum):
     SYSTEM = "system"
 
 
-class DraftStatus(StrEnum):
-    EDITING = "editing"
-    READY = "ready"
-    REVIEWED = "reviewed"
-    COMMITTED = "committed"
-    DISCARDED = "discarded"
-    EXPIRED = "expired"
-
-
 class ProposalStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
@@ -76,7 +67,7 @@ class MessageKind(StrEnum):
     COMMAND = "command"
     UI_INPUT = "ui_input"
     DASHBOARD = "dashboard"
-    DRAFT_REVIEW = "draft_review"
+    CARD_EDITOR = "card_editor"
     APPROVAL = "approval"
     RECEIPT = "receipt"
     RETROSPECTIVE_PNG = "retrospective_png"
@@ -86,7 +77,7 @@ class MessageKind(StrEnum):
 class UiIntentType(StrEnum):
     APPROVAL = "approval"
     CLARIFICATION = "clarification"
-    DRAFT_REVIEW = "draft_review"
+    CARD_EDITOR = "card_editor"
     FEEDBACK = "feedback"
     WARNING = "warning"
     REMINDER = "reminder"

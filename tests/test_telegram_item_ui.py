@@ -1,21 +1,18 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from sqlalchemy import select
 
 from safwa.ai.context import DialogueMessage
 from safwa.ai.service import AIOutcome, ProposalService
-from safwa.drafts import DraftService
-from safwa.enums import DraftStatus, MessageKind
+from safwa.domain import create_card, finish_action
+from safwa.enums import CardStage, MessageKind
 from safwa.models import (
     CallbackToken,
     Card,
     CardCategory,
-    CardDependency,
-    CardDraft,
-    CardDraftBundle,
     CardEnergyType,
     CardTag,
     CardValue,
@@ -33,7 +30,10 @@ from safwa.telegram import (
     callback_token_handler,
     dismiss_prior_ui,
     ordinary_text,
-    render_draft,
+    render_card,
+    render_card_creation,
+    render_children,
+    render_dashboard,
     render_item_editor,
     render_item_text_prompt,
     render_proposal,
@@ -98,8 +98,9 @@ class FakeMessage:
         return self
 
     async def answer(self, text: str, *, reply_markup=None, parse_mode=None):
-        del reply_markup, parse_mode
+        del parse_mode
         self.answers.append(text)
+        del reply_markup
         return self
 
     async def delete(self) -> None:
@@ -284,150 +285,6 @@ async def test_new_dialogue_discards_and_freezes_pending_proposal(sessions) -> N
         )
 
 
-async def test_new_dialogue_discards_complete_ai_draft_bundle(sessions) -> None:
-    async with sessions() as session:
-        value = Value(name="Reliability", description="Keep releases dependable")
-        tag = Tag(name="VrWalk", description="VR walking project")
-        blocker = Card(
-            parent_id=None,
-            kind="action",
-            title="Get production access",
-            note="",
-            effort_points=2,
-        )
-        session.add_all([value, tag, blocker])
-        await session.flush()
-        bundle = await DraftService(session).create_bundle(
-            "ai",
-            [
-                {
-                    "kind": "goal",
-                    "title": "Release",
-                    "note": "Ship VrWalk safely",
-                    "stage": "today",
-                    "priority": "critical",
-                    "hard_time": True,
-                    "root_confirmed": True,
-                    "draft_ref": "release-goal",
-                    "field_provenance": {"note": "inferred from the request"},
-                },
-                {
-                    "kind": "action",
-                    "title": "Deploy",
-                    "note": "Publish the Android client",
-                    "stage": "sprint",
-                    "priority": "low",
-                    "hard_time": False,
-                    "effort_points": 5,
-                    "repeatable": True,
-                    "categories": ["work"],
-                    "energy_types": ["cognitive"],
-                    "value_ids": [value.id],
-                    "tag_ids": [tag.id],
-                    "dependencies": [{"card_id": blocker.id, "copy_to_repeat": True}],
-                    "parent_draft_ref": "release-goal",
-                    "field_provenance": {"effort_points": "AI estimate"},
-                },
-            ],
-        )
-        drafts = await DraftService(session).get_bundle_drafts(bundle.id)
-        session.add(
-            TelegramMessage(
-                chat_id=700,
-                message_id=20,
-                direction="out",
-                kind=MessageKind.DRAFT_REVIEW.value,
-                related_id=drafts[0].id,
-            )
-        )
-        await session.commit()
-        bundle_id = bundle.id
-
-    bot = FakeBot()
-    await dismiss_prior_ui(
-        FakeMessage(21, text="Continue", bot_message=False, bot=bot),
-        services_for(sessions),
-    )
-
-    assert "Create Goal: Release" in bot.edits[0][1]
-    assert "Create Action: Deploy" in bot.edits[0][1]
-    discarded_text = bot.edits[0][1]
-    assert "Parent: Release (proposed Goal)" in discarded_text
-    assert "Stage: Today" in discarded_text
-    assert "Note: Ship VrWalk safely" in discarded_text
-    assert "Priority: Critical" in discarded_text
-    assert "Hard Time: Yes" in discarded_text
-    assert "Effort: 5" in discarded_text
-    assert "Repeatable: Yes" in discarded_text
-    assert "Categories: work" in discarded_text
-    assert "Energy: cognitive" in discarded_text
-    assert "Values: Reliability" in discarded_text
-    assert "Tags: VrWalk" in discarded_text
-    assert "Blockers: Get production access (copy to repeat)" in discarded_text
-    assert "AI assumptions: effort_points: AI estimate" in discarded_text
-    assert "Unresolved / validation: —" in discarded_text
-    async with sessions() as session:
-        bundle = await session.get(CardDraftBundle, bundle_id)
-        assert bundle.status == DraftStatus.DISCARDED.value
-        drafts = await DraftService(session).get_bundle_drafts(bundle_id)
-        assert {draft.status for draft in drafts} == {DraftStatus.DISCARDED.value}
-
-
-async def test_explicit_ai_creation_discard_keeps_proposed_fields(sessions) -> None:
-    token = "discard-create"
-    async with sessions() as session:
-        bundle = await DraftService(session).create_bundle(
-            "ai",
-            [
-                {
-                    "kind": "action",
-                    "title": "Walk outside",
-                    "note": "Take the quiet route",
-                    "stage": "today",
-                    "priority": "critical",
-                    "hard_time": True,
-                    "effort_points": 3,
-                    "repeatable": True,
-                    "categories": ["rest"],
-                    "energy_types": ["physical"],
-                    "root_confirmed": True,
-                }
-            ],
-        )
-        draft = (await DraftService(session).get_bundle_drafts(bundle.id))[0]
-        session.add(
-            CallbackToken(
-                token=token,
-                owner_id=42,
-                action="draft_discard",
-                payload={"id": draft.id},
-                expires_at=datetime.now(UTC) + timedelta(minutes=5),
-            )
-        )
-        await session.commit()
-        bundle_id = bundle.id
-
-    message = FakeMessage(25, bot_message=True)
-    await callback_token_handler(FakeCallback(token, message), services_for(sessions))
-
-    assert len(message.edits) == 1
-    discarded_text = message.edits[0][0]
-    assert "Proposal discarded" in discarded_text
-    assert "Nothing was saved" in discarded_text
-    assert "Create Action: Walk outside" in discarded_text
-    assert "Note: Take the quiet route" in discarded_text
-    assert "Stage: Today" in discarded_text
-    assert "Priority: Critical" in discarded_text
-    assert "Hard Time: Yes" in discarded_text
-    assert "Effort: 3" in discarded_text
-    assert "Repeatable: Yes" in discarded_text
-    assert "Categories: rest" in discarded_text
-    assert "Energy: physical" in discarded_text
-    async with sessions() as session:
-        bundle = await session.get(CardDraftBundle, bundle_id)
-        assert bundle.status == DraftStatus.DISCARDED.value
-
-
 async def test_tag_field_input_reuses_editor_message_and_deletes_input(sessions) -> None:
     services = services_for(sessions)
     callback = FakeMessage(30, bot_message=True)
@@ -515,30 +372,34 @@ async def test_manual_tag_and_value_archive_unlinks_cards(sessions) -> None:
         assert await session.get(CardValue, {"card_id": card.id, "value_id": value_id}) is None
 
 
-async def test_card_note_input_updates_same_review_message(sessions) -> None:
+async def test_card_note_input_updates_same_creation_message(sessions) -> None:
     async with sessions() as session:
-        bundle = await DraftService(session).create_bundle(
-            "manual",
-            [
-                {
-                    "kind": "action",
-                    "title": "Run",
-                    "root_confirmed": True,
-                    "effort_points": 2,
-                }
-            ],
-        )
-        draft = (await DraftService(session).get_bundle_drafts(bundle.id))[0]
         session.add(
             UiSession(
                 owner_id=42,
-                kind="draft_text",
-                state={"draft_id": draft.id, "field": "note", "message_id": 40},
+                kind="card_create_text",
+                state={
+                    "kind": "action",
+                    "title": "Run",
+                    "note": "",
+                    "stage": "backlog",
+                    "priority": "medium",
+                    "hard_time": False,
+                    "blocked": False,
+                    "blocked_description": "",
+                    "effort_points": 2,
+                    "repeatable": False,
+                    "categories": [],
+                    "energy_types": [],
+                    "value_ids": [],
+                    "tag_ids": [],
+                    "input_field": "note",
+                    "message_id": 40,
+                },
                 expires_at=datetime.now(UTC).replace(year=2030),
             )
         )
         await session.commit()
-        draft_id = draft.id
 
     bot = FakeBot()
     user_input = FakeMessage(41, text="Weekdays", bot_message=False, bot=bot)
@@ -548,35 +409,144 @@ async def test_card_note_input_updates_same_review_message(sessions) -> None:
     assert bot.edits[-1][0] == 40
     assert "Note: Weekdays" in bot.edits[-1][1]
     async with sessions() as session:
-        draft = await session.get(CardDraft, draft_id)
-        assert draft.note == "Weekdays"
+        editor = await session.scalar(select(UiSession).where(UiSession.owner_id == 42))
+        assert editor.kind == "card_create"
+        assert editor.state["note"] == "Weekdays"
 
 
-async def test_ai_and_manual_draft_footers_follow_origin(sessions) -> None:
+async def test_card_text_field_prompt_replaces_creation_message(sessions) -> None:
     async with sessions() as session:
-        ai_bundle = await DraftService(session).create_bundle(
-            "ai", [{"kind": "goal", "title": "AI Goal", "root_confirmed": True}]
+        session.add(
+            UiSession(
+                owner_id=42,
+                kind="card_create",
+                state={"kind": "action", "title": "", "effort_points": None},
+                expires_at=datetime.now(UTC).replace(year=2030),
+            )
         )
-        manual_bundle = await DraftService(session).create_bundle(
-            "manual", [{"kind": "goal", "title": "Manual Goal", "root_confirmed": True}]
+        session.add(
+            CallbackToken(
+                token="card-title",
+                owner_id=42,
+                action="card_create_edit_text",
+                payload={"field": "title"},
+                expires_at=datetime.now(UTC).replace(year=2030),
+            )
         )
-        ai_id = (await DraftService(session).get_bundle_drafts(ai_bundle.id))[0].id
-        manual_id = (await DraftService(session).get_bundle_drafts(manual_bundle.id))[0].id
         await session.commit()
 
-    services = services_for(sessions)
-    ai_message = FakeMessage(50, bot_message=True)
-    await render_draft(ai_message, services, ai_id)
-    ai_buttons = button_texts(ai_message.edits[-1][1])
-    assert "✅ Save" in ai_buttons
-    assert "🗑 Discard" in ai_buttons
-    assert "↩️ Back" not in ai_buttons
+    message = FakeMessage(45, bot_message=True)
+    await callback_token_handler(FakeCallback("card-title", message), services_for(sessions))
 
-    manual_message = FakeMessage(51, bot_message=True)
-    await render_draft(manual_message, services, manual_id)
-    manual_buttons = button_texts(manual_message.edits[-1][1])
-    assert "✅ Create" in manual_buttons
-    assert "↩️ Back" in manual_buttons
+    assert message.answers == []
+    assert "Set new Title" in message.edits[-1][0]
+    assert button_texts(message.edits[-1][1]) == ["↩️ Back"]
+
+
+async def test_manual_card_creation_uses_save_discard_and_no_parent_control(sessions) -> None:
+    async with sessions() as session:
+        session.add(
+            UiSession(
+                owner_id=42,
+                kind="card_create",
+                state={
+                    "kind": "action",
+                    "title": "Run",
+                    "effort_points": 2,
+                },
+                expires_at=datetime.now(UTC).replace(year=2030),
+            )
+        )
+        await session.commit()
+
+    message = FakeMessage(51, bot_message=True)
+    await render_card_creation(message, services_for(sessions))
+    buttons = button_texts(message.edits[-1][1])
+    assert "✅ Save" in buttons
+    assert "🗑 Discard" in buttons
+    assert "🌳 Parent" not in buttons
+
+
+async def test_card_overview_uses_derived_progress_and_relationship_navigation(sessions) -> None:
+    async with sessions() as session:
+        goal = await create_card(session, title="Ship product", kind="goal")
+        idea = await create_card(
+            session,
+            title="Prepare release",
+            kind="idea",
+            parent_id=goal.id,
+        )
+        done = await create_card(
+            session,
+            title="Publish build",
+            kind="action",
+            parent_id=idea.id,
+            effort_points=3,
+        )
+        remaining = await create_card(
+            session,
+            title="Write announcement",
+            kind="action",
+            parent_id=goal.id,
+            effort_points=5,
+        )
+        await finish_action(session, done.id, CardStage.DONE)
+        await session.commit()
+
+    bot = FakeBot()
+    goal_message = FakeMessage(70, bot_message=True, bot=bot)
+    await render_card(
+        goal_message,
+        services_for(sessions),
+        goal.id,
+        replace_message_id=goal_message.message_id,
+    )
+    goal_text, goal_markup = bot.edits[-1][1:]
+    assert "Stage: Backlog" in goal_text
+    assert "Effort: 3/8 EP" in goal_text
+    assert "Children: 1/2 completed" in goal_text
+    assert "Parent:" not in goal_text
+    assert "👥 Children" in button_texts(goal_markup)
+    assert not any(text.startswith("🌳 Parent:") for text in button_texts(goal_markup))
+
+    children_message = FakeMessage(73, bot_message=True)
+    await render_children(children_message, services_for(sessions), goal.id)
+    children_texts = button_texts(children_message.edits[-1][1])
+    assert any("Prepare release" in text for text in children_texts)
+    assert any("Write announcement" in text for text in children_texts)
+    assert not any("Publish build" in text for text in children_texts)
+
+    child_message = FakeMessage(71, bot_message=True, bot=bot)
+    await render_card(
+        child_message,
+        services_for(sessions),
+        remaining.id,
+        replace_message_id=child_message.message_id,
+    )
+    child_text, child_markup = bot.edits[-1][1:]
+    assert "Parent: Ship product" in child_text
+    assert "🌳 Parent: Ship product" in button_texts(child_markup)
+    assert "👥 Children" not in button_texts(child_markup)
+
+
+async def test_backlog_dashboard_lists_actions_only(sessions) -> None:
+    async with sessions() as session:
+        await create_card(session, title="Hidden Goal", kind="goal")
+        await create_card(session, title="Visible Action", kind="action", effort_points=2)
+        await session.commit()
+
+    message = FakeMessage(72, bot_message=True)
+    await render_dashboard(
+        message,
+        services_for(sessions),
+        CardStage.BACKLOG,
+        title="Backlog",
+    )
+
+    dashboard_text, dashboard_markup = message.edits[-1]
+    assert "Visible Action" in dashboard_text
+    assert "Hidden Goal" not in dashboard_text
+    assert any("Visible Action" in text for text in button_texts(dashboard_markup))
 
 
 async def test_item_proposal_shows_diffs_and_only_save_discard_footer(sessions) -> None:
@@ -705,11 +675,10 @@ async def test_move_proposal_exposes_only_stage_control(sessions) -> None:
 async def test_saving_card_proposal_applies_every_editable_field(sessions) -> None:
     async with sessions() as session:
         parent = Card(kind="goal", title="Be healthy")
-        blocker = Card(kind="action", title="Buy shoes", effort_points=1)
         card = Card(kind="action", title="Walk", effort_points=2)
         value = Value(name="Health")
         tag = Tag(name="Outside")
-        session.add_all([parent, blocker, card, value, tag])
+        session.add_all([parent, card, value, tag])
         await session.flush()
         session.add_all(
             [
@@ -736,13 +705,14 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
                 values={
                     "priority": "critical",
                     "hard_time": True,
+                    "blocked": True,
+                    "blocked_description": "Waiting for access",
                     "effort_points": 5,
                     "parent_id": parent.id,
                     "categories": ["rest", "work"],
                     "energy_types": ["physical", "social"],
                     "value_ids": [value.id],
                     "tag_ids": [tag.id],
-                    "blocker_ids": [blocker.id],
                 },
             )
         )
@@ -757,9 +727,18 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
     assert affected == [card_id]
     async with sessions() as session:
         card = await session.get(Card, card_id)
-        assert (card.priority, card.hard_time, card.effort_points, card.parent_id) == (
+        assert (
+            card.priority,
+            card.hard_time,
+            card.blocked,
+            card.blocked_description,
+            card.effort_points,
+            card.parent_id,
+        ) == (
             "critical",
             True,
+            True,
+            "Waiting for access",
             5,
             parent.id,
         )
@@ -779,10 +758,3 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
         assert set(
             await session.scalars(select(CardTag.tag_id).where(CardTag.card_id == card_id))
         ) == {tag.id}
-        assert set(
-            await session.scalars(
-                select(CardDependency.blocker_card_id).where(
-                    CardDependency.blocked_card_id == card_id
-                )
-            )
-        ) == {blocker.id}
