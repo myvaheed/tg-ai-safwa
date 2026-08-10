@@ -9,14 +9,14 @@ from . import (  # noqa: F401
     dialogue,
 )
 from ._core import (
-    _RELATION_CHOICES,
+    RELATION_CHOICES,
     CallbackContext,
     GenerationGuard,
     OwnerAndWritingMiddleware,
     Services,
     router,
 )
-from ._foundation import dismiss_prior_ui
+from ._messaging import dismiss_prior_ui
 from .callbacks import CALLBACK_ACTIONS, callback_token_handler
 from .cards import (
     handle_card_creation_chooser,
@@ -35,8 +35,8 @@ __all__ = [
     "CallbackContext",
     "GenerationGuard",
     "OwnerAndWritingMiddleware",
+    "RELATION_CHOICES",
     "Services",
-    "_RELATION_CHOICES",
     "callback_token_handler",
     "dismiss_prior_ui",
     "handle_card_creation_chooser",

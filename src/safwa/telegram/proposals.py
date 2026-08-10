@@ -24,14 +24,12 @@ from ..models import (
     Value,
 )
 from ._core import Services
-from ._foundation import (
-    _card_overview_text,
-    _category_expression,
-    _energy_expression,
-    edit_registered_message,
+from ._messaging import edit_registered_message, send_registered, token_button
+from ._presentation import (
+    card_overview_text,
+    category_expression,
+    energy_expression,
     proposal_change_summary,
-    send_registered,
-    token_button,
 )
 
 logger = logging.getLogger(__name__)
@@ -179,9 +177,9 @@ async def _proposal_diff_value(session: AsyncSession, field: str, value: Any) ->
         by_id = {entity.id: getattr(entity, name_field) for entity in entities}
         return ", ".join(by_id[item_id] for item_id in ids if item_id in by_id) or "—"
     if field == "categories":
-        return _category_expression(value)
+        return category_expression(value)
     if field == "energy_types":
-        return _energy_expression(value)
+        return energy_expression(value)
     if field in {"stage", "priority"} and value:
         return str(value).title()
     return _display_diff_value(value)
@@ -264,7 +262,7 @@ async def render_proposal(
                 )
             elif change.entity == "card":
                 display = await _proposal_card_display_state(session, proposed)
-                text_parts.append(_card_overview_text(display, heading="Card overview"))
+                text_parts.append(card_overview_text(display, heading="Card overview"))
             if change.entity == "card" and change.action != "create":
                 diffs = await _proposal_card_diffs(session, current, proposed)
             elif change.entity == "card":

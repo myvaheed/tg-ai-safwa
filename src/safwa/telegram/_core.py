@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..ai.service import AIAdvisor
 from ..continuity import PersonaContinuity
 from ..domain import (
+    TAG_REFERENCE,
+    VALUE_REFERENCE,
     toggle_card_category,
     toggle_card_energy_type,
     toggle_card_tag,
@@ -151,8 +153,9 @@ class CallbackContext:
 
 CallbackHandler = Callable[[CallbackContext], Awaitable[None]]
 
+
 @dataclass(frozen=True)
-class _RelationChoice:
+class RelationChoice:
     """One overlapping Card relationship, described once for both selector surfaces."""
 
     singular: str
@@ -164,8 +167,8 @@ class _RelationChoice:
     parse: Callable[[Any], Any]
 
 
-_RELATION_CHOICES: dict[str, _RelationChoice] = {
-    "categories": _RelationChoice(
+RELATION_CHOICES: dict[str, RelationChoice] = {
+    "categories": RelationChoice(
         "category",
         "categories",
         CardCategory.category,
@@ -174,7 +177,7 @@ _RELATION_CHOICES: dict[str, _RelationChoice] = {
         toggle_card_category,
         Category,
     ),
-    "energy": _RelationChoice(
+    "energy": RelationChoice(
         "energy",
         "energy_types",
         CardEnergyType.energy_type,
@@ -183,7 +186,7 @@ _RELATION_CHOICES: dict[str, _RelationChoice] = {
         toggle_card_energy_type,
         EnergyType,
     ),
-    "values": _RelationChoice(
+    "values": RelationChoice(
         "value",
         "value_ids",
         CardValue.value_id,
@@ -192,7 +195,7 @@ _RELATION_CHOICES: dict[str, _RelationChoice] = {
         toggle_card_value,
         int,
     ),
-    "tags": _RelationChoice(
+    "tags": RelationChoice(
         "tag",
         "tag_ids",
         CardTag.tag_id,
@@ -203,13 +206,13 @@ _RELATION_CHOICES: dict[str, _RelationChoice] = {
     ),
 }
 # Single-valued selectors map a choice field to the Card column it sets.
-_SINGLE_CHOICE_FIELDS = {
+SINGLE_CHOICE_FIELDS = {
     "kind": "kind",
     "stage": "stage",
     "priority": "priority",
     "effort": "effort_points",
 }
-_CHOICE_TITLES = {
+CHOICE_TITLES = {
     "kind": "Choose Kind",
     "stage": "Choose Stage",
     "priority": "Choose Priority",
@@ -221,13 +224,16 @@ _CHOICE_TITLES = {
 }
 # The committed-Card and draft selectors cover the same fields; a draft additionally
 # chooses its kind, which is immutable once the Card exists.
-_CARD_CHOICE_FIELDS = ("stage", "priority", "effort", *_RELATION_CHOICES)
-_CARD_DRAFT_CHOICE_FIELDS = ("kind", *_CARD_CHOICE_FIELDS)
-_CARD_DRAFT_RELATIONS = {
+CARD_CHOICE_FIELDS = ("stage", "priority", "effort", *RELATION_CHOICES)
+CARD_DRAFT_CHOICE_FIELDS = ("kind", *CARD_CHOICE_FIELDS)
+CARD_DRAFT_RELATIONS = {
     f"card_create_toggle_{relation.singular}": (relation.draft_field, relation.payload_key)
-    for relation in _RELATION_CHOICES.values()
+    for relation in RELATION_CHOICES.values()
 }
-_CARD_RELATION_TOGGLES = {
+CARD_RELATION_TOGGLES = {
     f"card_toggle_{relation.singular}": field
-    for field, relation in _RELATION_CHOICES.items()
+    for field, relation in RELATION_CHOICES.items()
 }
+NAMED_CHOICE_FIELDS = frozenset({"values", "tags"})
+# Tag and Value share one field-oriented item screen; the spec supplies the differences.
+ITEM_REFERENCES = {"tag": TAG_REFERENCE, "value": VALUE_REFERENCE}

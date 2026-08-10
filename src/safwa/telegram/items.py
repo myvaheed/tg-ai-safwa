@@ -11,9 +11,9 @@ from sqlalchemy import delete, select
 from ..domain import DomainError
 from ..enums import MessageKind
 from ..models import Tag, UiSession, Value
-from ._core import Services
-from ._foundation import _ITEM_REFERENCES, edit_registered_message, send_registered, token_button
-from .cards import _linked_card_count
+from ._core import ITEM_REFERENCES, Services
+from ._messaging import edit_registered_message, send_registered, token_button
+from .cards import linked_card_count
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +28,9 @@ async def render_item_editor(
     values: dict[str, str] | None = None,
     replace_message_id: int | None = None,
 ) -> None:
-    if entity not in _ITEM_REFERENCES or mode not in {"create", "view"}:
+    if entity not in ITEM_REFERENCES or mode not in {"create", "view"}:
         raise DomainError("Unsupported item editor")
-    spec = _ITEM_REFERENCES[entity]
+    spec = ITEM_REFERENCES[entity]
     linked_count = 0
     async with services.sessions() as session:
         item: Tag | Value | None = None
@@ -39,7 +39,7 @@ async def render_item_editor(
             if item is None or item.archived_at is not None:
                 raise DomainError(f"{entity.title()} does not exist")
             editor_values = {"name": item.name, "description": item.description}
-            linked_count = await _linked_card_count(session, spec, item.id)
+            linked_count = await linked_card_count(session, spec, item.id)
         else:
             editor_values = {"name": "", "description": "", **(values or {})}
 

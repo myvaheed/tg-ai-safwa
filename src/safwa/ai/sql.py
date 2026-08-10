@@ -50,10 +50,15 @@ def validate_read_sql(sql: str) -> str:
             re.I,
         )
     }
+    # A CTE may be recursive and may declare its columns, and both forms name a table
+    # the FROM/JOIN scan below would otherwise report as an unavailable view.
     cte_names = {
         match.group(1).casefold()
         for match in re.finditer(
-            r"(?:\bwith|,)\s*([A-Za-z_][A-Za-z0-9_]*)\s+as\s*\(", statement, re.I
+            r"(?:\bwith\s+(?:recursive\s+)?|,)\s*([A-Za-z_][A-Za-z0-9_]*)"
+            r"\s*(?:\([^)]*\))?\s+as\s*\(",
+            statement,
+            re.I,
         )
     }
     disallowed = names - ALLOWED_VIEWS - cte_names

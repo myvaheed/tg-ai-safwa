@@ -37,37 +37,34 @@ from ..models import (
     Value,
 )
 from ._core import (
-    _CARD_CHOICE_FIELDS,
-    _CHOICE_TITLES,
-    _RELATION_CHOICES,
-    _SINGLE_CHOICE_FIELDS,
+    CARD_CHOICE_FIELDS,
+    CHOICE_TITLES,
+    NAMED_CHOICE_FIELDS,
+    RELATION_CHOICES,
+    SINGLE_CHOICE_FIELDS,
+    RelationChoice,
     Services,
-    _RelationChoice,
 )
-from ._foundation import (
-    _CATEGORY_EMOJIS,
-    _ENERGY_EMOJIS,
-    _NAMED_CHOICE_FIELDS,
-    _SELECTOR_PAGE_SIZE,
-    _card_overview_text,
-    _kind_label,
-    _Page,
-    _paginate,
-    _paginate_cards,
-    _paging_row,
-    _typed_label,
-    _with_notice,
-    edit_registered_message,
+from ._messaging import edit_registered_message, paging_row, send_registered, token_button
+from ._presentation import (
+    CATEGORY_EMOJIS,
+    ENERGY_EMOJIS,
+    SELECTOR_PAGE_SIZE,
+    Page,
+    card_overview_text,
+    kind_label,
     menu_markup,
     menu_row,
-    send_registered,
-    token_button,
+    paginate,
+    paginate_cards,
+    typed_label,
+    with_notice,
 )
 
 logger = logging.getLogger(__name__)
 
 
-async def _linked_card_count(session: AsyncSession, spec: ReferenceSpec, item_id: int) -> int:
+async def linked_card_count(session: AsyncSession, spec: ReferenceSpec, item_id: int) -> int:
     return int(
         await session.scalar(
             select(func.count()).select_from(spec.link_model).where(spec.link_column == item_id)
@@ -94,7 +91,7 @@ async def render_dashboard(
                 )
             )
         )
-        current = _paginate_cards(cards, page)
+        current = paginate_cards(cards, page)
         back = {
             "kind": "dashboard",
             "stage": stage.value,
@@ -105,7 +102,7 @@ async def render_dashboard(
         descriptions: list[str] = []
         for card in current.items:
             metadata = [
-                _kind_label(card.kind),
+                kind_label(card.kind),
                 card.priority.title(),
                 f"{card.effort_points or '—'} EP",
             ]
@@ -129,7 +126,7 @@ async def render_dashboard(
                 ]
             )
         rows.extend(
-            await _paging_row(
+            await paging_row(
                 session,
                 services.owner_id,
                 current,
@@ -171,7 +168,7 @@ def _new_card_creation_state() -> dict[str, Any]:
     }
 
 
-def _sanitize_card_creation_state(state: dict[str, Any]) -> dict[str, Any]:
+def sanitize_card_creation_state(state: dict[str, Any]) -> dict[str, Any]:
     clean = {**_new_card_creation_state(), **state}
     try:
         clean["kind"] = CardKind(clean["kind"]).value
@@ -197,7 +194,7 @@ def _sanitize_card_creation_state(state: dict[str, Any]) -> dict[str, Any]:
     return clean
 
 
-def _card_creation_errors(state: dict[str, Any]) -> list[str]:
+def card_creation_errors(state: dict[str, Any]) -> list[str]:
     """Report what still blocks Save, using the same rules the domain enforces.
 
     The draft is checked here only so Save can be hidden until it would succeed;
@@ -262,7 +259,7 @@ async def card_creation_markup(
     )
     buttons = [await token_button(session, services.owner_id, *field) for field in fields]
     rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
-    if not _card_creation_errors(state):
+    if not card_creation_errors(state):
         rows.append([await token_button(session, services.owner_id, "✅ Save", "card_create_save")])
     rows.append(
         [await token_button(session, services.owner_id, "🗑 Discard", "card_create_discard")]
@@ -292,7 +289,7 @@ async def render_card_creation(
                 markup=menu_markup(),
             )
             return
-        state = _sanitize_card_creation_state(dict(editor.state or {}))
+        state = sanitize_card_creation_state(dict(editor.state or {}))
         editor.state = state
         value_ids = list(state["value_ids"])
         tag_ids = list(state["tag_ids"])
@@ -309,8 +306,8 @@ async def render_card_creation(
             "value_names": [value.name for value in values],
             "tag_names": [tag.name for tag in tags],
         }
-        text = _card_overview_text(display, heading="Create Card")
-        errors = _card_creation_errors(state)
+        text = card_overview_text(display, heading="Create Card")
+        errors = card_creation_errors(state)
         if errors:
             text += "\n\n" + "\n".join(f"⚠️ {html.escape(error)}" for error in errors)
         markup = await card_creation_markup(session, services, state)
@@ -359,7 +356,7 @@ async def choice_screen(
     choices: list[tuple[str, str, dict[str, Any]]],
     *,
     back: tuple[str, str, dict[str, Any]] | None = None,
-    paging: tuple[_Page, str, dict[str, Any]] | None = None,
+    paging: tuple[Page, str, dict[str, Any]] | None = None,
 ) -> None:
     heading = title if paging is None or paging[0].count == 1 else f"{title} · {paging[0].label}"
     async with services.sessions() as session:
@@ -370,7 +367,7 @@ async def choice_screen(
         if paging is not None:
             page, page_action, page_payload = paging
             rows.extend(
-                await _paging_row(session, services.owner_id, page, page_action, page_payload)
+                await paging_row(session, services.owner_id, page, page_action, page_payload)
             )
         if back:
             rows.append([await token_button(session, services.owner_id, *back)])
@@ -384,7 +381,7 @@ async def choice_screen(
     )
 
 
-async def _require_card_draft(session: AsyncSession, owner_id: int) -> UiSession:
+async def require_card_draft(session: AsyncSession, owner_id: int) -> UiSession:
     draft = await session.scalar(
         select(UiSession).where(
             UiSession.owner_id == owner_id,
@@ -396,7 +393,7 @@ async def _require_card_draft(session: AsyncSession, owner_id: int) -> UiSession
     return draft
 
 
-async def _card_editor_back_state(session: AsyncSession, owner_id: int) -> dict[str, Any]:
+async def card_editor_back_state(session: AsyncSession, owner_id: int) -> dict[str, Any]:
     """Keep the navigation trail of the Card screen a focused prompt replaces."""
     editor = await session.scalar(select(UiSession).where(UiSession.owner_id == owner_id))
     if editor is None or editor.kind != "card_editor":
@@ -407,7 +404,7 @@ async def _card_editor_back_state(session: AsyncSession, owner_id: int) -> dict[
 async def _choice_options(session: AsyncSession, field: str) -> list[tuple[str, Any]]:
     """The selectable options for one Card field, shared by draft and committed screens."""
     if field == "kind":
-        return [(_kind_label(kind), kind.value) for kind in CardKind]
+        return [(kind_label(kind), kind.value) for kind in CardKind]
     if field == "stage":
         return [
             (stage.value.title(), stage.value)
@@ -418,9 +415,9 @@ async def _choice_options(session: AsyncSession, field: str) -> list[tuple[str, 
     if field == "effort":
         return [(f"{points} EP", points) for points in sorted(EFFORT_POINTS)]
     if field == "categories":
-        return [(_typed_label(item, _CATEGORY_EMOJIS), item.value) for item in Category]
+        return [(typed_label(item, CATEGORY_EMOJIS), item.value) for item in Category]
     if field == "energy":
-        return [(_typed_label(item, _ENERGY_EMOJIS), item.value) for item in EnergyType]
+        return [(typed_label(item, ENERGY_EMOJIS), item.value) for item in EnergyType]
     if field not in {"values", "tags"}:
         raise DomainError("Unknown Card selector")
     model = Value if field == "values" else Tag
@@ -442,11 +439,11 @@ def _choice_rows(
     return rows
 
 
-def _selector_page(field: str, options: list[tuple[str, Any]], page: int) -> _Page | None:
+def _selector_page(field: str, options: list[tuple[str, Any]], page: int) -> Page | None:
     """Page the Value and Tag lists; the fixed enumerations always fit one screen."""
-    if field not in _NAMED_CHOICE_FIELDS:
+    if field not in NAMED_CHOICE_FIELDS:
         return None
-    return _paginate(options, page, _SELECTOR_PAGE_SIZE)
+    return paginate(options, page, SELECTOR_PAGE_SIZE)
 
 
 async def handle_card_creation_chooser(
@@ -454,22 +451,22 @@ async def handle_card_creation_chooser(
 ) -> None:
     """Render one selector for the transient Card draft; nothing is committed here."""
     field = action.removeprefix("card_create_choose_")
-    relation = _RELATION_CHOICES.get(field)
+    relation = RELATION_CHOICES.get(field)
     async with services.sessions() as session:
-        draft = await _require_card_draft(session, services.owner_id)
-        state = _sanitize_card_creation_state(dict(draft.state or {}))
+        draft = await require_card_draft(session, services.owner_id)
+        state = sanitize_card_creation_state(dict(draft.state or {}))
         options = await _choice_options(session, field)
         current = _selector_page(field, options, page)
         if relation is not None:
             selected = set(state[relation.draft_field])
 
-            def build(value: Any, relation: _RelationChoice = relation) -> tuple[str, dict]:
+            def build(value: Any, relation: RelationChoice = relation) -> tuple[str, dict]:
                 return (
                     f"card_create_toggle_{relation.singular}",
                     {relation.payload_key: value},
                 )
         else:
-            state_field = _SINGLE_CHOICE_FIELDS[field]
+            state_field = SINGLE_CHOICE_FIELDS[field]
             selected = {state[state_field]}
 
             def build(value: Any, state_field: str = state_field) -> tuple[str, dict]:
@@ -480,7 +477,7 @@ async def handle_card_creation_chooser(
     await choice_screen(
         message,
         services,
-        _CHOICE_TITLES[field],
+        CHOICE_TITLES[field],
         choices,
         back=("↩️ Back", "card_create_view", {}),
         paging=(current, action, {}) if current else None,
@@ -496,9 +493,9 @@ async def render_card_choices(
     themselves stay out of the persona dialogue.
     """
     field = action.removeprefix("card_choose_")
-    if field not in _CARD_CHOICE_FIELDS:
+    if field not in CARD_CHOICE_FIELDS:
         raise DomainError("Unknown Card relationship selector")
-    relation = _RELATION_CHOICES.get(field)
+    relation = RELATION_CHOICES.get(field)
     async with services.sessions() as session:
         card = await session.get(Card, card_id)
         if card is None or card.archived_at is not None:
@@ -512,7 +509,7 @@ async def render_card_choices(
                 )
             )
 
-            def build(value: Any, relation: _RelationChoice = relation) -> tuple[str, dict]:
+            def build(value: Any, relation: RelationChoice = relation) -> tuple[str, dict]:
                 return (
                     f"card_toggle_{relation.singular}",
                     {"id": card.id, relation.payload_key: value},
@@ -525,7 +522,7 @@ async def render_card_choices(
                 return "card_move", {"id": card.id, "stage": value}
 
         else:
-            column = _SINGLE_CHOICE_FIELDS[field]
+            column = SINGLE_CHOICE_FIELDS[field]
             selected = {getattr(card, column)}
 
             def build(value: Any, column: str = column) -> tuple[str, dict]:
@@ -536,7 +533,7 @@ async def render_card_choices(
     await choice_screen(
         message,
         services,
-        _CHOICE_TITLES[field],
+        CHOICE_TITLES[field],
         choices,
         back=("↩️ Back", "card_view", {"id": card_id}),
         paging=(current, action, {"id": card_id}) if current else None,
@@ -564,7 +561,7 @@ async def render_children(
                 )
             )
         )
-        current = _paginate_cards(children, page)
+        current = paginate_cards(children, page)
         child_back = {
             "kind": "children",
             "id": parent.id,
@@ -573,7 +570,7 @@ async def render_children(
         }
         rows: list[list[InlineKeyboardButton]] = []
         for child in current.items:
-            label = f"{_kind_label(child.kind)} · {child.title} · {child.effective_stage.title()}"
+            label = f"{kind_label(child.kind)} · {child.title} · {child.effective_stage.title()}"
             rows.append(
                 [
                     await token_button(
@@ -586,7 +583,7 @@ async def render_children(
                 ]
             )
         rows.extend(
-            await _paging_row(
+            await paging_row(
                 session,
                 services.owner_id,
                 current,
@@ -800,8 +797,8 @@ async def render_card(
             else {}
         )
         await session.commit()
-    text = _with_notice(
-        _card_overview_text(
+    text = with_notice(
+        card_overview_text(
             {
                 "kind": card.kind,
                 "title": card.title,

@@ -1442,6 +1442,60 @@ async def test_single_tag_proposal_save_and_discard_callbacks_resume_agent(
     assert len(provider.calls) == 2
 
 
+async def test_read_queries_beside_a_proposal_still_resume_the_agent(e2e_harness):
+    """A read call in the same turn stores rows, not an outcome; the receipt must survive it."""
+    async with e2e_harness.sessions() as session:
+        await create_manual_card(session, title="Выпустить в прод VrWalk")
+        await session.commit()
+
+    advisor, provider = e2e_harness.advisor(
+        [
+            mutation_turn(
+                ("tag", {"mode": "create", "name": "VrWalk"}),
+                ("query_safwa", {"sql": "SELECT missing_column FROM ai_cards"}),
+                ("query_safwa", {"sql": "SELECT id FROM ai_cards"}),
+            ),
+            "The VrWalk tag was saved; I will retry the query.",
+        ]
+    )
+    outcome = await advisor.handle("Create a VrWalk tag and apply it to the tree")
+    assert outcome.proposal_id is not None
+    message = _QueueTestMessage()
+    services = SimpleNamespace(
+        sessions=e2e_harness.sessions,
+        advisor=advisor,
+        history=_QueueTestHistory(),
+        owner_id=42,
+        guard=GenerationGuard(),
+    )
+    await render_proposal(message, services, outcome.proposal_id)
+    async with e2e_harness.sessions() as session:
+        token = await session.scalar(
+            select(CallbackToken).where(CallbackToken.action == "proposal_approve")
+        )
+        assert token is not None
+
+    await callback_token_handler(_QueueTestCallback(token.token, message), services)
+
+    async with e2e_harness.sessions() as session:
+        proposal = await session.get(ChangeProposal, outcome.proposal_id)
+        tag = await session.scalar(select(Tag).where(Tag.name == "VrWalk"))
+    assert proposal.status == "approved"
+    assert tag is not None
+    assert "✅ Saved — Create Tag “VrWalk”" in message.rendered[-1]
+    assert "The VrWalk tag was saved; I will retry the query." in message.rendered[-1]
+    assert "could not generate its follow-up" not in message.rendered[-1]
+    assert len(provider.calls) == 2
+    resumed_query_results = [
+        str(item["content"])
+        for item in provider.calls[-1]
+        if item.get("role") == "tool" and item.get("name") == "query_safwa"
+    ]
+    # The model can only repair the read if the failure came back as a tool result.
+    assert "missing_column" in resumed_query_results[0]
+    assert "id" in resumed_query_results[1]
+
+
 async def _resolve_queued_proposal(
     e2e_harness, services, message, proposal_id: int, action: str
 ) -> None:

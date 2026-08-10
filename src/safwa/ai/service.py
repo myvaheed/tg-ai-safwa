@@ -315,7 +315,10 @@ def _approval_results_summary(
 ) -> str:
     lines = ["Proposal results:"]
     for tool in tools:
-        result = dict(tool.get("result") or {})
+        # Only mutation calls store a dict result; a read call in the same suspended
+        # turn stores its rows as a list, which must not be read as an outcome.
+        stored_result = tool.get("result")
+        result = stored_result if isinstance(stored_result, dict) else {}
         if not include_preparation_errors and not tool.get("target"):
             continue
         if not tool.get("target") and (
@@ -344,6 +347,24 @@ def _approval_results_summary(
         # Trimming them for saved items costs the model information and invites repeats.
         lines.extend(f"  • {detail}" for detail in tool.get("details") or [])
     return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def _safe_approval_results_summary(
+    tools: list[dict[str, Any]], *, include_preparation_errors: bool = True
+) -> str:
+    """Render the queue receipt, or nothing when rendering itself fails.
+
+    By the time this runs the approved changes are already committed, so a defect in
+    one label must never abort the turn that reports them back to the owner and to
+    the model.
+    """
+    try:
+        return _approval_results_summary(
+            tools, include_preparation_errors=include_preparation_errors
+        )
+    except Exception:
+        logger.exception("Could not render the approval result summary")
+        return ""
 
 
 def _with_queued_siblings(result: Any, queued: int) -> Any:
@@ -618,9 +639,21 @@ class AIAdvisor:
                     logger.info("AI TOOL query_safwa capped: %s", outcome.notice)
             except (KeyError, TypeError, json.JSONDecodeError) as error:
                 sql = ""
-                rows = [{"error": f"Invalid tool arguments: {error}"}]
-            except (UnsafeQueryError, TimeoutError, OSError) as error:
-                rows = [{"error": str(error)}]
+                rows = [
+                    {
+                        "error": f"Invalid tool arguments: {error}",
+                        "hint": "Send one sql string argument and call query_safwa again.",
+                    }
+                ]
+            except (UnsafeQueryError, sqlite3.Error, TimeoutError, OSError) as error:
+                # A rejected or broken read is the model's to repair. Raising here would
+                # end the whole request, including any mutation queued alongside it.
+                rows = [
+                    {
+                        "error": str(error),
+                        "hint": "Correct the SELECT and call query_safwa again.",
+                    }
+                ]
         logger.info(
             "AI TOOL query_safwa -> rows=%d sql=%s",
             len(rows),
@@ -1313,11 +1346,11 @@ class AIAdvisor:
             await session.commit()
 
         try:
-            result_summary = _approval_results_summary(tools)
+            result_summary = _safe_approval_results_summary(tools)
             current_result_summaries = [*prior_result_summaries]
             if result_summary:
                 current_result_summaries.append(result_summary)
-            display_summary = _approval_results_summary(
+            display_summary = _safe_approval_results_summary(
                 tools, include_preparation_errors=False
             )
             current_display_result_summaries = [*prior_display_result_summaries]
@@ -1405,7 +1438,7 @@ class AIAdvisor:
                     stored_batch.metadata_json = final_metadata
                     await session.commit()
             await self._finish_run(run_id, "failed", started, type(error).__name__)
-            result_summary = _approval_results_summary(tools)
+            result_summary = _safe_approval_results_summary(tools)
             if result_summary:
                 return AIOutcome(
                     "answer",
@@ -1457,7 +1490,7 @@ class AIAdvisor:
             await session.commit()
         summaries = [
             *metadata.get("display_result_summaries", []),
-            _approval_results_summary(tools, include_preparation_errors=False),
+            _safe_approval_results_summary(tools, include_preparation_errors=False),
         ]
         return "\n\n".join(summary for summary in summaries if summary) or ""
 

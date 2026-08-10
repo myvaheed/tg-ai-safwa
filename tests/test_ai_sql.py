@@ -70,6 +70,17 @@ def test_read_sql_accepts_views_and_ctes():
     assert validate_read_sql("WITH x AS (SELECT * FROM ai_cards) SELECT count(*) FROM x")
 
 
+def test_read_sql_accepts_recursive_and_column_list_ctes():
+    assert validate_read_sql(
+        "WITH RECURSIVE tree AS (SELECT id FROM ai_cards WHERE id = 1 "
+        "UNION ALL SELECT c.id FROM ai_cards c JOIN tree t ON c.parent_id = t.id) "
+        "SELECT id FROM tree"
+    )
+    assert validate_read_sql("WITH t(card_id) AS (SELECT id FROM ai_cards) SELECT card_id FROM t")
+    with pytest.raises(UnsafeQueryError):
+        validate_read_sql("WITH RECURSIVE tree AS (SELECT id FROM cards) SELECT id FROM tree")
+
+
 def _runner_over_cards(tmp_path, count: int, note: str = "", **caps):
     from sqlalchemy import create_engine
 
@@ -123,6 +134,18 @@ async def test_query_result_reports_shortened_text_values(tmp_path):
 
     assert len(outcome.rows[0]["note"]) == 100
     assert "cut to 100 characters" in outcome.notice
+
+
+async def test_recursive_cte_walks_the_card_tree_under_the_authorizer(tmp_path):
+    runner = _runner_over_cards(tmp_path, 3)
+
+    outcome = await runner.run(
+        "WITH RECURSIVE tree AS (SELECT id, parent_id FROM ai_cards WHERE id = 1 "
+        "UNION ALL SELECT c.id, c.parent_id FROM ai_cards c JOIN tree t ON c.parent_id = t.id) "
+        "SELECT id FROM tree"
+    )
+
+    assert outcome.rows == [{"id": 1}]
 
 
 async def test_uncapped_query_carries_no_notice(tmp_path):

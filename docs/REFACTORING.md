@@ -22,7 +22,7 @@ Regression tests added for every behavioral fix below:
 `test_moving_a_blocked_card_shows_its_warning_on_the_card_screen`,
 `test_ai_goal_proposal_reports_a_parent_instead_of_dropping_it`,
 `test_ai_stage_update_to_done_keeps_completion_accounting`, plus an index assertion in
-`test_alembic_bootstraps_new_database`; and for the structural pass
+`test_startup_bootstraps_a_new_database_from_the_models`; and for the structural pass
 `test_every_inline_button_action_has_a_registered_handler`,
 `test_no_individually_registered_handler_is_unreachable`,
 `test_every_card_relationship_is_wired_to_both_selector_surfaces`,

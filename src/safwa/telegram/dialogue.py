@@ -21,13 +21,13 @@ from ..history import HistoryBoundaryMissing, HistoryEntry, register_message
 from ..memory import estimate_tokens
 from ..models import SummaryState, UiSession, Workspace
 from ._core import Services, router
-from ._foundation import (
+from ._messaging import (
     clear_message_markup,
     delete_text_input,
     dismiss_prior_ui,
     send_registered,
 )
-from .cards import _sanitize_card_creation_state, render_card, render_card_creation
+from .cards import render_card, render_card_creation, sanitize_card_creation_state
 from .items import render_item_editor
 from .proposals import render_ai_outcome
 
@@ -90,7 +90,7 @@ async def ordinary_text(message: Message, services: Services) -> None:
             message_id = int(state.pop("message_id"))
             state[field] = message.text.strip()
             editor.kind = "card_create"
-            editor.state = _sanitize_card_creation_state(state)
+            editor.state = sanitize_card_creation_state(state)
             await session.commit()
         input_deleted = await delete_text_input(message, services)
         if not input_deleted:

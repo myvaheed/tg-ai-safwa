@@ -118,7 +118,7 @@ def test_no_individually_registered_handler_is_unreachable() -> None:
 
 def test_every_card_relationship_is_wired_to_both_selector_surfaces() -> None:
     """Adding a relationship to the table must not leave half the screens unreachable."""
-    for field, relation in telegram_source._RELATION_CHOICES.items():
+    for field, relation in telegram_source.RELATION_CHOICES.items():
         assert f"card_choose_{field}" in CALLBACK_ACTIONS
         assert f"card_create_choose_{field}" in CALLBACK_ACTIONS
         assert f"card_toggle_{relation.singular}" in CALLBACK_ACTIONS

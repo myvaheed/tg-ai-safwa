@@ -31,35 +31,31 @@ from ..domain import (
 from ..enums import CardStage, MessageKind, ProposalStatus
 from ..models import CallbackToken, Card, ChangeProposal, ProposalChange, UiSession, UserProfile
 from ._core import (
-    _CARD_CHOICE_FIELDS,
-    _CARD_DRAFT_CHOICE_FIELDS,
-    _CARD_DRAFT_RELATIONS,
-    _CARD_RELATION_TOGGLES,
-    _RELATION_CHOICES,
+    CARD_CHOICE_FIELDS,
+    CARD_DRAFT_CHOICE_FIELDS,
+    CARD_DRAFT_RELATIONS,
+    CARD_RELATION_TOGGLES,
+    ITEM_REFERENCES,
+    RELATION_CHOICES,
     CallbackContext,
     CallbackHandler,
     Services,
     router,
 )
-from ._foundation import (
-    _ITEM_REFERENCES,
-    _with_notice,
-    menu_row,
-    send_registered,
-    token_button,
-)
+from ._messaging import send_registered, token_button
+from ._presentation import menu_row, with_notice
 from .cards import (
-    _card_creation_errors,
-    _card_editor_back_state,
-    _linked_card_count,
-    _require_card_draft,
-    _sanitize_card_creation_state,
+    card_creation_errors,
+    card_editor_back_state,
     handle_card_creation_chooser,
+    linked_card_count,
     render_card,
     render_card_choices,
     render_card_creation,
     render_children,
     render_dashboard,
+    require_card_draft,
+    sanitize_card_creation_state,
 )
 from .commands import (
     command_start,
@@ -159,12 +155,12 @@ async def _on_item_toggle_focus(context: CallbackContext) -> None:
 
 async def _on_item_archive_prompt(context: CallbackContext) -> None:
     entity = context.payload["entity"]
-    spec = _ITEM_REFERENCES[entity]
+    spec = ITEM_REFERENCES[entity]
     async with context.sessions() as session:
         item = await session.get(spec.model, context.payload["id"])
         if item is None or item.archived_at is not None:
             raise DomainError(f"{entity.title()} does not exist")
-        linked_count = await _linked_card_count(session, spec, item.id)
+        linked_count = await linked_card_count(session, spec, item.id)
         confirm = await token_button(
             session,
             context.owner_id,
@@ -280,7 +276,7 @@ async def _on_card_draft_view(context: CallbackContext) -> None:
         state.pop("input_field", None)
         state.pop("message_id", None)
         draft.kind = "card_create"
-        draft.state = _sanitize_card_creation_state(state)
+        draft.state = sanitize_card_creation_state(state)
         await session.commit()
     await render_card_creation(context.message, context.services)
 
@@ -288,7 +284,7 @@ async def _on_card_draft_view(context: CallbackContext) -> None:
 async def _on_card_draft_edit_text(context: CallbackContext) -> None:
     field = context.payload["field"]
     async with context.sessions() as session:
-        draft = await _require_card_draft(session, context.owner_id)
+        draft = await require_card_draft(session, context.owner_id)
         state = dict(draft.state or {})
         current = str(state.get(field) or "")
         state.update(input_field=field, message_id=context.message.message_id)
@@ -309,11 +305,11 @@ async def _on_card_draft_edit_text(context: CallbackContext) -> None:
 
 async def _on_card_draft_toggle(context: CallbackContext) -> None:
     async with context.sessions() as session:
-        draft = await _require_card_draft(session, context.owner_id)
+        draft = await require_card_draft(session, context.owner_id)
         state = dict(draft.state or {})
         field = context.payload["field"]
         state[field] = not bool(state.get(field))
-        draft.state = _sanitize_card_creation_state(state)
+        draft.state = sanitize_card_creation_state(state)
         await session.commit()
     await render_card_creation(context.message, context.services)
 
@@ -329,32 +325,32 @@ async def _on_card_draft_chooser(context: CallbackContext) -> None:
 
 async def _on_card_draft_set(context: CallbackContext) -> None:
     async with context.sessions() as session:
-        draft = await _require_card_draft(session, context.owner_id)
+        draft = await require_card_draft(session, context.owner_id)
         state = dict(draft.state or {})
         state[context.payload["field"]] = context.payload["value"]
-        draft.state = _sanitize_card_creation_state(state)
+        draft.state = sanitize_card_creation_state(state)
         await session.commit()
     await render_card_creation(context.message, context.services)
 
 
 async def _on_card_draft_toggle_relation(context: CallbackContext) -> None:
-    field, payload_key = _CARD_DRAFT_RELATIONS[context.action]
+    field, payload_key = CARD_DRAFT_RELATIONS[context.action]
     async with context.sessions() as session:
-        draft = await _require_card_draft(session, context.owner_id)
+        draft = await require_card_draft(session, context.owner_id)
         state = dict(draft.state or {})
         selected = set(state.get(field) or [])
         selected.symmetric_difference_update({context.payload[payload_key]})
         state[field] = sorted(selected)
-        draft.state = _sanitize_card_creation_state(state)
+        draft.state = sanitize_card_creation_state(state)
         await session.commit()
     await render_card_creation(context.message, context.services)
 
 
 async def _on_card_draft_save(context: CallbackContext) -> None:
     async with context.sessions() as session:
-        draft = await _require_card_draft(session, context.owner_id)
-        state = _sanitize_card_creation_state(dict(draft.state or {}))
-        errors = _card_creation_errors(state)
+        draft = await require_card_draft(session, context.owner_id)
+        state = sanitize_card_creation_state(dict(draft.state or {}))
+        errors = card_creation_errors(state)
         if errors:
             raise DomainError("Card is incomplete: " + "; ".join(errors))
         card = await create_card(
@@ -476,7 +472,7 @@ async def _on_card_edit_text(context: CallbackContext) -> None:
     card_id = context.payload["id"]
     field = context.payload["field"]
     async with context.sessions() as session:
-        back_state = await _card_editor_back_state(session, context.owner_id)
+        back_state = await card_editor_back_state(session, context.owner_id)
         await _clear_ui_sessions(session, context.owner_id)
         card = await session.get(Card, card_id)
         if card is None:
@@ -544,7 +540,7 @@ async def _on_card_toggle_field(context: CallbackContext) -> None:
             raise DomainError("Card does not exist")
         if field == "blocked" and not card.blocked:
             # Blocking always needs a reason, so ask for it before writing anything.
-            back_state = await _card_editor_back_state(session, context.owner_id)
+            back_state = await card_editor_back_state(session, context.owner_id)
             await _clear_ui_sessions(session, context.owner_id)
             session.add(
                 UiSession(
@@ -585,8 +581,8 @@ async def _on_card_toggle_field(context: CallbackContext) -> None:
 
 async def _on_card_toggle_relation(context: CallbackContext) -> None:
     """Toggle one Category, Energy type, Value or Tag and reopen the same selector."""
-    field = _CARD_RELATION_TOGGLES[context.action]
-    relation = _RELATION_CHOICES[field]
+    field = CARD_RELATION_TOGGLES[context.action]
+    relation = RELATION_CHOICES[field]
     async with context.sessions() as session:
         await relation.toggle(
             session,
@@ -677,7 +673,7 @@ async def _on_card_finish(context: CallbackContext) -> None:
     await send_registered(
         context.message,
         context.services,
-        _with_notice("Card updated.", notice),
+        with_notice("Card updated.", notice),
         kind=MessageKind.RECEIPT,
         markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
     )
@@ -854,13 +850,13 @@ CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "proposal_approve": _on_proposal_approve,
     "proposal_delete_confirm": _on_proposal_delete_confirm,
     "proposal_reject": _on_proposal_reject,
-    **{f"card_choose_{field}": _on_card_choices for field in _CARD_CHOICE_FIELDS},
+    **{f"card_choose_{field}": _on_card_choices for field in CARD_CHOICE_FIELDS},
     **{
         f"card_create_choose_{field}": _on_card_draft_chooser
-        for field in _CARD_DRAFT_CHOICE_FIELDS
+        for field in CARD_DRAFT_CHOICE_FIELDS
     },
-    **dict.fromkeys(_CARD_DRAFT_RELATIONS, _on_card_draft_toggle_relation),
-    **dict.fromkeys(_CARD_RELATION_TOGGLES, _on_card_toggle_relation),
+    **dict.fromkeys(CARD_DRAFT_RELATIONS, _on_card_draft_toggle_relation),
+    **dict.fromkeys(CARD_RELATION_TOGGLES, _on_card_toggle_relation),
 }
 
 

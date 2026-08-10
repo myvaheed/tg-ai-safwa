@@ -10,7 +10,7 @@ from safwa.models import AgentRun, AgentStep, Base, Card, CardTag, Tag
 from safwa.recovery import recover_startup
 
 
-def test_alembic_bootstraps_new_database(tmp_path, monkeypatch):
+def test_startup_bootstraps_a_new_database_from_the_models(tmp_path, monkeypatch):
     monkeypatch.chdir(Path(__file__).parents[1])
     path = tmp_path / "safwa.db"
     upgrade_database(f"sqlite:///{path.as_posix()}")

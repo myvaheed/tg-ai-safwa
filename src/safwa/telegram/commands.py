@@ -41,17 +41,19 @@ from ..models import (
 )
 from ..saved_requests import request_cards
 from ._core import Services, router
-from ._foundation import (
-    _REQUEST_RESULT_LIMIT,
-    _kind_label,
-    _with_notice,
+from ._messaging import (
     delete_message_range,
-    menu_markup,
-    menu_row,
-    retro_back_row,
     send_registered,
     send_subsession_result,
     token_button,
+)
+from ._presentation import (
+    REQUEST_RESULT_LIMIT,
+    kind_label,
+    menu_markup,
+    menu_row,
+    retro_back_row,
+    with_notice,
 )
 from .cards import render_dashboard, start_manual_card_creation
 
@@ -358,13 +360,13 @@ async def render_saved_request(message: Message, services: Services, request_id:
         if request is None or request.archived_at is not None:
             raise DomainError("Request no longer exists")
         matches = await request_cards(session, request.query_sql)
-        cards = matches[:_REQUEST_RESULT_LIMIT]
+        cards = matches[:REQUEST_RESULT_LIMIT]
         rows = [
             [
                 await token_button(
                     session,
                     services.owner_id,
-                    f"{_kind_label(card.kind)} · {card.title}"[:60],
+                    f"{kind_label(card.kind)} · {card.title}"[:60],
                     "card_view",
                     {"id": card.id, "back": {"kind": "request", "id": request.id}},
                 )
@@ -386,8 +388,8 @@ async def render_saved_request(message: Message, services: Services, request_id:
         await session.commit()
     details = request.description or "No description."
     details += f"\n\n{len(matches)} matching card{'s' if len(matches) != 1 else ''}"
-    if len(matches) > _REQUEST_RESULT_LIMIT:
-        details += f" (showing first {_REQUEST_RESULT_LIMIT})"
+    if len(matches) > REQUEST_RESULT_LIMIT:
+        details += f" (showing first {REQUEST_RESULT_LIMIT})"
     await send_registered(
         message,
         services,
@@ -517,7 +519,7 @@ async def render_feedback(
             await send_registered(
                 message,
                 services,
-                _with_notice("No completion feedback pending.", notice),
+                with_notice("No completion feedback pending.", notice),
                 kind=MessageKind.DASHBOARD,
                 markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
             )
@@ -534,7 +536,7 @@ async def render_feedback(
     await send_registered(
         message,
         services,
-        _with_notice(
+        with_notice(
             f"<b>Feedback 1/{len(pending)}</b>\n"
             f"Did you like doing <b>{html.escape(card.title)}</b>?",
             notice,

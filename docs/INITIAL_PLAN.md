@@ -62,7 +62,7 @@ Safwa is a Python 3.12 modular monolith under `src/safwa/`:
 
 - `domain`: Card invariants, hierarchy, stages, repeats, Values, Tags, Sprints, metrics, events, and Saved Requests.
 - `application`: typed commands/queries, transactions, AI proposals, UI intents, reminders, and retrospective calculations.
-- `infrastructure`: SQLAlchemy, SQLite, Alembic, provider clients, Telethon history, file memory, scheduling, and plotting.
+- `infrastructure`: SQLAlchemy, SQLite, provider clients, Telethon history, file memory, scheduling, and plotting.
 - `telegram`: aiogram routing, item screens, callbacks, forms, pagination, semantic message classification, and generation synchronization.
 - `ai`: prompt/context construction, tool contracts, safe retrieval, proposal compilation, persona, summary, and memory maintenance.
 - `bootstrap`: configuration, migrations, dependency wiring, startup recovery, background loops, and graceful shutdown.
@@ -178,7 +178,7 @@ Retrospective PNGs use Matplotlib `Agg` and show:
 
 ## Fresh-schema delivery
 
-Development currently assumes a fresh database. Alembic contains one clean baseline revision that creates the schema represented by current SQLAlchemy metadata. No compatibility migration is maintained for the removed unsaved-Card or dependency structures.
+Development currently assumes a fresh database. There are no migrations: startup creates the schema straight from the current SQLAlchemy metadata, so a fresh database always matches `models.py`. No compatibility migration is maintained for the removed unsaved-Card or dependency structures.
 
 Verification covers:
 
