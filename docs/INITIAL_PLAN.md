@@ -36,6 +36,7 @@ AI Card creation uses the normal proposal queue:
 - `Save` revalidates versions and domain rules, then inserts the Card in one short transaction.
 - `Discard` creates no planning entity and the static result message records every proposed field.
 - Multiple mutation tool calls become independent proposal screens in their original order.
+- Mutation calls are prepared independently against committed data. Valid calls keep their original proposal order; unresolved calls return structured tool errors without cancelling valid siblings. After the current queue is resolved, the model retries only unfinished operations using IDs returned by saved proposals, for at most five repair rounds.
 - After each Save, Discard, or failure, the same Telegram message advances to the next proposal.
 - The model resumes only after the whole queue is resolved and receives all mutation and read-tool results.
 

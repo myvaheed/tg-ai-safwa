@@ -637,6 +637,43 @@ async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions) ->
     assert "↩️ Back" not in buttons
 
 
+async def test_card_creation_proposal_has_no_proposed_changes_section(sessions) -> None:
+    async with sessions() as session:
+        workspace = await session.get(Workspace, 1)
+        proposal = ChangeProposal(
+            message="Create a walking Action",
+            workspace_revision=workspace.revision,
+            status="pending",
+        )
+        session.add(proposal)
+        await session.flush()
+        session.add(
+            ProposalChange(
+                proposal_id=proposal.id,
+                position=0,
+                entity="card",
+                action="create",
+                values={
+                    "kind": "action",
+                    "title": "Evening walk",
+                    "effort_points": 3,
+                    "categories": ["self"],
+                },
+            )
+        )
+        await session.commit()
+        proposal_id = proposal.id
+
+    message = FakeMessage(62, bot_message=True)
+    await render_proposal(message, services_for(sessions), proposal_id)
+    text, markup = message.edits[-1]
+
+    assert "Card overview" in text
+    assert "Title: <b>Evening walk</b>" in text
+    assert "<b>Proposed changes</b>" not in text
+    assert button_texts(markup) == ["✅ Save", "🗑 Discard"]
+
+
 async def test_move_proposal_exposes_only_stage_control(sessions) -> None:
     async with sessions() as session:
         card = Card(kind="action", title="Evening walk", effort_points=3)

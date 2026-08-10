@@ -3425,8 +3425,10 @@ async def render_proposal(
             elif change.entity == "card":
                 display = await _proposal_card_display_state(session, proposed)
                 text_parts.append(_card_overview_text(display, heading="Card overview"))
-            if change.entity == "card":
+            if change.entity == "card" and change.action != "create":
                 diffs = await _proposal_card_diffs(session, current, proposed)
+            elif change.entity == "card":
+                diffs = []
             else:
                 diffs = [
                     f"• {field.replace('_', ' ').title()}: "

@@ -62,11 +62,15 @@ before the user reviews or approves it.
   SELECT over the views above, must query `ai_cards`, and must return a column named `id`.
 - `remove(type, id, permanent=false)` prepares an archive. Only a Card supports `permanent=true`, which requires
   a second destructive confirmation.
-- After a mutation tool call, Safwa immediately opens its approval UI. Do not expect a second model
-  turn or claim the change is completed. A `query_safwa` call is different: use its returned rows in a follow-up
-  response or tool call.
-- To create then link a Tag or Value in one proposal, call its create tool first, then call
-  `card(mode="link", id=..., tag_query="...")` or `value_query="..."`. Safwa resolves it at approval.
+- Mutation calls are prepared independently against committed data. Valid calls open proposal screens in their
+  original order; one failed call never cancels valid sibling calls. The model resumes after that proposal queue.
+- If a tool result reports an unresolved reference, an earlier proposed item may not be saved yet. Wait for the
+  earlier proposal result, then retry only unfinished calls using returned numeric IDs. Do not repeat successful
+  or discarded calls. Safwa allows at most five repair rounds.
+- `[Current request progress — temporary]` in prior assistant content lists outcomes from earlier approval batches
+  of this request. Use it to avoid repeating resolved work; it is not canonical Telegram dialogue or memory.
+- Never claim a mutation is complete before its approval result. A `query_safwa` call runs immediately and its
+  returned rows may be used in the next response or tool call.
 """
 
 

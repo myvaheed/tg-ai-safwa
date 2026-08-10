@@ -65,6 +65,13 @@ from .sql import ReadOnlyQueryRunner, UnsafeQueryError
 
 logger = logging.getLogger(__name__)
 
+def _allows_parent(child_kind: str | None, parent_kind: str | None) -> bool:
+    if child_kind == CardKind.IDEA.value:
+        return parent_kind == CardKind.GOAL.value
+    if child_kind == CardKind.ACTION.value:
+        return parent_kind in {CardKind.GOAL.value, CardKind.IDEA.value}
+    return False
+
 SUBSESSION_RESULT_PROMPT = """Compress this isolated Safwa planning/advisory branch into one concise
 context message for the parent conversation. Preserve concrete outcomes, decisions, personal insights,
 unresolved issues, and any planning implications. Write in the conversation's language. Do not mention
@@ -116,7 +123,26 @@ MUTATION_TOOLS: tuple[dict[str, Any], ...] = tuple(
     for name, model in MUTATION_TOOL_MODELS.items()
 )
 SAFWA_TOOLS = (QUERY_SAFWA_TOOL, *MUTATION_TOOLS)
-MAX_TOOL_CALLS = 16
+MAX_TOOL_CALLS = 64
+MAX_REPAIR_ROUNDS = 5
+
+
+class ToolPreparationError(DomainError):
+    """A model-visible error for one mutation call, not for the whole agent turn."""
+
+    def __init__(self, code: str, message: str, hint: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.hint = hint
+
+    def as_tool_result(self) -> dict[str, Any]:
+        return {
+            "status": "error",
+            "code": self.code,
+            "error": str(self),
+            "hint": self.hint,
+            "retryable": True,
+        }
 
 
 @dataclass
@@ -139,6 +165,10 @@ class AgentLoopResult:
     pending_tools: list[PendingTool] = field(default_factory=list)
     assistant_content: str | None = None
     tool_count: int = 0
+    repair_rounds: int = 0
+    messages: list[dict[str, Any]] = field(default_factory=list)
+    result_summaries: list[str] = field(default_factory=list)
+    display_result_summaries: list[str] = field(default_factory=list)
 
 
 def _log_preview(content: str, limit: int = 500) -> str:
@@ -152,6 +182,102 @@ def _json_safe(value: Any) -> Any:
 
 def _result_value(value: Any) -> str:
     return " ".join(str(value).split())[:100]
+
+
+_DETAIL_LABELS = {
+    "kind": "Kind",
+    "title": "Title",
+    "name": "Name",
+    "description": "Description",
+    "note": "Note",
+    "stage": "Stage",
+    "priority": "Priority",
+    "hard_time": "Hard Time",
+    "blocked": "Blocked",
+    "blocked_description": "Blocked Description",
+    "effort_points": "Effort",
+    "repeatable": "Repeatable",
+    "categories": "Categories",
+    "energy_types": "Energy",
+    "parent_id": "Parent ID",
+    "values": "Values",
+    "tags": "Tags",
+    "active": "Active",
+    "query_sql": "SQL",
+}
+
+
+def _detail_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if value is None or value == "" or value == []:
+        return "—"
+    if isinstance(value, list):
+        return ", ".join(_result_value(item) for item in value) or "—"
+    return _result_value(value)
+
+
+def _reference_details(values: dict[str, Any], prefix: str) -> list[str]:
+    result: list[str] = []
+    singular = values.get(f"{prefix}_id")
+    if singular is not None:
+        result.append(f"#{singular}")
+    result.extend(f"#{item}" for item in values.get(f"{prefix}_ids") or [])
+    query = values.get(f"{prefix}_query")
+    if query is not None:
+        result.extend(str(item) for item in (query if isinstance(query, list) else [query]))
+    return result
+
+
+def _normalized_card_details(values: dict[str, Any], *, creating: bool) -> dict[str, Any]:
+    fields = {
+        name: values[name]
+        for name in (
+            "kind",
+            "title",
+            "note",
+            "stage",
+            "priority",
+            "hard_time",
+            "blocked",
+            "blocked_description",
+            "effort_points",
+            "repeatable",
+            "categories",
+            "energy_types",
+            "parent_id",
+        )
+        if name in values
+    }
+    if creating:
+        fields.setdefault("stage", CardStage.BACKLOG.value)
+        fields.setdefault("note", "")
+        fields.setdefault("priority", "medium")
+        fields.setdefault("hard_time", False)
+        fields.setdefault("blocked", False)
+        if fields.get("kind") == CardKind.ACTION.value:
+            fields.setdefault("repeatable", False)
+            fields.setdefault("categories", [])
+            fields.setdefault("energy_types", [])
+    if referenced_values := _reference_details(values, "value"):
+        fields["values"] = referenced_values
+    if referenced_tags := _reference_details(values, "tag"):
+        fields["tags"] = referenced_tags
+    return fields
+
+
+def _raw_change_details(change: AgentChange | None) -> list[str]:
+    if change is None:
+        return []
+    values = (
+        _normalized_card_details(change.values, creating=change.action == "create")
+        if change.entity == "card"
+        else dict(change.values)
+    )
+    return [
+        f"{_DETAIL_LABELS.get(field, field.replace('_', ' ').title())}: {_detail_value(value)}"
+        for field, value in values.items()
+    ]
 
 
 def _approval_change_label(tool: dict[str, Any]) -> str:
@@ -175,24 +301,52 @@ def _approval_change_label(tool: dict[str, Any]) -> str:
     return label
 
 
-def _approval_results_summary(tools: list[dict[str, Any]]) -> str:
+def _approval_results_summary(
+    tools: list[dict[str, Any]], *, include_preparation_errors: bool = True
+) -> str:
     lines = ["Proposal results:"]
     for tool in tools:
-        if not tool.get("target"):
-            continue
         result = dict(tool.get("result") or {})
+        if not include_preparation_errors and not tool.get("target"):
+            continue
+        if not tool.get("target") and (
+            not tool.get("change") or result.get("status") not in {"error", "rejected"}
+        ):
+            continue
         status = str(result.get("status", "failed"))
         prefix = {
             "approved": "✅ Saved",
             "discarded": "🗑 Discarded",
+            "rejected": "🗑 Discarded",
             "failed": "⚠️ Failed",
+            "error": "⚠️ Failed",
         }.get(status, f"⚠️ {status.title()}")
         line = f"{prefix} — {_approval_change_label(tool)}"
+        affected_ids = result.get("affected_ids") or []
+        if status == "approved" and affected_ids:
+            line += " [result ID" + ("s" if len(affected_ids) != 1 else "") + ": "
+            line += ", ".join(f"#{item}" for item in affected_ids) + "]"
         error = result.get("error")
         if error:
             line += f": {_result_value(error)}"
         lines.append(line)
+        lines.extend(f"  • {detail}" for detail in tool.get("details") or [])
     return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def _assistant_content_with_request_progress(
+    content: str | None, result_summaries: list[str]
+) -> str | None:
+    parts: list[str] = []
+    if result_summaries:
+        parts.append(
+            "[Current request progress — temporary]\n"
+            "Do not repeat Saved or Discarded operations. Retry only unfinished Failed operations.\n"
+            + "\n\n".join(result_summaries)
+        )
+    if content and content.strip():
+        parts.append(content.strip())
+    return "\n\n".join(parts) or None
 
 
 def _log_provider_request(messages: list[dict[str, Any]]) -> None:
@@ -259,7 +413,7 @@ class AIAdvisor:
                 messages.append({"role": "user", "content": text})
             result = await self._run_agent_loop(messages, run.id)
             outcome = await self._materialize(result, run.id)
-            status = "awaiting_approval" if result.pending_tools else "completed"
+            status = "awaiting_approval" if outcome.kind == "proposal" else "completed"
             await self._finish_run(run.id, status, started)
             return outcome
         except Exception as error:
@@ -325,6 +479,7 @@ class AIAdvisor:
         run_id: int,
         *,
         tool_count: int = 0,
+        repair_rounds: int = 0,
     ) -> AgentLoopResult:
         while True:
             turn = await self._provider_turn(messages)
@@ -382,16 +537,40 @@ class AIAdvisor:
                     else:
                         message = "I prepared the proposed changes for your approval."
                     return AgentLoopResult(
-                        message,
-                        pending_tools,
-                        turn.content or None,
-                        tool_count,
+                        message=message,
+                        pending_tools=pending_tools,
+                        assistant_content=turn.content or None,
+                        tool_count=tool_count,
+                        repair_rounds=repair_rounds,
+                        messages=_json_safe(messages),
                     )
+                invalid_mutations = [
+                    tool
+                    for tool in pending_tools
+                    if tool.call.name != "query_safwa" and tool.change is None
+                ]
+                if invalid_mutations:
+                    if repair_rounds >= MAX_REPAIR_ROUNDS:
+                        return AgentLoopResult(
+                            message=(
+                                "I could not prepare the requested change after five repair attempts. "
+                                "No unfinished operation was applied."
+                            ),
+                            tool_count=tool_count,
+                            repair_rounds=repair_rounds,
+                            messages=_json_safe(messages),
+                        )
+                    repair_rounds += 1
                 continue
 
             if not turn.content:
                 raise DomainError("The advisor finished without a response")
-            return AgentLoopResult(turn.content, tool_count=tool_count)
+            return AgentLoopResult(
+                turn.content,
+                tool_count=tool_count,
+                repair_rounds=repair_rounds,
+                messages=_json_safe(messages),
+            )
 
     async def _execute_query_tool(
         self, call: ProviderToolCall, run_id: int, position: int
@@ -444,7 +623,13 @@ class AIAdvisor:
             change = mutation_change_from_tool(call.name, arguments)
         except (ValueError, ValidationError, json.JSONDecodeError) as error:
             logger.info("AI TOOL %s rejected: %s", call.name, error)
-            return None, {"status": "rejected", "error": str(error)}
+            return None, {
+                "status": "error",
+                "code": "invalid_arguments",
+                "error": str(error),
+                "hint": "Correct only this unfinished tool call and retry it.",
+                "retryable": True,
+            }
         logger.info("AI TOOL %s prepared %s.%s", call.name, change.entity, change.action)
         async with self.sessions() as session:
             session.add(
@@ -471,6 +656,160 @@ class AIAdvisor:
             "next": "Wait for the user's review or approval; do not say it is complete.",
         }
 
+    @staticmethod
+    def _reference_items(value: Any) -> list[Any]:
+        if value is None:
+            return []
+        return value if isinstance(value, list) else [value]
+
+    async def _validate_named_references(
+        self,
+        session: AsyncSession,
+        values: dict[str, Any],
+        *,
+        singular_key: str,
+        plural_key: str,
+        query_key: str,
+        model: type[Tag] | type[Value],
+        label: str,
+    ) -> None:
+        reference_hint = (
+            "The referenced item may have been proposed but is not saved yet. Wait for the "
+            "earlier proposal result, then retry only this unfinished operation using the returned ID."
+        )
+        raw_ids = [
+            *self._reference_items(values.get(singular_key)),
+            *self._reference_items(values.get(plural_key)),
+        ]
+        for raw_id in raw_ids:
+            entity = await session.get(model, int(raw_id))
+            if entity is None or entity.archived_at is not None:
+                raise ToolPreparationError(
+                    "reference_not_found",
+                    f"{label} #{raw_id} does not exist or is archived.",
+                    reference_hint,
+                )
+        for raw_name in self._reference_items(values.get(query_key)):
+            name = str(raw_name).strip()
+            if not name:
+                raise ToolPreparationError(
+                    "invalid_arguments",
+                    f"{label} name must not be empty.",
+                    f"Provide one exact {label} name or its numeric ID.",
+                )
+            matches = list(
+                await session.scalars(
+                    select(model).where(
+                        model.name.collate("NOCASE") == name,
+                        model.archived_at.is_(None),
+                    )
+                )
+            )
+            if not matches:
+                raise ToolPreparationError(
+                    "reference_not_found",
+                    f"{label} '{name}' was not found.",
+                    reference_hint,
+                )
+            if len(matches) > 1:
+                raise ToolPreparationError(
+                    "reference_ambiguous",
+                    f"{label} '{name}' matched more than one item.",
+                    f"Use query_safwa to choose one {label} and retry with its numeric ID.",
+                )
+
+    async def _resolve_parent_reference(
+        self,
+        session: AsyncSession,
+        values: dict[str, Any],
+        child_kind: str | None,
+    ) -> None:
+        reference_hint = (
+            "The parent may have been proposed but is not saved yet. Wait for the earlier proposal "
+            "result, then retry only this unfinished Card operation using the returned parent ID."
+        )
+        if "parent_query" in values:
+            parent_query = str(values.pop("parent_query")).strip()
+            if not parent_query:
+                raise ToolPreparationError(
+                    "invalid_arguments",
+                    "Parent query must not be empty.",
+                    "Provide one exact Card title, one numeric parent_id, or a safe SELECT returning id.",
+                )
+            if parent_query.casefold().startswith(("select", "with")):
+                try:
+                    rows = await self.query_runner.run(normalize_request_sql(parent_query))
+                except (RequestQueryError, UnsafeQueryError) as error:
+                    raise ToolPreparationError(
+                        "unsafe_query",
+                        f"Invalid parent query: {error}",
+                        "Use one read-only SELECT over ai_cards that returns only the id column.",
+                    ) from error
+                except (sqlite3.Error, TimeoutError) as error:
+                    raise ToolPreparationError(
+                        "invalid_arguments",
+                        f"Parent query failed: {error}",
+                        "Correct the SELECT and retry only this unfinished Card operation.",
+                    ) from error
+                if not rows:
+                    raise ToolPreparationError(
+                        "reference_not_found",
+                        "The parent query returned no Cards.",
+                        reference_hint,
+                    )
+                if len(rows) > 1:
+                    raise ToolPreparationError(
+                        "reference_ambiguous",
+                        "The parent query returned more than one Card.",
+                        "Narrow the query to one Card and retry with its numeric ID.",
+                    )
+                if set(rows[0]) != {"id"} or not isinstance(rows[0]["id"], int):
+                    raise ToolPreparationError(
+                        "invalid_arguments",
+                        "The parent query must return exactly one integer id column.",
+                        "Use SELECT id FROM ai_cards ... and make it match one Card.",
+                    )
+                values["parent_id"] = rows[0]["id"]
+            else:
+                matches = list(
+                    await session.scalars(
+                        select(Card).where(
+                            Card.title.collate("NOCASE") == parent_query,
+                            Card.archived_at.is_(None),
+                        )
+                    )
+                )
+                if not matches:
+                    raise ToolPreparationError(
+                        "reference_not_found",
+                        f"Parent Card '{parent_query}' was not found.",
+                        reference_hint,
+                    )
+                if len(matches) > 1:
+                    raise ToolPreparationError(
+                        "reference_ambiguous",
+                        f"Parent Card '{parent_query}' matched more than one Card.",
+                        "Use query_safwa to choose one parent and retry with its numeric ID.",
+                    )
+                values["parent_id"] = matches[0].id
+
+        parent_id = values.get("parent_id")
+        if parent_id is None:
+            return
+        parent = await session.get(Card, int(parent_id))
+        if parent is None or parent.archived_at is not None:
+            raise ToolPreparationError(
+                "reference_not_found",
+                f"Parent Card #{parent_id} does not exist or is archived.",
+                reference_hint,
+            )
+        if not _allows_parent(child_kind, parent.kind):
+            raise ToolPreparationError(
+                "invalid_parent_kind",
+                f"A {child_kind or 'Card'} cannot have a {parent.kind} parent.",
+                "Goal is root-only; Idea may be under Goal; Action may be under Goal or Idea.",
+            )
+
     async def _create_proposal(
         self,
         session: AsyncSession,
@@ -480,13 +819,7 @@ class AIAdvisor:
         workspace = await session.get(Workspace, 1)
         if workspace is None:
             raise DomainError("Workspace is missing")
-        proposal = ChangeProposal(
-            message=message,
-            workspace_revision=workspace.revision,
-            expires_at=utcnow() + timedelta(hours=24),
-        )
-        session.add(proposal)
-        await session.flush()
+        prepared_changes: list[tuple[int, AgentChange, int | None, dict[str, Any]]] = []
         for index, tool in enumerate(tools):
             change = tool.change
             if change is None:
@@ -505,6 +838,14 @@ class AIAdvisor:
             elif change.id and change.entity == "value":
                 entity = await session.get(Value, change.id)
                 expected_version = entity.version if entity else None
+            if change.id is not None and (
+                entity is None or getattr(entity, "archived_at", None) is not None
+            ):
+                raise ToolPreparationError(
+                    "target_not_found",
+                    f"{change.entity.title()} #{change.id} does not exist or is archived.",
+                    "Use query_safwa to find the current numeric ID, then retry only this unfinished operation.",
+                )
             values = dict(change.values)
             proposed_kind = (
                 values.get("kind")
@@ -524,38 +865,45 @@ class AIAdvisor:
                     values.pop("parent_query", None)
                 if change.action == "update" and not values:
                     raise DomainError("The Card proposal contains no applicable fields")
-            if change.entity == "card" and "parent_query" in values:
-                parent_query = str(values.pop("parent_query")).strip()
-                parent_ids: list[int] = []
-                if parent_query.casefold().startswith(("select", "with")):
-                    try:
-                        rows = await self.query_runner.run(normalize_request_sql(parent_query))
-                    except (
-                        RequestQueryError,
-                        UnsafeQueryError,
-                        sqlite3.Error,
-                        TimeoutError,
-                    ) as error:
-                        raise DomainError(f"Invalid parent query: {error}") from error
-                    if len(rows) == 1 and set(rows[0]) == {"id"}:
-                        parent_ids = [rows[0]["id"]]
-                else:
-                    parent_ids = list(
-                        await session.scalars(
-                            select(Card.id).where(
-                                Card.title.collate("NOCASE") == parent_query,
-                                Card.archived_at.is_(None),
-                            )
-                        )
-                    )
-                if len(parent_ids) != 1 or not isinstance(parent_ids[0], int):
-                    raise DomainError("The proposed parent did not resolve to exactly one Card")
-                values["parent_id"] = parent_ids[0]
+            if change.entity == "card":
+                await self._resolve_parent_reference(session, values, str(proposed_kind))
+                await self._validate_named_references(
+                    session,
+                    values,
+                    singular_key="tag_id",
+                    plural_key="tag_ids",
+                    query_key="tag_query",
+                    model=Tag,
+                    label="Tag",
+                )
+                await self._validate_named_references(
+                    session,
+                    values,
+                    singular_key="value_id",
+                    plural_key="value_ids",
+                    query_key="value_query",
+                    model=Value,
+                    label="Value",
+                )
             if change.entity == "request" and "sql" in values:
                 try:
                     values["query_sql"] = normalize_request_sql(values.pop("sql"))
                 except RequestQueryError as error:
-                    raise DomainError(f"Invalid Request SQL: {error}") from error
+                    raise ToolPreparationError(
+                        "unsafe_query",
+                        f"Invalid Request SQL: {error}",
+                        "Use one read-only SELECT over ai_cards that returns an id column.",
+                    ) from error
+            prepared_changes.append((index, change, expected_version, values))
+
+        proposal = ChangeProposal(
+            message=message,
+            workspace_revision=workspace.revision,
+            expires_at=utcnow() + timedelta(hours=24),
+        )
+        session.add(proposal)
+        await session.flush()
+        for index, change, expected_version, values in prepared_changes:
             session.add(
                 ProposalChange(
                     proposal_id=proposal.id,
@@ -569,6 +917,126 @@ class AIAdvisor:
             )
         return proposal
 
+    async def _card_detail_snapshot(
+        self, session: AsyncSession, card: Card
+    ) -> dict[str, Any]:
+        return {
+            "kind": card.kind,
+            "title": card.title,
+            "note": card.note,
+            "stage": card.effective_stage,
+            "priority": card.priority,
+            "hard_time": card.hard_time,
+            "blocked": card.blocked,
+            "blocked_description": card.blocked_description,
+            "effort_points": card.effort_points,
+            "repeatable": card.repeatable,
+            "categories": sorted(
+                await session.scalars(
+                    select(CardCategory.category).where(CardCategory.card_id == card.id)
+                )
+            ),
+            "energy_types": sorted(
+                await session.scalars(
+                    select(CardEnergyType.energy_type).where(CardEnergyType.card_id == card.id)
+                )
+            ),
+            "parent_id": card.parent_id,
+            "values": [
+                f"#{item}"
+                for item in sorted(
+                    await session.scalars(
+                        select(CardValue.value_id).where(CardValue.card_id == card.id)
+                    )
+                )
+            ],
+            "tags": [
+                f"#{item}"
+                for item in sorted(
+                    await session.scalars(
+                        select(CardTag.tag_id).where(CardTag.card_id == card.id)
+                    )
+                )
+            ],
+        }
+
+    async def _proposal_result_details(
+        self,
+        session: AsyncSession,
+        proposal_id: int,
+        fallback: AgentChange | None,
+    ) -> list[str]:
+        proposed_change = await session.scalar(
+            select(ProposalChange).where(ProposalChange.proposal_id == proposal_id)
+        )
+        if proposed_change is None:
+            return _raw_change_details(fallback)
+        values = dict(proposed_change.values)
+        if proposed_change.entity == "card":
+            if proposed_change.action == "create":
+                proposed = _normalized_card_details(values, creating=True)
+                return [
+                    f"{_DETAIL_LABELS.get(field, field.replace('_', ' ').title())}: "
+                    f"{_detail_value(value)}"
+                    for field, value in proposed.items()
+                ]
+            card = (
+                await session.get(Card, proposed_change.entity_id)
+                if proposed_change.entity_id is not None
+                else None
+            )
+            if card is None:
+                return _raw_change_details(fallback)
+            before = await self._card_detail_snapshot(session, card)
+            if proposed_change.action in {"link", "unlink"}:
+                relationship = _normalized_card_details(values, creating=False)
+                verb = "Link" if proposed_change.action == "link" else "Unlink"
+                return [
+                    f"{verb} {_DETAIL_LABELS.get(field, field.title())}: {_detail_value(value)}"
+                    for field, value in relationship.items()
+                ]
+            proposed = _normalized_card_details(values, creating=False)
+            if proposed_change.action == "move":
+                proposed = {"stage": values.get("stage")}
+            elif proposed_change.action == "complete":
+                proposed = {"stage": CardStage.DONE.value}
+            elif proposed_change.action == "cancel":
+                proposed = {"stage": CardStage.CANCELLED.value}
+            elif proposed_change.action == "reopen":
+                proposed = {"stage": values.get("stage", CardStage.BACKLOG.value)}
+            elif proposed_change.action in {"archive", "delete"}:
+                return [f"Card: {card.kind.title()} #{card.id} “{card.title}”"]
+            return [
+                f"{_DETAIL_LABELS.get(field, field.replace('_', ' ').title())}: "
+                f"{_detail_value(before.get(field))} → {_detail_value(value)}"
+                for field, value in proposed.items()
+                if before.get(field) != value
+            ]
+
+        model = {
+            "tag": Tag,
+            "value": Value,
+            "request": SavedRequest,
+        }.get(proposed_change.entity)
+        if proposed_change.action == "create" or model is None:
+            return _raw_change_details(fallback)
+        entity = (
+            await session.get(model, proposed_change.entity_id)
+            if proposed_change.entity_id is not None
+            else None
+        )
+        if entity is None:
+            return _raw_change_details(fallback)
+        if proposed_change.action in {"archive", "delete"}:
+            label = getattr(entity, "name", f"#{entity.id}")
+            return [f"Item: {_result_value(label)}"]
+        return [
+            f"{_DETAIL_LABELS.get(field, field.replace('_', ' ').title())}: "
+            f"{_detail_value(getattr(entity, field, None))} → {_detail_value(value)}"
+            for field, value in values.items()
+            if getattr(entity, field, None) != value
+        ]
+
     @staticmethod
     def _target_outcome(message: str, target: dict[str, Any]) -> AIOutcome:
         return AIOutcome("proposal", message, proposal_id=int(target["id"]))
@@ -578,9 +1046,39 @@ class AIAdvisor:
             return AIOutcome("answer", result.message)
         mutation_tools = [tool for tool in result.pending_tools if tool.change is not None]
         targets: list[tuple[int, dict[str, Any], list[PendingTool]]] = []
+        preparation_results = {tool.call.id: _json_safe(tool.result) for tool in result.pending_tools}
+        failed_call_ids = {
+            tool.call.id
+            for tool in result.pending_tools
+            if tool.call.name != "query_safwa" and tool.change is None
+        }
+        proposal_details: dict[str, list[str]] = {}
         async with self.sessions() as session:
             for tool in mutation_tools:
-                proposal = await self._create_proposal(session, result.message, [tool])
+                try:
+                    proposal = await self._create_proposal(session, result.message, [tool])
+                except ToolPreparationError as error:
+                    failed_call_ids.add(tool.call.id)
+                    preparation_results[tool.call.id] = error.as_tool_result()
+                    logger.info(
+                        "AI TOOL %s preparation error [%s]: %s",
+                        tool.call.name,
+                        error.code,
+                        error,
+                    )
+                    continue
+                except DomainError as error:
+                    failed_call_ids.add(tool.call.id)
+                    preparation_results[tool.call.id] = ToolPreparationError(
+                        "invalid_arguments",
+                        str(error),
+                        "Correct only this unfinished tool call and retry it.",
+                    ).as_tool_result()
+                    logger.info("AI TOOL %s preparation error: %s", tool.call.name, error)
+                    continue
+                proposal_details[tool.call.id] = await self._proposal_result_details(
+                    session, proposal.id, tool.change
+                )
                 targets.append(
                     (
                         result.pending_tools.index(tool),
@@ -610,7 +1108,9 @@ class AIAdvisor:
                         "name": tool.call.name,
                         "arguments": tool.call.arguments,
                         "status": "pending" if target else "resolved",
-                        "result": None if target else _json_safe(tool.result),
+                        "result": None if target else preparation_results[tool.call.id],
+                        "details": proposal_details.get(tool.call.id)
+                        or _raw_change_details(tool.change),
                         "target": target,
                         "change": (
                             {
@@ -624,30 +1124,69 @@ class AIAdvisor:
                         ),
                     }
                 )
-            session.add(
-                AgentStep(
-                    run_id=run_id,
-                    position=max(
-                        (
-                            step.position
-                            for step in await session.scalars(
-                                select(AgentStep).where(AgentStep.run_id == run_id)
-                            )
+            if targets:
+                session.add(
+                    AgentStep(
+                        run_id=run_id,
+                        position=max(
+                            (
+                                step.position
+                                for step in await session.scalars(
+                                    select(AgentStep).where(AgentStep.run_id == run_id)
+                                )
+                            ),
+                            default=0,
                         ),
-                        default=0,
-                    ),
-                    kind="approval_batch",
-                    metadata_json={
-                        "status": "pending",
-                        "assistant_content": result.assistant_content,
-                        "tool_count": result.tool_count,
-                        "tool_calls": tool_results,
-                        "queue": queue,
-                    },
+                        kind="approval_batch",
+                        metadata_json={
+                            "status": "pending",
+                            "assistant_content": result.assistant_content,
+                            "tool_count": result.tool_count,
+                            "repair_rounds": result.repair_rounds
+                            + (1 if failed_call_ids else 0),
+                            "repair_exhausted": bool(
+                                failed_call_ids and result.repair_rounds >= MAX_REPAIR_ROUNDS
+                            ),
+                            "result_summaries": result.result_summaries,
+                            "display_result_summaries": result.display_result_summaries,
+                            "tool_calls": tool_results,
+                            "queue": queue,
+                        },
+                    )
                 )
-            )
             await session.commit()
         if not targets:
+            if failed_call_ids:
+                if result.repair_rounds >= MAX_REPAIR_ROUNDS:
+                    return AIOutcome(
+                        "answer",
+                        "I could not prepare the requested change after five repair attempts. "
+                        "No unfinished operation was applied.",
+                    )
+                messages = _json_safe(result.messages)
+                results_by_id = {tool["id"]: tool["result"] for tool in tool_results}
+                for message in messages:
+                    if message.get("role") != "tool":
+                        continue
+                    tool_call_id = str(message.get("tool_call_id"))
+                    if tool_call_id in results_by_id:
+                        message["content"] = json.dumps(
+                            results_by_id[tool_call_id], ensure_ascii=False, default=str
+                        )
+                repaired = await self._run_agent_loop(
+                    messages,
+                    run_id,
+                    tool_count=result.tool_count,
+                    repair_rounds=result.repair_rounds + 1,
+                )
+                repaired.result_summaries = list(result.result_summaries)
+                repaired.display_result_summaries = list(result.display_result_summaries)
+                if repaired.display_result_summaries:
+                    repaired.message = (
+                        "\n\n".join(repaired.display_result_summaries)
+                        + f"\n\n{repaired.message}"
+                    )
+                return await self._materialize(repaired, run_id)
             return AIOutcome("answer", result.message)
         return self._target_outcome(result.message, targets[0][1])
 
@@ -757,14 +1296,50 @@ class AIAdvisor:
             batch.metadata_json = metadata
             run_id = batch.run_id
             prior_tool_count = int(metadata.get("tool_count", 0))
+            prior_repair_rounds = int(metadata.get("repair_rounds", 0))
+            repair_exhausted = bool(metadata.get("repair_exhausted", False))
+            prior_result_summaries = list(metadata.get("result_summaries", []))
+            prior_display_result_summaries = list(
+                metadata.get("display_result_summaries", [])
+            )
             await session.commit()
 
         try:
+            result_summary = _approval_results_summary(tools)
+            current_result_summaries = [*prior_result_summaries]
+            if result_summary:
+                current_result_summaries.append(result_summary)
+            display_summary = _approval_results_summary(
+                tools, include_preparation_errors=False
+            )
+            current_display_result_summaries = [*prior_display_result_summaries]
+            if display_summary:
+                current_display_result_summaries.append(display_summary)
+            if repair_exhausted:
+                message = (
+                    "\n\n".join(current_result_summaries) + "\n\n"
+                    if current_result_summaries
+                    else ""
+                ) + (
+                    "I could not prepare the remaining requested changes after five repair attempts. "
+                    "No unfinished operation was applied."
+                )
+                async with self.sessions() as session:
+                    stored_batch = await session.get(AgentStep, batch.id)
+                    if stored_batch is not None:
+                        final_metadata = dict(stored_batch.metadata_json or {})
+                        final_metadata["status"] = "completed"
+                        stored_batch.metadata_json = final_metadata
+                        await session.commit()
+                await self._finish_run(run_id, "completed", started)
+                return AIOutcome("answer", message)
             messages = await self._context_messages(dialogue)
             messages.append(
                 {
                     "role": "assistant",
-                    "content": metadata.get("assistant_content"),
+                    "content": _assistant_content_with_request_progress(
+                        metadata.get("assistant_content"), current_result_summaries
+                    ),
                     "tool_calls": [
                         {
                             "id": tool["id"],
@@ -791,10 +1366,15 @@ class AIAdvisor:
                 messages,
                 run_id,
                 tool_count=prior_tool_count,
+                repair_rounds=prior_repair_rounds,
             )
-            result_summary = _approval_results_summary(tools)
-            if result_summary:
-                loop_result.message = f"{result_summary}\n\n{loop_result.message}".strip()
+            loop_result.result_summaries = current_result_summaries
+            loop_result.display_result_summaries = current_display_result_summaries
+            if loop_result.display_result_summaries:
+                loop_result.message = (
+                    "\n\n".join(loop_result.display_result_summaries)
+                    + f"\n\n{loop_result.message}"
+                ).strip()
             outcome = await self._materialize(loop_result, run_id)
             async with self.sessions() as session:
                 stored_batch = await session.get(AgentStep, batch.id)
@@ -803,7 +1383,7 @@ class AIAdvisor:
                     final_metadata["status"] = "completed"
                     stored_batch.metadata_json = final_metadata
                     await session.commit()
-            run_status = "awaiting_approval" if loop_result.pending_tools else "completed"
+            run_status = "awaiting_approval" if outcome.kind == "proposal" else "completed"
             await self._finish_run(run_id, run_status, started)
             return outcome
         except Exception as error:
@@ -884,6 +1464,9 @@ class ProposalService:
         if value is None:
             return []
         return value if isinstance(value, list) else [value]
+
+    async def _parent_id(self, values: dict[str, Any]) -> int | None:
+        return int(values["parent_id"]) if values.get("parent_id") is not None else None
 
     async def _named_ids(
         self,
@@ -1086,7 +1669,7 @@ class ProposalService:
                         blocked_description=values.get("blocked_description", ""),
                         effort_points=values.get("effort_points"),
                         repeatable=bool(values.get("repeatable", False)),
-                        parent_id=values.get("parent_id"),
+                        parent_id=await self._parent_id(values),
                         categories=set(values.get("categories") or []),
                         energy_types=set(values.get("energy_types") or []),
                         value_ids=value_ids,
