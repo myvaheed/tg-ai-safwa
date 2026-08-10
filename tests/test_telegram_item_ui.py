@@ -29,6 +29,7 @@ from safwa.telegram import (
     OwnerAndWritingMiddleware,
     callback_token_handler,
     dismiss_prior_ui,
+    handle_card_creation_chooser,
     ordinary_text,
     render_card,
     render_card_creation,
@@ -467,6 +468,41 @@ async def test_manual_card_creation_uses_save_discard_and_no_parent_control(sess
     assert "🌳 Parent" not in buttons
 
 
+async def test_card_creation_choosers_show_kind_category_and_energy_emojis(sessions) -> None:
+    async with sessions() as session:
+        session.add(
+            UiSession(
+                owner_id=42,
+                kind="card_create",
+                state={
+                    "kind": "action",
+                    "title": "Run",
+                    "effort_points": 2,
+                    "categories": [],
+                    "energy_types": [],
+                },
+                expires_at=datetime.now(UTC).replace(year=2030),
+            )
+        )
+        await session.commit()
+
+    message = FakeMessage(52, bot_message=True)
+    services = services_for(sessions)
+
+    await handle_card_creation_chooser(message, services, "card_create_choose_kind")
+    assert {"🎯 Goal", "💡 Idea", "✓ ✅ Action"} <= set(button_texts(message.edits[-1][1]))
+
+    await handle_card_creation_chooser(message, services, "card_create_choose_categories")
+    assert {"🌱 Self", "🤝 Contribution", "💼 Work", "🌙 Rest"} <= set(
+        button_texts(message.edits[-1][1])
+    )
+
+    await handle_card_creation_chooser(message, services, "card_create_choose_energy")
+    assert {"💪 Physical", "🧠 Cognitive", "🫂 Social", "💎 Values"} <= set(
+        button_texts(message.edits[-1][1])
+    )
+
+
 async def test_card_overview_uses_derived_progress_and_relationship_navigation(sessions) -> None:
     async with sessions() as session:
         goal = await create_card(session, title="Ship product", kind="goal")
@@ -502,6 +538,7 @@ async def test_card_overview_uses_derived_progress_and_relationship_navigation(s
         replace_message_id=goal_message.message_id,
     )
     goal_text, goal_markup = bot.edits[-1][1:]
+    assert "Kind: 🎯 Goal" in goal_text
     assert "Stage: Backlog" in goal_text
     assert "Effort: 3/8 EP" in goal_text
     assert "Children: 1/2 completed" in goal_text
@@ -512,8 +549,8 @@ async def test_card_overview_uses_derived_progress_and_relationship_navigation(s
     children_message = FakeMessage(73, bot_message=True)
     await render_children(children_message, services_for(sessions), goal.id)
     children_texts = button_texts(children_message.edits[-1][1])
-    assert any("Prepare release" in text for text in children_texts)
-    assert any("Write announcement" in text for text in children_texts)
+    assert any("💡 Idea · Prepare release" in text for text in children_texts)
+    assert any("✅ Action · Write announcement" in text for text in children_texts)
     assert not any("Publish build" in text for text in children_texts)
 
     child_message = FakeMessage(71, bot_message=True, bot=bot)
@@ -524,6 +561,7 @@ async def test_card_overview_uses_derived_progress_and_relationship_navigation(s
         replace_message_id=child_message.message_id,
     )
     child_text, child_markup = bot.edits[-1][1:]
+    assert "Kind: ✅ Action" in child_text
     assert "Parent: Ship product" in child_text
     assert "🌳 Parent: Ship product" in button_texts(child_markup)
     assert "👥 Children" not in button_texts(child_markup)
@@ -544,6 +582,7 @@ async def test_backlog_dashboard_lists_actions_only(sessions) -> None:
     )
 
     dashboard_text, dashboard_markup = message.edits[-1]
+    assert "✅ Action" in dashboard_text
     assert "Visible Action" in dashboard_text
     assert "Hidden Goal" not in dashboard_text
     assert any("Visible Action" in text for text in button_texts(dashboard_markup))
@@ -628,10 +667,11 @@ async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions) ->
     text, markup = message.edits[-1]
 
     assert "Card overview" in text
+    assert "Kind: ✅ Action" in text
     assert "Title: <b>Evening walk</b>" in text
     assert "Effort: 3" in text
-    assert "Categories: Self → Contribution, Rest" in text
-    assert "Energy: — → Physical, Social" in text
+    assert "Categories: 🌱 Self → 🤝 Contribution, 🌙 Rest" in text
+    assert "Energy: — → 💪 Physical, 🫂 Social" in text
     buttons = button_texts(markup)
     assert buttons == ["✅ Save", "🗑 Discard"]
     assert "↩️ Back" not in buttons
@@ -669,7 +709,9 @@ async def test_card_creation_proposal_has_no_proposed_changes_section(sessions) 
     text, markup = message.edits[-1]
 
     assert "Card overview" in text
+    assert "Kind: ✅ Action" in text
     assert "Title: <b>Evening walk</b>" in text
+    assert "Categories: 🌱 Self" in text
     assert "<b>Proposed changes</b>" not in text
     assert button_texts(markup) == ["✅ Save", "🗑 Discard"]
 

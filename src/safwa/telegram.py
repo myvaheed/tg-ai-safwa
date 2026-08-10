@@ -98,6 +98,59 @@ from .models import (
 )
 from .saved_requests import request_cards
 
+_KIND_EMOJIS = {
+    CardKind.GOAL.value: "🎯",
+    CardKind.IDEA.value: "💡",
+    CardKind.ACTION.value: "⭐️",
+}
+_CATEGORY_EMOJIS = {
+    Category.SELF.value: "🌱",
+    Category.CONTRIBUTION.value: "❤️",
+    Category.WORK.value: "💰",
+    Category.REST.value: "🔋",
+}
+_ENERGY_EMOJIS = {
+    EnergyType.PHYSICAL.value: "💪",
+    EnergyType.COGNITIVE.value: "🧠",
+    EnergyType.SOCIAL.value: "🤝",
+    EnergyType.VALUES.value: "💎",
+}
+
+
+def _typed_label(value: Any, emojis: dict[str, str]) -> str:
+    raw = str(getattr(value, "value", value)).strip()
+    normalized = raw.casefold()
+    emoji = emojis.get(normalized)
+    return f"{emoji} {normalized.title()}" if emoji else raw
+
+
+def _typed_expression(values: Any, emojis: dict[str, str]) -> str:
+    if isinstance(values, str):
+        text = values
+    else:
+        text = ", ".join(str(getattr(value, "value", value)) for value in (values or []))
+    if not text:
+        return "—"
+    return " → ".join(
+        "—"
+        if part.strip() == "—"
+        else ", ".join(_typed_label(item, emojis) for item in part.split(",") if item.strip())
+        for part in text.split(" → ")
+    )
+
+
+def _kind_label(value: Any) -> str:
+    return _typed_label(value, _KIND_EMOJIS)
+
+
+def _category_expression(values: Any) -> str:
+    return _typed_expression(values, _CATEGORY_EMOJIS)
+
+
+def _energy_expression(values: Any) -> str:
+    return _typed_expression(values, _ENERGY_EMOJIS)
+
+
 logger = logging.getLogger(__name__)
 router = Router(name="safwa")
 
@@ -582,7 +635,7 @@ async def render_dashboard(
         descriptions: list[str] = []
         for card in visible:
             metadata = [
-                card.kind.title(),
+                _kind_label(card.kind),
                 card.priority.title(),
                 f"{card.effort_points or '—'} EP",
             ]
@@ -752,9 +805,7 @@ async def card_creation_markup(
     buttons = [await token_button(session, services.owner_id, *field) for field in fields]
     rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
     if not _card_creation_errors(state):
-        rows.append(
-            [await token_button(session, services.owner_id, "✅ Save", "card_create_save")]
-        )
+        rows.append([await token_button(session, services.owner_id, "✅ Save", "card_create_save")])
     rows.append(
         [await token_button(session, services.owner_id, "🗑 Discard", "card_create_discard")]
     )
@@ -793,9 +844,7 @@ async def render_card_creation(
             else []
         )
         tags = (
-            list(await session.scalars(select(Tag).where(Tag.id.in_(tag_ids))))
-            if tag_ids
-            else []
+            list(await session.scalars(select(Tag).where(Tag.id.in_(tag_ids)))) if tag_ids else []
         )
         display = {
             **state,
@@ -1311,7 +1360,7 @@ async def render_saved_request(message: Message, services: Services, request_id:
                 await token_button(
                     session,
                     services.owner_id,
-                    f"{card.kind.title()} · {card.title}"[:60],
+                    f"{_kind_label(card.kind)} · {card.title}"[:60],
                     "card_view",
                     {"id": card.id, "back": {"kind": "request", "id": request.id}},
                 )
@@ -2533,9 +2582,7 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
         )
 
 
-async def handle_card_creation_chooser(
-    message: Message, services: Services, action: str
-) -> None:
+async def handle_card_creation_chooser(message: Message, services: Services, action: str) -> None:
     async with services.sessions() as session:
         editor = await session.scalar(
             select(UiSession).where(
@@ -2550,7 +2597,7 @@ async def handle_card_creation_chooser(
         if action == "card_create_choose_kind":
             choices = [
                 (
-                    f"{'✓ ' if state['kind'] == value.value else ''}{value.value.title()}",
+                    f"{'✓ ' if state['kind'] == value.value else ''}{_kind_label(value)}",
                     "card_create_set",
                     {"field": "kind", "value": value.value},
                 )
@@ -2587,7 +2634,7 @@ async def handle_card_creation_chooser(
             selected = set(state["categories"])
             choices = [
                 (
-                    f"{'✓ ' if value.value in selected else ''}{value.value.title()}",
+                    f"{'✓ ' if value.value in selected else ''}{_typed_label(value, _CATEGORY_EMOJIS)}",
                     "card_create_toggle_category",
                     {"value": value.value},
                 )
@@ -2597,7 +2644,7 @@ async def handle_card_creation_chooser(
             selected = set(state["energy_types"])
             choices = [
                 (
-                    f"{'✓ ' if value.value in selected else ''}{value.value.title()}",
+                    f"{'✓ ' if value.value in selected else ''}{_typed_label(value, _ENERGY_EMOJIS)}",
                     "card_create_toggle_energy",
                     {"value": value.value},
                 )
@@ -2694,7 +2741,7 @@ async def render_card_choices(
             )
             choices = [
                 (
-                    f"{'✓ ' if category.value in selected else ''}{category.value.title()}",
+                    f"{'✓ ' if category.value in selected else ''}{_typed_label(category, _CATEGORY_EMOJIS)}",
                     "card_toggle_category",
                     {"id": card.id, "value": category.value},
                 )
@@ -2709,7 +2756,7 @@ async def render_card_choices(
             )
             choices = [
                 (
-                    f"{'✓ ' if energy.value in selected else ''}{energy.value.title()}",
+                    f"{'✓ ' if energy.value in selected else ''}{_typed_label(energy, _ENERGY_EMOJIS)}",
                     "card_toggle_energy",
                     {"id": card.id, "value": energy.value},
                 )
@@ -2769,7 +2816,7 @@ async def render_card_choices(
 def _card_overview_text(state: dict[str, Any], *, heading: str = "Card") -> str:
     kind = str(state.get("kind") or "")
     lines = [
-        f"Kind: {html.escape(kind.title())}",
+        f"Kind: {html.escape(_kind_label(kind))}",
         f"Title: <b>{html.escape(str(state.get('title') or '—'))}</b>",
     ]
     if state.get("parent_name"):
@@ -2793,8 +2840,8 @@ def _card_overview_text(state: dict[str, Any], *, heading: str = "Card") -> str:
             [
                 f"Effort: {state.get('effort_points') or '—'}",
                 f"Repeatable: {'Yes' if state.get('repeatable') else 'No'}",
-                f"Categories: {html.escape(', '.join(state.get('categories', [])) or '—')}",
-                f"Energy: {html.escape(', '.join(state.get('energy_types', [])) or '—')}",
+                f"Categories: {html.escape(_category_expression(state.get('categories', [])))}",
+                f"Energy: {html.escape(_energy_expression(state.get('energy_types', [])))}",
             ]
         )
     else:
@@ -2853,9 +2900,7 @@ async def render_children(
         visible = children[page * page_size : (page + 1) * page_size]
         rows: list[list[InlineKeyboardButton]] = []
         for child in visible:
-            label = (
-                f"{child.kind.title()} · {child.title} · {child.effective_stage.title()}"
-            )
+            label = f"{_kind_label(child.kind)} · {child.title} · {child.effective_stage.title()}"
             rows.append(
                 [
                     await token_button(
@@ -3340,8 +3385,10 @@ async def _proposal_diff_value(session: AsyncSession, field: str, value: Any) ->
         )
         by_id = {entity.id: getattr(entity, name_field) for entity in entities}
         return ", ".join(by_id[item_id] for item_id in ids if item_id in by_id) or "—"
-    if field in {"categories", "energy_types"}:
-        return ", ".join(str(item).title() for item in (value or [])) or "—"
+    if field == "categories":
+        return _category_expression(value)
+    if field == "energy_types":
+        return _energy_expression(value)
     if field in {"stage", "priority"} and value:
         return str(value).title()
     return _display_diff_value(value)
