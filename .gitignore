@@ -11,4 +11,6 @@ data/*.session*
 data/memory.md.tmp
 data/memory.md.bak
 config/providers.yaml
+.kilocode/
+.kilo/
 telegram-bot-exampler/

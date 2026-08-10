@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import ast
+import importlib
 import inspect
+import pkgutil
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -46,25 +48,38 @@ from safwa.telegram import (
 )
 
 
-def _telegram_module_tree() -> ast.Module:
-    return ast.parse(inspect.getsource(telegram_source))
+def _telegram_module_trees() -> list[ast.Module]:
+    """Every submodule of the ``safwa.telegram`` package as a parsed AST.
+
+    The inline-button invariants were single-module when the UI lived in one file;
+    after the package split they must hold across every submodule that contributes
+    button actions or the ``CALLBACK_ACTIONS`` registry.
+    """
+    trees: list[ast.Module] = []
+    for info in pkgutil.iter_modules(telegram_source.__path__):
+        module = importlib.import_module(f"{telegram_source.__name__}.{info.name}")
+        trees.append(ast.parse(inspect.getsource(module)))
+    return trees
 
 
-def _registry_node(tree: ast.Module) -> ast.AST:
-    return next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.AnnAssign)
-        and isinstance(node.target, ast.Name)
-        and node.target.id == "CALLBACK_ACTIONS"
-    )
+def _callback_actions_registry(trees: list[ast.Module]) -> ast.AST:
+    for tree in trees:
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and node.target.id == "CALLBACK_ACTIONS"
+            ):
+                return node
+    raise AssertionError("CALLBACK_ACTIONS registry not found in any telegram submodule")
 
 
 def test_every_inline_button_action_has_a_registered_handler() -> None:
     """An inline button whose action is unregistered is a screen that does nothing."""
     emitted = {
         node.args[3].value
-        for node in ast.walk(_telegram_module_tree())
+        for tree in _telegram_module_trees()
+        for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and getattr(node.func, "id", None) == "token_button"
         and len(node.args) > 3
@@ -78,11 +93,12 @@ def test_every_inline_button_action_has_a_registered_handler() -> None:
 
 def test_no_individually_registered_handler_is_unreachable() -> None:
     """A handler no button can reach is dead code, like the removed value_toggle."""
-    tree = _telegram_module_tree()
-    registry = _registry_node(tree)
+    trees = _telegram_module_trees()
+    registry = _callback_actions_registry(trees)
     registry_nodes = set(map(id, ast.walk(registry)))
     referenced = {
         node.value
+        for tree in trees
         for node in ast.walk(tree)
         if isinstance(node, ast.Constant)
         and isinstance(node.value, str)
@@ -195,9 +211,9 @@ def button_texts(markup) -> list[str]:
 
 
 async def test_commands_are_deleted_except_newsession(sessions, monkeypatch) -> None:
-    import safwa.telegram as telegram_module
+    import safwa.telegram._core as core_module
 
-    monkeypatch.setattr(telegram_module, "Message", FakeMessage)
+    monkeypatch.setattr(core_module, "Message", FakeMessage)
     middleware = OwnerAndWritingMiddleware()
     services = services_for(sessions)
     handled: list[str] = []
