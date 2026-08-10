@@ -13,7 +13,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..domain import (
+    CARD_REFERENCE_SPECS,
+    TAG_REFERENCE,
+    VALUE_REFERENCE,
     DomainError,
+    ReferenceSpec,
     StaleStateError,
     archive_saved_request,
     archive_subtree,
@@ -25,21 +29,26 @@ from ..domain import (
     create_value,
     delete_subtree,
     finish_action,
-    finish_sprint,
     move_card,
+    resolve_references,
     set_card_parent,
-    start_sprint,
     toggle_card_category,
     toggle_card_energy_type,
-    toggle_card_tag,
-    toggle_card_value,
     update_card_fields,
     update_saved_request,
     update_tag_fields,
     update_value_fields,
     utcnow,
 )
-from ..enums import ActorType, CardKind, CardStage, Category, EnergyType, ProposalStatus
+from ..enums import (
+    TERMINAL_STAGES,
+    ActorType,
+    CardKind,
+    CardStage,
+    Category,
+    EnergyType,
+    ProposalStatus,
+)
 from ..memory import MemoryFileStore
 from ..models import (
     AgentRun,
@@ -53,7 +62,6 @@ from ..models import (
     ProposalChange,
     SavedRequest,
     Tag,
-    UserProfile,
     Value,
     Workspace,
 )
@@ -125,6 +133,7 @@ MUTATION_TOOLS: tuple[dict[str, Any], ...] = tuple(
 SAFWA_TOOLS = (QUERY_SAFWA_TOOL, *MUTATION_TOOLS)
 MAX_TOOL_CALLS = 64
 MAX_REPAIR_ROUNDS = 5
+_SUSPENDED_BATCH_LOOKUP_LIMIT = 50
 
 
 class ToolPreparationError(DomainError):
@@ -330,8 +339,29 @@ def _approval_results_summary(
         if error:
             line += f": {_result_value(error)}"
         lines.append(line)
+        # The detail lines carry what Safwa resolved rather than what the model sent:
+        # parent_query/tag_query turned into IDs, and old → new values for an edit.
+        # Trimming them for saved items costs the model information and invites repeats.
         lines.extend(f"  • {detail}" for detail in tool.get("details") or [])
     return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def _with_queued_siblings(result: Any, queued: int) -> Any:
+    """Tell a failed call that the request's valid calls are still queued for review.
+
+    One failed preparation never cancels its siblings, and the model has to know that
+    before it retries.  Saying it here costs nothing on a request that has no failures,
+    where the static prompt used to charge for it every turn.
+    """
+    if not queued or not isinstance(result, dict) or result.get("status") != "error":
+        return result
+    return {
+        **result,
+        "next": (
+            f"{queued} other call(s) from this request were prepared and are queued for review; "
+            "they were not cancelled. Wait for their results, then retry only this call."
+        ),
+    }
 
 
 def _assistant_content_with_request_progress(
@@ -582,7 +612,10 @@ class AIAdvisor:
             try:
                 arguments = json.loads(call.arguments)
                 sql = str(arguments["sql"])
-                rows = await self.query_runner.run(sql)
+                outcome = await self.query_runner.run(sql)
+                rows = outcome.as_tool_result()
+                if outcome.notice:
+                    logger.info("AI TOOL query_safwa capped: %s", outcome.notice)
             except (KeyError, TypeError, json.JSONDecodeError) as error:
                 sql = ""
                 rows = [{"error": f"Invalid tool arguments: {error}"}]
@@ -656,67 +689,42 @@ class AIAdvisor:
             "next": "Wait for the user's review or approval; do not say it is complete.",
         }
 
-    @staticmethod
-    def _reference_items(value: Any) -> list[Any]:
-        if value is None:
-            return []
-        return value if isinstance(value, list) else [value]
-
     async def _validate_named_references(
         self,
         session: AsyncSession,
         values: dict[str, Any],
-        *,
-        singular_key: str,
-        plural_key: str,
-        query_key: str,
-        model: type[Tag] | type[Value],
-        label: str,
+        spec: ReferenceSpec,
     ) -> None:
+        """Reject a relationship the owner could not act on, with a retryable hint."""
         reference_hint = (
             "The referenced item may have been proposed but is not saved yet. Wait for the "
             "earlier proposal result, then retry only this unfinished operation using the returned ID."
         )
-        raw_ids = [
-            *self._reference_items(values.get(singular_key)),
-            *self._reference_items(values.get(plural_key)),
-        ]
-        for raw_id in raw_ids:
-            entity = await session.get(model, int(raw_id))
-            if entity is None or entity.archived_at is not None:
-                raise ToolPreparationError(
-                    "reference_not_found",
-                    f"{label} #{raw_id} does not exist or is archived.",
-                    reference_hint,
-                )
-        for raw_name in self._reference_items(values.get(query_key)):
-            name = str(raw_name).strip()
-            if not name:
-                raise ToolPreparationError(
-                    "invalid_arguments",
-                    f"{label} name must not be empty.",
-                    f"Provide one exact {label} name or its numeric ID.",
-                )
-            matches = list(
-                await session.scalars(
-                    select(model).where(
-                        model.name.collate("NOCASE") == name,
-                        model.archived_at.is_(None),
-                    )
-                )
+        resolved = await resolve_references(session, spec, values)
+        if resolved.blank:
+            raise ToolPreparationError(
+                "invalid_arguments",
+                f"{spec.label} name must not be empty.",
+                f"Provide one exact {spec.label} name or its numeric ID.",
             )
-            if not matches:
-                raise ToolPreparationError(
-                    "reference_not_found",
-                    f"{label} '{name}' was not found.",
-                    reference_hint,
-                )
-            if len(matches) > 1:
-                raise ToolPreparationError(
-                    "reference_ambiguous",
-                    f"{label} '{name}' matched more than one item.",
-                    f"Use query_safwa to choose one {label} and retry with its numeric ID.",
-                )
+        if resolved.unknown_ids:
+            raise ToolPreparationError(
+                "reference_not_found",
+                f"{spec.label} #{resolved.unknown_ids[0]} does not exist or is archived.",
+                reference_hint,
+            )
+        if resolved.missing:
+            raise ToolPreparationError(
+                "reference_not_found",
+                f"{spec.label} '{resolved.missing[0]}' was not found.",
+                reference_hint,
+            )
+        if resolved.ambiguous:
+            raise ToolPreparationError(
+                "reference_ambiguous",
+                f"{spec.label} '{resolved.ambiguous[0]}' matched more than one item.",
+                f"Use query_safwa to choose one {spec.label} and retry with its numeric ID.",
+            )
 
     async def _resolve_parent_reference(
         self,
@@ -738,7 +746,9 @@ class AIAdvisor:
                 )
             if parent_query.casefold().startswith(("select", "with")):
                 try:
-                    rows = await self.query_runner.run(normalize_request_sql(parent_query))
+                    # Only the rows matter here; a parent query must match exactly one Card,
+                    # so a capped result is reported as ambiguous rather than silently used.
+                    rows = (await self.query_runner.run(normalize_request_sql(parent_query))).rows
                 except (RequestQueryError, UnsafeQueryError) as error:
                     raise ToolPreparationError(
                         "unsafe_query",
@@ -814,87 +824,76 @@ class AIAdvisor:
         self,
         session: AsyncSession,
         message: str,
-        tools: list[PendingTool],
+        tool: PendingTool,
     ) -> ChangeProposal:
+        """Persist one validated mutation tool call as its own reviewable proposal.
+
+        Every mutation call gets its own proposal screen, so a proposal always holds
+        exactly one change.  Cross-proposal references resolve by name against
+        committed data once the earlier proposal has been saved.
+        """
         workspace = await session.get(Workspace, 1)
         if workspace is None:
             raise DomainError("Workspace is missing")
-        prepared_changes: list[tuple[int, AgentChange, int | None, dict[str, Any]]] = []
-        for index, tool in enumerate(tools):
-            change = tool.change
-            if change is None:
-                continue
-            entity: Card | Tag | Value | SavedRequest | None = None
-            expected_version = None
-            if change.id and change.entity == "card":
-                entity = await session.get(Card, change.id)
-                expected_version = entity.version if entity else None
-            elif change.id and change.entity == "tag":
-                entity = await session.get(Tag, change.id)
-                expected_version = entity.version if entity else None
-            elif change.id and change.entity == "request":
-                entity = await session.get(SavedRequest, change.id)
-                expected_version = entity.version if entity else None
-            elif change.id and change.entity == "value":
-                entity = await session.get(Value, change.id)
-                expected_version = entity.version if entity else None
-            if change.id is not None and (
-                entity is None or getattr(entity, "archived_at", None) is not None
+        change = tool.change
+        if change is None:
+            raise DomainError("The proposal has no validated change to review")
+        models: dict[str, type[Card] | type[Tag] | type[Value] | type[SavedRequest]] = {
+            "card": Card,
+            "tag": Tag,
+            "value": Value,
+            "request": SavedRequest,
+        }
+        entity: Card | Tag | Value | SavedRequest | None = None
+        expected_version = None
+        if change.id and change.entity in models:
+            entity = await session.get(models[change.entity], change.id)
+            expected_version = entity.version if entity else None
+        if change.id is not None and (
+            entity is None or getattr(entity, "archived_at", None) is not None
+        ):
+            raise ToolPreparationError(
+                "target_not_found",
+                f"{change.entity.title()} #{change.id} does not exist or is archived.",
+                "Use query_safwa to find the current numeric ID, then retry only this unfinished operation.",
+            )
+        values = dict(change.values)
+        proposed_kind = (
+            values.get("kind")
+            if change.entity == "card" and change.action == "create"
+            else getattr(entity, "kind", None)
+        )
+        if change.entity == "card" and proposed_kind != CardKind.ACTION.value:
+            for action_only_field in {
+                "effort_points",
+                "repeatable",
+                "categories",
+                "energy_types",
+            }:
+                values.pop(action_only_field, None)
+            if proposed_kind == CardKind.GOAL.value and (
+                values.get("parent_id") is not None or values.get("parent_query") is not None
             ):
                 raise ToolPreparationError(
-                    "target_not_found",
-                    f"{change.entity.title()} #{change.id} does not exist or is archived.",
-                    "Use query_safwa to find the current numeric ID, then retry only this unfinished operation.",
+                    "invalid_parent_kind",
+                    "A Goal is always root-level and cannot take a parent.",
+                    "Drop the parent from this call, or propose an Idea or Action instead.",
                 )
-            values = dict(change.values)
-            proposed_kind = (
-                values.get("kind")
-                if change.entity == "card" and change.action == "create"
-                else getattr(entity, "kind", None)
-            )
-            if change.entity == "card" and proposed_kind != CardKind.ACTION.value:
-                for action_only_field in {
-                    "effort_points",
-                    "repeatable",
-                    "categories",
-                    "energy_types",
-                }:
-                    values.pop(action_only_field, None)
-                if proposed_kind == CardKind.GOAL.value:
-                    values.pop("parent_id", None)
-                    values.pop("parent_query", None)
-                if change.action == "update" and not values:
-                    raise DomainError("The Card proposal contains no applicable fields")
-            if change.entity == "card":
-                await self._resolve_parent_reference(session, values, str(proposed_kind))
-                await self._validate_named_references(
-                    session,
-                    values,
-                    singular_key="tag_id",
-                    plural_key="tag_ids",
-                    query_key="tag_query",
-                    model=Tag,
-                    label="Tag",
-                )
-                await self._validate_named_references(
-                    session,
-                    values,
-                    singular_key="value_id",
-                    plural_key="value_ids",
-                    query_key="value_query",
-                    model=Value,
-                    label="Value",
-                )
-            if change.entity == "request" and "sql" in values:
-                try:
-                    values["query_sql"] = normalize_request_sql(values.pop("sql"))
-                except RequestQueryError as error:
-                    raise ToolPreparationError(
-                        "unsafe_query",
-                        f"Invalid Request SQL: {error}",
-                        "Use one read-only SELECT over ai_cards that returns an id column.",
-                    ) from error
-            prepared_changes.append((index, change, expected_version, values))
+            if change.action == "update" and not values:
+                raise DomainError("The Card proposal contains no applicable fields")
+        if change.entity == "card":
+            await self._resolve_parent_reference(session, values, str(proposed_kind))
+            for spec in CARD_REFERENCE_SPECS:
+                await self._validate_named_references(session, values, spec)
+        if change.entity == "request" and "sql" in values:
+            try:
+                values["query_sql"] = normalize_request_sql(values.pop("sql"))
+            except RequestQueryError as error:
+                raise ToolPreparationError(
+                    "unsafe_query",
+                    f"Invalid Request SQL: {error}",
+                    "Use one read-only SELECT over ai_cards that returns an id column.",
+                ) from error
 
         proposal = ChangeProposal(
             message=message,
@@ -903,18 +902,17 @@ class AIAdvisor:
         )
         session.add(proposal)
         await session.flush()
-        for index, change, expected_version, values in prepared_changes:
-            session.add(
-                ProposalChange(
-                    proposal_id=proposal.id,
-                    position=index,
-                    entity=change.entity,
-                    action=change.action,
-                    entity_id=change.id,
-                    expected_version=expected_version,
-                    values=values,
-                )
+        session.add(
+            ProposalChange(
+                proposal_id=proposal.id,
+                position=0,
+                entity=change.entity,
+                action=change.action,
+                entity_id=change.id,
+                expected_version=expected_version,
+                values=values,
             )
+        )
         return proposal
 
     async def _card_detail_snapshot(
@@ -1056,7 +1054,7 @@ class AIAdvisor:
         async with self.sessions() as session:
             for tool in mutation_tools:
                 try:
-                    proposal = await self._create_proposal(session, result.message, [tool])
+                    proposal = await self._create_proposal(session, result.message, tool)
                 except ToolPreparationError as error:
                     failed_call_ids.add(tool.call.id)
                     preparation_results[tool.call.id] = error.as_tool_result()
@@ -1108,7 +1106,11 @@ class AIAdvisor:
                         "name": tool.call.name,
                         "arguments": tool.call.arguments,
                         "status": "pending" if target else "resolved",
-                        "result": None if target else preparation_results[tool.call.id],
+                        "result": None
+                        if target
+                        else _with_queued_siblings(
+                            preparation_results[tool.call.id], len(targets)
+                        ),
                         "details": proposal_details.get(tool.call.id)
                         or _raw_change_details(tool.change),
                         "target": target,
@@ -1136,7 +1138,8 @@ class AIAdvisor:
                                 )
                             ),
                             default=0,
-                        ),
+                        )
+                        + 1,
                         kind="approval_batch",
                         metadata_json={
                             "status": "pending",
@@ -1196,17 +1199,22 @@ class AIAdvisor:
         target_type: str,
         target_id: int,
     ) -> AgentStep | None:
+        # Suspended batches are always recent: new dialogue cancels them and startup
+        # recovery closes interrupted ones.  Filtering and bounding this in SQL keeps
+        # the lookup off the full agent-step history.
         steps = list(
             await session.scalars(
                 select(AgentStep)
-                .where(AgentStep.kind == "approval_batch")
+                .where(
+                    AgentStep.kind == "approval_batch",
+                    AgentStep.metadata_json["status"].as_string().in_(["pending", "resuming"]),
+                )
                 .order_by(AgentStep.id.desc())
+                .limit(_SUSPENDED_BATCH_LOOKUP_LIMIT)
             )
         )
         for step in steps:
             metadata = dict(step.metadata_json or {})
-            if metadata.get("status") not in {"pending", "resuming"}:
-                continue
             if any(
                 item.get("type") == target_type and int(item.get("id", 0)) == target_id
                 for item in metadata.get("queue", [])
@@ -1407,12 +1415,18 @@ class AIAdvisor:
                 )
             raise
 
-    async def cancel_approval_for_target(self, target_type: str, target_id: int) -> bool:
-        """Cancel a whole suspended batch when new dialogue supersedes its active UI."""
+    async def cancel_approval_for_target(self, target_type: str, target_id: int) -> str | None:
+        """Cancel a whole suspended batch when new dialogue supersedes its active UI.
+
+        Returns the consolidated result of the interrupted request, or ``None`` when the
+        target does not belong to a suspended batch.  The caller needs that text because
+        earlier items in the queue may already be saved: freezing the screen as a plain
+        "discarded" notice would tell both the owner and the model something untrue.
+        """
         async with self.sessions() as session:
             batch = await self._pending_batch_for_target(session, target_type, target_id)
             if batch is None:
-                return False
+                return None
             metadata = dict(batch.metadata_json or {})
             queue = [dict(item) for item in metadata.get("queue", [])]
             tools = [dict(item) for item in metadata.get("tool_calls", [])]
@@ -1441,7 +1455,11 @@ class AIAdvisor:
             if run is not None:
                 run.status = "cancelled"
             await session.commit()
-            return True
+        summaries = [
+            *metadata.get("display_result_summaries", []),
+            _approval_results_summary(tools, include_preparation_errors=False),
+        ]
+        return "\n\n".join(summary for summary in summaries if summary) or ""
 
     async def _finish_run(
         self, run_id: int, status: str, started: float, error_code: str | None = None
@@ -1459,62 +1477,37 @@ class ProposalService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    @staticmethod
-    def _items(value: Any) -> list[Any]:
-        if value is None:
-            return []
-        return value if isinstance(value, list) else [value]
-
     async def _parent_id(self, values: dict[str, Any]) -> int | None:
         return int(values["parent_id"]) if values.get("parent_id") is not None else None
 
-    async def _named_ids(
-        self,
-        values: dict[str, Any],
-        *,
-        singular_key: str,
-        plural_key: str,
-        query_key: str,
-        model: type[Tag] | type[Value],
-        label: str,
-        created: dict[str, int],
-    ) -> set[int]:
-        ids = {
-            int(item)
-            for item in [
-                *self._items(values.get(singular_key)),
-                *self._items(values.get(plural_key)),
-            ]
-        }
-        for raw_name in self._items(values.get(query_key)):
-            name = str(raw_name).strip()
-            if not name:
-                continue
-            entity_id = created.get(name.casefold())
-            if entity_id is None:
-                matches = list(
-                    await self.session.scalars(
-                        select(model).where(
-                            model.name.collate("NOCASE") == name,
-                            model.archived_at.is_(None),
-                        )
-                    )
-                )
-                if len(matches) == 1:
-                    entity_id = matches[0].id
-            if entity_id is None:
-                raise DomainError(f"{label} '{name}' is not available for this approved link")
-            ids.add(entity_id)
-        return ids
+    async def _named_ids(self, values: dict[str, Any], spec: ReferenceSpec) -> set[int]:
+        """Resolve one relationship at approval time against committed data.
 
-    async def _replace_card_sets(
-        self,
-        card: Card,
-        values: dict[str, Any],
-        *,
-        created_tag_ids: dict[str, int],
-        created_value_ids: dict[str, int],
-    ) -> None:
+        A proposal holds one change, so a name referenced here always belongs to an
+        item an earlier proposal already saved.
+        """
+        resolved = await resolve_references(self.session, spec, values)
+        if resolved.unresolved:
+            raise DomainError(
+                f"{spec.label} '{resolved.unresolved[0]}' is not available for this approved link"
+            )
+        # Unknown numeric IDs stay for the domain command to reject with its own message.
+        return resolved.ids | set(resolved.unknown_ids)
+
+    async def _apply_stage_change(self, card: Card, stage: CardStage) -> None:
+        """Route one approved stage change so terminal stages keep their accounting.
+
+        ``finish_action`` owns completion timestamps, feedback, Sprint results and repeat
+        successors; ``move_card`` owns live stages and subtree propagation.  Every approved
+        stage change goes through here so no path can reach Done or Cancelled without the
+        completion bookkeeping.
+        """
+        if stage in TERMINAL_STAGES:
+            await finish_action(self.session, card.id, stage, actor=ActorType.AI)
+            return
+        await move_card(self.session, card.id, stage, actor=ActorType.AI)
+
+    async def _replace_card_sets(self, card: Card, values: dict[str, Any]) -> None:
         if "categories" in values:
             current = set(
                 await self.session.scalars(
@@ -1538,41 +1531,17 @@ class ProposalService:
                     self.session, card.id, EnergyType(energy_type), actor=ActorType.AI
                 )
 
-        value_fields = {"value_id", "value_ids", "value_query"}
-        if value_fields & values.keys():
+        for spec in CARD_REFERENCE_SPECS:
+            if not spec.mentioned_in(values):
+                continue
             current = set(
                 await self.session.scalars(
-                    select(CardValue.value_id).where(CardValue.card_id == card.id)
+                    select(spec.link_column).where(spec.link_model.card_id == card.id)
                 )
             )
-            target = await self._named_ids(
-                values,
-                singular_key="value_id",
-                plural_key="value_ids",
-                query_key="value_query",
-                model=Value,
-                label="Value",
-                created=created_value_ids,
-            )
-            for value_id in sorted(current ^ target):
-                await toggle_card_value(self.session, card.id, value_id, actor=ActorType.AI)
-
-        tag_fields = {"tag_id", "tag_ids", "tag_query"}
-        if tag_fields & values.keys():
-            current = set(
-                await self.session.scalars(select(CardTag.tag_id).where(CardTag.card_id == card.id))
-            )
-            target = await self._named_ids(
-                values,
-                singular_key="tag_id",
-                plural_key="tag_ids",
-                query_key="tag_query",
-                model=Tag,
-                label="Tag",
-                created=created_tag_ids,
-            )
-            for tag_id in sorted(current ^ target):
-                await toggle_card_tag(self.session, card.id, tag_id, actor=ActorType.AI)
+            target = await self._named_ids(values, spec)
+            for entity_id in sorted(current ^ target):
+                await spec.toggle(self.session, card.id, entity_id, actor=ActorType.AI)
 
     async def _apply_card_links(
         self,
@@ -1580,40 +1549,15 @@ class ProposalService:
         values: dict[str, Any],
         *,
         linked: bool,
-        created_tag_ids: dict[str, int],
-        created_value_ids: dict[str, int],
     ) -> None:
-        if {"value_id", "value_ids", "value_query"} & values.keys():
-            target_ids = await self._named_ids(
-                values,
-                singular_key="value_id",
-                plural_key="value_ids",
-                query_key="value_query",
-                model=Value,
-                label="Value",
-                created=created_value_ids,
-            )
-            for value_id in sorted(target_ids):
-                exists = await self.session.get(
-                    CardValue, {"card_id": card.id, "value_id": value_id}
-                )
+        """Add or remove exactly one relationship type, leaving the others untouched."""
+        for spec in CARD_REFERENCE_SPECS:
+            if not spec.mentioned_in(values):
+                continue
+            for entity_id in sorted(await self._named_ids(values, spec)):
+                exists = await self.session.get(spec.link_model, spec.link_key(card.id, entity_id))
                 if linked != (exists is not None):
-                    await toggle_card_value(self.session, card.id, value_id, actor=ActorType.AI)
-            return
-        if {"tag_id", "tag_ids", "tag_query"} & values.keys():
-            target_ids = await self._named_ids(
-                values,
-                singular_key="tag_id",
-                plural_key="tag_ids",
-                query_key="tag_query",
-                model=Tag,
-                label="Tag",
-                created=created_tag_ids,
-            )
-            for tag_id in sorted(target_ids):
-                exists = await self.session.get(CardTag, {"card_id": card.id, "tag_id": tag_id})
-                if linked != (exists is not None):
-                    await toggle_card_tag(self.session, card.id, tag_id, actor=ActorType.AI)
+                    await spec.toggle(self.session, card.id, entity_id, actor=ActorType.AI)
             return
         raise DomainError("A Card link proposal needs one relationship type")
 
@@ -1633,30 +1577,12 @@ class ProposalService:
             )
         )
         affected: list[int] = []
-        created_tag_ids: dict[str, int] = {}
-        created_value_ids: dict[str, int] = {}
         for change in changes:
             if change.entity == "card":
                 if change.action == "create":
                     values = dict(change.values)
-                    value_ids = await self._named_ids(
-                        values,
-                        singular_key="value_id",
-                        plural_key="value_ids",
-                        query_key="value_query",
-                        model=Value,
-                        label="Value",
-                        created=created_value_ids,
-                    )
-                    tag_ids = await self._named_ids(
-                        values,
-                        singular_key="tag_id",
-                        plural_key="tag_ids",
-                        query_key="tag_query",
-                        model=Tag,
-                        label="Tag",
-                        created=created_tag_ids,
-                    )
+                    value_ids = await self._named_ids(values, VALUE_REFERENCE)
+                    tag_ids = await self._named_ids(values, TAG_REFERENCE)
                     card = await create_card(
                         self.session,
                         kind=values["kind"],
@@ -1683,9 +1609,7 @@ class ProposalService:
                     proposal.status = ProposalStatus.STALE.value
                     raise StaleStateError("A Card changed; refresh this proposal")
                 if change.action == "move":
-                    await move_card(
-                        self.session, card.id, CardStage(change.values["stage"]), actor=ActorType.AI
-                    )
+                    await self._apply_stage_change(card, CardStage(change.values["stage"]))
                 elif change.action == "complete":
                     await finish_action(self.session, card.id, CardStage.DONE, actor=ActorType.AI)
                 elif change.action == "cancel":
@@ -1693,11 +1617,9 @@ class ProposalService:
                         self.session, card.id, CardStage.CANCELLED, actor=ActorType.AI
                     )
                 elif change.action == "reopen":
-                    await move_card(
-                        self.session,
-                        card.id,
+                    await self._apply_stage_change(
+                        card,
                         CardStage(change.values.get("stage", CardStage.BACKLOG.value)),
-                        actor=ActorType.AI,
                     )
                 elif change.action == "update":
                     scalar_fields = {
@@ -1727,19 +1649,8 @@ class ProposalService:
                             actor=ActorType.AI,
                         )
                     if "stage" in change.values:
-                        target_stage = CardStage(change.values["stage"])
-                        if target_stage in {CardStage.DONE, CardStage.CANCELLED}:
-                            await finish_action(
-                                self.session, card.id, target_stage, actor=ActorType.AI
-                            )
-                        else:
-                            await move_card(self.session, card.id, target_stage, actor=ActorType.AI)
-                    await self._replace_card_sets(
-                        card,
-                        change.values,
-                        created_tag_ids=created_tag_ids,
-                        created_value_ids=created_value_ids,
-                    )
+                        await self._apply_stage_change(card, CardStage(change.values["stage"]))
+                    await self._replace_card_sets(card, change.values)
                 elif change.action == "archive":
                     await archive_subtree(self.session, card.id)
                 elif change.action == "delete":
@@ -1751,8 +1662,6 @@ class ProposalService:
                         card,
                         change.values,
                         linked=change.action == "link",
-                        created_tag_ids=created_tag_ids,
-                        created_value_ids=created_value_ids,
                     )
                 else:
                     raise DomainError(f"Unsupported approved Card action: {change.action}")
@@ -1769,7 +1678,6 @@ class ProposalService:
                         change.values.get("description"),
                     )
                     await self.session.flush()
-                    created_tag_ids[name.casefold()] = tag.id
                 else:
                     if tag is None or tag.version != change.expected_version:
                         raise StaleStateError("A Tag changed; refresh this proposal")
@@ -1800,7 +1708,6 @@ class ProposalService:
                         active=change.values.get("active"),
                     )
                     await self.session.flush()
-                    created_value_ids[name.casefold()] = value.id
                 else:
                     if value is None or value.version != change.expected_version:
                         raise StaleStateError("A Value changed; refresh this proposal")
@@ -1849,29 +1756,6 @@ class ProposalService:
                 else:
                     raise DomainError(f"Unsupported Request action: {change.action}")
                 affected.append(request.id)
-            elif change.entity == "sprint":
-                if change.action == "start":
-                    sprint = await start_sprint(self.session)
-                elif change.action == "finish":
-                    sprint = await finish_sprint(self.session, reason="ai_approved")
-                else:
-                    raise DomainError(f"Unsupported Sprint action: {change.action}")
-                affected.append(sprint.id)
-            elif change.entity == "settings" and change.action == "update":
-                profile = await self.session.get(UserProfile, 1)
-                for name in {
-                    "about_me",
-                    "advisor_instructions",
-                    "capacity_effort_points",
-                    "reminders_enabled",
-                    "weekend_enabled",
-                    "proactive_limit",
-                    "reminder_cooldown_minutes",
-                }:
-                    if name in change.values:
-                        setattr(profile, name, change.values[name])
-                workspace.revision += 1
-                affected.append("settings")
             else:
                 raise DomainError(f"Unsupported approved change: {change.entity}.{change.action}")
         proposal.status = ProposalStatus.APPROVED.value

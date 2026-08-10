@@ -6,6 +6,8 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .ai.sql import DEFAULT_CHAR_BUDGET, DEFAULT_ROW_LIMIT
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -28,6 +30,10 @@ class Settings(BaseSettings):
     ai_timeout_seconds: float = 120.0
     ai_max_output_tokens: int = 4096
     ai_structured_output: bool = False
+    # query_safwa result caps. A capped result is returned with a notice telling the
+    # model to narrow the query, so raise these only if the model has context to spare.
+    ai_query_row_limit: int = Field(default=DEFAULT_ROW_LIMIT, gt=0)
+    ai_query_char_budget: int = Field(default=DEFAULT_CHAR_BUDGET, gt=0)
     timezone: str = "Europe/Istanbul"
     summary_trigger_tokens: int = 10_000
     memory_token_budget: int = 4_000

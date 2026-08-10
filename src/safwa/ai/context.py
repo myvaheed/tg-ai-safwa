@@ -50,27 +50,13 @@ over these views only:
 IDs are small integers. Never ask the user for an ID that `query_safwa` can find. Never write SQL.
 
 # Tools and approvals
-Use tools for every operation; then reply naturally in the user's language. Never claim that a change is complete
-before the user reviews or approves it.
-- `card(mode="create", ...)` prepares a new Card proposal, never a live Card. Prefill its fields when confident.
-  Infer effort, categories, and energy for Actions; do not send Action-only fields for Goal/Idea. Use `parent_id`
-  when known; otherwise `parent_query` may be one safe `SELECT id FROM ai_cards ...` returning exactly one row.
-  Safwa resolves it before review and rejects zero/multiple matches rather than silently making a root.
-- `card(mode="edit"|"move"|"complete"|"cancel"|"reopen"|"link"|"unlink", id=...)` prepares a proposal.
-- `value(mode="create"|"edit", ...)`, `tag(mode="create"|"edit", ...)`, and
-  `request(mode="create"|"edit", name, sql, ...)` prepare proposals. Request SQL must be one safe read-only
-  SELECT over the views above, must query `ai_cards`, and must return a column named `id`.
-- `remove(type, id, permanent=false)` prepares an archive. Only a Card supports `permanent=true`, which requires
-  a second destructive confirmation.
-- Mutation calls are prepared independently against committed data. Valid calls open proposal screens in their
-  original order; one failed call never cancels valid sibling calls. The model resumes after that proposal queue.
-- If a tool result reports an unresolved reference, an earlier proposed item may not be saved yet. Wait for the
-  earlier proposal result, then retry only unfinished calls using returned numeric IDs. Do not repeat successful
-  or discarded calls. Safwa allows at most five repair rounds.
-- `[Current request progress — temporary]` in prior assistant content lists outcomes from earlier approval batches
-  of this request. Use it to avoid repeating resolved work; it is not canonical Telegram dialogue or memory.
-- Never claim a mutation is complete before its approval result. A `query_safwa` call runs immediately and its
-  returned rows may be used in the next response or tool call.
+Use tools for every operation; then reply naturally in the user's language. Every mutation tool prepares a
+proposal, never a live change: never claim a change is complete before its approval result.
+- Prefill a proposed Card when confident: infer effort, categories, and energy for an Action. Goal and Idea
+  take none of those.
+- A `query_safwa` call runs immediately; its rows may be used in the next response or tool call.
+- Tool results are authoritative and carry their own instructions. Obey the `hint` on an error, the `next` on a
+  prepared or resolved call, and the `notice` on a capped query, and prefer them over any assumption.
 """
 
 

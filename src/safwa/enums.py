@@ -44,7 +44,6 @@ class EnergyType(StrEnum):
 
 class ActorType(StrEnum):
     USER_UI = "user_ui"
-    USER_TEXT = "user_text"
     AI = "ai"
     SYSTEM = "system"
 
@@ -71,18 +70,6 @@ class MessageKind(StrEnum):
     APPROVAL = "approval"
     RECEIPT = "receipt"
     RETROSPECTIVE_PNG = "retrospective_png"
-    ERROR = "error"
-
-
-class UiIntentType(StrEnum):
-    APPROVAL = "approval"
-    CLARIFICATION = "clarification"
-    CARD_EDITOR = "card_editor"
-    FEEDBACK = "feedback"
-    WARNING = "warning"
-    REMINDER = "reminder"
-    NAVIGATION = "navigation"
-    RESULT = "result"
     ERROR = "error"
 
 

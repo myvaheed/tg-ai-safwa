@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import ast
+import inspect
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from sqlalchemy import select
 
+import safwa.telegram as telegram_source
 from safwa.ai.context import DialogueMessage
 from safwa.ai.service import AIOutcome, ProposalService
-from safwa.domain import create_card, finish_action
+from safwa.domain import create_card, create_tag, finish_action
 from safwa.enums import CardStage, MessageKind
 from safwa.models import (
     CallbackToken,
@@ -25,6 +28,7 @@ from safwa.models import (
     Workspace,
 )
 from safwa.telegram import (
+    CALLBACK_ACTIONS,
     GenerationGuard,
     OwnerAndWritingMiddleware,
     callback_token_handler,
@@ -32,6 +36,7 @@ from safwa.telegram import (
     handle_card_creation_chooser,
     ordinary_text,
     render_card,
+    render_card_choices,
     render_card_creation,
     render_children,
     render_dashboard,
@@ -39,6 +44,69 @@ from safwa.telegram import (
     render_item_text_prompt,
     render_proposal,
 )
+
+
+def _telegram_module_tree() -> ast.Module:
+    return ast.parse(inspect.getsource(telegram_source))
+
+
+def _registry_node(tree: ast.Module) -> ast.AST:
+    return next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "CALLBACK_ACTIONS"
+    )
+
+
+def test_every_inline_button_action_has_a_registered_handler() -> None:
+    """An inline button whose action is unregistered is a screen that does nothing."""
+    emitted = {
+        node.args[3].value
+        for node in ast.walk(_telegram_module_tree())
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "id", None) == "token_button"
+        and len(node.args) > 3
+        and isinstance(node.args[3], ast.Constant)
+        and isinstance(node.args[3].value, str)
+    }
+
+    assert emitted, "no literal token_button actions were found to check"
+    assert emitted <= set(CALLBACK_ACTIONS)
+
+
+def test_no_individually_registered_handler_is_unreachable() -> None:
+    """A handler no button can reach is dead code, like the removed value_toggle."""
+    tree = _telegram_module_tree()
+    registry = _registry_node(tree)
+    registry_nodes = set(map(id, ast.walk(registry)))
+    referenced = {
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in registry_nodes
+    }
+    # Only keys spelled out in the registry are checked here; the generated selector
+    # families build their names from the same constants the buttons use.
+    spelled_out = {
+        key.value
+        for key in registry.value.keys
+        if isinstance(key, ast.Constant) and isinstance(key.value, str)
+    }
+
+    assert spelled_out, "no literal registry keys were found to check"
+    assert spelled_out <= referenced
+
+
+def test_every_card_relationship_is_wired_to_both_selector_surfaces() -> None:
+    """Adding a relationship to the table must not leave half the screens unreachable."""
+    for field, relation in telegram_source._RELATION_CHOICES.items():
+        assert f"card_choose_{field}" in CALLBACK_ACTIONS
+        assert f"card_create_choose_{field}" in CALLBACK_ACTIONS
+        assert f"card_toggle_{relation.singular}" in CALLBACK_ACTIONS
+        assert f"card_create_toggle_{relation.singular}" in CALLBACK_ACTIONS
 
 
 class FakeBot:
@@ -415,6 +483,102 @@ async def test_card_note_input_updates_same_creation_message(sessions) -> None:
         assert editor.state["note"] == "Weekdays"
 
 
+async def test_dashboard_paging_walks_between_pages(sessions) -> None:
+    async with sessions() as session:
+        for index in range(7):
+            await create_card(
+                session, kind="action", title=f"Task {index}", stage="backlog", effort_points=1
+            )
+        await session.commit()
+
+    services = services_for(sessions)
+    message = FakeMessage(95, bot_message=True)
+    await render_dashboard(message, services, CardStage.BACKLOG, title="Backlog")
+
+    text, markup = message.edits[-1]
+    assert "page 1/2" in text
+    assert "◀ Previous" not in button_texts(markup)
+    nxt = next(button for row in markup.inline_keyboard for button in row if button.text == "Next ▶")
+
+    await callback_token_handler(FakeCallback(nxt.callback_data.split(":", 1)[1], message), services)
+
+    text, markup = message.edits[-1]
+    assert "page 2/2" in text
+    assert "◀ Previous" in button_texts(markup)
+    assert "Next ▶" not in button_texts(markup)
+
+
+async def test_tag_selector_pages_instead_of_truncating(sessions) -> None:
+    async with sessions() as session:
+        card = await create_card(session, kind="action", title="Pick tags", effort_points=1)
+        for index in range(12):
+            await create_tag(session, f"Tag {index:02d}")
+        await session.commit()
+        card_id = card.id
+
+    services = services_for(sessions)
+    message = FakeMessage(96, bot_message=True)
+    await render_card_choices(message, services, "card_choose_tags", card_id)
+
+    text, markup = message.edits[-1]
+    names = [name for name in button_texts(markup) if name.startswith("Tag ")]
+    assert "page 1/2" in text
+    assert names == [f"Tag {index:02d}" for index in range(10)]
+
+    nxt = next(button for row in markup.inline_keyboard for button in row if button.text == "Next ▶")
+    await callback_token_handler(FakeCallback(nxt.callback_data.split(":", 1)[1], message), services)
+
+    text, markup = message.edits[-1]
+    names = [name for name in button_texts(markup) if name.startswith("Tag ")]
+    # Tag 11 used to be unreachable: the selector stopped at a hard limit with no paging.
+    assert "page 2/2" in text
+    assert names == ["Tag 10", "Tag 11"]
+
+
+async def test_moving_a_blocked_card_shows_its_warning_on_the_card_screen(sessions) -> None:
+    async with sessions() as session:
+        card = await create_card(
+            session,
+            kind="action",
+            title="Waiting",
+            stage="today",
+            effort_points=2,
+            blocked=True,
+            blocked_description="Need account access",
+        )
+        await session.commit()
+        card_id = card.id
+
+    services = services_for(sessions)
+    message = FakeMessage(90, bot_message=True)
+    await render_card(message, services, card_id)
+
+    stage = next(
+        button
+        for row in message.edits[-1][1].inline_keyboard
+        for button in row
+        if button.text == "📍 Stage"
+    )
+    await callback_token_handler(
+        FakeCallback(stage.callback_data.split(":", 1)[1], message), services
+    )
+    backlog = next(
+        button
+        for row in message.edits[-1][1].inline_keyboard
+        for button in row
+        if "Backlog" in button.text
+    )
+    await callback_token_handler(
+        FakeCallback(backlog.callback_data.split(":", 1)[1], message), services
+    )
+
+    # A callback replaces the current message, so the warning has to arrive as part of
+    # the destination screen rather than as a message the next render overwrites.
+    text = message.edits[-1][0]
+    assert "Need account access" in text
+    assert "Stage: Backlog" in text
+
+
 async def test_card_text_field_prompt_replaces_creation_message(sessions) -> None:
     async with sessions() as session:
         session.add(
@@ -490,15 +654,15 @@ async def test_card_creation_choosers_show_kind_category_and_energy_emojis(sessi
     services = services_for(sessions)
 
     await handle_card_creation_chooser(message, services, "card_create_choose_kind")
-    assert {"🎯 Goal", "💡 Idea", "✓ ✅ Action"} <= set(button_texts(message.edits[-1][1]))
+    assert {"🎯 Goal", "💡 Idea", "✓ ⭐️ Action"} <= set(button_texts(message.edits[-1][1]))
 
     await handle_card_creation_chooser(message, services, "card_create_choose_categories")
-    assert {"🌱 Self", "🤝 Contribution", "💼 Work", "🌙 Rest"} <= set(
+    assert {"🌱 Self", "❤️ Contribution", "💰 Work", "🔋 Rest"} <= set(
         button_texts(message.edits[-1][1])
     )
 
     await handle_card_creation_chooser(message, services, "card_create_choose_energy")
-    assert {"💪 Physical", "🧠 Cognitive", "🫂 Social", "💎 Values"} <= set(
+    assert {"💪 Physical", "🧠 Cognitive", "🤝 Social", "💎 Values"} <= set(
         button_texts(message.edits[-1][1])
     )
 
@@ -550,7 +714,7 @@ async def test_card_overview_uses_derived_progress_and_relationship_navigation(s
     await render_children(children_message, services_for(sessions), goal.id)
     children_texts = button_texts(children_message.edits[-1][1])
     assert any("💡 Idea · Prepare release" in text for text in children_texts)
-    assert any("✅ Action · Write announcement" in text for text in children_texts)
+    assert any("⭐️ Action · Write announcement" in text for text in children_texts)
     assert not any("Publish build" in text for text in children_texts)
 
     child_message = FakeMessage(71, bot_message=True, bot=bot)
@@ -561,7 +725,7 @@ async def test_card_overview_uses_derived_progress_and_relationship_navigation(s
         replace_message_id=child_message.message_id,
     )
     child_text, child_markup = bot.edits[-1][1:]
-    assert "Kind: ✅ Action" in child_text
+    assert "Kind: ⭐️ Action" in child_text
     assert "Parent: Ship product" in child_text
     assert "🌳 Parent: Ship product" in button_texts(child_markup)
     assert "👥 Children" not in button_texts(child_markup)
@@ -582,7 +746,7 @@ async def test_backlog_dashboard_lists_actions_only(sessions) -> None:
     )
 
     dashboard_text, dashboard_markup = message.edits[-1]
-    assert "✅ Action" in dashboard_text
+    assert "⭐️ Action" in dashboard_text
     assert "Visible Action" in dashboard_text
     assert "Hidden Goal" not in dashboard_text
     assert any("Visible Action" in text for text in button_texts(dashboard_markup))
@@ -667,11 +831,11 @@ async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions) ->
     text, markup = message.edits[-1]
 
     assert "Card overview" in text
-    assert "Kind: ✅ Action" in text
+    assert "Kind: ⭐️ Action" in text
     assert "Title: <b>Evening walk</b>" in text
     assert "Effort: 3" in text
-    assert "Categories: 🌱 Self → 🤝 Contribution, 🌙 Rest" in text
-    assert "Energy: — → 💪 Physical, 🫂 Social" in text
+    assert "Categories: 🌱 Self → ❤️ Contribution, 🔋 Rest" in text
+    assert "Energy: — → 💪 Physical, 🤝 Social" in text
     buttons = button_texts(markup)
     assert buttons == ["✅ Save", "🗑 Discard"]
     assert "↩️ Back" not in buttons
@@ -709,7 +873,7 @@ async def test_card_creation_proposal_has_no_proposed_changes_section(sessions) 
     text, markup = message.edits[-1]
 
     assert "Card overview" in text
-    assert "Kind: ✅ Action" in text
+    assert "Kind: ⭐️ Action" in text
     assert "Title: <b>Evening walk</b>" in text
     assert "Categories: 🌱 Self" in text
     assert "<b>Proposed changes</b>" not in text

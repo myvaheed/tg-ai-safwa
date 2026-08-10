@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, select
 
 from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from safwa.db import upgrade_database
-from safwa.models import Base, Card, CardTag, Tag
+from safwa.models import AgentRun, AgentStep, Base, Card, CardTag, Tag
+from safwa.recovery import recover_startup
 
 
 def test_alembic_bootstraps_new_database(tmp_path, monkeypatch):
@@ -15,7 +16,45 @@ def test_alembic_bootstraps_new_database(tmp_path, monkeypatch):
     upgrade_database(f"sqlite:///{path.as_posix()}")
     engine = create_engine(f"sqlite:///{path.as_posix()}")
     assert set(Base.metadata.tables).issubset(set(engine.dialect.get_table_names(engine.connect())))
+    indexes = {index["name"] for index in inspect(engine).get_indexes("agent_steps")}
+    assert "ix_agent_steps_kind" in indexes
     engine.dispose()
+
+
+async def test_startup_releases_an_interrupted_agent_continuation(sessions):
+    async with sessions() as session:
+        run = AgentRun(provider="test", model="test", status="running")
+        session.add(run)
+        await session.flush()
+        session.add_all(
+            [
+                AgentStep(
+                    run_id=run.id,
+                    position=1,
+                    kind="approval_batch",
+                    metadata_json={"status": "resuming", "queue": []},
+                ),
+                AgentStep(
+                    run_id=run.id,
+                    position=2,
+                    kind="approval_batch",
+                    metadata_json={"status": "pending", "queue": []},
+                ),
+            ]
+        )
+        await session.commit()
+
+        await recover_startup(session)
+        await session.commit()
+
+        steps = list(
+            await session.scalars(select(AgentStep).order_by(AgentStep.position))
+        )
+    # A resuming batch already had its whole queue resolved, so it is closed rather
+    # than left claiming its proposal forever.  A pending batch still owns live UI.
+    assert steps[0].metadata_json["status"] == "completed"
+    assert steps[0].metadata_json["continuation_error"] == "InterruptedAtStartup"
+    assert steps[1].metadata_json["status"] == "pending"
 
 
 async def test_read_only_query_runner_reads_only_ai_views(tmp_path):
@@ -40,9 +79,12 @@ async def test_read_only_query_runner_reads_only_ai_views(tmp_path):
             "VALUES (3,'Family actions','','SELECT id FROM ai_cards',1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
         )
     runner = ReadOnlyQueryRunner(path)
-    assert await runner.run("SELECT title FROM ai_cards") == [{"title": "Read"}]
-    assert await runner.run("SELECT name FROM ai_tags") == [{"name": "Family"}]
-    assert await runner.run("SELECT name FROM ai_requests") == [{"name": "Family actions"}]
+    cards = await runner.run("SELECT title FROM ai_cards")
+    assert cards.rows == [{"title": "Read"}]
+    assert cards.notice is None
+    assert cards.as_tool_result() == [{"title": "Read"}]
+    assert (await runner.run("SELECT name FROM ai_tags")).rows == [{"name": "Family"}]
+    assert (await runner.run("SELECT name FROM ai_requests")).rows == [{"name": "Family actions"}]
     engine.dispose()
 
 

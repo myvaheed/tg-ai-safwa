@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -58,6 +59,98 @@ class OperationResult:
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def listed(value: Any) -> list[Any]:
+    """Accept either one reference or a list of them from a proposal payload."""
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]
+
+
+@dataclass(frozen=True)
+class ReferenceSpec:
+    """One Card relationship: where it lives in a payload and how it is written.
+
+    ``singular_key`` doubles as the link table's own column name, so the same spec
+    addresses the payload, the lookup and the junction row.
+    """
+
+    singular_key: str
+    plural_key: str
+    query_key: str
+    model: type[Tag] | type[Value]
+    label: str
+    link_model: type[CardTag] | type[CardValue]
+    toggle: Callable[..., Awaitable[bool]]
+
+    def mentioned_in(self, values: dict[str, Any]) -> bool:
+        return bool({self.singular_key, self.plural_key, self.query_key} & values.keys())
+
+    def link_key(self, card_id: int, entity_id: int) -> dict[str, int]:
+        return {"card_id": card_id, self.singular_key: entity_id}
+
+    @property
+    def link_column(self) -> Any:
+        return self.link_model.__table__.c[self.singular_key]
+
+
+@dataclass(frozen=True)
+class ResolvedReferences:
+    """What a payload's Tag/Value references point at, and what could not be resolved."""
+
+    ids: set[int]
+    unknown_ids: tuple[int, ...] = ()
+    missing: tuple[str, ...] = ()
+    ambiguous: tuple[str, ...] = ()
+    blank: bool = False
+
+    @property
+    def unresolved(self) -> tuple[str, ...]:
+        return (*self.missing, *self.ambiguous)
+
+
+async def resolve_references(
+    session: AsyncSession, spec: ReferenceSpec, values: dict[str, Any]
+) -> ResolvedReferences:
+    """Resolve one relationship's IDs and exact names against committed data.
+
+    Preparation, approval and the review screen all need the same answer; they differ
+    only in how they report what did not resolve.
+    """
+    ids: set[int] = set()
+    unknown_ids: list[int] = []
+    for raw_id in [*listed(values.get(spec.singular_key)), *listed(values.get(spec.plural_key))]:
+        entity_id = int(raw_id)
+        entity = await session.get(spec.model, entity_id)
+        if entity is None or entity.archived_at is not None:
+            unknown_ids.append(entity_id)
+        else:
+            ids.add(entity_id)
+
+    missing: list[str] = []
+    ambiguous: list[str] = []
+    blank = False
+    for raw_name in listed(values.get(spec.query_key)):
+        name = str(raw_name).strip()
+        if not name:
+            blank = True
+            continue
+        matches = list(
+            await session.scalars(
+                select(spec.model).where(
+                    spec.model.name.collate("NOCASE") == name,
+                    spec.model.archived_at.is_(None),
+                )
+            )
+        )
+        if len(matches) == 1:
+            ids.add(matches[0].id)
+        elif matches:
+            ambiguous.append(name)
+        else:
+            missing.append(name)
+    return ResolvedReferences(ids, tuple(unknown_ids), tuple(missing), tuple(ambiguous), blank)
 
 
 def card_snapshot(card: Card) -> dict[str, Any]:
@@ -416,13 +509,13 @@ async def archive_value(session: AsyncSession, value_id: int) -> tuple[Value, in
 async def set_value_focus(
     session: AsyncSession, value_id: int, active: bool | None = None
 ) -> Value:
+    """Set or flip Value focus through the single Value write path."""
     value = await session.get(Value, value_id)
     if value is None or value.archived_at is not None:
         raise DomainError("Value does not exist or is archived")
-    value.active = (not value.active) if active is None else active
-    value.version += 1
-    await _bump_workspace(session)
-    return value
+    return await update_value_fields(
+        session, value_id, active=(not value.active) if active is None else active
+    )
 
 
 async def update_profile(session: AsyncSession, **fields: Any) -> UserProfile:
@@ -474,6 +567,8 @@ async def edit_card_text(session: AsyncSession, card_id: int, field: str, value:
         raise DomainError("Card title cannot be empty")
     before = card_snapshot(card)
     setattr(card, field, normalized)
+    if not card.blocked:
+        card.blocked_description = ""
     validate_blocked_fields(card.blocked, card.blocked_description)
     card.version += 1
     await _record_event(
@@ -513,6 +608,8 @@ async def update_card_fields(
             value = str(value).strip()
         if name == "title" and not value:
             raise DomainError("Card title cannot be empty")
+        if name == "priority":
+            value = Priority(value).value
         setattr(card, name, value)
     validate_action_fields(card.kind, card.effort_points, card.repeatable)
     if not card.blocked:
@@ -787,7 +884,7 @@ def aggregate_child_stages(children: list[Card]) -> CardStage:
 
 
 async def propagate_ancestors(session: AsyncSession, start_parent_id: int | None) -> list[int]:
-    changed: list[str] = []
+    changed: list[int] = []
     parent_id = start_parent_id
     while parent_id:
         parent = await session.get(Card, parent_id)
@@ -854,6 +951,15 @@ async def _sync_commitment_for_stage(
         )
     elif commitment and was_scope and current is CardStage.BACKLOG:
         commitment.removed_at = utcnow()
+    if commitment is None:
+        return
+    if previous_stage in TERMINAL_STAGES and current not in TERMINAL_STAGES:
+        # A reopened Action is no longer a completed or cancelled Sprint result.
+        commitment.result = None
+    if commitment.removed_at is not None and current in {CardStage.SPRINT, CardStage.TODAY}:
+        # Returning to Sprint scope cancels the earlier removal instead of
+        # counting the same effort as both removed and selected.
+        commitment.removed_at = None
 
 
 async def move_card(
@@ -866,6 +972,11 @@ async def move_card(
     card = await session.get(Card, card_id)
     if card is None or card.archived_at is not None:
         raise DomainError("Card does not exist")
+    if stage in TERMINAL_STAGES and card.kind == CardKind.ACTION.value:
+        # finish_action owns completion timestamps, feedback, Sprint results and
+        # repeat successors.  Moving an Action to a terminal stage here would set
+        # only the stage and silently skip all of that accounting.
+        raise DomainError("An Action reaches Done or Cancelled through finish_action")
     if (
         stage in TERMINAL_STAGES
         and card.kind != CardKind.ACTION.value
@@ -1015,10 +1126,12 @@ async def start_sprint(
     workspace = await _workspace(session)
     if WorkspaceMode(workspace.mode) is not WorkspaceMode.PLANNING or workspace.active_sprint_id:
         raise DomainError("A Sprint can start only from Planning")
-    count = await session.scalar(select(func.count(Sprint.id))) or 0
+    # Numbering follows the highest number ever used, so deleting a Sprint cannot
+    # produce a duplicate on the unique constraint.
+    highest = await session.scalar(select(func.max(Sprint.number))) or 0
     start = start_date or date.today()
     sprint = Sprint(
-        number=count + 1,
+        number=highest + 1,
         planned_start_date=start,
         planned_end_date=start + timedelta(days=13),
         actual_started_at=utcnow(),
@@ -1083,7 +1196,7 @@ async def archive_subtree(session: AsyncSession, card_id: int, archive: bool = T
     card = await session.get(Card, card_id)
     if card is None:
         raise DomainError("Card does not exist")
-    changed: list[str] = []
+    changed: list[int] = []
     stamp = utcnow() if archive else None
     correlation_id = new_correlation_id()
 
@@ -1126,3 +1239,13 @@ async def delete_subtree(session: AsyncSession, card_id: int) -> int:
     await propagate_ancestors(session, parent_id)
     await _bump_workspace(session)
     return len(ids)
+
+
+# Declared last so each spec can name the toggle command that writes it.
+VALUE_REFERENCE = ReferenceSpec(
+    "value_id", "value_ids", "value_query", Value, "Value", CardValue, toggle_card_value
+)
+TAG_REFERENCE = ReferenceSpec(
+    "tag_id", "tag_ids", "tag_query", Tag, "Tag", CardTag, toggle_card_tag
+)
+CARD_REFERENCE_SPECS = (VALUE_REFERENCE, TAG_REFERENCE)

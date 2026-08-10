@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class AgentChange(BaseModel):
-    entity: Literal["card", "tag", "value", "request", "sprint", "settings"]
+    entity: Literal["card", "tag", "value", "request"]
     action: Literal[
         "create",
         "update",
@@ -18,8 +18,6 @@ class AgentChange(BaseModel):
         "delete",
         "link",
         "unlink",
-        "start",
-        "finish",
     ]
     id: int | None = None
     values: dict[str, Any] = Field(default_factory=dict)
@@ -108,12 +106,16 @@ class CardToolInput(BaseModel):
         elif self.mode == "move":
             if supplied != {"stage"} or self.stage is None:
                 raise ValueError("Card move needs only a stage")
+            if self.stage in {"done", "cancelled"}:
+                raise ValueError("use complete or cancel mode for a terminal Card stage")
         elif self.mode in {"complete", "cancel"}:
             if supplied:
                 raise ValueError(f"Card {self.mode} does not accept fields")
         elif self.mode == "reopen":
             if supplied - {"stage"}:
                 raise ValueError("Card reopen accepts only an optional stage")
+            if self.stage in {"done", "cancelled"}:
+                raise ValueError("a reopened Card returns to a live stage")
         elif self.mode in {"link", "unlink"}:
             groups = [
                 supplied & {"value_id", "value_ids", "value_query"},

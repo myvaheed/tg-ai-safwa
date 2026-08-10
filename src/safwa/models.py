@@ -106,7 +106,9 @@ class Card(Base, TimestampMixin):
     effort_points: Mapped[int | None] = mapped_column(Integer)
     repeatable: Mapped[bool] = mapped_column(Boolean, default=False)
     repeat_series_id: Mapped[int | None] = mapped_column(Integer, index=True)
-    source_instance_id: Mapped[int | None] = mapped_column(ForeignKey("cards.id"))
+    source_instance_id: Mapped[int | None] = mapped_column(
+        ForeignKey("cards.id", ondelete="SET NULL")
+    )
     liked: Mapped[bool | None] = mapped_column(Boolean)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -265,7 +267,7 @@ class AgentStep(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"), index=True)
     position: Mapped[int] = mapped_column(Integer)
-    kind: Mapped[str] = mapped_column(String(30))
+    kind: Mapped[str] = mapped_column(String(30), index=True)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
 

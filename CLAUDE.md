@@ -1,0 +1,142 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Commands
+
+Windows / PowerShell, `uv`-managed. Python is pinned to `>=3.12,<3.13`.
+
+```powershell
+uv sync --extra dev
+uv run safwa                 # run the bot (long polling); migrates SQLite first
+uv run safwa-auth            # one-time Telethon user-session login (history reader)
+uv run pytest -q
+uv run pytest tests\e2e -q
+uv run ruff check .
+```
+
+Single test / single file:
+
+```powershell
+uv run pytest tests\test_domain.py::test_parent_stage_propagation_and_reopen -q
+```
+
+`asyncio_mode = "auto"`, so async tests need no marker. Live Telegram tests are opt-in and skipped
+unless `--live-telegram` is passed (`uv run pytest tests\e2e\live --live-telegram -q`); they need a
+separate BotFather bot configured through the `SAFWA_QA_*` variables plus `uv run safwa-qa-auth`.
+
+Backup/restore CLIs: `uv run safwa-backup`, `uv run safwa-restore <zip> --yes`.
+
+`telegram-bot-exampler/` is an untracked local reference project, excluded from ruff — never edit it.
+
+## Architecture
+
+Single-owner Telegram bot (aiogram 3) + local OpenAI-compatible LLM (LM Studio by default) +
+SQLite/SQLAlchemy 2 async. Flat modules under `src/safwa/`, wired in [main.py](src/safwa/main.py):
+`Settings` → `Database` → provider/memory/advisor → `Services` dataclass injected as
+`dispatcher["services"]`, plus three background `asyncio` tasks (memory file watcher, reminder
+scheduler, daily memory maintenance) that are cancelled in the polling `finally`.
+
+`docs/INITIAL_PLAN.md` and `docs/MEMORY_HISTORY_USAGE.md` are the authoritative product spec —
+read them before changing history, memory, proposal, or UI behavior. They describe layers
+(domain/application/infrastructure) that exist as flat files: [domain.py](src/safwa/domain.py)
+(invariants + all mutations), [telegram.py](src/safwa/telegram.py) (all UI, ~3.8k lines),
+[ai/service.py](src/safwa/ai/service.py) (agent loop + proposals, ~1.9k lines).
+
+### Telegram is the canonical dialogue store, not SQLite
+
+[history.py](src/safwa/history.py) re-reads the real private chat through Telethon on every advisor
+turn. `telegram_messages` stores only `(chat_id, message_id, direction, kind)` — never persona text.
+Consequences that break silently if ignored:
+
+- Every bot message must be registered with a `MessageKind` (`send_registered`, `register_message`).
+  An unregistered outgoing message is invisible to the LLM; a wrongly-kinded one leaks UI noise into
+  persona history. Only `DIALOGUE_USER`, `DIALOGUE_ASSISTANT`, `REMINDER`, summaries, `/newsession`,
+  and subsession results become dialogue.
+- Dialogue needs a visible boundary: a `/newsession <request>` message or the nearest `📜 Summary`.
+  Without one, `recent(..., require_boundary=True)` raises `HistoryBoundaryMissing`.
+- The middleware deletes every slash command except `/newsession` (which must stay visible as the
+  boundary), and `delete_text_input` deletes typed field values as `UI_INPUT`.
+- Bot API and Telethon use different message-ID spaces in a private chat; `_registered_message`
+  correlates them exactly-once by ID then by ±15 s timestamp. Keep that pairing intact.
+
+### AI mutations are always proposals
+
+The model never mutates and never writes mutation SQL. Path:
+tool call → Pydantic model in [ai/contracts.py](src/safwa/ai/contracts.py) → `AgentChange` →
+`ChangeProposal` + `ProposalChange` rows → a read-only review screen with only **Save**/**Discard** →
+`ProposalService.apply` calls the *same* `domain.py` functions the manual UI calls.
+
+Multiple mutation calls in one turn become independent queued proposal screens in call order; the
+queue lives in an `AgentStep` row with `kind="approval_batch"`. The model resumes only after the
+last item resolves (`resolve_approval` → `continue_agent_approval`), receiving all mutation and read
+results. Failed preparations return structured tool errors and are retried for at most
+`MAX_REPAIR_ROUNDS = 5` (`MAX_TOOL_CALLS = 64`).
+
+### Read-only SQL is triple-guarded
+
+`query_safwa` and saved Requests accept one `SELECT`/`WITH … SELECT` over the `ai_*` views only.
+Defenses in [ai/sql.py](src/safwa/ai/sql.py): regex validation (`validate_read_sql`), a separate
+`mode=ro` sqlite3 connection with a `set_authorizer` allowlist, and row/column/payload/time caps.
+The `ai_*` views and the `card_search` FTS5 table are **dropped and rebuilt on every startup**
+(`create_ai_views`) — change view shape there, not with a migration. New view ⇒ add it to
+`ALLOWED_VIEWS` *and* to the view list in `SYSTEM_PROMPT` ([ai/context.py](src/safwa/ai/context.py)),
+or the model cannot use it.
+
+### `data/memory.md` is authoritative
+
+[memory.py](src/safwa/memory.py): UTF-8, one non-empty fact per line, ~4K-token budget. The
+`memory_fact_cache` table is a disposable mirror — never treat it as the source. AI writes go through
+`replace_facts`, which re-checks the file hash before *and* after writing a temp file, then
+`os.replace`s, so a concurrent local edit is preserved rather than overwritten. An invalid or
+oversized file disables memory injection instead of failing the turn.
+
+### Concurrency and UI state
+
+- `GenerationGuard` is a single foreground lease keyed by the source `message_id`. While it is held,
+  callbacks are rejected and new messages are deleted; `/cancel` and `/newsession` bypass it.
+  Background reminders and memory maintenance check `guard.active` and stand down.
+- `OwnerAndWritingMiddleware` drops anything that is not the owner in a private chat.
+- Every inline button is a single-use `CallbackToken` row rendered as `cb:<token>` (24 h expiry);
+  menu buttons use the `nav:<action>` prefix. `UiSession` holds transient editor state (manual card
+  creation, text prompts) and is deleted on navigation — manual creation persists nothing until Save.
+- Bot messages are sent with `parse_mode=HTML`; escape any user/model text with `html.escape`.
+- `recover_startup` ([recovery.py](src/safwa/recovery.py)) reconciles interrupted runs, stale
+  proposals, and expired tokens on every boot.
+
+### Domain invariants worth knowing before editing
+
+- Card tree: Goal is root-only; Idea may be root or under a Goal; Action may be root or under
+  Goal/Idea and has no children. Action-only fields (effort, categories, energy, repeatable, liked)
+  are stripped for Goal/Idea at both the AI and domain boundaries.
+- `manual_stage` is what the user set; `effective_stage` is derived for parents from descendants
+  (`aggregate_child_stages`, `propagate_ancestors`) and is what dashboards and queries read.
+- Effort is restricted to `EFFORT_POINTS = {1,2,3,5,8,13}` and required for Actions.
+- Enums are `StrEnum` but columns store plain strings — always compare/assign `.value`.
+- Entities carry a `version` for optimistic concurrency; `workspace.revision` is bumped on mutation
+  and is what invalidates an in-flight AI answer. `StaleStateError` is the expected failure.
+- Reminders are deterministic first: `ReminderPolicy.candidates` computes eligible candidates
+  (quiet hours, cooldown, daily cap, dedupe key), `run_scheduler` takes the first, and only then does
+  the LLM decide `{"send":bool,"message":str}` — it never chooses *what* to remind about.
+
+## Migrations gotcha
+
+Alembic has exactly one revision (`0001`) whose `upgrade()` is `Base.metadata.create_all`. Startup
+runs `alembic upgrade head`, so a **fresh** database matches `models.py` automatically, but adding or
+changing a column in `models.py` will **not** alter an existing `data/safwa.db`. Either add a real
+revision or recreate the database (back it up first with `uv run safwa-backup`).
+
+## Conventions
+
+- ruff `select = ["E","F","I","UP","B"]`, line length 100, `E501` ignored, target py312. All modules
+  start with `from __future__ import annotations`.
+- Comments are used sparingly and only to explain non-obvious *why* (Telegram/Telethon quirks,
+  ordering constraints). Match that density; do not add narrative comments.
+- User-facing strings are complete sentences and product-specific ("Card", "Sprint", "Value", "Tag",
+  "Request" are capitalized domain nouns).
+- Commit subjects in this repo follow `vX.Y <short summary>`.
+- E2E tests use the real migrated SQLite database and real services, replacing only Telegram and the
+  provider at their network boundaries (`ScriptedProvider` in `tests/e2e/conftest.py`). Keep new
+  tests on that pattern rather than mocking domain functions.
+- Never let QA/live test config touch production state: `resolve_qa_config`
+  ([qa.py](src/safwa/qa.py)) hard-fails on a reused bot token or Telethon session path.

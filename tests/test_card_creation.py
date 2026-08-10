@@ -1,11 +1,23 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import DateTime, func, select
 
+from safwa.ai.contracts import CardToolInput
 from safwa.domain import DomainError, create_card, update_card_fields
-from safwa.enums import CardKind, CardStage
+from safwa.enums import CardKind, CardStage, Priority
 from safwa.models import Card, CardCategory, CardEnergyType, SavedRequest, Sprint, Tag, Value
+
+
+@pytest.mark.parametrize("stage", ["done", "cancelled"])
+def test_card_move_tool_rejects_a_terminal_stage(stage):
+    # move applies through move_card, which does not own completion timestamps,
+    # feedback, Sprint results or repeat successors.  complete/cancel do.
+    with pytest.raises(ValidationError, match="complete or cancel"):
+        CardToolInput(mode="move", id=1, stage=stage)
+
+    assert CardToolInput(mode="move", id=1, stage="today").stage == "today"
 
 
 @pytest.mark.parametrize("model", [Card, Tag, Value, SavedRequest, Sprint])
@@ -91,6 +103,15 @@ async def test_goal_creation_programmatically_removes_action_only_fields(session
                 select(CardEnergyType).where(CardEnergyType.card_id == goal.id)
             )
         )
+
+
+async def test_card_field_updates_reject_an_unknown_priority(sessions):
+    async with sessions() as session:
+        card = await create_card(session, kind="action", title="Validated", effort_points=1)
+        with pytest.raises(ValueError):
+            await update_card_fields(session, card.id, {"priority": "urgent"})
+        await update_card_fields(session, card.id, {"priority": Priority.CRITICAL})
+        assert card.priority == Priority.CRITICAL.value
 
 
 async def test_user_items_have_typed_timestamps(sessions):

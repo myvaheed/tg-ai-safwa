@@ -87,7 +87,11 @@ async def run(settings: Settings) -> None:
         poll_seconds=settings.memory_poll_seconds,
     )
     await memory.sync()
-    query_runner = ReadOnlyQueryRunner(database_path(settings.database_url))
+    query_runner = ReadOnlyQueryRunner(
+        database_path(settings.database_url),
+        row_limit=settings.ai_query_row_limit,
+        char_budget=settings.ai_query_char_budget,
+    )
     advisor = AIAdvisor(
         database.sessions,
         provider,

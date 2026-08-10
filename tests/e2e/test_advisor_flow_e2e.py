@@ -40,7 +40,12 @@ from safwa.models import (
     Workspace,
 )
 from safwa.saved_requests import request_cards
-from safwa.telegram import GenerationGuard, callback_token_handler, render_proposal
+from safwa.telegram import (
+    GenerationGuard,
+    callback_token_handler,
+    dismiss_prior_ui,
+    render_proposal,
+)
 
 pytestmark = pytest.mark.e2e
 
@@ -104,6 +109,88 @@ async def test_ai_parent_query_sql_resolves_before_card_proposal(e2e_harness):
         assert change.values["parent_id"] == parent.id
         assert "parent_query" not in change.values
         assert await session.scalar(select(func.count(Card.id))) == 1
+
+
+async def test_ai_goal_proposal_reports_a_parent_instead_of_dropping_it(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        parent = await create_manual_card(
+            session, title="Ship product", kind="goal", effort_points=None
+        )
+        await session.commit()
+
+    advisor, _provider = e2e_harness.advisor(
+        [
+            mutation_turn(
+                (
+                    "card",
+                    {
+                        "mode": "create",
+                        "kind": "goal",
+                        "title": "Nested Goal",
+                        "parent_id": parent.id,
+                    },
+                )
+            ),
+            "A Goal has to stay root-level, so I left it there.",
+        ]
+    )
+
+    outcome = await advisor.handle("Create a Goal under Ship product")
+
+    # Silently dropping the parent would show a review screen with no parent change
+    # and never tell the model its call was wrong.
+    assert outcome.proposal_id is None
+    async with e2e_harness.sessions() as session:
+        assert await session.scalar(select(func.count(ChangeProposal.id))) == 0
+    tool_messages = [
+        message
+        for call in _provider.calls
+        for message in call
+        if message.get("role") == "tool"
+    ]
+    assert any("root-level" in str(message["content"]) for message in tool_messages)
+
+
+async def test_ai_stage_update_to_done_keeps_completion_accounting(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        action = await create_manual_card(session, title="Ship", stage="sprint", effort_points=5)
+        sprint = await start_sprint(session)
+        await session.commit()
+        action_id, sprint_id = action.id, sprint.id
+
+    advisor, _provider = e2e_harness.advisor(
+        [
+            mutation_turn(
+                ("card", {"mode": "edit", "id": action_id, "title": "Ship it", "note": "Done"})
+            ),
+            "Saved.",
+        ]
+    )
+    outcome = await advisor.handle("Rename it")
+    assert outcome.proposal_id is not None
+
+    async with e2e_harness.sessions() as session:
+        change = await session.scalar(
+            select(ProposalChange).where(ProposalChange.proposal_id == outcome.proposal_id)
+        )
+        # An approved stage change routes terminal stages through finish_action, so the
+        # completion timestamp, feedback item and Sprint result are never skipped.
+        change.values = {**change.values, "stage": CardStage.DONE.value}
+        await session.commit()
+
+    async with e2e_harness.sessions() as session:
+        await ProposalService(session).apply(outcome.proposal_id)
+        await session.commit()
+
+    async with e2e_harness.sessions() as session:
+        stored = await session.get(Card, action_id)
+        feedback = await session.scalar(
+            select(FeedbackQueue).where(FeedbackQueue.card_id == action_id)
+        )
+        assert stored.effective_stage == CardStage.DONE.value
+        assert stored.completed_at is not None
+        assert feedback is not None
+        assert (await sprint_metrics(session, sprint_id))["completed"] == 5
 
 
 async def test_ai_parent_query_rejects_non_ai_card_sql(
@@ -1148,7 +1235,9 @@ async def test_new_dialogue_cancels_every_unresolved_item_in_suspended_batch(e2e
 
     cancelled = await advisor.cancel_approval_for_target("proposal", first.proposal_id)
 
-    assert cancelled is True
+    # The caller freezes the screen with this text, so it has to name every item.
+    assert "🗑 Discarded — Create Tag “VrWalk”" in cancelled
+    assert "🗑 Discarded — Create Value “Health”" in cancelled
     assert len(provider.calls) == 1
     async with e2e_harness.sessions() as session:
         proposals = list(await session.scalars(select(ChangeProposal).order_by(ChangeProposal.id)))
@@ -1248,9 +1337,24 @@ async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_h
 class _QueueTestBot:
     def __init__(self) -> None:
         self.typing_calls = 0
+        self.edits: list[str] = []
+        self.deleted: list[int] = []
 
     async def send_chat_action(self, _chat_id, _action) -> None:
         self.typing_calls += 1
+
+    async def edit_message_text(
+        self, text, *, chat_id, message_id, reply_markup=None, parse_mode=None
+    ) -> None:
+        del chat_id, message_id, reply_markup, parse_mode
+        self.edits.append(text)
+
+    async def delete_message(self, chat_id, message_id) -> None:
+        del chat_id
+        self.deleted.append(message_id)
+
+    async def edit_message_reply_markup(self, *, chat_id, message_id, reply_markup=None) -> None:
+        del chat_id, message_id, reply_markup
 
 
 class _QueueTestMessage:
@@ -1336,6 +1440,144 @@ async def test_single_tag_proposal_save_and_discard_callbacks_resume_agent(
     assert final_text in message.rendered[-1]
     assert message.bot.typing_calls == 1
     assert len(provider.calls) == 2
+
+
+async def _resolve_queued_proposal(
+    e2e_harness, services, message, proposal_id: int, action: str
+) -> None:
+    async with e2e_harness.sessions() as session:
+        token = next(
+            candidate
+            for candidate in await session.scalars(
+                select(CallbackToken).where(
+                    CallbackToken.action == action,
+                    CallbackToken.consumed_at.is_(None),
+                )
+            )
+            if candidate.payload["id"] == proposal_id
+        )
+    await callback_token_handler(_QueueTestCallback(token.token, message), services)
+
+
+async def test_discarding_the_last_queued_proposal_still_reports_saved_siblings(e2e_harness):
+    advisor, provider = e2e_harness.advisor(
+        [
+            mutation_turn(
+                ("card", {"mode": "create", "kind": "action", "title": "First", "effort_points": 3}),
+                (
+                    "card",
+                    {"mode": "create", "kind": "action", "title": "Second", "effort_points": 5},
+                ),
+            ),
+            "Handled both proposals.",
+        ]
+    )
+    first = await advisor.handle("Create two actions")
+    assert first.proposal_id is not None
+    message = _QueueTestMessage()
+    services = SimpleNamespace(
+        sessions=e2e_harness.sessions,
+        advisor=advisor,
+        history=_QueueTestHistory(),
+        owner_id=42,
+        guard=GenerationGuard(),
+    )
+    await render_proposal(message, services, first.proposal_id)
+
+    await _resolve_queued_proposal(
+        e2e_harness, services, message, first.proposal_id, "proposal_approve"
+    )
+    async with e2e_harness.sessions() as session:
+        second_id = await session.scalar(
+            select(ChangeProposal.id)
+            .where(ChangeProposal.status == "pending")
+            .order_by(ChangeProposal.id)
+        )
+    assert second_id is not None
+
+    await _resolve_queued_proposal(e2e_harness, services, message, second_id, "proposal_reject")
+
+    final_text = message.rendered[-1]
+    # The model must be told what the whole request actually did, not only the last step.
+    assert "✅ Saved — Create Card “First”" in final_text
+    assert "🗑 Discarded — Create Card “Second”" in final_text
+    assert "Handled both proposals." in final_text
+    assert len(provider.calls) == 2
+
+
+async def test_failed_call_result_states_that_its_siblings_are_still_queued(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        card = await create_manual_card(session, title="Release VrWalk", effort_points=3)
+        await session.commit()
+
+    advisor, _provider = e2e_harness.advisor(
+        [
+            mutation_turn(
+                ("tag", {"mode": "create", "name": "VrWalk"}),
+                ("card", {"mode": "link", "id": card.id, "tag_query": "VrWalk"}),
+            )
+        ]
+    )
+    outcome = await advisor.handle("Create VrWalk and link it")
+    assert outcome.proposal_id is not None
+
+    async with e2e_harness.sessions() as session:
+        batch = await session.scalar(
+            select(AgentStep).where(AgentStep.kind == "approval_batch")
+        )
+        failed = next(
+            tool for tool in batch.metadata_json["tool_calls"] if tool["target"] is None
+        )
+        queued = [tool for tool in batch.metadata_json["tool_calls"] if tool["target"]]
+
+    # The prompt no longer explains sibling semantics every turn; the failing call says it.
+    assert failed["result"]["status"] == "error"
+    assert "were not cancelled" in failed["result"]["next"]
+    assert f"{len(queued)} other call(s)" in failed["result"]["next"]
+
+
+async def test_new_message_discarding_a_queue_reports_what_was_already_saved(e2e_harness):
+    advisor, provider = e2e_harness.advisor(
+        [
+            mutation_turn(
+                ("card", {"mode": "create", "kind": "action", "title": "First", "effort_points": 3}),
+                (
+                    "card",
+                    {"mode": "create", "kind": "action", "title": "Second", "effort_points": 5},
+                ),
+            ),
+        ]
+    )
+    first = await advisor.handle("Create two actions")
+    assert first.proposal_id is not None
+    screen = _QueueTestMessage()
+    services = SimpleNamespace(
+        sessions=e2e_harness.sessions,
+        advisor=advisor,
+        history=_QueueTestHistory(),
+        owner_id=42,
+        guard=GenerationGuard(),
+    )
+    await render_proposal(screen, services, first.proposal_id)
+    await _resolve_queued_proposal(
+        e2e_harness, services, screen, first.proposal_id, "proposal_approve"
+    )
+
+    follow_up = _QueueTestMessage()
+    follow_up.message_id = 901
+    follow_up.bot = screen.bot
+    await dismiss_prior_ui(follow_up, services)
+
+    frozen = screen.bot.edits[-1]
+    # The frozen screen becomes assistant history, so it must not imply the whole
+    # request was discarded when an earlier proposal in the queue was already saved.
+    assert "Second" in frozen
+    assert "✅ Saved" in frozen
+    assert "First" in frozen
+    assert len(provider.calls) == 1
+    async with e2e_harness.sessions() as session:
+        titles = set(await session.scalars(select(Card.title)))
+    assert titles == {"First"}
 
 
 async def test_proposal_ui_queues_mutations_and_reports_dependency_failure(e2e_harness):

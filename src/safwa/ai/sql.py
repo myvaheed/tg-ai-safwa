@@ -4,8 +4,15 @@ import asyncio
 import re
 import sqlite3
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+# Sized for a local model: one result should inform a turn, not consume its context.
+DEFAULT_ROW_LIMIT = 50
+DEFAULT_CHAR_BUDGET = 12_000
+DEFAULT_COLUMN_LIMIT = 20
+DEFAULT_CELL_LIMIT = 2_000
 
 
 class UnsafeQueryError(ValueError):
@@ -142,13 +149,84 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
     )
 
 
+@dataclass(frozen=True)
+class QueryOutcome:
+    """Rows the model may use, plus a notice when something was left out."""
+
+    rows: list[dict[str, Any]]
+    notice: str | None = None
+
+    def as_tool_result(self) -> list[dict[str, Any]]:
+        """One JSON array; a trailing notice row appears only when a cap was hit."""
+        return [*self.rows, {"notice": self.notice}] if self.notice else list(self.rows)
+
+
 class ReadOnlyQueryRunner:
-    def __init__(self, database_path: Path, *, row_limit: int = 100, timeout: float = 2.0) -> None:
+    """Run one validated read query under caps that keep a result promptable.
+
+    A local model pays for every returned character, so an over-broad query is
+    trimmed and told to narrow itself rather than silently filling the context.
+    """
+
+    def __init__(
+        self,
+        database_path: Path,
+        *,
+        row_limit: int = DEFAULT_ROW_LIMIT,
+        char_budget: int = DEFAULT_CHAR_BUDGET,
+        column_limit: int = DEFAULT_COLUMN_LIMIT,
+        cell_limit: int = DEFAULT_CELL_LIMIT,
+        timeout: float = 2.0,
+    ) -> None:
         self.database_path = database_path.resolve()
         self.row_limit = row_limit
+        self.char_budget = char_budget
+        self.column_limit = column_limit
+        self.cell_limit = cell_limit
         self.timeout = timeout
 
-    def _run(self, sql: str) -> list[dict[str, Any]]:
+    def _trim(self, rows: list[sqlite3.Row]) -> tuple[list[dict[str, Any]], bool, bool]:
+        result: list[dict[str, Any]] = []
+        shortened = False
+        over_budget = False
+        size = 0
+        for row in rows:
+            cleaned: dict[str, Any] = {}
+            for key, value in dict(row).items():
+                if isinstance(value, str) and len(value) > self.cell_limit:
+                    value = value[: self.cell_limit]
+                    shortened = True
+                cleaned[key] = value
+            size += len(str(cleaned))
+            if size > self.char_budget:
+                over_budget = True
+                break
+            result.append(cleaned)
+        return result, over_budget, shortened
+
+    def _notice(self, shown: int, *, more_rows: bool, over_budget: bool, shortened: bool) -> str | None:
+        notes: list[str] = []
+        if over_budget and not shown:
+            notes.append(
+                f"The first row alone exceeded the {self.char_budget}-character result budget."
+            )
+        elif over_budget:
+            notes.append(
+                f"Only the first {shown} row(s) fit the {self.char_budget}-character result budget."
+            )
+        elif more_rows:
+            notes.append(f"Only the first {shown} row(s) are shown; more rows match this query.")
+        if shortened:
+            notes.append(f"Long text values were cut to {self.cell_limit} characters.")
+        if not notes:
+            return None
+        notes.append(
+            "Narrow the query with a WHERE clause, fewer columns, or an aggregate before relying "
+            "on this result as complete."
+        )
+        return " ".join(notes)
+
+    def _run(self, sql: str) -> QueryOutcome:
         statement = validate_read_sql(sql)
         connection = sqlite3.connect(f"file:{self.database_path.as_posix()}?mode=ro", uri=True)
 
@@ -181,25 +259,22 @@ class ReadOnlyQueryRunner:
         connection.row_factory = sqlite3.Row
         try:
             cursor = connection.execute(statement)
-            if cursor.description and len(cursor.description) > 20:
+            if cursor.description and len(cursor.description) > self.column_limit:
                 raise UnsafeQueryError("Query returned too many columns")
             rows = cursor.fetchmany(self.row_limit + 1)
-            if len(rows) > self.row_limit:
-                rows = rows[: self.row_limit]
-            result: list[dict[str, Any]] = []
-            size = 0
-            for row in rows:
-                cleaned = {
-                    key: (value[:2_000] if isinstance(value, str) else value)
-                    for key, value in dict(row).items()
-                }
-                size += len(str(cleaned))
-                if size > 50_000:
-                    break
-                result.append(cleaned)
-            return result
+            more_rows = len(rows) > self.row_limit
+            result, over_budget, shortened = self._trim(rows[: self.row_limit])
+            return QueryOutcome(
+                result,
+                self._notice(
+                    len(result),
+                    more_rows=more_rows,
+                    over_budget=over_budget,
+                    shortened=shortened,
+                ),
+            )
         finally:
             connection.close()
 
-    async def run(self, sql: str) -> list[dict[str, Any]]:
+    async def run(self, sql: str) -> QueryOutcome:
         return await asyncio.wait_for(asyncio.to_thread(self._run, sql), timeout=self.timeout)
