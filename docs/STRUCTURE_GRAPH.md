@@ -145,7 +145,7 @@ Imports nothing from Safwa. Grouped by concern:
 `data_dir`, `ai_base_url=http://localhost:1234/v1`, `ai_api_key`, `ai_model`, `ai_timeout_seconds=120`,
 `ai_max_output_tokens=4096`, `ai_structured_output=False`, `ai_query_row_limit`, `ai_query_char_budget`,
 `timezone=Europe/Istanbul`, `summary_trigger_tokens`, `memory_token_budget`, `token_chars_estimate`,
-`memory_poll_seconds`, `scheduler_poll_seconds`, `log_level`. Every numeric default comes from
+`memory_poll_seconds`, `scheduler_enabled=False`, `scheduler_poll_seconds`, `log_level`. Every numeric default comes from
 `constants.py`. Properties: `async_database_url`, `memory_path`, `telegram_history_enabled`.
 
 ### `enums.py`

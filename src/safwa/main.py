@@ -209,15 +209,17 @@ async def run(settings: Settings) -> None:
         return True
 
     memory_task = asyncio.create_task(memory.poll(memory_error), name="memory-file-poll")
-    scheduler_task = asyncio.create_task(
-        run_scheduler(
-            database.sessions,
-            ReminderPolicy(settings.timezone),
-            send_reminder,
-            poll_seconds=settings.scheduler_poll_seconds,
-        ),
-        name="reminder-scheduler",
-    )
+    scheduler_task = None
+    if settings.scheduler_enabled:
+        scheduler_task = asyncio.create_task(
+            run_scheduler(
+                database.sessions,
+                ReminderPolicy(settings.timezone),
+                send_reminder,
+                poll_seconds=settings.scheduler_poll_seconds,
+            ),
+            name="reminder-scheduler",
+        )
     memory_maintenance_task = asyncio.create_task(
         run_memory_maintenance(
             continuity,
@@ -232,6 +234,8 @@ async def run(settings: Settings) -> None:
         await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
     finally:
         for task in (memory_task, scheduler_task, memory_maintenance_task):
+            if task is None:
+                continue
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task

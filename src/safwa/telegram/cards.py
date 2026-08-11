@@ -750,20 +750,21 @@ async def render_card(
             )
             or 0
         )
-        relationship_rows.append(
-            [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    f"☑️ Checks ({pending_total}/{check_total})",
-                    "card_checks",
-                    {
-                        "scope": {"kind": "card", "id": card.id},
-                        "back": {"kind": "card", "id": card.id, "back": back},
-                    },
-                )
-            ]
-        )
+        if check_total:
+            relationship_rows.append(
+                [
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        f"☑️ Checks ({pending_total}/{check_total})",
+                        "card_checks",
+                        {
+                            "scope": {"kind": "card", "id": card.id},
+                            "back": {"kind": "card", "id": card.id, "back": back},
+                        },
+                    )
+                ]
+            )
         rows = relationship_rows + rows
         if card.kind == CardKind.ACTION.value and card.effective_stage not in {
             CardStage.DONE.value,

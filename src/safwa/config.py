@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     memory_token_budget: int = MEMORY_TOKEN_BUDGET
     token_chars_estimate: float = TOKEN_CHARS_ESTIMATE
     memory_poll_seconds: float = MEMORY_POLL_SECONDS
+    # Temporarily disabled while logging is being verified. Set SAFWA_SCHEDULER_ENABLED=true to restore it.
+    scheduler_enabled: bool = False
     scheduler_poll_seconds: float = SCHEDULER_POLL_SECONDS
     log_level: str = Field(default="INFO", pattern=r"^(?i:DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
 

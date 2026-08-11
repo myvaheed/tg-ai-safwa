@@ -23,9 +23,10 @@ Python `>=3.12,<3.13`. No server, no multi-user, no Mini App.
 6. `PersonaContinuity` → `GenerationGuard` → `Services` dataclass → `dispatcher["services"]`
 7. `OwnerAndWritingMiddleware` on both message and callback outer middleware; `router` included
 8. `set_my_commands` (21 commands)
-9. three background tasks, all cancelled in the polling `finally`:
+9. two background tasks (plus the opt-in reminder scheduler), all cancelled in the polling `finally`:
    - `memory.poll(memory_error)` — 5 s `memory.md` hash watcher
-   - `run_scheduler(..., ReminderPolicy, send_reminder)` — 30 s reminder loop
+   - `run_scheduler(..., ReminderPolicy, send_reminder)` — 30 s reminder loop, only when
+     `SAFWA_SCHEDULER_ENABLED=true` (disabled by default while logging is verified)
    - `run_memory_maintenance(...)` — 60 s daily-memory-sync eligibility loop
 
 `send_reminder` and memory maintenance both stand down while `guard.active`.

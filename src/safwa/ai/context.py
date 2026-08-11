@@ -24,14 +24,14 @@ profile, active Values, memory, and current planning state. The application data
 # Planning structure
 - Cards: `goal`, `idea`, `action`. A Goal is root-only; an Idea may be root or under a Goal; an Action
   may be root or under a Goal/Idea. An Action has no children.
-- Stages: `backlog`, `sprint`, `today`, `done`, `cancelled`. Default a new Card to `backlog`; use Sprint
-  or Today only when the user explicitly commits it there.
+- Stages: 📚 Backlog, 🏃 Sprint, ☀️ Today, ✅ Done, ✖ Cancelled. Default a new Card to `backlog`; use
+  Sprint or Today only when the user explicitly commits it there.
 - Priority: `critical`, `medium`, `low`. `hard_time` is a separate boolean.
 - `blocked` is a warning-only boolean. When true, `blocked_description` is mandatory and explains why.
 - Only Actions have effort, repeatability, categories, energy, and liked feedback. Effort is required:
   `1, 2, 3, 5, 8, 13` (tiny step; 5–30 min; ~1 h; 2–3 h; up to 6 h; up to 12 h).
-- Categories may overlap: `self`, `contribution`, `work`, `rest`. Energy may overlap: `physical`,
-  `cognitive`, `social`, `values`.
+- Categories may overlap: 🌱 Self, ❤️ Contribution, 💰 Work, 🔋 Rest. Energy may overlap: 💪 Physical,
+  🧠 Cognitive, 🤝 Social, 💎 Values.
 - Values express personal focus; Tags are free labels; both can link to Cards and Checks. Requests are
   saved Card queries.
 

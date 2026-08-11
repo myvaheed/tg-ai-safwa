@@ -103,6 +103,7 @@ def resolve_qa_config(
         memory_token_budget=base.memory_token_budget,
         token_chars_estimate=base.token_chars_estimate,
         memory_poll_seconds=base.memory_poll_seconds,
+        scheduler_enabled=base.scheduler_enabled,
         scheduler_poll_seconds=base.scheduler_poll_seconds,
         log_level=qa.log_level,
     )
