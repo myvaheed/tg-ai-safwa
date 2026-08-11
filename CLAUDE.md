@@ -94,6 +94,13 @@ last item resolves (`resolve_approval` → `continue_agent_approval`), receiving
 results. Failed preparations return structured tool errors and are retried for at most
 `MAX_REPAIR_ROUNDS = 5` (`MAX_TOOL_CALLS = 64`).
 
+A suspended batch owns the whole request, not just its last tool call: it stores that request's
+`dialogue` and its `transcript` (every assistant/tool message produced past the context prefix,
+`AgentLoopResult.transcript`). `resolve_approval` rebuilds only the prefix and replays the transcript
+with the decisions filled in, so the model keeps its own intermediate steps and does not re-read
+Telegram to resume. Anything the model must know across an approval belongs in a tool result — the
+resolved one carries `status`, `entity`, `action`, `summary`, `fields`, and `next`.
+
 ### Read-only SQL is triple-guarded
 
 `query_safwa` and saved Requests accept one `SELECT`/`WITH … SELECT` over the `ai_*` views only.

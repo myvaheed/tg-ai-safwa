@@ -298,3 +298,44 @@ async def test_dialogue_groups_every_user_message_until_the_next_ai_response(ses
         ("assistant", "Safwa reply"),
         ("user", "[User]: Follow-up"),
     ]
+
+
+async def test_colliding_id_space_does_not_drop_the_newest_dialogue_message(sessions) -> None:
+    """A stale registration that happens to share a Telethon ID must not steal the match."""
+    chat_id, owner_id, bot_id = 106, 42, 99
+    at = datetime(2026, 8, 11, 21, 33, 33, tzinfo=UTC)
+    messages = [
+        FakeTelegramMessage(406, "Создай задачу подтянуться 20 раз", owner_id, at),
+        FakeTelegramMessage(405, "Цель удалена.", bot_id, at - timedelta(seconds=30)),
+        FakeTelegramMessage(404, "/newsession Начнём", owner_id, at - timedelta(minutes=5)),
+    ]
+    await register(sessions, chat_id, 465, "in", MessageKind.DIALOGUE_USER)
+    await register(sessions, chat_id, 464, "out", MessageKind.DIALOGUE_ASSISTANT)
+    # An older form input whose Bot API ID collides with the newest Telethon ID.
+    await register(sessions, chat_id, 406, "in", MessageKind.UI_INPUT)
+    async with sessions() as session:
+        for message_id, registered_at in (
+            (465, at),
+            (464, at - timedelta(seconds=30)),
+            (406, at - timedelta(hours=2)),
+        ):
+            await session.execute(
+                update(TelegramMessage)
+                .where(
+                    TelegramMessage.chat_id == chat_id,
+                    TelegramMessage.message_id == message_id,
+                )
+                .values(created_at=registered_at)
+            )
+        await session.commit()
+    source = TelegramHistorySource(
+        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+    )
+
+    entries = await source.recent(chat_id, require_boundary=True)
+
+    assert [(entry.kind, entry.text) for entry in entries] == [
+        (MessageKind.SESSION_START.value, "Начнём"),
+        (MessageKind.DIALOGUE_ASSISTANT.value, "Цель удалена."),
+        (MessageKind.DIALOGUE_USER.value, "Создай задачу подтянуться 20 раз"),
+    ]

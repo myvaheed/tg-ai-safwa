@@ -398,7 +398,13 @@ async def continue_agent_approval(
     try:
         try:
             await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-            dialogue = await services.history.dialogue(message.chat.id)
+            try:
+                dialogue = await services.history.dialogue(message.chat.id)
+            except Exception:
+                # Only a fallback for batches suspended before dialogue was persisted;
+                # a re-read failure must not throw away an already-applied decision.
+                logger.exception("Could not re-read the dialogue while resuming an approval")
+                dialogue = None
             outcome = await services.advisor.resolve_approval(
                 target_type,
                 target_id,

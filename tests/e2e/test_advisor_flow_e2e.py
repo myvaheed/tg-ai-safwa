@@ -63,11 +63,15 @@ async def create_manual_card(session, **overrides) -> Card:
     return await create_card(session, **payload)
 
 
-def mutation_turn(*calls: tuple[str, dict[str, object]]) -> ProviderTurn:
+def mutation_turn(
+    *calls: tuple[str, dict[str, object]], prefix: str = "mutation"
+) -> ProviderTurn:
     return ProviderTurn(
         content="",
         tool_calls=tuple(
-            ProviderToolCall(id=f"mutation-{index}", name=name, arguments=json.dumps(arguments))
+            ProviderToolCall(
+                id=f"{prefix}-{index}", name=name, arguments=json.dumps(arguments)
+            )
             for index, (name, arguments) in enumerate(calls, start=1)
         ),
     )
@@ -612,20 +616,29 @@ async def test_multiple_ai_card_creations_are_reviewed_sequentially(e2e_harness)
         "reference_not_found",
         "reference_not_found",
     ]
-    final_continuation_tool_turn = next(
-        message
-        for message in reversed(provider.calls[2])
-        if message["role"] == "assistant" and message.get("tool_calls")
-    )
-    progress = str(final_continuation_tool_turn["content"])
-    assert "[Current request progress — temporary]" in progress
-    assert "✅ Saved — Create Card “Быть здоровым” [result ID: #1]" in progress
-    assert "⚠️ Failed — Create Card “Подтягиваться 20 раз”" in progress
-    assert "✅ Saved — Create Card “Подтягиваться 20 раз” [result ID: #2]" in progress
-    assert "• Kind: action" in progress
-    assert "• Parent ID: 1" in progress
-    assert "• Effort: 1" in progress
-    assert "Do not repeat Saved or Discarded operations" in progress
+    # The last continuation still sees every step of the request, each as its own call
+    # and result rather than as a digest restated on the assistant turn.
+    final_results = [
+        json.loads(str(message["content"]))
+        for message in provider.calls[2]
+        if message["role"] == "tool"
+    ]
+    assert [result.get("status") for result in final_results] == [
+        "approved",
+        "error",
+        "error",
+        "approved",
+        "approved",
+    ]
+    assert final_results[0]["summary"] == "Create Card “Быть здоровым”"
+    assert final_results[0]["affected_ids"] == [1]
+    assert final_results[1]["code"] == "reference_not_found"
+    assert final_results[3]["summary"] == "Create Card “Подтягиваться 20 раз”"
+    assert final_results[3]["affected_ids"] == [2]
+    assert "Kind: action" in final_results[3]["fields"]
+    assert "Parent ID: 1" in final_results[3]["fields"]
+    assert "Effort: 1" in final_results[3]["fields"]
+    assert "Do not propose it again" in final_results[3]["next"]
     async with e2e_harness.sessions() as session:
         cards = list(await session.scalars(select(Card).order_by(Card.id)))
         assert [card.title for card in cards] == [
@@ -675,15 +688,14 @@ async def test_current_request_progress_includes_current_card_update_diffs(e2e_h
     )
 
     assert outcome is not None and outcome.kind == "answer"
-    tool_turn = next(
-        message
-        for message in reversed(provider.calls[1])
-        if message["role"] == "assistant" and message.get("tool_calls")
+    saved = json.loads(
+        str(next(message for message in provider.calls[1] if message["role"] == "tool")["content"])
     )
-    progress = str(tool_turn["content"])
-    assert f"✅ Saved — Update Card #{card.id} [result ID: #{card.id}]" in progress
-    assert "• Note: Before dinner → After dinner" in progress
-    assert "• Categories: self → rest" in progress
+    assert saved["status"] == "approved"
+    assert saved["affected_ids"] == [card.id]
+    assert saved["summary"] == f"Update Card #{card.id}"
+    assert "Note: Before dinner → After dinner" in saved["fields"]
+    assert "Categories: self → rest" in saved["fields"]
 
 
 async def test_child_proposal_fails_cleanly_when_earlier_parent_is_discarded(e2e_harness):
@@ -2005,3 +2017,118 @@ async def test_single_tag_callback_never_leaves_dead_buttons_when_follow_up_fail
     assert resolved_text in message.rendered[-1]
     assert "could not generate its follow-up" in message.rendered[-1]
     assert len(provider.calls) == 2
+
+
+async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
+    """A multi-step request must keep every step it already took across each approval."""
+    advisor, provider = e2e_harness.advisor(
+        [
+            mutation_turn(("card", {"mode": "create", "kind": "goal", "title": "Быть здоровым"})),
+            ProviderTurn(
+                content="",
+                tool_calls=(
+                    ProviderToolCall(
+                        id="broken-read",
+                        name="query_safwa",
+                        arguments=json.dumps({"sql": "DELETE FROM cards"}),
+                    ),
+                ),
+            ),
+            mutation_turn(
+                (
+                    "card",
+                    {
+                        "mode": "create",
+                        "kind": "action",
+                        "title": "Подтянуться 20 раз",
+                        "effort_points": 1,
+                    },
+                ),
+                prefix="second",
+            ),
+            "Цель и задача готовы.",
+        ]
+    )
+
+    first = await advisor.handle(
+        "Сделай цель Быть здоровым и задачу подтянуться",
+        dialogue=[
+            DialogueMessage(
+                role="user",
+                content=(
+                    "[Initial request]: Начнём\n"
+                    "[User]: Сделай цель Быть здоровым и задачу подтянуться"
+                ),
+            )
+        ],
+    )
+    assert first.proposal_id is not None
+    async with e2e_harness.sessions() as session:
+        goal_ids = await ProposalService(session).apply(first.proposal_id)
+        await session.commit()
+
+    # No dialogue argument: the suspended turn resumes from what it persisted itself.
+    second = await advisor.resolve_approval(
+        "proposal", first.proposal_id, decision="approved", result={"affected_ids": goal_ids}
+    )
+    assert second is not None and second.proposal_id is not None
+    async with e2e_harness.sessions() as session:
+        action_ids = await ProposalService(session).apply(second.proposal_id)
+        await session.commit()
+    final = await advisor.resolve_approval(
+        "proposal", second.proposal_id, decision="approved", result={"affected_ids": action_ids}
+    )
+
+    assert final is not None and "Цель и задача готовы." in final.message
+    assert len(provider.calls) == 4
+    last = provider.calls[3]
+    assert [message["role"] for message in last] == [
+        "system",
+        "system",
+        "user",
+        "system",
+        "assistant",
+        "tool",
+        "assistant",
+        "tool",
+        "assistant",
+        "tool",
+    ]
+    # The request that started the turn is still the user message the model reads.
+    assert "Сделай цель Быть здоровым и задачу подтянуться" in str(last[2]["content"])
+    # Step 1: the saved Goal, described rather than reduced to an ID list.
+    assert '"status": "approved"' in str(last[5]["content"])
+    assert "Create Card “Быть здоровым”" in str(last[5]["content"])
+    assert f'"affected_ids": {json.dumps(goal_ids)}' in str(last[5]["content"])
+    assert "Do not propose it again" in str(last[5]["content"])
+    # Step 2: the failed read is still visible, with a bounded instruction.
+    assert last[6]["tool_calls"][0]["function"]["name"] == "query_safwa"
+    assert '"code": "unsafe_query"' in str(last[7]["content"])
+    assert "do not restart the request" in str(last[7]["content"])
+    # Step 3: the steps speak for themselves, so no progress digest is restated on top.
+    assert all("[Current request progress" not in str(message.get("content")) for message in last)
+    assert "Create Card “Подтянуться 20 раз”" in str(last[9]["content"])
+
+
+async def test_suspended_batch_persists_the_request_dialogue_and_transcript(e2e_harness):
+    advisor, _provider = e2e_harness.advisor(
+        [mutation_turn(("tag", {"mode": "create", "name": "VrWalk"}))]
+    )
+    outcome = await advisor.handle(
+        "Create a VrWalk tag",
+        dialogue=[DialogueMessage(role="user", content="[User]: Create a VrWalk tag")],
+    )
+    assert outcome.proposal_id is not None
+
+    async with e2e_harness.sessions() as session:
+        batch = await session.scalar(
+            select(AgentStep)
+            .where(AgentStep.kind == "approval_batch")
+            .order_by(AgentStep.id.desc())
+        )
+    metadata = batch.metadata_json
+    assert metadata["dialogue"] == [
+        {"role": "user", "content": "[User]: Create a VrWalk tag"}
+    ]
+    assert [message["role"] for message in metadata["transcript"]] == ["assistant", "tool"]
+    assert metadata["transcript"][0]["tool_calls"][0]["function"]["name"] == "tag"

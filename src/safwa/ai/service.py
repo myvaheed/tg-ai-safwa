@@ -282,8 +282,19 @@ class AgentLoopResult:
     tool_count: int = 0
     repair_rounds: int = 0
     messages: list[dict[str, Any]] = field(default_factory=list)
+    prefix_len: int = 0
     result_summaries: list[str] = field(default_factory=list)
     display_result_summaries: list[str] = field(default_factory=list)
+
+    @property
+    def transcript(self) -> list[dict[str, Any]]:
+        """The assistant/tool exchanges this request produced, without its context prefix.
+
+        Everything before ``prefix_len`` is rebuilt from live state on every turn; this
+        tail is what an approval must replay so the model keeps its own intermediate
+        steps instead of re-planning the request from the last tool call alone.
+        """
+        return self.messages[self.prefix_len :]
 
 
 def _log_preview(content: str, limit: int = 500) -> str:
@@ -536,6 +547,80 @@ def _assistant_content_with_request_progress(
     return "\n\n".join(parts) or None
 
 
+_DECISION_NEXT_STEPS = {
+    "approved": (
+        "This change is saved. Do not propose it again. Continue with the parts of the user's "
+        "request that are still unfinished, then answer."
+    ),
+    "discarded": (
+        "The user rejected this change, so it does not exist. Do not retry it unless the user "
+        "asks again. Continue with the rest of the request, then answer."
+    ),
+    "failed": (
+        "Applying this change failed, so nothing was written for it. Read `error`, fix only this "
+        "call, and retry it once; every other resolved call in this request stands."
+    ),
+}
+
+
+def _resolved_tool_result(
+    tool: dict[str, Any], decision: str, result: dict[str, Any]
+) -> dict[str, Any]:
+    """Describe one resolved queue item in the tool message the model reads back.
+
+    A bare ``{"status": "approved", "affected_ids": [9]}`` says nothing about *what* was
+    saved, which is how a resumed turn ends up repeating or misreporting its own work.
+    """
+    payload: dict[str, Any] = {"status": decision, **_json_safe(result)}
+    change = dict(tool.get("change") or {})
+    if change.get("entity"):
+        payload["entity"] = change["entity"]
+    if change.get("action"):
+        payload["action"] = change["action"]
+    try:
+        payload["summary"] = _approval_change_label(tool)
+    except Exception:  # a label defect must never break an already-committed change
+        logger.exception("Could not label a resolved approval queue item")
+    details = list(tool.get("details") or [])
+    if details:
+        payload["fields"] = details
+    payload["next"] = _DECISION_NEXT_STEPS.get(
+        decision, "Continue with the rest of the user's request."
+    )
+    return payload
+
+
+def _resumed_transcript(
+    transcript: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Replay this request's own assistant/tool exchanges with the decisions filled in.
+
+    No separate progress digest is injected here: every step of the request is present as
+    its own call and result, each carrying its status and what to do next.  Restating them
+    in an assistant message would duplicate the request once per approval.
+    """
+    results_by_id = {str(tool["id"]): tool.get("result") for tool in tools if tool.get("id")}
+    replayed = [dict(message) for message in transcript]
+    last_assistant = max(
+        (index for index, message in enumerate(replayed) if message.get("role") == "assistant"),
+        default=None,
+    )
+    if last_assistant is None:
+        return replayed
+    # Only the suspended turn's own results are unresolved; every earlier tool message
+    # already carries its final content and must be replayed untouched.
+    for message in replayed[last_assistant + 1 :]:
+        if message.get("role") != "tool":
+            continue
+        tool_call_id = str(message.get("tool_call_id"))
+        if tool_call_id in results_by_id:
+            message["content"] = json.dumps(
+                results_by_id[tool_call_id], ensure_ascii=False, default=str
+            )
+    return replayed
+
+
 def _log_provider_request(messages: list[dict[str, Any]]) -> None:
     lines: list[str] = []
     for message in messages:
@@ -609,8 +694,13 @@ class AIAdvisor:
             messages = await self._context_messages(dialogue or [])
             if not dialogue:
                 messages.append({"role": "user", "content": text})
-            result = await self._run_agent_loop(messages, run.id)
-            outcome = await self._materialize(result, run.id)
+            turn_dialogue = (
+                [{"role": item.role, "content": item.content} for item in dialogue]
+                if dialogue
+                else [{"role": "user", "content": text}]
+            )
+            result = await self._run_agent_loop(messages, run.id, prefix_len=len(messages))
+            outcome = await self._materialize(result, run.id, dialogue=turn_dialogue)
             status = "awaiting_approval" if outcome.kind == "proposal" else "completed"
             await self._finish_run(run.id, status, started)
             return outcome
@@ -688,6 +778,7 @@ class AIAdvisor:
         messages: list[dict[str, Any]],
         run_id: int,
         *,
+        prefix_len: int,
         tool_count: int = 0,
         repair_rounds: int = 0,
     ) -> AgentLoopResult:
@@ -753,6 +844,7 @@ class AIAdvisor:
                         tool_count=tool_count,
                         repair_rounds=repair_rounds,
                         messages=_json_safe(messages),
+                        prefix_len=prefix_len,
                     )
                 invalid_mutations = [
                     tool
@@ -769,6 +861,7 @@ class AIAdvisor:
                             tool_count=tool_count,
                             repair_rounds=repair_rounds,
                             messages=_json_safe(messages),
+                            prefix_len=prefix_len,
                         )
                     repair_rounds += 1
                 continue
@@ -780,13 +873,22 @@ class AIAdvisor:
                 tool_count=tool_count,
                 repair_rounds=repair_rounds,
                 messages=_json_safe(messages),
+                prefix_len=prefix_len,
             )
 
     async def _execute_query_tool(
         self, call: ProviderToolCall, run_id: int, position: int
     ) -> list[dict[str, Any]]:
         if call.name != "query_safwa":
-            rows: list[dict[str, Any]] = [{"error": f"Unknown tool: {call.name}"}]
+            rows: list[dict[str, Any]] = [
+                {
+                    "status": "error",
+                    "code": "unknown_tool",
+                    "error": f"Unknown tool: {call.name}",
+                    "hint": "Call one of: query_safwa, card, check, value, tag, request, remove.",
+                    "retryable": True,
+                }
+            ]
             sql = ""
         else:
             try:
@@ -797,21 +899,44 @@ class AIAdvisor:
                 rows = outcome.as_tool_result()
                 if outcome.notice:
                     logger.info("AI TOOL query_safwa capped: %s", outcome.notice)
-            except (KeyError, TypeError, ValueError, ValidationError, json.JSONDecodeError) as error:
-                sql = ""
-                rows = [
-                    {
-                        "error": f"Invalid tool arguments: {error}",
-                        "hint": "Send one sql string argument and call query_safwa again.",
-                    }
-                ]
+            # ``UnsafeQueryError`` is a ``ValueError``, so it has to be caught before the
+            # argument-shape clause or a rejected SELECT is reported as a bad argument and
+            # the model rewrites the call instead of the query.
             except (UnsafeQueryError, sqlite3.Error, TimeoutError, OSError) as error:
                 # A rejected or broken read is the model's to repair. Raising here would
                 # end the whole request, including any mutation queued alongside it.
                 rows = [
                     {
+                        "status": "error",
+                        "code": "unsafe_query"
+                        if isinstance(error, UnsafeQueryError)
+                        else "query_failed",
                         "error": str(error),
-                        "hint": "Correct the SELECT and call query_safwa again.",
+                        "hint": (
+                            "Fix only this SELECT and call query_safwa again. One read-only "
+                            "SELECT or WITH … SELECT over the ai_* views, no other statement. "
+                            "This failure changed nothing: every step of the request already "
+                            "resolved above still stands, so do not restart the request."
+                        ),
+                        "retryable": True,
+                    }
+                ]
+            except (KeyError, TypeError, ValueError, ValidationError, json.JSONDecodeError) as error:
+                sql = ""
+                rows = [
+                    {
+                        "status": "error",
+                        "code": "invalid_arguments",
+                        "error": (
+                            _validation_error_summary(error)
+                            if isinstance(error, ValidationError)
+                            else str(error)
+                        ),
+                        "hint": (
+                            'Send exactly one string argument, e.g. {"sql": "SELECT id, title '
+                            'FROM ai_cards LIMIT 20"}, and call query_safwa again.'
+                        ),
+                        "retryable": True,
                     }
                 ]
         logger.info(
@@ -1346,7 +1471,13 @@ class AIAdvisor:
     def _target_outcome(message: str, target: dict[str, Any]) -> AIOutcome:
         return AIOutcome("proposal", message, proposal_id=int(target["id"]))
 
-    async def _materialize(self, result: AgentLoopResult, run_id: int) -> AIOutcome:
+    async def _materialize(
+        self,
+        result: AgentLoopResult,
+        run_id: int,
+        *,
+        dialogue: list[dict[str, Any]],
+    ) -> AIOutcome:
         if not result.pending_tools:
             return AIOutcome("answer", result.message)
         mutation_tools = [tool for tool in result.pending_tools if tool.change is not None]
@@ -1461,6 +1592,11 @@ class AIAdvisor:
                             "display_result_summaries": result.display_result_summaries,
                             "tool_calls": tool_results,
                             "queue": queue,
+                            # The suspended turn resumes from these, not from a fresh read:
+                            # the request the owner actually made and everything the model
+                            # already did for it inside this run.
+                            "dialogue": dialogue,
+                            "transcript": result.transcript,
                         },
                     )
                 )
@@ -1486,6 +1622,7 @@ class AIAdvisor:
                 repaired = await self._run_agent_loop(
                     messages,
                     run_id,
+                    prefix_len=result.prefix_len,
                     tool_count=result.tool_count,
                     repair_rounds=result.repair_rounds + 1,
                 )
@@ -1496,7 +1633,7 @@ class AIAdvisor:
                         "\n\n".join(repaired.display_result_summaries)
                         + f"\n\n{repaired.message}"
                     )
-                return await self._materialize(repaired, run_id)
+                return await self._materialize(repaired, run_id, dialogue=dialogue)
             return AIOutcome("answer", result.message)
         return self._target_outcome(result.message, targets[0][1])
 
@@ -1565,7 +1702,7 @@ class AIAdvisor:
         *,
         decision: str,
         result: dict[str, Any],
-        dialogue: list[DialogueMessage],
+        dialogue: list[DialogueMessage] | None = None,
     ) -> AIOutcome | None:
         """Resolve one queued UI target and resume the suspended tool turn once complete."""
         started = time.monotonic()
@@ -1590,11 +1727,10 @@ class AIAdvisor:
                     resolved_call_ids.update(str(value) for value in item.get("call_ids", []))
             if not found:
                 return None
-            tool_result = {"status": decision, **_json_safe(result)}
             for tool in tools:
                 if str(tool.get("id")) in resolved_call_ids:
                     tool["status"] = "resolved"
-                    tool["result"] = tool_result
+                    tool["result"] = _resolved_tool_result(tool, decision, result)
             next_target = next((item for item in queue if item.get("status") == "pending"), None)
             metadata.update({"queue": queue, "tool_calls": tools})
             if next_target is not None:
@@ -1617,6 +1753,10 @@ class AIAdvisor:
             prior_display_result_summaries = list(
                 metadata.get("display_result_summaries", [])
             )
+            stored_transcript = [dict(item) for item in metadata.get("transcript") or []]
+            turn_dialogue = [dict(item) for item in metadata.get("dialogue") or []] or [
+                {"role": item.role, "content": item.content} for item in dialogue or []
+            ]
             await session.commit()
 
         try:
@@ -1648,38 +1788,51 @@ class AIAdvisor:
                         await session.commit()
                 await self._finish_run(run_id, "completed", started)
                 return AIOutcome("answer", message)
-            messages = await self._context_messages(dialogue)
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": _assistant_content_with_request_progress(
-                        metadata.get("assistant_content"), current_result_summaries
-                    ),
-                    "tool_calls": [
-                        {
-                            "id": tool["id"],
-                            "type": "function",
-                            "function": {
-                                "name": tool["name"],
-                                "arguments": tool["arguments"],
-                            },
-                        }
-                        for tool in tools
-                    ],
-                }
+            messages = await self._context_messages(
+                [
+                    DialogueMessage(role=str(item["role"]), content=str(item["content"]))
+                    for item in turn_dialogue
+                ]
             )
-            for tool in tools:
+            prefix_len = len(messages)
+            if stored_transcript:
+                messages.extend(_resumed_transcript(stored_transcript, tools))
+            else:
+                # A batch suspended before transcripts were persisted still has to resume.
                 messages.append(
                     {
-                        "role": "tool",
-                        "tool_call_id": tool["id"],
-                        "name": tool["name"],
-                        "content": json.dumps(tool.get("result"), ensure_ascii=False, default=str),
+                        "role": "assistant",
+                        "content": _assistant_content_with_request_progress(
+                            metadata.get("assistant_content"), current_result_summaries
+                        ),
+                        "tool_calls": [
+                            {
+                                "id": tool["id"],
+                                "type": "function",
+                                "function": {
+                                    "name": tool["name"],
+                                    "arguments": tool["arguments"],
+                                },
+                            }
+                            for tool in tools
+                        ],
                     }
                 )
+                for tool in tools:
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool["id"],
+                            "name": tool["name"],
+                            "content": json.dumps(
+                                tool.get("result"), ensure_ascii=False, default=str
+                            ),
+                        }
+                    )
             loop_result = await self._run_agent_loop(
                 messages,
                 run_id,
+                prefix_len=prefix_len,
                 tool_count=prior_tool_count,
                 repair_rounds=prior_repair_rounds,
             )
@@ -1690,7 +1843,7 @@ class AIAdvisor:
                     "\n\n".join(loop_result.display_result_summaries)
                     + f"\n\n{loop_result.message}"
                 ).strip()
-            outcome = await self._materialize(loop_result, run_id)
+            outcome = await self._materialize(loop_result, run_id, dialogue=turn_dialogue)
             async with self.sessions() as session:
                 stored_batch = await session.get(AgentStep, batch.id)
                 if stored_batch is not None:

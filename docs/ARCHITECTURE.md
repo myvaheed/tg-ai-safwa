@@ -154,10 +154,16 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
 - Multiple mutation calls in one turn become independent queued proposal screens in call order; the
   queue lives in an `AgentStep` row with `kind="approval_batch"`. The model resumes only after the last
   item resolves (`resolve_approval` → `continue_agent_approval`) and receives all mutation and read results.
+- The batch also stores the request's `dialogue` and its `transcript` — every assistant/tool message the
+  run produced after the context prefix. A resume rebuilds only the prefix (system prompt, planning state,
+  memory, clock) and replays that transcript, so a request keeps its own intermediate steps across each
+  approval instead of re-planning from the last tool call. It never re-reads Telegram for this.
 - Failed preparations return structured `ToolPreparationError` results and are retried for at most
   `MAX_REPAIR_ROUNDS = 5`; `MAX_TOOL_CALLS = 64`.
-- Earlier batch summaries are injected into the next tool-call assistant message
-  (`_assistant_content_with_request_progress`) and never enter canonical history, summaries, or memory.
+- A resolved queue item comes back as its own tool result carrying `status`, `entity`, `action`,
+  `summary`, the resolved `fields`, and a `next` instruction; the summaries the owner sees never enter
+  canonical history, summaries, or memory. `_assistant_content_with_request_progress` now only serves
+  batches suspended before transcripts were persisted.
 - Context = one system message (`SYSTEM_PROMPT` + `planning_context()` + `memory.text`) followed by the
   canonical dialogue turns the history source already bounded. `planning_context` carries local time,
   workspace mode, About Me, advisor instructions, active Values, available Tags, and Today Actions —

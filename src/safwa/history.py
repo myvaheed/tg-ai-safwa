@@ -262,22 +262,16 @@ class TelegramHistorySource:
         direction: str,
         created_at: datetime,
     ) -> TelegramMessage | None:
-        """Correlate Bot API registrations with Telethon's private-chat ID space."""
-        exact = next(
-            (
-                row
-                for row in registry
-                if row.id not in used_registry_ids
-                and row.direction == direction
-                and row.message_id == message_id
-            ),
-            None,
-        )
-        if exact is not None:
-            used_registry_ids.add(exact.id)
-            return exact
+        """Correlate Bot API registrations with Telethon's private-chat ID space.
 
-        candidates: list[tuple[float, int, TelegramMessage]] = []
+        Timestamps decide first.  The two ID spaces are independent but can overlap, so a
+        bare ID match is as likely to be a collision with an unrelated older registration
+        as it is to be the real row — and consuming the wrong row silently drops a
+        message from the LLM's view of the dialogue.  An exact ID only breaks a tie
+        inside the correlation window, or stands alone when no registration is close
+        enough in time to be a candidate at all.
+        """
+        candidates: list[tuple[int, float, int, TelegramMessage]] = []
         for row in registry:
             if row.id in used_registry_ids or row.direction != direction:
                 continue
@@ -288,10 +282,24 @@ class TelegramHistorySource:
             if difference <= MESSAGE_CORRELATION_SECONDS:
                 # Scanning is newest-first, so prefer the larger Bot API ID when
                 # two registrations have the same timestamp distance.
-                candidates.append((difference, -row.message_id, row))
+                candidates.append(
+                    (0 if row.message_id == message_id else 1, difference, -row.message_id, row)
+                )
         if not candidates:
-            return None
-        matched = min(candidates, key=lambda item: (item[0], item[1]))[2]
+            exact = next(
+                (
+                    row
+                    for row in registry
+                    if row.id not in used_registry_ids
+                    and row.direction == direction
+                    and row.message_id == message_id
+                ),
+                None,
+            )
+            if exact is not None:
+                used_registry_ids.add(exact.id)
+            return exact
+        matched = min(candidates, key=lambda item: item[:3])[3]
         used_registry_ids.add(matched.id)
         return matched
 
