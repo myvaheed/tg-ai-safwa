@@ -52,6 +52,11 @@ class CardToolInput(BaseModel):
     tag_query: str | list[str] | None = Field(
         default=None, description="One or more exact Tag names; this is not SQL."
     )
+    check_id: int | None = None
+    check_ids: list[int] | None = None
+    check_query: str | list[str] | None = Field(
+        default=None, description="One or more exact Check titles; this is not SQL."
+    )
     parent_id: int | None = None
     parent_query: str | None = Field(
         default=None,
@@ -93,6 +98,9 @@ class CardToolInput(BaseModel):
             "tag_id",
             "tag_ids",
             "tag_query",
+            "check_id",
+            "check_ids",
+            "check_query",
             "parent_id",
             "parent_query",
         }
@@ -122,6 +130,7 @@ class CardToolInput(BaseModel):
             groups = [
                 supplied & {"value_id", "value_ids", "value_query"},
                 supplied & {"tag_id", "tag_ids", "tag_query"},
+                supplied & {"check_id", "check_ids", "check_query"},
             ]
             selected = [group for group in groups if group]
             if len(selected) != 1:
@@ -135,35 +144,19 @@ class CardToolInput(BaseModel):
 class CheckToolInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    mode: Literal["create", "edit", "resolve", "resolve_for_card", "link", "unlink"]
+    mode: Literal["create", "edit", "resolve", "resolve_for_card"]
     id: int | None = None
-    card_id: int | None = None
+    card_id: int | None = Field(
+        default=None, description="Only for resolve_for_card: the Card being completed."
+    )
     title: str | None = None
     note: str | None = None
     repeatable: bool | None = None
     outcome: Literal["passed", "failed", "not_applicable"] | None = None
-    value_id: int | None = None
-    value_ids: list[int] | None = None
-    value_query: str | list[str] | None = Field(
-        default=None, description="One or more exact Value names; this is not SQL."
-    )
-    tag_id: int | None = None
-    tag_ids: list[int] | None = None
-    tag_query: str | list[str] | None = Field(
-        default=None, description="One or more exact Tag names; this is not SQL."
-    )
 
     @model_validator(mode="after")
     def validate_target(self) -> CheckToolInput:
         supplied = set(self.model_fields_set) - {"mode", "id"}
-        relationships = {
-            "value_id",
-            "value_ids",
-            "value_query",
-            "tag_id",
-            "tag_ids",
-            "tag_query",
-        }
         if self.mode == "create":
             if self.id is not None:
                 raise ValueError("a new Check must not include an id")
@@ -171,6 +164,10 @@ class CheckToolInput(BaseModel):
                 raise ValueError("a new Check needs a title")
             if self.outcome is not None:
                 raise ValueError("a new Check starts Pending and takes no outcome")
+            if "card_id" in supplied:
+                raise ValueError(
+                    "a Check is linked from the Card: use card(mode='link', check_query=...)"
+                )
             return self
         if self.mode == "resolve_for_card":
             if self.card_id is None:
@@ -181,7 +178,7 @@ class CheckToolInput(BaseModel):
         if self.id is None:
             raise ValueError(f"check mode '{self.mode}' needs an id")
         if self.mode == "edit":
-            editable = {"title", "note", "repeatable", "card_id", *relationships}
+            editable = {"title", "note", "repeatable"}
             if not supplied:
                 raise ValueError("an edited Check needs at least one proposed field")
             if unsupported := supplied - editable:
@@ -191,16 +188,6 @@ class CheckToolInput(BaseModel):
                 raise ValueError("resolve needs an outcome")
             if supplied - {"outcome"}:
                 raise ValueError("Check resolve accepts only an outcome")
-        elif self.mode in {"link", "unlink"}:
-            groups = [
-                supplied & {"value_id", "value_ids", "value_query"},
-                supplied & {"tag_id", "tag_ids", "tag_query"},
-            ]
-            selected = [group for group in groups if group]
-            if len(selected) != 1:
-                raise ValueError(f"Check {self.mode} needs exactly one relationship type")
-            if supplied - selected[0]:
-                raise ValueError(f"Check {self.mode} mixes unrelated fields")
         return self
 
 

@@ -12,7 +12,14 @@ from sqlalchemy import select
 import safwa.telegram as telegram_source
 from safwa.ai.context import DialogueMessage
 from safwa.ai.service import AIOutcome, ProposalService
-from safwa.domain import create_card, create_check, create_tag, create_value, finish_action
+from safwa.domain import (
+    create_card,
+    create_check,
+    create_tag,
+    create_value,
+    finish_action,
+    toggle_card_check,
+)
 from safwa.enums import CardStage, MessageKind
 from safwa.models import (
     CallbackToken,
@@ -595,7 +602,7 @@ async def test_moving_a_blocked_card_shows_its_warning_on_the_card_screen(sessio
     assert "Stage: Backlog" in text
 
 
-async def test_checks_buttons_only_appear_when_linked(sessions) -> None:
+async def test_checks_button_is_on_the_card_only(sessions) -> None:
     async with sessions() as session:
         card = await create_card(session, kind="action", title="Card", effort_points=1)
         value = await create_value(session, "Value")
@@ -604,31 +611,24 @@ async def test_checks_buttons_only_appear_when_linked(sessions) -> None:
         card_id, value_id, tag_id = card.id, value.id, tag.id
 
     services = services_for(sessions)
-    for entity, item_id in (("card", card_id), ("value", value_id), ("tag", tag_id)):
+    # The Card screen always offers it, because it is the only place a first Check can
+    # be added; Tags and Values no longer classify Checks at all.
+    message = FakeMessage(card_id, bot_message=True)
+    await render_card(message, services, card_id)
+    assert any("Checks (0/0)" in text for text in button_texts(message.edits[-1][1]))
+    for entity, item_id in (("value", value_id), ("tag", tag_id)):
         message = FakeMessage(item_id, bot_message=True)
-        if entity == "card":
-            await render_card(message, services, item_id)
-        else:
-            await render_item_editor(message, services, entity, mode="view", item_id=item_id)
+        await render_item_editor(message, services, entity, mode="view", item_id=item_id)
         assert not any("Checks" in text for text in button_texts(message.edits[-1][1]))
 
     async with sessions() as session:
-        await create_check(
-            session,
-            title="Linked",
-            card_id=card_id,
-            value_ids={value_id},
-            tag_ids={tag_id},
-        )
+        linked = await create_check(session, title="Linked")
+        await toggle_card_check(session, card_id, linked.id)
         await session.commit()
 
-    for entity, item_id in (("card", card_id), ("value", value_id), ("tag", tag_id)):
-        message = FakeMessage(item_id + 100, bot_message=True)
-        if entity == "card":
-            await render_card(message, services, item_id)
-        else:
-            await render_item_editor(message, services, entity, mode="view", item_id=item_id)
-        assert any("Checks" in text for text in button_texts(message.edits[-1][1]))
+    message = FakeMessage(card_id + 100, bot_message=True)
+    await render_card(message, services, card_id)
+    assert any("Checks (1/1)" in text for text in button_texts(message.edits[-1][1]))
 
 
 async def test_card_text_field_prompt_replaces_creation_message(sessions) -> None:

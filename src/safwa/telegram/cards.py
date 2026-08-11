@@ -29,6 +29,7 @@ from ..enums import (
 from ..models import (
     Card,
     CardCategory,
+    CardCheck,
     CardEnergyType,
     CardTag,
     CardValue,
@@ -734,7 +735,8 @@ async def render_card(
             await session.scalar(
                 select(func.count())
                 .select_from(Check)
-                .where(Check.card_id == card.id, Check.archived_at.is_(None))
+                .join(CardCheck, CardCheck.check_id == Check.id)
+                .where(CardCheck.card_id == card.id, Check.archived_at.is_(None))
             )
             or 0
         )
@@ -742,29 +744,30 @@ async def render_card(
             await session.scalar(
                 select(func.count())
                 .select_from(Check)
+                .join(CardCheck, CardCheck.check_id == Check.id)
                 .where(
-                    Check.card_id == card.id,
+                    CardCheck.card_id == card.id,
                     Check.archived_at.is_(None),
                     Check.outcome.is_(None),
                 )
             )
             or 0
         )
-        if check_total:
-            relationship_rows.append(
-                [
-                    await token_button(
-                        session,
-                        services.owner_id,
-                        f"☑️ Checks ({pending_total}/{check_total})",
-                        "card_checks",
-                        {
-                            "scope": {"kind": "card", "id": card.id},
-                            "back": {"kind": "card", "id": card.id, "back": back},
-                        },
-                    )
-                ]
-            )
+        # Always shown: the Card screen is the only place a first Check can be added.
+        relationship_rows.append(
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    f"☑️ Checks ({pending_total}/{check_total})",
+                    "card_checks",
+                    {
+                        "card_id": card.id,
+                        "back": {"kind": "card", "id": card.id, "back": back},
+                    },
+                )
+            ]
+        )
         rows = relationship_rows + rows
         if card.kind == CardKind.ACTION.value and card.effective_stage not in {
             CardStage.DONE.value,

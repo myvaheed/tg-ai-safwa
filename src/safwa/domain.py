@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -24,13 +24,12 @@ from .enums import (
 from .models import (
     Card,
     CardCategory,
+    CardCheck,
     CardEnergyType,
     CardEvent,
     CardTag,
     CardValue,
     Check,
-    CheckTag,
-    CheckValue,
     FeedbackQueue,
     ReminderState,
     SavedRequest,
@@ -83,10 +82,12 @@ class ReferenceSpec:
     singular_key: str
     plural_key: str
     query_key: str
-    model: type[Tag] | type[Value]
+    model: type[Tag] | type[Value] | type[Check]
     label: str
-    link_model: type[CardTag] | type[CardValue]
+    link_model: type[CardTag] | type[CardValue] | type[CardCheck]
     toggle: Callable[..., Awaitable[bool]]
+    # A Check is named by `title`, so the column a query_key resolves against varies.
+    name_attr: str = "name"
 
     def mentioned_in(self, values: dict[str, Any]) -> bool:
         return bool({self.singular_key, self.plural_key, self.query_key} & values.keys())
@@ -97,6 +98,10 @@ class ReferenceSpec:
     @property
     def link_column(self) -> Any:
         return self.link_model.__table__.c[self.singular_key]
+
+    @property
+    def name_column(self) -> Any:
+        return getattr(self.model, self.name_attr)
 
 
 @dataclass(frozen=True)
@@ -143,7 +148,7 @@ async def resolve_references(
         matches = list(
             await session.scalars(
                 select(spec.model).where(
-                    spec.model.name.collate("NOCASE") == name,
+                    spec.name_column.collate("NOCASE") == name,
                     spec.model.archived_at.is_(None),
                 )
             )
@@ -205,6 +210,7 @@ async def create_card(
     energy_types: set[EnergyType | str] | None = None,
     value_ids: set[int] | None = None,
     tag_ids: set[int] | None = None,
+    check_ids: set[int] | None = None,
     actor: ActorType = ActorType.USER_UI,
 ) -> Card:
     """Create one reviewed Card through the same domain boundary used by UI and AI."""
@@ -242,6 +248,10 @@ async def create_card(
         tag = await session.get(Tag, tag_id)
         if tag is None or tag.archived_at is not None:
             raise DomainError(f"Tag #{tag_id} does not exist or is archived")
+    for check_id in check_ids or set():
+        check = await session.get(Check, check_id)
+        if check is None or check.archived_at is not None:
+            raise DomainError(f"Check #{check_id} does not exist or is archived")
 
     card = Card(
         parent_id=parent_id,
@@ -267,6 +277,8 @@ async def create_card(
         session.add(CardValue(card_id=card.id, value_id=value_id))
     for tag_id in sorted(tag_ids or set()):
         session.add(CardTag(card_id=card.id, tag_id=tag_id))
+    for check_id in sorted(check_ids or set()):
+        session.add(CardCheck(card_id=card.id, check_id=check_id))
     await _record_event(session, card, "create", actor, None, new_correlation_id())
     if card_kind is CardKind.ACTION:
         await _sync_commitment_for_stage(session, card)
@@ -769,7 +781,8 @@ async def card_checks(session: AsyncSession, card_id: int) -> list[Check]:
     return list(
         await session.scalars(
             select(Check)
-            .where(Check.card_id == card_id, Check.archived_at.is_(None))
+            .join(CardCheck, CardCheck.check_id == Check.id)
+            .where(CardCheck.card_id == card_id, Check.archived_at.is_(None))
             .order_by(Check.id)
         )
     )
@@ -780,8 +793,9 @@ async def pending_checks(session: AsyncSession, card_id: int) -> list[Check]:
     return list(
         await session.scalars(
             select(Check)
+            .join(CardCheck, CardCheck.check_id == Check.id)
             .where(
-                Check.card_id == card_id,
+                CardCheck.card_id == card_id,
                 Check.outcome.is_(None),
                 Check.archived_at.is_(None),
             )
@@ -790,34 +804,29 @@ async def pending_checks(session: AsyncSession, card_id: int) -> list[Check]:
     )
 
 
+async def check_card_ids(session: AsyncSession, check_id: int) -> list[int]:
+    return sorted(
+        await session.scalars(select(CardCheck.card_id).where(CardCheck.check_id == check_id))
+    )
+
+
 async def create_check(
     session: AsyncSession,
     *,
     title: str,
     note: str = "",
-    card_id: int | None = None,
     repeatable: bool = False,
-    value_ids: set[int] | None = None,
-    tag_ids: set[int] | None = None,
 ) -> Check:
-    """Create one Pending Check, optionally owned by a Card and classified by Values/Tags."""
+    """Create one Pending Check, attached to nothing.
+
+    Linking is a Card action: `create_card(check_ids=...)` or `toggle_card_check`. Keeping
+    it out of here leaves exactly one write path for the link, so every attach lands in the
+    Card's event log.
+    """
     clean_title = title.strip()
     if not clean_title:
         raise DomainError("Check title cannot be empty")
-    if card_id is not None:
-        card = await session.get(Card, card_id)
-        if card is None or card.archived_at is not None:
-            raise DomainError("Card does not exist or is archived")
-    for value_id in value_ids or set():
-        value = await session.get(Value, value_id)
-        if value is None or value.archived_at is not None:
-            raise DomainError(f"Value #{value_id} does not exist or is archived")
-    for tag_id in tag_ids or set():
-        tag = await session.get(Tag, tag_id)
-        if tag is None or tag.archived_at is not None:
-            raise DomainError(f"Tag #{tag_id} does not exist or is archived")
     check = Check(
-        card_id=card_id,
         title=clean_title,
         note=note.strip(),
         repeatable=repeatable,
@@ -825,10 +834,6 @@ async def create_check(
     session.add(check)
     await session.flush()
     check.series_id = check.id
-    for value_id in sorted(value_ids or set()):
-        session.add(CheckValue(check_id=check.id, value_id=value_id))
-    for tag_id in sorted(tag_ids or set()):
-        session.add(CheckTag(check_id=check.id, tag_id=tag_id))
     await _bump_workspace(session)
     return check
 
@@ -863,53 +868,39 @@ async def archive_check(session: AsyncSession, check_id: int, archive: bool = Tr
     return check
 
 
-async def toggle_check_value(session: AsyncSession, check_id: int, value_id: int) -> bool:
+async def toggle_card_check(
+    session: AsyncSession, card_id: int, check_id: int, *, actor: ActorType = ActorType.USER_UI
+) -> bool:
+    """Toggle a direct Check link and return whether it is now linked.
+
+    Shaped exactly like `toggle_card_value`: the link is a Card relationship, so it is
+    written from the Card and recorded in that Card's event log.
+    """
+    card = await session.get(Card, card_id)
     check = await session.get(Check, check_id)
-    value = await session.get(Value, value_id)
+    if card is None or card.archived_at is not None:
+        raise DomainError("Card does not exist or is archived")
     if check is None or check.archived_at is not None:
         raise DomainError("Check does not exist or is archived")
-    if value is None or value.archived_at is not None:
-        raise DomainError("Value does not exist or is archived")
-    link = await session.scalar(
-        select(CheckValue).where(CheckValue.check_id == check_id, CheckValue.value_id == value_id)
-    )
+    link = await session.get(CardCheck, (card_id, check_id))
+    before = card_snapshot(card)
     if link is None:
-        session.add(CheckValue(check_id=check_id, value_id=value_id))
-        linked = True
+        session.add(CardCheck(card_id=card_id, check_id=check_id))
+        operation, linked = "link_check", True
     else:
         await session.delete(link)
-        linked = False
+        operation, linked = "unlink_check", False
+    card.version += 1
     check.version += 1
-    await _bump_workspace(session)
-    return linked
-
-
-async def toggle_check_tag(session: AsyncSession, check_id: int, tag_id: int) -> bool:
-    check = await session.get(Check, check_id)
-    tag = await session.get(Tag, tag_id)
-    if check is None or check.archived_at is not None:
-        raise DomainError("Check does not exist or is archived")
-    if tag is None or tag.archived_at is not None:
-        raise DomainError("Tag does not exist or is archived")
-    link = await session.scalar(
-        select(CheckTag).where(CheckTag.check_id == check_id, CheckTag.tag_id == tag_id)
-    )
-    if link is None:
-        session.add(CheckTag(check_id=check_id, tag_id=tag_id))
-        linked = True
-    else:
-        await session.delete(link)
-        linked = False
-    check.version += 1
+    await _record_event(session, card, operation, actor, before, new_correlation_id())
     await _bump_workspace(session)
     return linked
 
 
 async def _copy_check(
-    session: AsyncSession, source: Check, series_id: int, card_id: int | None
+    session: AsyncSession, source: Check, series_id: int, card_ids: Iterable[int]
 ) -> Check:
     successor = Check(
-        card_id=card_id,
         title=source.title,
         note=source.note,
         repeatable=source.repeatable,
@@ -918,22 +909,26 @@ async def _copy_check(
     )
     session.add(successor)
     await session.flush()
-    for link in await session.scalars(select(CheckValue).where(CheckValue.check_id == source.id)):
-        session.add(CheckValue(check_id=successor.id, value_id=link.value_id))
-    for link in await session.scalars(select(CheckTag).where(CheckTag.check_id == source.id)):
-        session.add(CheckTag(check_id=successor.id, tag_id=link.tag_id))
+    for card_id in sorted(set(card_ids)):
+        session.add(CardCheck(card_id=card_id, check_id=successor.id))
     return successor
 
 
 async def _spawn_check_successor(session: AsyncSession, check: Check) -> Check | None:
-    if check.card_id is not None:
-        card = await session.get(Card, check.card_id)
+    linked_card_ids = await check_card_ids(session, check.id)
+    eligible: list[int] = []
+    for card_id in linked_card_ids:
+        card = await session.get(Card, card_id)
         if card is None or card.archived_at is not None:
-            return None
+            continue
         if CardStage(card.effective_stage) in TERMINAL_STAGES:
-            # A terminal Card must never regain a Pending Check, or the Done-gate would
-            # block it on every later reopen, and a repeatable Check would deadlock it.
-            return None
+            continue
+        eligible.append(card_id)
+    if linked_card_ids and not eligible:
+        # A terminal or archived Card must never regain a Pending Check, or the Done-gate
+        # would block it on every later reopen, and a repeatable Check would deadlock it.
+        # A Check whose live Cards are all closed therefore ends its series here.
+        return None
     series_id = check.series_id or check.id
     check.series_id = series_id
     live_in_series = await session.scalar(
@@ -947,7 +942,7 @@ async def _spawn_check_successor(session: AsyncSession, check: Check) -> Check |
     )
     if live_in_series:
         return None
-    return await _copy_check(session, check, series_id, check.card_id)
+    return await _copy_check(session, check, series_id, eligible)
 
 
 async def _apply_check_outcome(
@@ -1040,16 +1035,15 @@ async def _clone_checks_for_successor(
     Grouping by series matters: a repeatable Check that already spawned inside this
     cycle leaves both the answered original and its live successor on the Card, and
     copying both would put two Pending rows of one series on the new Card.
+
+    The copy is linked to the successor Card only. Cards this Check series is also
+    linked to keep their own rows; the repeat belongs to the Card that repeated.
     """
     latest: dict[int, Check] = {}
-    for check in await session.scalars(
-        select(Check)
-        .where(Check.card_id == card.id, Check.archived_at.is_(None))
-        .order_by(Check.id)
-    ):
+    for check in await card_checks(session, card.id):
         latest[check.series_id or check.id] = check
     for series_id, check in sorted(latest.items()):
-        await _copy_check(session, check, series_id, successor_id)
+        await _copy_check(session, check, series_id, [successor_id])
 
 
 async def _workspace(session: AsyncSession) -> Workspace:
@@ -1494,6 +1488,33 @@ async def sprint_metrics(session: AsyncSession, sprint_id: int) -> dict[str, int
     }
 
 
+async def _linked_checks(session: AsyncSession, card_id: int) -> list[Check]:
+    """Every Check on a Card, archived ones included, so a restore can revive them."""
+    return list(
+        await session.scalars(
+            select(Check)
+            .join(CardCheck, CardCheck.check_id == Check.id)
+            .where(CardCheck.card_id == card_id)
+            .order_by(Check.id)
+        )
+    )
+
+
+async def _has_other_live_card(session: AsyncSession, check_id: int, card_id: int) -> bool:
+    return bool(
+        await session.scalar(
+            select(func.count())
+            .select_from(CardCheck)
+            .join(Card, Card.id == CardCheck.card_id)
+            .where(
+                CardCheck.check_id == check_id,
+                CardCheck.card_id != card_id,
+                Card.archived_at.is_(None),
+            )
+        )
+    )
+
+
 async def archive_subtree(session: AsyncSession, card_id: int, archive: bool = True) -> list[int]:
     card = await session.get(Card, card_id)
     if card is None:
@@ -1506,7 +1527,11 @@ async def archive_subtree(session: AsyncSession, card_id: int, archive: bool = T
         before = card_snapshot(node)
         node.archived_at = stamp
         node.version += 1
-        for check in await session.scalars(select(Check).where(Check.card_id == node.id)):
+        for check in await _linked_checks(session, node.id):
+            # A shared Check survives while any other live Card still needs it; the
+            # subtree is archived node by node, so the last one carries it over.
+            if archive and await _has_other_live_card(session, check.id, node.id):
+                continue
             check.archived_at = stamp
             check.version += 1
         await _record_event(
@@ -1540,7 +1565,16 @@ async def delete_subtree(session: AsyncSession, card_id: int) -> int:
             await collect(child)
 
     await collect(card)
-    await session.execute(delete(Check).where(Check.card_id.in_(ids)))
+    # A Check linked to a Card outside this subtree is still in use, so only Checks that
+    # lose every link go with the Cards.  Both deletes are explicit rather than left to
+    # the FK cascade, which is a connection pragma and not guaranteed here.
+    await session.execute(
+        delete(Check).where(
+            Check.id.in_(select(CardCheck.check_id).where(CardCheck.card_id.in_(ids))),
+            Check.id.not_in(select(CardCheck.check_id).where(CardCheck.card_id.not_in(ids))),
+        )
+    )
+    await session.execute(delete(CardCheck).where(CardCheck.card_id.in_(ids)))
     await session.execute(delete(Card).where(Card.id.in_(ids)))
     await propagate_ancestors(session, parent_id)
     await _bump_workspace(session)
@@ -1554,4 +1588,9 @@ VALUE_REFERENCE = ReferenceSpec(
 TAG_REFERENCE = ReferenceSpec(
     "tag_id", "tag_ids", "tag_query", Tag, "Tag", CardTag, toggle_card_tag
 )
-CARD_REFERENCE_SPECS = (VALUE_REFERENCE, TAG_REFERENCE)
+# A Check is a Card relationship like the other two, so it resolves, diffs and applies
+# through the same spec; only the name column differs.
+CHECK_REFERENCE = ReferenceSpec(
+    "check_id", "check_ids", "check_query", Check, "Check", CardCheck, toggle_card_check, "title"
+)
+CARD_REFERENCE_SPECS = (VALUE_REFERENCE, TAG_REFERENCE, CHECK_REFERENCE)

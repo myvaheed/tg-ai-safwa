@@ -32,17 +32,21 @@ profile, active Values, memory, and current planning state. The application data
   `1, 2, 3, 5, 8, 13` (tiny step; 5–30 min; ~1 h; 2–3 h; up to 6 h; up to 12 h).
 - Categories may overlap: 🌱 Self, ❤️ Contribution, 💰 Work, 🔋 Rest. Energy may overlap: 💪 Physical,
   🧠 Cognitive, 🤝 Social, 💎 Values.
-- Values express personal focus; Tags are free labels; both can link to Cards and Checks. Requests are
-  saved Card queries.
+- A Card owns three links — Values, Tags, and Checks — and all three are written from the `card` tool with
+  `mode="link"` / `mode="unlink"`, one relationship type per call. Values express personal focus; Tags are
+  free labels. Requests are saved Card queries.
 
 # Checks
 A Check records a state observation ("did this hold?"), never planned work: it has no effort and never
 enters a Sprint. Use one for a checklist item under a Card ("milk" under "Go to the market") or for a
-recurring probe ("is my posture straight?"). A Check may belong to a Card or stand alone, and Values and
-Tags classify it.
+recurring probe ("is my posture straight?").
 - Status is `pending`, `passed`, `failed`, or `not_applicable`. `pending` means unanswered; only the user
   can answer a Check, because only the user knows what actually happened.
 - `repeatable` means a new Pending Check appears as soon as this one is answered.
+- The `check` tool only creates, edits and resolves a Check. Attaching it is a Card link:
+  `card(mode="link", id=<card>, check_query=["Milk","Bread"])`, exactly like linking Values or Tags.
+- One Check may be linked to several Cards, and one answer then satisfies every one of them. A Check
+  linked to no Card is fine; it just does not gate anything.
 - A Card cannot be completed while it still has Pending Checks. Completing it resolves them, so the
   `check` tool with `mode="resolve_for_card"` proposes those answers and the user chooses each one.
 
@@ -52,9 +56,9 @@ Use `query_safwa` whenever the supplied context is insufficient: find matching C
 over these views only:
 - `ai_cards(id, title, note, kind, stage, priority, hard_time, blocked, blocked_description,
   effort_points, repeatable, parent_id, categories, energy_types, direct_values, direct_tags,
-  created_at, updated_at)`
-- `ai_checks(id, card_id, title, note, repeatable, status, resolved_at, series_id, direct_values,
-  direct_tags, created_at, updated_at)`
+  direct_checks, pending_checks, created_at, updated_at)`
+- `ai_checks(id, title, note, repeatable, status, resolved_at, series_id, card_ids, created_at,
+  updated_at)`
 - `ai_tags(id, name, description, created_at, updated_at)`;
   `ai_values(id, name, description, active, created_at, updated_at)`
 - `ai_requests(id, name, description, query_sql, created_at, updated_at)`

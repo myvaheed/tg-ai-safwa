@@ -180,9 +180,6 @@ class Check(Base, TimestampMixin):
 
     __tablename__ = "checks"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    card_id: Mapped[int | None] = mapped_column(
-        ForeignKey("cards.id", ondelete="CASCADE"), index=True
-    )
     title: Mapped[str] = mapped_column(String(500))
     note: Mapped[str] = mapped_column(Text, default="")
     repeatable: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -197,22 +194,20 @@ class Check(Base, TimestampMixin):
     version: Mapped[int] = mapped_column(Integer, default=1)
 
 
-class CheckValue(Base):
-    __tablename__ = "check_values"
-    check_id: Mapped[int] = mapped_column(
-        ForeignKey("checks.id", ondelete="CASCADE"), primary_key=True
-    )
-    value_id: Mapped[int] = mapped_column(
-        ForeignKey("values.id", ondelete="CASCADE"), primary_key=True
-    )
+class CardCheck(Base):
+    """The one Check relationship, stored on the Card side like `card_values`.
 
+    A Check is not owned by a Card: the same Check may be linked to many Cards, and one
+    answer satisfies every one of them.
+    """
 
-class CheckTag(Base):
-    __tablename__ = "check_tags"
-    check_id: Mapped[int] = mapped_column(
-        ForeignKey("checks.id", ondelete="CASCADE"), primary_key=True
+    __tablename__ = "card_checks"
+    card_id: Mapped[int] = mapped_column(
+        ForeignKey("cards.id", ondelete="CASCADE"), primary_key=True
     )
-    tag_id: Mapped[int] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+    check_id: Mapped[int] = mapped_column(
+        ForeignKey("checks.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
 
 
 class CardCategory(Base):

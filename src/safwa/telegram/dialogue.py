@@ -13,6 +13,7 @@ from ..domain import (
     DomainError,
     create_check,
     edit_card_text,
+    toggle_card_check,
     update_card_fields,
     update_check_fields,
     update_tag_fields,
@@ -84,15 +85,14 @@ async def ordinary_text(message: Message, services: Services) -> None:
     if ui_kind == "check_text":
         check_id = ui_state.get("check_id")
         field = str(ui_state["field"])
-        scope = dict(ui_state.get("scope") or {})
+        card_id = int(ui_state["card_id"])
         back = dict(ui_state.get("back") or {"kind": "home"})
         message_id = int(ui_state["message_id"])
         typed = message.text.strip()
         async with services.sessions() as session:
             if check_id is None:
-                created = await create_check(
-                    session, title=typed, card_id=int(scope["id"]) if scope else None
-                )
+                created = await create_check(session, title=typed)
+                await toggle_card_check(session, card_id, created.id)
                 check_id = created.id
             else:
                 await update_check_fields(session, int(check_id), {field: typed})
@@ -105,7 +105,7 @@ async def ordinary_text(message: Message, services: Services) -> None:
             message,
             services,
             int(check_id),
-            scope=scope,
+            card_id=card_id,
             back=back,
             replace_message_id=message_id if input_deleted else None,
         )

@@ -119,6 +119,13 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
                 JOIN "values" v ON v.id=cv.value_id WHERE cv.card_id=c.id) AS direct_values,
                (SELECT group_concat(t.name, ',') FROM card_tags ct
                 JOIN tags t ON t.id=ct.tag_id WHERE ct.card_id=c.id) AS direct_tags,
+               (SELECT group_concat(k.title, ',') FROM card_checks cc
+                JOIN checks k ON k.id=cc.check_id
+                WHERE cc.card_id=c.id AND k.archived_at IS NULL) AS direct_checks,
+               (SELECT count(*) FROM card_checks cc
+                JOIN checks k ON k.id=cc.check_id
+                WHERE cc.card_id=c.id AND k.archived_at IS NULL
+                  AND k.outcome IS NULL) AS pending_checks,
                c.created_at, c.updated_at
         FROM cards c
         WHERE c.archived_at IS NULL"""
@@ -127,13 +134,11 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
     # Pending is stored as a null outcome.
     connection.exec_driver_sql(
         """CREATE VIEW IF NOT EXISTS ai_checks AS
-        SELECT k.id, k.card_id, k.title, k.note, k.repeatable,
+        SELECT k.id, k.title, k.note, k.repeatable,
                COALESCE(k.outcome, 'pending') AS status,
                k.resolved_at, k.series_id,
-               (SELECT group_concat(v.name, ',') FROM check_values kv
-                JOIN "values" v ON v.id=kv.value_id WHERE kv.check_id=k.id) AS direct_values,
-               (SELECT group_concat(t.name, ',') FROM check_tags kt
-                JOIN tags t ON t.id=kt.tag_id WHERE kt.check_id=k.id) AS direct_tags,
+               (SELECT group_concat(cc.card_id, ',') FROM card_checks cc
+                WHERE cc.check_id=k.id) AS card_ids,
                k.created_at, k.updated_at
         FROM checks k
         WHERE k.archived_at IS NULL"""

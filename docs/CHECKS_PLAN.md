@@ -18,13 +18,10 @@ like Tag and Value, not Card-shaped.
 
 ## Entity
 
-One table. There is no `check_events` table: a Check is answered once, then replaced by a successor,
-so the **chain of Check rows is the history**. A second table would be 1:1 with the first.
 
 ```
 checks
   id, title, note
-  card_id            nullable  — ownership; null = standalone
   repeatable         bool      — respawn a Pending successor on resolve
   outcome            nullable  — passed | failed | not_applicable
   resolved_at        nullable
@@ -33,15 +30,12 @@ checks
   source_instance_id nullable  — the row this one was cloned from
   version, created_at, updated_at
 
-check_values, check_tags     many-to-many, mirroring card_values / card_tags
+card_checks (card_id, check_id)   the one Check relationship, mirroring card_values / card_tags
 ```
 
 `series_id` and `source_instance_id` reuse the Card repeat pattern exactly
 ([models.py:107](../src/safwa/models.py:107), set in `_copy_repeat_successor`
 [domain.py:1013](../src/safwa/domain.py:1013)). Do not invent a second lineage vocabulary.
-
-Ownership is `card_id` only — a single FK, never a polymorphic parent. Values and Tags classify a
-Check for querying; they do not own it.
 
 `CheckOutcome` is a `StrEnum`; the column stores plain strings, so always compare and assign `.value`.
 
@@ -102,16 +96,22 @@ Two orthogonal respawn mechanisms. Both are legitimate; they must not both fire 
 | Mechanism | Trigger | Case |
 |---|---|---|
 | Check `repeatable` | the Check is resolved | probe — posture respawns Pending on the same Card |
-| Card repeat | the owning Card is finished | checklist — the market list returns with the successor Card |
+| Card repeat | a linked Card is finished | checklist — the market list returns with the successor Card |
 
 Checklist items set `repeatable = False`; you buy milk once per trip. Setting it true on a checklist
 item produces two rows per cycle. Document this at the field.
 
-A successor Check copies title, note, `card_id`, and **all link sets** (Values, Tags), carrying
-`series_id` and setting `source_instance_id`. Same fields the Card successor copies.
+A successor Check copies title, note, and repeatability, carrying `series_id` and setting
+`source_instance_id`. Same fields the Card successor copies.
 
-Spawning is suppressed when the owning Card is archived or terminal. Without this, a repeatable Check
-guarantees a Pending row forever and its Card can never reach Done — the two features deadlock.
+It is linked to the source's **live Cards only** — an archived or terminal Card is dropped from the
+successor's link set, and when that leaves nothing the series ends instead of spawning. Without this, a
+repeatable Check guarantees a Pending row forever and its Card can never reach Done: the two features
+deadlock. Sharing does not weaken the rule, it narrows it — a Check on a closed Card and a live one
+keeps going for the live one.
+
+The Card-repeat clone is the mirror case: it links the copy to the **successor Card only**. The other
+Cards in the series' link set keep their own rows; the repeat belongs to the Card that repeated.
 
 ### Suppressing the spawn, not clearing the flag
 
@@ -133,7 +133,11 @@ spawn later regardless of its flag.
 
 - Gate `Done` only. Cancelling a Card with Pending Checks is legitimate — abandoning work.
 - `passed`, `failed`, and `not_applicable` all satisfy the gate. Only Pending blocks.
-- No gate on `archive_subtree`. Both `archive_subtree` and `delete_subtree` cascade to Checks.
+- A shared Check gates every Card it hangs on, and one answer clears all of them at once.
+- No gate on `archive_subtree`. Both `archive_subtree` and `delete_subtree` reach Checks, but only
+  those the subtree still holds alone: a Check another live Card needs is neither archived nor
+  deleted, and `delete_subtree` removes the link rows explicitly rather than trusting the FK cascade,
+  which is a per-connection pragma.
 - The gate lives in `finish_action` alone. Goal and Idea are never finished directly, so
   `propagate_ancestors` ([domain.py:886](../src/safwa/domain.py:886)) — which only recomputes derived
   stage and has no error path — is untouched.
@@ -199,14 +203,21 @@ which Checks to resolve and the user supplies the outcomes.*
 
 ## UI surfaces
 
-- A `Checks` button on the Card, Tag, and Value screens when linked Checks exist.
+Every Check screen hangs off a Card, because the Card side is where the link lives.
+
+- The Card screen always carries `☑️ Checks (pending/total)` — always, not only when Checks exist,
+  or the first one could never be added.
+- That list offers `➕ Add Check` (create, linked here) and `🔗 Link Check` (hang an existing live
+  Check on this Card too). The Check editor offers `Unlink from this Card`, which never deletes: the
+  Check survives on its other Cards.
+- Tag and Value screens have no Checks button. They no longer classify Checks.
 - Checks are item-shaped: reuse the `render_item_editor` pattern
   ([telegram/items.py:21](../src/safwa/telegram/items.py:21)), not the Card renderer.
 - Dashboards still list Actions only. Checks do not appear there.
 
-**Residual gap, accepted for now**: a Check with no Card, no Value, and no Tag is reachable only
-through the AI. `ai_checks` must therefore exist from day one — it is the sole escape hatch. A
-`/checks` command is deferred.
+**Residual gap, accepted for now**: a Check linked to no Card is reachable only through the AI, and
+`🔗 Link Check` lists only the most recent `CHECK_LIST_LIMIT` candidates with no search. `ai_checks`
+must therefore exist from day one — it is the sole escape hatch. A `/checks` command is deferred.
 
 ## Deferred
 
@@ -219,23 +230,38 @@ candidate source; it does not replace the 13 deterministic kinds in
 [scheduler.py](../src/safwa/scheduler.py) — the trigger stays deterministic, only the content becomes
 free text. `proactive_limit` budgeting for high-frequency probes is unsolved and belongs to that work.
 
+## AI surface
+
+The link is a **Card relationship, so the `card` tool writes it** — `check_id` / `check_ids` /
+`check_query`, the third group beside Values and Tags, in `create`, `edit`, `link` and `unlink`. The
+`check` tool creates, edits and resolves a Check and nothing else; its `card_id` survives only on
+`resolve_for_card`, where it names the Card being completed and is not a link at all.
+
+`ReferenceSpec` grew one field for this, `name_attr`, because a Check is named by `title` while a Tag
+and a Value are named by `name`. Everything else — resolution, the proposal diff, approval-time
+application — is the shared path. Check titles are **not** unique, so a `check_query` matching several
+live Checks resolves to `ambiguous` and the model is told to use ids; that path already existed for
+Tags and Values, it just never fired there.
+
 ## Build notes
 
-No migrations and no Alembic. The three new tables mean the existing `data/safwa.db` will **not**
-gain them until it is rebuilt — run `uv run safwa-backup`, then recreate the database.
+No migrations and no Alembic. The table changes mean the existing `data/safwa.db` will **not** match
+until it is rebuilt — run `uv run safwa-backup`, then recreate the database.
 
-`ai_checks` must be added to `ALLOWED_VIEWS` ([ai/sql.py](../src/safwa/ai/sql.py)) **and** to the view
-list inside `SYSTEM_PROMPT` ([ai/context.py:20](../src/safwa/ai/context.py:20)). Either alone leaves
-the model unable to use it.
+`ai_checks` must be in `ALLOWED_VIEWS` ([ai/sql.py](../src/safwa/ai/sql.py)) **and** in the view list
+inside `SYSTEM_PROMPT` ([ai/context.py:20](../src/safwa/ai/context.py:20)). Either alone leaves the
+model unable to use it. `ai_cards` gained `direct_checks` and `pending_checks`, so the prompt's column
+list for it must be updated too.
 
 Touched: `models.py`, `enums.py`, `domain.py`, `constants.py`, `ai/sql.py`, `ai/context.py`,
 `ai/contracts.py`, `ai/service.py`, `telegram/checks.py` (new), `telegram/cards.py`,
 `telegram/items.py`, `telegram/callbacks.py`, `telegram/dialogue.py`, `telegram/proposals.py`, plus
 `INITIAL_PLAN.md`, `MEMORY_HISTORY_USAGE.md`, `ARCHITECTURE.md`, `STRUCTURE_GRAPH.md` and `CLAUDE.md`.
 
-Tests: `tests/test_checks.py` (domain invariants), `tests/e2e/test_checks_e2e.py` (gate → resolve →
-complete against real SQLite and a `ScriptedProvider`), and one `--live-telegram` case driving the
-Done-gate through the real bot.
+Tests: `tests/test_checks.py` (domain invariants, including sharing across Cards) and
+`tests/e2e/test_checks_e2e.py` (gate → resolve → complete, plus linking by `check_ids`, by
+`check_query` title, and through the manual screen, against real SQLite and a `ScriptedProvider`).
+No `--live-telegram` case covers Checks yet.
 
 ## Open
 

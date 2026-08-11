@@ -8,9 +8,9 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import delete, select
 
 from ..constants import CHECK_LIST_LIMIT
-from ..domain import DomainError, card_checks, pending_checks
+from ..domain import DomainError, card_checks, check_card_ids, pending_checks
 from ..enums import CHECK_OUTCOME_LABELS, CheckOutcome, MessageKind
-from ..models import Card, Check, CheckTag, CheckValue, Tag, UiSession, Value
+from ..models import Card, CardCheck, Check, UiSession
 from ._core import Services
 from ._messaging import edit_registered_message, send_registered, token_button
 from ._presentation import with_notice
@@ -44,49 +44,25 @@ def next_outcome(current: str | None) -> str:
     return _OUTCOME_CYCLE[(_OUTCOME_CYCLE.index(current) + 1) % len(_OUTCOME_CYCLE)]
 
 
-async def scoped_checks(session, scope: dict[str, Any]) -> list[Check]:
-    """Checks reachable from one Card, Tag, or Value screen.
-
-    A Card owns its Checks; a Tag or Value only classifies them, so those screens read
-    through the link tables instead of the owning column.
-    """
-    kind = scope.get("kind")
-    scope_id = int(scope["id"])
-    if kind == "card":
-        return await card_checks(session, scope_id)
-    if kind == "tag":
-        condition = Check.id.in_(select(CheckTag.check_id).where(CheckTag.tag_id == scope_id))
-    elif kind == "value":
-        condition = Check.id.in_(select(CheckValue.check_id).where(CheckValue.value_id == scope_id))
-    else:
-        raise DomainError("Unsupported Check scope")
-    return list(
-        await session.scalars(
-            select(Check).where(condition, Check.archived_at.is_(None)).order_by(Check.id)
-        )
-    )
-
-
-async def scope_title(session, scope: dict[str, Any]) -> str:
-    model = {"card": Card, "tag": Tag, "value": Value}[scope["kind"]]
-    entity = await session.get(model, int(scope["id"]))
-    if entity is None:
-        raise DomainError("This screen's item no longer exists")
-    return str(getattr(entity, "title", None) or getattr(entity, "name", ""))
+async def card_title(session, card_id: int) -> str:
+    card = await session.get(Card, card_id)
+    if card is None or card.archived_at is not None:
+        raise DomainError("Card does not exist or is archived")
+    return str(card.title)
 
 
 async def render_checks(
     message: Message,
     services: Services,
-    scope: dict[str, Any],
+    card_id: int,
     *,
     back: dict[str, Any],
     replace_message_id: int | None = None,
     notice: str | None = None,
 ) -> None:
     async with services.sessions() as session:
-        owner_title = await scope_title(session, scope)
-        checks = await scoped_checks(session, scope)
+        owner_title = await card_title(session, card_id)
+        checks = await card_checks(session, card_id)
         shown = checks[:CHECK_LIST_LIMIT]
         rows: list[list[InlineKeyboardButton]] = []
         for check in shown:
@@ -97,22 +73,28 @@ async def render_checks(
                         services.owner_id,
                         f"{CHECK_STATUS_EMOJIS[check_status(check)]} {check.title}"[:60],
                         "check_view",
-                        {"id": check.id, "scope": scope, "back": back},
+                        {"id": check.id, "card_id": card_id, "back": back},
                     )
                 ]
             )
-        if scope["kind"] == "card":
-            rows.append(
-                [
-                    await token_button(
-                        session,
-                        services.owner_id,
-                        "➕ Add Check",
-                        "check_create_prompt",
-                        {"scope": scope, "back": back},
-                    )
-                ]
-            )
+        rows.append(
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "➕ Add Check",
+                    "check_create_prompt",
+                    {"card_id": card_id, "back": back},
+                ),
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "🔗 Link Check",
+                    "check_link_list",
+                    {"card_id": card_id, "back": back},
+                ),
+            ]
+        )
         rows.append(
             [
                 await token_button(
@@ -139,7 +121,75 @@ async def render_checks(
         with_notice("\n".join(lines), notice),
         InlineKeyboardMarkup(inline_keyboard=rows),
         replace_message_id,
-        related_id=int(scope["id"]),
+        related_id=card_id,
+    )
+
+
+async def render_check_link(
+    message: Message,
+    services: Services,
+    card_id: int,
+    *,
+    back: dict[str, Any],
+    replace_message_id: int | None = None,
+    notice: str | None = None,
+) -> None:
+    """Hang an existing Check on this Card too.
+
+    The same Check may serve several Cards, so linking never copies: one answer later
+    resolves it everywhere it hangs.
+    """
+    async with services.sessions() as session:
+        owner_title = await card_title(session, card_id)
+        candidates = list(
+            await session.scalars(
+                select(Check)
+                .where(
+                    Check.archived_at.is_(None),
+                    Check.id.not_in(select(CardCheck.check_id).where(CardCheck.card_id == card_id)),
+                )
+                .order_by(Check.id.desc())
+                .limit(CHECK_LIST_LIMIT)
+            )
+        )
+        rows = [
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    f"{CHECK_STATUS_EMOJIS[check_status(check)]} {check.title}"[:60],
+                    "check_link_toggle",
+                    {"id": check.id, "card_id": card_id, "back": back},
+                )
+            ]
+            for check in candidates
+        ]
+        rows.append(
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "↩️ Back",
+                    "card_checks",
+                    {"card_id": card_id, "back": back},
+                )
+            ]
+        )
+        await session.commit()
+
+    lines = [f"<b>Link a Check — {html.escape(owner_title)}</b>"]
+    lines.append(
+        "Tap a Check to hang it on this Card as well."
+        if candidates
+        else "Every live Check is already linked here."
+    )
+    await _deliver(
+        message,
+        services,
+        with_notice("\n".join(lines), notice),
+        InlineKeyboardMarkup(inline_keyboard=rows),
+        replace_message_id,
+        related_id=card_id,
     )
 
 
@@ -148,7 +198,7 @@ async def render_check(
     services: Services,
     check_id: int,
     *,
-    scope: dict[str, Any],
+    card_id: int,
     back: dict[str, Any],
     replace_message_id: int | None = None,
     notice: str | None = None,
@@ -157,22 +207,7 @@ async def render_check(
         check = await session.get(Check, check_id)
         if check is None or check.archived_at is not None:
             raise DomainError("Check does not exist or is archived")
-        value_names = list(
-            await session.scalars(
-                select(Value.name)
-                .join(CheckValue, CheckValue.value_id == Value.id)
-                .where(CheckValue.check_id == check.id)
-                .order_by(Value.name)
-            )
-        )
-        tag_names = list(
-            await session.scalars(
-                select(Tag.name)
-                .join(CheckTag, CheckTag.tag_id == Tag.id)
-                .where(CheckTag.check_id == check.id)
-                .order_by(Tag.name)
-            )
-        )
+        linked_card_ids = await check_card_ids(session, check.id)
         await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
         session.add(
             UiSession(
@@ -180,14 +215,14 @@ async def render_check(
                 kind="check_editor",
                 state={
                     "check_id": check.id,
-                    "scope": scope,
+                    "card_id": card_id,
                     "back": back,
                     "message_id": replace_message_id or message.message_id,
                 },
                 expires_at=datetime.now(UTC) + timedelta(minutes=30),
             )
         )
-        payload = {"id": check.id, "scope": scope, "back": back}
+        payload = {"id": check.id, "card_id": card_id, "back": back}
         field_specs = [
             ("✏️ Title", "check_edit_text", {**payload, "field": "title"}),
             ("📝 Note", "check_edit_text", {**payload, "field": "note"}),
@@ -199,8 +234,11 @@ async def render_check(
         rows.append(
             [
                 await token_button(
+                    session, services.owner_id, "🔗 Unlink from this Card", "check_unlink", payload
+                ),
+                await token_button(
                     session, services.owner_id, "Archive Check", "check_archive", payload
-                )
+                ),
             ]
         )
         rows.append(
@@ -210,7 +248,7 @@ async def render_check(
                     services.owner_id,
                     "↩️ Back",
                     "check_list_back",
-                    {"scope": scope, "back": back},
+                    {"card_id": card_id, "back": back},
                 )
             ]
         )
@@ -222,9 +260,7 @@ async def render_check(
             f"Status: {check_status_label(check)}",
             f"Note: {html.escape(check.note or '—')}",
             f"Repeatable: {'Yes' if check.repeatable else 'No'}",
-            f"Card: {'#' + str(check.card_id) if check.card_id else '—'}",
-            f"Values: {html.escape(', '.join(value_names) or '—')}",
-            f"Tags: {html.escape(', '.join(tag_names) or '—')}",
+            f"Cards: {', '.join('#' + str(item) for item in linked_card_ids) or '—'}",
         ]
     )
     await _deliver(
@@ -243,7 +279,7 @@ async def render_check_text_prompt(
     *,
     check_id: int | None,
     field: str,
-    scope: dict[str, Any],
+    card_id: int,
     back: dict[str, Any],
 ) -> None:
     if field not in {"title", "note"}:
@@ -263,7 +299,7 @@ async def render_check_text_prompt(
                 state={
                     "check_id": check_id,
                     "field": field,
-                    "scope": scope,
+                    "card_id": card_id,
                     "back": back,
                     "message_id": message.message_id,
                 },
@@ -275,7 +311,7 @@ async def render_check_text_prompt(
             services.owner_id,
             "↩️ Back",
             "check_list_back",
-            {"scope": scope, "back": back},
+            {"card_id": card_id, "back": back},
         )
         await session.commit()
     heading = "New Check title" if check_id is None else f"Set new {field.title()}"

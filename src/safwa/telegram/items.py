@@ -6,11 +6,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 
 from ..domain import DomainError
 from ..enums import MessageKind
-from ..models import Check, CheckTag, CheckValue, Tag, UiSession, Value
+from ..models import Tag, UiSession, Value
 from ._core import ITEM_REFERENCES, Services
 from ._messaging import edit_registered_message, send_registered, token_button
 from .cards import linked_card_count
@@ -99,36 +99,6 @@ async def render_item_editor(
                 ]
             )
         if mode == "view" and item is not None:
-            check_count = int(
-                await session.scalar(
-                    select(func.count())
-                    .select_from(Check)
-                    .where(
-                        Check.archived_at.is_(None),
-                        Check.id.in_(
-                            select(CheckValue.check_id).where(CheckValue.value_id == item.id)
-                            if entity == "value"
-                            else select(CheckTag.check_id).where(CheckTag.tag_id == item.id)
-                        ),
-                    )
-                )
-                or 0
-            )
-            if check_count:
-                rows.append(
-                    [
-                        await token_button(
-                            session,
-                            services.owner_id,
-                            f"☑️ Checks ({check_count})",
-                            "item_checks",
-                            {
-                                "scope": {"kind": entity, "id": item.id},
-                                "back": {"kind": "home"},
-                            },
-                        )
-                    ]
-                )
             rows.append(
                 [
                     await token_button(

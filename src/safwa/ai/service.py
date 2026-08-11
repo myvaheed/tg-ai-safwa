@@ -19,6 +19,7 @@ from ..constants import (
 )
 from ..domain import (
     CARD_REFERENCE_SPECS,
+    CHECK_REFERENCE,
     TAG_REFERENCE,
     VALUE_REFERENCE,
     DomainError,
@@ -44,8 +45,6 @@ from ..domain import (
     set_card_parent,
     toggle_card_category,
     toggle_card_energy_type,
-    toggle_check_tag,
-    toggle_check_value,
     update_card_fields,
     update_check_fields,
     update_saved_request,
@@ -75,8 +74,6 @@ from ..models import (
     CardValue,
     ChangeProposal,
     Check,
-    CheckTag,
-    CheckValue,
     ProposalChange,
     SavedRequest,
     Tag,
@@ -128,16 +125,17 @@ QUERY_SAFWA_TOOL: dict[str, Any] = {
 MUTATION_TOOL_DESCRIPTIONS = {
     "card": (
         "Open the Card review UI. create proposes a new Card; edit proposes exact "
-        "field/set replacements; link and unlink add or remove one relationship type; move, "
-        "complete, cancel, and reopen propose only that lifecycle action. Nothing is saved until "
-        "the user presses Save."
+        "field/set replacements; link and unlink add or remove one relationship type — Values, "
+        "Tags, or Checks, since a Card owns all three links; move, complete, cancel, and reopen "
+        "propose only that lifecycle action. Nothing is saved until the user presses Save."
     ),
     "check": (
         "Open the Check review UI. create proposes a new Pending Check; edit proposes field "
-        "replacements; resolve proposes one answer the user has already stated; link and unlink "
-        "add or remove one relationship type. resolve_for_card lists every Pending Check on a "
-        "Card so the user can answer each one, which is required before that Card can be "
-        "completed. Nothing is saved until the user presses Save."
+        "replacements; resolve proposes one answer the user has already stated. resolve_for_card "
+        "lists every Pending Check on a Card so the user can answer each one, which is required "
+        "before that Card can be completed. A Check is attached to a Card from the card tool "
+        "(link/unlink with check_query or check_ids), never from here. Nothing is saved until the "
+        "user presses Save."
     ),
     "value": "Open the Value editor with a creation or edit proposal;",
     "tag": "Open the Tag editor with a creation or edit proposal;",
@@ -235,6 +233,8 @@ _DETAIL_LABELS = {
     "outcome": "Status",
     "values": "Values",
     "tags": "Tags",
+    "checks": "Checks",
+    "check_ids": "Checks",
     "active": "Active",
     "query_sql": "SQL",
 }
@@ -296,6 +296,8 @@ def _normalized_card_details(values: dict[str, Any], *, creating: bool) -> dict[
         fields["values"] = referenced_values
     if referenced_tags := _reference_details(values, "tag"):
         fields["tags"] = referenced_tags
+    if referenced_checks := _reference_details(values, "check"):
+        fields["checks"] = referenced_checks
     return fields
 
 
@@ -1003,8 +1005,6 @@ class AIAdvisor:
     async def _prepare_check_values(
         self, session: AsyncSession, change: AgentChange, values: dict[str, Any]
     ) -> dict[str, Any]:
-        for spec in CARD_REFERENCE_SPECS:
-            await self._validate_named_references(session, values, spec)
         if values.get("card_id") is not None:
             card = await session.get(Card, int(values["card_id"]))
             if card is None or card.archived_at is not None:
@@ -1164,17 +1164,11 @@ class AIAdvisor:
                 f"{CHECK_OUTCOME_LABELS.get(str(outcome), str(outcome))}"
                 for key, outcome in sorted(outcomes.items(), key=lambda item: int(item[0]))
             ]
-        scalar = {
+        proposed = {
             name: values[name]
-            for name in ("title", "note", "repeatable", "card_id", "outcome")
+            for name in ("title", "note", "repeatable", "outcome")
             if name in values
         }
-        references = {
-            name: found
-            for name, prefix in (("values", "value"), ("tags", "tag"))
-            if (found := _reference_details(values, prefix))
-        }
-        proposed = {**scalar, **references}
         check = (
             await session.get(Check, proposed_change.entity_id)
             if proposed_change.entity_id is not None
@@ -1188,17 +1182,10 @@ class AIAdvisor:
             ]
         if proposed_change.action == "archive":
             return [f"Check: #{check.id} “{_result_value(check.title)}”"]
-        if proposed_change.action in {"link", "unlink"}:
-            verb = "Link" if proposed_change.action == "link" else "Unlink"
-            return [
-                f"{verb} {_DETAIL_LABELS.get(field, field.title())}: {_detail_value(value)}"
-                for field, value in references.items()
-            ]
         before = {
             "title": check.title,
             "note": check.note,
             "repeatable": check.repeatable,
-            "card_id": check.card_id,
             "outcome": check.outcome or "pending",
         }
         return [
@@ -1646,14 +1633,6 @@ class AIAdvisor:
                 await session.commit()
 
 
-# Check link tables are keyed by check_id, so they cannot reuse a Card ReferenceSpec's
-# link model; only the name/ID resolution half of the spec is shared.
-CHECK_REFERENCES = (
-    (VALUE_REFERENCE, CheckValue.value_id, CheckValue.check_id, toggle_check_value),
-    (TAG_REFERENCE, CheckTag.tag_id, CheckTag.check_id, toggle_check_tag),
-)
-
-
 class ProposalService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -1742,32 +1721,6 @@ class ProposalService:
             return
         raise DomainError("A Card link proposal needs one relationship type")
 
-    async def _replace_check_sets(self, check: Check, values: dict[str, Any]) -> None:
-        for spec, link_column, owner_column, toggle in CHECK_REFERENCES:
-            if not spec.mentioned_in(values):
-                continue
-            current = set(
-                await self.session.scalars(select(link_column).where(owner_column == check.id))
-            )
-            target = await self._named_ids(values, spec)
-            for entity_id in sorted(current ^ target):
-                await toggle(self.session, check.id, entity_id)
-
-    async def _apply_check_links(
-        self, check: Check, values: dict[str, Any], *, linked: bool
-    ) -> None:
-        for spec, link_column, owner_column, toggle in CHECK_REFERENCES:
-            if not spec.mentioned_in(values):
-                continue
-            current = set(
-                await self.session.scalars(select(link_column).where(owner_column == check.id))
-            )
-            for entity_id in sorted(await self._named_ids(values, spec)):
-                if linked != (entity_id in current):
-                    await toggle(self.session, check.id, entity_id)
-            return
-        raise DomainError("A Check link proposal needs one relationship type")
-
     async def _apply_check_change(self, change: ProposalChange, affected: list[int]) -> None:
         values = dict(change.values)
         if change.action == "create":
@@ -1775,10 +1728,7 @@ class ProposalService:
                 self.session,
                 title=str(values["title"]),
                 note=values.get("note", ""),
-                card_id=values.get("card_id"),
                 repeatable=bool(values.get("repeatable", False)),
-                value_ids=await self._named_ids(values, VALUE_REFERENCE),
-                tag_ids=await self._named_ids(values, TAG_REFERENCE),
             )
             affected.append(created.id)
             return
@@ -1802,11 +1752,8 @@ class ProposalService:
             }
             if scalar_fields:
                 await update_check_fields(self.session, check.id, scalar_fields)
-            await self._replace_check_sets(check, values)
         elif change.action == "resolve":
             await resolve_check(self.session, check.id, values["outcome"], actor=ActorType.AI)
-        elif change.action in {"link", "unlink"}:
-            await self._apply_check_links(check, values, linked=change.action == "link")
         elif change.action == "archive":
             await archive_check(self.session, check.id)
         else:
@@ -1835,6 +1782,7 @@ class ProposalService:
                     values = dict(change.values)
                     value_ids = await self._named_ids(values, VALUE_REFERENCE)
                     tag_ids = await self._named_ids(values, TAG_REFERENCE)
+                    check_ids = await self._named_ids(values, CHECK_REFERENCE)
                     card = await create_card(
                         self.session,
                         kind=values["kind"],
@@ -1852,6 +1800,7 @@ class ProposalService:
                         energy_types=set(values.get("energy_types") or []),
                         value_ids=value_ids,
                         tag_ids=tag_ids,
+                        check_ids=check_ids,
                         actor=ActorType.AI,
                     )
                     affected.append(card.id)

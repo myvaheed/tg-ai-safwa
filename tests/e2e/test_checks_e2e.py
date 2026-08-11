@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from types import SimpleNamespace
@@ -8,7 +8,13 @@ from sqlalchemy import select
 
 from safwa.ai.context import DialogueMessage
 from safwa.ai.provider import ProviderToolCall, ProviderTurn
-from safwa.domain import create_card, create_check, pending_checks
+from safwa.domain import (
+    check_card_ids,
+    create_card,
+    create_check,
+    pending_checks,
+    toggle_card_check,
+)
 from safwa.enums import CardStage, CheckOutcome
 from safwa.models import CallbackToken, Card, ChangeProposal, Check, ProposalChange
 from safwa.telegram import GenerationGuard, callback_token_handler, render_proposal
@@ -112,8 +118,10 @@ async def _market_card_with_checks(harness) -> tuple[int, list[int]]:
         card = await create_card(
             session, title="Go to the market", kind="action", stage="today", effort_points=3
         )
-        milk = await create_check(session, title="Milk", card_id=card.id)
-        bread = await create_check(session, title="Bread", card_id=card.id)
+        milk = await create_check(session, title="Milk")
+        bread = await create_check(session, title="Bread")
+        for check in (milk, bread):
+            await toggle_card_check(session, card.id, check.id)
         await session.commit()
         return card.id, [milk.id, bread.id]
 
@@ -230,20 +238,12 @@ async def test_ai_can_create_and_read_checks(e2e_harness):
     advisor, _provider = e2e_harness.advisor(
         [
             mutation_turn(
-                (
-                    "check",
-                    {
-                        "mode": "create",
-                        "title": "Posture straight?",
-                        "card_id": card_id,
-                        "repeatable": True,
-                    },
-                )
+                ("check", {"mode": "create", "title": "Posture straight?", "repeatable": True})
             ),
             "Added the Check.",
         ]
     )
-    outcome = await advisor.handle("Track my posture on that Card")
+    outcome = await advisor.handle("Track my posture")
     assert outcome.proposal_id is not None
     message = _TestMessage()
     services = _services(e2e_harness, advisor)
@@ -255,14 +255,95 @@ async def test_ai_can_create_and_read_checks(e2e_harness):
         assert created is not None
         assert created.repeatable is True
         assert created.outcome is None
+        # The check tool never attaches; a new Check starts unlinked.
+        assert await check_card_ids(session, created.id) == []
+        created_id = created.id
 
-    # ai_checks must be reachable, since it is the only route to a Check that has no
-    # Card, Value, or Tag to hang off.
+    # ai_checks must be reachable, since it is the only route to a Check with no Card.
     rows = await advisor.query_runner.run(
         "SELECT id, title, status, repeatable FROM ai_checks ORDER BY id"
     )
     assert rows.rows[0]["status"] == "pending"
     assert rows.rows[0]["title"] == "Posture straight?"
+
+    # A second turn attaches it, exactly the way a Value or Tag is attached.
+    advisor, _provider = e2e_harness.advisor(
+        [
+            mutation_turn(("card", {"mode": "link", "id": card_id, "check_ids": [created_id]})),
+            "Attached it.",
+        ]
+    )
+    outcome = await advisor.handle("Put that Check on the posture Card")
+    assert outcome.proposal_id is not None
+    services = _services(e2e_harness, advisor)
+    await render_proposal(message, services, outcome.proposal_id)
+    await _claim(e2e_harness, "proposal_approve", message, services, id=outcome.proposal_id)
+
+    async with e2e_harness.sessions() as session:
+        assert await check_card_ids(session, created_id) == [card_id]
+
+    # ai_cards carries the link, so no join view is needed to see what gates a Card.
+    linked = await advisor.query_runner.run(
+        f"SELECT direct_checks, pending_checks FROM ai_cards WHERE id = {card_id}"
+    )
+    assert linked.rows[0]["direct_checks"] == "Posture straight?"
+    assert linked.rows[0]["pending_checks"] == 1
+
+
+async def test_ai_links_a_check_to_a_second_card_by_title(e2e_harness):
+    card_id, check_ids = await _market_card_with_checks(e2e_harness)
+    async with e2e_harness.sessions() as session:
+        second = await create_card(
+            session, title="Go to the pharmacy", kind="action", stage="today", effort_points=1
+        )
+        await session.commit()
+        second_id = second.id
+
+    # check_query resolves an exact title, the same way value_query and tag_query do, so
+    # the model can attach a Check it has only seen by name.
+    advisor, _provider = e2e_harness.advisor(
+        [
+            mutation_turn(("card", {"mode": "link", "id": second_id, "check_query": ["Milk"]})),
+            "Linked it there too.",
+        ]
+    )
+    outcome = await advisor.handle("The milk goes on the pharmacy run as well")
+    assert outcome.proposal_id is not None
+    message = _TestMessage()
+    services = _services(e2e_harness, advisor)
+    await render_proposal(message, services, outcome.proposal_id)
+    await _claim(e2e_harness, "proposal_approve", message, services, id=outcome.proposal_id)
+
+    async with e2e_harness.sessions() as session:
+        assert await check_card_ids(session, check_ids[0]) == sorted([card_id, second_id])
+        # The shared Check now gates both Cards, and one answer will clear both.
+        assert [item.id for item in await pending_checks(session, second_id)] == [check_ids[0]]
+
+
+async def test_manual_link_screen_hangs_a_check_on_a_second_card(e2e_harness):
+    card_id, check_ids = await _market_card_with_checks(e2e_harness)
+    async with e2e_harness.sessions() as session:
+        second = await create_card(
+            session, title="Go to the pharmacy", kind="action", stage="today", effort_points=1
+        )
+        await session.commit()
+        second_id = second.id
+
+    advisor, _provider = e2e_harness.advisor([])
+    message = _TestMessage()
+    services = _services(e2e_harness, advisor)
+
+    from safwa.telegram.checks import render_checks
+
+    await render_checks(message, services, second_id, back={"kind": "card", "id": second_id})
+    await _claim(e2e_harness, "check_link_list", message, services, card_id=second_id)
+    await _claim(
+        e2e_harness, "check_link_toggle", message, services, card_id=second_id, id=check_ids[0]
+    )
+
+    async with e2e_harness.sessions() as session:
+        assert await check_card_ids(session, check_ids[0]) == sorted([card_id, second_id])
+    assert "Milk" in message.rendered[-1]
 
 
 async def test_manual_done_button_opens_the_resolution_screen(e2e_harness):

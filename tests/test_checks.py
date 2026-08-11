@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pytest
 from sqlalchemy import select
@@ -7,20 +7,18 @@ from safwa.domain import (
     DomainError,
     archive_subtree,
     card_checks,
+    check_card_ids,
     create_check,
-    create_tag,
-    create_value,
     delete_subtree,
     finish_action,
     pending_checks,
     resolve_check,
-    toggle_check_tag,
-    toggle_check_value,
+    toggle_card_check,
     update_check_fields,
 )
 from safwa.domain import create_card as create_domain_card
 from safwa.enums import CardStage, CheckOutcome
-from safwa.models import Card, Check, CheckTag, CheckValue
+from safwa.models import Card, CardEvent, Check
 
 
 async def create_action(session, **overrides):
@@ -29,10 +27,18 @@ async def create_action(session, **overrides):
     return await create_domain_card(session, **payload)
 
 
+async def linked_check(session, *card_ids, **kwargs):
+    """Create a Check and attach it, which is always a Card-side write."""
+    check = await create_check(session, **kwargs)
+    for card_id in card_ids:
+        await toggle_card_check(session, card_id, check.id)
+    return check
+
+
 async def test_new_check_is_pending_and_starts_its_own_series(sessions):
     async with sessions() as session:
         card = await create_action(session, title="Go to the market")
-        check = await create_check(session, title="Milk", card_id=card.id)
+        check = await linked_check(session, card.id, title="Milk")
         await session.commit()
 
         assert check.outcome is None
@@ -44,8 +50,8 @@ async def test_new_check_is_pending_and_starts_its_own_series(sessions):
 async def test_done_is_gated_on_pending_checks_and_cancel_is_not(sessions):
     async with sessions() as session:
         card = await create_action(session, title="Go to the market")
-        milk = await create_check(session, title="Milk", card_id=card.id)
-        await create_check(session, title="Bread", card_id=card.id)
+        milk = await linked_check(session, card.id, title="Milk")
+        await linked_check(session, card.id, title="Bread")
         await session.commit()
 
         with pytest.raises(DomainError) as error:
@@ -64,8 +70,8 @@ async def test_done_is_gated_on_pending_checks_and_cancel_is_not(sessions):
 async def test_partial_or_unknown_check_outcomes_are_rejected(sessions):
     async with sessions() as session:
         card = await create_action(session)
-        first = await create_check(session, title="First", card_id=card.id)
-        await create_check(session, title="Second", card_id=card.id)
+        first = await linked_check(session, card.id, title="First")
+        await linked_check(session, card.id, title="Second")
         await session.commit()
 
         with pytest.raises(DomainError, match="Resolve these Pending Checks"):
@@ -79,8 +85,8 @@ async def test_partial_or_unknown_check_outcomes_are_rejected(sessions):
 async def test_finishing_resolves_checks_and_leaves_the_card_done(sessions):
     async with sessions() as session:
         card = await create_action(session)
-        milk = await create_check(session, title="Milk", card_id=card.id)
-        bread = await create_check(session, title="Bread", card_id=card.id)
+        milk = await linked_check(session, card.id, title="Milk")
+        bread = await linked_check(session, card.id, title="Bread")
         await session.commit()
 
         await finish_action(
@@ -101,7 +107,7 @@ async def test_finishing_resolves_checks_and_leaves_the_card_done(sessions):
 async def test_repeatable_check_spawns_one_successor_and_re_answer_does_not(sessions):
     async with sessions() as session:
         card = await create_action(session, title="Posture")
-        check = await create_check(session, title="Posture straight?", card_id=card.id, repeatable=True)
+        check = await linked_check(session, card.id, title="Posture straight?", repeatable=True)
         await session.commit()
 
         resolved, successor = await resolve_check(session, check.id, CheckOutcome.FAILED)
@@ -127,7 +133,7 @@ async def test_repeatable_check_spawns_one_successor_and_re_answer_does_not(sess
 async def test_only_one_pending_check_per_series(sessions):
     async with sessions() as session:
         card = await create_action(session)
-        check = await create_check(session, title="Posture", card_id=card.id, repeatable=True)
+        check = await linked_check(session, card.id, title="Posture", repeatable=True)
         await session.commit()
 
         _, successor = await resolve_check(session, check.id, CheckOutcome.PASSED)
@@ -147,17 +153,8 @@ async def test_only_one_pending_check_per_series(sessions):
 
 async def test_repeat_successor_card_gets_pending_check_copies_with_flags_intact(sessions):
     async with sessions() as session:
-        value = await create_value(session, "Health")
-        tag = await create_tag(session, "Home")
         card = await create_action(session, title="Go to the market", repeatable=True)
-        check = await create_check(
-            session,
-            title="Milk",
-            card_id=card.id,
-            repeatable=True,
-            value_ids={value.id},
-            tag_ids={tag.id},
-        )
+        check = await linked_check(session, card.id, title="Milk", repeatable=True)
         await session.commit()
 
         result = await finish_action(
@@ -177,21 +174,14 @@ async def test_repeat_successor_card_gets_pending_check_copies_with_flags_intact
         # Closing the Card must not have spawned a successor on the Card itself, or the
         # Card would have been blocked again the moment it was finished.
         assert await pending_checks(session, card.id) == []
-
-        copied_values = await session.scalars(
-            select(CheckValue.value_id).where(CheckValue.check_id == copy.id)
-        )
-        copied_tags = await session.scalars(
-            select(CheckTag.tag_id).where(CheckTag.check_id == copy.id)
-        )
-        assert list(copied_values) == [value.id]
-        assert list(copied_tags) == [tag.id]
+        # The copy belongs to the Card that repeated, not to the closed original.
+        assert await check_card_ids(session, copy.id) == [successor_card_id]
 
 
 async def test_repeat_successor_copies_one_row_per_series(sessions):
     async with sessions() as session:
         card = await create_action(session, title="Posture round", repeatable=True)
-        check = await create_check(session, title="Posture", card_id=card.id, repeatable=True)
+        check = await linked_check(session, card.id, title="Posture", repeatable=True)
         await session.commit()
 
         # Answering inside the cycle leaves the original plus its live successor on the
@@ -212,7 +202,7 @@ async def test_repeat_successor_copies_one_row_per_series(sessions):
 async def test_terminal_card_never_regains_a_pending_check(sessions):
     async with sessions() as session:
         card = await create_action(session)
-        check = await create_check(session, title="Posture", card_id=card.id, repeatable=True)
+        check = await linked_check(session, card.id, title="Posture", repeatable=True)
         await session.commit()
 
         await finish_action(
@@ -235,30 +225,81 @@ async def test_standalone_check_repeats_without_a_card(sessions):
         _, successor = await resolve_check(session, check.id, CheckOutcome.FAILED)
         await session.commit()
         assert successor is not None
-        assert successor.card_id is None
+        assert await check_card_ids(session, successor.id) == []
 
 
-async def test_archive_and_delete_cascade_to_checks(sessions):
+async def test_one_check_serves_several_cards(sessions):
+    async with sessions() as session:
+        market = await create_action(session, title="Go to the market")
+        pharmacy = await create_action(session, title="Go to the pharmacy")
+        check = await create_check(session, title="Take the tote bag")
+        assert await toggle_card_check(session, market.id, check.id) is True
+        assert await toggle_card_check(session, pharmacy.id, check.id) is True
+
+        await session.commit()
+
+        assert await check_card_ids(session, check.id) == sorted([market.id, pharmacy.id])
+        assert [item.id for item in await pending_checks(session, market.id)] == [check.id]
+        assert [item.id for item in await pending_checks(session, pharmacy.id)] == [check.id]
+
+        # One answer satisfies every Card the Check hangs on вЂ” that is the point of sharing.
+        await finish_action(
+            session, market.id, CardStage.DONE, check_outcomes={check.id: CheckOutcome.PASSED}
+        )
+        await session.commit()
+        assert await pending_checks(session, pharmacy.id) == []
+        await finish_action(session, pharmacy.id, CardStage.DONE)
+        await session.commit()
+        assert (await session.get(Card, pharmacy.id)).effective_stage == CardStage.DONE.value
+
+
+async def test_successor_is_linked_to_live_cards_only(sessions):
+    async with sessions() as session:
+        closed = await create_action(session, title="Closed")
+        await finish_action(session, closed.id, CardStage.DONE)
+        live = await create_action(session, title="Live")
+        check = await linked_check(
+            session, closed.id, live.id, title="Posture", repeatable=True
+        )
+        await session.commit()
+
+        _, successor = await resolve_check(session, check.id, CheckOutcome.FAILED)
+        await session.commit()
+
+        # A terminal Card must never regain a Pending row, so the successor hangs on the
+        # live Card alone.
+        assert successor is not None
+        assert await check_card_ids(session, successor.id) == [live.id]
+        assert await pending_checks(session, closed.id) == []
+
+
+async def test_archive_and_delete_keep_a_check_its_other_cards_still_need(sessions):
     async with sessions() as session:
         card = await create_action(session)
-        check = await create_check(session, title="Milk", card_id=card.id)
+        other = await create_action(session, title="Other")
+        check = await linked_check(session, card.id, title="Milk")
+        shared = await linked_check(session, card.id, other.id, title="Tote bag")
         await session.commit()
 
         await archive_subtree(session, card.id)
         await session.commit()
         assert (await session.get(Check, check.id)).archived_at is not None
-        assert await pending_checks(session, card.id) == []
+        assert (await session.get(Check, shared.id)).archived_at is None
+        # Only the Check nothing else needs is archived with the subtree.
+        assert [item.id for item in await pending_checks(session, card.id)] == [shared.id]
+        assert [item.id for item in await pending_checks(session, other.id)] == [shared.id]
 
     async with sessions() as session:
         await delete_subtree(session, card.id)
         await session.commit()
         assert await session.get(Check, check.id) is None
+        assert await session.get(Check, shared.id) is not None
+        assert await check_card_ids(session, shared.id) == [other.id]
 
 
-async def test_check_field_and_link_editing(sessions):
+async def test_check_field_and_card_link_editing(sessions):
     async with sessions() as session:
-        value = await create_value(session, "Health")
-        tag = await create_tag(session, "Home")
+        card = await create_action(session)
         check = await create_check(session, title="Posture")
         await session.commit()
 
@@ -267,10 +308,16 @@ async def test_check_field_and_link_editing(sessions):
         assert check.title == "Posture straight?"
         assert check.repeatable is True
 
-        assert await toggle_check_value(session, check.id, value.id) is True
-        assert await toggle_check_tag(session, check.id, tag.id) is True
-        assert await toggle_check_value(session, check.id, value.id) is False
+        assert await toggle_card_check(session, card.id, check.id) is True
+        assert await toggle_card_check(session, card.id, check.id) is False
         await session.commit()
+        assert await check_card_ids(session, check.id) == []
+        # The link is a Card relationship, so it lands in that Card's event log like the
+        # Value and Tag links do.
+        operations = set(
+            await session.scalars(select(CardEvent.operation).where(CardEvent.card_id == card.id))
+        )
+        assert {"link_check", "unlink_check"} <= operations
 
         with pytest.raises(DomainError, match="Check title cannot be empty"):
             await update_check_fields(session, check.id, {"title": "  "})

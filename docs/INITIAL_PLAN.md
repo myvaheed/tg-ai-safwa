@@ -13,10 +13,12 @@
 - Priority is Critical, Medium, or Low. Hard Time is an independent boolean.
 - An Action may be marked Blocked only with a non-empty description. Safwa does not maintain a Card-to-Card dependency graph.
 - Categories are Self, Contribution, Work, and Rest. Energy types are Physical, Cognitive, Social, and Values. Both can overlap and apply only to Actions.
-- Values and Tags are many-to-many Card and Check classifications. Active Values are the current AI focus; Tags have no focus state.
-- A Check records a state observation, not planned work. It has no effort and never enters a Sprint. A Check may belong to a Card or stand alone.
+- A Card has three links of one shape: Values, Tags, and Checks. All three are attached and detached from the Card, never from the other side.
+- Values and Tags are many-to-many Card classifications. Active Values are the current AI focus; Tags have no focus state. Neither classifies a Check.
+- A Check records a state observation, not planned work. It has no effort and never enters a Sprint.
+- A Card is a Check's only relationship: a Card lists its Checks, and the same Check may be linked to several Cards or to none. One answer resolves it on every Card it hangs on.
 - Check status is Pending, Passed, Missed, or Not applicable. Pending is derived from an unanswered Check and is never stored.
-- A repeatable Check produces a fresh Pending successor as soon as it is answered. Repeat successor Cards carry one Pending copy of each of their Card's Check series.
+- A repeatable Check produces a fresh Pending successor as soon as it is answered, linked to whichever of its Cards are still live. Repeat successor Cards carry one Pending copy of each of their Card's Check series.
 - A Card cannot be completed while it has Pending Checks. Cancelling is not gated, because abandoning work with unanswered Checks is legitimate.
 - A resolved Check may be re-answered; the previous outcome is overwritten and not retained.
 - Repeatable Actions create a successor on completion or cancellation, copying the prior live stage and reusable planning fields.
@@ -82,7 +84,7 @@ Use SQLite with SQLAlchemy 2, aiosqlite, WAL, foreign keys, a busy timeout, and 
 - `user_profile`: About Me, advisor instructions, schedule, reminders, provider settings, and optional capacity.
 - `cards`: parent, kind, title, Note, manual/effective stage, priority, Hard Time, effort, repeat data, feedback, Blocked state/description, archive/terminal state, version, and timestamps.
 - `values`, `tags`, and their Card junction tables.
-- `checks` plus `check_values` and `check_tags`. A Check stores its owning Card, title, Note, repeatability, outcome, first-resolution timestamp and actor, and its series lineage. Pending is `outcome IS NULL`, so no Pending state is written.
+- `checks` plus the `card_checks` junction table. A Check stores title, Note, repeatability, outcome, first-resolution timestamp and actor, and its series lineage; its Cards live in the junction table, not in a column on the Check. Pending is `outcome IS NULL`, so no Pending state is written.
 - Action category and energy junction tables.
 - `sprints` and immutable `sprint_commitments`.
 - `card_events` with actor, operation, snapshots, correlation, Sprint, and timestamp.

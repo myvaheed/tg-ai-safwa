@@ -136,6 +136,16 @@ oversized file disables memory injection instead of failing the turn.
   spawns a successor **only on the Pending → resolved transition**; resolving through the Done-gate
   suppresses that spawn, which is the only thing stopping a repeatable Check from blocking its Card
   forever. `finish_action` gates `Done` (never `Cancelled`) and names the Pending ids and titles.
+- A Card owns three links of one shape — Values, Tags, Checks — each with a `ReferenceSpec` in
+  `CARD_REFERENCE_SPECS`, a `toggle_card_*` command and a `card_*` junction table. Adding a fourth means
+  adding a spec, not a special case. `ReferenceSpec.name_attr` is why a Check (named by `title`)
+  resolves through the same `*_query` path as a Tag or Value (named by `name`).
+- A Card is a Check's only relationship, and it lives on the Card side in `card_checks`, so the `card`
+  tool and the Card screen attach it — the `check` tool has no link mode and `create_check` takes no
+  Cards. `toggle_card_check` is the only link-write path (`create_card(check_ids=…)` aside, where no
+  Card exists yet to act on). One Check may hang on many Cards; one answer resolves it on all of them,
+  and it gates every one until answered. Values and Tags do not classify Checks. A successor keeps
+  only the linked Cards that are still live.
 - Check resolution is the **one** proposal screen with field controls. The model proposes which Checks
   to answer; only the user can answer them. Both spec docs record this exception — do not "fix" it.
 - `manual_stage` is what the user set; `effective_stage` is derived for parents from descendants

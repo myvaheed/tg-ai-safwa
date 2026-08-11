@@ -29,6 +29,7 @@ from ..domain import (
     set_feedback,
     set_value_focus,
     start_sprint,
+    toggle_card_check,
     update_card_fields,
     update_check_fields,
 )
@@ -72,6 +73,7 @@ from .cards import (
 from .checks import (
     next_outcome,
     render_check,
+    render_check_link,
     render_check_resolution,
     render_check_text_prompt,
     render_checks,
@@ -722,7 +724,7 @@ async def _on_check_list(context: CallbackContext) -> None:
     await render_checks(
         context.message,
         context.services,
-        dict(context.payload["scope"]),
+        int(context.payload["card_id"]),
         back=_check_back(context),
     )
 
@@ -732,7 +734,7 @@ async def _on_check_view(context: CallbackContext) -> None:
         context.message,
         context.services,
         int(context.payload["id"]),
-        scope=dict(context.payload["scope"]),
+        card_id=int(context.payload["card_id"]),
         back=_check_back(context),
     )
 
@@ -743,7 +745,7 @@ async def _on_check_edit_text(context: CallbackContext) -> None:
         context.services,
         check_id=int(context.payload["id"]),
         field=str(context.payload["field"]),
-        scope=dict(context.payload["scope"]),
+        card_id=int(context.payload["card_id"]),
         back=_check_back(context),
     )
 
@@ -754,8 +756,45 @@ async def _on_check_create_prompt(context: CallbackContext) -> None:
         context.services,
         check_id=None,
         field="title",
-        scope=dict(context.payload["scope"]),
+        card_id=int(context.payload["card_id"]),
         back=_check_back(context),
+    )
+
+
+async def _on_check_link_list(context: CallbackContext) -> None:
+    await render_check_link(
+        context.message,
+        context.services,
+        int(context.payload["card_id"]),
+        back=_check_back(context),
+    )
+
+
+async def _on_check_link_toggle(context: CallbackContext) -> None:
+    card_id = int(context.payload["card_id"])
+    async with context.sessions() as session:
+        linked = await toggle_card_check(session, card_id, int(context.payload["id"]))
+        await session.commit()
+    await render_checks(
+        context.message,
+        context.services,
+        card_id,
+        back=_check_back(context),
+        notice="The Check now hangs on this Card too." if linked else "The Check was unlinked.",
+    )
+
+
+async def _on_check_unlink(context: CallbackContext) -> None:
+    card_id = int(context.payload["card_id"])
+    async with context.sessions() as session:
+        await toggle_card_check(session, card_id, int(context.payload["id"]))
+        await session.commit()
+    await render_checks(
+        context.message,
+        context.services,
+        card_id,
+        back=_check_back(context),
+        notice="The Check was unlinked from this Card; it still exists on its other Cards.",
     )
 
 
@@ -783,7 +822,7 @@ async def _on_check_cycle_status(context: CallbackContext) -> None:
         context.message,
         context.services,
         int(context.payload["id"]),
-        scope=dict(context.payload["scope"]),
+        card_id=int(context.payload["card_id"]),
         back=_check_back(context),
         notice=notice,
     )
@@ -796,7 +835,7 @@ async def _on_check_archive(context: CallbackContext) -> None:
     await render_checks(
         context.message,
         context.services,
-        dict(context.payload["scope"]),
+        int(context.payload["card_id"]),
         back=_check_back(context),
         notice="The Check was archived.",
     )
@@ -1038,7 +1077,9 @@ CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "card_delete_confirm": _on_card_delete_confirm,
     "card_finish": _on_card_finish,
     "card_checks": _on_check_list,
-    "item_checks": _on_check_list,
+    "check_link_list": _on_check_link_list,
+    "check_link_toggle": _on_check_link_toggle,
+    "check_unlink": _on_check_unlink,
     "check_view": _on_check_view,
     "check_edit_text": _on_check_edit_text,
     "check_create_prompt": _on_check_create_prompt,
