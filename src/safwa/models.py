@@ -169,6 +169,52 @@ class SavedRequest(Base, TimestampMixin):
     version: Mapped[int] = mapped_column(Integer, default=1)
 
 
+class Check(Base, TimestampMixin):
+    """One state observation: "did this hold?", answered once and then replaced.
+
+    Pending is derived (`outcome IS NULL`), never stored, so there is no reset path.
+    A resolved Check may be re-answered; the previous outcome is overwritten and lost,
+    which is why `resolved_at` keeps the *first* resolution — it is the observation time
+    the trend is keyed on, while `updated_at` carries any later correction.
+    """
+
+    __tablename__ = "checks"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    card_id: Mapped[int | None] = mapped_column(
+        ForeignKey("cards.id", ondelete="CASCADE"), index=True
+    )
+    title: Mapped[str] = mapped_column(String(500))
+    note: Mapped[str] = mapped_column(Text, default="")
+    repeatable: Mapped[bool] = mapped_column(Boolean, default=False)
+    outcome: Mapped[str | None] = mapped_column(String(20), index=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_by: Mapped[str | None] = mapped_column(String(20))
+    series_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    source_instance_id: Mapped[int | None] = mapped_column(
+        ForeignKey("checks.id", ondelete="SET NULL")
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class CheckValue(Base):
+    __tablename__ = "check_values"
+    check_id: Mapped[int] = mapped_column(
+        ForeignKey("checks.id", ondelete="CASCADE"), primary_key=True
+    )
+    value_id: Mapped[int] = mapped_column(
+        ForeignKey("values.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class CheckTag(Base):
+    __tablename__ = "check_tags"
+    check_id: Mapped[int] = mapped_column(
+        ForeignKey("checks.id", ondelete="CASCADE"), primary_key=True
+    )
+    tag_id: Mapped[int] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+
+
 class CardCategory(Base):
     __tablename__ = "card_categories"
     card_id: Mapped[int] = mapped_column(

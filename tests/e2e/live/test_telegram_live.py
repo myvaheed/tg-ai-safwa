@@ -261,10 +261,10 @@ async def test_qa_status_and_manual_card_review_flow(live_telegram_harness):
         await click_button(titled_review, "Effort")
         effort_prompt = await qa.wait_for_existing_bot_message(
             titled_review.id,
-            lambda message: has_button(message, "2", exact=True),
+            lambda message: has_button(message, "2 EP", exact=True),
         )
         assert effort_prompt.id == titled_review.id
-        await click_button(effort_prompt, "2", exact=True)
+        await click_button(effort_prompt, "2 EP", exact=True)
         ready_review = await qa.wait_for_existing_bot_message(
             effort_prompt.id,
             lambda message: title in message.raw_text and has_button(message, "Save"),
@@ -282,6 +282,137 @@ async def test_qa_status_and_manual_card_review_flow(live_telegram_harness):
             assert connection.execute(
                 "SELECT COUNT(*) FROM cards WHERE title=?", (title,)
             ).fetchone() == (1,)
+    finally:
+        await qa.delete_test_messages()
+
+
+async def _wait_for_row(database_path: Path, sql: str, parameters: tuple, timeout: float) -> tuple:
+    """Poll the QA database until a callback's transaction is visible."""
+    deadline = monotonic() + timeout
+    row: tuple = ()
+    while monotonic() < deadline:
+        with sqlite3.connect(database_path) as connection:
+            row = connection.execute(sql, parameters).fetchone()
+        if row and row[0] is not None:
+            return row
+        await asyncio.sleep(0.5)
+    raise AssertionError(f"Row {parameters} never appeared within {timeout}s; last read {row}")
+
+
+async def test_qa_check_gate_blocks_done_until_every_check_is_answered(live_telegram_harness):
+    qa = live_telegram_harness
+    title = f"QA market {uuid4().hex[:8]}"
+    check_title = f"QA milk {uuid4().hex[:8]}"
+    try:
+        add_command = await qa.send("/start")
+        home = await qa.wait_for_bot(
+            add_command.id,
+            lambda message: "Safwa" in message.raw_text and has_button(message, "Add"),
+        )
+        await click_button(home, "Add")
+        draft = await qa.wait_for_existing_bot_message(
+            home.id,
+            lambda message: has_button(message, "Title") and has_button(message, "Effort"),
+        )
+        await click_button(draft, "Title")
+        await qa.wait_for_existing_bot_message(
+            draft.id, lambda message: "Set new Title" in message.raw_text
+        )
+        await qa.send(title)
+        titled = await qa.wait_for_existing_bot_message(
+            draft.id,
+            lambda message: title in message.raw_text and has_button(message, "Effort"),
+        )
+        await click_button(titled, "Effort")
+        efforts = await qa.wait_for_existing_bot_message(
+            titled.id, lambda message: has_button(message, "2 EP", exact=True)
+        )
+        await click_button(efforts, "2 EP", exact=True)
+        ready = await qa.wait_for_existing_bot_message(
+            efforts.id,
+            lambda message: title in message.raw_text and has_button(message, "Save"),
+        )
+        await click_button(ready, "Save")
+        # Saving a draft leaves a receipt, not the Card screen; reach the Card through
+        # the Backlog dashboard, which is where a new Card lands by default.
+        await qa.wait_for_existing_bot_message(
+            ready.id,
+            lambda message: "Created" in message.raw_text and title in message.raw_text,
+        )
+        backlog_command = await qa.send("/backlog")
+        dashboard = await qa.wait_for_bot(
+            backlog_command.id, lambda message: has_button(message, title)
+        )
+        await click_button(dashboard, title)
+        card = await qa.wait_for_existing_bot_message(
+            dashboard.id,
+            lambda message: title in message.raw_text and has_button(message, "Checks"),
+        )
+
+        await click_button(card, "Checks")
+        checks = await qa.wait_for_existing_bot_message(
+            card.id,
+            lambda message: "No Checks yet" in message.raw_text
+            and has_button(message, "Add Check"),
+        )
+        await click_button(checks, "Add Check")
+        await qa.wait_for_existing_bot_message(
+            checks.id, lambda message: "New Check title" in message.raw_text
+        )
+        await qa.send(check_title)
+        check_screen = await qa.wait_for_existing_bot_message(
+            checks.id,
+            lambda message: check_title in message.raw_text and "Pending" in message.raw_text,
+        )
+        await click_button(check_screen, "Back")
+        listed = await qa.wait_for_existing_bot_message(
+            check_screen.id,
+            lambda message: check_title in message.raw_text and has_button(message, "Add Check"),
+        )
+        await click_button(listed, "Back")
+        card = await qa.wait_for_existing_bot_message(
+            listed.id,
+            lambda message: title in message.raw_text and has_button(message, "Done"),
+        )
+
+        # Done must not finish the Card while a Check is unanswered.
+        await click_button(card, "Done")
+        gate = await qa.wait_for_existing_bot_message(
+            card.id,
+            lambda message: "Pending Checks" in message.raw_text
+            and "Missed" in message.raw_text
+            and has_button(message, "Save"),
+        )
+        card_row = await _wait_for_row(
+            qa.database_path,
+            "SELECT effective_stage FROM cards WHERE title=?",
+            (title,),
+            qa.timeout,
+        )
+        assert card_row[0] == "backlog"
+
+        await click_button(gate, check_title)
+        cycled = await qa.wait_for_existing_bot_message(
+            gate.id,
+            lambda message: "Not applicable" in message.raw_text,
+        )
+        await click_button(cycled, "Save")
+
+        stage_row = await _wait_for_row(
+            qa.database_path,
+            "SELECT effective_stage FROM cards WHERE title=? AND effective_stage='done'",
+            (title,),
+            qa.timeout,
+        )
+        assert stage_row[0] == "done"
+        outcome_row = await _wait_for_row(
+            qa.database_path,
+            "SELECT outcome, resolved_at FROM checks WHERE title=?",
+            (check_title,),
+            qa.timeout,
+        )
+        assert outcome_row[0] == "not_applicable"
+        assert outcome_row[1] is not None
     finally:
         await qa.delete_test_messages()
 

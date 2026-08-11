@@ -82,7 +82,8 @@ Consequences that break silently if ignored:
 ### AI mutations are always proposals
 
 The model never mutates and never writes mutation SQL. Path:
-tool call → Pydantic model in [ai/contracts.py](src/safwa/ai/contracts.py) → `AgentChange` →
+tool call (`card`, `check`, `value`, `tag`, `request`, `remove`) →
+Pydantic model in [ai/contracts.py](src/safwa/ai/contracts.py) → `AgentChange` →
 `ChangeProposal` + `ProposalChange` rows → a read-only review screen with only **Save**/**Discard** →
 `ProposalService.apply` calls the *same* `domain.py` functions the manual UI calls.
 
@@ -129,6 +130,14 @@ oversized file disables memory injection instead of failing the turn.
 - Card tree: Goal is root-only; Idea may be root or under a Goal; Action may be root or under
   Goal/Idea and has no children. Action-only fields (effort, categories, energy, repeatable, liked)
   are stripped for Goal/Idea at both the AI and domain boundaries.
+- Checks record a state observation, never planned work: no effort, never in a Sprint. **Pending is
+  derived** (`outcome IS NULL`) and never stored. `resolved_at` holds the *first* resolution, because
+  re-answering is allowed and must not move the observation the trend is keyed on. A repeatable Check
+  spawns a successor **only on the Pending → resolved transition**; resolving through the Done-gate
+  suppresses that spawn, which is the only thing stopping a repeatable Check from blocking its Card
+  forever. `finish_action` gates `Done` (never `Cancelled`) and names the Pending ids and titles.
+- Check resolution is the **one** proposal screen with field controls. The model proposes which Checks
+  to answer; only the user can answer them. Both spec docs record this exception — do not "fix" it.
 - `manual_stage` is what the user set; `effective_stage` is derived for parents from descendants
   (`aggregate_child_stages`, `propagate_ancestors`) and is what dashboards and queries read.
 - Effort is restricted to `EFFORT_POINTS` ([constants.py](src/safwa/constants.py)) `= {1,2,3,5,8,13}`

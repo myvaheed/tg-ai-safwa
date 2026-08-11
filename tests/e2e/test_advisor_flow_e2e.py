@@ -1059,6 +1059,7 @@ async def test_advisor_sends_one_system_message_and_canonical_dialogue(e2e_harne
     assert isinstance(tools, list) and [tool["function"]["name"] for tool in tools] == [
         "query_safwa",
         "card",
+        "check",
         "value",
         "tag",
         "request",

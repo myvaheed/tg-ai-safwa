@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class AgentChange(BaseModel):
-    entity: Literal["card", "tag", "value", "request"]
+    entity: Literal["card", "check", "tag", "value", "request"]
     action: Literal[
         "create",
         "update",
@@ -18,6 +18,8 @@ class AgentChange(BaseModel):
         "delete",
         "link",
         "unlink",
+        "resolve",
+        "resolve_for_card",
     ]
     id: int | None = None
     values: dict[str, Any] = Field(default_factory=dict)
@@ -130,6 +132,78 @@ class CardToolInput(BaseModel):
         return self
 
 
+class CheckToolInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["create", "edit", "resolve", "resolve_for_card", "link", "unlink"]
+    id: int | None = None
+    card_id: int | None = None
+    title: str | None = None
+    note: str | None = None
+    repeatable: bool | None = None
+    outcome: Literal["passed", "failed", "not_applicable"] | None = None
+    value_id: int | None = None
+    value_ids: list[int] | None = None
+    value_query: str | list[str] | None = Field(
+        default=None, description="One or more exact Value names; this is not SQL."
+    )
+    tag_id: int | None = None
+    tag_ids: list[int] | None = None
+    tag_query: str | list[str] | None = Field(
+        default=None, description="One or more exact Tag names; this is not SQL."
+    )
+
+    @model_validator(mode="after")
+    def validate_target(self) -> CheckToolInput:
+        supplied = set(self.model_fields_set) - {"mode", "id"}
+        relationships = {
+            "value_id",
+            "value_ids",
+            "value_query",
+            "tag_id",
+            "tag_ids",
+            "tag_query",
+        }
+        if self.mode == "create":
+            if self.id is not None:
+                raise ValueError("a new Check must not include an id")
+            if not (self.title or "").strip():
+                raise ValueError("a new Check needs a title")
+            if self.outcome is not None:
+                raise ValueError("a new Check starts Pending and takes no outcome")
+            return self
+        if self.mode == "resolve_for_card":
+            if self.card_id is None:
+                raise ValueError("resolve_for_card needs a card_id")
+            if supplied - {"card_id"}:
+                raise ValueError("resolve_for_card accepts only a card_id")
+            return self
+        if self.id is None:
+            raise ValueError(f"check mode '{self.mode}' needs an id")
+        if self.mode == "edit":
+            editable = {"title", "note", "repeatable", "card_id", *relationships}
+            if not supplied:
+                raise ValueError("an edited Check needs at least one proposed field")
+            if unsupported := supplied - editable:
+                raise ValueError("Check edit does not accept: " + ", ".join(sorted(unsupported)))
+        elif self.mode == "resolve":
+            if self.outcome is None:
+                raise ValueError("resolve needs an outcome")
+            if supplied - {"outcome"}:
+                raise ValueError("Check resolve accepts only an outcome")
+        elif self.mode in {"link", "unlink"}:
+            groups = [
+                supplied & {"value_id", "value_ids", "value_query"},
+                supplied & {"tag_id", "tag_ids", "tag_query"},
+            ]
+            selected = [group for group in groups if group]
+            if len(selected) != 1:
+                raise ValueError(f"Check {self.mode} needs exactly one relationship type")
+            if supplied - selected[0]:
+                raise ValueError(f"Check {self.mode} mixes unrelated fields")
+        return self
+
+
 class ValueToolInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -200,7 +274,7 @@ class RequestToolInput(BaseModel):
 class RemoveToolInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    type: Literal["card", "tag", "value", "request"]
+    type: Literal["card", "check", "tag", "value", "request"]
     id: int
     permanent: bool = False
 
@@ -213,6 +287,7 @@ class RemoveToolInput(BaseModel):
 
 MUTATION_TOOL_MODELS: dict[str, type[BaseModel]] = {
     "card": CardToolInput,
+    "check": CheckToolInput,
     "value": ValueToolInput,
     "tag": TagToolInput,
     "request": RequestToolInput,

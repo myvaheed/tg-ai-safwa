@@ -13,6 +13,7 @@ from ..ai.service import ProposalService
 from ..domain import (
     DomainError,
     StaleStateError,
+    archive_check,
     archive_subtree,
     archive_tag,
     archive_value,
@@ -23,13 +24,24 @@ from ..domain import (
     finish_action,
     finish_sprint,
     move_card,
+    pending_checks,
+    resolve_check,
     set_feedback,
     set_value_focus,
     start_sprint,
     update_card_fields,
+    update_check_fields,
 )
 from ..enums import CardStage, MessageKind, ProposalStatus
-from ..models import CallbackToken, Card, ChangeProposal, ProposalChange, UiSession, UserProfile
+from ..models import (
+    CallbackToken,
+    Card,
+    ChangeProposal,
+    Check,
+    ProposalChange,
+    UiSession,
+    UserProfile,
+)
 from ._core import (
     CARD_CHOICE_FIELDS,
     CARD_DRAFT_CHOICE_FIELDS,
@@ -56,6 +68,13 @@ from .cards import (
     render_dashboard,
     require_card_draft,
     sanitize_card_creation_state,
+)
+from .checks import (
+    next_outcome,
+    render_check,
+    render_check_resolution,
+    render_check_text_prompt,
+    render_checks,
 )
 from .commands import (
     command_start,
@@ -661,10 +680,23 @@ async def _on_card_delete_confirm(context: CallbackContext) -> None:
 
 
 async def _on_card_finish(context: CallbackContext) -> None:
+    card_id = int(context.payload["id"])
+    stage = CardStage(context.payload["stage"])
+    if stage is CardStage.DONE:
+        async with context.sessions() as session:
+            blocking = await pending_checks(session, card_id)
+        if blocking:
+            # Done is gated: the user answers each Check on its own screen, and nothing
+            # is written until Save, so backing out leaves the Card live.
+            await render_check_resolution(
+                context.message,
+                context.services,
+                card_id,
+                back={"kind": "card", "id": card_id},
+            )
+            return
     async with context.sessions() as session:
-        result = await finish_action(
-            session, context.payload["id"], CardStage(context.payload["stage"])
-        )
+        result = await finish_action(session, card_id, stage)
         await session.commit()
     notice = "⚠️ " + "; ".join(result.warnings) if result.warnings else None
     if context.payload["stage"] == CardStage.DONE.value:
@@ -677,6 +709,167 @@ async def _on_card_finish(context: CallbackContext) -> None:
         kind=MessageKind.RECEIPT,
         markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
     )
+
+
+# --- Checks --------------------------------------------------------------------
+
+
+def _check_back(context: CallbackContext) -> dict:
+    return dict(context.payload.get("back") or {"kind": "home"})
+
+
+async def _on_check_list(context: CallbackContext) -> None:
+    await render_checks(
+        context.message,
+        context.services,
+        dict(context.payload["scope"]),
+        back=_check_back(context),
+    )
+
+
+async def _on_check_view(context: CallbackContext) -> None:
+    await render_check(
+        context.message,
+        context.services,
+        int(context.payload["id"]),
+        scope=dict(context.payload["scope"]),
+        back=_check_back(context),
+    )
+
+
+async def _on_check_edit_text(context: CallbackContext) -> None:
+    await render_check_text_prompt(
+        context.message,
+        context.services,
+        check_id=int(context.payload["id"]),
+        field=str(context.payload["field"]),
+        scope=dict(context.payload["scope"]),
+        back=_check_back(context),
+    )
+
+
+async def _on_check_create_prompt(context: CallbackContext) -> None:
+    await render_check_text_prompt(
+        context.message,
+        context.services,
+        check_id=None,
+        field="title",
+        scope=dict(context.payload["scope"]),
+        back=_check_back(context),
+    )
+
+
+async def _on_check_toggle_repeat(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        check = await session.get(Check, int(context.payload["id"]))
+        if check is None:
+            raise DomainError("Check does not exist")
+        await update_check_fields(session, check.id, {"repeatable": not check.repeatable})
+        await session.commit()
+    await _on_check_view(context)
+
+
+async def _on_check_cycle_status(context: CallbackContext) -> None:
+    notice = None
+    async with context.sessions() as session:
+        check = await session.get(Check, int(context.payload["id"]))
+        if check is None:
+            raise DomainError("Check does not exist")
+        _answered, successor = await resolve_check(session, check.id, next_outcome(check.outcome))
+        await session.commit()
+        if successor is not None:
+            notice = "A new Pending Check was created for the next round."
+    await render_check(
+        context.message,
+        context.services,
+        int(context.payload["id"]),
+        scope=dict(context.payload["scope"]),
+        back=_check_back(context),
+        notice=notice,
+    )
+
+
+async def _on_check_archive(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        await archive_check(session, int(context.payload["id"]))
+        await session.commit()
+    await render_checks(
+        context.message,
+        context.services,
+        dict(context.payload["scope"]),
+        back=_check_back(context),
+        notice="The Check was archived.",
+    )
+
+
+async def _on_check_resolve_cycle(context: CallbackContext) -> None:
+    card_id = int(context.payload["card_id"])
+    check_id = str(context.payload["check_id"])
+    async with context.sessions() as session:
+        editor = await session.scalar(
+            select(UiSession).where(UiSession.owner_id == context.owner_id)
+        )
+        if editor is None or editor.kind != "check_resolve":
+            raise DomainError("This Check screen expired")
+        state = dict(editor.state)
+    outcomes = dict(state.get("outcomes") or {})
+    outcomes[check_id] = next_outcome(outcomes.get(check_id))
+    await render_check_resolution(
+        context.message,
+        context.services,
+        card_id,
+        back=dict(state.get("back") or {"kind": "home"}),
+        outcomes=outcomes,
+    )
+
+
+async def _on_check_resolve_save(context: CallbackContext) -> None:
+    card_id = int(context.payload["card_id"])
+    async with context.sessions() as session:
+        editor = await session.scalar(
+            select(UiSession).where(UiSession.owner_id == context.owner_id)
+        )
+        if editor is None or editor.kind != "check_resolve":
+            raise DomainError("This Check screen expired")
+        outcomes = {int(key): value for key, value in (editor.state.get("outcomes") or {}).items()}
+        result = await finish_action(session, card_id, CardStage.DONE, check_outcomes=outcomes)
+        await _clear_ui_sessions(session, context.owner_id)
+        await session.commit()
+    notice = "⚠️ " + "; ".join(result.warnings) if result.warnings else None
+    await render_feedback(context.message, context.services, notice=notice)
+
+
+async def _on_check_resolve_cancel(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        await _clear_ui_sessions(session, context.owner_id)
+        await session.commit()
+    await render_card(
+        context.message,
+        context.services,
+        int(context.payload["id"]),
+        notice="The Card is still live; its Checks were not changed.",
+    )
+
+
+async def _on_proposal_check_cycle(context: CallbackContext) -> None:
+    """Cycle one answer inside a Check-resolution proposal without approving it."""
+    proposal_id = int(context.payload["id"])
+    check_id = str(context.payload["check_id"])
+    async with context.sessions() as session:
+        change = await session.scalar(
+            select(ProposalChange).where(ProposalChange.proposal_id == proposal_id)
+        )
+        if change is None or change.action != "resolve_for_card":
+            raise DomainError("This proposal no longer accepts Check answers")
+        values = dict(change.values)
+        outcomes = dict(values.get("outcomes") or {})
+        if check_id not in outcomes:
+            raise DomainError("That Check is not part of this proposal")
+        outcomes[check_id] = next_outcome(outcomes[check_id])
+        values["outcomes"] = outcomes
+        change.values = values
+        await session.commit()
+    await render_proposal(context.message, context.services, proposal_id)
 
 
 async def _on_feedback(context: CallbackContext) -> None:
@@ -844,6 +1037,20 @@ CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "card_delete_prompt": _on_card_delete_prompt,
     "card_delete_confirm": _on_card_delete_confirm,
     "card_finish": _on_card_finish,
+    "card_checks": _on_check_list,
+    "item_checks": _on_check_list,
+    "check_view": _on_check_view,
+    "check_edit_text": _on_check_edit_text,
+    "check_create_prompt": _on_check_create_prompt,
+    "check_toggle_repeat": _on_check_toggle_repeat,
+    "check_cycle_status": _on_check_cycle_status,
+    "check_archive": _on_check_archive,
+    "check_list_back": _on_check_list,
+    "check_back": _on_card_back,
+    "check_resolve_cycle": _on_check_resolve_cycle,
+    "check_resolve_save": _on_check_resolve_save,
+    "check_resolve_cancel": _on_check_resolve_cancel,
+    "proposal_check_cycle": _on_proposal_check_cycle,
     "feedback": _on_feedback,
     "sprint_start": _on_sprint_start,
     "sprint_finish": _on_sprint_finish,

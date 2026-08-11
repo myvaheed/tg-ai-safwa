@@ -16,6 +16,7 @@ from .enums import (
     CardKind,
     CardStage,
     Category,
+    CheckOutcome,
     EnergyType,
     Priority,
     WorkspaceMode,
@@ -27,6 +28,9 @@ from .models import (
     CardEvent,
     CardTag,
     CardValue,
+    Check,
+    CheckTag,
+    CheckValue,
     FeedbackQueue,
     ReminderState,
     SavedRequest,
@@ -761,6 +765,293 @@ async def toggle_card_energy_type(
     return linked
 
 
+async def card_checks(session: AsyncSession, card_id: int) -> list[Check]:
+    return list(
+        await session.scalars(
+            select(Check)
+            .where(Check.card_id == card_id, Check.archived_at.is_(None))
+            .order_by(Check.id)
+        )
+    )
+
+
+async def pending_checks(session: AsyncSession, card_id: int) -> list[Check]:
+    """Pending is derived, never stored: a Check that has no outcome yet."""
+    return list(
+        await session.scalars(
+            select(Check)
+            .where(
+                Check.card_id == card_id,
+                Check.outcome.is_(None),
+                Check.archived_at.is_(None),
+            )
+            .order_by(Check.id)
+        )
+    )
+
+
+async def create_check(
+    session: AsyncSession,
+    *,
+    title: str,
+    note: str = "",
+    card_id: int | None = None,
+    repeatable: bool = False,
+    value_ids: set[int] | None = None,
+    tag_ids: set[int] | None = None,
+) -> Check:
+    """Create one Pending Check, optionally owned by a Card and classified by Values/Tags."""
+    clean_title = title.strip()
+    if not clean_title:
+        raise DomainError("Check title cannot be empty")
+    if card_id is not None:
+        card = await session.get(Card, card_id)
+        if card is None or card.archived_at is not None:
+            raise DomainError("Card does not exist or is archived")
+    for value_id in value_ids or set():
+        value = await session.get(Value, value_id)
+        if value is None or value.archived_at is not None:
+            raise DomainError(f"Value #{value_id} does not exist or is archived")
+    for tag_id in tag_ids or set():
+        tag = await session.get(Tag, tag_id)
+        if tag is None or tag.archived_at is not None:
+            raise DomainError(f"Tag #{tag_id} does not exist or is archived")
+    check = Check(
+        card_id=card_id,
+        title=clean_title,
+        note=note.strip(),
+        repeatable=repeatable,
+    )
+    session.add(check)
+    await session.flush()
+    check.series_id = check.id
+    for value_id in sorted(value_ids or set()):
+        session.add(CheckValue(check_id=check.id, value_id=value_id))
+    for tag_id in sorted(tag_ids or set()):
+        session.add(CheckTag(check_id=check.id, tag_id=tag_id))
+    await _bump_workspace(session)
+    return check
+
+
+async def update_check_fields(
+    session: AsyncSession, check_id: int, fields: dict[str, Any]
+) -> Check:
+    check = await session.get(Check, check_id)
+    if check is None or check.archived_at is not None:
+        raise DomainError("Check does not exist or is archived")
+    unknown = set(fields) - {"title", "note", "repeatable"}
+    if unknown:
+        raise DomainError("Unsupported Check fields: " + ", ".join(sorted(unknown)))
+    for name, value in fields.items():
+        if name in {"title", "note"}:
+            value = str(value).strip()
+        if name == "title" and not value:
+            raise DomainError("Check title cannot be empty")
+        setattr(check, name, value)
+    check.version += 1
+    await _bump_workspace(session)
+    return check
+
+
+async def archive_check(session: AsyncSession, check_id: int, archive: bool = True) -> Check:
+    check = await session.get(Check, check_id)
+    if check is None:
+        raise DomainError("Check does not exist")
+    check.archived_at = utcnow() if archive else None
+    check.version += 1
+    await _bump_workspace(session)
+    return check
+
+
+async def toggle_check_value(session: AsyncSession, check_id: int, value_id: int) -> bool:
+    check = await session.get(Check, check_id)
+    value = await session.get(Value, value_id)
+    if check is None or check.archived_at is not None:
+        raise DomainError("Check does not exist or is archived")
+    if value is None or value.archived_at is not None:
+        raise DomainError("Value does not exist or is archived")
+    link = await session.scalar(
+        select(CheckValue).where(CheckValue.check_id == check_id, CheckValue.value_id == value_id)
+    )
+    if link is None:
+        session.add(CheckValue(check_id=check_id, value_id=value_id))
+        linked = True
+    else:
+        await session.delete(link)
+        linked = False
+    check.version += 1
+    await _bump_workspace(session)
+    return linked
+
+
+async def toggle_check_tag(session: AsyncSession, check_id: int, tag_id: int) -> bool:
+    check = await session.get(Check, check_id)
+    tag = await session.get(Tag, tag_id)
+    if check is None or check.archived_at is not None:
+        raise DomainError("Check does not exist or is archived")
+    if tag is None or tag.archived_at is not None:
+        raise DomainError("Tag does not exist or is archived")
+    link = await session.scalar(
+        select(CheckTag).where(CheckTag.check_id == check_id, CheckTag.tag_id == tag_id)
+    )
+    if link is None:
+        session.add(CheckTag(check_id=check_id, tag_id=tag_id))
+        linked = True
+    else:
+        await session.delete(link)
+        linked = False
+    check.version += 1
+    await _bump_workspace(session)
+    return linked
+
+
+async def _copy_check(
+    session: AsyncSession, source: Check, series_id: int, card_id: int | None
+) -> Check:
+    successor = Check(
+        card_id=card_id,
+        title=source.title,
+        note=source.note,
+        repeatable=source.repeatable,
+        series_id=series_id,
+        source_instance_id=source.id,
+    )
+    session.add(successor)
+    await session.flush()
+    for link in await session.scalars(select(CheckValue).where(CheckValue.check_id == source.id)):
+        session.add(CheckValue(check_id=successor.id, value_id=link.value_id))
+    for link in await session.scalars(select(CheckTag).where(CheckTag.check_id == source.id)):
+        session.add(CheckTag(check_id=successor.id, tag_id=link.tag_id))
+    return successor
+
+
+async def _spawn_check_successor(session: AsyncSession, check: Check) -> Check | None:
+    if check.card_id is not None:
+        card = await session.get(Card, check.card_id)
+        if card is None or card.archived_at is not None:
+            return None
+        if CardStage(card.effective_stage) in TERMINAL_STAGES:
+            # A terminal Card must never regain a Pending Check, or the Done-gate would
+            # block it on every later reopen, and a repeatable Check would deadlock it.
+            return None
+    series_id = check.series_id or check.id
+    check.series_id = series_id
+    live_in_series = await session.scalar(
+        select(func.count())
+        .select_from(Check)
+        .where(
+            Check.series_id == series_id,
+            Check.outcome.is_(None),
+            Check.archived_at.is_(None),
+        )
+    )
+    if live_in_series:
+        return None
+    return await _copy_check(session, check, series_id, check.card_id)
+
+
+async def _apply_check_outcome(
+    session: AsyncSession,
+    check: Check,
+    outcome: CheckOutcome | str,
+    actor: ActorType,
+    *,
+    spawn: bool,
+) -> Check | None:
+    resolved = CheckOutcome(outcome)
+    was_pending = check.outcome is None
+    check.outcome = resolved.value
+    check.resolved_by = actor.value
+    if was_pending:
+        # resolved_at is the observation time the trend is keyed on, so a later
+        # correction must not move the data point; updated_at carries that edit.
+        check.resolved_at = utcnow()
+    check.version += 1
+    if not (was_pending and spawn and check.repeatable):
+        return None
+    return await _spawn_check_successor(session, check)
+
+
+async def resolve_check(
+    session: AsyncSession,
+    check_id: int,
+    outcome: CheckOutcome | str,
+    *,
+    actor: ActorType = ActorType.USER_UI,
+) -> tuple[Check, Check | None]:
+    """Answer one Check; only the first answer spawns a repeatable successor."""
+    check = await session.get(Check, check_id)
+    if check is None or check.archived_at is not None:
+        raise DomainError("Check does not exist or is archived")
+    successor = await _apply_check_outcome(session, check, outcome, actor, spawn=True)
+    await _bump_workspace(session)
+    return check, successor
+
+
+async def resolve_checks_for_card(
+    session: AsyncSession,
+    card_id: int,
+    outcomes: dict[int, CheckOutcome | str] | None,
+    *,
+    actor: ActorType = ActorType.USER_UI,
+) -> list[Check]:
+    """Answer every Pending Check on a Card so the Card can then be completed.
+
+    Spawning is suppressed for the same reason it is in ``finish_action``: a repeatable
+    Check would immediately put a new Pending row back on the Card and block it again.
+    """
+    card = await session.get(Card, card_id)
+    if card is None or card.archived_at is not None:
+        raise DomainError("Card does not exist or is archived")
+    pending = await pending_checks(session, card_id)
+    if not pending:
+        raise DomainError("This Card has no Pending Checks")
+    resolutions = _pending_check_resolutions(pending, outcomes)
+    for check in pending:
+        await _apply_check_outcome(session, check, resolutions[check.id], actor, spawn=False)
+    await _bump_workspace(session)
+    return pending
+
+
+def _pending_check_resolutions(
+    pending: list[Check], outcomes: dict[int, CheckOutcome | str] | None
+) -> dict[int, CheckOutcome]:
+    supplied = {int(key): CheckOutcome(value) for key, value in (outcomes or {}).items()}
+    unknown = set(supplied) - {check.id for check in pending}
+    if unknown:
+        raise DomainError(
+            "These Checks are not Pending on this Card: "
+            + ", ".join(f"#{check_id}" for check_id in sorted(unknown))
+        )
+    missing = [check for check in pending if check.id not in supplied]
+    if missing:
+        raise DomainError(
+            "Resolve these Pending Checks before finishing the Card: "
+            + ", ".join(f"#{check.id} {check.title}" for check in missing)
+        )
+    return supplied
+
+
+async def _clone_checks_for_successor(
+    session: AsyncSession, card: Card, successor_id: int
+) -> None:
+    """Carry one Pending copy of each Check series onto a repeat successor.
+
+    Grouping by series matters: a repeatable Check that already spawned inside this
+    cycle leaves both the answered original and its live successor on the Card, and
+    copying both would put two Pending rows of one series on the new Card.
+    """
+    latest: dict[int, Check] = {}
+    for check in await session.scalars(
+        select(Check)
+        .where(Check.card_id == card.id, Check.archived_at.is_(None))
+        .order_by(Check.id)
+    ):
+        latest[check.series_id or check.id] = check
+    for series_id, check in sorted(latest.items()):
+        await _copy_check(session, check, series_id, successor_id)
+
+
 async def _workspace(session: AsyncSession) -> Workspace:
     workspace = await session.get(Workspace, 1)
     if workspace is None:
@@ -1041,6 +1332,7 @@ async def _copy_repeat_successor(session: AsyncSession, card: Card, live_stage: 
         select(CardEnergyType).where(CardEnergyType.card_id == card.id)
     ):
         session.add(CardEnergyType(card_id=successor.id, energy_type=link.energy_type))
+    await _clone_checks_for_successor(session, card, successor.id)
     await _sync_commitment_for_stage(session, successor)
     return successor
 
@@ -1051,6 +1343,7 @@ async def finish_action(
     terminal_stage: CardStage,
     *,
     actor: ActorType = ActorType.USER_UI,
+    check_outcomes: dict[int, CheckOutcome | str] | None = None,
 ) -> OperationResult:
     if terminal_stage not in TERMINAL_STAGES:
         raise DomainError("Finish stage must be Done or Cancelled")
@@ -1061,6 +1354,10 @@ async def finish_action(
         raise DomainError("Only Actions are finished directly")
     if CardStage(card.effective_stage) in TERMINAL_STAGES:
         raise DomainError("Action is already terminal")
+    # Done is gated on Pending Checks; Cancelled is not, because abandoning a Card
+    # with unanswered Checks is legitimate.  Resolved before anything is mutated.
+    pending = await pending_checks(session, card.id) if terminal_stage is CardStage.DONE else []
+    resolutions = _pending_check_resolutions(pending, check_outcomes)
     previous_live_stage = CardStage(card.effective_stage)
     before = card_snapshot(card)
     now = utcnow()
@@ -1092,6 +1389,11 @@ async def finish_action(
     if card.repeatable:
         successor = await _copy_repeat_successor(session, card, previous_live_stage)
         result.successor_ids.append(successor.id)
+    # Suppressing the spawn is what breaks the deadlock: a repeatable Check would
+    # otherwise put a fresh Pending row on the Card being closed.  The successor Card
+    # above already carries the copies, so the series continues there instead.
+    for check in pending:
+        await _apply_check_outcome(session, check, resolutions[check.id], actor, spawn=False)
     result.ancestor_ids = await propagate_ancestors(session, card.parent_id)
     await _bump_workspace(session)
     return result
@@ -1204,6 +1506,9 @@ async def archive_subtree(session: AsyncSession, card_id: int, archive: bool = T
         before = card_snapshot(node)
         node.archived_at = stamp
         node.version += 1
+        for check in await session.scalars(select(Check).where(Check.card_id == node.id)):
+            check.archived_at = stamp
+            check.version += 1
         await _record_event(
             session,
             node,
@@ -1235,6 +1540,7 @@ async def delete_subtree(session: AsyncSession, card_id: int) -> int:
             await collect(child)
 
     await collect(card)
+    await session.execute(delete(Check).where(Check.card_id.in_(ids)))
     await session.execute(delete(Card).where(Card.id.in_(ids)))
     await propagate_ancestors(session, parent_id)
     await _bump_workspace(session)

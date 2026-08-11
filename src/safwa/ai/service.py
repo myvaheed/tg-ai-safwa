@@ -24,33 +24,43 @@ from ..domain import (
     DomainError,
     ReferenceSpec,
     StaleStateError,
+    archive_check,
     archive_saved_request,
     archive_subtree,
     archive_tag,
     archive_value,
     create_card,
+    create_check,
     create_saved_request,
     create_tag,
     create_value,
     delete_subtree,
     finish_action,
     move_card,
+    pending_checks,
+    resolve_check,
+    resolve_checks_for_card,
     resolve_references,
     set_card_parent,
     toggle_card_category,
     toggle_card_energy_type,
+    toggle_check_tag,
+    toggle_check_value,
     update_card_fields,
+    update_check_fields,
     update_saved_request,
     update_tag_fields,
     update_value_fields,
     utcnow,
 )
 from ..enums import (
+    CHECK_OUTCOME_LABELS,
     TERMINAL_STAGES,
     ActorType,
     CardKind,
     CardStage,
     Category,
+    CheckOutcome,
     EnergyType,
     ProposalStatus,
 )
@@ -64,6 +74,9 @@ from ..models import (
     CardTag,
     CardValue,
     ChangeProposal,
+    Check,
+    CheckTag,
+    CheckValue,
     ProposalChange,
     SavedRequest,
     Tag,
@@ -118,6 +131,13 @@ MUTATION_TOOL_DESCRIPTIONS = {
         "field/set replacements; link and unlink add or remove one relationship type; move, "
         "complete, cancel, and reopen propose only that lifecycle action. Nothing is saved until "
         "the user presses Save."
+    ),
+    "check": (
+        "Open the Check review UI. create proposes a new Pending Check; edit proposes field "
+        "replacements; resolve proposes one answer the user has already stated; link and unlink "
+        "add or remove one relationship type. resolve_for_card lists every Pending Check on a "
+        "Card so the user can answer each one, which is required before that Card can be "
+        "completed. Nothing is saved until the user presses Save."
     ),
     "value": "Open the Value editor with a creation or edit proposal;",
     "tag": "Open the Tag editor with a creation or edit proposal;",
@@ -211,6 +231,8 @@ _DETAIL_LABELS = {
     "categories": "Categories",
     "energy_types": "Energy",
     "parent_id": "Parent ID",
+    "card_id": "Card ID",
+    "outcome": "Status",
     "values": "Values",
     "tags": "Tags",
     "active": "Active",
@@ -873,8 +895,9 @@ class AIAdvisor:
         change = tool.change
         if change is None:
             raise DomainError("The proposal has no validated change to review")
-        models: dict[str, type[Card] | type[Tag] | type[Value] | type[SavedRequest]] = {
+        models: dict[str, type[Card] | type[Check] | type[Tag] | type[Value] | type[SavedRequest]] = {
             "card": Card,
+            "check": Check,
             "tag": Tag,
             "value": Value,
             "request": SavedRequest,
@@ -920,6 +943,9 @@ class AIAdvisor:
             await self._resolve_parent_reference(session, values, str(proposed_kind))
             for spec in CARD_REFERENCE_SPECS:
                 await self._validate_named_references(session, values, spec)
+            await self._guard_pending_checks(session, change, values)
+        if change.entity == "check":
+            values = await self._prepare_check_values(session, change, values)
         if change.entity == "request" and "sql" in values:
             try:
                 values["query_sql"] = normalize_request_sql(values.pop("sql"))
@@ -949,6 +975,59 @@ class AIAdvisor:
             )
         )
         return proposal
+
+    async def _guard_pending_checks(
+        self, session: AsyncSession, change: AgentChange, values: dict[str, Any]
+    ) -> None:
+        """Refuse to prepare a completion while the Card still has Pending Checks.
+
+        The error is model-visible and retryable, and it carries the titles so the model
+        does not have to spend a `query_safwa` round discovering them.
+        """
+        completing = change.action == "complete" or (
+            change.action in {"move", "update"} and values.get("stage") == CardStage.DONE.value
+        )
+        if not completing or change.id is None:
+            return
+        pending = await pending_checks(session, int(change.id))
+        if not pending:
+            return
+        listed_checks = ", ".join(f"#{check.id} “{check.title}”" for check in pending)
+        raise ToolPreparationError(
+            "pending_checks",
+            f"Card #{change.id} still has Pending Checks: {listed_checks}.",
+            "Call the check tool with mode='resolve_for_card' and this card_id so the user can "
+            "answer each one, then retry only this unfinished completion.",
+        )
+
+    async def _prepare_check_values(
+        self, session: AsyncSession, change: AgentChange, values: dict[str, Any]
+    ) -> dict[str, Any]:
+        for spec in CARD_REFERENCE_SPECS:
+            await self._validate_named_references(session, values, spec)
+        if values.get("card_id") is not None:
+            card = await session.get(Card, int(values["card_id"]))
+            if card is None or card.archived_at is not None:
+                raise ToolPreparationError(
+                    "target_not_found",
+                    f"Card #{values['card_id']} does not exist or is archived.",
+                    "Use query_safwa over ai_cards to find the current numeric ID, then retry "
+                    "only this unfinished operation.",
+                )
+        if change.action != "resolve_for_card":
+            return values
+        pending = await pending_checks(session, int(values["card_id"]))
+        if not pending:
+            raise ToolPreparationError(
+                "no_pending_checks",
+                f"Card #{values['card_id']} has no Pending Checks.",
+                "Complete the Card directly instead.",
+            )
+        # The model proposes *which* Checks to answer; only the user knows the answers, so
+        # the screen starts every row at the safe default and the user cycles each one.
+        values["outcomes"] = {str(check.id): CheckOutcome.FAILED.value for check in pending}
+        values["titles"] = {str(check.id): check.title for check in pending}
+        return values
 
     async def _card_detail_snapshot(
         self, session: AsyncSession, card: Card
@@ -1046,6 +1125,9 @@ class AIAdvisor:
                 if before.get(field) != value
             ]
 
+        if proposed_change.entity == "check":
+            return await self._check_detail_lines(session, proposed_change)
+
         model = {
             "tag": Tag,
             "value": Value,
@@ -1068,6 +1150,62 @@ class AIAdvisor:
             f"{_detail_value(getattr(entity, field, None))} → {_detail_value(value)}"
             for field, value in values.items()
             if getattr(entity, field, None) != value
+        ]
+
+    async def _check_detail_lines(
+        self, session: AsyncSession, proposed_change: ProposalChange
+    ) -> list[str]:
+        values = dict(proposed_change.values)
+        if proposed_change.action == "resolve_for_card":
+            titles = values.get("titles") or {}
+            outcomes = values.get("outcomes") or {}
+            return [
+                f"Check #{key} “{_result_value(titles.get(key, ''))}”: "
+                f"{CHECK_OUTCOME_LABELS.get(str(outcome), str(outcome))}"
+                for key, outcome in sorted(outcomes.items(), key=lambda item: int(item[0]))
+            ]
+        scalar = {
+            name: values[name]
+            for name in ("title", "note", "repeatable", "card_id", "outcome")
+            if name in values
+        }
+        references = {
+            name: found
+            for name, prefix in (("values", "value"), ("tags", "tag"))
+            if (found := _reference_details(values, prefix))
+        }
+        proposed = {**scalar, **references}
+        check = (
+            await session.get(Check, proposed_change.entity_id)
+            if proposed_change.entity_id is not None
+            else None
+        )
+        if proposed_change.action == "create" or check is None:
+            return [
+                f"{_DETAIL_LABELS.get(field, field.replace('_', ' ').title())}: "
+                f"{_detail_value(value)}"
+                for field, value in proposed.items()
+            ]
+        if proposed_change.action == "archive":
+            return [f"Check: #{check.id} “{_result_value(check.title)}”"]
+        if proposed_change.action in {"link", "unlink"}:
+            verb = "Link" if proposed_change.action == "link" else "Unlink"
+            return [
+                f"{verb} {_DETAIL_LABELS.get(field, field.title())}: {_detail_value(value)}"
+                for field, value in references.items()
+            ]
+        before = {
+            "title": check.title,
+            "note": check.note,
+            "repeatable": check.repeatable,
+            "card_id": check.card_id,
+            "outcome": check.outcome or "pending",
+        }
+        return [
+            f"{_DETAIL_LABELS.get(field, field.replace('_', ' ').title())}: "
+            f"{_detail_value(before.get(field))} → {_detail_value(value)}"
+            for field, value in proposed.items()
+            if before.get(field) != value
         ]
 
     @staticmethod
@@ -1508,6 +1646,14 @@ class AIAdvisor:
                 await session.commit()
 
 
+# Check link tables are keyed by check_id, so they cannot reuse a Card ReferenceSpec's
+# link model; only the name/ID resolution half of the spec is shared.
+CHECK_REFERENCES = (
+    (VALUE_REFERENCE, CheckValue.value_id, CheckValue.check_id, toggle_check_value),
+    (TAG_REFERENCE, CheckTag.tag_id, CheckTag.check_id, toggle_check_tag),
+)
+
+
 class ProposalService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -1595,6 +1741,77 @@ class ProposalService:
                     await spec.toggle(self.session, card.id, entity_id, actor=ActorType.AI)
             return
         raise DomainError("A Card link proposal needs one relationship type")
+
+    async def _replace_check_sets(self, check: Check, values: dict[str, Any]) -> None:
+        for spec, link_column, owner_column, toggle in CHECK_REFERENCES:
+            if not spec.mentioned_in(values):
+                continue
+            current = set(
+                await self.session.scalars(select(link_column).where(owner_column == check.id))
+            )
+            target = await self._named_ids(values, spec)
+            for entity_id in sorted(current ^ target):
+                await toggle(self.session, check.id, entity_id)
+
+    async def _apply_check_links(
+        self, check: Check, values: dict[str, Any], *, linked: bool
+    ) -> None:
+        for spec, link_column, owner_column, toggle in CHECK_REFERENCES:
+            if not spec.mentioned_in(values):
+                continue
+            current = set(
+                await self.session.scalars(select(link_column).where(owner_column == check.id))
+            )
+            for entity_id in sorted(await self._named_ids(values, spec)):
+                if linked != (entity_id in current):
+                    await toggle(self.session, check.id, entity_id)
+            return
+        raise DomainError("A Check link proposal needs one relationship type")
+
+    async def _apply_check_change(self, change: ProposalChange, affected: list[int]) -> None:
+        values = dict(change.values)
+        if change.action == "create":
+            created = await create_check(
+                self.session,
+                title=str(values["title"]),
+                note=values.get("note", ""),
+                card_id=values.get("card_id"),
+                repeatable=bool(values.get("repeatable", False)),
+                value_ids=await self._named_ids(values, VALUE_REFERENCE),
+                tag_ids=await self._named_ids(values, TAG_REFERENCE),
+            )
+            affected.append(created.id)
+            return
+        if change.action == "resolve_for_card":
+            resolved = await resolve_checks_for_card(
+                self.session,
+                int(values["card_id"]),
+                {int(key): outcome for key, outcome in (values.get("outcomes") or {}).items()},
+                actor=ActorType.AI,
+            )
+            affected.extend(item.id for item in resolved)
+            return
+        check = await self.session.get(Check, change.entity_id) if change.entity_id else None
+        if check is None or check.version != change.expected_version:
+            raise StaleStateError("A Check changed; refresh this proposal")
+        if change.action == "update":
+            scalar_fields = {
+                name: value
+                for name, value in values.items()
+                if name in {"title", "note", "repeatable"}
+            }
+            if scalar_fields:
+                await update_check_fields(self.session, check.id, scalar_fields)
+            await self._replace_check_sets(check, values)
+        elif change.action == "resolve":
+            await resolve_check(self.session, check.id, values["outcome"], actor=ActorType.AI)
+        elif change.action in {"link", "unlink"}:
+            await self._apply_check_links(check, values, linked=change.action == "link")
+        elif change.action == "archive":
+            await archive_check(self.session, check.id)
+        else:
+            raise DomainError(f"Unsupported Check action: {change.action}")
+        affected.append(check.id)
 
     async def apply(self, proposal_id: int, *, allow_destructive: bool = False) -> list[int]:
         proposal = await self.session.get(ChangeProposal, proposal_id)
@@ -1701,6 +1918,8 @@ class ProposalService:
                 else:
                     raise DomainError(f"Unsupported approved Card action: {change.action}")
                 affected.append(card.id)
+            elif change.entity == "check":
+                await self._apply_check_change(change, affected)
             elif change.entity == "tag":
                 tag = await self.session.get(Tag, change.entity_id) if change.entity_id else None
                 if change.action == "create":

@@ -23,6 +23,7 @@ class UnsafeQueryError(ValueError):
 
 ALLOWED_VIEWS = {
     "ai_cards",
+    "ai_checks",
     "ai_tags",
     "ai_requests",
     "ai_values",
@@ -77,6 +78,7 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
         "ai_tags",
         "ai_requests",
         "ai_cards",
+        "ai_checks",
         "ai_values",
         "ai_current_sprint",
         "ai_current_sprint_metrics",
@@ -120,6 +122,21 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
                c.created_at, c.updated_at
         FROM cards c
         WHERE c.archived_at IS NULL"""
+    )
+    # `status` exposes the derived Pending state so a query never has to know that
+    # Pending is stored as a null outcome.
+    connection.exec_driver_sql(
+        """CREATE VIEW IF NOT EXISTS ai_checks AS
+        SELECT k.id, k.card_id, k.title, k.note, k.repeatable,
+               COALESCE(k.outcome, 'pending') AS status,
+               k.resolved_at, k.series_id,
+               (SELECT group_concat(v.name, ',') FROM check_values kv
+                JOIN "values" v ON v.id=kv.value_id WHERE kv.check_id=k.id) AS direct_values,
+               (SELECT group_concat(t.name, ',') FROM check_tags kt
+                JOIN tags t ON t.id=kt.tag_id WHERE kt.check_id=k.id) AS direct_tags,
+               k.created_at, k.updated_at
+        FROM checks k
+        WHERE k.archived_at IS NULL"""
     )
     connection.exec_driver_sql(
         """CREATE VIEW IF NOT EXISTS ai_current_sprint AS

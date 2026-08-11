@@ -32,6 +32,7 @@ from ..models import (
     CardEnergyType,
     CardTag,
     CardValue,
+    Check,
     Tag,
     UiSession,
     Value,
@@ -729,6 +730,40 @@ async def render_card(
                     )
                 ]
             )
+        check_total = int(
+            await session.scalar(
+                select(func.count())
+                .select_from(Check)
+                .where(Check.card_id == card.id, Check.archived_at.is_(None))
+            )
+            or 0
+        )
+        pending_total = int(
+            await session.scalar(
+                select(func.count())
+                .select_from(Check)
+                .where(
+                    Check.card_id == card.id,
+                    Check.archived_at.is_(None),
+                    Check.outcome.is_(None),
+                )
+            )
+            or 0
+        )
+        relationship_rows.append(
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    f"☑️ Checks ({pending_total}/{check_total})",
+                    "card_checks",
+                    {
+                        "scope": {"kind": "card", "id": card.id},
+                        "back": {"kind": "card", "id": card.id, "back": back},
+                    },
+                )
+            ]
+        )
         rows = relationship_rows + rows
         if card.kind == CardKind.ACTION.value and card.effective_stage not in {
             CardStage.DONE.value,

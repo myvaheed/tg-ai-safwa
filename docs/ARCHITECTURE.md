@@ -40,7 +40,7 @@ not one package per layer:
 | domain | [domain.py](../src/safwa/domain.py), [enums.py](../src/safwa/enums.py), [models.py](../src/safwa/models.py), [saved_requests.py](../src/safwa/saved_requests.py) |
 | application | [domain.py](../src/safwa/domain.py) (mutations), [ai/service.py](../src/safwa/ai/service.py) (`ProposalService`), [continuity.py](../src/safwa/continuity.py), [scheduler.py](../src/safwa/scheduler.py), [analytics.py](../src/safwa/analytics.py) |
 | infrastructure | [db.py](../src/safwa/db.py), [history.py](../src/safwa/history.py), [memory.py](../src/safwa/memory.py), [ai/provider.py](../src/safwa/ai/provider.py), [ai/sql.py](../src/safwa/ai/sql.py), [backup.py](../src/safwa/backup.py) |
-| telegram | [telegram/](../src/safwa/telegram) (9 modules, ~4.2k lines) |
+| telegram | [telegram/](../src/safwa/telegram) (10 modules, ~4.6k lines) |
 | ai | [ai/](../src/safwa/ai) (context, contracts, provider, service, sql) |
 | bootstrap | [main.py](../src/safwa/main.py), [config.py](../src/safwa/config.py), [constants.py](../src/safwa/constants.py), [recovery.py](../src/safwa/recovery.py), [qa.py](../src/safwa/qa.py) |
 
@@ -57,7 +57,7 @@ _presentation.py    pure text/labels/markup/paging — no session, no bot
    ↑
 _messaging.py       every send/edit/delete + MessageKind registration + token buttons
    ↑
-cards.py  items.py  proposals.py        render modules
+cards.py  checks.py  items.py  proposals.py    render modules
    ↑
 commands.py  callbacks.py  dialogue.py  the ONLY @router handlers
 ```
@@ -79,7 +79,17 @@ no underscore (the whole package is private behind `__init__.__all__`).
   categories, energy types, `liked`. Stripped for Goal/Idea at both the AI and domain boundaries.
 - `blocked` is warning-only, requires non-empty `blocked_description`. No Card-to-Card dependency graph.
 - Priority `critical|medium|low`; `hard_time` independent boolean.
-- **Values / Tags**: many-to-many Card classification. Values have `active` (AI focus); Tags do not.
+- **Values / Tags**: many-to-many Card *and* Check classification. Values have `active` (AI focus); Tags do not.
+- **Checks**: a state observation ("did this hold?"), not planned work — no effort, never in a Sprint.
+  Owned by a Card (`card_id`) or standalone. `outcome` is `passed|failed|not_applicable`; **Pending is
+  derived** (`outcome IS NULL`) and never stored, so there is no reset path. `resolved_at` keeps the
+  *first* resolution — re-answering overwrites the outcome and the previous one is not retained.
+  `series_id`/`source_instance_id` mirror the Card repeat lineage. A repeatable Check spawns a Pending
+  successor **only on the Pending → resolved transition**, and never onto a terminal or archived Card.
+- **Done-gate**: `finish_action` refuses `Done` while a Card has Pending Checks and names their ids and
+  titles; `Cancelled` is not gated. Resolving through the gate suppresses the spawn, which is what stops
+  a repeatable Check from blocking its own Card forever. `_copy_repeat_successor` clones one Pending
+  copy per Check series (grouping matters — an in-cycle spawn leaves two rows of one series on the Card).
 - **Repeatable Actions**: `finish_action` → `_copy_repeat_successor` clones parent, text, priority,
   hard_time, blocked, effort, and all four link sets into a successor at the prior live stage.
 - **Sprints**: `start_sprint` (Planning only) snapshots every non-archived Action in Sprint/Today as
@@ -95,6 +105,13 @@ no underscore (the whole package is private behind `__init__.__all__`).
 
 - Dashboards `/today` `/backlog` `/sprint` list **Actions only**; Goals/Ideas reachable via hierarchy,
   `Children`, search, Requests, item navigation.
+- Checks are item-shaped, not Card-shaped ([telegram/checks.py](../src/safwa/telegram/checks.py)). A
+  `Checks` button appears on every Card screen and on a Tag/Value screen that has linked Checks.
+  Pressing `Done` on a gated Card opens the resolution screen instead of finishing it: every Pending
+  Check defaults to **Missed**, tapping cycles Passed → Missed → Not applicable, `Save` finishes the
+  Card in one transaction and `Back` leaves it live. The default is deliberately not Passed — a one-tap
+  "all done" would let the gate be cleared by asserting Checks that never happened.
+  A Check with no Card, Value, or Tag is reachable only through `ai_checks`; there is no `/checks` yet.
 - Every inline button is a single-use `CallbackToken` row rendered as `cb:<token>` (24 h expiry),
   claimed atomically by `UPDATE … RETURNING` in `callback_token_handler`. Menu buttons use `nav:<action>`.
 - `CALLBACK_ACTIONS` ([callbacks.py:814](../src/safwa/telegram/callbacks.py:814)) is the action→handler registry.
@@ -112,8 +129,12 @@ no underscore (the whole package is private behind `__init__.__all__`).
 Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `history.dialogue()` →
 `AIAdvisor.handle` → agent loop → proposals or a final message.
 
-- Tools: `query_safwa(sql)` (immediate read) + mutation tools `card`, `value`, `tag`, `request`,
+- Tools: `query_safwa(sql)` (immediate read) + mutation tools `card`, `check`, `value`, `tag`, `request`,
   `remove` (`SAFWA_TOOLS`, [ai/service.py:133](../src/safwa/ai/service.py:133)).
+- `_guard_pending_checks` refuses to *prepare* a completion while Pending Checks exist, returning a
+  retryable `ToolPreparationError` that carries their ids **and titles** so the model does not spend a
+  `query_safwa` round finding them. It then calls `check(mode="resolve_for_card")`, whose proposal screen
+  is the one place field controls appear — the model proposes which Checks to answer, the user answers.
 - **The model never mutates and never writes mutation SQL.** Tool call → Pydantic model in
   [ai/contracts.py](../src/safwa/ai/contracts.py) → `AgentChange` → `ChangeProposal` + `ProposalChange`
   rows → a read-only review screen with only **Save**/**Discard** → `ProposalService.apply` calls the
@@ -141,6 +162,9 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
 3. Caps (all in [constants.py](../src/safwa/constants.py)) — `DEFAULT_ROW_LIMIT=50`,
    `DEFAULT_CHAR_BUDGET=12_000`, `DEFAULT_COLUMN_LIMIT=20`, `DEFAULT_CELL_LIMIT=2_000`,
    `QUERY_TIMEOUT_SECONDS=2.0`; a capped result returns a `notice`.
+
+`ai_checks` exposes `status` as `COALESCE(outcome, 'pending')`, so a query never has to know that
+Pending is a null column. It is also the only route to a Check with no Card, Value, or Tag.
 
 Views are dropped and rebuilt by `create_ai_views` **on every startup** — change view shape there,
 never with a migration. A new view must be added to `ALLOWED_VIEWS` *and* to the view list inside
@@ -223,7 +247,8 @@ means editing `models.py` and rebuilding the database (`uv run safwa-backup` fir
 
 **Do not add Alembic or write migrations.** Pre-release; the owner recreates the database.
 
-27 tables: `workspace`, `user_profile`, `values`, `cards`, `card_values`, `tags`, `card_tags`,
+30 tables: `workspace`, `user_profile`, `values`, `cards`, `card_values`, `tags`, `card_tags`,
+`checks`, `check_values`, `check_tags`,
 `saved_requests`, `card_categories`, `card_energy_types`, `sprints`, `sprint_commitments`, `card_events`,
 `change_proposals`, `proposal_changes`, `agent_runs`, `agent_steps`, `telegram_messages`,
 `feedback_queue`, `summary_state`, `memory_fact_cache`, `memory_sync_state`, `reminder_state`,

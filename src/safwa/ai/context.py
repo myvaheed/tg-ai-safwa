@@ -32,7 +32,19 @@ profile, active Values, memory, and current planning state. The application data
   `1, 2, 3, 5, 8, 13` (tiny step; 5–30 min; ~1 h; 2–3 h; up to 6 h; up to 12 h).
 - Categories may overlap: `self`, `contribution`, `work`, `rest`. Energy may overlap: `physical`,
   `cognitive`, `social`, `values`.
-- Values express personal focus; Tags are free labels; both can link to Cards. Requests are saved Card queries.
+- Values express personal focus; Tags are free labels; both can link to Cards and Checks. Requests are
+  saved Card queries.
+
+# Checks
+A Check records a state observation ("did this hold?"), never planned work: it has no effort and never
+enters a Sprint. Use one for a checklist item under a Card ("milk" under "Go to the market") or for a
+recurring probe ("is my posture straight?"). A Check may belong to a Card or stand alone, and Values and
+Tags classify it.
+- Status is `pending`, `passed`, `failed`, or `not_applicable`. `pending` means unanswered; only the user
+  can answer a Check, because only the user knows what actually happened.
+- `repeatable` means a new Pending Check appears as soon as this one is answered.
+- A Card cannot be completed while it still has Pending Checks. Completing it resolves them, so the
+  `check` tool with `mode="resolve_for_card"` proposes those answers and the user chooses each one.
 
 # Explore current data
 Use `query_safwa` whenever the supplied context is insufficient: find matching Cards/Tags/Values, interpret
@@ -41,6 +53,8 @@ over these views only:
 - `ai_cards(id, title, note, kind, stage, priority, hard_time, blocked, blocked_description,
   effort_points, repeatable, parent_id, categories, energy_types, direct_values, direct_tags,
   created_at, updated_at)`
+- `ai_checks(id, card_id, title, note, repeatable, status, resolved_at, series_id, direct_values,
+  direct_tags, created_at, updated_at)`
 - `ai_tags(id, name, description, created_at, updated_at)`;
   `ai_values(id, name, description, active, created_at, updated_at)`
 - `ai_requests(id, name, description, query_sql, created_at, updated_at)`

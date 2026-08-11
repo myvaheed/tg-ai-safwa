@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..ai.service import AIOutcome
 from ..domain import CARD_REFERENCE_SPECS, DomainError, card_progress, resolve_references
-from ..enums import CardKind, CardStage, MessageKind
+from ..enums import CHECK_OUTCOME_LABELS, CardKind, CardStage, MessageKind
 from ..models import (
     Card,
     CardCategory,
@@ -31,6 +31,7 @@ from ._presentation import (
     energy_expression,
     proposal_change_summary,
 )
+from .checks import CHECK_STATUS_EMOJIS
 
 logger = logging.getLogger(__name__)
 
@@ -248,7 +249,35 @@ async def render_proposal(
         if notice:
             text_parts.append(html.escape(notice))
         text_parts.append(html.escape(proposal.message))
-        if len(changes) == 1 and changes[0].entity in {"card", "tag", "value"}:
+        if len(changes) == 1 and changes[0].action == "resolve_for_card":
+            # The one proposal screen that carries field controls. The model can propose
+            # *which* Checks to answer, but only the user knows the answers, so the rows
+            # are tappable here and the spec's read-only rule is amended for this case.
+            change = changes[0]
+            outcomes = dict(change.values.get("outcomes") or {})
+            titles = dict(change.values.get("titles") or {})
+            text_parts[0] = "<b>Resolve Checks · AI proposal</b>"
+            text_parts.append(
+                "Tap a Check to change its answer, then press Save.\n"
+                + "\n".join(
+                    f"{CHECK_STATUS_EMOJIS[outcome]} {html.escape(str(titles.get(key, key)))}"
+                    f" — {CHECK_OUTCOME_LABELS[outcome]}"
+                    for key, outcome in sorted(outcomes.items(), key=lambda item: int(item[0]))
+                )
+            )
+            for key, outcome in sorted(outcomes.items(), key=lambda item: int(item[0])):
+                rows.append(
+                    [
+                        await token_button(
+                            session,
+                            services.owner_id,
+                            f"{CHECK_STATUS_EMOJIS[outcome]} {titles.get(key, key)}"[:60],
+                            "proposal_check_cycle",
+                            {"id": proposal.id, "check_id": key},
+                        )
+                    ]
+                )
+        elif len(changes) == 1 and changes[0].entity in {"card", "tag", "value"}:
             change = changes[0]
             current, proposed = await _proposal_item_state(session, change)
             item_name = change.entity.title()

@@ -157,7 +157,8 @@ Imports nothing from Safwa. Grouped by concern:
 ### `models.py` — the only schema source
 
 `new_correlation_id` :34 · `Base` :39 · `TimestampMixin` :43 · `Workspace` :50 · `UserProfile` :60 ·
-`Value` :79 · `Card` :89 · `CardValue` :133 · `Tag` :143 · `CardTag` :152 · `SavedRequest` :160 ·
+`Value` :79 · `Card` :89 · `CardValue` :133 · `Tag` :143 · `CardTag` :152 ·
+`Check` / `CheckValue` / `CheckTag` (Pending is `outcome IS NULL`) · `SavedRequest` :160 ·
 `CardCategory` :172 · `CardEnergyType` :180 · `Sprint` :188 · `SprintCommitment` :201 · `CardEvent` :215 ·
 `ChangeProposal` :230 · `ProposalChange` :239 · `AgentRun` :253 · `AgentStep` :265 · `TelegramMessage` :274 ·
 `FeedbackQueue` :286 · `SummaryState` :295 · `MemoryFactCache` :306 · `MemorySyncState` :316 ·
@@ -181,6 +182,10 @@ Mutations (all take an `AsyncSession`, all bump `workspace.revision` via `_bump_
 `bootstrap_workspace` :172 · `create_card` :186 · `create_tag` :274 · `update_tag_fields` :294 ·
 `archive_tag` :324 · `create_saved_request` :342 · `update_saved_request` :379 ·
 `archive_saved_request` :415 · `create_value` :425 · `update_value_fields` :457 · `archive_value` :490 ·
+`create_check` · `update_check_fields` · `archive_check` · `toggle_check_value` · `toggle_check_tag` ·
+**`resolve_check`** (spawns only on the Pending → resolved transition) · **`resolve_checks_for_card`** ·
+`pending_checks` · `card_checks` · `_apply_check_outcome` · `_spawn_check_successor` ·
+`_clone_checks_for_successor` · `_pending_check_resolutions` ·
 `set_value_focus` :509 · `update_profile` :521 · `snooze_reminders` :549 · `edit_card_text` :559 ·
 `update_card_fields` :581 · `set_card_parent` :624 · `toggle_card_value` :650 · `toggle_card_tag` :676 ·
 `toggle_card_category` :702 · `toggle_card_energy_type` :733 · `move_card` :965 · `finish_action` :1048 ·
@@ -258,6 +263,7 @@ metrics and no precomputed Card candidates; the model uses `query_safwa` for tho
 ### `ai/contracts.py` — the AI mutation boundary
 
 `AgentChange` :8 (`entity` × `action` × `id` × `values`) · `CardToolInput` :26 (per-mode validator :61) ·
+`CheckToolInput` (modes `create|edit|resolve|resolve_for_card|link|unlink`) ·
 `ValueToolInput` :133 · `TagToolInput` :153 · `RequestToolInput` :172 · `RemoveToolInput` :200
 (`permanent` only for Cards) · `MUTATION_TOOL_MODELS` :214 · `mutation_change_from_tool` :223.
 
@@ -273,7 +279,7 @@ metrics and no precomputed Card candidates; the model uses `query_safwa` for tho
 and its 3 triggers from older databases) · `QueryOutcome` :147 · `ReadOnlyQueryRunner` :158
 (`mode=ro` connection + `set_authorizer` + caps from `constants.py`).
 
-Views: `ai_cards`, `ai_tags`, `ai_values`, `ai_requests`, `ai_current_sprint`,
+Views: `ai_cards`, `ai_checks`, `ai_tags`, `ai_values`, `ai_requests`, `ai_current_sprint`,
 `ai_current_sprint_metrics`, `ai_card_events`.
 
 ### `ai/service.py` — agent loop + proposals
@@ -336,6 +342,14 @@ source message is the bot's) · `edit_registered_message` :95 · `delete_text_in
 ### `telegram/items.py` — shared Tag/Value screens
 
 `render_item_editor` :21 · `render_item_text_prompt` :155.
+
+### `telegram/checks.py` — Check screens
+
+`CHECK_STATUS_EMOJIS` :18 · `check_status` :33 · `check_status_label` :37 · **`next_outcome`** :42
+(the tap cycle; Pending is derived and cannot be returned to) · `scoped_checks` :47 (Card owns,
+Tag/Value only classify) · `scope_title` :68 · **`render_checks`** :77 · **`render_check`** :139 ·
+`render_check_text_prompt` :224 · **`render_check_resolution`** :275 (the Done-gate screen; every row
+defaults to `failed`) · `_deliver` :360.
 
 ### `telegram/cards.py` — Card screens
 
