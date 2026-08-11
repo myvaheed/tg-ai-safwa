@@ -3,6 +3,11 @@ from __future__ import annotations
 from enum import StrEnum
 
 
+class AIProvider(StrEnum):
+    LMSTUDIO = "lmstudio"
+    OPENROUTER = "openrouter"
+
+
 class WorkspaceMode(StrEnum):
     PLANNING = "planning"
     SPRINT = "sprint"

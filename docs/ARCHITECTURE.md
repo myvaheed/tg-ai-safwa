@@ -7,7 +7,8 @@ Fast orientation map for a new session. Companion: [STRUCTURE_GRAPH.md](STRUCTUR
 ## What it is
 
 Single-owner personal agile advisor. One private Telegram chat, aiogram 3 long polling, a local
-OpenAI-compatible LLM (LM Studio default), SQLite/SQLAlchemy 2 async. Runs on Windows, `uv`-managed,
+OpenAI-compatible LLM (`SAFWA_AI_PROVIDER`: LM Studio by default, OpenRouter for
+`openai/gpt-5.6-luna`), SQLite/SQLAlchemy 2 async. Runs on Windows, `uv`-managed,
 Python `>=3.12,<3.13`. No server, no multi-user, no Mini App.
 
 ## Runtime wiring

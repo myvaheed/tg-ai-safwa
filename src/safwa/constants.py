@@ -60,3 +60,12 @@ CALLBACK_TOKEN_TTL_HOURS = 24
 # --- Provider -------------------------------------------------------------
 AI_TIMEOUT_SECONDS = 120.0
 AI_MAX_OUTPUT_TOKENS = 4096
+LMSTUDIO_BASE_URL = "http://localhost:1234/v1"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+# A local server either answers or is down; a metered remote returns 429/502 and
+# is worth retrying with the SDK's backoff.
+AI_MAX_RETRIES_LOCAL = 1
+AI_MAX_RETRIES_REMOTE = 3
+# Sent to OpenRouter as HTTP-Referer/X-Title for request attribution.
+AI_APP_URL = "https://github.com/myvaheed/tg-ai-safwa"
+AI_APP_TITLE = "Safwa"

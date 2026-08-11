@@ -209,6 +209,30 @@ def _json_safe(value: Any) -> Any:
     return json.loads(json.dumps(value, ensure_ascii=False, default=str))
 
 
+def _cache_breakpoint(message: dict[str, Any]) -> dict[str, Any]:
+    """Mark the end of a reusable prefix.
+
+    OpenRouter accepts the Anthropic form and converts it to OpenAI's
+    ``prompt_cache_breakpoint`` for GPT-5.6 and newer, so one marker is portable.
+    """
+
+    content = message.get("content")
+    if not isinstance(content, str) or not content:
+        return message
+    return {
+        **message,
+        "content": [
+            {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
+        ],
+    }
+
+
+def _flatten_content(content: Any) -> str:
+    if isinstance(content, list):
+        return " ".join(str(block.get("text", "")) for block in content if isinstance(block, dict))
+    return str(content or "")
+
+
 def _result_value(value: Any) -> str:
     return " ".join(str(value).split())[:100]
 
@@ -429,7 +453,7 @@ def _assistant_content_with_request_progress(
 def _log_provider_request(messages: list[dict[str, Any]]) -> None:
     lines: list[str] = []
     for message in messages:
-        content = str(message.get("content") or "")
+        content = _flatten_content(message.get("content"))
         if message.get("tool_calls"):
             content = "tool calls: " + ", ".join(
                 call["function"]["name"] for call in message["tool_calls"]
@@ -447,6 +471,13 @@ def _log_provider_response(turn: ProviderTurn) -> None:
         )
     else:
         details = "  " + _log_preview(turn.content, 1_000)
+    if turn.usage is not None:
+        usage = turn.usage
+        cost = "" if usage.cost is None else f" cost={usage.cost}"
+        details += (
+            f"\n  usage prompt={usage.prompt_tokens} cached={usage.cached_tokens} "
+            f"cache_write={usage.cache_write_tokens} completion={usage.completion_tokens}{cost}"
+        )
     logger.info("AI RESPONSE <-\n%s\n%s", details, "-" * 72)
 
 
@@ -459,12 +490,16 @@ class AIAdvisor:
         query_runner: ReadOnlyQueryRunner,
         *,
         model_name: str,
+        provider_name: str = "openai-compatible",
+        cache_breakpoints: bool = False,
     ) -> None:
         self.sessions = sessions
         self.provider = provider
         self.memory = memory
         self.query_runner = query_runner
         self.model_name = model_name
+        self.provider_name = provider_name
+        self.cache_breakpoints = cache_breakpoints
 
     async def handle(
         self,
@@ -475,7 +510,7 @@ class AIAdvisor:
     ) -> AIOutcome:
         started = time.monotonic()
         run = AgentRun(
-            provider="openai-compatible",
+            provider=self.provider_name,
             model=self.model_name,
             status="running",
             source_message_id=source_message_id,
@@ -504,17 +539,29 @@ class AIAdvisor:
     ) -> list[dict[str, Any]]:
         memory = await self.memory.sync()
         async with self.sessions() as session:
-            state = await planning_context(session)
-        system_sections = [
-            SYSTEM_PROMPT,
-            f"Current planning state:\n{state}\n\nPersistent memory:\n{memory.text}",
-        ]
+            context = await planning_context(session)
+        # Ordered by how often each block changes, so the stable prefix stays
+        # byte-identical across turns and remote prompt caching can hit it.
+        # Anything volatile goes after the dialogue, never into a system block.
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": "\n\n".join(system_sections)}
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "system",
+                "content": (
+                    f"Current planning state:\n{context.state}"
+                    f"\n\nPersistent memory:\n{memory.text}"
+                ),
+            },
         ]
         # The history source has already applied the real Telegram session or
         # Summary boundary and the 20-message summary context policy.
         messages.extend({"role": item.role, "content": item.content} for item in dialogue)
+        if self.cache_breakpoints:
+            messages[0] = _cache_breakpoint(messages[0])
+            messages[1] = _cache_breakpoint(messages[1])
+            if dialogue:
+                messages[-1] = _cache_breakpoint(messages[-1])
+        messages.append({"role": "system", "content": context.clock})
         return messages
 
     async def compress_subsession(

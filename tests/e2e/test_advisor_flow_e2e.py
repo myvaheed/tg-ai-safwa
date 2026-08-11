@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import func, select
 
-from safwa.ai.context import DialogueMessage
+from safwa.ai.context import SYSTEM_PROMPT, DialogueMessage
 from safwa.ai.provider import ProviderToolCall, ProviderTurn
 from safwa.ai.service import AIOutcome, ProposalService
 from safwa.analytics import render_retrospective_png, retrospective_data
@@ -1023,7 +1023,47 @@ async def test_ai_request_query_supports_complex_boolean_logic(e2e_harness):
         assert ordinary.id not in {card.id for card in matches}
 
 
-async def test_advisor_sends_one_system_message_and_canonical_dialogue(e2e_harness):
+async def test_cacheable_prefix_is_byte_stable_across_turns(e2e_harness):
+    dialogue = [DialogueMessage(role="user", content="[User]: What is next?")]
+    advisor, provider = e2e_harness.advisor(["First.", "Second."])
+
+    await advisor.handle("What is next?", dialogue=dialogue)
+    await advisor.handle("What is next?", dialogue=dialogue)
+
+    first, second = provider.calls
+    # Only the trailing clock may differ; everything before it must be reusable.
+    assert first[:-1] == second[:-1]
+    assert str(first[-1]["content"]).startswith("Current local time:")
+
+
+async def test_cache_breakpoints_mark_exactly_the_stable_prefix(e2e_harness):
+    dialogue = [
+        DialogueMessage(role="user", content="[Initial request]: Plan this week."),
+        DialogueMessage(role="assistant", content="What matters most?"),
+        DialogueMessage(role="user", content="[User]: Health."),
+    ]
+    advisor, provider = e2e_harness.advisor(["Noted."], cache_breakpoints=True)
+
+    await advisor.handle("Health.", dialogue=dialogue)
+
+    messages = provider.calls[0]
+    marked = [index for index, message in enumerate(messages) if isinstance(message["content"], list)]
+    assert marked == [0, 1, len(messages) - 2]
+    assert messages[0]["content"] == [
+        {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}
+    ]
+    assert isinstance(messages[-1]["content"], str)
+
+
+async def test_cache_breakpoints_are_absent_by_default(e2e_harness):
+    advisor, provider = e2e_harness.advisor(["Noted."])
+
+    await advisor.handle("Hi", dialogue=[DialogueMessage(role="user", content="[User]: Hi")])
+
+    assert all(isinstance(message["content"], str) for message in provider.calls[0])
+
+
+async def test_advisor_sends_layered_system_blocks_and_canonical_dialogue(e2e_harness):
     response = "I remember the context."
     advisor, provider = e2e_harness.advisor([response])
     dialogue = [
@@ -1041,15 +1081,21 @@ async def test_advisor_sends_one_system_message_and_canonical_dialogue(e2e_harne
     messages = provider.calls[0]
     assert [message["role"] for message in messages] == [
         "system",
+        "system",
         "user",
         "assistant",
         "user",
+        "system",
     ]
-    assert sum(message["role"] == "system" for message in messages) == 1
-    assert messages[-1]["content"] == dialogue[-1].content
+    assert messages[-2]["content"] == dialogue[-1].content
+    # The volatile clock is the last block so the prefix before it stays cacheable.
+    assert messages[-1]["content"].startswith("Current local time:")
     system = str(messages[0]["content"])
+    assert system == SYSTEM_PROMPT
     assert "query_safwa" in system
     assert "ai_cards(id, title" in system
+    assert "Current local time" not in system
+    assert "Current local time" not in str(messages[1]["content"])
     assert "Workspace revision:" not in system
     assert "Saved Requests:" not in system
     assert "Sprint cards:" not in system

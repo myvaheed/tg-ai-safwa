@@ -27,6 +27,25 @@
 - Manual Card creation exists only in the current transient editor and is inserted on Save; leaving or discarding it creates no persistent record. AI Card creation is an ordinary queued proposal and is inserted only on Save. A discarded AI Card proposal records all proposed fields in its static result message; Goal and Idea screens never expose Action-only fields.
 - UI prompts, selections, SQL, and internal tool-result payloads are not persona dialogue. The final generated outcome after the approval queue is resolved becomes the assistant history record.
 
+## Prompt caching
+
+- An advisor request is assembled in four positions, ordered by how often each one changes: the
+  static system prompt, then current planning state plus `memory.md`, then the canonical dialogue,
+  then a trailing system message holding the current local time.
+- The clock is deliberately last. **Any new volatile context belongs after the dialogue, never
+  inside a system block.** A value that changes every request invalidates the whole cached prefix
+  ahead of it and, on OpenRouter, also scatters sticky provider routing, which identifies a
+  conversation by hashing the first system message.
+- With cache breakpoints enabled, exactly three `cache_control` markers are placed: after the system
+  prompt, after the planning state and memory block, and after the last dialogue message. OpenRouter
+  translates them to OpenAI's `prompt_cache_breakpoint` for GPT-5.6 and newer, and automatic caching
+  stays enabled alongside them.
+- Within one request the message array is append-only, so every tool-call round reuses the previous
+  round's prefix. Resuming after an approval queue rebuilds the array from the same four positions,
+  so it lands on the same cached prefix rather than a cold one.
+- Cache reads and writes are reported per response in the `AI RESPONSE` log line. They are not
+  stored in the database.
+
 ## Sessions and subsessions
 
 - `/newsession <initial request>` creates the current history boundary.

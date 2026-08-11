@@ -17,10 +17,11 @@ from .ai.provider import OpenAICompatibleProvider, ProviderConfig
 from .ai.service import AIAdvisor
 from .ai.sql import ReadOnlyQueryRunner, create_ai_views
 from .config import Settings
+from .constants import AI_APP_TITLE, AI_APP_URL
 from .continuity import PersonaContinuity, run_memory_maintenance
 from .db import Database, upgrade_database
 from .domain import bootstrap_workspace
-from .enums import MessageKind
+from .enums import AIProvider, MessageKind
 from .history import TelegramHistorySource, register_message
 from .memory import MemoryFileStore
 from .recovery import recover_startup
@@ -69,14 +70,21 @@ async def run(settings: Settings) -> None:
         await session.run_sync(lambda sync_session: create_ai_views(sync_session.connection()))
         await session.commit()
 
+    headers: tuple[tuple[str, str], ...] = ()
+    if settings.ai_provider is AIProvider.OPENROUTER:
+        headers = (("HTTP-Referer", AI_APP_URL), ("X-Title", AI_APP_TITLE))
     provider = OpenAICompatibleProvider(
         ProviderConfig(
-            base_url=settings.ai_base_url,
+            base_url=settings.resolved_ai_base_url,
             api_key=settings.ai_api_key.get_secret_value(),
             model=settings.ai_model,
             timeout_seconds=settings.ai_timeout_seconds,
             max_output_tokens=settings.ai_max_output_tokens,
             structured_output=settings.ai_structured_output,
+            max_retries=settings.resolved_ai_max_retries,
+            send_temperature=settings.resolved_ai_send_temperature,
+            reasoning_effort=settings.ai_reasoning_effort,
+            default_headers=headers,
         )
     )
     memory = MemoryFileStore(
@@ -98,6 +106,8 @@ async def run(settings: Settings) -> None:
         memory,
         query_runner,
         model_name=settings.ai_model,
+        provider_name=settings.ai_provider.value,
+        cache_breakpoints=settings.resolved_ai_cache_breakpoints,
     )
     bot = Bot(
         token=settings.telegram_bot_token.get_secret_value(),

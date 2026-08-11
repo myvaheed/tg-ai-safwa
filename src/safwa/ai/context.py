@@ -17,6 +17,14 @@ class DialogueMessage:
     content: str
 
 
+@dataclass(frozen=True)
+class PlanningContext:
+    """Split so the volatile clock can be sent after the cacheable prefix."""
+
+    state: str
+    clock: str
+
+
 SYSTEM_PROMPT = """# Safwa
 You are Safwa: a concise, warm personal agile advisor in one private Telegram chat. Use the user's
 profile, active Values, memory, and current planning state. The application database is the source of truth.
@@ -78,7 +86,7 @@ proposal, never a live change: never claim a change is complete before its appro
 """
 
 
-async def planning_context(session: AsyncSession) -> str:
+async def planning_context(session: AsyncSession) -> PlanningContext:
     workspace = await session.get(Workspace, 1)
     profile = await session.get(UserProfile, 1)
     active_values = list(
@@ -102,8 +110,8 @@ async def planning_context(session: AsyncSession) -> str:
             .order_by(Card.hard_time.desc(), Card.priority, Card.created_at)
         )
     )
+    timezone = ZoneInfo(workspace.timezone if workspace else "Europe/Istanbul")
     lines = [
-        f"Current local time: {datetime.now(ZoneInfo(workspace.timezone if workspace else 'Europe/Istanbul')).isoformat()}",
         f"Workspace mode: {workspace.mode if workspace else 'planning'}",
         f"About me: {(profile.about_me if profile else '').strip()}",
         f"Advisor instructions: {(profile.advisor_instructions if profile else '').strip()}",
@@ -112,4 +120,7 @@ async def planning_context(session: AsyncSession) -> str:
         "Today cards:",
         *[f"- {c.title} [{c.id}] kind={c.kind} effort={c.effort_points}" for c in today],
     ]
-    return "\n".join(lines)
+    return PlanningContext(
+        state="\n".join(lines),
+        clock=f"Current local time: {datetime.now(timezone).isoformat()}",
+    )

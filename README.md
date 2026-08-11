@@ -14,8 +14,19 @@ uv run safwa-auth
 uv run safwa
 ```
 
-LM Studio defaults to `http://localhost:1234/v1`. Set the model and Telegram credentials in
-`.env`. Safwa upgrades its SQLite schema at startup.
+`SAFWA_AI_PROVIDER` selects the endpoint. The default `lmstudio` uses
+`http://localhost:1234/v1`; `openrouter` uses `https://openrouter.ai/api/v1` and drops the
+`temperature` parameter that GPT-5.6 and other reasoning models reject:
+
+```dotenv
+SAFWA_AI_PROVIDER=openrouter
+SAFWA_AI_API_KEY=sk-or-v1-...
+SAFWA_AI_MODEL=openai/gpt-5.6-luna
+```
+
+Every derived value (`SAFWA_AI_BASE_URL`, `SAFWA_AI_MAX_RETRIES`, `SAFWA_AI_SEND_TEMPERATURE`,
+`SAFWA_AI_CACHE_BREAKPOINTS`, `SAFWA_AI_REASONING_EFFORT`) can still be set explicitly. Set the
+model and Telegram credentials in `.env`. Safwa upgrades its SQLite schema at startup.
 
 `data/memory.md` is the authoritative persistent persona memory. Keep exactly one non-empty fact
 per line. Safwa imports local edits automatically and never treats its SQLite mirror as canonical.

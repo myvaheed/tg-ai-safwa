@@ -47,7 +47,12 @@ class E2EHarness:
     database_path: Path
     memory: MemoryFileStore
 
-    def advisor(self, responses: list[str | ProviderTurn]) -> tuple[AIAdvisor, ScriptedProvider]:
+    def advisor(
+        self,
+        responses: list[str | ProviderTurn],
+        *,
+        cache_breakpoints: bool = False,
+    ) -> tuple[AIAdvisor, ScriptedProvider]:
         provider = ScriptedProvider(responses)
         advisor = AIAdvisor(
             self.sessions,
@@ -55,6 +60,7 @@ class E2EHarness:
             self.memory,
             ReadOnlyQueryRunner(self.database_path),
             model_name="e2e-scripted-model",
+            cache_breakpoints=cache_breakpoints,
         )
         return advisor, provider
 

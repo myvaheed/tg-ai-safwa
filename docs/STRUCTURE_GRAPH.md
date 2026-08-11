@@ -142,11 +142,15 @@ Imports nothing from Safwa. Grouped by concern:
 
 `SAFWA_` env prefix, `.env`. Keys: `telegram_bot_token`, `telegram_owner_id`, `telegram_api_id/hash`,
 `telegram_history_required=True`, `telegram_user_session_path`, `database_url=sqlite:///data/safwa.db`,
-`data_dir`, `ai_base_url=http://localhost:1234/v1`, `ai_api_key`, `ai_model`, `ai_timeout_seconds=120`,
+`data_dir`, `ai_provider=lmstudio`, `ai_api_key`, `ai_model`, `ai_timeout_seconds=120`,
 `ai_max_output_tokens=4096`, `ai_structured_output=False`, `ai_query_row_limit`, `ai_query_char_budget`,
 `timezone=Europe/Istanbul`, `summary_trigger_tokens`, `memory_token_budget`, `token_chars_estimate`,
-`memory_poll_seconds`, `scheduler_enabled=False`, `scheduler_poll_seconds`, `log_level`. Every numeric default comes from
-`constants.py`. Properties: `async_database_url`, `memory_path`, `telegram_history_enabled`.
+`memory_poll_seconds`, `scheduler_enabled=False`, `scheduler_poll_seconds`, `log_level`. `ai_base_url`,
+`ai_max_retries`, `ai_send_temperature`, `ai_cache_breakpoints`, `ai_reasoning_effort` default to `None`
+and fall back to `PROVIDER_DEFAULTS[ai_provider]`. Every numeric default comes from
+`constants.py`. Properties: `async_database_url`, `memory_path`, `telegram_history_enabled`,
+`provider_defaults`, `resolved_ai_base_url`, `resolved_ai_max_retries`, `resolved_ai_send_temperature`,
+`resolved_ai_cache_breakpoints`.
 
 ### `enums.py`
 
@@ -276,7 +280,8 @@ Card action; `card_id` belongs to `resolve_for_card` alone) ·
 
 ### `ai/provider.py`
 
-`ProviderConfig` :10 · `ProviderToolCall` :20 · `ProviderTurn` :27 · `OpenAICompatibleProvider` :32
+`ProviderConfig` :12 · `ProviderToolCall` :29 · `ProviderUsage` :36 · `ProviderTurn` :45 ·
+`OpenAICompatibleProvider` :78
 (`complete`, `complete_turn`, `close`).
 
 ### `ai/sql.py` — read-only guard

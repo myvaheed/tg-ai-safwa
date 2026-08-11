@@ -31,7 +31,8 @@ Backup/restore CLIs: `uv run safwa-backup`, `uv run safwa-restore <zip> --yes`.
 
 ## Architecture
 
-Single-owner Telegram bot (aiogram 3) + local OpenAI-compatible LLM (LM Studio by default) +
+Single-owner Telegram bot (aiogram 3) + an OpenAI-compatible LLM (`SAFWA_AI_PROVIDER`, LM Studio
+by default, OpenRouter for `openai/gpt-5.6-luna`) +
 SQLite/SQLAlchemy 2 async. Flat modules under `src/safwa/`, wired in [main.py](src/safwa/main.py):
 `Settings` → `Database` → provider/memory/advisor → `Services` dataclass injected as
 `dispatcher["services"]`, plus three background `asyncio` tasks (memory file watcher, reminder
@@ -111,6 +112,18 @@ lookup is `query_safwa` over `ai_cards`.
 `replace_facts`, which re-checks the file hash before *and* after writing a temp file, then
 `os.replace`s, so a concurrent local edit is preserved rather than overwritten. An invalid or
 oversized file disables memory injection instead of failing the turn.
+
+### The prompt prefix must stay byte-stable
+
+`_context_messages` ([ai/service.py](src/safwa/ai/service.py)) orders blocks by how often they
+change so a remote provider can cache the prefix: `SYSTEM_PROMPT` alone, then planning state +
+`memory.md`, then the dialogue, and only then a trailing `system` message carrying the clock.
+`planning_context` returns `PlanningContext(state, clock)` for exactly that split. **New volatile
+context goes after the dialogue, never into a system block** — one timestamp in `messages[0]` costs
+every cache hit and also scatters OpenRouter's sticky provider routing, which keys on a hash of the
+first system message. `SAFWA_AI_CACHE_BREAKPOINTS` adds `cache_control` markers at three positions
+(both system blocks and the last dialogue message); OpenRouter converts them to OpenAI's
+`prompt_cache_breakpoint` for GPT-5.6 and newer.
 
 ### Concurrency and UI state
 
