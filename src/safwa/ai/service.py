@@ -82,7 +82,13 @@ from ..models import (
 )
 from ..saved_requests import RequestQueryError, normalize_request_sql
 from .context import SYSTEM_PROMPT, DialogueMessage, planning_context
-from .contracts import MUTATION_TOOL_MODELS, AgentChange, mutation_change_from_tool
+from .contracts import (
+    MUTATION_TOOL_MODELS,
+    AgentChange,
+    QueryToolInput,
+    mutation_change_from_tool,
+    tool_json_schema,
+)
 from .provider import OpenAICompatibleProvider, ProviderToolCall, ProviderTurn
 from .sql import ReadOnlyQueryRunner, UnsafeQueryError
 
@@ -109,17 +115,7 @@ QUERY_SAFWA_TOOL: dict[str, Any] = {
             "Use it to find Cards, Tags, Values, Requests, Sprint state, metrics, or events "
             "before answering or preparing a change proposal."
         ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "sql": {
-                    "type": "string",
-                    "description": "One SELECT or WITH ... SELECT over allowlisted ai_* views.",
-                }
-            },
-            "required": ["sql"],
-            "additionalProperties": False,
-        },
+        "parameters": tool_json_schema(QueryToolInput),
     },
 }
 MUTATION_TOOL_DESCRIPTIONS = {
@@ -127,7 +123,10 @@ MUTATION_TOOL_DESCRIPTIONS = {
         "Open the Card review UI. create proposes a new Card; edit proposes exact "
         "field/set replacements; link and unlink add or remove one relationship type — Values, "
         "Tags, or Checks, since a Card owns all three links; move, complete, cancel, and reopen "
-        "propose only that lifecycle action. Nothing is saved until the user presses Save."
+        "propose only that lifecycle action. Omit unused properties or send null; never invent "
+        "placeholder IDs such as 0 or 1. In edit, parent_id=null removes the parent. Nothing is "
+        "saved until the "
+        "user presses Save."
     ),
     "check": (
         "Open the Check review UI. create proposes a new Pending Check; edit proposes field "
@@ -148,12 +147,99 @@ MUTATION_TOOLS: tuple[dict[str, Any], ...] = tuple(
         "function": {
             "name": name,
             "description": MUTATION_TOOL_DESCRIPTIONS[name],
-            "parameters": model.model_json_schema(),
+            "parameters": tool_json_schema(model),
         },
     }
     for name, model in MUTATION_TOOL_MODELS.items()
 )
 SAFWA_TOOLS = (QUERY_SAFWA_TOOL, *MUTATION_TOOLS)
+
+
+def _has_explicit_tool_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip()) and value.strip().casefold() not in {
+            "null",
+            "none",
+            "nil",
+            "undefined",
+        }
+    if isinstance(value, list):
+        return bool(value)
+    return True
+
+
+def _mutation_repair_details(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Give the model a compact valid shape instead of a raw validator traceback."""
+    model = MUTATION_TOOL_MODELS.get(name)
+    if model is None:
+        return {}
+
+    schema = tool_json_schema(model)
+    details: dict[str, Any] = {
+        "expected_schema": {
+            "required": schema.get("required", []),
+            "allowed_properties": list(schema.get("properties", {})),
+        }
+    }
+    if name != "card" or arguments.get("mode") != "create":
+        return details
+
+    expected: dict[str, Any] = {"mode": "create"}
+    core_fields = (
+        "kind",
+        "title",
+        "note",
+        "stage",
+        "priority",
+        "hard_time",
+        "blocked",
+        "blocked_description",
+        "effort_points",
+        "repeatable",
+        "categories",
+        "energy_types",
+    )
+    for field_name in core_fields:
+        if field_name in arguments and _has_explicit_tool_value(arguments[field_name]):
+            expected[field_name] = arguments[field_name]
+
+    # Keep intentional, non-placeholder relationship forms. Singular IDs are omitted from the
+    # repair example because constrained decoders commonly invent the minimum allowed integer.
+    for field_name in (
+        "value_ids",
+        "value_query",
+        "tag_ids",
+        "tag_query",
+        "check_ids",
+        "check_query",
+        "parent_id",
+        "parent_query",
+    ):
+        if field_name in arguments and _has_explicit_tool_value(arguments[field_name]):
+            expected[field_name] = arguments[field_name]
+
+    details.update(
+        {
+            "expected_arguments": expected,
+            "argument_rules": [
+                "For mode='create', omit id; it is assigned after Save.",
+                "Omit unused relationship properties; never fill *_id with placeholder 0 or 1.",
+                "Send only relationships that the user actually requested or that were resolved from data.",
+            ],
+        }
+    )
+    return details
+
+
+def _validation_error_summary(error: ValidationError) -> str:
+    messages: list[str] = []
+    for issue in error.errors(include_url=False, include_input=False):
+        location = ".".join(str(item) for item in issue.get("loc", ()))
+        message = str(issue.get("msg", "Invalid value"))
+        messages.append(f"{location}: {message}" if location else message)
+    return "; ".join(messages) or "Invalid tool arguments"
 
 
 class ToolPreparationError(DomainError):
@@ -705,12 +791,13 @@ class AIAdvisor:
         else:
             try:
                 arguments = json.loads(call.arguments)
-                sql = str(arguments["sql"])
+                query = QueryToolInput.model_validate(arguments)
+                sql = query.sql
                 outcome = await self.query_runner.run(sql)
                 rows = outcome.as_tool_result()
                 if outcome.notice:
                     logger.info("AI TOOL query_safwa capped: %s", outcome.notice)
-            except (KeyError, TypeError, json.JSONDecodeError) as error:
+            except (KeyError, TypeError, ValueError, ValidationError, json.JSONDecodeError) as error:
                 sql = ""
                 rows = [
                     {
@@ -755,6 +842,7 @@ class AIAdvisor:
     async def _execute_mutation_tool(
         self, call: ProviderToolCall, run_id: int, position: int
     ) -> tuple[AgentChange | None, dict[str, Any]]:
+        arguments: Any = None
         try:
             arguments = json.loads(call.arguments)
             if not isinstance(arguments, dict):
@@ -762,13 +850,24 @@ class AIAdvisor:
             change = mutation_change_from_tool(call.name, arguments)
         except (ValueError, ValidationError, json.JSONDecodeError) as error:
             logger.info("AI TOOL %s rejected: %s", call.name, error)
-            return None, {
+            error_text = (
+                _validation_error_summary(error)
+                if isinstance(error, ValidationError)
+                else str(error)
+            )
+            result = {
                 "status": "error",
                 "code": "invalid_arguments",
-                "error": str(error),
-                "hint": "Correct only this unfinished tool call and retry it.",
+                "error": error_text,
+                "hint": (
+                    "Retry only this unfinished tool call using expected_arguments and the "
+                    "argument_rules below; do not repeat successful calls."
+                ),
                 "retryable": True,
             }
+            if isinstance(arguments, dict):
+                result.update(_mutation_repair_details(call.name, arguments))
+            return None, result
         logger.info("AI TOOL %s prepared %s.%s", call.name, change.entity, change.action)
         async with self.sessions() as session:
             session.add(
@@ -842,8 +941,9 @@ class AIAdvisor:
             "The parent may have been proposed but is not saved yet. Wait for the earlier proposal "
             "result, then retry only this unfinished Card operation using the returned parent ID."
         )
-        if "parent_query" in values:
-            parent_query = str(values.pop("parent_query")).strip()
+        raw_parent_query = values.pop("parent_query", None)
+        if raw_parent_query is not None:
+            parent_query = str(raw_parent_query).strip()
             if not parent_query:
                 raise ToolPreparationError(
                     "invalid_arguments",

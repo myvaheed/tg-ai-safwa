@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from safwa.ai.contracts import CardToolInput, mutation_change_from_tool
+from safwa.ai.contracts import (
+    CardToolInput,
+    CheckToolInput,
+    QueryToolInput,
+    mutation_change_from_tool,
+    tool_json_schema,
+)
 from safwa.ai.sql import ReadOnlyQueryRunner, UnsafeQueryError, validate_read_sql
 
 
@@ -48,6 +54,245 @@ def test_card_tool_modes_reject_ambiguous_mutations():
         CardToolInput(mode="complete", id=42, note="also change this")
     with pytest.raises(ValueError):
         CardToolInput(mode="link", id=42, tag_id=3, value_id=4)
+    with pytest.raises(ValueError, match="at least one relationship reference"):
+        CardToolInput(mode="link", id=42, tag_ids=[])
+
+
+def test_tool_inputs_drop_incidental_null_placeholders_from_every_mutation():
+    change = mutation_change_from_tool(
+        "card",
+        {
+            "mode": "create",
+            "id": None,
+            "kind": "action",
+            "title": "Do twenty pull-ups",
+            "note": None,
+            "stage": "backlog",
+            "priority": "medium",
+            "hard_time": False,
+            "blocked": False,
+            "blocked_description": None,
+            "effort_points": 1,
+            "repeatable": False,
+            "categories": ["self"],
+            "energy_types": ["physical"],
+            "value_id": None,
+            "value_ids": None,
+            "value_query": None,
+            "tag_id": None,
+            "tag_ids": None,
+            "tag_query": None,
+            "check_id": None,
+            "check_ids": None,
+            "check_query": None,
+            "parent_id": None,
+            "parent_query": None,
+        },
+    )
+
+    assert change.values == {
+        "kind": "action",
+        "title": "Do twenty pull-ups",
+        "stage": "backlog",
+        "priority": "medium",
+        "hard_time": False,
+        "blocked": False,
+        "effort_points": 1,
+        "repeatable": False,
+        "categories": ["self"],
+        "energy_types": ["physical"],
+    }
+
+    check = CheckToolInput.model_validate(
+        {
+            "mode": "create",
+            "id": None,
+            "card_id": None,
+            "title": "Form is safe",
+            "note": None,
+            "repeatable": False,
+            "outcome": None,
+        }
+    )
+    assert check.model_fields_set == {"mode", "title", "repeatable"}
+
+
+def test_zero_id_placeholders_are_ignored_but_real_ids_must_be_positive():
+    change = mutation_change_from_tool(
+        "card",
+        {
+            "mode": "create",
+            "id": 0,
+            "kind": "action",
+            "title": "Do twenty pull-ups",
+            "effort_points": 1,
+            "value_id": 0,
+            "value_ids": [],
+            "tag_id": "0",
+            "tag_ids": [0, "0"],
+            "check_id": 0,
+            "check_ids": [],
+        },
+    )
+    assert change.values == {
+        "kind": "action",
+        "title": "Do twenty pull-ups",
+        "effort_points": 1,
+    }
+
+    with pytest.raises(ValueError):
+        mutation_change_from_tool("remove", {"type": "card", "id": 0})
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "arguments", "expected_values"),
+    [
+        (
+            "check",
+            {
+                "mode": "create",
+                "id": None,
+                "card_id": None,
+                "title": "Form is safe",
+                "note": None,
+                "repeatable": False,
+                "outcome": None,
+            },
+            {"title": "Form is safe", "repeatable": False},
+        ),
+        (
+            "value",
+            {"mode": "create", "id": None, "name": "Health", "description": None, "active": False},
+            {"name": "Health", "active": False},
+        ),
+        (
+            "tag",
+            {"mode": "create", "id": None, "name": "Training", "description": None},
+            {"name": "Training"},
+        ),
+        (
+            "request",
+            {
+                "mode": "create",
+                "id": None,
+                "name": "Open actions",
+                "description": None,
+                "sql": "SELECT id FROM ai_cards WHERE stage = 'backlog'",
+            },
+            {
+                "name": "Open actions",
+                "sql": "SELECT id FROM ai_cards WHERE stage = 'backlog'",
+            },
+        ),
+    ],
+)
+def test_null_placeholders_are_ignored_across_mutation_tools(
+    tool_name, arguments, expected_values
+):
+    change = mutation_change_from_tool(tool_name, arguments)
+    assert change.values == expected_values
+
+    remove = mutation_change_from_tool(
+        "remove", {"type": "card", "id": 42, "permanent": None}
+    )
+    assert remove.action == "archive"
+
+
+@pytest.mark.parametrize("placeholder", [None, "", "  ", "null", "None", "NIL", "undefined"])
+def test_optional_reference_placeholders_are_omitted(placeholder):
+    change = mutation_change_from_tool(
+        "card",
+        {
+            "mode": "create",
+            "kind": "action",
+            "title": "Do twenty pull-ups",
+            "effort_points": 1,
+            "parent_query": placeholder,
+            "value_query": [placeholder],
+        },
+    )
+    assert "parent_query" not in change.values
+    assert "value_query" not in change.values
+
+
+def test_collection_arguments_recover_scalars_and_double_encoded_arrays():
+    change = mutation_change_from_tool(
+        "card",
+        {
+            "mode": "edit",
+            "id": 42,
+            "categories": "self",
+            "energy_types": '["physical", null, "none"]',
+            "value_ids": [3, None, "null"],
+        },
+    )
+    assert change.values == {
+        "categories": ["self"],
+        "energy_types": ["physical"],
+        "value_ids": [3],
+    }
+
+
+def test_parent_changes_are_explicit_and_unambiguous():
+    remove_parent = mutation_change_from_tool(
+        "card", {"mode": "edit", "id": 42, "title": "Renamed", "parent_id": None}
+    )
+    assert remove_parent.values == {"title": "Renamed", "parent_id": None}
+
+    with pytest.raises(ValueError, match="either parent_id or parent_query"):
+        mutation_change_from_tool(
+            "card",
+            {
+                "mode": "edit",
+                "id": 42,
+                "parent_id": 7,
+                "parent_query": "Fitness",
+            },
+        )
+
+
+
+@pytest.mark.parametrize("placeholder", [None, "null", "None", "NIL", "undefined"])
+def test_edit_parent_null_variants_remove_the_parent(placeholder):
+    change = mutation_change_from_tool(
+        "card", {"mode": "edit", "id": 42, "parent_id": placeholder}
+    )
+    assert change.values == {"parent_id": None}
+
+
+def test_model_facing_tool_schemas_keep_optional_fields_nullable_for_constrained_decoders():
+    schema = tool_json_schema(CardToolInput)
+
+    def contains_null_type(value):
+        if isinstance(value, dict):
+            return value.get("type") == "null" or any(
+                contains_null_type(item) for item in value.values()
+            )
+        if isinstance(value, list):
+            return any(contains_null_type(item) for item in value)
+        return False
+
+    for field_name in ("id", "title", "value_id", "value_ids", "parent_id"):
+        assert contains_null_type(schema["properties"][field_name])
+    assert not contains_null_type(schema["properties"]["mode"])
+    id_integer = next(
+        variant
+        for variant in schema["properties"]["id"]["anyOf"]
+        if variant.get("type") == "integer"
+    )
+    assert id_integer["exclusiveMinimum"] == 0
+    assert schema["additionalProperties"] is False
+    assert "parent_id" not in schema.get("required", [])
+
+
+def test_query_tool_rejects_null_empty_and_extra_arguments():
+    for arguments in ({"sql": None}, {"sql": "  "}, {"sql": "SELECT 1", "unused": None}):
+        with pytest.raises(ValueError):
+            QueryToolInput.model_validate(arguments)
+
+    assert QueryToolInput.model_validate({"sql": "  SELECT id FROM ai_cards  "}).sql == (
+        "SELECT id FROM ai_cards"
+    )
 
 
 @pytest.mark.parametrize(

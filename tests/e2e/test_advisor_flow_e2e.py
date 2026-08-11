@@ -73,6 +73,134 @@ def mutation_turn(*calls: tuple[str, dict[str, object]]) -> ProviderTurn:
     )
 
 
+async def test_placeholder_heavy_card_tool_payload_stays_a_root_action(e2e_harness):
+    response = mutation_turn(
+        (
+            "card",
+            {
+                "mode": "create",
+                "id": 0,
+                "kind": "action",
+                "title": "Подтянуться 20 раз",
+                "note": "",
+                "stage": "backlog",
+                "priority": "medium",
+                "hard_time": False,
+                "blocked": False,
+                "blocked_description": "",
+                "effort_points": 1,
+                "repeatable": False,
+                "categories": ["self"],
+                "energy_types": ["physical"],
+                "value_id": 0,
+                "value_ids": [],
+                "value_query": "",
+                "tag_id": 0,
+                "tag_ids": [],
+                "tag_query": "",
+                "check_id": 0,
+                "check_ids": [],
+                "check_query": "",
+                "parent_id": None,
+                "parent_query": "",
+            },
+        )
+    )
+    advisor, _provider = e2e_harness.advisor([response])
+
+    outcome = await advisor.handle("Сделай один Action: подтянуться 20 раз")
+
+    assert outcome.kind == "proposal"
+    async with e2e_harness.sessions() as session:
+        change = await session.scalar(
+            select(ProposalChange).where(ProposalChange.proposal_id == outcome.proposal_id)
+        )
+        assert change.values["title"] == "Подтянуться 20 раз"
+        assert "parent_id" not in change.values
+        assert "parent_query" not in change.values
+
+
+async def test_invalid_create_returns_minimal_repair_arguments_to_the_model(e2e_harness):
+    invalid = mutation_turn(
+        (
+            "card",
+            {
+                "mode": "create",
+                "id": 1,
+                "kind": "action",
+                "title": "Подтянуться 20 раз",
+                "note": "",
+                "stage": "backlog",
+                "priority": "medium",
+                "hard_time": False,
+                "blocked": False,
+                "blocked_description": "",
+                "effort_points": 1,
+                "repeatable": False,
+                "categories": ["self"],
+                "energy_types": ["physical"],
+                "value_id": 1,
+                "value_ids": [],
+                "value_query": "",
+                "tag_id": 1,
+                "tag_ids": [],
+                "tag_query": "",
+                "check_id": 1,
+                "check_ids": [],
+                "check_query": "",
+                "parent_id": None,
+                "parent_query": "",
+            },
+        )
+    )
+    repaired = mutation_turn(
+        (
+            "card",
+            {
+                "mode": "create",
+                "kind": "action",
+                "title": "Подтянуться 20 раз",
+                "stage": "backlog",
+                "priority": "medium",
+                "hard_time": False,
+                "blocked": False,
+                "effort_points": 1,
+                "repeatable": False,
+                "categories": ["self"],
+                "energy_types": ["physical"],
+            },
+        )
+    )
+    advisor, provider = e2e_harness.advisor([invalid, repaired])
+
+    outcome = await advisor.handle("Сделай один Action: подтянуться 20 раз")
+
+    assert outcome.kind == "proposal"
+    repair_result = next(
+        json.loads(str(message["content"]))
+        for message in provider.calls[1]
+        if message.get("role") == "tool"
+    )
+    assert repair_result["code"] == "invalid_arguments"
+    assert repair_result["expected_arguments"] == {
+        "mode": "create",
+        "kind": "action",
+        "title": "Подтянуться 20 раз",
+        "stage": "backlog",
+        "priority": "medium",
+        "hard_time": False,
+        "blocked": False,
+        "effort_points": 1,
+        "repeatable": False,
+        "categories": ["self"],
+        "energy_types": ["physical"],
+    }
+    assert "id" not in repair_result["expected_arguments"]
+    assert "value_id" not in repair_result["expected_arguments"]
+    assert any("placeholder 0 or 1" in rule for rule in repair_result["argument_rules"])
+    assert "pydantic.dev" not in repair_result["error"]
+
+
 async def test_ai_parent_query_sql_resolves_before_card_proposal(e2e_harness):
     async with e2e_harness.sessions() as session:
         parent = await create_manual_card(
