@@ -17,6 +17,7 @@ from aiogram.types import (
 from sqlalchemy import delete, func, select
 
 from ..analytics import render_retrospective_png, retrospective_data, retrospective_recommendations
+from ..constants import REQUEST_RESULT_LIMIT
 from ..continuity import MemoryMaintenanceResult, parse_memory_update_time, record_memory_run
 from ..domain import (
     DomainError,
@@ -48,7 +49,6 @@ from ._messaging import (
     token_button,
 )
 from ._presentation import (
-    REQUEST_RESULT_LIMIT,
     kind_label,
     menu_markup,
     menu_row,
@@ -448,7 +448,6 @@ async def command_syncmem(message: Message, services: Services) -> None:
 
 
 @router.message(Command("mem"))
-@router.message(Command("remember"))
 async def command_remember(message: Message, services: Services) -> None:
     fact = (message.text or "").partition(" ")[2].strip()
     if not fact:

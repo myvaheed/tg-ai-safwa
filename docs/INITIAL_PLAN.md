@@ -58,16 +58,18 @@ The shared Card overview displays fields that are valid for its kind.
 
 ## Architecture
 
-Safwa is a Python 3.12 modular monolith under `src/safwa/`:
+Safwa is a Python 3.12 modular monolith under `src/safwa/`. It is organized as flat modules plus two packages, not as one package per layer. Responsibilities:
 
-- `domain`: Card invariants, hierarchy, stages, repeats, Values, Tags, Sprints, metrics, events, and Saved Requests.
-- `application`: typed commands/queries, transactions, AI proposals, UI intents, reminders, and retrospective calculations.
-- `infrastructure`: SQLAlchemy, SQLite, provider clients, Telethon history, file memory, scheduling, and plotting.
-- `telegram`: aiogram routing, item screens, callbacks, forms, pagination, semantic message classification, and generation synchronization.
-- `ai`: prompt/context construction, tool contracts, safe retrieval, proposal compilation, persona, summary, and memory maintenance.
-- `bootstrap`: configuration, migrations, dependency wiring, startup recovery, background loops, and graceful shutdown.
+- Domain — Card invariants, hierarchy, stages, repeats, Values, Tags, Sprints, metrics, events, and Saved Requests: `domain.py`, `enums.py`, `models.py`, `saved_requests.py`.
+- Application — transactions, AI proposals, reminders, and retrospective calculations: `domain.py` mutations, `ai/service.py` (`ProposalService`), `continuity.py`, `scheduler.py`, `analytics.py`.
+- Infrastructure — SQLAlchemy, SQLite, provider clients, Telethon history, file memory, and plotting: `db.py`, `history.py`, `memory.py`, `ai/provider.py`, `ai/sql.py`, `backup.py`.
+- `telegram/` — aiogram routing, item screens, callbacks, forms, pagination, semantic message classification, and generation synchronization. Layered internally: `_core` ← `_presentation` ← `_messaging` ← render modules ← handler modules.
+- `ai/` — prompt/context construction, tool contracts, safe retrieval, and proposal compilation.
+- Bootstrap — configuration, dependency wiring, startup recovery, background loops, and graceful shutdown: `main.py`, `config.py`, `constants.py`, `recovery.py`.
 
-Use SQLite with SQLAlchemy 2, aiosqlite, WAL, foreign keys, a busy timeout, optimistic entity versions, and serialized writes. Durable entities use incrementing integer primary keys. All persisted items use timezone-aware `created_at` and `updated_at` timestamps.
+Every tuning constant — limits, budgets, caps, intervals, the effort scale — lives in `constants.py`, which imports nothing from Safwa. `config.py` takes its defaults from there and exposes the environment-overridable subset as `SAFWA_*` settings.
+
+Use SQLite with SQLAlchemy 2, aiosqlite, WAL, foreign keys, a busy timeout, and optimistic entity versions. There is no write-serializing lock: concurrent writes rely on WAL plus the busy timeout, and correctness on the `version` / `workspace.revision` checks and the single foreground generation lease. Durable entities use incrementing integer primary keys. All persisted items use timezone-aware `created_at` and `updated_at` timestamps.
 
 ## Core persisted data
 
@@ -121,7 +123,7 @@ Invalid Action-only fields supplied for Goal or Idea are removed at the AI bound
 - Cancellation is distinct from completion.
 - Finish Early closes the Sprint; there is no pause.
 - Unfinished Sprint/Today Actions remain preselected in Planning.
-- Metrics distinguish initial, added, removed, completed, cancelled, and remaining effort.
+- Metrics distinguish initial, added, removed, completed, and cancelled effort. Remaining effort is not stored or reported; it is whatever a reader derives from those five figures.
 
 ### Archive and deletion
 
@@ -141,15 +143,15 @@ LM Studio is the default OpenAI-compatible provider. Native function calling is 
 
 The model never writes SQL for mutation. Mutation tools normalize into typed proposal changes. Read SQL is accepted only when it is one `SELECT` or `WITH ... SELECT` over allowlisted AI views, with no base tables, DML, DDL, PRAGMA, ATTACH, extensions, or multiple statements, and with strict time/row/column/payload limits.
 
-AI context has one system message containing:
+AI context is one system message followed by the canonical dialogue turns. The system message contains:
 
-- current local time and concise Safwa rules;
-- profile/advisor instructions and active Values;
-- authoritative `memory.md`;
-- nearest Summary/session boundary and canonical recent Telegram dialogue;
-- all Today Actions and condensed Sprint metrics;
-- relevant Card candidates with short integer IDs;
-- current tool schemas.
+- concise Safwa rules, the allowlisted view list, and the tool/approval protocol;
+- current local time and workspace mode;
+- About Me, advisor instructions, active Values, and available Tags, each with its short integer ID;
+- all Today Actions with their short integer IDs;
+- authoritative `memory.md`.
+
+The system message deliberately carries no Sprint metrics and no precomputed Card candidates: the model reaches those through `query_safwa` over `ai_current_sprint_metrics` and `ai_cards`, so context stays small and never goes stale. The dialogue turns that follow already carry the nearest Summary or `/newsession` boundary applied by the history source. Tool schemas are supplied through the provider's native function-calling parameter, not inlined in the prompt.
 
 ## History and memory
 
@@ -166,14 +168,13 @@ Foreground generation holds a lease. New ordinary input deletes/invalidates the 
 
 ## Reminders and retrospectives
 
-Reminder eligibility is deterministic before AI composition. Settings include timezone, wake/bed and quiet hours, windows, proactive limits, cooldowns, weekends, snooze, capacity, About Me, and advisor instructions. Today Actions never move automatically.
+Reminder eligibility is deterministic before AI composition. Settings include timezone, wake/bed and quiet hours, proactive limits, cooldowns, weekends, snooze, capacity, About Me, and advisor instructions. Morning and evening check-in times are stored separately from wake/bed but have no command yet; until one exists, wake and bed times are the effective check-in windows. Today Actions never move automatically.
 
-Retrospective PNGs use Matplotlib `Agg` and show:
+Retrospective PNGs use Matplotlib `Agg` and show three panels plus text:
 
-- initial commitment versus completed effort;
-- added, removed, cancelled, and remaining scope;
-- effort by overlapping category;
-- effort by overlapping energy type;
+- sprint effort bars: initial, added, removed, completed, and cancelled;
+- committed versus completed effort by overlapping category;
+- committed versus completed effort by overlapping energy type;
 - written recommendations based on capacity, scope churn, Hard Time, Blocked work, active Values, and liked feedback.
 
 ## Fresh-schema delivery
@@ -187,6 +188,7 @@ Verification covers:
 - transient manual Card creation and queued AI Card proposals;
 - Blocked validation and repeat copying;
 - Sprint accounting and retrospective PNGs;
+- deterministic reminder candidates, their dedupe keys, and scheduler-loop survival;
 - safe SQL and proposal version checks;
 - canonical Telegram history, summaries, and generation synchronization;
 - authoritative file memory and scheduled synchronization;

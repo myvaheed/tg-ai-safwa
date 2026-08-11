@@ -6,7 +6,17 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .ai.sql import DEFAULT_CHAR_BUDGET, DEFAULT_ROW_LIMIT
+from .constants import (
+    AI_MAX_OUTPUT_TOKENS,
+    AI_TIMEOUT_SECONDS,
+    DEFAULT_CHAR_BUDGET,
+    DEFAULT_ROW_LIMIT,
+    MEMORY_POLL_SECONDS,
+    MEMORY_TOKEN_BUDGET,
+    SCHEDULER_POLL_SECONDS,
+    SUMMARY_TRIGGER_TOKENS,
+    TOKEN_CHARS_ESTIMATE,
+)
 
 
 class Settings(BaseSettings):
@@ -27,19 +37,19 @@ class Settings(BaseSettings):
     ai_base_url: str = "http://localhost:1234/v1"
     ai_api_key: SecretStr = SecretStr("lm-studio")
     ai_model: str = "local-model"
-    ai_timeout_seconds: float = 120.0
-    ai_max_output_tokens: int = 4096
+    ai_timeout_seconds: float = AI_TIMEOUT_SECONDS
+    ai_max_output_tokens: int = AI_MAX_OUTPUT_TOKENS
     ai_structured_output: bool = False
     # query_safwa result caps. A capped result is returned with a notice telling the
     # model to narrow the query, so raise these only if the model has context to spare.
     ai_query_row_limit: int = Field(default=DEFAULT_ROW_LIMIT, gt=0)
     ai_query_char_budget: int = Field(default=DEFAULT_CHAR_BUDGET, gt=0)
     timezone: str = "Europe/Istanbul"
-    summary_trigger_tokens: int = 10_000
-    memory_token_budget: int = 4_000
-    token_chars_estimate: float = 3.0
-    memory_poll_seconds: float = 5.0
-    scheduler_poll_seconds: float = 30.0
+    summary_trigger_tokens: int = SUMMARY_TRIGGER_TOKENS
+    memory_token_budget: int = MEMORY_TOKEN_BUDGET
+    token_chars_estimate: float = TOKEN_CHARS_ESTIMATE
+    memory_poll_seconds: float = MEMORY_POLL_SECONDS
+    scheduler_poll_seconds: float = SCHEDULER_POLL_SECONDS
     log_level: str = Field(default="INFO", pattern=r"^(?i:DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
 
     @field_validator("timezone")

@@ -8,11 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-# Sized for a local model: one result should inform a turn, not consume its context.
-DEFAULT_ROW_LIMIT = 50
-DEFAULT_CHAR_BUDGET = 12_000
-DEFAULT_COLUMN_LIMIT = 20
-DEFAULT_CELL_LIMIT = 2_000
+from ..constants import (
+    DEFAULT_CELL_LIMIT,
+    DEFAULT_CHAR_BUDGET,
+    DEFAULT_COLUMN_LIMIT,
+    DEFAULT_ROW_LIMIT,
+    QUERY_TIMEOUT_SECONDS,
+)
 
 
 class UnsafeQueryError(ValueError):
@@ -81,26 +83,13 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
         "ai_card_events",
     ):
         connection.exec_driver_sql(f"DROP VIEW IF EXISTS {view_name}")
-    connection.exec_driver_sql(
-        "CREATE VIRTUAL TABLE IF NOT EXISTS card_search USING fts5(card_id UNINDEXED, title, note)"
-    )
-    connection.exec_driver_sql(
-        "INSERT INTO card_search(card_id, title, note) "
-        "SELECT id, title, note FROM cards WHERE id NOT IN (SELECT card_id FROM card_search)"
-    )
-    connection.exec_driver_sql(
-        """CREATE TRIGGER IF NOT EXISTS cards_search_insert AFTER INSERT ON cards BEGIN
-        INSERT INTO card_search(card_id, title, note) VALUES (new.id, new.title, new.note); END"""
-    )
-    connection.exec_driver_sql(
-        """CREATE TRIGGER IF NOT EXISTS cards_search_update AFTER UPDATE OF title, note ON cards BEGIN
-        DELETE FROM card_search WHERE card_id=old.id;
-        INSERT INTO card_search(card_id, title, note) VALUES (new.id, new.title, new.note); END"""
-    )
-    connection.exec_driver_sql(
-        """CREATE TRIGGER IF NOT EXISTS cards_search_delete AFTER DELETE ON cards BEGIN
-        DELETE FROM card_search WHERE card_id=old.id; END"""
-    )
+    # `card_search` was an FTS5 mirror of cards.title/note that nothing ever read: it was
+    # absent from ALLOWED_VIEWS and from SYSTEM_PROMPT, so `validate_read_sql` rejected
+    # every query against it.  Drop it and its write triggers from databases that still
+    # carry them; Card lookup goes through `ai_cards` in `query_safwa`.
+    for trigger_name in ("cards_search_insert", "cards_search_update", "cards_search_delete"):
+        connection.exec_driver_sql(f"DROP TRIGGER IF EXISTS {trigger_name}")
+    connection.exec_driver_sql("DROP TABLE IF EXISTS card_search")
     connection.exec_driver_sql(
         """CREATE VIEW IF NOT EXISTS ai_tags AS
         SELECT id, name, description, created_at, updated_at FROM tags WHERE archived_at IS NULL"""
@@ -181,7 +170,7 @@ class ReadOnlyQueryRunner:
         char_budget: int = DEFAULT_CHAR_BUDGET,
         column_limit: int = DEFAULT_COLUMN_LIMIT,
         cell_limit: int = DEFAULT_CELL_LIMIT,
-        timeout: float = 2.0,
+        timeout: float = QUERY_TIMEOUT_SECONDS,
     ) -> None:
         self.database_path = database_path.resolve()
         self.row_limit = row_limit

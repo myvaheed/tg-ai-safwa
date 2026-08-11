@@ -12,6 +12,11 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ..constants import (
+    MAX_REPAIR_ROUNDS,
+    MAX_TOOL_CALLS,
+    SUSPENDED_BATCH_LOOKUP_LIMIT,
+)
 from ..domain import (
     CARD_REFERENCE_SPECS,
     TAG_REFERENCE,
@@ -131,9 +136,6 @@ MUTATION_TOOLS: tuple[dict[str, Any], ...] = tuple(
     for name, model in MUTATION_TOOL_MODELS.items()
 )
 SAFWA_TOOLS = (QUERY_SAFWA_TOOL, *MUTATION_TOOLS)
-MAX_TOOL_CALLS = 64
-MAX_REPAIR_ROUNDS = 5
-_SUSPENDED_BATCH_LOOKUP_LIMIT = 50
 
 
 class ToolPreparationError(DomainError):
@@ -1243,7 +1245,7 @@ class AIAdvisor:
                     AgentStep.metadata_json["status"].as_string().in_(["pending", "resuming"]),
                 )
                 .order_by(AgentStep.id.desc())
-                .limit(_SUSPENDED_BATCH_LOOKUP_LIMIT)
+                .limit(SUSPENDED_BATCH_LOOKUP_LIMIT)
             )
         )
         for step in steps:

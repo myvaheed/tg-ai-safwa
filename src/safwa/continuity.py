@@ -11,6 +11,14 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .ai.provider import OpenAICompatibleProvider
+from .constants import (
+    HISTORY_CONTINUITY_LIMIT,
+    MEMORY_MAINTENANCE_INTERVAL_SECONDS,
+    MEMORY_RETELL_CHUNK_TOKENS,
+    MEMORY_RETELL_OVERLAP_TOKENS,
+    SUMMARY_TRIGGER_TOKENS,
+    TOKEN_CHARS_ESTIMATE,
+)
 from .history import HistoryBoundaryMissing, TelegramHistorySource
 from .memory import MemoryFileError, MemoryFileStore, estimate_tokens
 from .models import MemorySyncState, UserProfile
@@ -50,8 +58,8 @@ class PersonaContinuity:
         provider: OpenAICompatibleProvider,
         memory: MemoryFileStore,
         *,
-        summary_trigger_tokens: int = 10_000,
-        chars_per_token: float = 3.0,
+        summary_trigger_tokens: int = SUMMARY_TRIGGER_TOKENS,
+        chars_per_token: float = TOKEN_CHARS_ESTIMATE,
     ) -> None:
         self.sessions = sessions
         self.history = history
@@ -70,7 +78,7 @@ class PersonaContinuity:
         if self._summary_lock.locked():
             return False
         async with self._summary_lock:
-            entries = await self.history.recent(chat_id, limit=500)
+            entries = await self.history.recent(chat_id, limit=HISTORY_CONTINUITY_LIMIT)
             dialogue = "\n".join(
                 f"[{entry.role}]: {entry.text}"
                 for entry in entries
@@ -101,7 +109,9 @@ class PersonaContinuity:
                 state = await session.get(MemorySyncState, 1)
                 processed_id = state.processed_message_id if state else None
             try:
-                entries = await self.history.recent(chat_id, limit=500, require_boundary=True)
+                entries = await self.history.recent(
+                    chat_id, limit=HISTORY_CONTINUITY_LIMIT, require_boundary=True
+                )
             except HistoryBoundaryMissing:
                 return MemoryMaintenanceResult.BOUNDARY_MISSING
             new_entries = [
@@ -112,8 +122,8 @@ class PersonaContinuity:
             raw = "\n".join(f"[{e.role}]: {e.text}" for e in new_entries)
             chunks = self._chunks(
                 raw,
-                limit_chars=int(2_000 * self.chars_per_token),
-                overlap_chars=int(500 * self.chars_per_token),
+                limit_chars=int(MEMORY_RETELL_CHUNK_TOKENS * self.chars_per_token),
+                overlap_chars=int(MEMORY_RETELL_OVERLAP_TOKENS * self.chars_per_token),
             )
             facts = list(snapshot.facts)
             expected_hash = snapshot.file_hash
@@ -188,7 +198,7 @@ async def run_memory_maintenance(
     is_foreground_busy: Callable[[], bool],
     timezone: str,
     *,
-    interval_seconds: float = 60,
+    interval_seconds: float = MEMORY_MAINTENANCE_INTERVAL_SECONDS,
 ) -> None:
     while True:
         try:

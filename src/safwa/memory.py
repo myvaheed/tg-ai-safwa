@@ -9,6 +9,7 @@ from pathlib import Path
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from .constants import MEMORY_POLL_SECONDS, MEMORY_TOKEN_BUDGET, TOKEN_CHARS_ESTIMATE
 from .models import MemoryFactCache, MemorySyncState
 
 
@@ -29,7 +30,7 @@ class MemorySnapshot:
         return "\n".join(self.facts) if self.valid else ""
 
 
-def estimate_tokens(text: str, chars_per_token: float = 3.0) -> int:
+def estimate_tokens(text: str, chars_per_token: float = TOKEN_CHARS_ESTIMATE) -> int:
     return int((len(text) / max(chars_per_token, 1.0)) + 0.999)
 
 
@@ -54,9 +55,9 @@ class MemoryFileStore:
         path: Path,
         sessions: async_sessionmaker[AsyncSession],
         *,
-        token_budget: int = 4_000,
-        chars_per_token: float = 3.0,
-        poll_seconds: float = 5.0,
+        token_budget: int = MEMORY_TOKEN_BUDGET,
+        chars_per_token: float = TOKEN_CHARS_ESTIMATE,
+        poll_seconds: float = MEMORY_POLL_SECONDS,
     ) -> None:
         self.path = path
         self.sessions = sessions
@@ -138,7 +139,9 @@ class MemoryFileStore:
             content += "\n"
         tokens = estimate_tokens(content, self.chars_per_token)
         if tokens > self.token_budget:
-            raise MemoryFileError("Automatic memory update exceeds the 4K token budget")
+            raise MemoryFileError(
+                f"Automatic memory update exceeds the {self.token_budget}-token budget"
+            )
         async with self._lock:
             raw, _ = self._read()
             if memory_hash(raw) != expected_hash:

@@ -9,6 +9,7 @@ from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from ..constants import PAGE_SIZE, TELEGRAM_TEXT_LIMIT
 from ..enums import CardKind, Category, EnergyType, Priority
 from ..models import Card, ProposalChange
 
@@ -70,16 +71,6 @@ def energy_expression(values: Any) -> str:
     return _typed_expression(values, ENERGY_EMOJIS)
 
 
-_PAGE_SIZE = 5
-
-
-# Value and Tag selectors grow with the workspace, so they page instead of truncating.
-SELECTOR_PAGE_SIZE = 10
-
-
-REQUEST_RESULT_LIMIT = 25
-
-
 _PRIORITY_ORDER = {Priority.CRITICAL.value: 0, Priority.MEDIUM.value: 1, Priority.LOW.value: 2}
 
 
@@ -99,7 +90,7 @@ class Page:
         return f"page {self.index + 1}/{self.count}"
 
 
-def paginate(items: list[Any], page: int, size: int = _PAGE_SIZE) -> Page:
+def paginate(items: list[Any], page: int, size: int = PAGE_SIZE) -> Page:
     last = max(0, (len(items) - 1) // size)
     index = min(max(page, 0), last)
     return Page(items[index * size : (index + 1) * size], index, last + 1)
@@ -199,7 +190,7 @@ def retro_back_row() -> list[InlineKeyboardButton]:
     return [InlineKeyboardButton(text="↩️ Menu", callback_data="nav:retro_back")]
 
 
-def split_telegram_text(text: str, limit: int = 3_900) -> list[str]:
+def split_telegram_text(text: str, limit: int = TELEGRAM_TEXT_LIMIT) -> list[str]:
     """Split visible context messages without breaking the result protocol header."""
     text = text.strip()
     if not text:

@@ -79,4 +79,3 @@ LIVE_STAGE_PRECEDENCE = {
     CardStage.SPRINT: 2,
     CardStage.TODAY: 3,
 }
-EFFORT_POINTS = {1, 2, 3, 5, 8, 13}

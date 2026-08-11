@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from .constants import SCHEDULER_POLL_SECONDS
 from .enums import CardKind, CardStage, MessageKind
 from .models import (
     Card,
@@ -23,6 +24,11 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _card_key(cards: list[Card]) -> str:
+    """A stable dedupe key for a Card set. Card ids are ints, so stringify before joining."""
+    return ",".join(str(card_id) for card_id in sorted(card.id for card in cards))
 
 
 class ReminderPolicy:
@@ -112,13 +118,14 @@ class ReminderPolicy:
         today = list(
             await session.scalars(
                 select(Card).where(
+                    Card.kind == CardKind.ACTION.value,
                     Card.effective_stage == CardStage.TODAY.value,
                     Card.archived_at.is_(None),
                 )
             )
         )
         if today:
-            key = ",".join(sorted(card.id for card in today))
+            key = _card_key(today)
             if await self.eligible(session, "today", key):
                 candidates.append(
                     ("today", key, f"Your Today focus contains {len(today)} Action(s).")
@@ -164,7 +171,7 @@ class ReminderPolicy:
             )
         )
         if drifting_repeats:
-            key = ",".join(sorted(card.id for card in drifting_repeats))
+            key = _card_key(drifting_repeats)
             if await self.eligible(session, "repeat_drift", key):
                 candidates.append(
                     (
@@ -249,11 +256,11 @@ class ReminderPolicy:
                 )
                 .limit(1)
             )
-            if not aligned and await self.eligible(session, "value_neglected", value.id):
+            if not aligned and await self.eligible(session, "value_neglected", str(value.id)):
                 candidates.append(
                     (
                         "value_neglected",
-                        value.id,
+                        str(value.id),
                         f"Active Value '{value.name}' has no directly linked Sprint or Today Action.",
                     )
                 )
@@ -261,6 +268,7 @@ class ReminderPolicy:
             selected = (
                 await session.scalar(
                     select(func.count(Card.id)).where(
+                        Card.kind == CardKind.ACTION.value,
                         Card.archived_at.is_(None),
                         Card.effective_stage.in_(
                             [
@@ -284,24 +292,31 @@ async def run_scheduler(
     policy: ReminderPolicy,
     send_reminder,
     *,
-    poll_seconds: float = 30.0,
+    poll_seconds: float = SCHEDULER_POLL_SECONDS,
 ) -> None:  # type: ignore[no-untyped-def]
     while True:
-        async with sessions() as session:
-            candidates = await policy.candidates(session)
-            if candidates:
-                kind, key, text = candidates[0]
-                try:
-                    sent = await send_reminder(text)
-                except Exception:
-                    logger.exception("Reminder generation or delivery failed")
-                    sent = False
-                if sent:
-                    state = await session.get(ReminderState, kind)
-                    if state is None:
-                        state = ReminderState(kind=kind)
-                        session.add(state)
-                    state.last_sent_at = datetime.now(UTC)
-                    state.dedupe_key = key
-                    await session.commit()
+        # Candidate computation is guarded too: an error there used to escape the loop and
+        # silently end reminders for the rest of the process.
+        try:
+            async with sessions() as session:
+                candidates = await policy.candidates(session)
+                if candidates:
+                    kind, key, text = candidates[0]
+                    try:
+                        sent = await send_reminder(text)
+                    except Exception:
+                        logger.exception("Reminder generation or delivery failed")
+                        sent = False
+                    if sent:
+                        state = await session.get(ReminderState, kind)
+                        if state is None:
+                            state = ReminderState(kind=kind)
+                            session.add(state)
+                        state.last_sent_at = datetime.now(UTC)
+                        state.dedupe_key = key
+                        await session.commit()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Reminder scheduling failed")
         await asyncio.sleep(poll_seconds)

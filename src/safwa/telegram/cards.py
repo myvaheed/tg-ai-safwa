@@ -10,6 +10,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..constants import EFFORT_POINTS, SELECTOR_PAGE_SIZE
 from ..domain import (
     DomainError,
     ReferenceSpec,
@@ -18,7 +19,6 @@ from ..domain import (
     validate_blocked_fields,
 )
 from ..enums import (
-    EFFORT_POINTS,
     CardKind,
     CardStage,
     Category,
@@ -49,7 +49,6 @@ from ._messaging import edit_registered_message, paging_row, send_registered, to
 from ._presentation import (
     CATEGORY_EMOJIS,
     ENERGY_EMOJIS,
-    SELECTOR_PAGE_SIZE,
     Page,
     card_overview_text,
     kind_label,

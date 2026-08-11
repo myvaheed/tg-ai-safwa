@@ -14,6 +14,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..constants import CALLBACK_TOKEN_TTL_HOURS
 from ..enums import MessageKind, ProposalStatus
 from ..history import SUBSESSION_RESULT_HEADER, register_message
 from ..models import (
@@ -43,7 +44,7 @@ async def token_button(
             owner_id=owner_id,
             action=action,
             payload=payload or {},
-            expires_at=datetime.now(UTC) + timedelta(hours=24),
+            expires_at=datetime.now(UTC) + timedelta(hours=CALLBACK_TOKEN_TTL_HOURS),
         )
     )
     return InlineKeyboardButton(text=text, callback_data=f"cb:{token}")

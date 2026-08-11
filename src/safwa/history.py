@@ -13,6 +13,11 @@ from telethon import TelegramClient
 
 from .ai.context import DialogueMessage
 from .config import Settings
+from .constants import (
+    HISTORY_RECENT_LIMIT,
+    MESSAGE_CORRELATION_SECONDS,
+    SUMMARY_CONTEXT_MESSAGE_LIMIT,
+)
 from .enums import MessageKind
 from .models import TelegramMessage
 
@@ -29,7 +34,6 @@ _SUBSESSION_RESULT_CONTINUED_RE = re.compile(
     r"^📦\s*Subsession request\s*\(continued\)\s*\n(?P<body>[\s\S]*\S)\s*$",
     re.IGNORECASE,
 )
-SUMMARY_CONTEXT_MESSAGE_LIMIT = 20
 
 
 class HistoryBoundaryMissing(RuntimeError):
@@ -103,7 +107,7 @@ class TelegramHistorySource:
         self,
         chat_id: int,
         *,
-        limit: int = 120,
+        limit: int = HISTORY_RECENT_LIMIT,
         source_message: HistoryEntry | None = None,
         require_boundary: bool = False,
     ) -> list[HistoryEntry]:
@@ -281,7 +285,7 @@ class TelegramHistorySource:
             if registered_at.tzinfo is None:
                 registered_at = registered_at.replace(tzinfo=UTC)
             difference = abs((registered_at.astimezone(UTC) - created_at).total_seconds())
-            if difference <= 15:
+            if difference <= MESSAGE_CORRELATION_SECONDS:
                 # Scanning is newest-first, so prefer the larger Bot API ID when
                 # two registrations have the same timestamp distance.
                 candidates.append((difference, -row.message_id, row))

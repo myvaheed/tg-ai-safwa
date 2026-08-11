@@ -38,10 +38,16 @@ SQLite/SQLAlchemy 2 async. Flat modules under `src/safwa/`, wired in [main.py](s
 scheduler, daily memory maintenance) that are cancelled in the polling `finally`.
 
 `docs/INITIAL_PLAN.md` and `docs/MEMORY_HISTORY_USAGE.md` are the authoritative product spec —
-read them before changing history, memory, proposal, or UI behavior. They describe layers
-(domain/application/infrastructure) that exist as flat files: [domain.py](src/safwa/domain.py)
+read them before changing history, memory, proposal, or UI behavior. `docs/ARCHITECTURE.md` and
+`docs/STRUCTURE_GRAPH.md` map features and entities to files for fast orientation. The layer
+responsibilities the spec names exist as flat files: [domain.py](src/safwa/domain.py)
 (invariants + all mutations), [telegram/](src/safwa/telegram) (all UI, ~4.2k lines),
 [ai/service.py](src/safwa/ai/service.py) (agent loop + proposals, ~1.9k lines).
+
+Every limit, budget, cap, interval, and the effort scale live in
+[constants.py](src/safwa/constants.py), which imports nothing from Safwa;
+[config.py](src/safwa/config.py) takes its defaults from there. Put a new tuning number there, not
+next to its use site.
 
 The `telegram` package is layered, and imports run one way only:
 [_core.py](src/safwa/telegram/_core.py) (`Services`, `router`, `GenerationGuard`, middleware, the
@@ -91,10 +97,11 @@ results. Failed preparations return structured tool errors and are retried for a
 `query_safwa` and saved Requests accept one `SELECT`/`WITH … SELECT` over the `ai_*` views only.
 Defenses in [ai/sql.py](src/safwa/ai/sql.py): regex validation (`validate_read_sql`), a separate
 `mode=ro` sqlite3 connection with a `set_authorizer` allowlist, and row/column/payload/time caps.
-The `ai_*` views and the `card_search` FTS5 table are **dropped and rebuilt on every startup**
-(`create_ai_views`) — change view shape there, not with a migration. New view ⇒ add it to
-`ALLOWED_VIEWS` *and* to the view list in `SYSTEM_PROMPT` ([ai/context.py](src/safwa/ai/context.py)),
-or the model cannot use it.
+The `ai_*` views are **dropped and rebuilt on every startup** (`create_ai_views`) — change view shape
+there, not with a migration. New view ⇒ add it to `ALLOWED_VIEWS` *and* to the view list in
+`SYSTEM_PROMPT` ([ai/context.py](src/safwa/ai/context.py)), or the model cannot use it. The same
+function also drops the retired `card_search` FTS5 table and its triggers from older databases; Card
+lookup is `query_safwa` over `ai_cards`.
 
 ### `data/memory.md` is authoritative
 
@@ -124,7 +131,8 @@ oversized file disables memory injection instead of failing the turn.
   are stripped for Goal/Idea at both the AI and domain boundaries.
 - `manual_stage` is what the user set; `effective_stage` is derived for parents from descendants
   (`aggregate_child_stages`, `propagate_ancestors`) and is what dashboards and queries read.
-- Effort is restricted to `EFFORT_POINTS = {1,2,3,5,8,13}` and required for Actions.
+- Effort is restricted to `EFFORT_POINTS` ([constants.py](src/safwa/constants.py)) `= {1,2,3,5,8,13}`
+  and required for Actions. The `Literal` in `ai/contracts.py` mirrors it — change both together.
 - Enums are `StrEnum` but columns store plain strings — always compare/assign `.value`.
 - Entities carry a `version` for optimistic concurrency; `workspace.revision` is bumped on mutation
   and is what invalidates an in-flight AI answer. `StaleStateError` is the expected failure.

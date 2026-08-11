@@ -8,8 +8,8 @@ from typing import Any
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .constants import EFFORT_POINTS, SPRINT_LENGTH_DAYS
 from .enums import (
-    EFFORT_POINTS,
     LIVE_STAGE_PRECEDENCE,
     TERMINAL_STAGES,
     ActorType,
@@ -1133,7 +1133,7 @@ async def start_sprint(
     sprint = Sprint(
         number=highest + 1,
         planned_start_date=start,
-        planned_end_date=start + timedelta(days=13),
+        planned_end_date=start + timedelta(days=SPRINT_LENGTH_DAYS - 1),
         actual_started_at=utcnow(),
         capacity_effort_points=capacity,
     )
