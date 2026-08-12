@@ -36,6 +36,56 @@ _SUBSESSION_RESULT_CONTINUED_RE = re.compile(
 )
 
 
+# Telegram carries the message text; `telegram_messages` only ever carried the label that
+# says which of the bot's messages are persona dialogue.  That label cannot be derived at
+# read time — a receipt and an advisor reply are both plain bot text — so it is written
+# into the message itself as invisible characters and Telegram stays the whole record.
+# Codes are append-only: a released code must never be reused for another kind.
+_KIND_MARK_SENTINEL = "⁠"
+_KIND_MARK_DIGITS = ("​", "‌")
+_KIND_MARK_WIDTH = 5
+_KIND_MARK_CODES: dict[str, int] = {
+    MessageKind.SESSION_START.value: 1,
+    MessageKind.SUBSESSION_RESULT.value: 2,
+    MessageKind.DIALOGUE_USER.value: 3,
+    MessageKind.DIALOGUE_ASSISTANT.value: 4,
+    MessageKind.REMINDER.value: 5,
+    MessageKind.SUMMARY.value: 6,
+    MessageKind.COMMAND.value: 7,
+    MessageKind.UI_INPUT.value: 8,
+    MessageKind.DASHBOARD.value: 9,
+    MessageKind.CARD_EDITOR.value: 10,
+    MessageKind.APPROVAL.value: 11,
+    MessageKind.RECEIPT.value: 12,
+    MessageKind.RETROSPECTIVE_PNG.value: 13,
+    MessageKind.ERROR.value: 14,
+}
+_KIND_MARK_BY_CODE = {code: value for value, code in _KIND_MARK_CODES.items()}
+_KIND_MARK_RE = re.compile(
+    f"{_KIND_MARK_SENTINEL}[{''.join(_KIND_MARK_DIGITS)}]{{{_KIND_MARK_WIDTH}}}$"
+)
+
+
+def mark_kind(text: str, kind: MessageKind) -> str:
+    """Append the invisible kind label that Telegram will keep for us."""
+    code = _KIND_MARK_CODES[kind.value]
+    digits = "".join(
+        _KIND_MARK_DIGITS[(code >> shift) & 1] for shift in reversed(range(_KIND_MARK_WIDTH))
+    )
+    return f"{text}{_KIND_MARK_SENTINEL}{digits}"
+
+
+def read_kind_mark(text: str) -> tuple[str | None, str]:
+    """Split a marked message into its kind and its visible text."""
+    match = _KIND_MARK_RE.search(text)
+    if match is None:
+        return None, text
+    code = 0
+    for digit in match.group()[len(_KIND_MARK_SENTINEL) :]:
+        code = code * 2 + _KIND_MARK_DIGITS.index(digit)
+    return _KIND_MARK_BY_CODE.get(code), text[: match.start()]
+
+
 class HistoryBoundaryMissing(RuntimeError):
     """Raised when dialogue has no visible /newsession or Summary cut place."""
 
@@ -134,9 +184,13 @@ class TelegramHistorySource:
         summary_context: list[HistoryEntry] = []
         boundary: HistoryEntry | None = None
         subsession_result_chunks: list[str] = []
+        provisional_ids: set[int] = set()
         scan_limit = max(1_000, limit * 20)
         async for message in self.client.iter_messages(entity, limit=scan_limit):
-            raw_text = (getattr(message, "raw_text", None) or message.message or "").strip()
+            marked_kind, raw_text = read_kind_mark(
+                (getattr(message, "raw_text", None) or message.message or "").strip()
+            )
+            raw_text = raw_text.strip()
             if not raw_text:
                 continue
             sender_id = int(message.sender_id) if message.sender_id else None
@@ -149,7 +203,7 @@ class TelegramHistorySource:
                 direction=direction,
                 created_at=created_at,
             )
-            kind = registration.kind if registration is not None else None
+            kind = registration.kind if registration is not None else marked_kind
             if (
                 source_message is not None
                 and registration is not None
@@ -209,8 +263,14 @@ class TelegramHistorySource:
                         )
                     # A new Safwa session is always the outer history boundary.
                     break
-                # Unknown human Telegram traffic is never dialogue.  This prevents
-                # pre-Safwa/private-chat history and UI/form input leaking to the LLM.
+                if kind is None and boundary is None and not raw_text.startswith("/"):
+                    # The owner's client cannot carry a kind mark, so Telegram itself is
+                    # the evidence: commands and typed field input are deleted from the
+                    # chat, so surviving owner text inside the live session is dialogue.
+                    # Only provisionally — a scan that never reaches a boundary is reading
+                    # pre-Safwa private-chat text, which is not dialogue at all.
+                    kind = MessageKind.DIALOGUE_USER.value
+                    provisional_ids.add(message.id)
                 if kind != MessageKind.DIALOGUE_USER.value:
                     continue
                 role = "user"
@@ -234,6 +294,8 @@ class TelegramHistorySource:
             elif len(selected) < limit:
                 selected.append(entry)
 
+        if boundary is None and provisional_ids:
+            selected = [entry for entry in selected if entry.message_id not in provisional_ids]
         selected.reverse()
         summary_context.reverse()
         has_subsession_result = any(

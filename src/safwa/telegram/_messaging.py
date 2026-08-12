@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..constants import CALLBACK_TOKEN_TTL_HOURS
 from ..enums import MessageKind, ProposalStatus
-from ..history import SUBSESSION_RESULT_HEADER, register_message
+from ..history import SUBSESSION_RESULT_HEADER, mark_kind, register_message
 from ..models import (
     CallbackToken,
     ChangeProposal,
@@ -67,6 +67,7 @@ async def send_registered(
     message and therefore update that message in place.  Text-entry actions opt
     out explicitly because their prompt must be a separate conversational turn.
     """
+    text = mark_kind(text, kind)
     should_replace = (
         bool(message.from_user and message.from_user.is_bot) if replace is None else replace
     )
@@ -106,7 +107,7 @@ async def edit_registered_message(
     """Replace a known bot UI message after consuming a separate user text message."""
     try:
         await message.bot.edit_message_text(
-            text,
+            mark_kind(text, kind),
             chat_id=message.chat.id,
             message_id=message_id,
             reply_markup=markup,
@@ -241,7 +242,7 @@ async def dismiss_prior_ui(message: Message, services: Services) -> None:
         if replacement is not None:
             try:
                 await message.bot.edit_message_text(
-                    replacement,
+                    mark_kind(replacement, MessageKind.DIALOGUE_ASSISTANT),
                     chat_id=message.chat.id,
                     message_id=screen.message_id,
                     parse_mode=ParseMode.HTML,
@@ -317,7 +318,7 @@ async def send_subsession_result(
         )
         sent = await message.bot.send_message(
             message.chat.id,
-            f"{header}\n{html.escape(chunk)}",
+            mark_kind(f"{header}\n{html.escape(chunk)}", MessageKind.SUBSESSION_RESULT),
             parse_mode=ParseMode.HTML,
         )
         async with services.sessions() as session:

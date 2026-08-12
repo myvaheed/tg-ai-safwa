@@ -11,6 +11,8 @@ from safwa.history import (
     HistoryBoundaryMissing,
     HistoryEntry,
     TelegramHistorySource,
+    mark_kind,
+    read_kind_mark,
     register_message,
 )
 from safwa.models import TelegramMessage
@@ -339,3 +341,60 @@ async def test_colliding_id_space_does_not_drop_the_newest_dialogue_message(sess
         (MessageKind.DIALOGUE_ASSISTANT.value, "Цель удалена."),
         (MessageKind.DIALOGUE_USER.value, "Создай задачу подтянуться 20 раз"),
     ]
+
+
+async def test_kind_marks_rebuild_history_without_registrations(sessions) -> None:
+    """A rebuilt database loses every registration; Telegram must still be enough."""
+    chat_id, owner_id, bot_id = 100, 42, 99
+    at = datetime(2026, 8, 11, 12, 0, tzinfo=UTC)
+    messages = [
+        FakeTelegramMessage(
+            14, "What should I do next?", owner_id, at + timedelta(days=1)
+        ),
+        FakeTelegramMessage(
+            13, mark_kind("<b>Today</b>", MessageKind.DASHBOARD), bot_id, at + timedelta(minutes=3)
+        ),
+        FakeTelegramMessage(
+            12,
+            mark_kind("Stretching sounds good.", MessageKind.DIALOGUE_ASSISTANT),
+            bot_id,
+            at + timedelta(minutes=2),
+        ),
+        FakeTelegramMessage(11, "I want to stretch daily", owner_id, at + timedelta(minutes=1)),
+        FakeTelegramMessage(10, "/newsession Let us begin", owner_id, at),
+        FakeTelegramMessage(9, "Old unrelated private-chat message", owner_id, at - timedelta(1)),
+    ]
+    source = TelegramHistorySource(
+        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+    )
+
+    entries = await source.recent(chat_id, require_boundary=True)
+
+    assert [(entry.kind, entry.text) for entry in entries] == [
+        (MessageKind.SESSION_START.value, "Let us begin"),
+        (MessageKind.DIALOGUE_USER.value, "I want to stretch daily"),
+        (MessageKind.DIALOGUE_ASSISTANT.value, "Stretching sounds good."),
+        (MessageKind.DIALOGUE_USER.value, "What should I do next?"),
+    ]
+
+
+async def test_unregistered_owner_text_without_a_boundary_stays_excluded(sessions) -> None:
+    chat_id, owner_id, bot_id = 100, 42, 99
+    at = datetime(2026, 8, 11, 12, 0, tzinfo=UTC)
+    messages = [
+        FakeTelegramMessage(3, "Old unrelated private-chat message", owner_id, at),
+        FakeTelegramMessage(2, "Another one", owner_id, at - timedelta(minutes=1)),
+    ]
+    source = TelegramHistorySource(
+        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+    )
+
+    assert await source.recent(chat_id) == []
+
+
+def test_kind_mark_round_trips_and_is_invisible() -> None:
+    for kind in MessageKind:
+        marked = mark_kind("Visible text", kind)
+        assert marked.startswith("Visible text")
+        assert read_kind_mark(marked) == (kind.value, "Visible text")
+    assert read_kind_mark("Unmarked text") == (None, "Unmarked text")

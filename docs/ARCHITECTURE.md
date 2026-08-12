@@ -200,6 +200,13 @@ turn. `telegram_messages` stores only `(chat_id, message_id, direction, kind, re
 
 - Every bot message must be registered with a `MessageKind` (`send_registered` / `register_message`).
   Unregistered outgoing = invisible to the LLM; wrongly-kinded = UI noise leaks into persona history.
+- The kind is *also* written into the Telegram message itself: `mark_kind` appends five invisible
+  characters encoding the `MessageKind`, and `read_kind_mark` recovers it. `telegram_messages` is
+  therefore a cache, not the only copy — a rebuilt database still reads the whole dialogue back.
+  Every bot send site must mark its text; the four outside `_messaging.py` are `main.memory_error`,
+  `main.send_reminder`, `dialogue.send_summary`, and the `/retro` caption. Codes in
+  `_KIND_MARK_CODES` are append-only. Owner messages cannot be marked, so an unregistered owner
+  message inside the session boundary is treated as dialogue; without a boundary it is dropped.
 - Only `DIALOGUE_USER`, `DIALOGUE_ASSISTANT`, `REMINDER`, `SUMMARY`, `SESSION_START`, and
   `SUBSESSION_RESULT` become dialogue. Everything else (`COMMAND`, `UI_INPUT`, `DASHBOARD`,
   `CARD_EDITOR`, `APPROVAL`, `RECEIPT`, `RETROSPECTIVE_PNG`, `ERROR`) is excluded.

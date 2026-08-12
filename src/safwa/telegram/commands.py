@@ -27,7 +27,7 @@ from ..domain import (
     update_profile,
 )
 from ..enums import CardKind, CardStage, MessageKind
-from ..history import register_message
+from ..history import mark_kind, register_message
 from ..memory import MemoryFileError
 from ..models import (
     Card,
@@ -492,8 +492,11 @@ async def command_retro(message: Message, services: Services) -> None:
     png = render_retrospective_png(data)
     sent = await message.answer_photo(
         BufferedInputFile(png, filename=f"sprint-{sprint.number}-retro.png"),
-        caption=f"Sprint {sprint.number} retrospective\n"
-        + "\n".join(retrospective_recommendations(data)),
+        caption=mark_kind(
+            f"Sprint {sprint.number} retrospective\n"
+            + "\n".join(retrospective_recommendations(data)),
+            MessageKind.RETROSPECTIVE_PNG,
+        ),
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[retro_back_row()]),
     )
     async with services.sessions() as session:

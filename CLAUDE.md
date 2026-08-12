@@ -73,6 +73,11 @@ Consequences that break silently if ignored:
   An unregistered outgoing message is invisible to the LLM; a wrongly-kinded one leaks UI noise into
   persona history. Only `DIALOGUE_USER`, `DIALOGUE_ASSISTANT`, `REMINDER`, summaries, `/newsession`,
   and subsession results become dialogue.
+- The kind is also carried *in the Telegram text*: `mark_kind` appends five invisible characters
+  encoding it, `read_kind_mark` reads them back, so `telegram_messages` is a cache and a rebuilt
+  database still recovers the dialogue. Mark every bot send — the sites outside `_messaging.py` are
+  `main.memory_error`, `main.send_reminder`, `dialogue.send_summary` and the `/retro` caption — and
+  never reuse a code in `_KIND_MARK_CODES`.
 - Dialogue needs a visible boundary: a `/newsession <request>` message or the nearest `📜 Summary`.
   Without one, `recent(..., require_boundary=True)` raises `HistoryBoundaryMissing`.
 - The middleware deletes every slash command except `/newsession` (which must stay visible as the

@@ -20,7 +20,7 @@ from ..domain import (
     update_value_fields,
 )
 from ..enums import MessageKind
-from ..history import HistoryBoundaryMissing, HistoryEntry, register_message
+from ..history import HistoryBoundaryMissing, HistoryEntry, mark_kind, register_message
 from ..memory import estimate_tokens
 from ..models import SummaryState, UiSession, Workspace
 from ._core import Services, router
@@ -213,7 +213,7 @@ async def ordinary_text(message: Message, services: Services) -> None:
         services.guard.release(message.message_id)
 
         async def send_summary(text: str, covered_id: int) -> None:
-            sent = await message.answer(html.escape(text))
+            sent = await message.answer(mark_kind(html.escape(text), MessageKind.SUMMARY))
             async with services.sessions() as session:
                 await register_message(
                     session,

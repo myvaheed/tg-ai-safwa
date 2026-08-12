@@ -22,7 +22,7 @@ from .continuity import PersonaContinuity, run_memory_maintenance
 from .db import Database, upgrade_database
 from .domain import bootstrap_workspace
 from .enums import AIProvider, MessageKind
-from .history import TelegramHistorySource, register_message
+from .history import TelegramHistorySource, mark_kind, register_message
 from .memory import MemoryFileStore
 from .recovery import recover_startup
 from .scheduler import ReminderPolicy, run_scheduler
@@ -166,7 +166,10 @@ async def run(settings: Settings) -> None:
     )
 
     async def memory_error(text: str) -> None:
-        sent = await bot.send_message(settings.telegram_owner_id, f"⚠️ memory.md: {text}")
+        sent = await bot.send_message(
+            settings.telegram_owner_id,
+            mark_kind(f"⚠️ memory.md: {text}", MessageKind.ERROR),
+        )
         async with database.sessions() as session:
             await register_message(
                 session,
@@ -206,7 +209,9 @@ async def run(settings: Settings) -> None:
             reminder_text = str(decision["message"]).strip()
         except (json.JSONDecodeError, AttributeError, TypeError):
             return False
-        sent = await bot.send_message(settings.telegram_owner_id, reminder_text)
+        sent = await bot.send_message(
+            settings.telegram_owner_id, mark_kind(reminder_text, MessageKind.REMINDER)
+        )
         async with database.sessions() as session:
             await register_message(
                 session,

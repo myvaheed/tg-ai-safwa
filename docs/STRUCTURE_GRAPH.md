@@ -215,6 +215,8 @@ return `id`) · `request_cards` :37 (runs the query, loads live Cards in result 
 ### `history.py` — canonical Telegram dialogue
 
 `_NEW_SESSION_RE` :24 · `_SUMMARY_RE` :28 · `SUBSESSION_RESULT_HEADER` :29 ·
+`_KIND_MARK_CODES` (append-only) · **`mark_kind`** / **`read_kind_mark`** (the `MessageKind`
+carried inside the Telegram text, so a rebuilt database loses no dialogue) ·
 `HistoryBoundaryMissing` :39 · `HistoryEntry` :44 ·
 `TelegramHistorySource` :54 → `from_settings` :71, `start` :92, `close` :102, **`recent`** :106,
 `_registered_message` :257 (ID-space correlation), `_new_session_request` :299, `_summary_body` :306,
