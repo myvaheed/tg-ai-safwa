@@ -955,7 +955,7 @@ async def test_ai_create_tag_and_links_are_reviewed_as_separate_proposals(e2e_ha
 
     assert len(set(proposal_ids)) == 3
     assert current.kind == "answer"
-    assert "Proposal results:" in current.message
+    assert "✅ Saved — Link Tag “VrWalk” to Goal “Release VrWalk”" in current.message
     assert current.message.count("✅ Saved") == 3
     assert "All links are resolved." in current.message
     assert len(provider.calls) == 4
@@ -1299,8 +1299,7 @@ async def test_mixed_query_and_mutation_resumes_only_after_approval(e2e_harness)
     )
 
     assert resumed is not None and resumed.kind == "answer"
-    assert "Proposal results:" in resumed.message
-    assert "✅ Saved — Create Tag “VrWalk”" in resumed.message
+    assert "✅ Saved — New Tag “VrWalk”" in resumed.message
     assert "The tag was saved." in resumed.message
     assert len(provider.calls) == 2
     tool_messages = [message for message in provider.calls[1] if message["role"] == "tool"]
@@ -1401,8 +1400,8 @@ async def test_discarded_proposal_result_is_returned_with_later_approval(e2e_har
     )
 
     assert final is not None and "I kept only the Value." in final.message
-    assert "🗑 Discarded — Create Tag “Skip me”" in final.message
-    assert "✅ Saved — Create Value “Keep me”" in final.message
+    assert "🗑 Discarded — New Tag “Skip me”" in final.message
+    assert "✅ Saved — New Value “Keep me”" in final.message
     tool_messages = [message for message in provider.calls[1] if message["role"] == "tool"]
     assert '"status": "discarded"' in str(tool_messages[0]["content"])
     assert '"status": "approved"' in str(tool_messages[1]["content"])
@@ -1423,8 +1422,8 @@ async def test_new_dialogue_cancels_every_unresolved_item_in_suspended_batch(e2e
     cancelled = await advisor.cancel_approval_for_target("proposal", first.proposal_id)
 
     # The caller freezes the screen with this text, so it has to name every item.
-    assert "🗑 Discarded — Create Tag “VrWalk”" in cancelled
-    assert "🗑 Discarded — Create Value “Health”" in cancelled
+    assert "🗑 Discarded — New Tag “VrWalk”" in cancelled
+    assert "🗑 Discarded — New Value “Health”" in cancelled
     assert len(provider.calls) == 1
     async with e2e_harness.sessions() as session:
         proposals = list(await session.scalars(select(ChangeProposal).order_by(ChangeProposal.id)))
@@ -1621,9 +1620,8 @@ async def test_single_tag_proposal_save_and_discard_callbacks_resume_agent(
         tag = await session.scalar(select(Tag).where(Tag.name == "VrWalk"))
     assert proposal.status == expected_status
     assert (tag is not None) is (callback_action == "proposal_approve")
-    assert "Proposal results:" in message.rendered[-1]
     expected_result = "✅ Saved" if callback_action == "proposal_approve" else "🗑 Discarded"
-    assert f"{expected_result} — Create Tag “VrWalk”" in message.rendered[-1]
+    assert f"{expected_result} — New Tag “VrWalk”" in message.rendered[-1]
     assert final_text in message.rendered[-1]
     assert message.bot.typing_calls == 1
     assert len(provider.calls) == 2
@@ -1669,7 +1667,7 @@ async def test_read_queries_beside_a_proposal_still_resume_the_agent(e2e_harness
         tag = await session.scalar(select(Tag).where(Tag.name == "VrWalk"))
     assert proposal.status == "approved"
     assert tag is not None
-    assert "✅ Saved — Create Tag “VrWalk”" in message.rendered[-1]
+    assert "✅ Saved — New Tag “VrWalk”" in message.rendered[-1]
     assert "The VrWalk tag was saved; I will retry the query." in message.rendered[-1]
     assert "could not generate its follow-up" not in message.rendered[-1]
     assert len(provider.calls) == 2
@@ -1740,8 +1738,8 @@ async def test_discarding_the_last_queued_proposal_still_reports_saved_siblings(
 
     final_text = message.rendered[-1]
     # The model must be told what the whole request actually did, not only the last step.
-    assert "✅ Saved — Create Card “First”" in final_text
-    assert "🗑 Discarded — Create Card “Second”" in final_text
+    assert "✅ Saved — New Action “First”" in final_text
+    assert "🗑 Discarded — New Action “Second”" in final_text
     assert "Handled both proposals." in final_text
     assert len(provider.calls) == 2
 
@@ -1863,9 +1861,8 @@ async def test_proposal_ui_queues_mutations_and_reports_dependency_failure(e2e_h
     await callback_token_handler(_QueueTestCallback(reject.token, message), services)
 
     final_text = message.rendered[-1]
-    assert "Proposal results:" in final_text
-    assert "🗑 Discarded — Create Tag “VrWalk”" in final_text
-    assert f"⚠️ Failed — Link Card #{card.id} → Tag “VrWalk”" not in final_text
+    assert "🗑 Discarded — New Tag “VrWalk”" in final_text
+    assert "⚠️ Failed — Link Tag “VrWalk”" not in final_text
     assert "was not found" not in final_text
     assert "Finished processing the proposals." in final_text
     assert len(provider.calls) == 2
@@ -1926,7 +1923,7 @@ async def test_tag_proposal_save_restores_an_archived_tag(e2e_harness):
     assert tags[0].archived_at is None
     assert tags[0].description == "VR project"
     assert revision_after == revision_before + 1
-    assert "✅ Saved — Create Tag “VrWalk”" in message.rendered[-1]
+    assert "✅ Saved — New Tag “VrWalk”" in message.rendered[-1]
     assert "The VrWalk tag was restored." in message.rendered[-1]
     assert len(provider.calls) == 2
 
@@ -1970,7 +1967,7 @@ async def test_single_proposal_save_error_is_reported_and_resolved(e2e_harness):
     assert proposal.status == "failed"
     assert retry_token is None
     assert len(tags) == 1
-    assert "⚠️ Failed — Create Tag “vrwalk”" in message.rendered[-1]
+    assert "⚠️ Failed — New Tag “vrwalk”" in message.rendered[-1]
     assert "already exists" in message.rendered[-1]
     assert "could not generate its follow-up" in message.rendered[-1]
     assert len(provider.calls) == 2

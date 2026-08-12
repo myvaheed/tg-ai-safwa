@@ -457,10 +457,46 @@ def _approval_change_label(tool: dict[str, Any]) -> str:
     return label
 
 
+# The receipt renders one line under any outcome, so the verb stays imperative:
+# "🗑 Discarded — New Tag “X”" cannot be misread as a Tag that now exists.
+_ACTION_VERBS = {
+    "create": "New",
+    "update": "Edit",
+    "move": "Move",
+    "complete": "Complete",
+    "cancel": "Cancel",
+    "reopen": "Reopen",
+    "archive": "Archive",
+    "delete": "Delete",
+    "link": "Link",
+    "unlink": "Unlink",
+    "resolve": "Answer",
+    "resolve_for_card": "Answer",
+}
+
+_ENTITY_MODELS: dict[str, Any] = {
+    "card": Card,
+    "check": Check,
+    "tag": Tag,
+    "value": Value,
+    "request": SavedRequest,
+}
+
+
 def _approval_results_summary(
-    tools: list[dict[str, Any]], *, include_preparation_errors: bool = True
+    tools: list[dict[str, Any]],
+    *,
+    include_preparation_errors: bool = True,
+    for_display: bool = False,
 ) -> str:
-    lines = ["Proposal results:"]
+    """Render one queue receipt.
+
+    The owner and the model need different things from the same tools: the model reads
+    IDs and every resolved field so it does not repeat its own work, while the owner
+    reads one sentence per change.  ``for_display`` picks the short form, which comes
+    from the ``display`` line built while the proposal still had a session.
+    """
+    lines = [] if for_display else ["Proposal results:"]
     for tool in tools:
         # Only mutation calls store a dict result; a read call in the same suspended
         # turn stores its rows as a list, which must not be read as an outcome.
@@ -480,24 +516,33 @@ def _approval_results_summary(
             "failed": "⚠️ Failed",
             "error": "⚠️ Failed",
         }.get(status, f"⚠️ {status.title()}")
-        line = f"{prefix} — {_approval_change_label(tool)}"
-        affected_ids = result.get("affected_ids") or []
-        if status == "approved" and affected_ids:
-            line += " [result ID" + ("s" if len(affected_ids) != 1 else "") + ": "
-            line += ", ".join(f"#{item}" for item in affected_ids) + "]"
+        if for_display:
+            line = f"{prefix} — " + (
+                str(tool.get("display") or "") or _approval_change_label(tool)
+            )
+        else:
+            line = f"{prefix} — {_approval_change_label(tool)}"
+            affected_ids = result.get("affected_ids") or []
+            if status == "approved" and affected_ids:
+                line += " [result ID" + ("s" if len(affected_ids) != 1 else "") + ": "
+                line += ", ".join(f"#{item}" for item in affected_ids) + "]"
         error = result.get("error")
         if error:
             line += f": {_result_value(error)}"
         lines.append(line)
-        # The detail lines carry what Safwa resolved rather than what the model sent:
-        # parent_query/tag_query turned into IDs, and old → new values for an edit.
-        # Trimming them for saved items costs the model information and invites repeats.
-        lines.extend(f"  • {detail}" for detail in tool.get("details") or [])
-    return "\n".join(lines) if len(lines) > 1 else ""
+        if not for_display:
+            # The detail lines carry what Safwa resolved rather than what the model sent:
+            # parent_query/tag_query turned into IDs, and old → new values for an edit.
+            # Trimming them for saved items costs the model information and invites repeats.
+            lines.extend(f"  • {detail}" for detail in tool.get("details") or [])
+    return "\n".join(lines) if lines and (for_display or len(lines) > 1) else ""
 
 
 def _safe_approval_results_summary(
-    tools: list[dict[str, Any]], *, include_preparation_errors: bool = True
+    tools: list[dict[str, Any]],
+    *,
+    include_preparation_errors: bool = True,
+    for_display: bool = False,
 ) -> str:
     """Render the queue receipt, or nothing when rendering itself fails.
 
@@ -507,7 +552,9 @@ def _safe_approval_results_summary(
     """
     try:
         return _approval_results_summary(
-            tools, include_preparation_errors=include_preparation_errors
+            tools,
+            include_preparation_errors=include_preparation_errors,
+            for_display=for_display,
         )
     except Exception:
         logger.exception("Could not render the approval result summary")
@@ -1344,6 +1391,111 @@ class AIAdvisor:
             ],
         }
 
+    async def _reference_groups(
+        self, session: AsyncSession, values: dict[str, Any]
+    ) -> list[str]:
+        """Name the Values, Tags and Checks a Card payload points at, for the owner."""
+        groups: list[str] = []
+        for spec in CARD_REFERENCE_SPECS:
+            if not spec.mentioned_in(values):
+                continue
+            resolved = await resolve_references(session, spec, values)
+            names: list[str] = []
+            for entity_id in sorted(resolved.ids):
+                entity = await session.get(spec.model, entity_id)
+                if entity is not None:
+                    names.append(_result_value(getattr(entity, spec.name_attr)))
+            names.extend(_result_value(name) for name in resolved.unresolved)
+            if len(names) == 1:
+                groups.append(f"{spec.label} “{names[0]}”")
+            elif names:
+                groups.append(f"{spec.label}s {', '.join(f'“{name}”' for name in names)}")
+        return groups
+
+    async def _proposal_display_line(
+        self,
+        session: AsyncSession,
+        proposal_id: int,
+        fallback: AgentChange | None,
+        details: list[str],
+    ) -> str:
+        """One sentence describing a proposal the way the owner reads it.
+
+        The model still gets `details`; this line trades their IDs for the names the
+        owner recognises, so a receipt says which Tag landed on which Card.
+        """
+        change = await session.scalar(
+            select(ProposalChange).where(ProposalChange.proposal_id == proposal_id)
+        )
+        if change is None:
+            return _approval_change_label(
+                {
+                    "change": {
+                        "entity": fallback.entity,
+                        "action": fallback.action,
+                        "id": fallback.id,
+                        "values": fallback.values,
+                    }
+                    if fallback is not None
+                    else None
+                }
+            )
+        values = dict(change.values)
+        action = change.action
+        verb = _ACTION_VERBS.get(action, action.title())
+        if change.entity == "card":
+            card = (
+                await session.get(Card, change.entity_id)
+                if change.entity_id is not None
+                else None
+            )
+            title = _result_value(values.get("title") or (card.title if card else ""))
+            kind = str(values.get("kind") or (card.kind if card else "") or "card")
+            head = f"{kind.title()} “{title}”" if title else f"Card #{change.entity_id}"
+            parent = (
+                await session.get(Card, int(values["parent_id"]))
+                if values.get("parent_id")
+                else None
+            )
+            if action in {"link", "unlink"}:
+                joined = " · ".join(await self._reference_groups(session, values))
+                preposition = "to" if action == "link" else "from"
+                return f"{verb} {joined} {preposition} {head}" if joined else f"{verb} {head}"
+            parts: list[str] = []
+            if action == "create":
+                parts.append(str(values.get("stage") or CardStage.BACKLOG.value).title())
+                if values.get("effort_points"):
+                    parts.append(f"{values['effort_points']} EP")
+                parts.extend(await self._reference_groups(session, values))
+            elif action in {"move", "reopen"} and values.get("stage"):
+                parts.append(str(values["stage"]).title())
+            elif action == "update":
+                parts.extend(
+                    detail for detail in details if not detail.startswith("Parent ID:")
+                )
+            if parent is not None:
+                head += f" under {parent.kind.title()} “{_result_value(parent.title)}”"
+            return f"{verb} {head}" + (f" ({' · '.join(parts)})" if parts else "")
+
+        if change.entity == "check" and action == "resolve_for_card":
+            return f"{verb} " + (" · ".join(details) or "the pending Checks")
+        model = _ENTITY_MODELS.get(change.entity)
+        entity = (
+            await session.get(model, change.entity_id)
+            if model is not None and change.entity_id is not None
+            else None
+        )
+        name = (
+            values.get("name")
+            or values.get("title")
+            or getattr(entity, "name", None)
+            or getattr(entity, "title", None)
+        )
+        label = change.entity.title()
+        head = f"{label} “{_result_value(name)}”" if name else f"{label} #{change.entity_id}"
+        tail = [] if action == "create" else list(details)
+        return f"{verb} {head}" + (f" ({' · '.join(tail)})" if tail else "")
+
     async def _proposal_result_details(
         self,
         session: AsyncSession,
@@ -1489,6 +1641,7 @@ class AIAdvisor:
             if tool.call.name != "query_safwa" and tool.change is None
         }
         proposal_details: dict[str, list[str]] = {}
+        proposal_displays: dict[str, str] = {}
         async with self.sessions() as session:
             for tool in mutation_tools:
                 try:
@@ -1514,6 +1667,9 @@ class AIAdvisor:
                     continue
                 proposal_details[tool.call.id] = await self._proposal_result_details(
                     session, proposal.id, tool.change
+                )
+                proposal_displays[tool.call.id] = await self._proposal_display_line(
+                    session, proposal.id, tool.change, proposal_details[tool.call.id]
                 )
                 targets.append(
                     (
@@ -1551,6 +1707,7 @@ class AIAdvisor:
                         ),
                         "details": proposal_details.get(tool.call.id)
                         or _raw_change_details(tool.change),
+                        "display": proposal_displays.get(tool.call.id),
                         "target": target,
                         "change": (
                             {
@@ -1765,15 +1922,15 @@ class AIAdvisor:
             if result_summary:
                 current_result_summaries.append(result_summary)
             display_summary = _safe_approval_results_summary(
-                tools, include_preparation_errors=False
+                tools, include_preparation_errors=False, for_display=True
             )
             current_display_result_summaries = [*prior_display_result_summaries]
             if display_summary:
                 current_display_result_summaries.append(display_summary)
             if repair_exhausted:
                 message = (
-                    "\n\n".join(current_result_summaries) + "\n\n"
-                    if current_result_summaries
+                    "\n\n".join(current_display_result_summaries) + "\n\n"
+                    if current_display_result_summaries
                     else ""
                 ) + (
                     "I could not prepare the remaining requested changes after five repair attempts. "
@@ -1865,7 +2022,7 @@ class AIAdvisor:
                     stored_batch.metadata_json = final_metadata
                     await session.commit()
             await self._finish_run(run_id, "failed", started, type(error).__name__)
-            result_summary = _safe_approval_results_summary(tools)
+            result_summary = _safe_approval_results_summary(tools, for_display=True)
             if result_summary:
                 return AIOutcome(
                     "answer",
@@ -1917,7 +2074,9 @@ class AIAdvisor:
             await session.commit()
         summaries = [
             *metadata.get("display_result_summaries", []),
-            _safe_approval_results_summary(tools, include_preparation_errors=False),
+            _safe_approval_results_summary(
+                tools, include_preparation_errors=False, for_display=True
+            ),
         ]
         return "\n\n".join(summary for summary in summaries if summary) or ""
 

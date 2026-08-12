@@ -313,7 +313,8 @@ Helpers: `_allows_parent` :81 · `_log_preview` :185 · `_json_safe` :190 · `_r
 **`AIAdvisor`** :429 → `handle` :445 · `_context_messages` :477 · `compress_subsession` :496 ·
 `_provider_turn` :515 · **`_run_agent_loop`** :529 · `_execute_query_tool` :628 ·
 `_execute_mutation_tool` :684 · `_validate_named_references` :727 · `_resolve_parent_reference` :764 ·
-`_create_proposal` :858 · `_card_detail_snapshot` :953 · `_proposal_result_details` :996 ·
+`_create_proposal` :858 · `_card_detail_snapshot` :953 · `_reference_groups` · `_proposal_display_line`
+(the owner's one-line receipt, names instead of IDs) · `_proposal_result_details` :996 ·
 `_target_outcome` :1074 · `_materialize` :1077 · `_pending_batch_for_target` :1231 ·
 `has_pending_approval` :1260 · `_refresh_queued_proposal` :1265 · **`resolve_approval`** :1289 ·
 `cancel_approval_for_target` :1453 · `_finish_run` :1499.
