@@ -243,6 +243,17 @@ class TelegramHistorySource:
                         )
                     # An older summary is already represented by the nearest one.
                     continue
+                if (
+                    kind is None
+                    and boundary is None
+                    and getattr(message, "reply_markup", None) is None
+                ):
+                    # Same provisional reading as for the owner: a bot message written
+                    # before kind marks existed, or by a send site that forgot one, is
+                    # plain prose with no buttons — an answer.  Screens keep their
+                    # inline keyboard, so they are still excluded here.
+                    kind = MessageKind.DIALOGUE_ASSISTANT.value
+                    provisional_ids.add(message.id)
                 if kind not in {
                     MessageKind.DIALOGUE_ASSISTANT.value,
                     MessageKind.REMINDER.value,

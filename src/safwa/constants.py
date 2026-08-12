@@ -65,6 +65,9 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # A local server either answers or is down; a metered remote returns 429/502 and
 # is worth retrying with the SDK's backoff.
 AI_MAX_RETRIES_LOCAL = 1
+# A provider can answer HTTP 200 with nothing in it, which the client's own retries do
+# not cover because the request itself succeeded.
+AI_EMPTY_RESPONSE_ATTEMPTS = 2
 AI_MAX_RETRIES_REMOTE = 3
 # Sent to OpenRouter as HTTP-Referer/X-Title for request attribution.
 AI_APP_URL = "https://github.com/myvaheed/tg-ai-safwa"

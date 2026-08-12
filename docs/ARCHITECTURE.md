@@ -158,6 +158,12 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
   run produced after the context prefix. A resume rebuilds only the prefix (system prompt, planning state,
   memory, clock) and replays that transcript, so a request keeps its own intermediate steps across each
   approval instead of re-planning from the last tool call. It never re-reads Telegram for this.
+- An empty provider turn is read by kind ([ai/provider.py](../src/safwa/ai/provider.py) `_read_turn`).
+  No `choices` at all, or a choice cut off (`finish_reason` other than `stop`), is an upstream
+  failure: retried once (`AI_EMPTY_RESPONSE_ATTEMPTS`), then raised carrying the provider's own
+  reason. A `stop` with no content is the model deliberately adding nothing and is a valid turn —
+  `_run_agent_loop(allow_silence=True)` accepts it after an approval queue, where the receipts are
+  the answer; elsewhere it still raises `The advisor finished without a response`.
 - Failed preparations return structured `ToolPreparationError` results and are retried for at most
   `MAX_REPAIR_ROUNDS = 5`; `MAX_TOOL_CALLS = 64`.
 - A resolved queue item comes back as its own tool result carrying `status`, `entity`, `action`,
@@ -207,6 +213,8 @@ turn. `telegram_messages` stores only `(chat_id, message_id, direction, kind, re
   `main.send_reminder`, `dialogue.send_summary`, and the `/retro` caption. Codes in
   `_KIND_MARK_CODES` are append-only. Owner messages cannot be marked, so an unregistered owner
   message inside the session boundary is treated as dialogue; without a boundary it is dropped.
+  A bot message with neither a registration nor a mark (anything predating marks) is read the same
+  provisional way when it carries no inline keyboard — screens keep their buttons and stay excluded.
 - Only `DIALOGUE_USER`, `DIALOGUE_ASSISTANT`, `REMINDER`, `SUMMARY`, `SESSION_START`, and
   `SUBSESSION_RESULT` become dialogue. Everything else (`COMMAND`, `UI_INPUT`, `DASHBOARD`,
   `CARD_EDITOR`, `APPROVAL`, `RECEIPT`, `RETROSPECTIVE_PNG`, `ERROR`) is excluded.

@@ -10,6 +10,7 @@
 - Commands, callbacks, menus, dashboards, forms, approvals, receipts, unsaved item editors, SQL/tool traces, errors, and retrospective PNGs are excluded. Every slash command is deleted from Telegram immediately except `/newsession`, which remains visible as the history boundary.
 - The current user message is correlated across the Bot API and Telethon ID spaces and included exactly once. Only registered user dialogue, generated Safwa dialogue, persona reminders, boundaries, and subsession results can enter history.
 - Every bot message also carries its own `MessageKind` inside its Telegram text, as invisible characters appended after the visible content. SQLite is therefore a cache of the classification, not its only copy: a rebuilt or restored database still reads the full dialogue back from Telegram. Owner messages cannot carry a mark, so an unregistered owner message inside the current session boundary counts as dialogue — commands and typed field values are deleted from Telegram, and a scan that never reaches a boundary is reading pre-Safwa chat and contributes nothing.
+- The same provisional reading covers a bot message that has neither a registration nor a mark, which is what messages written before marks existed look like: with no inline keyboard it is plain prose and is read as an ordinary answer, while every interaction screen keeps its buttons and stays excluded.
 
 ## Telegram UI lifecycle
 

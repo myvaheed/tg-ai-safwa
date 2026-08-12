@@ -24,6 +24,7 @@ class FakeTelegramMessage:
     raw_text: str
     sender_id: int
     date: datetime
+    reply_markup: object | None = None
 
 
 class FakeTelegramClient:
@@ -398,3 +399,26 @@ def test_kind_mark_round_trips_and_is_invisible() -> None:
         assert marked.startswith("Visible text")
         assert read_kind_mark(marked) == (kind.value, "Visible text")
     assert read_kind_mark("Unmarked text") == (None, "Unmarked text")
+
+
+async def test_unmarked_bot_prose_falls_back_to_a_plain_answer(sessions) -> None:
+    """Messages written before kind marks existed are still readable as dialogue."""
+    chat_id, owner_id, bot_id = 100, 42, 99
+    at = datetime(2026, 8, 12, 12, 0, tzinfo=UTC)
+    messages = [
+        FakeTelegramMessage(24, "<b>Today</b>", bot_id, at + timedelta(minutes=3), object()),
+        FakeTelegramMessage(23, "Safwa plans your week.", bot_id, at + timedelta(minutes=2)),
+        FakeTelegramMessage(22, "How does Safwa work?", owner_id, at + timedelta(minutes=1)),
+        FakeTelegramMessage(21, "/newsession Let us begin", owner_id, at),
+    ]
+    source = TelegramHistorySource(
+        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+    )
+
+    entries = await source.recent(chat_id, require_boundary=True)
+
+    assert [(entry.kind, entry.text) for entry in entries] == [
+        (MessageKind.SESSION_START.value, "Let us begin"),
+        (MessageKind.DIALOGUE_USER.value, "How does Safwa work?"),
+        (MessageKind.DIALOGUE_ASSISTANT.value, "Safwa plans your week."),
+    ]

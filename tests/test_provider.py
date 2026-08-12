@@ -124,3 +124,94 @@ async def test_usage_tolerates_a_server_that_reports_no_cache_fields():
     usage = result["turn"].usage
     assert usage is not None
     assert (usage.cached_tokens, usage.cache_write_tokens, usage.cost) == (0, 0, None)
+
+
+def _empty_response(error: dict | None = None) -> httpx.Response:
+    payload: dict = {
+        "id": "gen-1",
+        "object": "chat.completion",
+        "created": 0,
+        "model": "openai/gpt-5.6-luna",
+        "choices": [],
+    }
+    if error is not None:
+        payload["error"] = error
+    return httpx.Response(200, json=payload)
+
+
+def _contentless_response(finish_reason: str) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "id": "gen-1",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "openai/gpt-5.6-luna",
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": finish_reason,
+                    "message": {"role": "assistant", "content": ""},
+                }
+            ],
+        },
+    )
+
+
+@respx.mock
+async def test_an_empty_response_is_retried_once():
+    route = respx.post(COMPLETIONS).mock(
+        side_effect=[_empty_response({"message": "upstream stalled"}), _response()]
+    )
+
+    provider = OpenAICompatibleProvider(_config())
+    try:
+        turn = await provider.complete_turn([{"role": "system", "content": "hi"}])
+    finally:
+        await provider.close()
+
+    assert turn.content == "Done."
+    assert len(route.calls) == 2
+
+
+@respx.mock
+async def test_a_persistently_empty_response_reports_the_provider_reason():
+    route = respx.post(COMPLETIONS).mock(
+        side_effect=[_empty_response({"message": "upstream stalled"})] * 2
+    )
+
+    provider = OpenAICompatibleProvider(_config())
+    try:
+        with pytest.raises(RuntimeError, match="upstream stalled"):
+            await provider.complete_turn([{"role": "system", "content": "hi"}])
+    finally:
+        await provider.close()
+
+    assert len(route.calls) == 2
+
+
+@respx.mock
+async def test_a_choice_without_content_reports_its_finish_reason():
+    respx.post(COMPLETIONS).mock(side_effect=[_contentless_response("length")] * 2)
+
+    provider = OpenAICompatibleProvider(_config())
+    try:
+        with pytest.raises(RuntimeError, match="finish_reason=length"):
+            await provider.complete_turn([{"role": "system", "content": "hi"}])
+    finally:
+        await provider.close()
+
+
+@respx.mock
+async def test_a_deliberate_silent_stop_is_an_answer_not_a_failure():
+    route = respx.post(COMPLETIONS).mock(return_value=_contentless_response("stop"))
+
+    provider = OpenAICompatibleProvider(_config())
+    try:
+        turn = await provider.complete_turn([{"role": "system", "content": "hi"}])
+    finally:
+        await provider.close()
+
+    assert turn.content == ""
+    assert turn.tool_calls == ()
+    assert len(route.calls) == 1

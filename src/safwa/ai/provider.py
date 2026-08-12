@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 from openai import AsyncOpenAI
 
-from ..constants import AI_MAX_OUTPUT_TOKENS, AI_MAX_RETRIES_LOCAL, AI_TIMEOUT_SECONDS
+from ..constants import (
+    AI_EMPTY_RESPONSE_ATTEMPTS,
+    AI_MAX_OUTPUT_TOKENS,
+    AI_MAX_RETRIES_LOCAL,
+    AI_TIMEOUT_SECONDS,
+)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -130,26 +138,47 @@ class OpenAICompatibleProvider:
         if tools:
             options["tools"] = tools
             options["tool_choice"] = "auto"
-        response = await self.client.chat.completions.create(**options)
-        if not response.choices:
-            raise RuntimeError("AI provider returned an empty response")
-        message = response.choices[0].message
-        tool_calls = tuple(
-            ProviderToolCall(
-                id=call.id,
-                name=call.function.name,
-                arguments=call.function.arguments,
-            )
-            for call in (message.tool_calls or [])
-        )
-        content = (message.content or "").strip()
-        if not content and not tool_calls:
-            raise RuntimeError("AI provider returned an empty response")
-        return ProviderTurn(
-            content=content,
-            tool_calls=tool_calls,
-            usage=_read_usage(getattr(response, "usage", None)),
-        )
+        detail = ""
+        for attempt in range(1, AI_EMPTY_RESPONSE_ATTEMPTS + 1):
+            response = await self.client.chat.completions.create(**options)
+            turn, detail = _read_turn(response)
+            if turn is not None:
+                return turn
+            if attempt < AI_EMPTY_RESPONSE_ATTEMPTS:
+                logger.warning(
+                    "AI provider returned an empty response (%s); retrying once", detail
+                )
+        raise RuntimeError(f"AI provider returned an empty response: {detail}")
 
     async def close(self) -> None:
         await self.client.close()
+
+
+def _read_turn(response: Any) -> tuple[ProviderTurn | None, str]:
+    """Return the turn, or ``None`` plus why the provider said nothing."""
+    if not response.choices:
+        # OpenRouter reports an upstream failure as HTTP 200 with no choices and the
+        # reason in an `error` member the OpenAI schema does not model.
+        error = getattr(response, "error", None) or (
+            getattr(response, "model_extra", None) or {}
+        ).get("error")
+        return None, f"no choices: {error}" if error else "no choices and no error detail"
+    message = response.choices[0].message
+    tool_calls = tuple(
+        ProviderToolCall(id=call.id, name=call.function.name, arguments=call.function.arguments)
+        for call in (message.tool_calls or [])
+    )
+    content = (message.content or "").strip()
+    reason = getattr(response.choices[0], "finish_reason", None)
+    if not content and not tool_calls and reason != "stop":
+        # `stop` with no content is the model ending its turn with nothing to add, which
+        # is a real answer after a tool result.  Any other reason means it was cut off.
+        return None, f"no content and no tool calls, finish_reason={reason}"
+    return (
+        ProviderTurn(
+            content=content,
+            tool_calls=tool_calls,
+            usage=_read_usage(getattr(response, "usage", None)),
+        ),
+        "",
+    )

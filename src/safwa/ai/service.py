@@ -297,6 +297,12 @@ class AgentLoopResult:
         return self.messages[self.prefix_len :]
 
 
+def failure_reason(error: Exception, limit: int = 160) -> str:
+    """One short owner-readable clause; the traceback stays in the log."""
+    text = " ".join(str(error).split()) or type(error).__name__
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
 def _log_preview(content: str, limit: int = 500) -> str:
     compact = " ".join(content.split())
     return compact if len(compact) <= limit else compact[: limit - 3] + "..."
@@ -828,7 +834,14 @@ class AIAdvisor:
         prefix_len: int,
         tool_count: int = 0,
         repair_rounds: int = 0,
+        allow_silence: bool = False,
     ) -> AgentLoopResult:
+        """Run the model until it answers.
+
+        ``allow_silence`` accepts an empty final answer, which is only meaningful when
+        the owner has already been shown the request's results: after an approval queue
+        the model may have nothing left to add, and that is not a failure.
+        """
         while True:
             turn = await self._provider_turn(messages)
             if turn.tool_calls:
@@ -913,7 +926,7 @@ class AIAdvisor:
                     repair_rounds += 1
                 continue
 
-            if not turn.content:
+            if not turn.content and not allow_silence:
                 raise DomainError("The advisor finished without a response")
             return AgentLoopResult(
                 turn.content,
@@ -1992,6 +2005,7 @@ class AIAdvisor:
                 prefix_len=prefix_len,
                 tool_count=prior_tool_count,
                 repair_rounds=prior_repair_rounds,
+                allow_silence=True,
             )
             loop_result.result_summaries = current_result_summaries
             loop_result.display_result_summaries = current_display_result_summaries
@@ -2000,6 +2014,10 @@ class AIAdvisor:
                     "\n\n".join(loop_result.display_result_summaries)
                     + f"\n\n{loop_result.message}"
                 ).strip()
+            elif not loop_result.message:
+                # The model added nothing and there is no receipt to stand in for it, so
+                # the resolved screen still has to say that the request is finished.
+                loop_result.message = "✅ Done."
             outcome = await self._materialize(loop_result, run_id, dialogue=turn_dialogue)
             async with self.sessions() as session:
                 stored_batch = await session.get(AgentStep, batch.id)
@@ -2027,7 +2045,7 @@ class AIAdvisor:
                 return AIOutcome(
                     "answer",
                     f"{result_summary}\n\n"
-                    "⚠️ Safwa could not generate its follow-up. "
+                    f"⚠️ Safwa could not generate its follow-up ({failure_reason(error)}). "
                     "You can continue with a new message.",
                 )
             raise
