@@ -152,6 +152,10 @@ def card_overview_text(state: dict[str, Any], *, heading: str = "Card") -> str:
             f"Tags: {html.escape(', '.join(state.get('tag_names', [])) or '—')}",
         ]
     )
+    # Only when there are Checks: manual creation cannot link one, and the Card screen
+    # already carries the counts on its Checks button.
+    if state.get("check_names"):
+        lines.append(f"Checks: {html.escape(', '.join(state['check_names']))}")
     return f"<b>{html.escape(heading)}</b>\n" + "\n".join(lines)
 
 

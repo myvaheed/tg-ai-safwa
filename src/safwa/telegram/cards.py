@@ -731,28 +731,16 @@ async def render_card(
                     )
                 ]
             )
-        check_total = int(
-            await session.scalar(
-                select(func.count())
-                .select_from(Check)
+        direct_checks = list(
+            await session.scalars(
+                select(Check)
                 .join(CardCheck, CardCheck.check_id == Check.id)
                 .where(CardCheck.card_id == card.id, Check.archived_at.is_(None))
+                .order_by(Check.id)
             )
-            or 0
         )
-        pending_total = int(
-            await session.scalar(
-                select(func.count())
-                .select_from(Check)
-                .join(CardCheck, CardCheck.check_id == Check.id)
-                .where(
-                    CardCheck.card_id == card.id,
-                    Check.archived_at.is_(None),
-                    Check.outcome.is_(None),
-                )
-            )
-            or 0
-        )
+        check_total = len(direct_checks)
+        pending_total = sum(1 for check in direct_checks if check.outcome is None)
         # Always shown: the Card screen is the only place a first Check can be added.
         relationship_rows.append(
             [
@@ -853,6 +841,7 @@ async def render_card(
                 "energy_types": energy_types,
                 "value_names": [value.name for value in direct_values],
                 "tag_names": [tag.name for tag in direct_tags],
+                "check_names": [check.title for check in direct_checks],
                 **progress,
             }
         ),

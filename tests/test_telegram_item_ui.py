@@ -893,6 +893,40 @@ async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions) ->
     assert "↩️ Back" not in buttons
 
 
+async def test_card_check_link_proposal_shows_the_check_in_overview_and_diff(sessions) -> None:
+    async with sessions() as session:
+        card = await create_card(session, kind="goal", title="Be healthy")
+        check = await create_check(session, title="Walk upright")
+        workspace = await session.get(Workspace, 1)
+        proposal = ChangeProposal(
+            message="Link the Check to the Goal",
+            workspace_revision=workspace.revision,
+            status="pending",
+        )
+        session.add(proposal)
+        await session.flush()
+        session.add(
+            ProposalChange(
+                proposal_id=proposal.id,
+                position=0,
+                entity="card",
+                action="link",
+                entity_id=card.id,
+                expected_version=card.version,
+                values={"check_ids": [check.id]},
+            )
+        )
+        await session.commit()
+        proposal_id = proposal.id
+
+    message = FakeMessage(64, bot_message=True)
+    await render_proposal(message, services_for(sessions), proposal_id)
+    text, _ = message.edits[-1]
+
+    assert "Checks: Walk upright" in text
+    assert "• Checks: — → Walk upright" in text
+
+
 async def test_card_creation_proposal_has_no_proposed_changes_section(sessions) -> None:
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)

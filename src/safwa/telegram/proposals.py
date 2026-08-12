@@ -9,15 +9,19 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..ai.service import AIOutcome
-from ..domain import CARD_REFERENCE_SPECS, DomainError, card_progress, resolve_references
+from ..ai.service import AIOutcome, failure_reason
+from ..domain import (
+    CARD_REFERENCE_SPECS,
+    DomainError,
+    ReferenceSpec,
+    card_progress,
+    resolve_references,
+)
 from ..enums import CHECK_OUTCOME_LABELS, CardKind, CardStage, MessageKind
 from ..models import (
     Card,
     CardCategory,
     CardEnergyType,
-    CardTag,
-    CardValue,
     ChangeProposal,
     ProposalChange,
     Tag,
@@ -34,6 +38,10 @@ from ._presentation import (
 from .checks import CHECK_STATUS_EMOJIS
 
 logger = logging.getLogger(__name__)
+
+# Every Card relationship diffs and renders through its spec, so a new one shows up here
+# without a second table to update.
+_REFERENCE_BY_PLURAL = {spec.plural_key: spec for spec in CARD_REFERENCE_SPECS}
 
 
 async def _proposal_item_state(
@@ -68,15 +76,13 @@ async def _proposal_item_state(
                         select(CardEnergyType.energy_type).where(CardEnergyType.card_id == card.id)
                     )
                 ),
-                "value_ids": sorted(
-                    await session.scalars(
-                        select(CardValue.value_id).where(CardValue.card_id == card.id)
-                    )
-                ),
-                "tag_ids": sorted(
-                    await session.scalars(select(CardTag.tag_id).where(CardTag.card_id == card.id))
-                ),
             }
+            for spec in CARD_REFERENCE_SPECS:
+                current[spec.plural_key] = sorted(
+                    await session.scalars(
+                        select(spec.link_column).where(spec.link_model.card_id == card.id)
+                    )
+                )
     elif change.entity == "tag" and change.entity_id:
         tag = await session.get(Tag, change.entity_id)
         if tag is not None:
@@ -112,9 +118,7 @@ async def _proposal_item_state(
                 continue
             resolved = await resolve_references(session, spec, change.values)
             target_ids = resolved.ids | set(resolved.unknown_ids)
-            unresolved_references.extend(
-                (spec.query_key, name) for name in resolved.unresolved
-            )
+            unresolved_references.extend((spec.label, name) for name in resolved.unresolved)
             existing = set(current.get(spec.plural_key, []))
             if change.action == "link":
                 proposed[spec.plural_key] = sorted(existing | target_ids)
@@ -135,22 +139,31 @@ def _display_diff_value(value: Any) -> str:
     return str(value)
 
 
+def _reference_names_key(spec: ReferenceSpec) -> str:
+    return spec.plural_key.replace("_ids", "_names")
+
+
+async def _reference_names(session: AsyncSession, spec: ReferenceSpec, value: Any) -> list[str]:
+    ids = list(value or [])
+    entities = (
+        list(await session.scalars(select(spec.model).where(spec.model.id.in_(ids))))
+        if ids
+        else []
+    )
+    by_id = {entity.id: getattr(entity, spec.name_attr) for entity in entities}
+    return [by_id[item_id] for item_id in ids if item_id in by_id]
+
+
 async def _proposal_card_display_state(
     session: AsyncSession, state: dict[str, Any]
 ) -> dict[str, Any]:
     display = dict(state)
     parent = await session.get(Card, state.get("parent_id")) if state.get("parent_id") else None
     display["parent_name"] = parent.title if parent else None
-    for ids_key, names_key, model, name_field in (
-        ("value_ids", "value_names", Value, "name"),
-        ("tag_ids", "tag_names", Tag, "name"),
-    ):
-        ids = list(state.get(ids_key) or [])
-        entities = (
-            list(await session.scalars(select(model).where(model.id.in_(ids)))) if ids else []
+    for spec in CARD_REFERENCE_SPECS:
+        display[_reference_names_key(spec)] = await _reference_names(
+            session, spec, state.get(spec.plural_key)
         )
-        by_id = {entity.id: getattr(entity, name_field) for entity in entities}
-        display[names_key] = [by_id[item_id] for item_id in ids if item_id in by_id]
     if display.get("id") and display.get("kind") in {
         CardKind.GOAL.value,
         CardKind.IDEA.value,
@@ -165,18 +178,9 @@ async def _proposal_diff_value(session: AsyncSession, field: str, value: Any) ->
             return "Root"
         parent = await session.get(Card, value)
         return parent.title if parent else f"Card #{value}"
-    relation_specs = {
-        "value_ids": (Value, "name"),
-        "tag_ids": (Tag, "name"),
-    }
-    if field in relation_specs:
-        model, name_field = relation_specs[field]
-        ids = list(value or [])
-        entities = (
-            list(await session.scalars(select(model).where(model.id.in_(ids)))) if ids else []
-        )
-        by_id = {entity.id: getattr(entity, name_field) for entity in entities}
-        return ", ".join(by_id[item_id] for item_id in ids if item_id in by_id) or "—"
+    spec = _REFERENCE_BY_PLURAL.get(field)
+    if spec is not None:
+        return ", ".join(await _reference_names(session, spec, value)) or "—"
     if field == "categories":
         return category_expression(value)
     if field == "energy_types":
@@ -202,8 +206,7 @@ async def _proposal_card_diffs(
         "repeatable": "Repeatable",
         "categories": "Categories",
         "energy_types": "Energy",
-        "value_ids": "Values",
-        "tag_ids": "Tags",
+        **{spec.plural_key: f"{spec.label}s" for spec in CARD_REFERENCE_SPECS},
         "status": "Status",
     }
     diffs: list[str] = []
@@ -213,8 +216,7 @@ async def _proposal_card_diffs(
         old = await _proposal_diff_value(session, field, current.get(field))
         new = await _proposal_diff_value(session, field, proposed.get(field))
         diffs.append(f"• {label}: {html.escape(old)} → {html.escape(new)}")
-    for query_key, name in proposed.get("_unresolved_references", []):
-        label = query_key.replace("_", " ").title()
+    for label, name in proposed.get("_unresolved_references", []):
         diffs.append(f"• {label}: — → {html.escape(name)} (not found)")
     return diffs
 
@@ -412,7 +414,7 @@ async def continue_agent_approval(
                 result=result,
                 dialogue=dialogue,
             )
-        except Exception:
+        except Exception as error:
             logger.exception(
                 "AI continuation failed after %s %s #%s",
                 decision,
@@ -423,7 +425,8 @@ async def continue_agent_approval(
                 message,
                 services,
                 f"{resolved_text}\n"
-                "⚠️ The change is resolved, but Safwa could not generate its follow-up. "
+                "⚠️ The change is resolved, but Safwa could not generate its follow-up "
+                f"({html.escape(failure_reason(error))}). "
                 "You can continue with a new message.",
                 kind=MessageKind.DIALOGUE_ASSISTANT,
             )
