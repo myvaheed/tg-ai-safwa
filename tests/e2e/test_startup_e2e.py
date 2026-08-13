@@ -32,7 +32,7 @@ class FakeBot:
         self.__class__.instances.append(self)
 
     async def get_me(self):
-        return SimpleNamespace(id=9001)
+        return SimpleNamespace(id=9001, username="safwa_qa_bot")
 
     async def set_my_commands(self, commands) -> None:
         self.commands = commands

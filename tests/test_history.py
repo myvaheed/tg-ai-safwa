@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import update
+from telethon.tl.types import MessageEntityTextUrl
 
 from safwa.enums import MessageKind
 from safwa.history import (
@@ -14,6 +15,7 @@ from safwa.history import (
     mark_kind,
     read_kind_mark,
     register_message,
+    restore_citations,
 )
 from safwa.models import TelegramMessage
 
@@ -25,6 +27,7 @@ class FakeTelegramMessage:
     sender_id: int
     date: datetime
     reply_markup: object | None = None
+    entities: list[object] | None = None
 
 
 class FakeTelegramClient:
@@ -377,6 +380,46 @@ async def test_kind_marks_rebuild_history_without_registrations(sessions) -> Non
         (MessageKind.DIALOGUE_ASSISTANT.value, "Stretching sounds good."),
         (MessageKind.DIALOGUE_USER.value, "What should I do next?"),
     ]
+
+
+async def test_item_links_read_back_as_the_citations_the_model_wrote(sessions) -> None:
+    """Telethon hands us plain text, so a rendered link has to be un-rendered here."""
+    chat_id, owner_id, bot_id = 100, 42, 99
+    at = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
+    reply = "🎯 Answer Milk, then close Market."
+    messages = [
+        FakeTelegramMessage(
+            21,
+            mark_kind(reply, MessageKind.DIALOGUE_ASSISTANT),
+            bot_id,
+            at + timedelta(minutes=1),
+            entities=[
+                # Offsets count UTF-16 units, so the leading emoji shifts them by two.
+                MessageEntityTextUrl(10, 4, "https://t.me/safwa_ai_bot?start=check-14"),
+                MessageEntityTextUrl(27, 6, "https://t.me/safwa_ai_bot?start=card-12"),
+                MessageEntityTextUrl(0, 2, "https://example.com/not-safwa"),
+            ],
+        ),
+        FakeTelegramMessage(20, "/newsession Let us begin", owner_id, at),
+    ]
+    source = TelegramHistorySource(
+        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+    )
+
+    entries = await source.recent(chat_id, require_boundary=True)
+
+    assert entries[-1].text == "🎯 Answer [Milk](check:14), then close [Market](card:12)."
+
+
+def test_restore_citations_only_rewrites_safwa_deep_links() -> None:
+    assert restore_citations("Milk", None) == "Milk"
+    assert (
+        restore_citations("Milk", [MessageEntityTextUrl(0, 4, "https://t.me/x?start=check-14")])
+        == "[Milk](check:14)"
+    )
+    # A link that is not an item link is left exactly as the user reads it.
+    for url in ("https://t.me/x?start=sprint-1", "https://t.me/safwa_ai_bot", "https://ok.dev"):
+        assert restore_citations("Milk", [MessageEntityTextUrl(0, 4, url)]) == "Milk"
 
 
 async def test_unregistered_owner_text_without_a_boundary_stays_excluded(sessions) -> None:

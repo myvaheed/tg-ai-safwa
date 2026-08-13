@@ -42,7 +42,7 @@ not one package per layer:
 | domain | [domain.py](../src/safwa/domain.py), [enums.py](../src/safwa/enums.py), [models.py](../src/safwa/models.py), [saved_requests.py](../src/safwa/saved_requests.py) |
 | application | [domain.py](../src/safwa/domain.py) (mutations), [ai/service.py](../src/safwa/ai/service.py) (`ProposalService`), [continuity.py](../src/safwa/continuity.py), [scheduler.py](../src/safwa/scheduler.py), [analytics.py](../src/safwa/analytics.py) |
 | infrastructure | [db.py](../src/safwa/db.py), [history.py](../src/safwa/history.py), [memory.py](../src/safwa/memory.py), [ai/provider.py](../src/safwa/ai/provider.py), [ai/sql.py](../src/safwa/ai/sql.py), [backup.py](../src/safwa/backup.py) |
-| telegram | [telegram/](../src/safwa/telegram) (10 modules, ~4.6k lines) |
+| telegram | [telegram/](../src/safwa/telegram) (11 modules, ~4.8k lines) |
 | ai | [ai/](../src/safwa/ai) (context, contracts, provider, service, sql) |
 | bootstrap | [main.py](../src/safwa/main.py), [config.py](../src/safwa/config.py), [constants.py](../src/safwa/constants.py), [recovery.py](../src/safwa/recovery.py), [qa.py](../src/safwa/qa.py) |
 
@@ -59,7 +59,9 @@ _presentation.py    pure text/labels/markup/paging — no session, no bot
    ↑
 _messaging.py       every send/edit/delete + MessageKind registration + token buttons
    ↑
-cards.py  checks.py  items.py  proposals.py    render modules
+cards.py  checks.py  items.py    render modules
+   ↑
+screens.py  proposals.py    what one AI turn shows: cited items, the review screen
    ↑
 commands.py  callbacks.py  dialogue.py  the ONLY @router handlers
 ```
@@ -114,8 +116,9 @@ no underscore (the whole package is private behind `__init__.__all__`).
 - Dashboards `/today` `/backlog` `/sprint` list **Actions only**; Goals/Ideas reachable via hierarchy,
   `Children`, search, Requests, item navigation.
 - Checks are item-shaped, not Card-shaped ([telegram/checks.py](../src/safwa/telegram/checks.py)) and
-  live entirely on the Card screen, which shows `☑️ Checks (pending/total)` **only when at least one
-  Check hangs on the Card**. 
+  are reached from the Card screen, which shows `☑️ Checks (pending/total)` **only when at least one
+  Check hangs on the Card**. `render_check` also stands alone — an advisor link reaches a Check that
+  hangs on no Card, and `card_id` then only decides where Back goes.
   Pressing `Done` on a gated Card opens the resolution screen instead of finishing it: each Check
   offers `✅ Passed` / `❌ Missed`, `Save` appears once an answer is set and finishes the Card in one
   transaction, and `Back` leaves it live. No answer is prefilled.
@@ -137,16 +140,27 @@ no underscore (the whole package is private behind `__init__.__all__`).
 Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `history.dialogue()` →
 `AIAdvisor.handle` → agent loop → proposals or a final message.
 
-- Tools: `query_safwa(sql)` (immediate read) + mutation tools `card`, `check`, `value`, `tag`, `request`,
-  `remove` (`SAFWA_TOOLS`, [ai/service.py:133](../src/safwa/ai/service.py:133)).
+- Tools: one that runs immediately (`IMMEDIATE_TOOLS`) — `query_safwa(sql)` — plus the mutation tools
+  `card`, `check`, `value`, `tag`, `request`, `remove` (`SAFWA_TOOLS`,
+  [ai/service.py](../src/safwa/ai/service.py)).
+- Offering an item is not a tool. The model cites it in its own prose as `[Milk](check:14)`, over the
+  five openable types, and `render_citations`
+  ([telegram/screens.py](../src/safwa/telegram/screens.py)) rewrites each citation of the escaped
+  reply into `<a href="https://t.me/<bot>?start=check-14">`. The href is built from a validated id,
+  never from the model, and the payload separator is `-` because `?start=` accepts only
+  `[A-Za-z0-9_-]`. An id that is missing or archived keeps its words and loses its link: the reply is
+  a `DIALOGUE_ASSISTANT` message that stays in the chat, so a dead link would stay with it.
+- Tapping one sends `/start check-14`. The middleware deletes that command and `command_start`
+  (`start_payload` → `open_citation` → `open_item_screen`) sends the item's manual screen as a new
+  message, leaving the reply above it intact. A vanished item answers `⚠️ Error while opening: …`.
 - The `card` tool writes **every** Card link — `value_*`, `tag_*`, `check_*`, one relationship group per
-  `link`/`unlink` call. The `check` tool only creates, edits and resolves a Check; it never attaches one.
+  `link`/`unlink` call. The `check` tool only creates, edits and answers a Check; it never attaches one.
   Since the UI cannot create, rename or (un)link a Check, those paths exist only here.
   `check_query` resolves an exact Check title, so a Check can be attached without knowing its id.
 - `_guard_pending_checks` refuses to *prepare* a completion while Pending Checks exist, returning a
   retryable `ToolPreparationError` that carries their ids **and titles** so the model does not spend a
-  `query_safwa` round finding them. It then calls `check(mode="resolve_for_card")`, whose proposal screen
-  is the one place field controls appear — the model proposes which Checks to answer, the user answers.
+  `query_safwa` round finding them. The model then proposes `check(mode="complete"|"cancel")` for an
+  answer the owner already gave, or cites the Check so they answer it themselves.
 - **The model never mutates and never writes mutation SQL.** Tool call → Pydantic model in
   [ai/contracts.py](../src/safwa/ai/contracts.py) → `AgentChange` → `ChangeProposal` + `ProposalChange`
   rows → a read-only review screen with only **Save**/**Discard** → `ProposalService.apply` calls the
@@ -215,6 +229,10 @@ turn. `telegram_messages` stores only `(chat_id, message_id, direction, kind, re
   message inside the session boundary is treated as dialogue; without a boundary it is dropped.
   A bot message with neither a registration nor a mark (anything predating marks) is read the same
   provisional way when it carries no inline keyboard — screens keep their buttons and stay excluded.
+- Item citations ride in the text the same way. Telethon returns plain text, so `restore_citations`
+  rewrites each `?start=<type>-<id>` link entity back into the `[Milk](check:14)` the model wrote;
+  otherwise the model rereads its own citations as bare words and unlearns the format. Entity offsets
+  are UTF-16 units, so the slicing happens in surrogate space.
 - Only `DIALOGUE_USER`, `DIALOGUE_ASSISTANT`, `REMINDER`, `SUMMARY`, `SESSION_START`, and
   `SUBSESSION_RESULT` become dialogue. Everything else (`COMMAND`, `UI_INPUT`, `DASHBOARD`,
   `CARD_EDITOR`, `APPROVAL`, `RECEIPT`, `RETROSPECTIVE_PNG`, `ERROR`) is excluded.

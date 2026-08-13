@@ -15,9 +15,15 @@ from safwa.domain import (
     pending_checks,
     toggle_card_check,
 )
-from safwa.enums import CardStage, CheckOutcome
-from safwa.models import CallbackToken, Card, ChangeProposal, Check, ProposalChange
-from safwa.telegram import GenerationGuard, callback_token_handler, render_proposal
+from safwa.enums import CardStage, CheckOutcome, MessageKind
+from safwa.models import CallbackToken, Card, ChangeProposal, Check, TelegramMessage
+from safwa.telegram import (
+    GenerationGuard,
+    callback_token_handler,
+    render_ai_outcome,
+    render_proposal,
+)
+from safwa.telegram.commands import command_start
 
 pytestmark = pytest.mark.e2e
 
@@ -37,30 +43,41 @@ class _TestMessage:
         self.message_id = 900
         self.chat = SimpleNamespace(id=700, type="private")
         self.from_user = SimpleNamespace(id=42, is_bot=True)
-        self.bot = _TestBot()
+        self.bot = _TestBot(self)
         self.text = ""
         self.rendered: list[str] = []
+        self.sent: list[str] = []
+        self.deleted: list[int] = []
+        self.markups: list[object] = []
 
     async def edit_text(self, text, *, reply_markup=None, parse_mode=None):
-        del reply_markup, parse_mode
+        del parse_mode
         self.rendered.append(text)
+        self.markups.append(reply_markup)
         return self
 
     async def answer(self, text, *, reply_markup=None, parse_mode=None):
-        del reply_markup, parse_mode
+        del parse_mode
         self.rendered.append(text)
+        self.sent.append(text)
+        self.markups.append(reply_markup)
+        return self
+
+    async def edit_reply_markup(self, *, reply_markup=None):
+        self.markups.append(reply_markup)
         return self
 
 
 class _TestBot:
-    def __init__(self) -> None:
+    def __init__(self, message: _TestMessage) -> None:
         self.typing_calls = 0
+        self.message = message
 
     async def send_chat_action(self, *_args, **_kwargs) -> None:
         self.typing_calls += 1
 
-    async def delete_message(self, *_args, **_kwargs) -> None:
-        return None
+    async def delete_message(self, _chat_id, message_id) -> None:
+        self.message.deleted.append(message_id)
 
     async def edit_message_reply_markup(self, *_args, **_kwargs) -> None:
         return None
@@ -87,6 +104,7 @@ def _services(harness, advisor) -> SimpleNamespace:
         history=_TestHistory(),
         owner_id=42,
         guard=GenerationGuard(),
+        bot_username="safwa_ai_bot",
     )
 
 
@@ -144,7 +162,7 @@ async def test_completion_is_refused_while_checks_are_pending(e2e_harness):
     assert tool_result["code"] == "pending_checks"
     assert tool_result["retryable"] is True
     assert "Milk" in tool_result["error"] and "Bread" in tool_result["error"]
-    assert "resolve_for_card" in tool_result["hint"]
+    assert "[title](check:<id>)" in tool_result["hint"]
     assert outcome.proposal_id is None
 
     async with e2e_harness.sessions() as session:
@@ -152,56 +170,40 @@ async def test_completion_is_refused_while_checks_are_pending(e2e_harness):
         assert len(await pending_checks(session, card_id)) == len(check_ids)
 
 
-async def test_resolve_for_card_then_complete(e2e_harness):
+async def test_answering_checks_by_proposal_then_completing(e2e_harness):
     card_id, check_ids = await _market_card_with_checks(e2e_harness)
     advisor, _provider = e2e_harness.advisor(
         [
-            mutation_turn(("check", {"mode": "resolve_for_card", "card_id": card_id})),
+            mutation_turn(
+                ("check", {"mode": "complete", "id": check_ids[0]}),
+                ("check", {"mode": "cancel", "id": check_ids[1]}),
+            ),
             "Saved your answers.",
         ]
     )
-    outcome = await advisor.handle("Let me answer the market Checks")
+    outcome = await advisor.handle("I got the milk but they had no bread")
     assert outcome.proposal_id is not None
 
     message = _TestMessage()
     services = _services(e2e_harness, advisor)
     await render_proposal(message, services, outcome.proposal_id)
-    # Only the user can answer a Check, so this proposal screen carries field controls.
-    assert "Answer every Check, then press Save." in message.rendered[-1]
-    assert "Milk" in message.rendered[-1]
-
-    async with e2e_harness.sessions() as session:
-        change = await session.scalar(
-            select(ProposalChange).where(ProposalChange.proposal_id == outcome.proposal_id)
-        )
-        # The model proposes which Checks to answer, never the answers.
-        assert set(change.values["outcomes"].values()) == {None}
-
-    for check_id, answer in ((check_ids[0], "passed"), (check_ids[1], "missed")):
-        await _claim(
-            e2e_harness,
-            "proposal_check_set",
-            message,
-            services,
-            id=outcome.proposal_id,
-            check_id=str(check_id),
-            outcome=answer,
-        )
-    async with e2e_harness.sessions() as session:
-        change = await session.scalar(
-            select(ProposalChange).where(ProposalChange.proposal_id == outcome.proposal_id)
-        )
-        assert change.values["outcomes"][str(check_ids[0])] == CheckOutcome.PASSED.value
-        assert change.values["outcomes"][str(check_ids[1])] == CheckOutcome.MISSED.value
+    # A Check proposal reads like every other item: a diff plus Save/Discard, no field controls.
+    assert "Answer Check · AI proposal" in message.rendered[-1]
+    assert "Status: Passed" in message.rendered[-1]
+    assert (await _live_actions(e2e_harness)) == {"proposal_approve", "proposal_reject"}
 
     await _claim(e2e_harness, "proposal_approve", message, services, id=outcome.proposal_id)
     async with e2e_harness.sessions() as session:
         assert (await session.get(ChangeProposal, outcome.proposal_id)).status == "approved"
-        assert await pending_checks(session, card_id) == []
         first = await session.get(Check, check_ids[0])
         assert first.outcome == CheckOutcome.PASSED.value
         assert first.resolved_by == "ai"
         assert first.resolved_at is not None
+    # The second proposal of the batch is queued behind the first.
+    await _claim(e2e_harness, "proposal_approve", message, services)
+    async with e2e_harness.sessions() as session:
+        assert (await session.get(Check, check_ids[1])).outcome == CheckOutcome.MISSED.value
+        assert await pending_checks(session, card_id) == []
 
     # With nothing Pending the same completion the model was refused now prepares.
     advisor, _provider = e2e_harness.advisor(
@@ -216,23 +218,80 @@ async def test_resolve_for_card_then_complete(e2e_harness):
         assert (await session.get(Card, card_id)).effective_stage == CardStage.DONE.value
 
 
-async def test_resolve_for_card_is_refused_when_nothing_is_pending(e2e_harness):
-    async with e2e_harness.sessions() as session:
-        card = await create_card(
-            session, title="Solo", kind="action", stage="today", effort_points=1
-        )
-        await session.commit()
-        card_id = card.id
+async def test_a_cited_item_opens_its_manual_screen(e2e_harness):
+    card_id, check_ids = await _market_card_with_checks(e2e_harness)
+    advisor, _provider = e2e_harness.advisor(
+        [f"Answer the [Milk](check:{check_ids[0]}) Check when you get home."]
+    )
+    outcome = await advisor.handle("Which Checks are still open on the market run?")
+    assert outcome.proposal_id is None
 
-    advisor, provider = e2e_harness.advisor(
+    message = _TestMessage()
+    services = _services(e2e_harness, advisor)
+    await render_ai_outcome(message, services, outcome)
+    # The citation becomes a deep link inside ordinary dialogue; nothing is rendered yet.
+    assert (
+        f'<a href="https://t.me/safwa_ai_bot?start=check-{check_ids[0]}">Milk</a>'
+        in message.rendered[-1]
+    )
+    assert "<b>Check</b>" not in message.rendered[-1]
+    async with e2e_harness.sessions() as session:
+        stored = await session.scalar(
+            select(TelegramMessage).where(TelegramMessage.message_id == message.message_id)
+        )
+        assert stored.kind == MessageKind.DIALOGUE_ASSISTANT.value
+
+    # Tapping the link sends /start with the payload, and the screen arrives as its own
+    # message: the reply above it is canonical history and must survive.
+    message.text = f"/start check-{check_ids[0]}"
+    await command_start(message, services)
+    assert "<b>Check</b>: Milk" in message.sent[-1]
+    assert "Go to the market" in message.sent[-1]
+    assert {"check_toggle_repeat", "check_set_status"} <= await _live_actions(e2e_harness)
+
+    await _claim(
+        e2e_harness, "check_set_status", message, services, id=check_ids[0], outcome="passed"
+    )
+    async with e2e_harness.sessions() as session:
+        answered = await session.get(Check, check_ids[0])
+        assert answered.outcome == CheckOutcome.PASSED.value
+        assert answered.resolved_by == "user_ui"
+        assert [item.id for item in await pending_checks(session, card_id)] == [check_ids[1]]
+
+
+async def test_citations_link_live_items_and_drop_missing_ones(e2e_harness):
+    card_id, check_ids = await _market_card_with_checks(e2e_harness)
+    advisor, _provider = e2e_harness.advisor(
         [
-            mutation_turn(("check", {"mode": "resolve_for_card", "card_id": card_id})),
-            "That Card has nothing to answer.",
+            f"Errand [Go to the market](card:{card_id}) still needs "
+            f"[Milk](check:{check_ids[0]}), and [that old one](card:4242) is gone."
         ]
     )
-    await advisor.handle("Answer the Checks on Solo")
-    tool_result = json.loads(provider.calls[-1][-1]["content"])
-    assert tool_result["code"] == "no_pending_checks"
+    outcome = await advisor.handle("Show me today's errands")
+
+    message = _TestMessage()
+    services = _services(e2e_harness, advisor)
+    await render_ai_outcome(message, services, outcome)
+    text = message.rendered[-1]
+    assert f'?start=card-{card_id}">Go to the market</a>' in text
+    assert f'?start=check-{check_ids[0]}">Milk</a>' in text
+    # An item that no longer exists keeps its words and loses its link: the reply stays in
+    # the chat for good, so a dead link would outlive every retry.
+    assert "that old one" in text
+    assert "card-4242" not in text
+
+    message.text = f"/start card-{card_id}"
+    await command_start(message, services)
+    assert "Go to the market" in message.sent[-1]
+
+    # A link that outlives its item reports the failure and changes nothing else.
+    message.text = "/start card-4242"
+    await command_start(message, services)
+    assert "⚠️ Error while opening: Card does not exist" in message.sent[-1]
+
+    message.text = "/start nonsense"
+    await command_start(message, services)
+    assert "not a Safwa item" in message.sent[-1]
 
 
 async def test_ai_can_create_and_read_checks(e2e_harness):

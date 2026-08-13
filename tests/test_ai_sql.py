@@ -107,10 +107,8 @@ def test_tool_inputs_drop_incidental_null_placeholders_from_every_mutation():
         {
             "mode": "create",
             "id": None,
-            "card_id": None,
             "title": "Form is safe",
             "repeatable": False,
-            "outcome": None,
         }
     )
     assert check.model_fields_set == {"mode", "title", "repeatable"}
@@ -148,14 +146,7 @@ def test_zero_id_placeholders_are_ignored_but_real_ids_must_be_positive():
     [
         (
             "check",
-            {
-                "mode": "create",
-                "id": None,
-                "card_id": None,
-                "title": "Form is safe",
-                "repeatable": False,
-                "outcome": None,
-            },
+            {"mode": "create", "id": None, "title": "Form is safe", "repeatable": False},
             {"title": "Form is safe", "repeatable": False},
         ),
         (

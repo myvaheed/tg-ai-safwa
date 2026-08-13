@@ -38,6 +38,8 @@ class Services:
     continuity: PersonaContinuity
     owner_id: int
     guard: GenerationGuard
+    # Empty until the bot identifies itself; item citations stay plain text without it.
+    bot_username: str = ""
 
 
 class GenerationGuard:

@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from ..constants import CHECK_LIST_LIMIT
 from ..domain import DomainError, card_checks, check_card_ids, pending_checks
@@ -109,30 +109,24 @@ async def render_check(
     services: Services,
     check_id: int,
     *,
-    card_id: int,
-    back: dict[str, Any],
+    card_id: int | None = None,
+    back: dict[str, Any] | None = None,
     replace_message_id: int | None = None,
     notice: str | None = None,
+    extra_rows: list[list[InlineKeyboardButton]] | None = None,
+    replace: bool | None = None,
 ) -> None:
+    """One Check with its answer buttons.
+
+    ``card_id`` is only where Back returns to: a Check reached from the advisor, or one
+    hanging on no Card at all, has no owning screen to go back to.
+    """
+    back = back or {"kind": "home"}
     async with services.sessions() as session:
         check = await session.get(Check, check_id)
         if check is None or check.archived_at is not None:
             raise DomainError("Check does not exist or is archived")
         linked_card_ids = await check_card_ids(session, check.id)
-        await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
-        session.add(
-            UiSession(
-                owner_id=services.owner_id,
-                kind="check_editor",
-                state={
-                    "check_id": check.id,
-                    "card_id": card_id,
-                    "back": back,
-                    "message_id": replace_message_id or message.message_id,
-                },
-                expires_at=datetime.now(UTC) + timedelta(minutes=30),
-            )
-        )
         payload = {"id": check.id, "card_id": card_id, "back": back}
         current = check_status(check)
         # The owner sets only what they alone know: whether it repeats, and how it turned out.
@@ -165,11 +159,23 @@ async def render_check(
                     session,
                     services.owner_id,
                     "↩️ Back",
-                    "check_list_back",
+                    "check_list_back" if card_id is not None else "check_back",
                     {"card_id": card_id, "back": back},
                 )
             ]
         )
+        linked_cards = (
+            list(
+                await session.scalars(
+                    select(Card).where(
+                        Card.id.in_(linked_card_ids), Card.archived_at.is_(None)
+                    )
+                )
+            )
+            if linked_card_ids
+            else []
+        )
+        card_titles = [card.title for card in linked_cards]
         await session.commit()
 
     body = "\n".join(
@@ -177,16 +183,17 @@ async def render_check(
             f"<b>Check</b>: {html.escape(check.title)}",
             f"Status: {check_status_label(check)}",
             f"Repeatable: {'Yes' if check.repeatable else 'No'}",
-            f"Cards: {', '.join('#' + str(item) for item in linked_card_ids) or '—'}",
+            f"Cards: {html.escape(', '.join(card_titles)) or '—'}",
         ]
     )
     await _deliver(
         message,
         services,
         with_notice(body, notice),
-        InlineKeyboardMarkup(inline_keyboard=rows),
+        InlineKeyboardMarkup(inline_keyboard=rows + list(extra_rows or [])),
         replace_message_id,
         related_id=check.id,
+        replace=replace,
     )
 
 
@@ -296,6 +303,7 @@ async def _deliver(
     replace_message_id: int | None,
     *,
     related_id: int | None,
+    replace: bool | None = None,
 ) -> None:
     if replace_message_id is not None:
         await edit_registered_message(
@@ -315,4 +323,5 @@ async def _deliver(
         kind=MessageKind.DASHBOARD,
         markup=markup,
         related_id=related_id,
+        replace=replace,
     )

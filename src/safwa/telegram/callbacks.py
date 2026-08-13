@@ -75,9 +75,8 @@ from .commands import (
     command_values,
     end_subsession,
     render_feedback,
-    render_saved_request,
 )
-from .items import render_item_editor, render_item_text_prompt
+from .items import render_item_editor, render_item_text_prompt, render_saved_request
 from .proposals import continue_agent_approval, render_proposal
 
 logger = logging.getLogger(__name__)
@@ -711,6 +710,12 @@ def _check_back(context: CallbackContext) -> dict:
     return dict(context.payload.get("back") or {"kind": "home"})
 
 
+def _check_card_id(context: CallbackContext) -> int | None:
+    """A Check opened by the advisor, or hanging on no Card, has no owning Card screen."""
+    card_id = context.payload.get("card_id")
+    return int(card_id) if card_id is not None else None
+
+
 async def _on_check_list(context: CallbackContext) -> None:
     await render_checks(
         context.message,
@@ -725,7 +730,7 @@ async def _on_check_view(context: CallbackContext) -> None:
         context.message,
         context.services,
         int(context.payload["id"]),
-        card_id=int(context.payload["card_id"]),
+        card_id=_check_card_id(context),
         back=_check_back(context),
     )
 
@@ -756,7 +761,7 @@ async def _on_check_set_status(context: CallbackContext) -> None:
         context.message,
         context.services,
         int(context.payload["id"]),
-        card_id=int(context.payload["card_id"]),
+        card_id=_check_card_id(context),
         back=_check_back(context),
         notice=notice,
     )
@@ -822,27 +827,6 @@ async def _on_check_resolve_cancel(context: CallbackContext) -> None:
         int(context.payload["id"]),
         notice="The Card is still live; its Checks were not changed.",
     )
-
-
-async def _on_proposal_check_set(context: CallbackContext) -> None:
-    """Answer one Check inside a Check-resolution proposal without approving it."""
-    proposal_id = int(context.payload["id"])
-    check_id = str(context.payload["check_id"])
-    async with context.sessions() as session:
-        change = await session.scalar(
-            select(ProposalChange).where(ProposalChange.proposal_id == proposal_id)
-        )
-        if change is None or change.action != "resolve_for_card":
-            raise DomainError("This proposal no longer accepts Check answers")
-        values = dict(change.values)
-        outcomes = dict(values.get("outcomes") or {})
-        if check_id not in outcomes:
-            raise DomainError("That Check is not part of this proposal")
-        outcomes[check_id] = CheckOutcome(str(context.payload["outcome"])).value
-        values["outcomes"] = outcomes
-        change.values = values
-        await session.commit()
-    await render_proposal(context.message, context.services, proposal_id)
 
 
 async def _on_feedback(context: CallbackContext) -> None:
@@ -1019,7 +1003,6 @@ CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "check_resolve_set": _on_check_resolve_set,
     "check_resolve_save": _on_check_resolve_save,
     "check_resolve_cancel": _on_check_resolve_cancel,
-    "proposal_check_set": _on_proposal_check_set,
     "feedback": _on_feedback,
     "sprint_start": _on_sprint_start,
     "sprint_finish": _on_sprint_finish,

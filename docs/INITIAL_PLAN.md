@@ -40,7 +40,7 @@ AI Card creation uses the normal proposal queue:
 
 - `card(mode="create", ...)` creates one persisted change proposal, not a Card.
 - The proposal opens the same read-only Card overview used for committed Cards.
-- Proposal screens expose exactly `Save` and `Discard`; fields cannot be edited inside AI review. The single exception is Check resolution: the model proposes *which* Pending Checks to answer, and the user supplies each answer on that screen, because only the user knows what actually happened.
+- Proposal screens expose exactly `Save` and `Discard`; fields cannot be edited inside AI review. When the decision is the user's rather than the model's, the model cites the item instead of proposing: it writes `[Milk](check:14)` in its reply, and pressing that link shows the item's own manual screen with its normal controls.
 - `Save` revalidates versions and domain rules, then inserts the Card in one short transaction.
 - `Discard` creates no planning entity and the static result message records every proposed field.
 - Multiple mutation tool calls become independent proposal screens in their original order.

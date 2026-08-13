@@ -54,17 +54,12 @@ graph TD
   callbacks --> cards
   callbacks --> items
   callbacks --> proposals[telegram/proposals.py]
-  callbacks --> screens[telegram/screens.py]
   dialogue --> cards
   dialogue --> items
   dialogue --> proposals
-  proposals --> screens
-  screens --> cards
-  screens --> items
   cards --> msg[telegram/_messaging.py]
   items --> msg
   proposals --> msg
-  screens --> msg
   msg --> pres[telegram/_presentation.py]
   pres --> core[telegram/_core.py]
   msg --> core
@@ -221,10 +216,7 @@ return `id`) · `request_cards` :37 (runs the query, loads live Cards in result 
 
 `_NEW_SESSION_RE` :24 · `_SUMMARY_RE` :28 · `SUBSESSION_RESULT_HEADER` :29 ·
 `_KIND_MARK_CODES` (append-only) · **`mark_kind`** / **`read_kind_mark`** (the `MessageKind`
-carried inside the Telegram text, so a rebuilt database loses no dialogue) · `CITATION_TYPES` ·
-`CITATION_PATTERN` · `citation_payload` / `parse_citation_payload` (the `[Milk](check:14)` ⇄
-`?start=check-14` codec) · **`restore_citations`** (link entities read back as citations; UTF-16
-offsets, so it slices in surrogate space) · `_citation_from_url` ·
+carried inside the Telegram text, so a rebuilt database loses no dialogue) ·
 `HistoryBoundaryMissing` :39 · `HistoryEntry` :44 ·
 `TelegramHistorySource` :54 → `from_settings` :71, `start` :92, `close` :102, **`recent`** :106,
 `_registered_message` :257 (ID-space correlation), `_new_session_request` :299, `_summary_body` :306,
@@ -284,7 +276,8 @@ metrics and no precomputed Card candidates; the model uses `query_safwa` for tho
 `AgentChange` :8 (`entity` × `action` × `id` × `values`) · `CardToolInput` :26 (per-mode validator :61;
 three relationship groups — `value_*`, `tag_*`, `check_*` — exactly one per link/unlink) ·
 `CheckToolInput` (modes `create|edit|complete|cancel`, where complete is Passed and cancel is Missed;
-no link modes, since attaching is a Card action) ·
+no link modes, since attaching is a Card action) · `OpenToolInput` (`type` × `id`, the only
+non-mutating tool input) ·
 `ValueToolInput` :133 · `TagToolInput` :153 · `RequestToolInput` :172 · `RemoveToolInput` :200
 (`permanent` only for Cards) · `MUTATION_TOOL_MODELS` :214 · `mutation_change_from_tool` :223.
 
@@ -307,9 +300,10 @@ needed), `ai_checks`, `ai_tags`, `ai_values`, `ai_requests`, `ai_current_sprint`
 
 ### `ai/service.py` — agent loop + proposals
 
-Tool schemas: `QUERY_SAFWA_TOOL` · `MUTATION_TOOL_DESCRIPTIONS` · `MUTATION_TOOLS` · `SAFWA_TOOLS` ·
-`IMMEDIATE_TOOLS` (those that run in-turn instead of becoming a proposal). (`MAX_TOOL_CALLS`, `MAX_REPAIR_ROUNDS`, `SUSPENDED_BATCH_LOOKUP_LIMIT` are
-in `constants.py`.)
+Tool schemas: `QUERY_SAFWA_TOOL` · `OPEN_TOOL` · `MUTATION_TOOL_DESCRIPTIONS` · `MUTATION_TOOLS` ·
+`SAFWA_TOOLS` · `IMMEDIATE_TOOLS` (the two that run in-turn instead of becoming a proposal).
+(`MAX_TOOL_CALLS`, `MAX_REPAIR_ROUNDS`, `MAX_OPEN_SCREENS`, `SUSPENDED_BATCH_LOOKUP_LIMIT` are in
+`constants.py`.)
 
 Types: `ToolPreparationError` :141 (`as_tool_result` :149) · `AIOutcome` :160 · `PendingTool` :167 ·
 `AgentLoopResult` :174.
@@ -317,11 +311,12 @@ Types: `ToolPreparationError` :141 (`as_tool_result` :149) · `AIOutcome` :160 �
 Helpers: `_allows_parent` :81 · `_log_preview` :185 · `_json_safe` :190 · `_result_value` :194 ·
 `_detail_value` :221 · `_reference_details` :231 · `_normalized_card_details` :243 ·
 `_raw_change_details` :280 · `_approval_change_label` :294 · `_approval_results_summary` :315 ·
-`_safe_approval_results_summary` :354 · `_with_queued_siblings` :372 ·
+`_safe_approval_results_summary` :354 · `_open_screens` (dedupe + cap) · `_with_queued_siblings` :372 ·
 `_assistant_content_with_request_progress` :390 · `_log_provider_request` :405 · `_log_provider_response` :419.
 
 **`AIAdvisor`** :429 → `handle` :445 · `_context_messages` :477 · `compress_subsession` :496 ·
 `_provider_turn` :515 · **`_run_agent_loop`** :529 · `_execute_query_tool` :628 ·
+`_execute_open_tool` (validates, logs an `open_item` step, returns the screen target) ·
 `_execute_mutation_tool` :684 · `_validate_named_references` :727 · `_resolve_parent_reference` :764 ·
 `_create_proposal` :858 · `_card_detail_snapshot` :953 · `_reference_groups` · `_proposal_display_line`
 (the owner's one-line receipt, names instead of IDs) · `_proposal_result_details` :996 ·
@@ -361,7 +356,6 @@ guard enforcement, implicit lease reservation for ordinary text) · `CallbackCon
 `token_button` :32 (single-use `cb:<token>`, 24 h) · **`send_registered`** :52 (edits in place when the
 source message is the bot's) · `edit_registered_message` :95 · `delete_text_input` :129 (registers
 `UI_INPUT`, deletes) · `clear_message_markup` :148 · `paging_row` :159 · **`dismiss_prior_ui`** :182 ·
-`delete_screen` (delete one screen, or drop its buttons when Telegram refuses) ·
 `delete_message_range` :299 · `send_subsession_result` :309.
 
 ### `telegram/items.py` — shared Tag/Value/Request screens
@@ -393,23 +387,13 @@ Check, nothing prefilled, `Save` only once an answer is set) · `_deliver` :293.
 
 `_proposal_item_state` :38 · `_display_diff_value` :129 · `_proposal_card_display_state` :137 ·
 `_proposal_diff_value` :161 · `_proposal_card_diffs` :188 · **`render_proposal`** :221 (Save/Discard only,
-no field controls, for every entity including a Check) · `render_ai_outcome` (the proposal, or the
-answer with its citations resolved) · **`continue_agent_approval`** (resumes the model after the last
-queue item).
-
-### `telegram/screens.py` — the items the advisor cites
-
-**`render_citations`** (`[Milk](check:14)` in the escaped reply → a `?start=check-14` deep link;
-missing or archived ids keep their words and lose the link) · **`open_item_screen`**
-(Card/Check/Tag/Value/Request → its manual renderer) · `open_citation` (one `/start` payload) ·
-`report_open_failure` (`⚠️ Error while opening: …`) · `OPENABLE_MODELS`. The citation pattern and the
-payload codec is in `history.py`, beside the kind mark; `_presentation.start_payload` reads the
-`/start` line.
+no field controls, for every entity including a Check) · **`open_item_screen`** (Card/Check/Tag/Value/
+Request → its manual renderer) · `render_ai_outcome` (answer or proposal, then every
+`outcome.open_targets`) · **`continue_agent_approval`** (resumes the model after the last queue item).
 
 ### `telegram/commands.py` — `@router.message` handlers
 
-`end_subsession` :63 · `/start` :84 (greeting, or `open_citation` when it carries a deep-link
-payload) · `/newsession` :96 · `/endsession` :126 · `/today` :174 ·
+`end_subsession` :63 · `/start` :85 · `/newsession` :96 · `/endsession` :126 · `/today` :174 ·
 `/backlog` :179 · `/sprint` :184 · `command_add` :240 (nav only) · `/advisor` :245 · `/values` :257 ·
 `/tags` :294 · `/requests` :325 · `/memory` :404 · `/syncmem` :417 ·
 `/mem` :451 · `/forget` :463 · `/retro` :477 · `render_feedback` :506 · `/feedback` :550 ·

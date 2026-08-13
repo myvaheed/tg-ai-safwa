@@ -8,11 +8,14 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import delete, select
 
+from ..constants import REQUEST_RESULT_LIMIT
 from ..domain import DomainError
 from ..enums import MessageKind
-from ..models import Tag, UiSession, Value
+from ..models import SavedRequest, Tag, UiSession, Value
+from ..saved_requests import request_cards
 from ._core import ITEM_REFERENCES, Services
 from ._messaging import edit_registered_message, send_registered, token_button
+from ._presentation import kind_label, menu_row
 from .cards import linked_card_count
 
 logger = logging.getLogger(__name__)
@@ -27,6 +30,8 @@ async def render_item_editor(
     item_id: int | None = None,
     values: dict[str, str] | None = None,
     replace_message_id: int | None = None,
+    extra_rows: list[list[InlineKeyboardButton]] | None = None,
+    replace: bool | None = None,
 ) -> None:
     if entity not in ITEM_REFERENCES or mode not in {"create", "view"}:
         raise DomainError("Unsupported item editor")
@@ -130,7 +135,7 @@ async def render_item_editor(
         f"Description: {html.escape(editor_values['description'] or '—')}"
         + (f"\nLinked Cards: {linked_count}" if mode == "view" else "")
     )
-    markup = InlineKeyboardMarkup(inline_keyboard=rows)
+    markup = InlineKeyboardMarkup(inline_keyboard=rows + list(extra_rows or []))
     if replace_message_id is not None:
         await edit_registered_message(
             message,
@@ -149,7 +154,62 @@ async def render_item_editor(
             kind=MessageKind.DASHBOARD,
             markup=markup,
             related_id=item_id,
+            replace=replace,
         )
+
+
+async def render_saved_request(
+    message: Message,
+    services: Services,
+    request_id: int,
+    *,
+    extra_rows: list[list[InlineKeyboardButton]] | None = None,
+    replace: bool | None = None,
+) -> None:
+    async with services.sessions() as session:
+        request = await session.get(SavedRequest, request_id)
+        if request is None or request.archived_at is not None:
+            raise DomainError("Request no longer exists")
+        matches = await request_cards(session, request.query_sql)
+        cards = matches[:REQUEST_RESULT_LIMIT]
+        rows = [
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    f"{kind_label(card.kind)} · {card.title}"[:60],
+                    "card_view",
+                    {"id": card.id, "back": {"kind": "request", "id": request.id}},
+                )
+            ]
+            for card in cards
+        ]
+        rows.append(
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "↻ Refresh",
+                    "request_view",
+                    {"id": request.id},
+                )
+            ]
+        )
+        rows.append(menu_row())
+        await session.commit()
+    details = request.description or "No description."
+    details += f"\n\n{len(matches)} matching card{'s' if len(matches) != 1 else ''}"
+    if len(matches) > REQUEST_RESULT_LIMIT:
+        details += f" (showing first {REQUEST_RESULT_LIMIT})"
+    await send_registered(
+        message,
+        services,
+        f"<b>{html.escape(request.name)}</b>\n{html.escape(details)}",
+        kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(inline_keyboard=rows + list(extra_rows or [])),
+        related_id=request.id,
+        replace=replace,
+    )
 
 
 async def render_item_text_prompt(

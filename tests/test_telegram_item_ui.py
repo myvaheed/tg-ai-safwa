@@ -1,26 +1,33 @@
 from __future__ import annotations
 
 import ast
+import html
 import importlib
 import inspect
 import pkgutil
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import select
 
 import safwa.telegram as telegram_source
 from safwa.ai.context import DialogueMessage
 from safwa.ai.service import AIOutcome, ProposalService
+from safwa.ai.sql import create_ai_views
 from safwa.domain import (
+    DomainError,
+    archive_tag,
     create_card,
     create_check,
+    create_saved_request,
     create_tag,
     create_value,
     finish_action,
     toggle_card_check,
 )
 from safwa.enums import CardStage, MessageKind
+from safwa.history import parse_citation_payload
 from safwa.models import (
     CallbackToken,
     Card,
@@ -43,16 +50,19 @@ from safwa.telegram import (
     callback_token_handler,
     dismiss_prior_ui,
     handle_card_creation_chooser,
+    open_item_screen,
     ordinary_text,
     render_card,
     render_card_choices,
     render_card_creation,
     render_children,
+    render_citations,
     render_dashboard,
     render_item_editor,
     render_item_text_prompt,
     render_proposal,
 )
+from safwa.telegram._presentation import start_payload
 
 
 def _telegram_module_trees() -> list[ast.Module]:
@@ -210,7 +220,9 @@ class FakeCallback:
 
 
 def services_for(sessions):
-    return SimpleNamespace(sessions=sessions, owner_id=42, guard=GenerationGuard())
+    return SimpleNamespace(
+        sessions=sessions, owner_id=42, guard=GenerationGuard(), bot_username="safwa_ai_bot"
+    )
 
 
 def button_texts(markup) -> list[str]:
@@ -628,6 +640,76 @@ async def test_checks_button_is_on_the_card_only(sessions) -> None:
     message = FakeMessage(card_id + 100, bot_message=True)
     await render_card(message, services, card_id)
     assert any("Checks (1/1)" in text for text in button_texts(message.edits[-1][1]))
+
+
+async def test_open_item_screen_renders_the_manual_screen_of_every_item(sessions) -> None:
+    async with sessions() as session:
+        await (await session.connection()).run_sync(create_ai_views)
+        card = await create_card(session, kind="action", title="Pull-ups", effort_points=1)
+        value = await create_value(session, "Health")
+        tag = await create_tag(session, "Training")
+        check = await create_check(session, title="Form is safe")
+        request = await create_saved_request(
+            session, "Open actions", "SELECT id FROM ai_cards WHERE kind = 'action'"
+        )
+        await session.commit()
+        targets = [
+            ("card", card.id, "Pull-ups"),
+            ("value", value.id, "Health"),
+            ("tag", tag.id, "Training"),
+            ("check", check.id, "Form is safe"),
+            ("request", request.id, "Open actions"),
+        ]
+
+    services = services_for(sessions)
+    for index, (item_type, item_id, expected) in enumerate(targets):
+        message = FakeMessage(900 + index, bot_message=True)
+        await open_item_screen(message, services, item_type, item_id)
+        text, markup = message.edits[-1]
+        assert expected in text
+        # "Opened" means the real screen, buttons included — not a read-only summary.
+        assert button_texts(markup)
+
+    message = FakeMessage(999, bot_message=True)
+    with pytest.raises(DomainError):
+        await open_item_screen(message, services, "sprint", 1)
+
+
+async def test_citations_become_deep_links_only_for_live_items(sessions) -> None:
+    async with sessions() as session:
+        card = await create_card(session, kind="action", title="Pull-ups", effort_points=1)
+        tag = await create_tag(session, "Training")
+        await archive_tag(session, tag.id)
+        await session.commit()
+        card_id, tag_id = card.id, tag.id
+
+    services = services_for(sessions)
+    text = html.escape(
+        f"[Pull & ups](card:{card_id}) under [Training](tag:{tag_id}), "
+        "[nothing](card:4242), [not one](sprint:1)."
+    )
+    async with sessions() as session:
+        rendered = await render_citations(session, services, text)
+
+    assert f'<a href="https://t.me/safwa_ai_bot?start=card-{card_id}">Pull &amp; ups</a>' in rendered
+    # An archived item is as gone as a deleted one, and an unknown type is not a citation.
+    assert f"[Training](tag:{tag_id})" not in rendered and "Training" in rendered
+    assert "nothing" in rendered and "card-4242" not in rendered
+    assert "[not one](sprint:1)" in rendered
+
+    services.bot_username = ""
+    async with sessions() as session:
+        assert "<a href" not in await render_citations(session, services, text)
+
+
+def test_start_payload_reads_only_a_command_line() -> None:
+    assert start_payload("/start card-12") == "card-12"
+    assert start_payload("/start@safwa_ai_bot card-12") == "card-12"
+    assert start_payload("/start") is None
+    # The menu's Home button hands command_start the bot's own screen, never a command.
+    assert start_payload("<b>Card</b>: Pull ups") is None
+    assert parse_citation_payload("check-14") == ("check", 14)
+    assert parse_citation_payload("sprint-1") is None
 
 
 async def test_card_text_field_prompt_replaces_creation_message(sessions) -> None:

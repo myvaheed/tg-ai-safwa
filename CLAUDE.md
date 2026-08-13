@@ -62,6 +62,7 @@ shared choice tables) ← [_presentation.py](src/safwa/telegram/_presentation.py
 markup, paging — touches neither a session nor the bot) ← [_messaging.py](src/safwa/telegram/_messaging.py)
 (every send/edit/delete plus the `MessageKind` registration) ← the render modules
 [cards.py](src/safwa/telegram/cards.py), [items.py](src/safwa/telegram/items.py),
+[checks.py](src/safwa/telegram/checks.py) ← [screens.py](src/safwa/telegram/screens.py) and
 [proposals.py](src/safwa/telegram/proposals.py) ← the handler modules
 [commands.py](src/safwa/telegram/commands.py), [callbacks.py](src/safwa/telegram/callbacks.py),
 [dialogue.py](src/safwa/telegram/dialogue.py). Only those last three register `@router` handlers, and
@@ -98,6 +99,25 @@ tool call (`card`, `check`, `value`, `tag`, `request`, `remove`) →
 Pydantic model in [ai/contracts.py](src/safwa/ai/contracts.py) → `AgentChange` →
 `ChangeProposal` + `ProposalChange` rows → a read-only review screen with only **Save**/**Discard** →
 `ProposalService.apply` calls the *same* `domain.py` functions the manual UI calls.
+**Every** proposal screen is exactly Save/Discard; a screen that needs a field control is the wrong
+screen. When the decision is the user's, the model **cites** the item instead of proposing one — no
+tool, just Markdown in its reply ([telegram/screens.py](src/safwa/telegram/screens.py)):
+
+- The model writes `[Milk](check:14)`; `render_citations` escapes the reply first, then rewrites each
+  citation into `<a href="https://t.me/<bot>?start=check-14">`. The href is **built here from a
+  validated id**, never taken from the model, and `?start=` accepts only `[A-Za-z0-9_-]`, which is
+  why the payload separator is `-` while the model writes `:`.
+- Citations are resolved before sending: an id that is missing or archived keeps its words and loses
+  its link, because a `DIALOGUE_ASSISTANT` message stays in the chat for good and a dead link with it.
+- The codec lives in [history.py](src/safwa/history.py) next to `mark_kind`, for the same reason:
+  Telethon returns plain text, so `restore_citations` reads the link entities of every message back
+  into `[Milk](check:14)`. Without it the model rereads its own citations as bare words and unlearns
+  the format. Entity offsets are UTF-16 units — slice in surrogate space (`add_surrogate`).
+- Tapping one sends `/start check-14`; the middleware deletes that command and `command_start`
+  (`start_payload` → `open_citation`) sends the item's manual screen as a **new** message, so the
+  reply above it survives as canonical dialogue. A vanished item answers `⚠️ Error while opening: …`
+  and nothing else changes.
+- A proposal outcome carries no reply text at all, so nothing competes with a review screen.
 
 Multiple mutation calls in one turn become independent queued proposal screens in call order; the
 queue lives in an `AgentStep` row with `kind="approval_batch"`. The model resumes only after the
@@ -181,10 +201,12 @@ first system message. `SAFWA_AI_CACHE_BREAKPOINTS` adds `cache_control` markers 
 - Creating a Check, renaming it, and linking or unlinking it are **proposal-only** — the manual screens
   have no button for any of them. The Card screen shows `☑️ Checks` only when one already hangs there,
   and the Check screen offers exactly `🔁 Repeat` plus `✅ Passed` / `❌ Missed`, which write at once.
-- Check resolution is the **one** proposal screen with field controls. The model proposes which Checks
-  to answer; only the user can answer them. Every answer screen — Check editor, Done-gate, resolution proposal — uses the same two buttons,
-  `✅ Passed` / `❌ Missed`, never a cycling button. Nothing is prefilled, and on the two screens that
-  batch answers `Save` appears only once an answer is set.
+- A Check is answered with the Card lifecycle verbs: `check(mode="complete")` proposes Passed and
+  `check(mode="cancel")` proposes Missed (`CHECK_ANSWER_ACTIONS` in [enums.py](src/safwa/enums.py)).
+  The model proposes an answer only when the user already gave it; otherwise it opens the Check.
+  Both manual answer screens — Check editor and Done-gate — use the same two buttons,
+  `✅ Passed` / `❌ Missed`, never a cycling button. Nothing is prefilled, and the Done-gate's `Save`
+  appears only once an answer is set.
 - `manual_stage` is what the user set; `effective_stage` is derived for parents from descendants
   (`aggregate_child_stages`, `propagate_ancestors`) and is what dashboards and queries read.
 - Effort is restricted to `EFFORT_POINTS` ([constants.py](src/safwa/constants.py)) `= {1,2,3,5,8,13}`

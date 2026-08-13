@@ -210,3 +210,15 @@ def split_telegram_text(text: str, limit: int = TELEGRAM_TEXT_LIMIT) -> list[str
         text = text[cut:].lstrip()
     chunks.append(text)
     return chunks
+
+
+def start_payload(text: str | None) -> str | None:
+    """The deep-link payload of a `/start <payload>` message, if this is one.
+
+    `command_start` also serves the menu's Home button, where it is handed the bot's own
+    screen — only a real command line may be read as a payload.
+    """
+    parts = (text or "").strip().split(maxsplit=1)
+    if len(parts) != 2 or parts[0].split("@", 1)[0].casefold() != "/start":
+        return None
+    return parts[1].strip() or None

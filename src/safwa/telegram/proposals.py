@@ -5,7 +5,7 @@ import logging
 from typing import Any
 
 from aiogram.enums import ChatAction
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,12 +17,19 @@ from ..domain import (
     card_progress,
     resolve_references,
 )
-from ..enums import CHECK_OUTCOME_LABELS, CardKind, CardStage, MessageKind
+from ..enums import (
+    CHECK_ANSWER_ACTIONS,
+    CHECK_OUTCOME_LABELS,
+    CardKind,
+    CardStage,
+    MessageKind,
+)
 from ..models import (
     Card,
     CardCategory,
     CardEnergyType,
     ChangeProposal,
+    Check,
     ProposalChange,
     Tag,
     Value,
@@ -35,7 +42,7 @@ from ._presentation import (
     energy_expression,
     proposal_change_summary,
 )
-from .checks import CHECK_STATUS_EMOJIS, SETTABLE_OUTCOMES, outcome_button_label
+from .screens import render_citations
 
 logger = logging.getLogger(__name__)
 
@@ -97,8 +104,19 @@ async def _proposal_item_state(
                 "description": value.description,
                 "active": value.active,
             }
+    elif change.entity == "check" and change.entity_id:
+        check = await session.get(Check, change.entity_id)
+        if check is not None:
+            archived = check.archived_at is not None
+            current = {
+                "title": check.title,
+                "repeatable": check.repeatable,
+                "status": CHECK_OUTCOME_LABELS[check.outcome or "pending"],
+            }
     proposed = {**current, **dict(change.values)}
-    if change.entity in {"tag", "value"} and change.action in {"archive", "delete"}:
+    if change.entity == "check" and change.action in CHECK_ANSWER_ACTIONS:
+        proposed["status"] = CHECK_OUTCOME_LABELS[CHECK_ANSWER_ACTIONS[change.action]]
+    if change.entity in {"tag", "value", "check"} and change.action in {"archive", "delete"}:
         current["status"] = "Archived" if archived else "Active"
         proposed["status"] = "Archived" if change.action == "archive" else "Deleted"
     if change.entity == "card":
@@ -240,58 +258,33 @@ async def render_proposal(
                 .order_by(ProposalChange.position)
             )
         )
-        discard = await token_button(
-            session, services.owner_id, "🗑 Discard", "proposal_reject", {"id": proposal.id}
-        )
-        rows: list[list[InlineKeyboardButton]] = []
         text_parts = ["<b>Review proposal</b>"]
         if notice:
             text_parts.append(html.escape(notice))
         text_parts.append(html.escape(proposal.message))
-        savable = True
-        if len(changes) == 1 and changes[0].action == "resolve_for_card":
-            # The one proposal screen that carries field controls: the model proposes which
-            # Checks to answer, and only the user can supply each answer.
-            change = changes[0]
-            outcomes = dict(change.values.get("outcomes") or {})
-            titles = dict(change.values.get("titles") or {})
-            text_parts[0] = "<b>Resolve Checks · AI proposal</b>"
-            text_parts.append(
-                "Answer every Check, then press Save.\n"
-                + "\n".join(
-                    f"{CHECK_STATUS_EMOJIS[outcome or 'pending']}"
-                    f" {html.escape(str(titles.get(key, key)))}"
-                    f" — {CHECK_OUTCOME_LABELS[outcome or 'pending']}"
-                    for key, outcome in sorted(outcomes.items(), key=lambda item: int(item[0]))
-                )
-            )
-            for key, outcome in sorted(outcomes.items(), key=lambda item: int(item[0])):
-                rows.append(
-                    [
-                        await token_button(
-                            session,
-                            services.owner_id,
-                            outcome_button_label(
-                                settable, str(titles.get(key, key)), current=outcome
-                            ),
-                            "proposal_check_set",
-                            {"id": proposal.id, "check_id": key, "outcome": settable},
-                        )
-                        for settable in SETTABLE_OUTCOMES
-                    ]
-                )
-            savable = any(outcomes.values())
-        elif len(changes) == 1 and changes[0].entity in {"card", "tag", "value"}:
+        if len(changes) == 1 and changes[0].entity in {"card", "tag", "value", "check"}:
             change = changes[0]
             current, proposed = await _proposal_item_state(session, change)
             item_name = change.entity.title()
-            mode_name = "Create" if change.action == "create" else "Edit"
+            if change.action == "create":
+                mode_name = "Create"
+            elif change.action in CHECK_ANSWER_ACTIONS and change.entity == "check":
+                mode_name = "Answer"
+            else:
+                mode_name = "Edit"
             text_parts[0] = f"<b>{mode_name} {item_name} · AI proposal</b>"
             if change.entity in {"tag", "value"}:
                 text_parts.append(
                     f"Name: {html.escape(_display_diff_value(proposed.get('name')))}\n"
                     f"Description: "
                     f"{html.escape(_display_diff_value(proposed.get('description')))}"
+                )
+            elif change.entity == "check":
+                text_parts.append(
+                    f"Title: {html.escape(_display_diff_value(proposed.get('title')))}\n"
+                    f"Status: {html.escape(_display_diff_value(proposed.get('status')))}\n"
+                    f"Repeatable: "
+                    f"{html.escape(_display_diff_value(proposed.get('repeatable')))}"
                 )
             elif change.entity == "card":
                 display = await _proposal_card_display_state(session, proposed)
@@ -314,15 +307,21 @@ async def render_proposal(
             text_parts.append(
                 "\n".join(f"• {html.escape(proposal_change_summary(change))}" for change in changes)
             )
-        closing = []
-        if savable:
-            closing.append(
+        # Every proposal screen is read-only: exactly Save and Discard, never a field control.
+        rows = [
+            [
                 await token_button(
                     session, services.owner_id, "✅ Save", "proposal_approve", {"id": proposal.id}
-                )
-            )
-        closing.append(discard)
-        rows.append(closing)
+                ),
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "🗑 Discard",
+                    "proposal_reject",
+                    {"id": proposal.id},
+                ),
+            ]
+        ]
         await session.commit()
     text = "\n\n".join(part for part in text_parts if part)
     markup = InlineKeyboardMarkup(inline_keyboard=rows)
@@ -356,10 +355,12 @@ async def render_ai_outcome(
     if outcome.proposal_id is not None:
         await render_proposal(message, services, outcome.proposal_id)
         return
+    async with services.sessions() as session:
+        text = await render_citations(session, services, html.escape(outcome.message))
     await send_registered(
         message,
         services,
-        html.escape(outcome.message),
+        text,
         kind=MessageKind.DIALOGUE_ASSISTANT,
     )
 

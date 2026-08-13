@@ -140,8 +140,6 @@ class AgentChange(BaseModel):
         "delete",
         "link",
         "unlink",
-        "resolve",
-        "resolve_for_card",
     ]
     id: PositiveInt | None = None
     values: dict[str, Any] = Field(default_factory=dict)
@@ -276,14 +274,10 @@ class CardToolInput(ToolInput):
 
 
 class CheckToolInput(ToolInput):
-    mode: Literal["create", "edit", "resolve", "resolve_for_card"]
+    mode: Literal["create", "edit", "complete", "cancel"]
     id: PositiveInt | None = None
-    card_id: PositiveInt | None = Field(
-        default=None, description="Only for resolve_for_card: the Card being completed."
-    )
     title: str | None = None
     repeatable: bool | None = None
-    outcome: Literal["passed", "missed"] | None = None
 
     @model_validator(mode="after")
     def validate_target(self) -> CheckToolInput:
@@ -293,18 +287,6 @@ class CheckToolInput(ToolInput):
                 raise ValueError("a new Check must not include an id")
             if not (self.title or "").strip():
                 raise ValueError("a new Check needs a title")
-            if self.outcome is not None:
-                raise ValueError("a new Check starts Pending and takes no outcome")
-            if "card_id" in supplied:
-                raise ValueError(
-                    "a Check is linked from the Card: use card(mode='link', check_query=...)"
-                )
-            return self
-        if self.mode == "resolve_for_card":
-            if self.card_id is None:
-                raise ValueError("resolve_for_card needs a card_id")
-            if supplied - {"card_id"}:
-                raise ValueError("resolve_for_card accepts only a card_id")
             return self
         if self.id is None:
             raise ValueError(f"check mode '{self.mode}' needs an id")
@@ -314,11 +296,8 @@ class CheckToolInput(ToolInput):
                 raise ValueError("an edited Check needs at least one proposed field")
             if unsupported := supplied - editable:
                 raise ValueError("Check edit does not accept: " + ", ".join(sorted(unsupported)))
-        elif self.mode == "resolve":
-            if self.outcome is None:
-                raise ValueError("resolve needs an outcome")
-            if supplied - {"outcome"}:
-                raise ValueError("Check resolve accepts only an outcome")
+        elif supplied:
+            raise ValueError(f"Check {self.mode} does not accept fields")
         return self
 
 

@@ -111,7 +111,9 @@ async def run(settings: Settings) -> None:
     )
     bot = Bot(
         token=settings.telegram_bot_token.get_secret_value(),
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        # Item citations are t.me links to this bot; a preview card under every answer
+        # would be noise.
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True),
     )
     me = await bot.get_me()
     history = TelegramHistorySource.from_settings(settings, database.sessions, bot_user_id=me.id)
@@ -133,6 +135,7 @@ async def run(settings: Settings) -> None:
         continuity=continuity,
         owner_id=settings.telegram_owner_id,
         guard=guard,
+        bot_username=me.username or "",
     )
     dispatcher = Dispatcher()
     router.message.outer_middleware.register(OwnerAndWritingMiddleware())

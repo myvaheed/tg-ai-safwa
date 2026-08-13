@@ -40,7 +40,6 @@ from ..domain import (
     move_card,
     pending_checks,
     resolve_check,
-    resolve_checks_for_card,
     resolve_references,
     set_card_parent,
     toggle_card_category,
@@ -53,6 +52,7 @@ from ..domain import (
     utcnow,
 )
 from ..enums import (
+    CHECK_ANSWER_ACTIONS,
     CHECK_OUTCOME_LABELS,
     TERMINAL_STAGES,
     ActorType,
@@ -129,11 +129,10 @@ MUTATION_TOOL_DESCRIPTIONS = {
     ),
     "check": (
         "Open the Check review UI. create proposes a new Pending Check; edit proposes a new title "
-        "or repeatable flag; resolve proposes one answer the user has already stated. resolve_for_card "
-        "lists every Pending Check on a Card so the user can answer each one, which is required "
-        "before that Card can be completed. A Check is attached to a Card from the card tool "
-        "(link/unlink with check_query or check_ids), never from here. Nothing is saved until the "
-        "user presses Save."
+        "or repeatable flag; complete answers it Passed and cancel answers it Missed. Propose an "
+        "answer only when the user already stated it — otherwise cite it so they answer it "
+        "themselves. A Check is attached to a Card from the card tool (link/unlink with "
+        "check_query or check_ids), never from here. Nothing is saved until the user presses Save."
     ),
     "value": "Open the Value editor with a creation or edit proposal;",
     "tag": "Open the Tag editor with a creation or edit proposal;",
@@ -152,6 +151,8 @@ MUTATION_TOOLS: tuple[dict[str, Any], ...] = tuple(
     for name, model in MUTATION_TOOL_MODELS.items()
 )
 SAFWA_TOOLS = (QUERY_SAFWA_TOOL, *MUTATION_TOOLS)
+# Tools that run during the turn instead of becoming a proposal the owner approves.
+IMMEDIATE_TOOLS = frozenset({"query_safwa"})
 
 
 def _has_explicit_tool_value(value: Any) -> bool:
@@ -475,8 +476,6 @@ _ACTION_VERBS = {
     "delete": "Delete",
     "link": "Link",
     "unlink": "Unlink",
-    "resolve": "Answer",
-    "resolve_for_card": "Answer",
 }
 
 _ENTITY_MODELS: dict[str, Any] = {
@@ -863,17 +862,12 @@ class AIAdvisor:
                     tool_count += 1
                     if tool_count > MAX_TOOL_CALLS:
                         raise DomainError("The advisor exceeded the tool-call limit")
+                    change = None
                     if call.name == "query_safwa":
                         result = await self._execute_query_tool(call, run_id, tool_count)
                     else:
                         change, result = await self._execute_mutation_tool(call, run_id, tool_count)
-                    pending_tools.append(
-                        PendingTool(
-                            call=call,
-                            result=result,
-                            change=change if call.name != "query_safwa" else None,
-                        )
-                    )
+                    pending_tools.append(PendingTool(call=call, result=result, change=change))
                     messages.append(
                         {
                             "role": "tool",
@@ -907,7 +901,7 @@ class AIAdvisor:
                 invalid_mutations = [
                     tool
                     for tool in pending_tools
-                    if tool.call.name != "query_safwa" and tool.change is None
+                    if tool.call.name not in IMMEDIATE_TOOLS and tool.change is None
                 ]
                 if invalid_mutations:
                     if repair_rounds >= MAX_REPAIR_ROUNDS:
@@ -943,7 +937,9 @@ class AIAdvisor:
                     "status": "error",
                     "code": "unknown_tool",
                     "error": f"Unknown tool: {call.name}",
-                    "hint": "Call one of: query_safwa, card, check, value, tag, request, remove.",
+                    "hint": (
+                        "Call one of: query_safwa, card, check, value, tag, request, remove."
+                    ),
                     "retryable": True,
                 }
             ]
@@ -1227,17 +1223,10 @@ class AIAdvisor:
         change = tool.change
         if change is None:
             raise DomainError("The proposal has no validated change to review")
-        models: dict[str, type[Card] | type[Check] | type[Tag] | type[Value] | type[SavedRequest]] = {
-            "card": Card,
-            "check": Check,
-            "tag": Tag,
-            "value": Value,
-            "request": SavedRequest,
-        }
-        entity: Card | Tag | Value | SavedRequest | None = None
+        entity: Card | Check | Tag | Value | SavedRequest | None = None
         expected_version = None
-        if change.id and change.entity in models:
-            entity = await session.get(models[change.entity], change.id)
+        if change.id and change.entity in _ENTITY_MODELS:
+            entity = await session.get(_ENTITY_MODELS[change.entity], change.id)
             expected_version = entity.version if entity else None
         if change.id is not None and (
             entity is None or getattr(entity, "archived_at", None) is not None
@@ -1276,8 +1265,6 @@ class AIAdvisor:
             for spec in CARD_REFERENCE_SPECS:
                 await self._validate_named_references(session, values, spec)
             await self._guard_pending_checks(session, change, values)
-        if change.entity == "check":
-            values = await self._prepare_check_values(session, change, values)
         if change.entity == "request" and "sql" in values:
             try:
                 values["query_sql"] = normalize_request_sql(values.pop("sql"))
@@ -1328,36 +1315,10 @@ class AIAdvisor:
         raise ToolPreparationError(
             "pending_checks",
             f"Card #{change.id} still has Pending Checks: {listed_checks}.",
-            "Call the check tool with mode='resolve_for_card' and this card_id so the user can "
-            "answer each one, then retry only this unfinished completion.",
+            "Answer each one first: check(mode='complete'|'cancel', id=…) when the user already "
+            "said how it went, otherwise cite them as [title](check:<id>) so they answer them "
+            "themselves. Then retry only this unfinished completion.",
         )
-
-    async def _prepare_check_values(
-        self, session: AsyncSession, change: AgentChange, values: dict[str, Any]
-    ) -> dict[str, Any]:
-        if values.get("card_id") is not None:
-            card = await session.get(Card, int(values["card_id"]))
-            if card is None or card.archived_at is not None:
-                raise ToolPreparationError(
-                    "target_not_found",
-                    f"Card #{values['card_id']} does not exist or is archived.",
-                    "Use query_safwa over ai_cards to find the current numeric ID, then retry "
-                    "only this unfinished operation.",
-                )
-        if change.action != "resolve_for_card":
-            return values
-        pending = await pending_checks(session, int(values["card_id"]))
-        if not pending:
-            raise ToolPreparationError(
-                "no_pending_checks",
-                f"Card #{values['card_id']} has no Pending Checks.",
-                "Complete the Card directly instead.",
-            )
-        # The model proposes *which* Checks to answer; only the user knows the answers, so
-        # every row starts unanswered and Save is refused until the user has set each one.
-        values["outcomes"] = {str(check.id): None for check in pending}
-        values["titles"] = {str(check.id): check.title for check in pending}
-        return values
 
     async def _card_detail_snapshot(
         self, session: AsyncSession, card: Card
@@ -1488,8 +1449,15 @@ class AIAdvisor:
                 head += f" under {parent.kind.title()} “{_result_value(parent.title)}”"
             return f"{verb} {head}" + (f" ({' · '.join(parts)})" if parts else "")
 
-        if change.entity == "check" and action == "resolve_for_card":
-            return f"{verb} " + (" · ".join(details) or "the pending Checks")
+        if change.entity == "check" and action in {"complete", "cancel"}:
+            check = (
+                await session.get(Check, change.entity_id)
+                if change.entity_id is not None
+                else None
+            )
+            outcome = CHECK_ANSWER_ACTIONS[action]
+            head = f"“{_result_value(check.title)}”" if check else f"#{change.entity_id}"
+            return f"Answer Check {head} ({CHECK_OUTCOME_LABELS[outcome]})"
         model = _ENTITY_MODELS.get(change.entity)
         entity = (
             await session.get(model, change.entity_id)
@@ -1591,17 +1559,9 @@ class AIAdvisor:
         self, session: AsyncSession, proposed_change: ProposalChange
     ) -> list[str]:
         values = dict(proposed_change.values)
-        if proposed_change.action == "resolve_for_card":
-            titles = values.get("titles") or {}
-            outcomes = values.get("outcomes") or {}
-            return [
-                f"Check #{key} “{_result_value(titles.get(key, ''))}”: "
-                f"{CHECK_OUTCOME_LABELS.get(str(outcome or 'pending'), str(outcome))}"
-                for key, outcome in sorted(outcomes.items(), key=lambda item: int(item[0]))
-            ]
-        proposed = {
-            name: values[name] for name in ("title", "repeatable", "outcome") if name in values
-        }
+        proposed = {name: values[name] for name in ("title", "repeatable") if name in values}
+        if proposed_change.action in {"complete", "cancel"}:
+            proposed["outcome"] = CHECK_ANSWER_ACTIONS[proposed_change.action]
         check = (
             await session.get(Check, proposed_change.entity_id)
             if proposed_change.entity_id is not None
@@ -1646,7 +1606,7 @@ class AIAdvisor:
         failed_call_ids = {
             tool.call.id
             for tool in result.pending_tools
-            if tool.call.name != "query_safwa" and tool.change is None
+            if tool.call.name not in IMMEDIATE_TOOLS and tool.change is None
         }
         proposal_details: dict[str, list[str]] = {}
         proposal_displays: dict[str, str] = {}
@@ -2203,18 +2163,6 @@ class ProposalService:
             )
             affected.append(created.id)
             return
-        if change.action == "resolve_for_card":
-            proposed = values.get("outcomes") or {}
-            if any(outcome is None for outcome in proposed.values()):
-                raise DomainError("Answer every Check before saving this proposal")
-            resolved = await resolve_checks_for_card(
-                self.session,
-                int(values["card_id"]),
-                {int(key): outcome for key, outcome in proposed.items()},
-                actor=ActorType.AI,
-            )
-            affected.extend(item.id for item in resolved)
-            return
         check = await self.session.get(Check, change.entity_id) if change.entity_id else None
         if check is None or check.version != change.expected_version:
             raise StaleStateError("A Check changed; refresh this proposal")
@@ -2224,8 +2172,10 @@ class ProposalService:
             }
             if scalar_fields:
                 await update_check_fields(self.session, check.id, scalar_fields)
-        elif change.action == "resolve":
-            await resolve_check(self.session, check.id, values["outcome"], actor=ActorType.AI)
+        elif change.action in CHECK_ANSWER_ACTIONS:
+            await resolve_check(
+                self.session, check.id, CHECK_ANSWER_ACTIONS[change.action], actor=ActorType.AI
+            )
         elif change.action == "archive":
             await archive_check(self.session, check.id)
         else:

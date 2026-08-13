@@ -148,25 +148,26 @@ persisting nothing until Save.
 2. Preparation fails. [`_create_proposal`](../src/safwa/ai/service.py:858) is the verifier; a plain
    `DomainError` raised during preparation is already wrapped into a model-visible retryable
    `ToolPreparationError` at [ai/service.py:1103](../src/safwa/ai/service.py:1103). No new plumbing.
-3. Model reads the Pending ids and titles from the error and proposes a Check-resolution change.
-4. The user sets each outcome on the proposal screen and presses Save. This applies the same domain
-   function the manual screen calls.
+3. Model reads the Pending ids and titles from the error. For an answer the user already gave it
+   proposes `check(mode="complete")` (Passed) or `check(mode="cancel")` (Missed), one proposal per
+   Check; otherwise it cites them as `[Milk](check:14)`, and the link leads to the manual screens,
+   which write at once.
+4. Save applies the same `resolve_check` the manual screen calls.
 5. The batch resolves, the model resumes through `resolve_approval` → `continue_agent_approval` with
    every mutation result, sees the Checks are resolved, and re-proposes the close.
 6. The user saves the close.
 
-The resumed tool result carries **per-Check outcomes**, not a bare "saved". Three `missed` answers are
-information the model should have before it re-proposes.
-
 Check mutations call `_bump_workspace` like every other `domain.py` mutation, so a manual resolve
 invalidates an in-flight proposal through the normal `StaleStateError` path.
 
-Proposal screens are read-only, except Check resolution, where the model proposes which Checks to
-resolve and the user supplies the outcomes. INITIAL_PLAN and MEMORY_HISTORY_USAGE both record it.
+Every proposal screen is read-only: exactly Save and Discard, Checks included. A decision only the
+user can make is handed over by opening the item, not by putting a control on a proposal.
+INITIAL_PLAN and MEMORY_HISTORY_USAGE both record it.
 
 ## UI surfaces
 
-Every Check screen hangs off a Card, because the Card side is where the link lives.
+The Check list hangs off a Card, because the Card side is where the link lives; a single Check screen
+stands on its own, since an advisor citation reaches one that hangs on no Card.
 
 - The Card screen carries `☑️ Checks (pending/total)` **only when at least one Check hangs on the
   Card**. A first Check arrives through an AI proposal, so an empty list would lead nowhere.
@@ -180,9 +181,8 @@ Every Check screen hangs off a Card, because the Card side is where the link liv
   ([telegram/items.py:21](../src/safwa/telegram/items.py:21)), not the Card renderer.
 - Dashboards still list Actions only. Checks do not appear there.
 
-**Residual gap, accepted for now**: a Check linked to no Card is reachable only through the AI.
-`ai_checks` must therefore exist from day one — it is the sole escape hatch. A `/checks` command is
-deferred.
+**Residual gap, accepted for now**: a Check linked to no Card is reachable only through the AI, which
+finds it in `ai_checks` and cites it. A `/checks` command is deferred.
 
 ## Deferred
 
@@ -199,8 +199,7 @@ free text. `proactive_limit` budgeting for high-frequency probes is unsolved and
 
 The link is a **Card relationship, so the `card` tool writes it** — `check_id` / `check_ids` /
 `check_query`, the third group beside Values and Tags, in `create`, `edit`, `link` and `unlink`. The
-`check` tool creates, edits and resolves a Check and nothing else; its `card_id` survives only on
-`resolve_for_card`, where it names the Card being completed and is not a link at all.
+`check` tool creates, edits and answers a Check and nothing else; it takes no `card_id` at all.
 
 `ReferenceSpec` grew one field for this, `name_attr`, because a Check is named by `title` while a Tag
 and a Value are named by `name`. Everything else — resolution, the proposal diff, approval-time
@@ -224,8 +223,9 @@ Touched: `models.py`, `enums.py`, `domain.py`, `constants.py`, `ai/sql.py`, `ai/
 `INITIAL_PLAN.md`, `MEMORY_HISTORY_USAGE.md`, `ARCHITECTURE.md`, `STRUCTURE_GRAPH.md` and `CLAUDE.md`.
 
 Tests: `tests/test_checks.py` (domain invariants, including sharing across Cards) and
-`tests/e2e/test_checks_e2e.py` (gate → resolve → complete, plus linking by `check_ids`, by
-`check_query` title, and through the manual screen, against real SQLite and a `ScriptedProvider`).
+`tests/e2e/test_checks_e2e.py` (gate → answer → complete, a citation for the screen the user acts on,
+plus linking by `check_ids`, by `check_query` title, and through the manual screen, against real
+SQLite and a `ScriptedProvider`).
 No `--live-telegram` case covers Checks yet.
 
 ## Open

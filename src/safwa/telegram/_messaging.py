@@ -270,32 +270,37 @@ async def dismiss_prior_ui(message: Message, services: Services) -> None:
                 await session.commit()
             continue
 
-        try:
-            await message.bot.delete_message(message.chat.id, screen.message_id)
-        except TelegramAPIError:
-            try:
-                await message.bot.edit_message_reply_markup(
-                    chat_id=message.chat.id,
-                    message_id=screen.message_id,
-                    reply_markup=None,
-                )
-            except TelegramAPIError:
-                pass
-        else:
-            async with services.sessions() as session:
-                stored = await session.scalar(
-                    select(TelegramMessage).where(
-                        TelegramMessage.chat_id == message.chat.id,
-                        TelegramMessage.message_id == screen.message_id,
-                    )
-                )
-                if stored is not None:
-                    await session.delete(stored)
-                    await session.commit()
+        await delete_screen(message, services, screen.message_id)
 
     async with services.sessions() as session:
         await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
         await session.commit()
+
+
+async def delete_screen(message: Message, services: Services, message_id: int) -> None:
+    """Remove one bot screen, or at least its buttons when Telegram refuses to delete it."""
+    try:
+        await message.bot.delete_message(message.chat.id, message_id)
+    except TelegramAPIError:
+        try:
+            await message.bot.edit_message_reply_markup(
+                chat_id=message.chat.id,
+                message_id=message_id,
+                reply_markup=None,
+            )
+        except TelegramAPIError:
+            pass
+        return
+    async with services.sessions() as session:
+        stored = await session.scalar(
+            select(TelegramMessage).where(
+                TelegramMessage.chat_id == message.chat.id,
+                TelegramMessage.message_id == message_id,
+            )
+        )
+        if stored is not None:
+            await session.delete(stored)
+            await session.commit()
 
 
 async def delete_message_range(message: Message, first_id: int, last_id: int) -> None:

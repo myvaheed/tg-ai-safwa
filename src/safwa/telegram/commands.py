@@ -17,7 +17,6 @@ from aiogram.types import (
 from sqlalchemy import delete, func, select
 
 from ..analytics import render_retrospective_png, retrospective_data, retrospective_recommendations
-from ..constants import REQUEST_RESULT_LIMIT
 from ..continuity import MemoryMaintenanceResult, parse_memory_update_time, record_memory_run
 from ..domain import (
     DomainError,
@@ -40,7 +39,6 @@ from ..models import (
     Value,
     Workspace,
 )
-from ..saved_requests import request_cards
 from ._core import Services, router
 from ._messaging import (
     delete_message_range,
@@ -49,13 +47,14 @@ from ._messaging import (
     token_button,
 )
 from ._presentation import (
-    kind_label,
     menu_markup,
     menu_row,
     retro_back_row,
+    start_payload,
     with_notice,
 )
 from .cards import render_dashboard, start_manual_card_creation
+from .screens import open_citation
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +82,10 @@ async def end_subsession(
 
 @router.message(Command("start"))
 async def command_start(message: Message, services: Services) -> None:
+    payload = start_payload(message.text)
+    if payload is not None:
+        await open_citation(message, services, payload)
+        return
     await send_registered(
         message,
         services,
@@ -351,52 +354,6 @@ async def command_requests(message: Message, services: Services) -> None:
         "<b>Requests</b>\nSaved card queries created by your advisor.",
         kind=MessageKind.DASHBOARD,
         markup=InlineKeyboardMarkup(inline_keyboard=rows + [menu_row()]),
-    )
-
-
-async def render_saved_request(message: Message, services: Services, request_id: int) -> None:
-    async with services.sessions() as session:
-        request = await session.get(SavedRequest, request_id)
-        if request is None or request.archived_at is not None:
-            raise DomainError("Request no longer exists")
-        matches = await request_cards(session, request.query_sql)
-        cards = matches[:REQUEST_RESULT_LIMIT]
-        rows = [
-            [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    f"{kind_label(card.kind)} · {card.title}"[:60],
-                    "card_view",
-                    {"id": card.id, "back": {"kind": "request", "id": request.id}},
-                )
-            ]
-            for card in cards
-        ]
-        rows.append(
-            [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "↻ Refresh",
-                    "request_view",
-                    {"id": request.id},
-                )
-            ]
-        )
-        rows.append(menu_row())
-        await session.commit()
-    details = request.description or "No description."
-    details += f"\n\n{len(matches)} matching card{'s' if len(matches) != 1 else ''}"
-    if len(matches) > REQUEST_RESULT_LIMIT:
-        details += f" (showing first {REQUEST_RESULT_LIMIT})"
-    await send_registered(
-        message,
-        services,
-        f"<b>{html.escape(request.name)}</b>\n{html.escape(details)}",
-        kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=rows),
-        related_id=request.id,
     )
 
 

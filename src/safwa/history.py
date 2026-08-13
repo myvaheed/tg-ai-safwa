@@ -3,13 +3,17 @@ from __future__ import annotations
 import asyncio
 import getpass
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from telethon import TelegramClient
+from telethon.helpers import add_surrogate, del_surrogate
 
 from .ai.context import DialogueMessage
 from .config import Settings
@@ -84,6 +88,58 @@ def read_kind_mark(text: str) -> tuple[str | None, str]:
     for digit in match.group()[len(_KIND_MARK_SENTINEL) :]:
         code = code * 2 + _KIND_MARK_DIGITS.index(digit)
     return _KIND_MARK_BY_CODE.get(code), text[: match.start()]
+
+
+# The same reasoning as the kind mark: an item citation is written as Markdown, sent as a
+# link, and must read back as the Markdown the model wrote.  Telethon hands us plain text,
+# so a link would otherwise return as bare words and teach the model that citing is optional.
+CITATION_TYPES = ("card", "check", "tag", "value", "request")
+CITATION_PATTERN = re.compile(
+    r"\[([^\[\]\n]{1,120})\]\((" + "|".join(CITATION_TYPES) + r"):(\d{1,9})\)"
+)
+# A deep-link start payload accepts only [A-Za-z0-9_-], so the type separator differs.
+_CITATION_PAYLOAD_RE = re.compile(r"^(" + "|".join(CITATION_TYPES) + r")-(\d{1,9})$")
+_CITATION_HOSTS = frozenset({"t.me", "www.t.me", "telegram.me"})
+
+
+def citation_payload(item_type: str, item_id: int) -> str:
+    return f"{item_type}-{item_id}"
+
+
+def parse_citation_payload(payload: str) -> tuple[str, int] | None:
+    match = _CITATION_PAYLOAD_RE.fullmatch(payload.strip())
+    if match is None:
+        return None
+    return match.group(1), int(match.group(2))
+
+
+def restore_citations(text: str, entities: Sequence[Any] | None) -> str:
+    """Rewrite the item links of a bot message back into `[text](card:12)` citations."""
+    if not text or not entities:
+        return text
+    # Entity offsets count UTF-16 units, so every slice happens in surrogate space.
+    surrogate = add_surrogate(text)
+    found: list[tuple[int, int, str]] = []
+    for entity in entities:
+        target = _citation_from_url(getattr(entity, "url", None))
+        if target is None:
+            continue
+        offset, length = int(entity.offset), int(entity.length)
+        label = del_surrogate(surrogate[offset : offset + length])
+        found.append((offset, length, f"[{label}]({target})"))
+    for offset, length, citation in sorted(found, reverse=True):
+        surrogate = surrogate[:offset] + add_surrogate(citation) + surrogate[offset + length :]
+    return del_surrogate(surrogate)
+
+
+def _citation_from_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    parsed = urlparse(url)
+    if parsed.netloc.casefold() not in _CITATION_HOSTS:
+        return None
+    target = parse_citation_payload(parse_qs(parsed.query).get("start", [""])[0])
+    return None if target is None else f"{target[0]}:{target[1]}"
 
 
 class HistoryBoundaryMissing(RuntimeError):
@@ -188,7 +244,10 @@ class TelegramHistorySource:
         scan_limit = max(1_000, limit * 20)
         async for message in self.client.iter_messages(entity, limit=scan_limit):
             marked_kind, raw_text = read_kind_mark(
-                (getattr(message, "raw_text", None) or message.message or "").strip()
+                restore_citations(
+                    getattr(message, "raw_text", None) or message.message or "",
+                    getattr(message, "entities", None),
+                ).strip()
             )
             raw_text = raw_text.strip()
             if not raw_text:

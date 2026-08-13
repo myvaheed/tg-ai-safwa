@@ -623,6 +623,8 @@ async def render_card(
     replace_message_id: int | None = None,
     back: dict[str, Any] | None = None,
     notice: str | None = None,
+    extra_rows: list[list[InlineKeyboardButton]] | None = None,
+    replace: bool | None = None,
 ) -> None:
     async with services.sessions() as session:
         existing_editor = await session.scalar(
@@ -848,7 +850,7 @@ async def render_card(
         ),
         notice,
     )
-    markup = InlineKeyboardMarkup(inline_keyboard=rows)
+    markup = InlineKeyboardMarkup(inline_keyboard=rows + list(extra_rows or []))
     if replace_message_id is not None:
         await edit_registered_message(
             message,
@@ -867,4 +869,5 @@ async def render_card(
             kind=MessageKind.DASHBOARD,
             markup=markup,
             related_id=card.id,
+            replace=replace,
         )

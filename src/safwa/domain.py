@@ -980,31 +980,6 @@ async def resolve_check(
     return check, successor
 
 
-async def resolve_checks_for_card(
-    session: AsyncSession,
-    card_id: int,
-    outcomes: dict[int, CheckOutcome | str] | None,
-    *,
-    actor: ActorType = ActorType.USER_UI,
-) -> list[Check]:
-    """Answer every Pending Check on a Card so the Card can then be completed.
-
-    Spawning is suppressed for the same reason it is in ``finish_action``: a repeatable
-    Check would immediately put a new Pending row back on the Card and block it again.
-    """
-    card = await session.get(Card, card_id)
-    if card is None or card.archived_at is not None:
-        raise DomainError("Card does not exist or is archived")
-    pending = await pending_checks(session, card_id)
-    if not pending:
-        raise DomainError("This Card has no Pending Checks")
-    resolutions = _pending_check_resolutions(pending, outcomes)
-    for check in pending:
-        await _apply_check_outcome(session, check, resolutions[check.id], actor, spawn=False)
-    await _bump_workspace(session)
-    return pending
-
-
 def _pending_check_resolutions(
     pending: list[Check], outcomes: dict[int, CheckOutcome | str] | None
 ) -> dict[int, CheckOutcome]:

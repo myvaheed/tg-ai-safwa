@@ -28,7 +28,8 @@ from .cards import (
 )
 from .dialogue import ordinary_text
 from .items import render_item_editor, render_item_text_prompt
-from .proposals import render_proposal
+from .proposals import render_ai_outcome, render_proposal
+from .screens import open_citation, open_item_screen, render_citations
 
 __all__ = [
     "CALLBACK_ACTIONS",
@@ -40,11 +41,15 @@ __all__ = [
     "callback_token_handler",
     "dismiss_prior_ui",
     "handle_card_creation_chooser",
+    "open_citation",
+    "open_item_screen",
     "ordinary_text",
+    "render_ai_outcome",
     "render_card",
     "render_card_choices",
     "render_card_creation",
     "render_children",
+    "render_citations",
     "render_dashboard",
     "render_item_editor",
     "render_item_text_prompt",
