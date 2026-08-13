@@ -282,9 +282,8 @@ class CheckToolInput(ToolInput):
         default=None, description="Only for resolve_for_card: the Card being completed."
     )
     title: str | None = None
-    note: str | None = None
     repeatable: bool | None = None
-    outcome: Literal["passed", "failed", "not_applicable"] | None = None
+    outcome: Literal["passed", "missed"] | None = None
 
     @model_validator(mode="after")
     def validate_target(self) -> CheckToolInput:
@@ -310,7 +309,7 @@ class CheckToolInput(ToolInput):
         if self.id is None:
             raise ValueError(f"check mode '{self.mode}' needs an id")
         if self.mode == "edit":
-            editable = {"title", "note", "repeatable"}
+            editable = {"title", "repeatable"}
             if not supplied:
                 raise ValueError("an edited Check needs at least one proposed field")
             if unsupported := supplied - editable:

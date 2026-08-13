@@ -35,7 +35,7 @@ from ._presentation import (
     energy_expression,
     proposal_change_summary,
 )
-from .checks import CHECK_STATUS_EMOJIS
+from .checks import CHECK_STATUS_EMOJIS, SETTABLE_OUTCOMES, outcome_button_label
 
 logger = logging.getLogger(__name__)
 
@@ -240,9 +240,6 @@ async def render_proposal(
                 .order_by(ProposalChange.position)
             )
         )
-        save = await token_button(
-            session, services.owner_id, "✅ Save", "proposal_approve", {"id": proposal.id}
-        )
         discard = await token_button(
             session, services.owner_id, "🗑 Discard", "proposal_reject", {"id": proposal.id}
         )
@@ -251,19 +248,20 @@ async def render_proposal(
         if notice:
             text_parts.append(html.escape(notice))
         text_parts.append(html.escape(proposal.message))
+        savable = True
         if len(changes) == 1 and changes[0].action == "resolve_for_card":
-            # The one proposal screen that carries field controls. The model can propose
-            # *which* Checks to answer, but only the user knows the answers, so the rows
-            # are tappable here and the spec's read-only rule is amended for this case.
+            # The one proposal screen that carries field controls: the model proposes which
+            # Checks to answer, and only the user can supply each answer.
             change = changes[0]
             outcomes = dict(change.values.get("outcomes") or {})
             titles = dict(change.values.get("titles") or {})
             text_parts[0] = "<b>Resolve Checks · AI proposal</b>"
             text_parts.append(
-                "Tap a Check to change its answer, then press Save.\n"
+                "Answer every Check, then press Save.\n"
                 + "\n".join(
-                    f"{CHECK_STATUS_EMOJIS[outcome]} {html.escape(str(titles.get(key, key)))}"
-                    f" — {CHECK_OUTCOME_LABELS[outcome]}"
+                    f"{CHECK_STATUS_EMOJIS[outcome or 'pending']}"
+                    f" {html.escape(str(titles.get(key, key)))}"
+                    f" — {CHECK_OUTCOME_LABELS[outcome or 'pending']}"
                     for key, outcome in sorted(outcomes.items(), key=lambda item: int(item[0]))
                 )
             )
@@ -273,12 +271,16 @@ async def render_proposal(
                         await token_button(
                             session,
                             services.owner_id,
-                            f"{CHECK_STATUS_EMOJIS[outcome]} {titles.get(key, key)}"[:60],
-                            "proposal_check_cycle",
-                            {"id": proposal.id, "check_id": key},
+                            outcome_button_label(
+                                settable, str(titles.get(key, key)), current=outcome
+                            ),
+                            "proposal_check_set",
+                            {"id": proposal.id, "check_id": key, "outcome": settable},
                         )
+                        for settable in SETTABLE_OUTCOMES
                     ]
                 )
+            savable = any(outcomes.values())
         elif len(changes) == 1 and changes[0].entity in {"card", "tag", "value"}:
             change = changes[0]
             current, proposed = await _proposal_item_state(session, change)
@@ -312,7 +314,15 @@ async def render_proposal(
             text_parts.append(
                 "\n".join(f"• {html.escape(proposal_change_summary(change))}" for change in changes)
             )
-        rows.append([save, discard])
+        closing = []
+        if savable:
+            closing.append(
+                await token_button(
+                    session, services.owner_id, "✅ Save", "proposal_approve", {"id": proposal.id}
+                )
+            )
+        closing.append(discard)
+        rows.append(closing)
         await session.commit()
     text = "\n\n".join(part for part in text_parts if part)
     markup = InlineKeyboardMarkup(inline_keyboard=rows)

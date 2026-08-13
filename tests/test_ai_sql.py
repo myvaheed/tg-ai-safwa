@@ -109,7 +109,6 @@ def test_tool_inputs_drop_incidental_null_placeholders_from_every_mutation():
             "id": None,
             "card_id": None,
             "title": "Form is safe",
-            "note": None,
             "repeatable": False,
             "outcome": None,
         }
@@ -154,7 +153,6 @@ def test_zero_id_placeholders_are_ignored_but_real_ids_must_be_positive():
                 "id": None,
                 "card_id": None,
                 "title": "Form is safe",
-                "note": None,
                 "repeatable": False,
                 "outcome": None,
             },

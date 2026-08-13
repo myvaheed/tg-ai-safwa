@@ -93,13 +93,13 @@ async def test_finishing_resolves_checks_and_leaves_the_card_done(sessions):
             session,
             card.id,
             CardStage.DONE,
-            check_outcomes={milk.id: CheckOutcome.PASSED, bread.id: "not_applicable"},
+            check_outcomes={milk.id: CheckOutcome.PASSED, bread.id: "missed"},
         )
         await session.commit()
 
         assert (await session.get(Card, card.id)).effective_stage == CardStage.DONE.value
         assert (await session.get(Check, milk.id)).outcome == CheckOutcome.PASSED.value
-        assert (await session.get(Check, bread.id)).outcome == "not_applicable"
+        assert (await session.get(Check, bread.id)).outcome == "missed"
         assert (await session.get(Check, milk.id)).resolved_at is not None
         assert await pending_checks(session, card.id) == []
 
@@ -110,7 +110,7 @@ async def test_repeatable_check_spawns_one_successor_and_re_answer_does_not(sess
         check = await linked_check(session, card.id, title="Posture straight?", repeatable=True)
         await session.commit()
 
-        resolved, successor = await resolve_check(session, check.id, CheckOutcome.FAILED)
+        resolved, successor = await resolve_check(session, check.id, CheckOutcome.MISSED)
         await session.commit()
         assert successor is not None
         assert successor.outcome is None
@@ -142,7 +142,7 @@ async def test_only_one_pending_check_per_series(sessions):
 
         # The series already has a live Pending row, so answering the original again
         # cannot add a second one.
-        _, again = await resolve_check(session, check.id, CheckOutcome.FAILED)
+        _, again = await resolve_check(session, check.id, CheckOutcome.MISSED)
         await session.commit()
         assert again is None
         live = await session.scalars(
@@ -191,7 +191,7 @@ async def test_repeat_successor_copies_one_row_per_series(sessions):
         assert spawned is not None
 
         result = await finish_action(
-            session, card.id, CardStage.DONE, check_outcomes={spawned.id: CheckOutcome.FAILED}
+            session, card.id, CardStage.DONE, check_outcomes={spawned.id: CheckOutcome.MISSED}
         )
         await session.commit()
         copies = await card_checks(session, result.successor_ids[0])
@@ -211,7 +211,7 @@ async def test_terminal_card_never_regains_a_pending_check(sessions):
         await session.commit()
 
         # Re-answering a Check on a closed Card must not resurrect a Pending row.
-        _, successor = await resolve_check(session, check.id, CheckOutcome.FAILED)
+        _, successor = await resolve_check(session, check.id, CheckOutcome.MISSED)
         await session.commit()
         assert successor is None
         assert await pending_checks(session, card.id) == []
@@ -222,7 +222,7 @@ async def test_standalone_check_repeats_without_a_card(sessions):
         check = await create_check(session, title="Posture straight?", repeatable=True)
         await session.commit()
 
-        _, successor = await resolve_check(session, check.id, CheckOutcome.FAILED)
+        _, successor = await resolve_check(session, check.id, CheckOutcome.MISSED)
         await session.commit()
         assert successor is not None
         assert await check_card_ids(session, successor.id) == []
@@ -263,7 +263,7 @@ async def test_successor_is_linked_to_live_cards_only(sessions):
         )
         await session.commit()
 
-        _, successor = await resolve_check(session, check.id, CheckOutcome.FAILED)
+        _, successor = await resolve_check(session, check.id, CheckOutcome.MISSED)
         await session.commit()
 
         # A terminal Card must never regain a Pending row, so the successor hangs on the

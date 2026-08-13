@@ -181,7 +181,6 @@ class Check(Base, TimestampMixin):
     __tablename__ = "checks"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(500))
-    note: Mapped[str] = mapped_column(Text, default="")
     repeatable: Mapped[bool] = mapped_column(Boolean, default=False)
     outcome: Mapped[str | None] = mapped_column(String(20), index=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

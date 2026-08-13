@@ -11,11 +11,8 @@ from sqlalchemy import delete, select
 
 from ..domain import (
     DomainError,
-    create_check,
     edit_card_text,
-    toggle_card_check,
     update_card_fields,
-    update_check_fields,
     update_tag_fields,
     update_value_fields,
 )
@@ -31,7 +28,6 @@ from ._messaging import (
     send_registered,
 )
 from .cards import render_card, render_card_creation, sanitize_card_creation_state
-from .checks import render_check
 from .items import render_item_editor
 from .proposals import render_ai_outcome
 
@@ -79,34 +75,6 @@ async def ordinary_text(message: Message, services: Services) -> None:
             mode=mode,
             item_id=int(item_id) if item_id is not None else None,
             values=values,
-            replace_message_id=message_id if input_deleted else None,
-        )
-        return
-    if ui_kind == "check_text":
-        check_id = ui_state.get("check_id")
-        field = str(ui_state["field"])
-        card_id = int(ui_state["card_id"])
-        back = dict(ui_state.get("back") or {"kind": "home"})
-        message_id = int(ui_state["message_id"])
-        typed = message.text.strip()
-        async with services.sessions() as session:
-            if check_id is None:
-                created = await create_check(session, title=typed)
-                await toggle_card_check(session, card_id, created.id)
-                check_id = created.id
-            else:
-                await update_check_fields(session, int(check_id), {field: typed})
-            await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
-            await session.commit()
-        input_deleted = await delete_text_input(message, services)
-        if not input_deleted:
-            await clear_message_markup(message, message_id)
-        await render_check(
-            message,
-            services,
-            int(check_id),
-            card_id=card_id,
-            back=back,
             replace_message_id=message_id if input_deleted else None,
         )
         return

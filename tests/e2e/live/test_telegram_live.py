@@ -299,6 +299,26 @@ async def _wait_for_row(database_path: Path, sql: str, parameters: tuple, timeou
     raise AssertionError(f"Row {parameters} never appeared within {timeout}s; last read {row}")
 
 
+def _seed_linked_check(database_path: Path, card_title: str, check_title: str) -> None:
+    """Hang one Pending Check on a Card straight in SQLite.
+
+    Creating and linking a Check are AI proposals only, and this test refuses every
+    provider call, so the fixture is written rather than clicked.
+    """
+    with sqlite3.connect(database_path) as connection:
+        card_id = connection.execute(
+            "SELECT id FROM cards WHERE title=?", (card_title,)
+        ).fetchone()[0]
+        cursor = connection.execute(
+            "INSERT INTO checks (title, repeatable, version) VALUES (?, 0, 1)", (check_title,)
+        )
+        check_id = cursor.lastrowid
+        connection.execute("UPDATE checks SET series_id=? WHERE id=?", (check_id, check_id))
+        connection.execute(
+            "INSERT INTO card_checks (card_id, check_id) VALUES (?, ?)", (card_id, check_id)
+        )
+
+
 async def test_qa_check_gate_blocks_done_until_every_check_is_answered(live_telegram_harness):
     qa = live_telegram_harness
     title = f"QA market {uuid4().hex[:8]}"
@@ -339,6 +359,8 @@ async def test_qa_check_gate_blocks_done_until_every_check_is_answered(live_tele
             ready.id,
             lambda message: "Created" in message.raw_text and title in message.raw_text,
         )
+        _seed_linked_check(qa.database_path, title, check_title)
+
         backlog_command = await qa.send("/backlog")
         dashboard = await qa.wait_for_bot(
             backlog_command.id, lambda message: has_button(message, title)
@@ -349,25 +371,25 @@ async def test_qa_check_gate_blocks_done_until_every_check_is_answered(live_tele
             lambda message: title in message.raw_text and has_button(message, "Checks"),
         )
 
+        # The manual Check screen answers and repeats; it cannot rename, link or archive.
         await click_button(card, "Checks")
         checks = await qa.wait_for_existing_bot_message(
             card.id,
-            lambda message: "No Checks yet" in message.raw_text
-            and has_button(message, "Add Check"),
+            lambda message: check_title in message.raw_text
+            and not has_button(message, "Add Check"),
         )
-        await click_button(checks, "Add Check")
-        await qa.wait_for_existing_bot_message(
-            checks.id, lambda message: "New Check title" in message.raw_text
-        )
-        await qa.send(check_title)
+        await click_button(checks, check_title)
         check_screen = await qa.wait_for_existing_bot_message(
             checks.id,
-            lambda message: check_title in message.raw_text and "Pending" in message.raw_text,
+            lambda message: check_title in message.raw_text
+            and has_button(message, "Repeat")
+            and has_button(message, "Passed")
+            and not has_button(message, "Title"),
         )
         await click_button(check_screen, "Back")
         listed = await qa.wait_for_existing_bot_message(
             check_screen.id,
-            lambda message: check_title in message.raw_text and has_button(message, "Add Check"),
+            lambda message: check_title in message.raw_text and has_button(message, "Back"),
         )
         await click_button(listed, "Back")
         card = await qa.wait_for_existing_bot_message(
@@ -380,8 +402,9 @@ async def test_qa_check_gate_blocks_done_until_every_check_is_answered(live_tele
         gate = await qa.wait_for_existing_bot_message(
             card.id,
             lambda message: "Pending Checks" in message.raw_text
-            and "Missed" in message.raw_text
-            and has_button(message, "Save"),
+            and "— Pending" in message.raw_text
+            # Save appears only once an answer is set.
+            and not has_button(message, "Save"),
         )
         card_row = await _wait_for_row(
             qa.database_path,
@@ -391,12 +414,12 @@ async def test_qa_check_gate_blocks_done_until_every_check_is_answered(live_tele
         )
         assert card_row[0] == "backlog"
 
-        await click_button(gate, check_title)
-        cycled = await qa.wait_for_existing_bot_message(
+        await click_button(gate, f"✅ {check_title}")
+        answered = await qa.wait_for_existing_bot_message(
             gate.id,
-            lambda message: "Not applicable" in message.raw_text,
+            lambda message: "Passed" in message.raw_text and has_button(message, "Save"),
         )
-        await click_button(cycled, "Save")
+        await click_button(answered, "Save")
 
         stage_row = await _wait_for_row(
             qa.database_path,
@@ -411,7 +434,7 @@ async def test_qa_check_gate_blocks_done_until_every_check_is_answered(live_tele
             (check_title,),
             qa.timeout,
         )
-        assert outcome_row[0] == "not_applicable"
+        assert outcome_row[0] == "passed"
         assert outcome_row[1] is not None
     finally:
         await qa.delete_test_messages()

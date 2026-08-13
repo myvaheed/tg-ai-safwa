@@ -85,10 +85,8 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
         "ai_card_events",
     ):
         connection.exec_driver_sql(f"DROP VIEW IF EXISTS {view_name}")
-    # `card_search` was an FTS5 mirror of cards.title/note that nothing ever read: it was
-    # absent from ALLOWED_VIEWS and from SYSTEM_PROMPT, so `validate_read_sql` rejected
-    # every query against it.  Drop it and its write triggers from databases that still
-    # carry them; Card lookup goes through `ai_cards` in `query_safwa`.
+    # Card lookup goes through `ai_cards`, so drop the `card_search` FTS5 table and its
+    # write triggers from databases that still carry them.
     for trigger_name in ("cards_search_insert", "cards_search_update", "cards_search_delete"):
         connection.exec_driver_sql(f"DROP TRIGGER IF EXISTS {trigger_name}")
     connection.exec_driver_sql("DROP TABLE IF EXISTS card_search")
@@ -134,7 +132,7 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
     # Pending is stored as a null outcome.
     connection.exec_driver_sql(
         """CREATE VIEW IF NOT EXISTS ai_checks AS
-        SELECT k.id, k.title, k.note, k.repeatable,
+        SELECT k.id, k.title, k.repeatable,
                COALESCE(k.outcome, 'pending') AS status,
                k.resolved_at, k.series_id,
                (SELECT group_concat(cc.card_id, ',') FROM card_checks cc

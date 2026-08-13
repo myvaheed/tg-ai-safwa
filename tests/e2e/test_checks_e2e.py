@@ -167,31 +167,39 @@ async def test_resolve_for_card_then_complete(e2e_harness):
     services = _services(e2e_harness, advisor)
     await render_proposal(message, services, outcome.proposal_id)
     # Only the user can answer a Check, so this proposal screen carries field controls.
-    assert "Tap a Check to change its answer" in message.rendered[-1]
+    assert "Answer every Check, then press Save." in message.rendered[-1]
     assert "Milk" in message.rendered[-1]
 
-    await _claim(
-        e2e_harness,
-        "proposal_check_cycle",
-        message,
-        services,
-        id=outcome.proposal_id,
-        check_id=str(check_ids[0]),
-    )
     async with e2e_harness.sessions() as session:
         change = await session.scalar(
             select(ProposalChange).where(ProposalChange.proposal_id == outcome.proposal_id)
         )
-        # Rows start at `failed`; one tap advances to the next settable answer.
-        assert change.values["outcomes"][str(check_ids[0])] == CheckOutcome.NOT_APPLICABLE.value
-        assert change.values["outcomes"][str(check_ids[1])] == CheckOutcome.FAILED.value
+        # The model proposes which Checks to answer, never the answers.
+        assert set(change.values["outcomes"].values()) == {None}
+
+    for check_id, answer in ((check_ids[0], "passed"), (check_ids[1], "missed")):
+        await _claim(
+            e2e_harness,
+            "proposal_check_set",
+            message,
+            services,
+            id=outcome.proposal_id,
+            check_id=str(check_id),
+            outcome=answer,
+        )
+    async with e2e_harness.sessions() as session:
+        change = await session.scalar(
+            select(ProposalChange).where(ProposalChange.proposal_id == outcome.proposal_id)
+        )
+        assert change.values["outcomes"][str(check_ids[0])] == CheckOutcome.PASSED.value
+        assert change.values["outcomes"][str(check_ids[1])] == CheckOutcome.MISSED.value
 
     await _claim(e2e_harness, "proposal_approve", message, services, id=outcome.proposal_id)
     async with e2e_harness.sessions() as session:
         assert (await session.get(ChangeProposal, outcome.proposal_id)).status == "approved"
         assert await pending_checks(session, card_id) == []
         first = await session.get(Check, check_ids[0])
-        assert first.outcome == CheckOutcome.NOT_APPLICABLE.value
+        assert first.outcome == CheckOutcome.PASSED.value
         assert first.resolved_by == "ai"
         assert first.resolved_at is not None
 
@@ -320,30 +328,45 @@ async def test_ai_links_a_check_to_a_second_card_by_title(e2e_harness):
         assert [item.id for item in await pending_checks(session, second_id)] == [check_ids[0]]
 
 
-async def test_manual_link_screen_hangs_a_check_on_a_second_card(e2e_harness):
-    card_id, check_ids = await _market_card_with_checks(e2e_harness)
-    async with e2e_harness.sessions() as session:
-        second = await create_card(
-            session, title="Go to the pharmacy", kind="action", stage="today", effort_points=1
+async def _live_actions(harness) -> set[str]:
+    async with harness.sessions() as session:
+        return set(
+            await session.scalars(
+                select(CallbackToken.action).where(CallbackToken.consumed_at.is_(None))
+            )
         )
-        await session.commit()
-        second_id = second.id
 
+
+async def test_manual_check_screens_only_repeat_and_answer(e2e_harness):
+    card_id, check_ids = await _market_card_with_checks(e2e_harness)
     advisor, _provider = e2e_harness.advisor([])
     message = _TestMessage()
     services = _services(e2e_harness, advisor)
 
-    from safwa.telegram.checks import render_checks
+    from safwa.telegram.checks import render_check, render_checks
 
-    await render_checks(message, services, second_id, back={"kind": "card", "id": second_id})
-    await _claim(e2e_harness, "check_link_list", message, services, card_id=second_id)
+    back = {"kind": "card", "id": card_id}
+    await render_checks(message, services, card_id, back=back)
+    # The manual screens answer a Check; every other Check action is proposal-only.
+    listed = await _live_actions(e2e_harness)
+    assert listed == {"check_view", "check_back"}
+
+    await render_check(message, services, check_ids[0], card_id=card_id, back=back)
+    assert (await _live_actions(e2e_harness)) - listed == {
+        "check_toggle_repeat",
+        "check_set_status",
+        "check_list_back",
+    }
+    assert "Note" not in message.rendered[-1]
+
     await _claim(
-        e2e_harness, "check_link_toggle", message, services, card_id=second_id, id=check_ids[0]
+        e2e_harness, "check_set_status", message, services, id=check_ids[0], outcome="passed"
     )
-
     async with e2e_harness.sessions() as session:
-        assert await check_card_ids(session, check_ids[0]) == sorted([card_id, second_id])
-    assert "Milk" in message.rendered[-1]
+        answered = await session.get(Check, check_ids[0])
+        assert answered.outcome == CheckOutcome.PASSED.value
+        assert answered.resolved_by == "user_ui"
+        assert [item.id for item in await pending_checks(session, card_id)] == [check_ids[1]]
 
 
 async def test_manual_done_button_opens_the_resolution_screen(e2e_harness):
@@ -358,18 +381,35 @@ async def test_manual_done_button_opens_the_resolution_screen(e2e_harness):
         message, services, card_id, back={"kind": "card", "id": card_id}
     )
     assert "Pending Checks" in message.rendered[-1]
-    # Default is Missed, never Passed: a one-tap "all done" would fabricate history.
-    assert message.rendered[-1].count("Missed") == len(check_ids)
+    # Nothing is prefilled.
+    assert message.rendered[-1].count("Pending") == len(check_ids) + 1
 
     await _claim(
-        e2e_harness, "check_resolve_cycle", message, services, check_id=check_ids[0]
+        e2e_harness,
+        "check_resolve_set",
+        message,
+        services,
+        check_id=check_ids[0],
+        outcome="passed",
+    )
+    # Saving with a row still unanswered changes nothing and says so.
+    await _claim(e2e_harness, "check_resolve_save", message, services, card_id=card_id)
+    assert "Answer every Check before saving." in message.rendered[-1]
+    async with e2e_harness.sessions() as session:
+        assert (await session.get(Card, card_id)).effective_stage == CardStage.TODAY.value
+
+    await _claim(
+        e2e_harness,
+        "check_resolve_set",
+        message,
+        services,
+        check_id=check_ids[1],
+        outcome="missed",
     )
     await _claim(e2e_harness, "check_resolve_save", message, services, card_id=card_id)
 
     async with e2e_harness.sessions() as session:
         assert (await session.get(Card, card_id)).effective_stage == CardStage.DONE.value
         assert await pending_checks(session, card_id) == []
-        assert (await session.get(Check, check_ids[0])).outcome == (
-            CheckOutcome.NOT_APPLICABLE.value
-        )
-        assert (await session.get(Check, check_ids[1])).outcome == CheckOutcome.FAILED.value
+        assert (await session.get(Check, check_ids[0])).outcome == CheckOutcome.PASSED.value
+        assert (await session.get(Check, check_ids[1])).outcome == CheckOutcome.MISSED.value

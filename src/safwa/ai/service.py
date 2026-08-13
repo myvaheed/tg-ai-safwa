@@ -59,7 +59,6 @@ from ..enums import (
     CardKind,
     CardStage,
     Category,
-    CheckOutcome,
     EnergyType,
     ProposalStatus,
 )
@@ -129,8 +128,8 @@ MUTATION_TOOL_DESCRIPTIONS = {
         "user presses Save."
     ),
     "check": (
-        "Open the Check review UI. create proposes a new Pending Check; edit proposes field "
-        "replacements; resolve proposes one answer the user has already stated. resolve_for_card "
+        "Open the Check review UI. create proposes a new Pending Check; edit proposes a new title "
+        "or repeatable flag; resolve proposes one answer the user has already stated. resolve_for_card "
         "lists every Pending Check on a Card so the user can answer each one, which is required "
         "before that Card can be completed. A Check is attached to a Card from the card tool "
         "(link/unlink with check_query or check_ids), never from here. Nothing is saved until the "
@@ -571,8 +570,7 @@ def _with_queued_siblings(result: Any, queued: int) -> Any:
     """Tell a failed call that the request's valid calls are still queued for review.
 
     One failed preparation never cancels its siblings, and the model has to know that
-    before it retries.  Saying it here costs nothing on a request that has no failures,
-    where the static prompt used to charge for it every turn.
+    before it retries.  Saying it here keeps it off a request that has no failures.
     """
     if not queued or not isinstance(result, dict) or result.get("status") != "error":
         return result
@@ -1356,8 +1354,8 @@ class AIAdvisor:
                 "Complete the Card directly instead.",
             )
         # The model proposes *which* Checks to answer; only the user knows the answers, so
-        # the screen starts every row at the safe default and the user cycles each one.
-        values["outcomes"] = {str(check.id): CheckOutcome.FAILED.value for check in pending}
+        # every row starts unanswered and Save is refused until the user has set each one.
+        values["outcomes"] = {str(check.id): None for check in pending}
         values["titles"] = {str(check.id): check.title for check in pending}
         return values
 
@@ -1598,13 +1596,11 @@ class AIAdvisor:
             outcomes = values.get("outcomes") or {}
             return [
                 f"Check #{key} “{_result_value(titles.get(key, ''))}”: "
-                f"{CHECK_OUTCOME_LABELS.get(str(outcome), str(outcome))}"
+                f"{CHECK_OUTCOME_LABELS.get(str(outcome or 'pending'), str(outcome))}"
                 for key, outcome in sorted(outcomes.items(), key=lambda item: int(item[0]))
             ]
         proposed = {
-            name: values[name]
-            for name in ("title", "note", "repeatable", "outcome")
-            if name in values
+            name: values[name] for name in ("title", "repeatable", "outcome") if name in values
         }
         check = (
             await session.get(Check, proposed_change.entity_id)
@@ -1621,7 +1617,6 @@ class AIAdvisor:
             return [f"Check: #{check.id} “{_result_value(check.title)}”"]
         before = {
             "title": check.title,
-            "note": check.note,
             "repeatable": check.repeatable,
             "outcome": check.outcome or "pending",
         }
@@ -2204,16 +2199,18 @@ class ProposalService:
             created = await create_check(
                 self.session,
                 title=str(values["title"]),
-                note=values.get("note", ""),
                 repeatable=bool(values.get("repeatable", False)),
             )
             affected.append(created.id)
             return
         if change.action == "resolve_for_card":
+            proposed = values.get("outcomes") or {}
+            if any(outcome is None for outcome in proposed.values()):
+                raise DomainError("Answer every Check before saving this proposal")
             resolved = await resolve_checks_for_card(
                 self.session,
                 int(values["card_id"]),
-                {int(key): outcome for key, outcome in (values.get("outcomes") or {}).items()},
+                {int(key): outcome for key, outcome in proposed.items()},
                 actor=ActorType.AI,
             )
             affected.extend(item.id for item in resolved)
@@ -2223,9 +2220,7 @@ class ProposalService:
             raise StaleStateError("A Check changed; refresh this proposal")
         if change.action == "update":
             scalar_fields = {
-                name: value
-                for name, value in values.items()
-                if name in {"title", "note", "repeatable"}
+                name: value for name, value in values.items() if name in {"title", "repeatable"}
             }
             if scalar_fields:
                 await update_check_fields(self.session, check.id, scalar_fields)

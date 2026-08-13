@@ -295,8 +295,8 @@ async def run_scheduler(
     poll_seconds: float = SCHEDULER_POLL_SECONDS,
 ) -> None:  # type: ignore[no-untyped-def]
     while True:
-        # Candidate computation is guarded too: an error there used to escape the loop and
-        # silently end reminders for the rest of the process.
+        # Candidate computation is guarded too: an error escaping here would silently end
+        # reminders for the rest of the process.
         try:
             async with sessions() as session:
                 candidates = await policy.candidates(session)

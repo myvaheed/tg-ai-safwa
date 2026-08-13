@@ -109,8 +109,7 @@ graph TD
   commands --> constants
 ```
 
-Cycle guards worth remembering: `constants.py` imports nothing from Safwa, so it is safe from anywhere
-(and is why `config.py` no longer has to reach into `ai/sql.py` for its cap defaults);
+Cycle guards worth remembering: `constants.py` imports nothing from Safwa, so it is safe from anywhere;
 `_presentation.py` touches neither a session nor the bot; nothing below `_core.py` imports upward.
 
 ## Module index
@@ -289,7 +288,7 @@ Card action; `card_id` belongs to `resolve_for_card` alone) ·
 ### `ai/sql.py` — read-only guard
 
 `UnsafeQueryError` :20 · **`ALLOWED_VIEWS`** :24 · `FORBIDDEN` :33 · `validate_read_sql` :39 ·
-**`create_ai_views`** :74 (drops+rebuilds the 7 views; also drops the retired `card_search` FTS5 table
+**`create_ai_views`** :74 (drops+rebuilds the 7 views; also drops the `card_search` FTS5 table
 and its 3 triggers from older databases) · `QueryOutcome` :147 · `ReadOnlyQueryRunner` :158
 (`mode=ro` connection + `set_authorizer` + caps from `constants.py`).
 
@@ -361,12 +360,13 @@ source message is the bot's) · `edit_registered_message` :95 · `delete_text_in
 
 ### `telegram/checks.py` — Check screens
 
-`CHECK_STATUS_EMOJIS` :18 · `check_status` :33 · `check_status_label` :37 · **`next_outcome`** :42
-(the tap cycle; Pending is derived and cannot be returned to) · `card_title` :47 ·
-**`render_checks`** :54 (every screen is scoped to one Card) · **`render_check_link`** :128 (hang an
-existing Check on this Card too — linking never copies) · **`render_check`** :196 ·
-`render_check_text_prompt` :276 · **`render_check_resolution`** :327 (the Done-gate screen; every row
-defaults to `failed`) · `_deliver` :421.
+`CHECK_STATUS_EMOJIS` :18 · **`SETTABLE_OUTCOMES`** :24 · `check_status` :30 ·
+`check_status_label` :34 · `outcome_button_label` :39 (`• ` marks the current answer) ·
+`card_title` :44 ·
+**`render_checks`** :51 (every screen is scoped to one Card; list + Back only — create/link/unlink are
+proposal-only) · **`render_check`** :107 (`🔁 Repeat` plus `✅ Passed` / `❌ Missed`; no title edit, no
+archive) · **`render_check_resolution`** :193 (the Done-gate screen; `✅ Passed` / `❌ Missed` per
+Check, nothing prefilled, `Save` only once an answer is set) · `_deliver` :293.
 
 ### `telegram/cards.py` — Card screens
 

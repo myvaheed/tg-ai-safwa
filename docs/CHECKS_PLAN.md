@@ -21,9 +21,9 @@ like Tag and Value, not Card-shaped.
 
 ```
 checks
-  id, title, note
+  id, title
   repeatable         bool      — respawn a Pending successor on resolve
-  outcome            nullable  — passed | failed | not_applicable
+  outcome            nullable  — passed | missed
   resolved_at        nullable
   resolved_by        nullable  — ActorType; who supplied the outcome
   series_id          nullable  — groups one Check's successors, for trend queries
@@ -42,28 +42,18 @@ card_checks (card_id, check_id)   the one Check relationship, mirroring card_val
 ## Derived state
 
 **`Pending` is derived, never stored**: `outcome IS NULL`. There is no reset path and therefore no
-reset bug. Only three settable outcomes exist.
+reset bug. Only two settable outcomes exist.
 
 Invariant: at most one Pending Check per `series_id`. Guard it — every double-spawn path is otherwise
 silent until the Done-gate fires twice.
 
-### Why three outcomes, and why these names
+### The two outcomes
 
-The three stay distinct because they record different **causes**, and cause is what the trend is for.
-Three `failed` in a week means the user is slipping; three `not_applicable` means the Check does not
-match reality and should be deleted. Collapsed, the two are indistinguishable in exactly the case
-worth acting on.
+`passed` and `missed`. Pending covers "not answered", and a Check that stops matching reality is
+removed rather than answered sideways.
 
-`passed` rather than `checked`: "posture Check — checked" reads as *the Check was performed*, not
-*the posture was good*, and that ambiguity would sit in the most-queried field. Passing implies
-performing. `failed` is its symmetric partner and reads correctly for both cases.
-
-There is deliberately no `skipped`. It would mean "not answered", which is what Pending already
-means. `not_applicable` is answered — the answer is that the question does not apply.
-
-Enum values are not labels. Store `failed`; render "Missed" if that reads better on a checklist, the
-way `kind_label` and `CHOICE_TITLES` already separate the two
-([telegram/_presentation.py:39](../src/safwa/telegram/_presentation.py:39)).
+The stored value and the shown word are the same word: `CHECK_OUTCOME_LABELS` only capitalizes it, so
+nothing the model reads and nothing the owner reads can drift apart.
 
 ### Re-answering overwrites, and that is accepted
 
@@ -72,7 +62,7 @@ A resolved Check can be re-answered. The previous outcome is overwritten and los
 
 This keeps Checks consistent with every other entity — Card text, effort, and priority are all
 editable through the normal proposal diff, so a write-once field would have been the exception. The
-data actually lost is "the user once answered `failed` before correcting it", which nothing in a
+data actually lost is "the user once answered `missed` before correcting it", which nothing in a
 single-owner tool reads.
 
 Two rules follow, and both are easy to get wrong:
@@ -84,10 +74,9 @@ Two rules follow, and both are easy to get wrong:
   trend is keyed on; correcting a typo weeks later must not move the data point. `updated_at` from
   `TimestampMixin` already carries the edit time. `resolved_by` tracks the current answer's actor.
 
-Re-answering cannot return a Check to Pending — Pending is `outcome IS NULL` and the editor only
-cycles the three settable outcomes. A Done Card therefore cannot be re-blocked by editing its Checks,
-and since all three outcomes satisfy the gate, re-answering a Check on a closed Card changes nothing
-about that Card.
+Re-answering cannot return a Check to Pending — Pending is `outcome IS NULL` and the editor only sets
+`passed` or `missed`. A Done Card therefore cannot be re-blocked by editing its Checks, and since both
+outcomes satisfy the gate, re-answering a Check on a closed Card changes nothing about that Card.
 
 ## Repeat semantics
 
@@ -101,7 +90,7 @@ Two orthogonal respawn mechanisms. Both are legitimate; they must not both fire 
 Checklist items set `repeatable = False`; you buy milk once per trip. Setting it true on a checklist
 item produces two rows per cycle. Document this at the field.
 
-A successor Check copies title, note, and repeatability, carrying `series_id` and setting
+A successor Check copies title and repeatability, carrying `series_id` and setting
 `source_instance_id`. Same fields the Card successor copies.
 
 It is linked to the source's **live Cards only** — an archived or terminal Card is dropped from the
@@ -113,26 +102,19 @@ keeps going for the live one.
 The Card-repeat clone is the mirror case: it links the copy to the **successor Card only**. The other
 Cards in the series' link set keep their own rows; the repeat belongs to the Card that repeated.
 
-### Suppressing the spawn, not clearing the flag
+### Suppressing the spawn
 
-An earlier draft had `finish_action` clear `repeatable` on the Checks it resolves, to stop a repeatable
-Check from putting a new Pending row on the Card it had just unblocked. That created an ordering
-constraint — the repeat successor had to be cloned *before* the clearing, or the flag was lost after
-one cycle — and the AI's two-step path (`resolve_for_card`, then complete) reintroduced the same
-hazard on a second code path.
-
-Suppressing the spawn removes the need entirely. `_apply_check_outcome` takes `spawn=False` on both
-gate paths, `repeatable` is never touched, the clone carries the original flag whatever the order, and
-`_spawn_check_successor` independently refuses to spawn onto a terminal or archived Card. Nothing is
-lost: a Check only spawns on its Pending → resolved transition, so an already-answered row cannot
-spawn later regardless of its flag.
+`repeatable` is never cleared. `_apply_check_outcome` takes `spawn=False` on both gate paths, so
+resolving through the gate cannot put a new Pending row on the Card it just unblocked, and
+`_spawn_check_successor` independently refuses to spawn onto a terminal or archived Card. A Check only
+spawns on its Pending → resolved transition, so an already-answered row cannot spawn later.
 
 ## Done-gate
 
 `finish_action` raises `DomainError` when the Card has Pending Checks and `terminal_stage` is Done.
 
 - Gate `Done` only. Cancelling a Card with Pending Checks is legitimate — abandoning work.
-- `passed`, `failed`, and `not_applicable` all satisfy the gate. Only Pending blocks.
+- Both `passed` and `missed` satisfy the gate. Only Pending blocks.
 - A shared Check gates every Card it hangs on, and one answer clears all of them at once.
 - No gate on `archive_subtree`. Both `archive_subtree` and `delete_subtree` reach Checks, but only
   those the subtree still holds alone: a Check another live Card needs is neither archived nor
@@ -152,14 +134,10 @@ Checks. It never touches a standalone Check.
 
 `Done` on a Card with Pending Checks opens a resolution screen instead of finishing:
 
-- every Pending Check listed, defaulting to `failed`;
-- tapping one cycles `passed` → `failed` → `not_applicable`;
-- `Save` resolves them, clears `repeatable`, and finishes the Card in one transaction;
+- every Pending Check listed with a `✅ Passed` and a `❌ Missed` button, nothing prefilled;
+- `Save` appears once an answer is set; it resolves them and finishes the Card in one transaction, and
+  is refused while any Check is still unanswered;
 - `Back` cancels the move to Done and changes nothing.
-
-The default is `failed`, not `passed`. A one-tap "all done" button is a lie-button: it lets the user
-clear the gate by asserting checks that never happened, which corrupts the trend the entity exists to
-record. Erring toward `failed` over-reports failure, which is the safe direction.
 
 Transient state lives in a new `UiSession` kind, alongside `card_create` — deleted on navigation,
 persisting nothing until Save.
@@ -177,47 +155,34 @@ persisting nothing until Save.
    every mutation result, sees the Checks are resolved, and re-proposes the close.
 6. The user saves the close.
 
-The resumed tool result carries **per-Check outcomes**, not a bare "saved". Three `failed` answers are
+The resumed tool result carries **per-Check outcomes**, not a bare "saved". Three `missed` answers are
 information the model should have before it re-proposes.
 
 Check mutations call `_bump_workspace` like every other `domain.py` mutation, so a manual resolve
 invalidates an in-flight proposal through the normal `StaleStateError` path.
 
-Clearing `repeatable` must be visible in the proposal diff — never an invisible side effect of a
-`stage=done` call.
-
-### Spec amendment required
-
-The Check-resolution proposal screen exposes field controls. That contradicts two authoritative lines:
-
-- INITIAL_PLAN: "Proposal screens expose exactly `Save` and `Discard`; fields cannot be edited inside
-  AI review."
-- MEMORY_HISTORY_USAGE: "no field controls are exposed."
-
-The exception is deliberate and narrow: the model cannot know whether the user bought milk. The user
-is not editing the model's proposal, they are supplying information the model has no access to. Both
-documents must be amended when this ships, or a later session will read the spec and "fix" the screen.
-
-Proposed wording: *proposal screens are read-only, except Check resolution, where the model proposes
-which Checks to resolve and the user supplies the outcomes.*
+Proposal screens are read-only, except Check resolution, where the model proposes which Checks to
+resolve and the user supplies the outcomes. INITIAL_PLAN and MEMORY_HISTORY_USAGE both record it.
 
 ## UI surfaces
 
 Every Check screen hangs off a Card, because the Card side is where the link lives.
 
-- The Card screen always carries `☑️ Checks (pending/total)` — always, not only when Checks exist,
-  or the first one could never be added.
-- That list offers `➕ Add Check` (create, linked here) and `🔗 Link Check` (hang an existing live
-  Check on this Card too). The Check editor offers `Unlink from this Card`, which never deletes: the
-  Check survives on its other Cards.
+- The Card screen carries `☑️ Checks (pending/total)` **only when at least one Check hangs on the
+  Card**. A first Check arrives through an AI proposal, so an empty list would lead nowhere.
+- The manual screens answer Checks and nothing else. Creating one, renaming it, and linking or
+  unlinking it are proposal-only, so the list carries just the Checks and Back, and the Check screen
+  carries `🔁 Repeat: On/Off` plus `✅ Passed` / `❌ Missed`, which write the outcome on the spot.
+- There is no Archive Check action. A Check's states are Pending, Passed, and Missed; the
+  `archived_at` column stays, but only the Card archive/delete cascade writes it.
 - Tag and Value screens have no Checks button. They no longer classify Checks.
 - Checks are item-shaped: reuse the `render_item_editor` pattern
   ([telegram/items.py:21](../src/safwa/telegram/items.py:21)), not the Card renderer.
 - Dashboards still list Actions only. Checks do not appear there.
 
-**Residual gap, accepted for now**: a Check linked to no Card is reachable only through the AI, and
-`🔗 Link Check` lists only the most recent `CHECK_LIST_LIMIT` candidates with no search. `ai_checks`
-must therefore exist from day one — it is the sole escape hatch. A `/checks` command is deferred.
+**Residual gap, accepted for now**: a Check linked to no Card is reachable only through the AI.
+`ai_checks` must therefore exist from day one — it is the sole escape hatch. A `/checks` command is
+deferred.
 
 ## Deferred
 
@@ -265,6 +230,6 @@ No `--live-telegram` case covers Checks yet.
 
 ## Open
 
-Nothing blocking. Both earlier questions are settled above: three distinct outcomes named
-`passed | failed | not_applicable`, and re-answering allowed with the previous outcome overwritten
+Nothing blocking. Both earlier questions are settled above: two distinct outcomes named
+`passed | missed`, and re-answering allowed with the previous outcome overwritten
 and no audit table.

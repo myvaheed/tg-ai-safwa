@@ -34,16 +34,10 @@ class Priority(StrEnum):
 
 
 class CheckOutcome(StrEnum):
-    """The three settable answers to a Check. Pending is derived from a null outcome.
-
-    `passed` rather than `checked` because "checked" reads as *the Check was performed*
-    rather than *the state held*.  There is deliberately no `skipped`: that would mean
-    "not answered", which is exactly what Pending already means.
-    """
+    """The two settable answers to a Check. Pending is derived from a null outcome."""
 
     PASSED = "passed"
-    FAILED = "failed"
-    NOT_APPLICABLE = "not_applicable"
+    MISSED = "missed"
 
 
 class Category(StrEnum):
@@ -91,13 +85,10 @@ class MessageKind(StrEnum):
     ERROR = "error"
 
 
-# Enum values are not labels: `failed` reads harshly on a shopping list, so the stored
-# value and the shown word are allowed to differ.
 CHECK_OUTCOME_LABELS = {
     "pending": "Pending",
     CheckOutcome.PASSED.value: "Passed",
-    CheckOutcome.FAILED.value: "Missed",
-    CheckOutcome.NOT_APPLICABLE.value: "Not applicable",
+    CheckOutcome.MISSED.value: "Missed",
 }
 
 TERMINAL_STAGES = {CardStage.DONE, CardStage.CANCELLED}

@@ -814,7 +814,6 @@ async def create_check(
     session: AsyncSession,
     *,
     title: str,
-    note: str = "",
     repeatable: bool = False,
 ) -> Check:
     """Create one Pending Check, attached to nothing.
@@ -828,7 +827,6 @@ async def create_check(
         raise DomainError("Check title cannot be empty")
     check = Check(
         title=clean_title,
-        note=note.strip(),
         repeatable=repeatable,
     )
     session.add(check)
@@ -844,11 +842,11 @@ async def update_check_fields(
     check = await session.get(Check, check_id)
     if check is None or check.archived_at is not None:
         raise DomainError("Check does not exist or is archived")
-    unknown = set(fields) - {"title", "note", "repeatable"}
+    unknown = set(fields) - {"title", "repeatable"}
     if unknown:
         raise DomainError("Unsupported Check fields: " + ", ".join(sorted(unknown)))
     for name, value in fields.items():
-        if name in {"title", "note"}:
+        if name == "title":
             value = str(value).strip()
         if name == "title" and not value:
             raise DomainError("Check title cannot be empty")
@@ -902,7 +900,6 @@ async def _copy_check(
 ) -> Check:
     successor = Check(
         title=source.title,
-        note=source.note,
         repeatable=source.repeatable,
         series_id=series_id,
         source_instance_id=source.id,

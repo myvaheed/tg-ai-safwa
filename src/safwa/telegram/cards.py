@@ -741,21 +741,22 @@ async def render_card(
         )
         check_total = len(direct_checks)
         pending_total = sum(1 for check in direct_checks if check.outcome is None)
-        # Always shown: the Card screen is the only place a first Check can be added.
-        relationship_rows.append(
-            [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    f"☑️ Checks ({pending_total}/{check_total})",
-                    "card_checks",
-                    {
-                        "card_id": card.id,
-                        "back": {"kind": "card", "id": card.id, "back": back},
-                    },
-                )
-            ]
-        )
+        # A Check reaches a Card through a proposal, so an empty list has nothing to offer.
+        if direct_checks:
+            relationship_rows.append(
+                [
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        f"☑️ Checks ({pending_total}/{check_total})",
+                        "card_checks",
+                        {
+                            "card_id": card.id,
+                            "back": {"kind": "card", "id": card.id, "back": back},
+                        },
+                    )
+                ]
+            )
         rows = relationship_rows + rows
         if card.kind == CardKind.ACTION.value and card.effective_stage not in {
             CardStage.DONE.value,

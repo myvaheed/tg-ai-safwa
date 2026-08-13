@@ -611,11 +611,10 @@ async def test_checks_button_is_on_the_card_only(sessions) -> None:
         card_id, value_id, tag_id = card.id, value.id, tag.id
 
     services = services_for(sessions)
-    # The Card screen always offers it, because it is the only place a first Check can
-    # be added; Tags and Values no longer classify Checks at all.
+    # The button appears only once a Check hangs on the Card. Tags and Values never carry it.
     message = FakeMessage(card_id, bot_message=True)
     await render_card(message, services, card_id)
-    assert any("Checks (0/0)" in text for text in button_texts(message.edits[-1][1]))
+    assert not any("Checks" in text for text in button_texts(message.edits[-1][1]))
     for entity, item_id in (("value", value_id), ("tag", tag_id)):
         message = FakeMessage(item_id, bot_message=True)
         await render_item_editor(message, services, entity, mode="view", item_id=item_id)

@@ -87,7 +87,8 @@ no underscore (the whole package is private behind `__init__.__all__`).
   (AI focus); Tags do not. Neither classifies a Check.
 - **Checks**: a state observation ("did this hold?"), not planned work — no effort, never in a Sprint.
   A Card is its only relationship, held on the Card side in `card_checks`: one Check may hang on many
-  Cards (one answer then satisfies all of them) or on none. `outcome` is `passed|failed|not_applicable`;
+  Cards (one answer then satisfies all of them) or on none. A Check carries only a title and
+  `repeatable`. `outcome` is `passed|missed`;
   **Pending is derived** (`outcome IS NULL`) and never stored, so there is no reset path. `resolved_at`
   keeps the *first* resolution — re-answering overwrites the outcome and the previous one is not
   retained. `series_id`/`source_instance_id` mirror the Card repeat lineage. A repeatable Check spawns a
@@ -113,13 +114,11 @@ no underscore (the whole package is private behind `__init__.__all__`).
 - Dashboards `/today` `/backlog` `/sprint` list **Actions only**; Goals/Ideas reachable via hierarchy,
   `Children`, search, Requests, item navigation.
 - Checks are item-shaped, not Card-shaped ([telegram/checks.py](../src/safwa/telegram/checks.py)) and
-  live entirely on the Card screen, which always shows `☑️ Checks (pending/total)`. That list offers
-  `➕ Add Check` and `🔗 Link Check` (hang an existing Check here too); the Check editor offers
-  `Unlink from this Card`. Tag and Value screens have no Checks button.
-  Pressing `Done` on a gated Card opens the resolution screen instead of finishing it: every Pending
-  Check defaults to **Missed**, tapping cycles Passed → Missed → Not applicable, `Save` finishes the
-  Card in one transaction and `Back` leaves it live. The default is deliberately not Passed — a one-tap
-  "all done" would let the gate be cleared by asserting Checks that never happened.
+  live entirely on the Card screen, which shows `☑️ Checks (pending/total)` **only when at least one
+  Check hangs on the Card**. 
+  Pressing `Done` on a gated Card opens the resolution screen instead of finishing it: each Check
+  offers `✅ Passed` / `❌ Missed`, `Save` appears once an answer is set and finishes the Card in one
+  transaction, and `Back` leaves it live. No answer is prefilled.
   A Check linked to no Card is reachable only through `ai_checks`; there is no `/checks` yet.
 - Every inline button is a single-use `CallbackToken` row rendered as `cb:<token>` (24 h expiry),
   claimed atomically by `UPDATE … RETURNING` in `callback_token_handler`. Menu buttons use `nav:<action>`.
@@ -142,6 +141,7 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
   `remove` (`SAFWA_TOOLS`, [ai/service.py:133](../src/safwa/ai/service.py:133)).
 - The `card` tool writes **every** Card link — `value_*`, `tag_*`, `check_*`, one relationship group per
   `link`/`unlink` call. The `check` tool only creates, edits and resolves a Check; it never attaches one.
+  Since the UI cannot create, rename or (un)link a Check, those paths exist only here.
   `check_query` resolves an exact Check title, so a Check can be attached without knowing its id.
 - `_guard_pending_checks` refuses to *prepare* a completion while Pending Checks exist, returning a
   retryable `ToolPreparationError` that carries their ids **and titles** so the model does not spend a
@@ -194,7 +194,7 @@ needs no join view: `ai_cards` carries `direct_checks` (titles) and `pending_che
 Views are dropped and rebuilt by `create_ai_views` **on every startup** — change view shape there,
 never with a migration. A new view must be added to `ALLOWED_VIEWS` *and* to the view list inside
 `SYSTEM_PROMPT` ([ai/context.py:20](../src/safwa/ai/context.py:20)) or the model cannot use it. The
-same function drops the retired `card_search` FTS5 table and its triggers from older databases.
+same function drops the `card_search` FTS5 table and its triggers from older databases.
 
 Saved Requests reuse the same validator plus two extra rules (`normalize_request_sql`): the query must
 mention `ai_cards` and return a column named `id`.

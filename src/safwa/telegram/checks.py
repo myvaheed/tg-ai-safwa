@@ -5,12 +5,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 
 from ..constants import CHECK_LIST_LIMIT
 from ..domain import DomainError, card_checks, check_card_ids, pending_checks
 from ..enums import CHECK_OUTCOME_LABELS, CheckOutcome, MessageKind
-from ..models import Card, CardCheck, Check, UiSession
+from ..models import Card, Check, UiSession
 from ._core import Services
 from ._messaging import edit_registered_message, send_registered, token_button
 from ._presentation import with_notice
@@ -18,14 +18,12 @@ from ._presentation import with_notice
 CHECK_STATUS_EMOJIS = {
     "pending": "⬜",
     CheckOutcome.PASSED.value: "✅",
-    CheckOutcome.FAILED.value: "❌",
-    CheckOutcome.NOT_APPLICABLE.value: "➖",
+    CheckOutcome.MISSED.value: "❌",
 }
-# Tapping walks the three settable answers; Pending is derived and cannot be returned to.
-_OUTCOME_CYCLE = (
+# One button per answer; Pending is derived and cannot be set.
+SETTABLE_OUTCOMES = (
     CheckOutcome.PASSED.value,
-    CheckOutcome.FAILED.value,
-    CheckOutcome.NOT_APPLICABLE.value,
+    CheckOutcome.MISSED.value,
 )
 
 
@@ -38,10 +36,9 @@ def check_status_label(check: Check) -> str:
     return f"{CHECK_STATUS_EMOJIS[status]} {CHECK_OUTCOME_LABELS[status]}"
 
 
-def next_outcome(current: str | None) -> str:
-    if current not in _OUTCOME_CYCLE:
-        return _OUTCOME_CYCLE[0]
-    return _OUTCOME_CYCLE[(_OUTCOME_CYCLE.index(current) + 1) % len(_OUTCOME_CYCLE)]
+def outcome_button_label(outcome: str, title: str, *, current: str | None) -> str:
+    marker = "• " if outcome == current else ""
+    return f"{marker}{CHECK_STATUS_EMOJIS[outcome]} {title}"[:60]
 
 
 async def card_title(session, card_id: int) -> str:
@@ -80,24 +77,6 @@ async def render_checks(
         rows.append(
             [
                 await token_button(
-                    session,
-                    services.owner_id,
-                    "➕ Add Check",
-                    "check_create_prompt",
-                    {"card_id": card_id, "back": back},
-                ),
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "🔗 Link Check",
-                    "check_link_list",
-                    {"card_id": card_id, "back": back},
-                ),
-            ]
-        )
-        rows.append(
-            [
-                await token_button(
                     session, services.owner_id, "↩️ Back", "check_back", {"back": back}
                 )
             ]
@@ -115,74 +94,6 @@ async def render_checks(
         )
     if len(checks) > len(shown):
         lines.append(f"Showing the first {CHECK_LIST_LIMIT} of {len(checks)} Checks.")
-    await _deliver(
-        message,
-        services,
-        with_notice("\n".join(lines), notice),
-        InlineKeyboardMarkup(inline_keyboard=rows),
-        replace_message_id,
-        related_id=card_id,
-    )
-
-
-async def render_check_link(
-    message: Message,
-    services: Services,
-    card_id: int,
-    *,
-    back: dict[str, Any],
-    replace_message_id: int | None = None,
-    notice: str | None = None,
-) -> None:
-    """Hang an existing Check on this Card too.
-
-    The same Check may serve several Cards, so linking never copies: one answer later
-    resolves it everywhere it hangs.
-    """
-    async with services.sessions() as session:
-        owner_title = await card_title(session, card_id)
-        candidates = list(
-            await session.scalars(
-                select(Check)
-                .where(
-                    Check.archived_at.is_(None),
-                    Check.id.not_in(select(CardCheck.check_id).where(CardCheck.card_id == card_id)),
-                )
-                .order_by(Check.id.desc())
-                .limit(CHECK_LIST_LIMIT)
-            )
-        )
-        rows = [
-            [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    f"{CHECK_STATUS_EMOJIS[check_status(check)]} {check.title}"[:60],
-                    "check_link_toggle",
-                    {"id": check.id, "card_id": card_id, "back": back},
-                )
-            ]
-            for check in candidates
-        ]
-        rows.append(
-            [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "↩️ Back",
-                    "card_checks",
-                    {"card_id": card_id, "back": back},
-                )
-            ]
-        )
-        await session.commit()
-
-    lines = [f"<b>Link a Check — {html.escape(owner_title)}</b>"]
-    lines.append(
-        "Tap a Check to hang it on this Card as well."
-        if candidates
-        else "Every live Check is already linked here."
-    )
     await _deliver(
         message,
         services,
@@ -223,24 +134,31 @@ async def render_check(
             )
         )
         payload = {"id": check.id, "card_id": card_id, "back": back}
-        field_specs = [
-            ("✏️ Title", "check_edit_text", {**payload, "field": "title"}),
-            ("📝 Note", "check_edit_text", {**payload, "field": "note"}),
-            (f"🔁 Repeat: {'On' if check.repeatable else 'Off'}", "check_toggle_repeat", payload),
-            (f"{check_status_label(check)} → next", "check_cycle_status", payload),
-        ]
-        buttons = [await token_button(session, services.owner_id, *spec) for spec in field_specs]
-        rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
-        rows.append(
+        current = check_status(check)
+        # The owner sets only what they alone know: whether it repeats, and how it turned out.
+        rows = [
             [
                 await token_button(
-                    session, services.owner_id, "🔗 Unlink from this Card", "check_unlink", payload
-                ),
+                    session,
+                    services.owner_id,
+                    f"🔁 Repeat: {'On' if check.repeatable else 'Off'}",
+                    "check_toggle_repeat",
+                    payload,
+                )
+            ],
+            [
                 await token_button(
-                    session, services.owner_id, "Archive Check", "check_archive", payload
-                ),
-            ]
-        )
+                    session,
+                    services.owner_id,
+                    outcome_button_label(
+                        outcome, CHECK_OUTCOME_LABELS[outcome], current=current
+                    ),
+                    "check_set_status",
+                    {**payload, "outcome": outcome},
+                )
+                for outcome in SETTABLE_OUTCOMES
+            ],
+        ]
         rows.append(
             [
                 await token_button(
@@ -258,7 +176,6 @@ async def render_check(
         [
             f"<b>Check</b>: {html.escape(check.title)}",
             f"Status: {check_status_label(check)}",
-            f"Note: {html.escape(check.note or '—')}",
             f"Repeatable: {'Yes' if check.repeatable else 'No'}",
             f"Cards: {', '.join('#' + str(item) for item in linked_card_ids) or '—'}",
         ]
@@ -273,65 +190,15 @@ async def render_check(
     )
 
 
-async def render_check_text_prompt(
-    message: Message,
-    services: Services,
-    *,
-    check_id: int | None,
-    field: str,
-    card_id: int,
-    back: dict[str, Any],
-) -> None:
-    if field not in {"title", "note"}:
-        raise DomainError("Only a Check title or Note can be edited as text")
-    async with services.sessions() as session:
-        current = ""
-        if check_id is not None:
-            check = await session.get(Check, check_id)
-            if check is None or check.archived_at is not None:
-                raise DomainError("Check does not exist or is archived")
-            current = getattr(check, field) or ""
-        await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
-        session.add(
-            UiSession(
-                owner_id=services.owner_id,
-                kind="check_text",
-                state={
-                    "check_id": check_id,
-                    "field": field,
-                    "card_id": card_id,
-                    "back": back,
-                    "message_id": message.message_id,
-                },
-                expires_at=datetime.now(UTC) + timedelta(minutes=30),
-            )
-        )
-        cancel = await token_button(
-            session,
-            services.owner_id,
-            "↩️ Back",
-            "check_list_back",
-            {"card_id": card_id, "back": back},
-        )
-        await session.commit()
-    heading = "New Check title" if check_id is None else f"Set new {field.title()}"
-    await send_registered(
-        message,
-        services,
-        f"<b>Current {html.escape(field)}</b>: {html.escape(current or '—')}\n\n{heading}",
-        kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=[[cancel]]),
-    )
-
-
 async def render_check_resolution(
     message: Message,
     services: Services,
     card_id: int,
     *,
     back: dict[str, Any],
-    outcomes: dict[str, str] | None = None,
+    outcomes: dict[str, str | None] | None = None,
     replace_message_id: int | None = None,
+    notice: str | None = None,
 ) -> None:
     """The Done-gate screen: answer every Pending Check, or go back and stay live.
 
@@ -344,11 +211,9 @@ async def render_check_resolution(
         pending = await pending_checks(session, card_id)
         if not pending:
             raise DomainError("This Card has no Pending Checks")
-        # Default to `failed` rather than `passed`: a one-tap "all done" would let the
-        # gate be cleared by asserting Checks that never happened.
-        state_outcomes = {
-            str(check.id): (outcomes or {}).get(str(check.id), CheckOutcome.FAILED.value)
-            for check in pending
+        # Nothing is prefilled: the gate may only be cleared by an answer the user gave.
+        state_outcomes: dict[str, str | None] = {
+            str(check.id): (outcomes or {}).get(str(check.id)) for check in pending
         }
         await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
         session.add(
@@ -366,52 +231,57 @@ async def render_check_resolution(
         )
         rows: list[list[InlineKeyboardButton]] = []
         for check in pending:
-            outcome = state_outcomes[str(check.id)]
+            current = state_outcomes[str(check.id)]
             rows.append(
                 [
                     await token_button(
                         session,
                         services.owner_id,
-                        f"{CHECK_STATUS_EMOJIS[outcome]} {check.title}"[:60],
-                        "check_resolve_cycle",
-                        {"card_id": card_id, "check_id": check.id},
+                        outcome_button_label(outcome, check.title, current=current),
+                        "check_resolve_set",
+                        {"card_id": card_id, "check_id": check.id, "outcome": outcome},
                     )
+                    for outcome in SETTABLE_OUTCOMES
                 ]
             )
-        rows.append(
-            [
+        closing = []
+        if any(state_outcomes.values()):
+            closing.append(
                 await token_button(
                     session,
                     services.owner_id,
                     "✅ Save",
                     "check_resolve_save",
                     {"card_id": card_id},
-                ),
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "↩️ Back",
-                    "check_resolve_cancel",
-                    {"id": card_id, "back": back},
-                ),
-            ]
+                )
+            )
+        closing.append(
+            await token_button(
+                session,
+                services.owner_id,
+                "↩️ Back",
+                "check_resolve_cancel",
+                {"id": card_id, "back": back},
+            )
         )
+        rows.append(closing)
         await session.commit()
 
     lines = [
         f"<b>Pending Checks — {html.escape(card.title)}</b>",
-        "Answer each Check before this Card is Done. Tap one to change its answer.",
+        "Answer every Check before this Card is Done.",
         "",
         *[
-            f"{CHECK_STATUS_EMOJIS[state_outcomes[str(check.id)]]} {html.escape(check.title)}"
-            f" — {CHECK_OUTCOME_LABELS[state_outcomes[str(check.id)]]}"
+            f"{CHECK_STATUS_EMOJIS[state_outcomes[str(check.id)] or 'pending']}"
+            f" {html.escape(check.title)}"
+            f" — {CHECK_OUTCOME_LABELS[state_outcomes[str(check.id)] or 'pending']}"
             for check in pending
         ],
     ]
     await _deliver(
         message,
         services,
-        "\n".join(lines),
+        with_notice("\n".join(lines), notice),
         InlineKeyboardMarkup(inline_keyboard=rows),
         replace_message_id,
         related_id=card_id,
