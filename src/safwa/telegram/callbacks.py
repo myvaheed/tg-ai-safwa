@@ -908,9 +908,8 @@ async def _on_reminder_delete_confirm(context: CallbackContext) -> None:
 async def _on_proposal_approve(context: CallbackContext) -> None:
     proposal_id = context.payload["id"]
     async with context.sessions() as session:
-        # Only a Card deletion is destructive: it takes a whole subtree and its historical
-        # contribution with it.  Deleting a Reminder removes a future trigger and nothing
-        # else, so it gets one Save like every other change.
+        # Only a Card deletion needs the extra confirmation: it takes a whole subtree and
+        # its historical contribution with it.
         destructive = await session.scalar(
             select(ProposalChange.id).where(
                 ProposalChange.proposal_id == proposal_id,

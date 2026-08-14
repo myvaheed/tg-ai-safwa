@@ -84,8 +84,6 @@ async def ordinary_text(message: Message, services: Services) -> None:
         reminder_id = int(ui_state["reminder_id"])
         message_id = int(ui_state["message_id"])
         async with services.sessions() as session:
-            # The one write path for a Reminder's text, so the schedule stays untouched and
-            # the relevance cache is dropped in exactly one place.
             await update_reminder_text(session, reminder_id, message.text)
             await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
             await session.commit()

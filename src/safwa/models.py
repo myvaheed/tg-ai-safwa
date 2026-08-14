@@ -46,11 +46,9 @@ class UtcDateTime(TypeDecorator[datetime]):
     """A ``DateTime`` that always reads back as tz-aware UTC.
 
     SQLite has no time zone type, so ``DateTime(timezone=True)`` accepts an aware value and
-    hands back a naive one; subtracting it from ``datetime.now(UTC)`` then raises.  Reminder
-    scheduling is nothing but datetime arithmetic, so the conversion belongs in the column
-    rather than at each of the call sites that would otherwise have to remember it.
+    hands back a naive one; subtracting it from ``datetime.now(UTC)`` then raises.
 
-    The emitted DDL is unchanged, so this is not a schema change.
+    The emitted DDL is unchanged, so switching a column to this type needs no rebuild.
     """
 
     impl = DateTime(timezone=True)
@@ -389,14 +387,13 @@ class MemorySyncState(Base):
 class Reminder(Base, TimestampMixin):
     """A trigger the owner set: instruction text plus a schedule, and nothing else.
 
-    There is no `archived_at` and no `active` flag — a trigger that never fires is the
-    same as one that does not exist, so the only off switch is deletion.  There is no FK
-    to a subject Card or Check either: the id lives inside `instruction` as text, which is
-    one mechanism instead of two that can drift apart.
+    Deletion is the only off switch; there is no `archived_at` and no `active` flag. The
+    subject is named inside `instruction` as `#id` text rather than by a foreign key, so
+    one Reminder may concern any number of Safwa items of any type.
 
     `next_fire_at` is the only column the scheduler poll reads, and it is advanced *only*
-    after an escalation succeeds.  That ordering is what makes a cancelled or crashed turn
-    lose nothing: the row is still overdue, so the next tick retries it.
+    after an escalation succeeds, so a cancelled or crashed turn leaves the row overdue for
+    the next tick to retry.
     """
 
     __tablename__ = "reminders"

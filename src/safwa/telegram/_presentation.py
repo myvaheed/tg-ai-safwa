@@ -175,7 +175,6 @@ def menu_markup() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🏷 Tags", callback_data="nav:tags"),
             ],
             [
-                InlineKeyboardButton(text="💬 Advisor", callback_data="nav:advisor"),
                 InlineKeyboardButton(text="🔎 Requests", callback_data="nav:requests"),
                 InlineKeyboardButton(text="⏰ Reminders", callback_data="nav:reminders"),
                 InlineKeyboardButton(text="📊 Retro", callback_data="nav:retro"),

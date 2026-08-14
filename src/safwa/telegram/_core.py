@@ -42,15 +42,19 @@ class Services:
     bot_username: str = ""
 
 
-# Telegram message ids are positive, so a negative one cannot collide with a real lease.
+# The source id of a generation nobody asked for. Telegram message ids are positive, so a
+# negative one cannot collide with a real message.
 BACKGROUND_SOURCE_ID = -1
 
 
 class GenerationGuard:
-    """The single foreground lease, keyed by the message that started the generation.
+    """Allows one AI generation at a time, identified by what started it.
 
-    A lease is either the owner's or a background Reminder escalation's, and the two are
-    not equal: the owner always wins.  See :meth:`reserve_background`.
+    ``active_source_id`` is the Telegram message id being answered, or
+    ``BACKGROUND_SOURCE_ID`` when nothing was asked.  Holding it is what makes the
+    middleware reject callbacks and delete incoming messages, so only one answer is ever
+    being written into the chat.  ``dialogue_revision`` is bumped by :meth:`cancel` and is
+    how a generation already in flight learns to discard its result.
     """
 
     def __init__(self) -> None:
@@ -63,7 +67,6 @@ class GenerationGuard:
 
     @property
     def background(self) -> bool:
-        """Whether a Reminder escalation, rather than the owner, is holding the guard."""
         return self.active_source_id == BACKGROUND_SOURCE_ID
 
     async def acquire(self, source_id: int) -> None:
@@ -78,10 +81,9 @@ class GenerationGuard:
         return True
 
     def reserve_background(self) -> bool:
-        """Take the guard for a Reminder escalation, yielding to any lease already held.
+        """Take the guard for a generation nobody asked for, or decline if it is held.
 
-        Never steals: the poll simply leaves ``next_fire_at`` alone and retries in thirty
-        seconds.
+        Never takes it away from the owner; the caller retries later.
         """
         if self.active_source_id is not None:
             return False
@@ -126,12 +128,8 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
                 except TelegramAPIError as error:
                     logger.warning("Could not delete operational command %s: %s", command, error)
         if services.guard.background:
-            # The owner always wins.  Deleting the owner's message while the guard is held
-            # keeps history consistent with what the running answer is being generated
-            # from — but an escalation is generated with dialogue=None and never reads the
-            # conversation, so here that rule protects nothing and costs a message.
-            # Nothing is lost by dropping the half-finished turn: next_fire_at was never
-            # advanced, so the row is still due and the next poll picks it up.
+            # The owner outranks a generation nobody asked for: drop it and take the message
+            # normally, rather than deleting it the way a foreground collision would.
             services.guard.cancel()
         if isinstance(event, Message) and services.guard.active:
             if command == "/cancel":

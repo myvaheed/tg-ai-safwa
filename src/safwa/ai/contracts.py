@@ -381,7 +381,7 @@ class ReminderToolInput(ToolInput):
         description=(
             "What Safwa should do when the time comes, handed to the advisor as a request. "
             "It must stand on its own — the conversation is not available then — and must "
-            "name every Card or Check it concerns by #id."
+            "name every Safwa item it concerns by #id."
         )
     )
     when: str | None = Field(
@@ -404,8 +404,8 @@ class ReminderToolInput(ToolInput):
 class ReminderConfigInput(ToolInput):
     """The setup session's terminal call: free text resolved into parameters.
 
-    `schedule_kind` is absent on purpose — it is derived from which of these are present,
-    so the model cannot name a shape that contradicts its own parameters.
+    `schedule_kind` is derived from which of these are present, so the model cannot name a
+    shape that contradicts its own parameters.
     """
 
     days: list[Literal["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]] | None = Field(
@@ -439,10 +439,7 @@ class ReminderConfigInput(ToolInput):
 
 class NotClearEnoughInput(ToolInput):
     reason: str = Field(
-        description=(
-            "The one question the owner must answer, in their words. Never guess a time: a "
-            "guessed one is discovered when the Reminder fires at 03:00."
-        )
+        description="The one question the owner must answer, in their words."
     )
 
 

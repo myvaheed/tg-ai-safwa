@@ -143,9 +143,8 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
         FROM checks k
         WHERE k.archived_at IS NULL"""
     )
-    # `schedule` is deliberately absent: a schedule is only human-readable once `describe()`
-    # has assembled it, and duplicating that in SQL would give the model a second wording to
-    # disagree with. The raw columns are here so it can still filter on them.
+    # The raw schedule columns, not a rendered `schedule`: `describe()` is the one wording,
+    # and duplicating it in SQL would give the model a second one to disagree with.
     connection.exec_driver_sql(
         """CREATE VIEW IF NOT EXISTS ai_reminders AS
         SELECT id, instruction, schedule_kind, weekdays, at_time, interval_minutes,

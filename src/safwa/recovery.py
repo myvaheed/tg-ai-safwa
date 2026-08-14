@@ -41,15 +41,15 @@ async def recover_startup(session: AsyncSession) -> None:
 
 
 async def reconcile_reminders(session: AsyncSession, *, now: datetime) -> None:
-    """Bring Reminder schedules back in line with the wall clock after downtime.
+    """Fix `next_fire_at` on every repeating Reminder after downtime.
 
-    There is nothing to register: the rows *are* the schedule, so boot only reconciles.
-    Anything still inside the catch-up grace is deliberately left overdue — the first poll
-    firing it *is* the catch-up.
+    Two things go stale while the process is down. A wall-clock schedule stores a local
+    time, so after a timezone change "08:30" is a different UTC instant and every stored
+    fire time is wrong at once; those are rebuilt. A schedule that came due meanwhile is
+    rolled forward, but only once it is past the catch-up grace — inside the grace the row
+    stays overdue, because the first poll firing it is the catch-up.
 
-    A timezone change is handled here rather than at the change site because a wall-clock
-    schedule stores a local time: "08:30" means a different UTC instant after the move, and
-    every stored `next_fire_at` is stale at once.
+    A one-shot is never moved: it always fires, however late.
     """
     workspace = await session.get(Workspace, 1)
     tz = ZoneInfo(workspace.timezone if workspace else "UTC")

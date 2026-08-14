@@ -334,9 +334,7 @@ def schedule_payload(schedule: Schedule) -> dict[str, Any]:
     """The same schedule as JSON primitives, for a ``ProposalChange.values`` blob.
 
     Separate from :func:`schedule_columns` because that one hands real ``time`` and
-    ``datetime`` objects to typed ORM columns, which a JSON column cannot store.  The
-    resolved schedule is carried through the proposal rather than the words the model used,
-    so Save applies exactly what the review screen showed.
+    ``datetime`` objects to typed ORM columns, which a JSON column cannot store.
     """
     return {
         "schedule_kind": schedule.kind.value,

@@ -245,18 +245,6 @@ async def command_add(message: Message, services: Services) -> None:
     await start_manual_card_creation(message, services)
 
 
-@router.message(Command("advisor"))
-async def command_advisor(message: Message, services: Services) -> None:
-    await send_registered(
-        message,
-        services,
-        "<b>Advisor</b>\nWrite naturally and Safwa can answer, analyze your planning, or prepare a "
-        "reviewable change. Use <code>/newsession</code> for a focused branch.",
-        kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
-    )
-
-
 @router.message(Command("values"))
 async def command_values(message: Message, services: Services) -> None:
     async with services.sessions() as session:
@@ -514,7 +502,7 @@ async def command_feedback(message: Message, services: Services) -> None:
 
 @router.message(Command("reminders"))
 async def command_reminders(message: Message, services: Services) -> None:
-    """Show the triggers the owner set; creation stays advisor-only, like Requests."""
+    """Show the triggers the owner set; creation and timing stay advisor-only."""
     await render_reminders(message, services)
 
 
@@ -540,8 +528,7 @@ async def command_settings(message: Message, services: Services) -> None:
         f"Advisor instructions: {advisor_instructions}\n"
         f"Sprint capacity: {capacity} EP\n"
         f"Memory sync: {memory_update_time} ({timezone})\n"
-        "Edit with /setabout, /setadvisor, /setcapacity, or /setmemtime HH:MM|off.\n"
-        "Reminder timing is set through the advisor; see /reminders.",
+        "Edit with /setabout, /setadvisor, /setcapacity, or /setmemtime HH:MM|off.",
         kind=MessageKind.DASHBOARD,
         markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
     )
@@ -660,7 +647,6 @@ async def navigation(callback: CallbackQuery, services: Services) -> None:
         "tags": command_tags,
         "requests": command_requests,
         "reminders": command_reminders,
-        "advisor": command_advisor,
         "retro": command_retro,
         "settings": command_settings,
     }

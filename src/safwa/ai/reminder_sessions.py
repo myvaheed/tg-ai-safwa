@@ -1,11 +1,7 @@
-"""The two Reminder mini-sessions and the escalation text they feed.
+"""The two Reminder mini-sessions.
 
-Setup runs before a Reminder proposal is written, turning free-text timing into parameters
-the code can compute with.  Relevance runs at fire time, reading the items the instruction
-names so the main advisor does not have to look them up itself.
-
-Neither writes anything.  The setup session's output becomes an ordinary Save/Discard
-proposal; the relevance session's output becomes two lines of an escalation.
+Setup turns a free-text timing phrase into schedule parameters; relevance reads the items an
+instruction names at fire time.  Neither writes anything.
 """
 
 from __future__ import annotations
@@ -23,9 +19,7 @@ from .provider import OpenAICompatibleProvider
 
 logger = logging.getLogger(__name__)
 
-SETUP_PROMPT = """You turn one plain-language timing phrase into schedule parameters. You do
-nothing else: you never write the Reminder, never judge whether it is a good idea, and never
-touch its text.
+SETUP_PROMPT = """You turn one plain-language timing phrase into schedule parameters.
 
 Call set_reminder_config when the phrase determines a schedule, or not_clear_enough when it
 does not. Exactly one call, then stop.
@@ -39,27 +33,22 @@ What the parameters mean:
 - quiet_windows suppress hours of the day and only apply to an interval.
 
 Never guess. "every morning", "soon", "twice a week", "a few times a day" do not determine a
-schedule — call not_clear_enough with the single question the owner must answer. A guessed
-time is only discovered when the Reminder fires at 03:00.
+schedule — call not_clear_enough with the single question the owner must answer.
 
 Relative phrases are resolved against the current time given below: "in 90 minutes" is a
 single occurrence at that moment, not an interval."""
 
-RELEVANCE_PROMPT = """A Reminder is about to fire. Report the current state of every Safwa
-item its text names by #id, and judge whether the Reminder still makes sense.
+RELEVANCE_PROMPT = """Report the current state of every Safwa item a Reminder's text names by
+#id, and judge whether the Reminder still makes sense.
 
 Use query_safwa to read the items. Then call complete_relevance_check exactly once.
 
 verdict:
 - trigger — the items are still live, or the text names nothing that could expire.
-- irrelevant — what the Reminder watches is Done, Cancelled, or no longer exists.
+- irrelevant — what the Reminder watches is Done, Cancelled, or gone.
 
-state: one or two sentences, each item by #id with its current stage or outcome. This text
-is shown to the advisor verbatim, so write it for a reader, not as a data dump. When the
-verdict is irrelevant, say plainly what happened and when.
-
-You are not deciding whether to send anything, and you are not writing the reminder message.
-Both verdicts are reported onward. Time of day is never your concern."""
+state: one or two sentences for a reader, not a data dump — each item by #id with its current
+stage or outcome. When the verdict is irrelevant, say plainly what happened and when."""
 
 
 async def resolve_schedule(
@@ -70,11 +59,7 @@ async def resolve_schedule(
     now: datetime,
     tz: ZoneInfo,
 ) -> Schedule:
-    """Resolve free-text timing into a Schedule, or raise with the question to ask the owner.
-
-    Runs before the proposal row is written so the review screen shows a real schedule
-    rather than the words the model happened to use.
-    """
+    """Resolve free-text timing into a Schedule, or raise with the question to ask the owner."""
     local = now.astimezone(tz)
     context = (
         f"Timing phrase: {when}\n"
@@ -124,8 +109,7 @@ async def check_relevance(
 ) -> tuple[RelevanceVerdict, str | None]:
     """Read the items an instruction names and judge whether it still makes sense.
 
-    A failure here must not stop the Reminder: the fallback is to fire with no state line,
-    which is exactly what an instruction naming no item does anyway.
+    A failure here fires the Reminder anyway, with no state line.
     """
     context = (
         f"Reminder text: {instruction}\n"

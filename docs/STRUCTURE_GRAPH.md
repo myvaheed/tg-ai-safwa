@@ -284,7 +284,7 @@ entangled with proposals and `AgentRun` rows.
 ### `telegram/escalation.py` — due Reminders → one advisor turn
 
 `ReminderRuntime.can_escalate` (guard free, no pending proposal, no unresolved approval batch) ·
-`.evaluate` · `.escalate` (background guard lease, `dialogue=None`, answer registered as
+`.evaluate` · `.escalate` (guard taken as background, `dialogue=None`, answer registered as
 `MessageKind.REMINDER`) · `format_escalation`.
 
 ### `analytics.py` — retrospectives
@@ -514,7 +514,7 @@ the model's resumed answer.
 `run_scheduler` (30 s) → `due_reminders` → `ReminderRuntime.can_escalate` (else advance nothing) →
 `prepare` (skip the relevance session when the instruction names no `#id` or the revision is
 unchanged, else `check_relevance`) → `format_escalation` → `ReminderRuntime.escalate`
-(background guard lease → `AIAdvisor.handle(..., dialogue=None)` → `render_ai_outcome(...,
+(guard taken as background → `AIAdvisor.handle(..., dialogue=None)` → `render_ai_outcome(...,
 kind=REMINDER)`) → only on success `settle`: one-shots deleted, repeats advanced from their
 scheduled moment.
 

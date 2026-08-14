@@ -576,8 +576,7 @@ async def create_reminder(
 async def update_reminder_text(session: AsyncSession, reminder_id: int, instruction: str) -> Reminder:
     """Edit what a Reminder tells the advisor, and nothing about when it fires.
 
-    Both surfaces that edit a Reminder land here, so the invariant holds in one place: the
-    schedule columns are untouched, and the relevance cache is dropped because the new text
+    The schedule columns are untouched; the relevance cache is dropped because the new text
     may name different items.
     """
     reminder = await session.get(Reminder, reminder_id)
@@ -614,7 +613,7 @@ async def reschedule_reminder(
 
 
 async def delete_reminder(session: AsyncSession, reminder_id: int) -> None:
-    """Remove a Reminder outright. There is no archive: a trigger that never fires is gone."""
+    """Remove a Reminder outright; there is no archive."""
     reminder = await session.get(Reminder, reminder_id)
     if reminder is None:
         raise DomainError("Reminder does not exist")
@@ -623,7 +622,7 @@ async def delete_reminder(session: AsyncSession, reminder_id: int) -> None:
 
 
 async def snooze_reminders(session: AsyncSession, until: datetime) -> UserProfile:
-    """Pause every Reminder until a moment. The only snooze there is — there is no per-row one."""
+    """Pause every Reminder until a moment."""
     profile = await session.get(UserProfile, 1)
     if profile is None:
         raise DomainError("User profile is not initialized")

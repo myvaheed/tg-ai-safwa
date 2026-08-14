@@ -50,11 +50,9 @@ class ScheduleKind(StrEnum):
 
 
 class RelevanceVerdict(StrEnum):
-    """The relevance check answers "does this Reminder still make sense?", nothing else.
+    """Whether a Reminder still makes sense.
 
-    There is deliberately no "not now": that would be a firing gate, and firing gates are
-    quiet windows.  Both verdicts escalate — `irrelevant` is a flag on the escalation, not
-    a silent delete.
+    Both verdicts escalate: `irrelevant` is a flag on the escalation, not a silent delete.
     """
 
     TRIGGER = "trigger"

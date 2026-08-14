@@ -1,11 +1,10 @@
 """Turning due Reminders into one advisor turn.
 
-The reminder system's only output is an escalation: it hands the instruction text to the
-main advisor as a request and gets out of the way.  It never composes a message, never
-renders an item and never decides anything — a Check proposal, a sentence, or a deletion
-proposal are all the advisor's call, using the tools it already has.
+The instruction text is handed to the main advisor as a request; what comes back — a
+proposal, a sentence, nothing — is the advisor's call.  This module composes no message and
+renders no item.
 
-This module registers no ``@router`` handlers; it is driven by the scheduler poll.
+It registers no ``@router`` handlers; the scheduler poll drives it.
 """
 
 from __future__ import annotations
@@ -79,7 +78,7 @@ class ReminderRuntime:
         """Run one advisor turn over the batch. Returns whether the answer was delivered.
 
         Returning False leaves every `next_fire_at` untouched, so the rows stay due and the
-        next poll retries them — that is the whole cancellation story.
+        next poll retries them.
         """
         guard = self.services.guard
         if not guard.reserve_background():
@@ -93,9 +92,8 @@ class ReminderRuntime:
             if guard.dialogue_revision != revision:
                 # The owner arrived mid-turn and took the guard. Their message wins.
                 return False
-            # REMINDER, not DIALOGUE_ASSISTANT: that kind already means "proactive bot
-            # message" and is already part of dialogue, so the model later reads this as
-            # something it volunteered rather than an answer to a message that is not there.
+            # REMINDER keeps the answer in dialogue while marking it as something the model
+            # volunteered, not a reply to a message that is not there.
             await render_ai_outcome(
                 self._anchor(), self.services, outcome, kind=MessageKind.REMINDER
             )
@@ -109,10 +107,8 @@ class ReminderRuntime:
     def _anchor(self) -> Message:
         """A stand-in for the message that would normally have started this turn.
 
-        The render path is written against an incoming event because every other turn has
-        one.  `from_user` is the owner rather than the bot on purpose: that is what makes
-        `send_registered` post a new screen instead of trying to edit a message id that
-        does not exist.
+        `from_user` is the owner, which is what makes `send_registered` post a new screen
+        instead of trying to edit a message id that does not exist.
         """
         return Message(
             message_id=0,
@@ -123,7 +119,7 @@ class ReminderRuntime:
 
 
 def format_escalation(firings: list[Firing], *, tz: ZoneInfo, now: datetime) -> str:
-    """The whole batch as one request. Formatting this well is the system's only real job."""
+    """The whole batch as one request."""
     count = len(firings)
     header = "1 Reminder triggered." if count == 1 else f"{count} Reminders triggered."
     blocks = [header, ""]

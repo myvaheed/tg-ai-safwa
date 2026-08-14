@@ -154,10 +154,9 @@ MUTATION_TOOL_DESCRIPTIONS = {
     "reminder": (
         "Propose a Reminder: instruction text plus timing in plain words. The text is handed "
         "to you as a request when the time comes, so it must stand on its own and must name "
-        "every Card or Check it concerns by #id — look the id up with query_safwa first. "
-        "Pass the timing through verbatim in when; it is resolved elsewhere, so never invent "
-        "a date or an hour. Omit when in edit mode to change only the text and leave the "
-        "schedule alone. Nothing is saved until the user presses Save."
+        "every Safwa item it concerns by #id — look the id up with query_safwa first. "
+        "Pass the timing through verbatim in when; never invent a date or an hour. Omit when "
+        "in edit mode to change only the text and leave the schedule alone."
     ),
     "remove": "Prepare an archive or permanent Card-deletion confirmation.",
 }
@@ -1385,18 +1384,15 @@ class AIAdvisor:
     async def _prepare_reminder_values(
         self, session: AsyncSession, workspace: Workspace, values: dict[str, Any]
     ) -> dict[str, Any]:
-        """Resolve the free-text timing here, before the proposal row exists.
+        """Resolve the free-text timing before the proposal row exists, so the review screen
+        shows a real schedule and Save applies exactly what the owner approved.
 
-        Running the setup session first is what lets the review screen show a real schedule
-        instead of the words the model happened to use, so Save applies exactly what the
-        owner approved.  An unresolvable phrase comes back as a retryable tool error, so the
-        advisor asks the owner that exact question rather than guessing an hour.
+        An unresolvable phrase becomes a retryable tool error carrying the question to ask.
         """
         prepared = dict(values)
         when = str(prepared.pop("when", "") or "").strip()
         if not when:
-            # An edit with no timing: rule — changing the text never changes the schedule.
-            return prepared
+            return prepared  # an edit with no timing leaves the schedule alone
         tz = ZoneInfo(workspace.timezone)
         now = utcnow()
         try:
@@ -2183,9 +2179,8 @@ class ProposalService:
     async def _apply_reminder_change(self, change: ProposalChange, affected: list[int]) -> None:
         """Save an approved Reminder through the same domain calls the UI uses.
 
-        The schedule was resolved when the proposal was prepared and travels in the values
-        blob, so Save writes what the review screen showed rather than re-interpreting the
-        owner's words against a clock that has since moved.
+        The schedule travels in the values blob, already resolved, so Save writes what the
+        review screen showed.
         """
         workspace = await self.session.get(Workspace, 1)
         tz = ZoneInfo(workspace.timezone if workspace else "UTC")

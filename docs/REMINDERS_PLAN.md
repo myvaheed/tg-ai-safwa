@@ -423,28 +423,6 @@ still due and the next tick picks it up.
 No backoff: if the check keeps saying the thing it watches is gone, Safwa keeps saying so. Silence
 would hide a Reminder watching something that no longer exists.
 
-## What the rework removed
-
-`ReminderPolicy` and its 13 candidate kinds, and `send_reminder`'s `{"send","message"}` veto in
-`main.py`. Everything that existed only to ration unsolicited nudges went with them:
-
-| Removed | Why |
-|---|---|
-| `proactive_limit`, `reminder_cooldown_minutes`, `weekend_enabled`, `morning_checkin`, `evening_checkin` | they rationed nudges nobody asked for; a Reminder the owner set needs no daily cap |
-| `quiet_start`/`quiet_end`, `wake_time`/`bed_time`, and `/setquiet`, `/setwake`, `/setbed` | suppression is a per-Reminder quiet window now |
-| `reminder_state` table | the global snooze moved to `UserProfile.reminders_snoozed_until`, so `snooze_reminders` is a profile update and `/snooze` is unchanged from outside |
-| `scheduled_jobs` table | never written, never read |
-
-Kept: `reminders_enabled` (the master switch) and `MessageKind.REMINDER` at code 5
-(`_KIND_MARK_CODES` is append-only).
-
-`/settings` is now `/setabout`, `/setadvisor`, `/setcapacity`, `/setmemtime`.
-Tables: 28 − 2 + 1 = **27**. Bot commands: 21 − 3 + 1 (`/reminders`) = **19**.
-
-**Not in this plan:** `FeedbackQueue` is not stranded — only the `feedback` *candidate kind* was. It
-is still used by `/feedback`, `/status`, `domain.finish_action`, `Card.liked` and
-`analytics.retrospective_recommendations`. Same for a "Today ends at HH:MM" setting. Both parked.
-
 ## AI surface
 
 ```

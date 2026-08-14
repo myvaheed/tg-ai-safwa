@@ -1,9 +1,8 @@
 """One-question model sessions that end in a single terminal tool call.
 
-Deliberately not ``_run_agent_loop``: that loop is entangled with proposals, ``AgentRun``
-rows and the approval queue, none of which a mini-session has.  A mini-session gets its own
-system prompt, a small context, at most one read tool, and a set of terminal tools of which
-exactly one must be called — the call *is* the answer, so prose is never accepted.
+A mini-session gets its own system prompt, a small context, at most one read tool, and a set
+of terminal tools of which exactly one must be called — the call *is* the answer, so prose is
+never accepted.  It touches no proposal, ``AgentRun`` row or approval queue.
 """
 
 from __future__ import annotations
