@@ -27,11 +27,13 @@ from .cards import (
     render_children,
     render_dashboard,
 )
+from .commands import sync_bot_commands
 from .dialogue import ordinary_text
 from .escalation import ReminderRuntime, format_escalation
 from .items import render_item_editor, render_item_text_prompt
 from .proposals import render_ai_outcome, render_proposal
 from .screens import open_citation, open_item_screen, render_citations
+from .sprint import render_sprint, render_today
 
 __all__ = [
     "BACKGROUND_SOURCE_ID",
@@ -59,5 +61,8 @@ __all__ = [
     "render_item_editor",
     "render_item_text_prompt",
     "render_proposal",
+    "render_sprint",
+    "render_today",
     "router",
+    "sync_bot_commands",
 ]

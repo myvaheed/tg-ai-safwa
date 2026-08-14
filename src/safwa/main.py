@@ -9,7 +9,6 @@ from pathlib import Path
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import BotCommand
 
 from .ai.provider import OpenAICompatibleProvider, ProviderConfig
 from .ai.service import AIAdvisor
@@ -22,8 +21,9 @@ from .domain import bootstrap_workspace
 from .enums import AIProvider, MessageKind
 from .history import TelegramHistorySource, mark_message, register_message
 from .memory import MemoryFileStore
+from .models import Workspace
 from .recovery import recover_startup
-from .scheduler import run_scheduler
+from .scheduler import run_scheduler, run_sprint_expiry
 from .telegram import (
     BACKGROUND_SOURCE_ID,
     GenerationGuard,
@@ -31,6 +31,7 @@ from .telegram import (
     ReminderRuntime,
     Services,
     router,
+    sync_bot_commands,
 )
 
 logger = logging.getLogger(__name__)
@@ -148,29 +149,10 @@ async def run(settings: Settings) -> None:
     router.callback_query.outer_middleware.register(OwnerAndWritingMiddleware())
     dispatcher.include_router(router)
     dispatcher["services"] = services
-    await bot.set_my_commands(
-        [
-            BotCommand(command="start", description="Open Safwa"),
-            BotCommand(command="today", description="Today dashboard"),
-            BotCommand(command="sprint", description="Planning or Sprint"),
-            BotCommand(command="backlog", description="Backlog dashboard"),
-            BotCommand(command="values", description="Values in focus"),
-            BotCommand(command="tags", description="Manage Tags"),
-            BotCommand(command="requests", description="Saved AI Requests"),
-            BotCommand(command="retro", description="Latest retrospective"),
-            BotCommand(command="feedback", description="Pending completion feedback"),
-            BotCommand(command="reminders", description="Your Reminders"),
-            BotCommand(command="settings", description="Profile and reminders"),
-            BotCommand(command="setcapacity", description="Set Sprint capacity"),
-            BotCommand(command="snooze", description="Snooze reminders (minutes)"),
-            BotCommand(command="syncmem", description="Sync Telegram dialogue into memory"),
-            BotCommand(command="mem", description="Add a durable memory fact"),
-            BotCommand(command="setmemtime", description="Set daily memory sync time"),
-            BotCommand(command="memory", description="Inspect memory.md"),
-            BotCommand(command="status", description="Safwa diagnostics"),
-            BotCommand(command="cancel", description="Cancel generation"),
-        ]
-    )
+    async with database.sessions() as session:
+        workspace = await session.get(Workspace, 1)
+        sprint_active = bool(workspace and workspace.active_sprint_id)
+    await sync_bot_commands(bot, sprint_active=sprint_active)
 
     async def memory_error(text: str) -> None:
         marked_text, event_id = mark_message(f"⚠️ memory.md: {text}", MessageKind.ERROR)
@@ -207,6 +189,29 @@ async def run(settings: Settings) -> None:
             ),
             name="reminder-scheduler",
         )
+    async def announce_sprint_expiry(number: int) -> None:
+        text = (
+            f"⏹ Sprint {number} reached its planned end date and was closed automatically. "
+            "Whatever was still open kept its stage."
+        )
+        marked_text, event_id = mark_message(text, MessageKind.RECEIPT)
+        sent = await bot.send_message(settings.telegram_owner_id, marked_text)
+        async with database.sessions() as session:
+            await register_message(
+                session,
+                sent.chat.id,
+                sent.message_id,
+                "out",
+                MessageKind.RECEIPT,
+                event_id=event_id,
+            )
+            await session.commit()
+        await sync_bot_commands(bot, sprint_active=False)
+
+    sprint_expiry_task = asyncio.create_task(
+        run_sprint_expiry(database.sessions, announce=announce_sprint_expiry),
+        name="sprint-expiry",
+    )
     memory_maintenance_task = asyncio.create_task(
         run_memory_maintenance(
             continuity,
@@ -223,7 +228,7 @@ async def run(settings: Settings) -> None:
     try:
         await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
     finally:
-        for task in (memory_task, scheduler_task, memory_maintenance_task):
+        for task in (memory_task, scheduler_task, sprint_expiry_task, memory_maintenance_task):
             if task is None:
                 continue
             task.cancel()

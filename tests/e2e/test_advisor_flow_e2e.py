@@ -286,7 +286,7 @@ async def test_ai_goal_proposal_reports_a_parent_instead_of_dropping_it(e2e_harn
 async def test_ai_stage_update_to_done_keeps_completion_accounting(e2e_harness):
     async with e2e_harness.sessions() as session:
         action = await create_manual_card(session, title="Ship", stage="sprint", effort_points=5)
-        sprint = await start_sprint(session)
+        sprint = await start_sprint(session, success_criteria="Ship the release")
         await session.commit()
         action_id, sprint_id = action.id, sprint.id
 
@@ -433,7 +433,7 @@ async def test_ai_card_proposal_to_repeat_sprint_and_retrospective(e2e_harness):
         )
 
         await move_card(session, action.id, CardStage.SPRINT)
-        sprint = await start_sprint(session, capacity=8)
+        sprint = await start_sprint(session, success_criteria="Ship the release", capacity=8)
         await move_card(session, action.id, CardStage.TODAY)
         completion = await finish_action(session, action.id, CardStage.DONE)
         assert len(completion.successor_ids) == 1
@@ -478,7 +478,7 @@ async def test_ai_read_query_round_trip_uses_safe_view(e2e_harness):
             stage="sprint",
             effort_points=5,
         )
-        await start_sprint(session, capacity=8)
+        await start_sprint(session, success_criteria="Ship the release", capacity=8)
         await finish_action(session, action.id, CardStage.DONE)
         await session.commit()
 

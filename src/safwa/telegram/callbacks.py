@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from aiogram import F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup
@@ -41,6 +42,7 @@ from ..models import (
     ProposalChange,
     UiSession,
     UserProfile,
+    Workspace,
 )
 from ._core import (
     CARD_CHOICE_FIELDS,
@@ -71,11 +73,14 @@ from .cards import (
 )
 from .checks import render_check, render_check_resolution, render_checks
 from .commands import (
+    command_settings,
     command_start,
     command_tags,
     command_values,
     end_subsession,
     render_feedback,
+    render_sprint_length_prompt,
+    sync_bot_commands,
 )
 from .items import render_item_editor, render_item_text_prompt, render_saved_request
 from .proposals import continue_agent_approval, render_proposal
@@ -84,6 +89,12 @@ from .reminders import (
     render_reminder_delete_prompt,
     render_reminder_text_prompt,
     render_reminders,
+)
+from .sprint import (
+    render_sprint,
+    render_sprint_confirm,
+    render_sprint_criteria_prompt,
+    render_today,
 )
 
 logger = logging.getLogger(__name__)
@@ -409,13 +420,43 @@ async def _on_card_draft_discard(context: CallbackContext) -> None:
 # --- Navigation ----------------------------------------------------------------
 
 
+async def _render_dashboard_state(
+    context: CallbackContext, state: dict[str, Any], *, notice: str | None = None
+) -> None:
+    """Return to the Card list a screen came from, whichever of the four it is."""
+    page = int(state.get("page", 0))
+    mode = state.get("mode")
+    if mode == "today":
+        await render_today(context.message, context.services, page=page, notice=notice)
+    elif mode == "sprint":
+        await render_sprint(context.message, context.services, page=page, notice=notice)
+    elif mode == "sprint_confirm":
+        await render_sprint_confirm(context.message, context.services, page=page, notice=notice)
+    else:
+        await render_dashboard(
+            context.message,
+            context.services,
+            CardStage(state["stage"]),
+            title=state.get("title", "Backlog"),
+            page=page,
+            notice=notice,
+        )
+
+
 async def _on_dashboard_page(context: CallbackContext) -> None:
-    await render_dashboard(
-        context.message,
-        context.services,
-        CardStage(context.payload["stage"]),
-        title=context.payload["title"],
-        page=int(context.payload["page"]),
+    await _render_dashboard_state(context, context.payload)
+
+
+async def _on_card_quick_move(context: CallbackContext) -> None:
+    """One tap moves an Action between Sprint and Today, then shows the same list again."""
+    async with context.sessions() as session:
+        result = await move_card(
+            session, int(context.payload["id"]), CardStage(context.payload["stage"])
+        )
+        await session.commit()
+    notice = "⚠️ " + "; ".join(result.warnings) if result.warnings else None
+    await _render_dashboard_state(
+        context, dict(context.payload.get("back") or {}), notice=notice
     )
 
 
@@ -441,13 +482,7 @@ async def _on_card_children(context: CallbackContext) -> None:
 async def _on_card_back(context: CallbackContext) -> None:
     back = context.payload.get("back") or {"kind": "home"}
     if back["kind"] == "dashboard":
-        await render_dashboard(
-            context.message,
-            context.services,
-            CardStage(back["stage"]),
-            title=back["title"],
-            page=int(back.get("page", 0)),
-        )
+        await _render_dashboard_state(context, back)
     elif back["kind"] == "request":
         await render_saved_request(context.message, context.services, int(back["id"]))
     elif back["kind"] == "card":
@@ -846,19 +881,41 @@ async def _on_feedback(context: CallbackContext) -> None:
 # --- Sprint --------------------------------------------------------------------
 
 
+async def _on_sprint_criteria_prompt(context: CallbackContext) -> None:
+    await render_sprint_criteria_prompt(context.message, context.services)
+
+
+async def _on_sprint_confirm(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        await _clear_ui_sessions(session, context.owner_id)
+        await session.commit()
+    await render_sprint_confirm(context.message, context.services)
+
+
+async def _on_sprint_back(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        await _clear_ui_sessions(session, context.owner_id)
+        await session.commit()
+    await render_sprint(context.message, context.services)
+
+
 async def _on_sprint_start(context: CallbackContext) -> None:
     async with context.sessions() as session:
         profile = await session.get(UserProfile, 1)
+        workspace = await session.get(Workspace, 1)
         sprint = await start_sprint(
-            session, capacity=profile.capacity_effort_points if profile else None
+            session,
+            success_criteria=workspace.sprint_success_criteria if workspace else "",
+            capacity=profile.capacity_effort_points if profile else None,
         )
+        await _clear_ui_sessions(session, context.owner_id)
         await session.commit()
-    await send_registered(
+        number, end_date = sprint.number, sprint.planned_end_date
+    await sync_bot_commands(context.message.bot, sprint_active=True)
+    await render_sprint(
         context.message,
         context.services,
-        f"Sprint {sprint.number} started.",
-        kind=MessageKind.RECEIPT,
-        markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
+        notice=f"Sprint {number} started. It ends on {end_date}.",
     )
 
 
@@ -866,13 +923,25 @@ async def _on_sprint_finish(context: CallbackContext) -> None:
     async with context.sessions() as session:
         sprint = await finish_sprint(session, reason="finished_early")
         await session.commit()
-    await send_registered(
-        context.message,
-        context.services,
-        f"Sprint {sprint.number} finished early.",
-        kind=MessageKind.RECEIPT,
-        markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
+        number = sprint.number
+    await sync_bot_commands(context.message.bot, sprint_active=False)
+    await render_sprint(
+        context.message, context.services, notice=f"Sprint {number} finished early."
     )
+
+
+# --- Settings ------------------------------------------------------------------
+
+
+async def _on_settings_sprint_length(context: CallbackContext) -> None:
+    await render_sprint_length_prompt(context.message, context.services)
+
+
+async def _on_settings_back(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        await _clear_ui_sessions(session, context.owner_id)
+        await session.commit()
+    await command_settings(context.message, context.services)
 
 
 # --- AI proposals --------------------------------------------------------------
@@ -1041,8 +1110,14 @@ CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "check_resolve_save": _on_check_resolve_save,
     "check_resolve_cancel": _on_check_resolve_cancel,
     "feedback": _on_feedback,
+    "card_quick_move": _on_card_quick_move,
+    "sprint_criteria_prompt": _on_sprint_criteria_prompt,
+    "sprint_confirm": _on_sprint_confirm,
+    "sprint_back": _on_sprint_back,
     "sprint_start": _on_sprint_start,
     "sprint_finish": _on_sprint_finish,
+    "settings_sprint_length": _on_settings_sprint_length,
+    "settings_back": _on_settings_back,
     "reminders_page": _on_reminders_page,
     "reminder_view": _on_reminder_view,
     "reminder_text_prompt": _on_reminder_text_prompt,

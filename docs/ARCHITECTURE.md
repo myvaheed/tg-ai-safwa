@@ -24,11 +24,12 @@ Python `>=3.12,<3.13`. No server, no multi-user, no Mini App.
 5. `Bot` (`parse_mode=HTML`) → `TelegramHistorySource.from_settings(..., bot_user_id=me.id)` → `.start()`
 6. `PersonaContinuity` → `GenerationGuard` → `Services` dataclass → `dispatcher["services"]`
 7. `OwnerAndWritingMiddleware` on both message and callback outer middleware; `router` included
-8. `set_my_commands` (19 commands)
-9. three background tasks, all cancelled in the polling `finally`:
+8. `sync_bot_commands` (19 commands, 18 while the workspace is in Planning)
+9. four background tasks, all cancelled in the polling `finally`:
    - `memory.poll(memory_error)` — 5 s `memory.md` hash watcher
    - `run_scheduler(...)` with gate/escalate hooks from `ReminderRuntime` — 30 s Reminder poll,
      `SAFWA_SCHEDULER_ENABLED` (on by default)
+   - `run_sprint_expiry(...)` — 300 s poll that closes a Sprint past its end date and says so
    - `run_memory_maintenance(...)` — 60 s daily-memory-sync eligibility loop
 
 Memory maintenance stands down while `guard.active`; the Reminder poll has its own wider gate
@@ -44,7 +45,7 @@ not one package per layer:
 | domain | [domain.py](../src/safwa/domain.py), [enums.py](../src/safwa/enums.py), [models.py](../src/safwa/models.py), [saved_requests.py](../src/safwa/saved_requests.py), [reminders.py](../src/safwa/reminders.py) |
 | application | [domain.py](../src/safwa/domain.py) (mutations), [ai/service.py](../src/safwa/ai/service.py) (`ProposalService`), [continuity.py](../src/safwa/continuity.py), [scheduler.py](../src/safwa/scheduler.py), [analytics.py](../src/safwa/analytics.py) |
 | infrastructure | [db.py](../src/safwa/db.py), [history.py](../src/safwa/history.py), [memory.py](../src/safwa/memory.py), [ai/provider.py](../src/safwa/ai/provider.py), [ai/sql.py](../src/safwa/ai/sql.py), [backup.py](../src/safwa/backup.py) |
-| telegram | [telegram/](../src/safwa/telegram) (13 modules, ~5.4k lines) |
+| telegram | [telegram/](../src/safwa/telegram) (15 modules, ~5.5k lines) |
 | ai | [ai/](../src/safwa/ai) (context, contracts, mini, provider, reminder_sessions, service, sql) |
 | bootstrap | [main.py](../src/safwa/main.py), [config.py](../src/safwa/config.py), [constants.py](../src/safwa/constants.py), [recovery.py](../src/safwa/recovery.py), [qa.py](../src/safwa/qa.py) |
 
@@ -104,9 +105,13 @@ no underscore (the whole package is private behind `__init__.__all__`).
   copy per Check series (grouping matters — an in-cycle spawn leaves two rows of one series on the Card).
 - **Repeatable Actions**: `finish_action` → `_copy_repeat_successor` clones parent, text, priority,
   hard_time, blocked, effort, and all four link sets into a successor at the prior live stage.
-- **Sprints**: `start_sprint` (Planning only) snapshots every non-archived Action in Sprint/Today as
-  `scope_kind="initial"` commitments; planned length 14 calendar days (`start + 13 days`);
-  `finish_sprint` = Finish Early, no pause. `_sync_commitment_for_stage` records later add/remove.
+- **Sprints**: `start_sprint` (Planning only) needs Success criteria, snapshots every non-archived
+  Action in Sprint/Today as `scope_kind="initial"` commitments, and schedules two one-shot Reminders
+  at the start clock — the day before the end date and on it. Planned length is
+  `profile.sprint_length_days` (default `SPRINT_LENGTH_DAYS = 14`, allowed 2–60) calendar days.
+  `finish_sprint` = Finish Early, no pause, and deletes those Reminders; `expire_due_sprint` closes an
+  unfinished Sprint at the local midnight after its end date, leaving every Action's stage alone.
+  `_sync_commitment_for_stage` records later add/remove.
 - **Archive/delete**: `archive_subtree` (reversible, keeps events), `delete_subtree` (needs a second
   destructive confirmation), `archive_tag`/`archive_value` drop links atomically and clear focus.
 - **Optimistic concurrency**: every entity has `version`; `workspace.revision` bumps on mutation and
@@ -117,6 +122,12 @@ no underscore (the whole package is private behind `__init__.__all__`).
 
 - Dashboards `/today` `/backlog` `/sprint` list **Actions only**; Goals/Ideas reachable via hierarchy,
   `Children`, search, Requests, item navigation.
+- Today belongs to a running Sprint ([telegram/sprint.py](../src/safwa/telegram/sprint.py)): in
+  Planning the menu drops its button, `sync_bot_commands` drops the command, and `/today` answers that
+  a Sprint has to be planned first. Each row of those two dashboards carries a one-tap stage move —
+  `🏃` leading on Today, `☀️` trailing on Sprint. Starting a Sprint is Success criteria → the plan
+  (Sprint **and** Today Actions, the Today ones marked) → `✅ Confirm plan: Start`, and an empty plan
+  offers no Start button.
 - Checks are item-shaped, not Card-shaped ([telegram/checks.py](../src/safwa/telegram/checks.py)) and
   are reached from the Card screen, which shows `☑️ Checks (pending/total)` **only when at least one
   Check hangs on the Card**. `render_check` also stands alone — an advisor link reaches a Check that
@@ -192,8 +203,11 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
 - Context has four positions: static `SYSTEM_PROMPT`; a system block with planning state and
   `memory.text`; canonical bounded dialogue; then a trailing system block with the local clock.
   Planning state carries workspace mode, About Me, advisor instructions, active Values, available
-  Tags, and Today Actions — deliberately **no** Sprint metrics and **no** precomputed Card candidates;
-  the model reaches those through `query_safwa`.
+  Tags, the Sprint with its Success criteria (or the Planning notice and the draft criteria), up to
+  `CONTEXT_CRITICAL_CARD_LIMIT = 10` critical Cards with those carrying an active Value first, and —
+  only while a Sprint runs — Today Actions. Every item is written as its citation, `[name](kind:id)`,
+  ready to reuse in a reply. Deliberately **no** Sprint metrics and **no** precomputed Card
+  candidates; the model reaches those through `query_safwa`.
 
 ### Read-only SQL — triple guard
 

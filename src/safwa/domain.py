@@ -2,14 +2,19 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .constants import EFFORT_POINTS, SPRINT_LENGTH_DAYS
+from .constants import (
+    EFFORT_POINTS,
+    SPRINT_LENGTH_DAYS,
+    SPRINT_LENGTH_MAX_DAYS,
+    SPRINT_LENGTH_MIN_DAYS,
+)
 from .enums import (
     LIVE_STAGE_PRECEDENCE,
     TERMINAL_STAGES,
@@ -20,6 +25,7 @@ from .enums import (
     CheckOutcome,
     EnergyType,
     Priority,
+    ScheduleKind,
     WorkspaceMode,
 )
 from .models import (
@@ -541,8 +547,15 @@ async def update_profile(session: AsyncSession, **fields: Any) -> UserProfile:
         "about_me",
         "advisor_instructions",
         "capacity_effort_points",
+        "sprint_length_days",
         "reminders_enabled",
     }
+    length = fields.get("sprint_length_days")
+    if length is not None and not SPRINT_LENGTH_MIN_DAYS <= length <= SPRINT_LENGTH_MAX_DAYS:
+        raise DomainError(
+            f"Sprint length must be between {SPRINT_LENGTH_MIN_DAYS} and "
+            f"{SPRINT_LENGTH_MAX_DAYS} days"
+        )
     unknown = set(fields).difference(allowed)
     if unknown:
         raise DomainError("Unsupported profile field: " + ", ".join(sorted(unknown)))
@@ -1437,28 +1450,59 @@ async def set_feedback(session: AsyncSession, queue_id: int, liked: bool) -> Car
     return card
 
 
+async def set_sprint_success_criteria(session: AsyncSession, criteria: str) -> Workspace:
+    """Store what the next Sprint must achieve. Kept after a Sprint ends, to edit or reuse."""
+    workspace = await _workspace(session)
+    clean = criteria.strip()
+    if not clean:
+        raise DomainError("Success criteria cannot be empty")
+    workspace.sprint_success_criteria = clean
+    workspace.revision += 1
+    return workspace
+
+
+async def sprint_length_days(session: AsyncSession) -> int:
+    profile = await session.get(UserProfile, 1)
+    return profile.sprint_length_days if profile else SPRINT_LENGTH_DAYS
+
+
 async def start_sprint(
     session: AsyncSession,
     *,
+    success_criteria: str,
     start_date: date | None = None,
     capacity: int | None = None,
+    length_days: int | None = None,
 ) -> Sprint:
     workspace = await _workspace(session)
     if WorkspaceMode(workspace.mode) is not WorkspaceMode.PLANNING or workspace.active_sprint_id:
         raise DomainError("A Sprint can start only from Planning")
+    criteria = success_criteria.strip()
+    if not criteria:
+        raise DomainError("A Sprint needs Success criteria before it starts")
+    length = length_days if length_days is not None else await sprint_length_days(session)
+    if not SPRINT_LENGTH_MIN_DAYS <= length <= SPRINT_LENGTH_MAX_DAYS:
+        raise DomainError(
+            f"Sprint length must be between {SPRINT_LENGTH_MIN_DAYS} and "
+            f"{SPRINT_LENGTH_MAX_DAYS} days"
+        )
     # Numbering follows the highest number ever used, so deleting a Sprint cannot
     # produce a duplicate on the unique constraint.
     highest = await session.scalar(select(func.max(Sprint.number))) or 0
-    start = start_date or date.today()
+    tz = ZoneInfo(workspace.timezone)
+    started_at = utcnow()
+    start = start_date or started_at.astimezone(tz).date()
     sprint = Sprint(
         number=highest + 1,
         planned_start_date=start,
-        planned_end_date=start + timedelta(days=SPRINT_LENGTH_DAYS - 1),
-        actual_started_at=utcnow(),
+        planned_end_date=start + timedelta(days=length - 1),
+        actual_started_at=started_at,
         capacity_effort_points=capacity,
+        success_criteria=criteria,
     )
     session.add(sprint)
     await session.flush()
+    await _schedule_sprint_reminders(session, sprint, started_at=started_at, tz=tz)
     cards = await session.scalars(
         select(Card).where(
             Card.kind == CardKind.ACTION.value,
@@ -1481,6 +1525,49 @@ async def start_sprint(
     return sprint
 
 
+_SPRINT_ENDS_TOMORROW = (
+    "Sprint {number} ends tomorrow, {end_date}. Check what is still open in Sprint and Today, "
+    "and help the owner finalize the status of each of those Actions."
+)
+_SPRINT_ENDS_TODAY = (
+    "Sprint {number} ends today, {end_date}. Tell the owner to close it from the 🏃 Sprint "
+    "screen; if they do not, Safwa closes it automatically at midnight and whatever is still "
+    "open keeps its stage."
+)
+
+
+async def _schedule_sprint_reminders(
+    session: AsyncSession, sprint: Sprint, *, started_at: datetime, tz: ZoneInfo
+) -> list[Reminder]:
+    """Warn the owner the day before the Sprint ends, then on its last day.
+
+    Both fire at the clock the Sprint was started at, so a Sprint started at 18:32 keeps
+    saying 18:32.  The first one is skipped when the Sprint is too short to have a day
+    before its last one.
+    """
+    clock = started_at.astimezone(tz).time()
+    schedule_dates = (
+        (sprint.planned_end_date - timedelta(days=1), _SPRINT_ENDS_TOMORROW),
+        (sprint.planned_end_date, _SPRINT_ENDS_TODAY),
+    )
+    created: list[Reminder] = []
+    for day, template in schedule_dates:
+        moment = datetime.combine(day, clock, tzinfo=tz).astimezone(UTC)
+        if moment <= started_at:
+            continue
+        reminder = await create_reminder(
+            session,
+            instruction=template.format(
+                number=sprint.number, end_date=sprint.planned_end_date.isoformat()
+            ),
+            schedule=Schedule(kind=ScheduleKind.ONCE, at_time=clock, anchor_at=moment),
+            tz=tz,
+        )
+        reminder.sprint_id = sprint.id
+        created.append(reminder)
+    return created
+
+
 async def finish_sprint(session: AsyncSession, *, reason: str = "finished") -> Sprint:
     workspace = await _workspace(session)
     if not workspace.active_sprint_id:
@@ -1488,6 +1575,8 @@ async def finish_sprint(session: AsyncSession, *, reason: str = "finished") -> S
     sprint = await session.get(Sprint, workspace.active_sprint_id)
     if sprint is None:
         raise DomainError("Active Sprint is missing")
+    # Its own end reminders have nothing left to announce.
+    await session.execute(delete(Reminder).where(Reminder.sprint_id == sprint.id))
     sprint.status = "finished"
     sprint.finish_reason = reason
     sprint.actual_ended_at = utcnow()
@@ -1495,6 +1584,26 @@ async def finish_sprint(session: AsyncSession, *, reason: str = "finished") -> S
     workspace.active_sprint_id = None
     workspace.revision += 1
     return sprint
+
+
+async def expire_due_sprint(session: AsyncSession, *, now: datetime | None = None) -> Sprint | None:
+    """Close the active Sprint once local midnight has passed its planned end date.
+
+    Unfinished Actions keep their stage: the Sprint ends, the plan does not evaporate.
+    """
+    workspace = await _workspace(session)
+    if not workspace.active_sprint_id:
+        return None
+    sprint = await session.get(Sprint, workspace.active_sprint_id)
+    if sprint is None:
+        return None
+    tz = ZoneInfo(workspace.timezone)
+    deadline = datetime.combine(
+        sprint.planned_end_date + timedelta(days=1), time(0, 0), tzinfo=tz
+    )
+    if (now or utcnow()) < deadline:
+        return None
+    return await finish_sprint(session, reason="expired")
 
 
 async def sprint_metrics(session: AsyncSession, sprint_id: int) -> dict[str, int]:

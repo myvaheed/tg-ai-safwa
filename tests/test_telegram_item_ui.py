@@ -24,6 +24,8 @@ from safwa.domain import (
     create_tag,
     create_value,
     finish_action,
+    set_sprint_success_criteria,
+    start_sprint,
     toggle_card_check,
 )
 from safwa.enums import CardStage, MessageKind
@@ -37,6 +39,8 @@ from safwa.models import (
     CardValue,
     ChangeProposal,
     ProposalChange,
+    Reminder,
+    Sprint,
     Tag,
     TelegramMessage,
     UiSession,
@@ -61,10 +65,14 @@ from safwa.telegram import (
     render_item_editor,
     render_item_text_prompt,
     render_proposal,
+    render_sprint,
+    render_today,
 )
 from safwa.telegram._messaging import materialize_queued_dialogue
 from safwa.telegram._presentation import start_payload
+from safwa.telegram.commands import command_start
 from safwa.telegram.screens import OPENABLE_MODELS
+from safwa.telegram.sprint import render_sprint_confirm
 
 
 def _telegram_module_trees() -> list[ast.Module]:
@@ -150,6 +158,7 @@ class FakeBot:
         self.deleted: list[int] = []
         self.deleted_batches: list[list[int]] = []
         self.cleared_markup: list[int] = []
+        self.published_commands: list[list[str]] = []
 
     async def edit_message_text(
         self,
@@ -180,6 +189,9 @@ class FakeBot:
     async def send_chat_action(self, chat_id: int, action) -> None:
         del chat_id, action
 
+    async def set_my_commands(self, commands) -> None:
+        self.published_commands.append([command.command for command in commands])
+
 
 class FakeMessage:
     def __init__(
@@ -200,6 +212,7 @@ class FakeMessage:
         self.date = datetime.now(UTC)
         self.edits: list[tuple[str, object | None]] = []
         self.answers: list[str] = []
+        self.answer_markups: list[object | None] = []
         self.was_deleted = False
         self.answer_as_new = answer_as_new
         self.sent_messages: list[FakeMessage] = []
@@ -212,7 +225,7 @@ class FakeMessage:
     async def answer(self, text: str, *, reply_markup=None, parse_mode=None):
         del parse_mode
         self.answers.append(text)
-        del reply_markup
+        self.answer_markups.append(reply_markup)
         if self.answer_as_new:
             sent = FakeMessage(
                 self.message_id + 1_000,
@@ -1001,6 +1014,165 @@ async def test_backlog_dashboard_lists_actions_only(sessions) -> None:
     assert "Visible Action" in dashboard_text
     assert "Hidden Goal" not in dashboard_text
     assert any("Visible Action" in text for text in button_texts(dashboard_markup))
+
+
+async def test_menu_offers_today_only_while_a_sprint_runs(sessions) -> None:
+    services = services_for(sessions)
+    message = FakeMessage(74, bot_message=True)
+
+    await command_start(message, services)
+    assert "☀️ Today" not in button_texts(message.edits[-1][1])
+
+    async with sessions() as session:
+        await start_sprint(session, success_criteria="Ship v2")
+        await session.commit()
+
+    await command_start(message, services)
+    assert "☀️ Today" in button_texts(message.edits[-1][1])
+
+
+async def test_today_screen_is_closed_during_planning(sessions) -> None:
+    message = FakeMessage(75, bot_message=True)
+
+    await render_today(message, services_for(sessions))
+
+    text, markup = message.edits[-1]
+    assert "Plan the next Sprint first" in text
+    assert button_texts(markup) == ["↩️ Menu"]
+
+
+async def test_quick_move_buttons_walk_an_action_between_today_and_sprint(sessions) -> None:
+    async with sessions() as session:
+        action = await create_card(
+            session, kind="action", title="Ship it", stage="today", effort_points=2
+        )
+        await start_sprint(session, success_criteria="Ship v2")
+        await session.commit()
+        action_id = action.id
+
+    services = services_for(sessions)
+    message = FakeMessage(76, bot_message=True)
+    await render_today(message, services)
+
+    text, markup = message.edits[-1]
+    assert "Ship it" in text
+    move_to_sprint = next(
+        button for row in markup.inline_keyboard for button in row if button.text == "🏃"
+    )
+    assert markup.inline_keyboard[0][0] is move_to_sprint
+
+    await callback_token_handler(
+        FakeCallback(move_to_sprint.callback_data.split(":", 1)[1], message), services
+    )
+
+    async with sessions() as session:
+        assert (await session.get(Card, action_id)).effective_stage == CardStage.SPRINT.value
+    text, markup = message.edits[-1]
+    assert "Ship it" not in text
+
+    await render_sprint(message, services)
+    text, markup = message.edits[-1]
+    move_to_today = next(
+        button for row in markup.inline_keyboard for button in row if button.text == "☀️"
+    )
+    assert markup.inline_keyboard[0][-1] is move_to_today
+
+    await callback_token_handler(
+        FakeCallback(move_to_today.callback_data.split(":", 1)[1], message), services
+    )
+
+    async with sessions() as session:
+        assert (await session.get(Card, action_id)).effective_stage == CardStage.TODAY.value
+
+
+async def test_starting_a_sprint_needs_criteria_then_confirms_the_plan(sessions) -> None:
+    async with sessions() as session:
+        await create_card(
+            session, kind="action", title="Sprint work", stage="sprint", effort_points=2
+        )
+        await create_card(
+            session, kind="action", title="Today work", stage="today", effort_points=3
+        )
+        await session.commit()
+
+    services = services_for(sessions)
+    message = FakeMessage(77, bot_message=True, answer_as_new=True)
+    await render_sprint(message, services)
+
+    text, markup = message.edits[-1]
+    assert "Success criteria: not set yet" in text
+    start = next(
+        button
+        for row in markup.inline_keyboard
+        for button in row
+        if button.text.startswith("▶️ Start")
+    )
+    assert start.text == "▶️ Start 14-day Sprint"
+
+    await callback_token_handler(FakeCallback(start.callback_data.split(":", 1)[1], message), services)
+
+    prompt = message.sent_messages[-1]
+    assert "Send what this Sprint must achieve" in prompt.text
+    async with sessions() as session:
+        assert (await session.scalar(select(UiSession))).kind == "sprint_criteria"
+
+    typed = FakeMessage(78, text="Ship v2 to production", bot_message=False, bot=message.bot)
+    await ordinary_text(typed, services)
+
+    confirm_text, confirm_markup = typed.answers[-1], typed.answer_markups[-1]
+    assert "Success criteria: Ship v2 to production" in confirm_text
+    # Both Sprint and Today Actions are committed, so both are shown before Start.
+    assert "Sprint work" in confirm_text
+    assert "☀️ Today work" in confirm_text
+    assert "Selected effort: 5 EP" in confirm_text
+    assert "✅ Confirm plan: Start" in button_texts(confirm_markup)
+
+    confirm = next(
+        button
+        for row in confirm_markup.inline_keyboard
+        for button in row
+        if button.text == "✅ Confirm plan: Start"
+    )
+    await callback_token_handler(
+        FakeCallback(confirm.callback_data.split(":", 1)[1], message), services
+    )
+
+    async with sessions() as session:
+        workspace = await session.get(Workspace, 1)
+        assert workspace.active_sprint_id is not None
+        sprint = await session.get(Sprint, workspace.active_sprint_id)
+        assert sprint.success_criteria == "Ship v2 to production"
+        assert len(list(await session.scalars(select(Reminder)))) == 2
+    # The Today command becomes available again the moment the Sprint exists.
+    assert "today" in message.bot.published_commands[-1]
+
+    finish = next(
+        button
+        for row in message.edits[-1][1].inline_keyboard
+        for button in row
+        if button.text == "⏹ Finish early"
+    )
+    await callback_token_handler(
+        FakeCallback(finish.callback_data.split(":", 1)[1], message), services
+    )
+
+    assert "today" not in message.bot.published_commands[-1]
+    async with sessions() as session:
+        assert (await session.get(Workspace, 1)).active_sprint_id is None
+        assert await session.scalar(select(Reminder).limit(1)) is None
+
+
+async def test_the_confirm_screen_refuses_an_empty_plan(sessions) -> None:
+    async with sessions() as session:
+        await set_sprint_success_criteria(session, "Ship v2")
+        await session.commit()
+
+    message = FakeMessage(79, bot_message=True)
+    await render_sprint_confirm(message, services_for(sessions))
+
+    text, markup = message.edits[-1]
+    assert "Move Actions to the Sprint stage first" in text
+    assert "✅ Confirm plan: Start" not in button_texts(markup)
 
 
 async def test_item_proposal_shows_diffs_and_only_save_discard_footer(sessions) -> None:

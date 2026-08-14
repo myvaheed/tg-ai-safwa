@@ -13,7 +13,7 @@
 
 ```mermaid
 flowchart LR
-    A["1. SYSTEM_PROMPT<br/>правила Safwa и tools"] --> B["2. Planning state + memory.md<br/>profile, Values, Tags, Today"]
+    A["1. SYSTEM_PROMPT<br/>правила Safwa и tools"] --> B["2. Planning state + memory.md<br/>profile, Values, Tags, Sprint, critical, Today"]
     B --> C["3. Канонический Telegram dialogue<br/>уже ограниченный history.py"]
     C --> D["4. Current local time<br/>последний system message"]
     D --> L["Provider complete_turn"]
@@ -24,8 +24,9 @@ flowchart LR
 ```
 
 `planning_context` содержит режим workspace, About Me, инструкции advisor, активные Values,
-доступные Tags и Actions в Today. Остальные данные, кандидаты и метрики модель читает через
-`query_safwa`.
+доступные Tags, текущий Sprint с его Success criteria (или сообщение о Planning), до десяти critical
+Cards и — только при запущенном Sprint — Actions в Today. Каждый элемент записан как citation
+`[name](kind:id)`. Остальные данные, кандидаты и метрики модель читает через `query_safwa`.
 
 ## Какие данные получает каждый LLM-вызов
 

@@ -154,7 +154,8 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
     )
     connection.exec_driver_sql(
         """CREATE VIEW IF NOT EXISTS ai_current_sprint AS
-        SELECT s.id, s.number, s.planned_start_date, s.planned_end_date, s.actual_started_at
+        SELECT s.id, s.number, s.planned_start_date, s.planned_end_date, s.actual_started_at,
+               s.success_criteria
         FROM sprints s JOIN workspace w ON w.active_sprint_id = s.id"""
     )
     connection.exec_driver_sql(

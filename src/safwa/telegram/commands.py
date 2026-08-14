@@ -5,10 +5,11 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from aiogram import F
+from aiogram import Bot, F
 from aiogram.enums import ChatAction
 from aiogram.filters import Command
 from aiogram.types import (
+    BotCommand,
     BufferedInputFile,
     CallbackQuery,
     InlineKeyboardMarkup,
@@ -17,15 +18,15 @@ from aiogram.types import (
 from sqlalchemy import delete, func, select
 
 from ..analytics import render_retrospective_png, retrospective_data, retrospective_recommendations
+from ..constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ..continuity import MemoryMaintenanceResult, parse_memory_update_time, record_memory_run
 from ..domain import (
     DomainError,
     StaleStateError,
     snooze_reminders,
-    sprint_metrics,
     update_profile,
 )
-from ..enums import CardKind, CardStage, MessageKind
+from ..enums import CardStage, MessageKind
 from ..history import mark_message, register_message
 from ..models import (
     Card,
@@ -38,7 +39,7 @@ from ..models import (
     Value,
     Workspace,
 )
-from ._core import BACKGROUND_SOURCE_ID, Services, router
+from ._core import BACKGROUND_SOURCE_ID, Services, router, sprint_is_active
 from ._messaging import (
     delete_message_range,
     materialize_queued_dialogue,
@@ -56,8 +57,34 @@ from ._presentation import (
 from .cards import render_dashboard, start_manual_card_creation
 from .reminders import render_reminders
 from .screens import open_citation
+from .sprint import render_sprint, render_today
 
 logger = logging.getLogger(__name__)
+
+SETTINGS_PROMPT_TTL = timedelta(minutes=30)
+
+# Published to Telegram by `sync_bot_commands`, which drops Today outside a Sprint.
+BOT_COMMANDS = [
+    BotCommand(command="start", description="Open Safwa"),
+    BotCommand(command="today", description="Today dashboard"),
+    BotCommand(command="sprint", description="Planning or Sprint"),
+    BotCommand(command="backlog", description="Backlog dashboard"),
+    BotCommand(command="values", description="Values in focus"),
+    BotCommand(command="tags", description="Manage Tags"),
+    BotCommand(command="requests", description="Saved AI Requests"),
+    BotCommand(command="retro", description="Latest retrospective"),
+    BotCommand(command="feedback", description="Pending completion feedback"),
+    BotCommand(command="reminders", description="Your Reminders"),
+    BotCommand(command="settings", description="Profile and reminders"),
+    BotCommand(command="setcapacity", description="Set Sprint capacity"),
+    BotCommand(command="snooze", description="Snooze reminders (minutes)"),
+    BotCommand(command="syncmem", description="Sync Telegram dialogue into memory"),
+    BotCommand(command="mem", description="Add a durable memory fact"),
+    BotCommand(command="setmemtime", description="Set daily memory sync time"),
+    BotCommand(command="memory", description="Inspect memory.md"),
+    BotCommand(command="status", description="Safwa diagnostics"),
+    BotCommand(command="cancel", description="Cancel generation"),
+]
 
 
 async def end_subsession(
@@ -90,12 +117,14 @@ async def command_start(message: Message, services: Services) -> None:
     if payload is not None:
         await open_citation(message, services, payload)
         return
+    async with services.sessions() as session:
+        sprint_active = await sprint_is_active(session)
     await send_registered(
         message,
         services,
         "<b>Safwa</b>\nYour personal agile advisor. Choose a dashboard or just write to me.",
         kind=MessageKind.DASHBOARD,
-        markup=menu_markup(),
+        markup=menu_markup(sprint_active=sprint_active),
     )
 
 
@@ -182,7 +211,7 @@ async def command_endsession(message: Message, services: Services) -> None:
 
 @router.message(Command("today"))
 async def command_today(message: Message, services: Services) -> None:
-    await render_dashboard(message, services, CardStage.TODAY, title="Today")
+    await render_today(message, services)
 
 
 @router.message(Command("backlog"))
@@ -192,59 +221,7 @@ async def command_backlog(message: Message, services: Services) -> None:
 
 @router.message(Command("sprint"))
 async def command_sprint(message: Message, services: Services) -> None:
-    async with services.sessions() as session:
-        workspace = await session.get(Workspace, 1)
-        if workspace and workspace.active_sprint_id:
-            sprint = await session.get(Sprint, workspace.active_sprint_id)
-            metrics = await sprint_metrics(session, workspace.active_sprint_id)
-            start = await token_button(
-                session, services.owner_id, "⏹ Finish early", "sprint_finish"
-            )
-            text = (
-                f"<b>Sprint {sprint.number}</b> · {sprint.planned_start_date}–{sprint.planned_end_date}\n"
-                f"Committed {metrics['committed']} · Added {metrics['added']} · "
-                f"Done {metrics['completed']} · Cancelled {metrics['cancelled']}"
-            )
-        else:
-            selected_effort = (
-                await session.scalar(
-                    select(func.coalesce(func.sum(Card.effort_points), 0)).where(
-                        Card.kind == CardKind.ACTION.value,
-                        Card.archived_at.is_(None),
-                        Card.effective_stage.in_(
-                            [
-                                CardStage.SPRINT.value,
-                                CardStage.TODAY.value,
-                            ]
-                        ),
-                    )
-                )
-                or 0
-            )
-            profile = await session.get(UserProfile, 1)
-            start = await token_button(
-                session, services.owner_id, "▶️ Start 14-day Sprint", "sprint_start"
-            )
-            warning = ""
-            if profile.capacity_effort_points and selected_effort > profile.capacity_effort_points:
-                warning = f"\n⚠️ Above configured capacity ({profile.capacity_effort_points} EP)."
-            text = (
-                "<b>Planning</b>\nCards in Sprint and Today are preselected for the next Sprint."
-                f"\nSelected effort: {selected_effort} EP{warning}"
-            )
-        await session.commit()
-    await send_registered(
-        message,
-        services,
-        text,
-        kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(
-            inline_keyboard=[
-                [start],
-                menu_row(),
-            ]
-        ),
-    )
+    await render_sprint(message, services)
 
 
 async def command_add(message: Message, services: Services) -> None:
@@ -519,7 +496,9 @@ async def command_reminders(message: Message, services: Services) -> None:
 
 
 @router.message(Command("settings"))
-async def command_settings(message: Message, services: Services) -> None:
+async def command_settings(
+    message: Message, services: Services, *, notice: str | None = None
+) -> None:
     async with services.sessions() as session:
         profile = await session.get(UserProfile, 1)
         workspace = await session.get(Workspace, 1)
@@ -531,19 +510,72 @@ async def command_settings(message: Message, services: Services) -> None:
         about_me = html.escape(profile.about_me or "—")
         advisor_instructions = html.escape(profile.advisor_instructions or "—")
         capacity = profile.capacity_effort_points or "—"
+        length = profile.sprint_length_days
         timezone = workspace.timezone
+        edit_length = await token_button(
+            session, services.owner_id, "🏁 Sprint length", "settings_sprint_length"
+        )
+        await session.commit()
     await send_registered(
         message,
         services,
-        "<b>Settings</b>\n"
-        f"About me: {about_me}\n"
-        f"Advisor instructions: {advisor_instructions}\n"
-        f"Sprint capacity: {capacity} EP\n"
-        f"Memory sync: {memory_update_time} ({timezone})\n"
-        "Edit with /setabout, /setadvisor, /setcapacity, or /setmemtime HH:MM|off.",
+        with_notice(
+            "<b>Settings</b>\n"
+            f"About me: {about_me}\n"
+            f"Advisor instructions: {advisor_instructions}\n"
+            f"Sprint length: {length} days\n"
+            f"Sprint capacity: {capacity} EP\n"
+            f"Memory sync: {memory_update_time} ({timezone})\n"
+            "Edit with /setabout, /setadvisor, /setcapacity, or /setmemtime HH:MM|off.",
+            notice,
+        ),
         kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
+        markup=InlineKeyboardMarkup(inline_keyboard=[[edit_length], menu_row()]),
     )
+
+
+async def render_sprint_length_prompt(
+    message: Message, services: Services, *, notice: str | None = None
+) -> None:
+    async with services.sessions() as session:
+        profile = await session.get(UserProfile, 1)
+        if profile is None:
+            raise DomainError("Workspace is not initialized")
+        current = profile.sprint_length_days
+        await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
+        session.add(
+            UiSession(
+                owner_id=services.owner_id,
+                kind="sprint_length",
+                state={"message_id": message.message_id},
+                expires_at=datetime.now(UTC) + SETTINGS_PROMPT_TTL,
+            )
+        )
+        back = await token_button(session, services.owner_id, "↩️ Back", "settings_back")
+        await session.commit()
+    await send_registered(
+        message,
+        services,
+        with_notice(
+            f"<b>Sprint length</b>\nCurrently {current} days.\n"
+            f"Send a number of days between {SPRINT_LENGTH_MIN_DAYS} and "
+            f"{SPRINT_LENGTH_MAX_DAYS}. It applies to the next Sprint you start.",
+            notice,
+        ),
+        kind=MessageKind.CARD_EDITOR,
+        markup=InlineKeyboardMarkup(inline_keyboard=[[back]]),
+        replace=False,
+    )
+
+
+async def sync_bot_commands(bot: Bot, *, sprint_active: bool) -> None:
+    """Publish the command list. Today is dropped while the workspace is in Planning."""
+    commands = [
+        command
+        for command in BOT_COMMANDS
+        if sprint_active or command.command != "today"
+    ]
+    await bot.set_my_commands(commands)
 
 
 @router.message(Command("setabout"))

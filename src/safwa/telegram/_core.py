@@ -26,10 +26,16 @@ from ..domain import (
 from ..enums import Category, EnergyType, MessageKind
 from ..history import TelegramHistorySource, mark_message, register_message
 from ..memory import MemoryFileStore
-from ..models import CardCategory, CardEnergyType, CardTag, CardValue
+from ..models import CardCategory, CardEnergyType, CardTag, CardValue, Workspace
 
 logger = logging.getLogger(__name__)
 router = Router(name="safwa")
+
+
+async def sprint_is_active(session: AsyncSession) -> bool:
+    """Whether a Sprint is running, which is what makes Today a real screen."""
+    workspace = await session.get(Workspace, 1)
+    return bool(workspace and workspace.active_sprint_id)
 
 
 @dataclass

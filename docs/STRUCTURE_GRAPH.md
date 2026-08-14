@@ -40,7 +40,9 @@ flowchart TD
     MAIN --> S
     MAIN --> BG["background tasks"]
     BG --> SCH["Reminder scheduler"]
+    BG --> EXP["Sprint expiry poll"]
     BG --> CONT["Memory watcher + daily maintenance"]
+    EXP --> D
     SCH --> A
     CONT --> A
 ```
@@ -127,10 +129,10 @@ flowchart LR
 
 | Файл | Ответственность | Ключевые символы |
 |---|---|---|
-| [`domain.py`](../src/safwa/domain.py) | Все planning mutations и инварианты | `bootstrap_workspace`, Card/Check/Tag/Value/Sprint operations, `finish_action`, reference toggles |
+| [`domain.py`](../src/safwa/domain.py) | Все planning mutations и инварианты | `bootstrap_workspace`, Card/Check/Tag/Value/Sprint operations, `start_sprint`, `expire_due_sprint`, `finish_action`, reference toggles |
 | [`saved_requests.py`](../src/safwa/saved_requests.py) | Проверка и выполнение Saved Request queries | `normalize_request_sql`, `request_cards`, `RequestQueryError` |
 | [`reminders.py`](../src/safwa/reminders.py) | Чистая арифметика расписаний без I/O | `resolve`, `describe`, `next_fire`, `roll_forward`, `schedule_of` |
-| [`scheduler.py`](../src/safwa/scheduler.py) | Poll due Reminders, schedule preparation, delivery и settle | `Firing`, `due_reminders`, `prepare`, `settle`, `tick`, `run_scheduler` |
+| [`scheduler.py`](../src/safwa/scheduler.py) | Poll due Reminders, schedule preparation, delivery и settle; отдельный poll истёкшего Sprint | `Firing`, `due_reminders`, `prepare`, `settle`, `tick`, `run_scheduler`, `run_sprint_expiry` |
 | [`continuity.py`](../src/safwa/continuity.py) | Summary и синхронизация Telegram dialogue → memory | `PersonaContinuity`, `run_memory_maintenance`, `run_due_memory_maintenance` |
 | [`history.py`](../src/safwa/history.py) | Каноническая история из Telegram и event marker codec | `TelegramHistorySource`, `HistoryEntry`, `mark_message`, `read_message_mark`, citations |
 | [`memory.py`](../src/safwa/memory.py) | Валидация, atomic replace и watcher для `memory.md` | `MemoryFileStore`, `MemorySnapshot`, `parse_memory`, `memory_hash` |
@@ -184,7 +186,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    HANDLERS["commands.py / callbacks.py / dialogue.py"] --> FEATURES["cards.py / checks.py / items.py / reminders.py / proposals.py / screens.py"]
+    HANDLERS["commands.py / callbacks.py / dialogue.py"] --> FEATURES["cards.py / checks.py / items.py / reminders.py / sprint.py / proposals.py / screens.py"]
     FEATURES --> IO["_messaging.py"]
     FEATURES --> VIEW["_presentation.py"]
     IO --> CORE["_core.py"]
@@ -199,7 +201,8 @@ flowchart TD
 | [`telegram/_core.py`](../src/safwa/telegram/_core.py) | Shared services, router, generation coordination и owner middleware | `Services`, `GenerationGuard`, `OwnerAndWritingMiddleware`, `CallbackContext` |
 | [`telegram/_presentation.py`](../src/safwa/telegram/_presentation.py) | Чистые labels, text formatting, markup и paging | `Page`, menu helpers, proposal summaries, `split_telegram_text` |
 | [`telegram/_messaging.py`](../src/safwa/telegram/_messaging.py) | Все send/edit/delete operations и semantic registration | `send_registered`, `edit_registered_message`, `dismiss_prior_ui`, queue materialization |
-| [`telegram/cards.py`](../src/safwa/telegram/cards.py) | Card overview, creation editor и selectors | Card render/start/sanitize functions |
+| [`telegram/cards.py`](../src/safwa/telegram/cards.py) | Card overview, creation editor, selectors и общий список Cards | `card_list_rows`, `render_dashboard`, Card render/start/sanitize functions |
+| [`telegram/sprint.py`](../src/safwa/telegram/sprint.py) | Today, Sprint dashboard и старт Sprint | `render_today`, `render_sprint`, `render_sprint_criteria_prompt`, `render_sprint_confirm` |
 | [`telegram/checks.py`](../src/safwa/telegram/checks.py) | Check screens и answer UI | Check renderer и pending-check gate screens |
 | [`telegram/items.py`](../src/safwa/telegram/items.py) | Shared Tag/Value editors и Saved Request screens | item renderer, list screens, text prompts |
 | [`telegram/reminders.py`](../src/safwa/telegram/reminders.py) | Manual Reminder list/detail/text screens | Reminder renderers и schedule presentation |

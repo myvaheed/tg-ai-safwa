@@ -15,10 +15,17 @@ from __future__ import annotations
 # --- Domain ---------------------------------------------------------------
 # The allowed Action effort scale.  Mirrored by the Literal in ai/contracts.py.
 EFFORT_POINTS = {1, 2, 3, 5, 8, 13}
+# The default Sprint length; the owner overrides it per workspace in Settings.
 SPRINT_LENGTH_DAYS = 14
+SPRINT_LENGTH_MIN_DAYS = 2
+SPRINT_LENGTH_MAX_DAYS = 60
 # Weekday tokens as stored in `reminders.weekdays`, indexed by `date.weekday()`.
 # Mirrored by the Literal in ai/contracts.py.
 WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+# --- AI context -----------------------------------------------------------
+# How many critical Cards the planning state names before the model has to query for more.
+CONTEXT_CRITICAL_CARD_LIMIT = 10
 
 # --- AI agent loop --------------------------------------------------------
 MAX_TOOL_CALLS = 64
@@ -50,6 +57,8 @@ MEMORY_RETELL_OVERLAP_TOKENS = 500
 # --- Background loops -----------------------------------------------------
 MEMORY_POLL_SECONDS = 5.0
 SCHEDULER_POLL_SECONDS = 30.0
+# A Sprint expires at a local midnight, so this poll only has to be finer than a night.
+SPRINT_EXPIRY_POLL_SECONDS = 300.0
 MEMORY_MAINTENANCE_INTERVAL_SECONDS = 60.0
 
 # --- Reminders ------------------------------------------------------------

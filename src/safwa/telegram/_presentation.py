@@ -159,13 +159,14 @@ def card_overview_text(state: dict[str, Any], *, heading: str = "Card") -> str:
     return f"<b>{html.escape(heading)}</b>\n" + "\n".join(lines)
 
 
-def menu_markup() -> InlineKeyboardMarkup:
+def menu_markup(*, sprint_active: bool) -> InlineKeyboardMarkup:
+    """The menu. Today belongs to a running Sprint, so Planning does not offer it."""
+    sprint_row = [InlineKeyboardButton(text="🏃 Sprint", callback_data="nav:sprint")]
+    if sprint_active:
+        sprint_row.insert(0, InlineKeyboardButton(text="☀️ Today", callback_data="nav:today"))
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(text="☀️ Today", callback_data="nav:today"),
-                InlineKeyboardButton(text="🏃 Sprint", callback_data="nav:sprint"),
-            ],
+            sprint_row,
             [
                 InlineKeyboardButton(text="📚 Backlog", callback_data="nav:backlog"),
                 InlineKeyboardButton(text="➕ Add", callback_data="nav:add"),

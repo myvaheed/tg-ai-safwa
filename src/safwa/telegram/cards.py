@@ -46,6 +46,7 @@ from ._core import (
     SINGLE_CHOICE_FIELDS,
     RelationChoice,
     Services,
+    sprint_is_active,
 )
 from ._messaging import edit_registered_message, paging_row, send_registered, token_button
 from ._presentation import (
@@ -74,6 +75,75 @@ async def linked_card_count(session: AsyncSession, spec: ReferenceSpec, item_id:
     )
 
 
+# Which side a one-tap stage move sits on, so a row always reads the same way: leaving
+# Today for the Sprint on the left, pulling a Sprint Action into Today on the right.
+QUICK_MOVE_BUTTONS = {
+    CardStage.SPRINT: ("🏃", True),
+    CardStage.TODAY: ("☀️", False),
+}
+
+
+async def card_list_rows(
+    session: AsyncSession,
+    services: Services,
+    cards: list[Card],
+    *,
+    page: int,
+    back: dict[str, Any],
+    quick_move: CardStage | None = None,
+    prefix: Callable[[Card], str] | None = None,
+) -> tuple[Page, list[str], list[list[InlineKeyboardButton]]]:
+    """One Card list: the page, its plain-text lines, and one button row per Card."""
+    current = paginate_cards(cards, page)
+    back = {**back, "page": current.index}
+    rows: list[list[InlineKeyboardButton]] = []
+    descriptions: list[str] = []
+    for card in current.items:
+        metadata = [
+            kind_label(card.kind),
+            card.priority.title(),
+            f"{card.effort_points or '—'} EP",
+        ]
+        if card.hard_time:
+            metadata.append("Hard time")
+        if card.repeatable:
+            metadata.append("Repeat")
+        if card.blocked:
+            metadata.append("Blocked")
+        label = f"{prefix(card) if prefix else ''}{card.title} · {' · '.join(metadata)}"
+        descriptions.append(f"• {label}")
+        row = [
+            await token_button(
+                session,
+                services.owner_id,
+                label[: 40 if quick_move else 60],
+                "card_view",
+                {"id": card.id, "back": back},
+            )
+        ]
+        if quick_move is not None:
+            emoji, leading = QUICK_MOVE_BUTTONS[quick_move]
+            move = await token_button(
+                session,
+                services.owner_id,
+                emoji,
+                "card_quick_move",
+                {"id": card.id, "stage": quick_move.value, "back": back},
+            )
+            row.insert(0 if leading else 1, move)
+        rows.append(row)
+    return current, descriptions, rows
+
+
+def card_list_text(title: str, page: Page, descriptions: list[str], *, header: str = "") -> str:
+    body = "\n".join(html.escape(description) for description in descriptions)
+    return (
+        f"<b>{html.escape(title)}</b> · {page.label}\n"
+        + (f"{header}\n" if header else "")
+        + (body or "Nothing here yet.")
+    )
+
+
 async def render_dashboard(
     message: Message,
     services: Services,
@@ -81,6 +151,7 @@ async def render_dashboard(
     *,
     title: str,
     page: int = 0,
+    notice: str | None = None,
 ) -> None:
     async with services.sessions() as session:
         cards = list(
@@ -92,40 +163,13 @@ async def render_dashboard(
                 )
             )
         )
-        current = paginate_cards(cards, page)
-        back = {
-            "kind": "dashboard",
-            "stage": stage.value,
-            "title": title,
-            "page": current.index,
-        }
-        rows: list[list[InlineKeyboardButton]] = []
-        descriptions: list[str] = []
-        for card in current.items:
-            metadata = [
-                kind_label(card.kind),
-                card.priority.title(),
-                f"{card.effort_points or '—'} EP",
-            ]
-            if card.hard_time:
-                metadata.append("Hard time")
-            if card.repeatable:
-                metadata.append("Repeat")
-            if card.blocked:
-                metadata.append("Blocked")
-            label = f"{card.title} · {' · '.join(metadata)}"
-            descriptions.append(f"• {label}")
-            rows.append(
-                [
-                    await token_button(
-                        session,
-                        services.owner_id,
-                        label[:60],
-                        "card_view",
-                        {"id": card.id, "back": back},
-                    )
-                ]
-            )
+        current, descriptions, rows = await card_list_rows(
+            session,
+            services,
+            cards,
+            page=page,
+            back={"kind": "dashboard", "stage": stage.value, "title": title},
+        )
         rows.extend(
             await paging_row(
                 session,
@@ -137,14 +181,10 @@ async def render_dashboard(
         )
         rows.append(menu_row())
         await session.commit()
-    text = f"<b>{html.escape(title)}</b> · {current.label}\n"
-    text += (
-        "\n".join(html.escape(description) for description in descriptions) or "Nothing here yet."
-    )
     await send_registered(
         message,
         services,
-        text,
+        with_notice(card_list_text(title, current, descriptions), notice),
         kind=MessageKind.DASHBOARD,
         markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )
@@ -287,7 +327,7 @@ async def render_card_creation(
                 services,
                 "Card creation is no longer active.",
                 kind=MessageKind.ERROR,
-                markup=menu_markup(),
+                markup=menu_markup(sprint_active=await sprint_is_active(session)),
             )
             return
         state = sanitize_card_creation_state(dict(editor.state or {}))

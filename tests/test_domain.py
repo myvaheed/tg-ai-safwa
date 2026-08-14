@@ -88,7 +88,7 @@ async def test_repeat_completion_clones_and_queues_feedback(sessions):
 async def test_sprint_snapshots_and_carryover(sessions):
     async with sessions() as session:
         initial = await create_card(session, title="Initial", stage="sprint", effort_points=5)
-        sprint = await start_sprint(session)
+        sprint = await start_sprint(session, success_criteria="Ship the release")
         added = await create_card(session, title="Added", stage="today", effort_points=3)
         await finish_action(session, initial.id, CardStage.DONE)
         metrics = await sprint_metrics(session, sprint.id)
@@ -231,7 +231,7 @@ async def test_committed_card_relationships_are_validated_propagated_and_audited
 async def test_reopening_a_finished_action_clears_its_sprint_result(sessions):
     async with sessions() as session:
         action = await create_card(session, title="Ship", stage="sprint", effort_points=5)
-        sprint = await start_sprint(session)
+        sprint = await start_sprint(session, success_criteria="Ship the release")
         await finish_action(session, action.id, CardStage.DONE)
         assert (await sprint_metrics(session, sprint.id))["completed"] == 5
 
@@ -245,7 +245,7 @@ async def test_reopening_a_finished_action_clears_its_sprint_result(sessions):
 async def test_returning_to_sprint_scope_cancels_the_earlier_removal(sessions):
     async with sessions() as session:
         action = await create_card(session, title="Ship", stage="sprint", effort_points=5)
-        sprint = await start_sprint(session)
+        sprint = await start_sprint(session, success_criteria="Ship the release")
         await move_card(session, action.id, CardStage.BACKLOG)
         assert (await sprint_metrics(session, sprint.id))["removed"] == 5
 

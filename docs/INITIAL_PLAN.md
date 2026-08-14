@@ -5,7 +5,9 @@
 - Safwa is a single-owner personal agile advisor running locally on Windows through Telegram long polling.
 - Telegram quick actions and ordinary text are the v1 interfaces. A Mini App is deferred.
 - Workspace modes are Planning and Sprint. Only one Sprint can be active, and a Sprint can start only from Planning.
-- The default Sprint length is 14 calendar days. Today persists across midnight.
+- Sprint length is a Setting between 2 and 60 calendar days, 14 by default. Today persists across midnight.
+- A Sprint carries Success criteria that say what it must achieve. They are written before it starts and cannot be empty.
+- Today belongs to a running Sprint: in Planning its dashboard, menu button, and command are unavailable.
 - Cards form a strict tree: Goal is root-only; Idea may be root or a child of Goal; Action may be root or a child of Goal or Idea; Action cannot have children.
 - Cards have Backlog, Sprint, Today, Done, and Cancelled stages.
 - Populated Goal and Idea stages are derived from descendants: Today, then Sprint, then Backlog; all-terminal descendants produce Done when at least one is Done, otherwise Cancelled.
@@ -132,7 +134,10 @@ Invalid Action-only fields supplied for Goal or Idea are removed at the AI bound
 
 ### Sprint accounting
 
+- Starting a Sprint is Success criteria, then the plan it will commit, then `Confirm plan: Start`. The plan lists the Sprint and Today Actions as tappable items, and an empty one cannot be started.
 - Starting a Sprint snapshots all non-archived Actions in Sprint or Today.
+- Starting a Sprint also sets two Reminders at its start clock: the day before its end date, and on it. Finishing the Sprint deletes them.
+- A Sprint that was not closed manually closes itself at the local midnight after its end date. Unfinished Actions keep their stage.
 - Goal and Idea never contribute their own effort.
 - Later additions and removals are recorded separately from initial commitment.
 - Cancellation is distinct from completion.
@@ -169,9 +174,13 @@ The static and planning blocks contain:
 
 - concise Safwa rules, the allowlisted view list, and the tool/approval protocol;
 - workspace mode;
-- About Me, advisor instructions, active Values, and available Tags, each with its short integer ID;
-- all Today Actions with their short integer IDs;
+- About Me, advisor instructions, active Values, and available Tags;
+- the running Sprint with its Success criteria, or the notice that Planning needs one — which the advisor raises at a moment it picks from the dialogue;
+- up to ten critical Cards, those carrying an active Value first;
+- all Today Actions, while a Sprint runs;
 - authoritative `memory.md`.
+
+Every item in those lists is written as the citation the model reuses in a reply, `[name](kind:id)`.
 
 The system message deliberately carries no Sprint metrics and no precomputed Card candidates: the model reaches those through `query_safwa` over `ai_current_sprint_metrics` and `ai_cards`, so context stays small and never goes stale. The dialogue turns that follow already carry the nearest Summary or `/newsession` boundary applied by the history source. Tool schemas are supplied through the provider's native function-calling parameter, not inlined in the prompt.
 

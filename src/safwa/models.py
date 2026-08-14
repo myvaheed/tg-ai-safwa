@@ -23,6 +23,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
+from .constants import SPRINT_LENGTH_DAYS
 from .enums import (
     ActorType,
     CardStage,
@@ -79,6 +80,9 @@ class Workspace(Base, TimestampMixin):
     mode: Mapped[str] = mapped_column(String(20), default=WorkspaceMode.PLANNING.value)
     active_sprint_id: Mapped[int | None] = mapped_column(ForeignKey("sprints.id"))
     timezone: Mapped[str] = mapped_column(String(64), default="Europe/Istanbul")
+    # What the next Sprint is meant to achieve, edited during Planning and copied into the
+    # Sprint at start.  It outlives a Sprint so the next one can start from the last wording.
+    sprint_success_criteria: Mapped[str] = mapped_column(Text, default="")
     revision: Mapped[int] = mapped_column(Integer, default=1)
 
 
@@ -90,6 +94,7 @@ class UserProfile(Base, TimestampMixin):
     reminders_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     reminders_snoozed_until: Mapped[datetime | None] = mapped_column(UtcDateTime)
     capacity_effort_points: Mapped[int | None] = mapped_column(Integer)
+    sprint_length_days: Mapped[int] = mapped_column(Integer, default=SPRINT_LENGTH_DAYS)
     memory_update_time: Mapped[time | None] = mapped_column(Time)
 
 
@@ -251,6 +256,7 @@ class Sprint(Base, TimestampMixin):
     actual_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     actual_ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     capacity_effort_points: Mapped[int | None] = mapped_column(Integer)
+    success_criteria: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20), default="active")
     finish_reason: Mapped[str | None] = mapped_column(String(100))
 
@@ -400,6 +406,11 @@ class Reminder(Base, TimestampMixin):
     __tablename__ = "reminders"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     instruction: Mapped[str] = mapped_column(Text)
+    # Set only on the two Reminders a Sprint start creates, so finishing that Sprint can
+    # remove them; an owner-created Reminder never carries one.
+    sprint_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sprints.id", ondelete="CASCADE"), index=True
+    )
 
     schedule_kind: Mapped[str] = mapped_column(String(20))
     weekdays: Mapped[list[str]] = mapped_column(JSON, default=list)

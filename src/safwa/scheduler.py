@@ -1,4 +1,4 @@
-"""The Reminder poll: find what is due and escalate it once.
+"""The time-driven polls: due Reminders, and a Sprint that has outlived its end date.
 
 The poll *is* the alarm clock — there is no scheduling library and no in-memory timer set.
 ``Reminder.next_fire_at`` is the only column the loop reads, and it is advanced **only after
@@ -26,7 +26,9 @@ from .constants import (
     REMINDER_CATCHUP_GRACE_MINUTES,
     REMINDER_FIRE_BATCH,
     SCHEDULER_POLL_SECONDS,
+    SPRINT_EXPIRY_POLL_SECONDS,
 )
+from .domain import expire_due_sprint
 from .models import Reminder, UserProfile
 from .reminders import describe, roll_forward, schedule_of
 
@@ -50,6 +52,7 @@ Gate = Callable[[], Awaitable[bool]]
 Escalator = Callable[[list[Firing]], Awaitable[bool]]
 LeaseCheck = Callable[[], bool]
 LeaseRelease = Callable[[], None]
+Announcer = Callable[[int], Awaitable[None]]
 
 
 async def reminders_paused(session: AsyncSession, *, now: datetime) -> bool:
@@ -181,6 +184,32 @@ async def tick(
         return True
     finally:
         release()
+
+
+async def run_sprint_expiry(
+    sessions: async_sessionmaker[AsyncSession],
+    *,
+    announce: Announcer,
+    poll_seconds: float = SPRINT_EXPIRY_POLL_SECONDS,
+) -> None:
+    """Close a Sprint that ran past its planned end date and say so once.
+
+    A separate poll from the Reminder one: it takes no lease and asks the advisor nothing,
+    because closing a Sprint at midnight is arithmetic, not a conversation.
+    """
+    while True:
+        try:
+            async with sessions() as session:
+                sprint = await expire_due_sprint(session)
+                number = sprint.number if sprint is not None else None
+                await session.commit()
+            if number is not None:
+                await announce(number)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Sprint expiry poll failed")
+        await asyncio.sleep(poll_seconds)
 
 
 async def run_scheduler(

@@ -7,8 +7,9 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..enums import CardStage
-from ..models import Card, Tag, UserProfile, Value, Workspace
+from ..constants import CONTEXT_CRITICAL_CARD_LIMIT
+from ..enums import CardKind, CardStage, Priority
+from ..models import Card, CardValue, Sprint, Tag, UserProfile, Value, Workspace
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,16 @@ Use one for a checklist item ("milk" under "Go to the market") or a probe ("post
 - A Card with Pending Checks cannot complete. Propose an answer only when the user already gave it;
   otherwise cite the Checks, e.g. `[Milk](check:14)`, and let them answer on the screen.
 
+# Sprint
+A Sprint is a fixed period with Success criteria that say what it must achieve. Judge the plan and every
+proposal against those criteria. The planning state gives you the running Sprint, its criteria, the
+critical Cards, and the Actions picked for today.
+- Starting a Sprint, its Success criteria and its length are manual screens (🏃 Sprint). You have no tool
+  for any of them, so guide the user there instead of proposing one.
+- In Planning there is no Sprint and no Today. Remind the user to plan and start the next one, choosing
+  your own moment from the dialogue — say it when it helps, not in every answer.
+- The last two days of a Sprint arrive as Reminders; an unclosed Sprint closes itself at midnight.
+
 # Reminders
 A Reminder is a trigger the user set: instruction text plus a schedule. When it fires, that text arrives
 as an ordinary request from the system — answer it exactly as you would answer the user.
@@ -80,7 +91,8 @@ over these views only:
 - `ai_requests(id, name, description, query_sql, created_at, updated_at)`
 - `ai_reminders(id, instruction, schedule_kind, weekdays, at_time, interval_minutes, quiet_windows,
   next_fire_at, last_fired_at, fire_count, created_at, updated_at)`
-- `ai_current_sprint(id, number, planned_start_date, planned_end_date, actual_started_at)`
+- `ai_current_sprint(id, number, planned_start_date, planned_end_date, actual_started_at,
+  success_criteria)`
 - `ai_current_sprint_metrics(sprint_id, committed, added, removed, completed, cancelled)`
 - `ai_card_events(id, card_id, sprint_id, actor, operation, created_at)`
 IDs are small integers. Never ask the user for an ID that `query_safwa` can find. Never write SQL.
@@ -103,6 +115,39 @@ Check, picking a stage — instead of guessing it into a proposal. Only these fi
 """
 
 
+def citation(name: str, kind: str, item_id: int) -> str:
+    """The one shape an item takes in context, ready for the model to reuse in a reply."""
+    return f"[{name}]({kind}:{item_id})"
+
+
+async def _critical_cards(session: AsyncSession) -> list[Card]:
+    """The critical Cards, those carrying an active Value first."""
+    linked_active_value = (
+        select(CardValue.card_id)
+        .join(Value, Value.id == CardValue.value_id)
+        .where(
+            CardValue.card_id == Card.id,
+            Value.active.is_(True),
+            Value.archived_at.is_(None),
+        )
+        .exists()
+    )
+    return list(
+        await session.scalars(
+            select(Card)
+            .where(
+                Card.priority == Priority.CRITICAL.value,
+                Card.archived_at.is_(None),
+                Card.effective_stage.notin_(
+                    [CardStage.DONE.value, CardStage.CANCELLED.value]
+                ),
+            )
+            .order_by(linked_active_value.desc(), Card.hard_time.desc(), Card.created_at)
+            .limit(CONTEXT_CRITICAL_CARD_LIMIT)
+        )
+    )
+
+
 async def planning_context(session: AsyncSession) -> PlanningContext:
     workspace = await session.get(Workspace, 1)
     profile = await session.get(UserProfile, 1)
@@ -116,27 +161,60 @@ async def planning_context(session: AsyncSession) -> PlanningContext:
     tags = list(
         await session.scalars(select(Tag).where(Tag.archived_at.is_(None)).order_by(Tag.name))
     )
-    today = list(
-        await session.scalars(
-            select(Card)
-            .where(
-                Card.effective_stage == CardStage.TODAY.value,
-                Card.kind == "action",
-                Card.archived_at.is_(None),
-            )
-            .order_by(Card.hard_time.desc(), Card.priority, Card.created_at)
-        )
+    sprint = (
+        await session.get(Sprint, workspace.active_sprint_id)
+        if workspace and workspace.active_sprint_id
+        else None
     )
     timezone = ZoneInfo(workspace.timezone if workspace else "Europe/Istanbul")
     lines = [
         f"Workspace mode: {workspace.mode if workspace else 'planning'}",
         f"About me: {(profile.about_me if profile else '').strip()}",
         f"Advisor instructions: {(profile.advisor_instructions if profile else '').strip()}",
-        "Active Values: " + ", ".join(f"{v.name} [{v.id}]" for v in active_values),
-        "Available Tags: " + ", ".join(f"{tag.name} [{tag.id}]" for tag in tags),
-        "Today cards:",
-        *[f"- {c.title} [{c.id}] kind={c.kind} effort={c.effort_points}" for c in today],
+        "Active Values: "
+        + ", ".join(citation(value.name, "value", value.id) for value in active_values),
+        "Available Tags: " + ", ".join(citation(tag.name, "tag", tag.id) for tag in tags),
     ]
+    if sprint is not None:
+        lines.extend(
+            [
+                f"Sprint {sprint.number}: {sprint.planned_start_date} – {sprint.planned_end_date}",
+                f"Success criteria: {sprint.success_criteria.strip()}",
+            ]
+        )
+    else:
+        lines.append(
+            "No Sprint is running; the workspace is in Planning. "
+            + (
+                f"Draft Success criteria for the next one: "
+                f"{workspace.sprint_success_criteria.strip()}"
+                if workspace and workspace.sprint_success_criteria.strip()
+                else "No Success criteria have been written yet."
+            )
+        )
+    critical = await _critical_cards(session)
+    lines.append("Critical Cards:")
+    lines.extend(
+        f"- {citation(card.title, 'card', card.id)} kind={card.kind} stage={card.effective_stage}"
+        for card in critical
+    )
+    if sprint is not None:
+        today = list(
+            await session.scalars(
+                select(Card)
+                .where(
+                    Card.effective_stage == CardStage.TODAY.value,
+                    Card.kind == CardKind.ACTION.value,
+                    Card.archived_at.is_(None),
+                )
+                .order_by(Card.hard_time.desc(), Card.priority, Card.created_at)
+            )
+        )
+        lines.append("Today Actions:")
+        lines.extend(
+            f"- {citation(card.title, 'card', card.id)} effort={card.effort_points}"
+            for card in today
+        )
     return PlanningContext(
         state="\n".join(lines),
         clock=f"Current local time: {datetime.now(timezone).isoformat()}",
