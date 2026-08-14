@@ -23,14 +23,15 @@ Python `>=3.12,<3.13`. No server, no multi-user, no Mini App.
 5. `Bot` (`parse_mode=HTML`) → `TelegramHistorySource.from_settings(..., bot_user_id=me.id)` → `.start()`
 6. `PersonaContinuity` → `GenerationGuard` → `Services` dataclass → `dispatcher["services"]`
 7. `OwnerAndWritingMiddleware` on both message and callback outer middleware; `router` included
-8. `set_my_commands` (21 commands)
-9. two background tasks (plus the opt-in reminder scheduler), all cancelled in the polling `finally`:
+8. `set_my_commands` (19 commands)
+9. three background tasks, all cancelled in the polling `finally`:
    - `memory.poll(memory_error)` — 5 s `memory.md` hash watcher
-   - `run_scheduler(..., ReminderPolicy, send_reminder)` — 30 s reminder loop, only when
-     `SAFWA_SCHEDULER_ENABLED=true` (disabled by default while logging is verified)
+   - `run_scheduler(..., gate/evaluate/escalate from `ReminderRuntime`)` — 30 s Reminder poll,
+     `SAFWA_SCHEDULER_ENABLED` (on by default)
    - `run_memory_maintenance(...)` — 60 s daily-memory-sync eligibility loop
 
-`send_reminder` and memory maintenance both stand down while `guard.active`.
+Memory maintenance stands down while `guard.active`; the Reminder poll has its own wider gate
+(`ReminderRuntime.can_escalate`) that also waits out any open proposal.
 
 ## Layering
 
@@ -39,11 +40,11 @@ not one package per layer:
 
 | Responsibility | Files |
 |---|---|
-| domain | [domain.py](../src/safwa/domain.py), [enums.py](../src/safwa/enums.py), [models.py](../src/safwa/models.py), [saved_requests.py](../src/safwa/saved_requests.py) |
+| domain | [domain.py](../src/safwa/domain.py), [enums.py](../src/safwa/enums.py), [models.py](../src/safwa/models.py), [saved_requests.py](../src/safwa/saved_requests.py), [reminders.py](../src/safwa/reminders.py) |
 | application | [domain.py](../src/safwa/domain.py) (mutations), [ai/service.py](../src/safwa/ai/service.py) (`ProposalService`), [continuity.py](../src/safwa/continuity.py), [scheduler.py](../src/safwa/scheduler.py), [analytics.py](../src/safwa/analytics.py) |
 | infrastructure | [db.py](../src/safwa/db.py), [history.py](../src/safwa/history.py), [memory.py](../src/safwa/memory.py), [ai/provider.py](../src/safwa/ai/provider.py), [ai/sql.py](../src/safwa/ai/sql.py), [backup.py](../src/safwa/backup.py) |
-| telegram | [telegram/](../src/safwa/telegram) (11 modules, ~4.8k lines) |
-| ai | [ai/](../src/safwa/ai) (context, contracts, provider, service, sql) |
+| telegram | [telegram/](../src/safwa/telegram) (13 modules, ~5.4k lines) |
+| ai | [ai/](../src/safwa/ai) (context, contracts, mini, provider, reminder_sessions, service, sql) |
 | bootstrap | [main.py](../src/safwa/main.py), [config.py](../src/safwa/config.py), [constants.py](../src/safwa/constants.py), [recovery.py](../src/safwa/recovery.py), [qa.py](../src/safwa/qa.py) |
 
 [constants.py](../src/safwa/constants.py) holds every limit, budget, cap, interval, and the effort
@@ -224,7 +225,7 @@ turn. `telegram_messages` stores only `(chat_id, message_id, direction, kind, re
   characters encoding the `MessageKind`, and `read_kind_mark` recovers it. `telegram_messages` is
   therefore a cache, not the only copy — a rebuilt database still reads the whole dialogue back.
   Every bot send site must mark its text; the four outside `_messaging.py` are `main.memory_error`,
-  `main.send_reminder`, `dialogue.send_summary`, and the `/retro` caption. Codes in
+  `main.memory_error`, `dialogue.send_summary`, and the `/retro` caption. Codes in
   `_KIND_MARK_CODES` are append-only. Owner messages cannot be marked, so an unregistered owner
   message inside the session boundary is treated as dialogue; without a boundary it is dropped.
   A bot message with neither a registration nor a mark (anything predating marks) is read the same
@@ -264,16 +265,34 @@ turn. `telegram_messages` stores only `(chat_id, message_id, direction, kind, re
 - `/setmemtime HH:MM|off` gates one automatic run per local calendar day
   (`run_due_memory_maintenance`, checked once a minute, skipped while foreground is busy).
 
-### Reminders and retrospectives
+### Reminders
 
-- Deterministic first: `ReminderPolicy.candidates` computes eligible candidates
-  (quiet hours, weekend flag, `proactive_limit` daily cap counted from `telegram_messages`, cooldown,
-  dedupe key, global/kind snooze). `run_scheduler` takes **the first** candidate, and only then does the
-  LLM decide `{"send":bool,"message":str}` — it never chooses *what* to remind about. Dedupe keys are
-  always strings (`_card_key`), and the whole loop body is guarded so one failure cannot end it.
-- Card-counting candidates (`today`, `planning`, `capacity`) filter to Actions, matching the dashboards.
-- Candidate kinds: `morning`, `evening`, `feedback`, `today`, `stale_today`, `capacity`,
-  `repeat_drift`, `inactivity`, `sprint_midpoint`, `sprint_end`, `blocked`, `value_neglected`, `planning`.
+Safwa sends a proactive message **only** because a Reminder the owner set fired. There are no computed
+nudge kinds. A Reminder is instruction text plus a schedule — see
+[REMINDERS_PLAN.md](REMINDERS_PLAN.md) for the full contract.
+
+- The 30 s poll *is* the alarm clock. `Reminder.next_fire_at` is the only column it reads, and it is
+  advanced **only after an escalation succeeds** — which is why a cancelled or crashed turn loses
+  nothing: the row is still overdue, so the next tick retries it.
+- The system's only output is an **escalation**: the instruction text is handed to the main advisor as
+  a request (`format_escalation`, `dialogue=None`) and the advisor answers with the tools it already
+  has. The reminder system never composes a message or renders an item.
+- Two mini-sessions ([ai/mini.py](../src/safwa/ai/mini.py),
+  [ai/reminder_sessions.py](../src/safwa/ai/reminder_sessions.py)), neither of which writes anything:
+  **setup** resolves free-text timing into parameters before the proposal row exists, so the review
+  screen shows a real schedule; **relevance** reads the `#id`s the instruction names and reports their
+  state plus a `trigger`/`irrelevant` verdict. Both verdicts escalate.
+- Two exact skips keep the relevance session off most fires: no `#id` in the instruction (nothing to
+  look up), or `workspace.revision` unchanged since the cached verdict. The second holds only because
+  advancing `next_fire_at` is written directly and does **not** bump the revision.
+- Schedule arithmetic is one pure module ([reminders.py](../src/safwa/reminders.py)): `resolve`,
+  `next_fire`, `roll_forward`, `describe`. `date` is always a start date; `time` is a fire clock when
+  weekdays are given and a start clock otherwise.
+- The owner always wins. `GenerationGuard` records whether the holder is the owner or a background
+  escalation; an owner event cancels a background one rather than being deleted.
+
+### Retrospectives
+
 - Retrospective PNG: Matplotlib `Agg`, 3 axes (sprint effort bars — initial/added/removed/done/
   cancelled; committed-vs-completed by overlapping category; same by overlapping energy) plus
   `retrospective_recommendations` text derived from capacity, scope churn, Hard Time slippage, liked
@@ -288,7 +307,9 @@ turn. `telegram_messages` stores only `(chat_id, message_id, direction, kind, re
   discards the answer if either changed.
 - `OwnerAndWritingMiddleware` drops anything that is not the owner in a private chat.
 - `recover_startup` reconciles interrupted `agent_runs`, `resuming` approval batches, expired proposals,
-  callback tokens, UI sessions, and stuck scheduled jobs on every boot.
+  callback tokens, UI sessions, and Reminder schedules on every boot. `reconcile_reminders` rolls a
+  repeat forward only past `REMINDER_CATCHUP_GRACE_MINUTES` — an in-grace overdue row is left alone
+  because the first poll firing it *is* the catch-up — and rebuilds wall clocks after a timezone move.
 
 ## Schema
 
@@ -299,14 +320,19 @@ means editing `models.py` and rebuilding the database (`uv run safwa-backup` fir
 
 **Do not add Alembic or write migrations.** Pre-release; the owner recreates the database.
 
-28 tables: `workspace`, `user_profile`, `values`, `cards`, `card_values`, `tags`, `card_tags`,
+27 tables: `workspace`, `user_profile`, `values`, `cards`, `card_values`, `tags`, `card_tags`,
 `checks`, `card_checks`,
 `saved_requests`, `card_categories`, `card_energy_types`, `sprints`, `sprint_commitments`, `card_events`,
 `change_proposals`, `proposal_changes`, `agent_runs`, `agent_steps`, `telegram_messages`,
-`feedback_queue`, `summary_state`, `memory_fact_cache`, `memory_sync_state`, `reminder_state`,
-`scheduled_jobs`, `ui_sessions`, `callback_tokens`.
+`feedback_queue`, `summary_state`, `memory_fact_cache`, `memory_sync_state`, `reminders`,
+`ui_sessions`, `callback_tokens`.
 
 Enums are `StrEnum` but columns store plain strings — always compare/assign `.value`.
+
+SQLite has no time zone type, so `DateTime(timezone=True)` accepts an aware value and returns a naive
+one. `UtcDateTime` ([models.py](../src/safwa/models.py)) is a `TypeDecorator` that always reads back
+tz-aware UTC; the Reminder datetime columns use it because that table is nothing but datetime
+arithmetic. It emits identical DDL, so it is not a schema change.
 
 ## Commands
 

@@ -128,7 +128,7 @@ class QueryToolInput(ToolInput):
 
 
 class AgentChange(BaseModel):
-    entity: Literal["card", "check", "tag", "value", "request"]
+    entity: Literal["card", "check", "tag", "value", "request", "reminder"]
     action: Literal[
         "create",
         "update",
@@ -363,7 +363,7 @@ class RequestToolInput(ToolInput):
 
 
 class RemoveToolInput(ToolInput):
-    type: Literal["card", "check", "tag", "value", "request"]
+    type: Literal["card", "check", "tag", "value", "request", "reminder"]
     id: PositiveInt
     permanent: bool = False
 
@@ -374,12 +374,95 @@ class RemoveToolInput(ToolInput):
         return self
 
 
+class ReminderToolInput(ToolInput):
+    mode: Literal["create", "edit"]
+    id: PositiveInt | None = None
+    instruction: str = Field(
+        description=(
+            "What Safwa should do when the time comes, handed to the advisor as a request. "
+            "It must stand on its own — the conversation is not available then — and must "
+            "name every Card or Check it concerns by #id."
+        )
+    )
+    when: str | None = Field(
+        default=None,
+        description=(
+            "The timing in plain words, e.g. 'every weekday at 8am' or 'in 90 minutes'. "
+            "Required to create. Omit it when editing to leave the schedule untouched."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_mode(self) -> ReminderToolInput:
+        if self.mode == "create" and not (self.when or "").strip():
+            raise ValueError("when is required to create a Reminder")
+        if self.mode == "edit" and self.id is None:
+            raise ValueError("id is required to edit a Reminder")
+        return self
+
+
+class ReminderConfigInput(ToolInput):
+    """The setup session's terminal call: free text resolved into parameters.
+
+    `schedule_kind` is absent on purpose — it is derived from which of these are present,
+    so the model cannot name a shape that contradicts its own parameters.
+    """
+
+    days: list[Literal["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]] | None = Field(
+        default=None, description="Weekdays to fire on; all seven means every day."
+    )
+    time: str | None = Field(
+        default=None,
+        description=(
+            "Local wall clock HH:MM. With days it is the time it fires at; otherwise it is "
+            "when the schedule starts."
+        ),
+    )
+    date: str | None = Field(
+        default=None,
+        description=(
+            "Local calendar date dd.mm.yyyy. Always the START date when the schedule "
+            "repeats, and the date itself when it does not. Needs time as well."
+        ),
+    )
+    interval_minutes: PositiveInt | None = Field(
+        default=None, description="Repeat every N minutes."
+    )
+    quiet_windows: list[str] | None = Field(
+        default=None,
+        description=(
+            "Local HH:MM-HH:MM ranges when it must not fire, e.g. ['22:00-09:00']. "
+            "Interval schedules only. The end is exclusive."
+        ),
+    )
+
+
+class NotClearEnoughInput(ToolInput):
+    reason: str = Field(
+        description=(
+            "The one question the owner must answer, in their words. Never guess a time: a "
+            "guessed one is discovered when the Reminder fires at 03:00."
+        )
+    )
+
+
+class RelevanceCheckInput(ToolInput):
+    verdict: Literal["trigger", "irrelevant"]
+    state: str = Field(
+        description=(
+            "One or two sentences naming each item the instruction mentions and its current "
+            "stage or outcome. Pasted verbatim into the escalation."
+        )
+    )
+
+
 MUTATION_TOOL_MODELS: dict[str, type[BaseModel]] = {
     "card": CardToolInput,
     "check": CheckToolInput,
     "value": ValueToolInput,
     "tag": TagToolInput,
     "request": RequestToolInput,
+    "reminder": ReminderToolInput,
     "remove": RemoveToolInput,
 }
 

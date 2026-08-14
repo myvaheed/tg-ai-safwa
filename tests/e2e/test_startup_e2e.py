@@ -130,7 +130,6 @@ async def test_full_startup_reaches_polling_and_cleans_up(tmp_path: Path, monkey
     monkeypatch.setattr(safwa_main, "TelegramHistorySource", FakeHistoryFactory)
     monkeypatch.setattr(safwa_main, "Dispatcher", FakeDispatcher)
     monkeypatch.setattr(safwa_main, "router", FakeRouter())
-    monkeypatch.setattr(safwa_main, "run_scheduler", wait_until_cancelled)
     monkeypatch.setattr(safwa_main, "run_memory_maintenance", wait_until_cancelled)
 
     settings = Settings(

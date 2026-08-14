@@ -13,6 +13,7 @@ from ..domain import (
     DomainError,
     edit_card_text,
     update_card_fields,
+    update_reminder_text,
     update_tag_fields,
     update_value_fields,
 )
@@ -30,6 +31,7 @@ from ._messaging import (
 from .cards import render_card, render_card_creation, sanitize_card_creation_state
 from .items import render_item_editor
 from .proposals import render_ai_outcome
+from .reminders import render_reminder
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +79,20 @@ async def ordinary_text(message: Message, services: Services) -> None:
             values=values,
             replace_message_id=message_id if input_deleted else None,
         )
+        return
+    if ui_kind == "reminder_text":
+        reminder_id = int(ui_state["reminder_id"])
+        message_id = int(ui_state["message_id"])
+        async with services.sessions() as session:
+            # The one write path for a Reminder's text, so the schedule stays untouched and
+            # the relevance cache is dropped in exactly one place.
+            await update_reminder_text(session, reminder_id, message.text)
+            await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
+            await session.commit()
+        input_deleted = await delete_text_input(message, services)
+        if not input_deleted:
+            await clear_message_markup(message, message_id)
+        await render_reminder(message, services, reminder_id)
         return
     if ui_kind == "card_create_text":
         async with services.sessions() as session:

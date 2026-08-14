@@ -1,322 +1,219 @@
+"""The Reminder poll: find what is due, check it still matters, escalate once.
+
+The poll *is* the alarm clock — there is no scheduling library and no in-memory timer set.
+``Reminder.next_fire_at`` is the only column the loop reads, and it is advanced **only after
+an escalation succeeds**.  That single ordering rule is what makes a cancelled or crashed
+turn lose nothing: the row is still overdue, so the next tick finds it again and retries.
+
+Do not confuse the two intervals.  The poll is ``SCHEDULER_POLL_SECONDS`` and is the
+system's clock; a Reminder's own ``interval_minutes`` is a property of its row.  A deferred
+Reminder waits seconds for a quiet moment, never one of its own cycles.
+"""
+
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from .constants import SCHEDULER_POLL_SECONDS
-from .enums import CardKind, CardStage, MessageKind
-from .models import (
-    Card,
-    CardValue,
-    FeedbackQueue,
-    ReminderState,
-    Sprint,
-    TelegramMessage,
-    UserProfile,
-    Value,
-    Workspace,
+from .constants import (
+    REMINDER_CATCHUP_GRACE_MINUTES,
+    REMINDER_FIRE_BATCH,
+    SCHEDULER_POLL_SECONDS,
 )
+from .enums import RelevanceVerdict
+from .models import Reminder, UserProfile, Workspace
+from .reminders import describe, mentions_item, roll_forward, schedule_of
 
 logger = logging.getLogger(__name__)
 
 
-def _card_key(cards: list[Card]) -> str:
-    """A stable dedupe key for a Card set. Card ids are ints, so stringify before joining."""
-    return ",".join(str(card_id) for card_id in sorted(card.id for card in cards))
+@dataclass(frozen=True, slots=True)
+class Firing:
+    """One due Reminder, resolved and ready to be written into an escalation."""
+
+    reminder_id: int
+    instruction: str
+    schedule: str
+    fire_count: int
+    last_fired_at: datetime | None
+    due_at: datetime
+    verdict: RelevanceVerdict
+    state: str | None
+    revision: int
 
 
-class ReminderPolicy:
-    def __init__(self, timezone: str, *, now: Callable[[], datetime] | None = None) -> None:
-        self.timezone = ZoneInfo(timezone)
-        self.now = now or (lambda: datetime.now(UTC))
+# Supplied by the runtime so this module stays free of the advisor and the bot.
+Gate = Callable[[], Awaitable[bool]]
+Evaluator = Callable[[Reminder], Awaitable[tuple[RelevanceVerdict, str | None]]]
+Escalator = Callable[[list[Firing]], Awaitable[bool]]
 
-    async def eligible(self, session: AsyncSession, kind: str, dedupe_key: str) -> bool:
-        profile = await session.get(UserProfile, 1)
-        if profile is None or not profile.reminders_enabled:
-            return False
-        current_utc = self.now()
-        local = current_utc.astimezone(self.timezone)
-        local_midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
-        daily_count = (
-            await session.scalar(
-                select(func.count(TelegramMessage.id)).where(
-                    TelegramMessage.kind == MessageKind.REMINDER.value,
-                    TelegramMessage.created_at >= local_midnight.astimezone(UTC),
-                )
-            )
-            or 0
-        )
-        if daily_count >= profile.proactive_limit:
-            return False
-        if not profile.weekend_enabled and local.weekday() >= 5:
-            return False
-        current = local.timetz().replace(tzinfo=None)
-        if profile.quiet_start and profile.quiet_end:
-            if profile.quiet_start <= profile.quiet_end:
-                quiet = profile.quiet_start <= current <= profile.quiet_end
-            else:
-                quiet = current >= profile.quiet_start or current <= profile.quiet_end
-            if quiet:
-                return False
-        state = await session.get(ReminderState, kind)
-        global_state = await session.get(ReminderState, "global")
-        if global_state and global_state.snoozed_until and global_state.snoozed_until > current_utc:
-            return False
-        if state and state.snoozed_until and state.snoozed_until > current_utc:
-            return False
-        if state and state.last_sent_at:
-            cooldown = timedelta(minutes=profile.reminder_cooldown_minutes)
-            if state.last_sent_at + cooldown > current_utc:
-                return False
-            if state.dedupe_key == dedupe_key:
-                return False
+
+async def reminders_paused(session: AsyncSession, *, now: datetime) -> bool:
+    profile = await session.get(UserProfile, 1)
+    if profile is None or not profile.reminders_enabled:
         return True
+    snoozed = profile.reminders_snoozed_until
+    return snoozed is not None and snoozed > now
 
-    async def candidates(self, session: AsyncSession) -> list[tuple[str, str, str]]:
-        candidates: list[tuple[str, str, str]] = []
-        profile = await session.get(UserProfile, 1)
-        if profile is None:
-            return candidates
-        current_utc = self.now()
-        local = current_utc.astimezone(self.timezone)
-        for kind, configured, text in [
-            (
-                "morning",
-                (profile.morning_checkin or profile.wake_time) if profile else None,
-                "Offer a short morning Planning check-in.",
-            ),
-            (
-                "evening",
-                (profile.evening_checkin or profile.bed_time) if profile else None,
-                "Offer a short evening reflection check-in.",
-            ),
-        ]:
-            if configured:
-                target = local.replace(
-                    hour=configured.hour, minute=configured.minute, second=0, microsecond=0
-                )
-                if abs((local - target).total_seconds()) <= 30 * 60:
-                    key = local.date().isoformat()
-                    if await self.eligible(session, kind, key):
-                        candidates.append((kind, key, text))
-        feedback = (
-            await session.scalar(
-                select(func.count(FeedbackQueue.id)).where(FeedbackQueue.answered_at.is_(None))
-            )
-            or 0
+
+async def due_reminders(
+    session: AsyncSession, *, now: datetime, limit: int = REMINDER_FIRE_BATCH
+) -> list[Reminder]:
+    return list(
+        await session.scalars(
+            select(Reminder)
+            .where(Reminder.next_fire_at <= now)
+            .order_by(Reminder.next_fire_at)
+            .limit(limit)
         )
-        if feedback and await self.eligible(session, "feedback", str(feedback)):
-            candidates.append(
-                ("feedback", str(feedback), f"You have {feedback} completion feedback item(s).")
+    )
+
+
+def is_stale(reminder: Reminder, *, now: datetime) -> bool:
+    """Whether a *repeating* Reminder is so overdue that firing it would be noise.
+
+    A weekend offline must not produce 32 posture escalations, so anything past the grace
+    window rolls forward silently.  A one-shot is never stale: it always fires, however
+    late, and the escalation says how late.
+    """
+    if not schedule_of(reminder).repeating:
+        return False
+    return now - reminder.next_fire_at > timedelta(minutes=REMINDER_CATCHUP_GRACE_MINUTES)
+
+
+async def prepare(
+    session: AsyncSession,
+    reminders: list[Reminder],
+    *,
+    now: datetime,
+    tz: ZoneInfo,
+    evaluate: Evaluator,
+) -> list[Firing]:
+    """Resolve each due Reminder into a Firing, rolling stale repeats forward instead.
+
+    The two skips live here.  An instruction naming no ``#id`` has nothing to look up, and
+    an unchanged ``workspace.revision`` guarantees the previous answer still holds — both
+    are exact, not heuristics.
+    """
+    workspace = await session.get(Workspace, 1)
+    revision = workspace.revision if workspace else 0
+    firings: list[Firing] = []
+    for reminder in reminders:
+        schedule = schedule_of(reminder)
+        if is_stale(reminder, now=now):
+            reminder.next_fire_at = roll_forward(
+                schedule, previous=reminder.next_fire_at, now=now, tz=tz
             )
-        today = list(
-            await session.scalars(
-                select(Card).where(
-                    Card.kind == CardKind.ACTION.value,
-                    Card.effective_stage == CardStage.TODAY.value,
-                    Card.archived_at.is_(None),
-                )
-            )
-        )
-        if today:
-            key = _card_key(today)
-            if await self.eligible(session, "today", key):
-                candidates.append(
-                    ("today", key, f"Your Today focus contains {len(today)} Action(s).")
-                )
-            if local.hour >= 15 and await self.eligible(
-                session, "stale_today", f"{key}:{local.date()}"
-            ):
-                candidates.append(
-                    (
-                        "stale_today",
-                        f"{key}:{local.date()}",
-                        "Your Today work is still open; choose what matters for the rest of the day.",
-                    )
-                )
-        committed_effort = (
-            await session.scalar(
-                select(func.coalesce(func.sum(Card.effort_points), 0)).where(
-                    Card.kind == CardKind.ACTION.value,
-                    Card.archived_at.is_(None),
-                    Card.effective_stage.in_([CardStage.SPRINT.value, CardStage.TODAY.value]),
-                )
-            )
-            or 0
-        )
-        if profile.capacity_effort_points and committed_effort > profile.capacity_effort_points:
-            key = f"{committed_effort}/{profile.capacity_effort_points}"
-            if await self.eligible(session, "capacity", key):
-                candidates.append(
-                    (
-                        "capacity",
-                        key,
-                        f"Committed effort is {key} EP, above your configured capacity.",
-                    )
-                )
-        drifting_repeats = list(
-            await session.scalars(
-                select(Card).where(
-                    Card.kind == CardKind.ACTION.value,
-                    Card.repeatable.is_(True),
-                    Card.archived_at.is_(None),
-                    Card.effective_stage == CardStage.BACKLOG.value,
-                )
+            continue
+        verdict, state = await _verdict(reminder, revision=revision, evaluate=evaluate)
+        firings.append(
+            Firing(
+                reminder_id=reminder.id,
+                instruction=reminder.instruction,
+                schedule=describe(schedule, tz=tz, now=now),
+                fire_count=reminder.fire_count,
+                last_fired_at=reminder.last_fired_at,
+                due_at=reminder.next_fire_at,
+                verdict=verdict,
+                state=state,
+                revision=revision,
             )
         )
-        if drifting_repeats:
-            key = _card_key(drifting_repeats)
-            if await self.eligible(session, "repeat_drift", key):
-                candidates.append(
-                    (
-                        "repeat_drift",
-                        key,
-                        f"{len(drifting_repeats)} repeatable Action(s) are waiting in Backlog.",
-                    )
-                )
-        last_user_message = await session.scalar(
-            select(TelegramMessage.created_at)
-            .where(
-                TelegramMessage.direction == "in",
-                TelegramMessage.kind == MessageKind.DIALOGUE_USER.value,
-            )
-            .order_by(TelegramMessage.created_at.desc())
-            .limit(1)
-        )
-        if last_user_message and current_utc - last_user_message >= timedelta(days=3):
-            key = last_user_message.date().isoformat()
-            if await self.eligible(session, "inactivity", key):
-                candidates.append(
-                    (
-                        "inactivity",
-                        key,
-                        "It has been a few days. Would a small planning check-in help?",
-                    )
-                )
-        workspace = await session.get(Workspace, 1)
-        if workspace and workspace.active_sprint_id:
-            sprint = await session.get(Sprint, workspace.active_sprint_id)
-            days_elapsed = (local.date() - sprint.planned_start_date).days
-            days_left = (sprint.planned_end_date - local.date()).days
-            if days_elapsed >= 7 and await self.eligible(
-                session, "sprint_midpoint", f"{sprint.id}:midpoint"
-            ):
-                candidates.append(
-                    (
-                        "sprint_midpoint",
-                        f"{sprint.id}:midpoint",
-                        f"Sprint {sprint.number} has reached its midpoint; review scope and energy.",
-                    )
-                )
-            if days_left <= 1 and await self.eligible(
-                session, "sprint_end", f"{sprint.id}:{days_left}"
-            ):
-                candidates.append(
-                    (
-                        "sprint_end",
-                        f"{sprint.id}:{days_left}",
-                        f"Sprint {sprint.number} is near its planned end; offer a finish or adjustment check-in.",
-                    )
-                )
-        blocked_count = (
-            await session.scalar(
-                select(func.count(Card.id)).where(
-                    Card.blocked.is_(True),
-                    Card.archived_at.is_(None),
-                    Card.effective_stage.notin_(
-                        [CardStage.DONE.value, CardStage.CANCELLED.value]
-                    ),
-                )
-            )
-            or 0
-        )
-        if blocked_count and await self.eligible(session, "blocked", str(blocked_count)):
-            candidates.append(
-                (
-                    "blocked",
-                    str(blocked_count),
-                    f"There are {blocked_count} blocked Card(s) to review.",
-                )
-            )
-        active_values = list(await session.scalars(select(Value).where(Value.active.is_(True))))
-        for value in active_values:
-            aligned = await session.scalar(
-                select(CardValue.card_id)
-                .join(Card, Card.id == CardValue.card_id)
-                .where(
-                    CardValue.value_id == value.id,
-                    Card.archived_at.is_(None),
-                    Card.effective_stage.in_([CardStage.SPRINT.value, CardStage.TODAY.value]),
-                )
-                .limit(1)
-            )
-            if not aligned and await self.eligible(session, "value_neglected", str(value.id)):
-                candidates.append(
-                    (
-                        "value_neglected",
-                        str(value.id),
-                        f"Active Value '{value.name}' has no directly linked Sprint or Today Action.",
-                    )
-                )
-        if workspace and workspace.mode == "planning":
-            selected = (
-                await session.scalar(
-                    select(func.count(Card.id)).where(
-                        Card.kind == CardKind.ACTION.value,
-                        Card.archived_at.is_(None),
-                        Card.effective_stage.in_(
-                            [
-                                CardStage.SPRINT.value,
-                                CardStage.TODAY.value,
-                            ]
-                        ),
-                    )
-                )
-                or 0
-            )
-            if selected and await self.eligible(session, "planning", str(selected)):
-                candidates.append(
-                    ("planning", str(selected), "Your next Sprint selection is waiting for review.")
-                )
-        return candidates
+    return firings
+
+
+async def _verdict(
+    reminder: Reminder, *, revision: int, evaluate: Evaluator
+) -> tuple[RelevanceVerdict, str | None]:
+    if not mentions_item(reminder.instruction):
+        return RelevanceVerdict.TRIGGER, None
+    if reminder.evaluated_revision == revision and reminder.last_verdict:
+        return RelevanceVerdict(reminder.last_verdict), reminder.last_state
+    return await evaluate(reminder)
+
+
+async def settle(
+    session: AsyncSession, firings: list[Firing], *, now: datetime, tz: ZoneInfo
+) -> None:
+    """Advance the rows an escalation actually delivered. Never called before it succeeds.
+
+    A repeat advances from its *scheduled* moment rather than the delivery moment, so a
+    turn that took four minutes does not push every later fire four minutes out.
+    """
+    for firing in firings:
+        reminder = await session.get(Reminder, firing.reminder_id)
+        if reminder is None:
+            continue
+        schedule = schedule_of(reminder)
+        if not schedule.repeating:
+            await session.delete(reminder)
+            continue
+        reminder.last_fired_at = now
+        reminder.fire_count += 1
+        reminder.evaluated_revision = firing.revision
+        reminder.last_verdict = firing.verdict.value
+        reminder.last_state = firing.state
+        reminder.next_fire_at = roll_forward(schedule, previous=firing.due_at, now=now, tz=tz)
+
+
+async def tick(
+    sessions: async_sessionmaker[AsyncSession],
+    *,
+    tz: ZoneInfo,
+    gate: Gate,
+    evaluate: Evaluator,
+    escalate: Escalator,
+    now: datetime | None = None,
+) -> bool:
+    """One poll. Returns whether an escalation was delivered."""
+    moment = now or datetime.now(UTC)
+    async with sessions() as session:
+        if await reminders_paused(session, now=moment):
+            return False
+        reminders = await due_reminders(session, now=moment)
+        if not reminders:
+            return False
+        if not await gate():
+            # Not queued anywhere: nothing is advanced, so the rows stay due and the next
+            # tick retries them once the advisor is free.
+            return False
+        firings = await prepare(session, reminders, now=moment, tz=tz, evaluate=evaluate)
+        await session.commit()
+        if not firings:
+            return False
+
+    delivered = await escalate(firings)
+    if not delivered:
+        return False
+    async with sessions() as session:
+        await settle(session, firings, now=moment, tz=tz)
+        await session.commit()
+    return True
 
 
 async def run_scheduler(
     sessions: async_sessionmaker[AsyncSession],
-    policy: ReminderPolicy,
-    send_reminder,
     *,
+    timezone: str,
+    gate: Gate,
+    evaluate: Evaluator,
+    escalate: Escalator,
     poll_seconds: float = SCHEDULER_POLL_SECONDS,
-) -> None:  # type: ignore[no-untyped-def]
+) -> None:
+    tz = ZoneInfo(timezone)
     while True:
-        # Candidate computation is guarded too: an error escaping here would silently end
-        # reminders for the rest of the process.
         try:
-            async with sessions() as session:
-                candidates = await policy.candidates(session)
-                if candidates:
-                    kind, key, text = candidates[0]
-                    try:
-                        sent = await send_reminder(text)
-                    except Exception:
-                        logger.exception("Reminder generation or delivery failed")
-                        sent = False
-                    if sent:
-                        state = await session.get(ReminderState, kind)
-                        if state is None:
-                            state = ReminderState(kind=kind)
-                            session.add(state)
-                        state.last_sent_at = datetime.now(UTC)
-                        state.dedupe_key = key
-                        await session.commit()
+            await tick(sessions, tz=tz, gate=gate, evaluate=evaluate, escalate=escalate)
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("Reminder scheduling failed")
+            # An error escaping here would silently end reminders for the rest of the process.
+            logger.exception("Reminder poll failed")
         await asyncio.sleep(poll_seconds)

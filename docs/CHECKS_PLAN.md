@@ -189,11 +189,11 @@ finds it in `ai_checks` and cites it. A `/checks` command is deferred.
 Cadence. `repeatable` means "respawn on resolve"; it does not mean "ask me every four hours". Nothing
 in this plan fires a Check.
 
-Consequence: the checklist case works on day one, the probe case does not. Posture is blocked on the
-planned Reminder rework, where a reminder becomes user-authored text plus a time. That rework adds a
-candidate source; it does not replace the 13 deterministic kinds in
-[scheduler.py](../src/safwa/scheduler.py) — the trigger stays deterministic, only the content becomes
-free text. `proactive_limit` budgeting for high-frequency probes is unsolved and belongs to that work.
+Consequence: the checklist case works on day one, the probe case needs a Reminder. That rework has
+since landed ([REMINDERS_PLAN.md](REMINDERS_PLAN.md)) and it *replaced* the 13 deterministic kinds
+rather than adding to them: a Reminder is user-authored text plus a schedule, and the posture case is
+a Reminder whose text names the Check by `#id`. Budgeting is no longer a problem to solve — the owner
+sets the frequency, so there is nothing to ration.
 
 ## AI surface
 

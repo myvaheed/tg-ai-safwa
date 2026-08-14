@@ -41,6 +41,7 @@ graph TD
   main --> history[history.py]
   main --> continuity[continuity.py]
   main --> scheduler[scheduler.py]
+  scheduler --> reminders[reminders.py]
   main --> aiservice[ai/service.py]
   main --> aisql[ai/sql.py]
   main --> aiprovider[ai/provider.py]
@@ -122,7 +123,8 @@ Cycle guards worth remembering: `constants.py` imports nothing from Safwa, so it
 ### `main.py` — bootstrap
 
 `configure_logging` :34 · `database_path` :50 · `run` :56 (full wiring) · `main` :244.
-Nested closures inside `run`: `memory_error` :158, `send_reminder` :170 (the reminder LLM call).
+Nested closure inside `run`: `memory_error`. The Reminder poll's three hooks come from
+`ReminderRuntime`, not from a closure here.
 
 ### `constants.py` — every tuning knob
 
@@ -149,7 +151,7 @@ Imports nothing from Safwa. Grouped by concern:
 `data_dir`, `ai_provider=lmstudio`, `ai_api_key`, `ai_model`, `ai_timeout_seconds=120`,
 `ai_max_output_tokens=4096`, `ai_structured_output=False`, `ai_query_row_limit`, `ai_query_char_budget`,
 `timezone=Europe/Istanbul`, `summary_trigger_tokens`, `memory_token_budget`, `token_chars_estimate`,
-`memory_poll_seconds`, `scheduler_enabled=False`, `scheduler_poll_seconds`, `log_level`. `ai_base_url`,
+`memory_poll_seconds`, `scheduler_enabled=True`, `scheduler_poll_seconds`, `log_level`. `ai_base_url`,
 `ai_max_retries`, `ai_send_temperature`, `ai_cache_breakpoints`, `ai_reasoning_effort` default to `None`
 and fall back to `PROVIDER_DEFAULTS[ai_provider]`. Every numeric default comes from
 `constants.py`. Properties: `async_database_url`, `memory_path`, `telegram_history_enabled`,
@@ -171,7 +173,8 @@ and fall back to `PROVIDER_DEFAULTS[ai_provider]`. Every numeric default comes f
 `CardCategory` :172 · `CardEnergyType` :180 · `Sprint` :188 · `SprintCommitment` :201 · `CardEvent` :215 ·
 `ChangeProposal` :230 · `ProposalChange` :239 · `AgentRun` :253 · `AgentStep` :265 · `TelegramMessage` :274 ·
 `FeedbackQueue` :286 · `SummaryState` :295 · `MemoryFactCache` :306 · `MemorySyncState` :316 ·
-`ReminderState` :330 · `ScheduledJob` :338 · `UiSession` :347 · `CallbackToken` :356.
+`Reminder` · `UiSession` · `CallbackToken`. `UtcDateTime` is a `TypeDecorator` that always reads
+back tz-aware UTC, used by the Reminder datetime columns; SQLite otherwise returns them naive.
 
 ### `db.py`
 
@@ -245,13 +248,44 @@ offsets, so it slices in surrogate space) · `_citation_from_url` ·
 `run_memory_maintenance` :194 (60 s loop) · `run_due_memory_maintenance` :217 ·
 `record_memory_run` :251 · `parse_memory_update_time` :264.
 
-### `scheduler.py` — deterministic reminders
+### `scheduler.py` — the Reminder poll
 
-`_card_key` :29 (string dedupe key for a Card set) · `ReminderPolicy` :34 → `eligible` :39
-(reminders_enabled, daily cap, weekend, quiet hours, snooze, cooldown, dedupe), `candidates` :81
-(13 candidate kinds; Card-counting ones filter to Actions) · `run_scheduler` :290 (takes
-`candidates[0]`, calls the injected `send_reminder`, records `ReminderState`; the whole body is
-guarded so one failure cannot end the loop).
+`Firing` (one due Reminder, resolved) · `reminders_paused` (master switch + snooze) ·
+`due_reminders` (`next_fire_at <= now`, `LIMIT REMINDER_FIRE_BATCH`) · `is_stale` (a repeat past the
+catch-up grace) · `prepare` (rolls stale repeats forward, applies the two relevance skips) ·
+`settle` (deletes one-shots, advances repeats **from the scheduled moment**, writes the verdict
+cache) · `tick` · `run_scheduler`.
+
+`gate`, `evaluate` and `escalate` are injected, so this module imports neither the advisor nor the
+bot. `next_fire_at` is advanced only after an escalation succeeds; the whole body is guarded so one
+failure cannot end the loop.
+
+### `reminders.py` — schedule arithmetic
+
+Pure, no session. `Schedule` · `resolve` (parameters → schedule, or `ScheduleError` naming the
+question to ask) · `next_fire` · `roll_forward` (skips a downtime gap by computation, not iteration) ·
+`on_wall_clock` (has a timezone move invalidated a stored instant?) · `describe` (the one phrase
+source for the proposal screen, `/reminders` and the escalation) · `mentions_item` (the `#id` regex
+that decides whether a relevance session is worth running) · `schedule_columns`/`schedule_of` (ORM
+row) · `schedule_payload`/`schedule_from_payload` (proposal JSON).
+
+### `ai/mini.py` — one-question model sessions
+
+`TerminalTool` · `run_mini_session` (loops until one terminal tool validates; prose, unknown tools and
+bad arguments come back as retryable tool results). Deliberately not `_run_agent_loop`, which is
+entangled with proposals and `AgentRun` rows.
+
+### `ai/reminder_sessions.py` — the two Reminder sessions
+
+`SETUP_PROMPT` / `resolve_schedule` (free text → `Schedule`; `not_clear_enough` becomes a
+`ToolPreparationError`) · `RELEVANCE_PROMPT` / `check_relevance` (reads the named `#id`s, returns
+`trigger`/`irrelevant` plus a state sentence; a failure falls back to firing with no state line).
+
+### `telegram/escalation.py` — due Reminders → one advisor turn
+
+`ReminderRuntime.can_escalate` (guard free, no pending proposal, no unresolved approval batch) ·
+`.evaluate` · `.escalate` (background guard lease, `dialogue=None`, answer registered as
+`MessageKind.REMINDER`) · `format_escalation`.
 
 ### `analytics.py` — retrospectives
 
@@ -413,8 +447,8 @@ payload) · `/newsession` :96 · `/endsession` :126 · `/today` :174 ·
 `/backlog` :179 · `/sprint` :184 · `command_add` :240 (nav only) · `/advisor` :245 · `/values` :257 ·
 `/tags` :294 · `/requests` :325 · `/memory` :404 · `/syncmem` :417 ·
 `/mem` :451 · `/forget` :463 · `/retro` :477 · `render_feedback` :506 · `/feedback` :550 ·
-`/settings` :555 · `/setabout` :590 · `/setadvisor` :599 · `update_profile_field` :609 · `/setwake` :619 ·
-`/setbed` :625 · `/setquiet` :631 · `/snooze` :641 · `/setcapacity` :655 · `/setmemtime` :664 ·
+`/reminders` · `/settings` · `/setabout` · `/setadvisor` · `update_profile_field` · `/snooze` ·
+`/setcapacity` · `/setmemtime` ·
 `/status` :675 · `/cancel` :695 · **`navigation`** :703 (`nav:` prefix → home/today/sprint/backlog/add/
 values/tags/requests/advisor/retro/settings/retro_back).
 
@@ -477,9 +511,17 @@ the model's resumed answer.
 `delete_text_input`; `_on_card_draft_save` → `domain.create_card`. Discard/navigation/restart leaves no row.
 
 **Reminder**
-`run_scheduler` (30 s) → `ReminderPolicy.candidates` → first candidate → `main.send_reminder`
-(skipped while `guard.active`) → LLM returns `{"send","message"}` → `bot.send_message` →
-`register_message(..., REMINDER)` → `ReminderState` updated.
+`run_scheduler` (30 s) → `due_reminders` → `ReminderRuntime.can_escalate` (else advance nothing) →
+`prepare` (skip the relevance session when the instruction names no `#id` or the revision is
+unchanged, else `check_relevance`) → `format_escalation` → `ReminderRuntime.escalate`
+(background guard lease → `AIAdvisor.handle(..., dialogue=None)` → `render_ai_outcome(...,
+kind=REMINDER)`) → only on success `settle`: one-shots deleted, repeats advanced from their
+scheduled moment.
+
+**Reminder authoring**
+`reminder` tool → `_create_proposal` → `_prepare_reminder_values` → setup mini-session
+(`set_reminder_config` / `not_clear_enough`) → resolved `Schedule` into `ProposalChange.values` →
+Save/Discard screen → `ProposalService._apply_reminder_change` → `domain.create_reminder`.
 
 **Memory**
 `memory.poll` (5 s hash watcher) and `run_memory_maintenance` (60 s eligibility) →
@@ -489,7 +531,8 @@ the model's resumed answer.
 ## Tests
 
 `tests/test_domain.py` `test_card_creation.py` `test_history.py` `test_memory.py` `test_continuity.py`
-`test_ai_sql.py` `test_saved_requests.py` `test_scheduler.py` `test_telegram_item_ui.py`
+`test_ai_sql.py` `test_saved_requests.py` `test_scheduler.py` `test_reminders.py`
+`test_reminder_flow.py` `test_telegram_item_ui.py`
 `test_infrastructure.py` `test_backup.py` `test_qa.py` ·
 `tests/e2e/{test_advisor_flow_e2e.py,test_startup_e2e.py}` (real SQLite +
 real services, `ScriptedProvider` at the provider boundary) · `tests/e2e/live/test_telegram_live.py`

@@ -16,6 +16,9 @@ from __future__ import annotations
 # The allowed Action effort scale.  Mirrored by the Literal in ai/contracts.py.
 EFFORT_POINTS = {1, 2, 3, 5, 8, 13}
 SPRINT_LENGTH_DAYS = 14
+# Weekday tokens as stored in `reminders.weekdays`, indexed by `date.weekday()`.
+# Mirrored by the Literal in ai/contracts.py.
+WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 # --- AI agent loop --------------------------------------------------------
 MAX_TOOL_CALLS = 64
@@ -48,6 +51,19 @@ MEMORY_RETELL_OVERLAP_TOKENS = 500
 MEMORY_POLL_SECONDS = 5.0
 SCHEDULER_POLL_SECONDS = 30.0
 MEMORY_MAINTENANCE_INTERVAL_SECONDS = 60.0
+
+# --- Reminders ------------------------------------------------------------
+# How many due Reminders one escalation may carry.  Everything the poll found goes over
+# in a single advisor turn; the rest stay overdue and the next tick takes them.
+REMINDER_FIRE_BATCH = 3
+# How late a missed *repeat* may still fire.  Past this it rolls forward silently, so a
+# weekend offline cannot produce 32 escalations at once.  A one-shot ignores this and
+# always fires, however late.
+REMINDER_CATCHUP_GRACE_MINUTES = 120
+REMINDER_MIN_INTERVAL_MINUTES = 5
+# A mini-session has one job and one terminal tool; it does not get the agent loop's budget.
+MINI_SESSION_REPAIR_ROUNDS = 3
+RELEVANCE_MAX_TOOL_CALLS = 6
 
 # --- Telegram UI ----------------------------------------------------------
 PAGE_SIZE = 5

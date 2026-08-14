@@ -42,7 +42,17 @@ class Services:
     bot_username: str = ""
 
 
+# Telegram message ids are positive, so a negative one cannot collide with a real lease.
+BACKGROUND_SOURCE_ID = -1
+
+
 class GenerationGuard:
+    """The single foreground lease, keyed by the message that started the generation.
+
+    A lease is either the owner's or a background Reminder escalation's, and the two are
+    not equal: the owner always wins.  See :meth:`reserve_background`.
+    """
+
     def __init__(self) -> None:
         self.active_source_id: int | None = None
         self.dialogue_revision = 0
@@ -50,6 +60,11 @@ class GenerationGuard:
     @property
     def active(self) -> bool:
         return self.active_source_id is not None
+
+    @property
+    def background(self) -> bool:
+        """Whether a Reminder escalation, rather than the owner, is holding the guard."""
+        return self.active_source_id == BACKGROUND_SOURCE_ID
 
     async def acquire(self, source_id: int) -> None:
         if self.active_source_id not in {None, source_id}:
@@ -60,6 +75,17 @@ class GenerationGuard:
         if self.active_source_id is not None:
             return self.active_source_id == source_id
         self.active_source_id = source_id
+        return True
+
+    def reserve_background(self) -> bool:
+        """Take the guard for a Reminder escalation, yielding to any lease already held.
+
+        Never steals: the poll simply leaves ``next_fire_at`` alone and retries in thirty
+        seconds.
+        """
+        if self.active_source_id is not None:
+            return False
+        self.active_source_id = BACKGROUND_SOURCE_ID
         return True
 
     def release(self, source_id: int | None = None) -> None:
@@ -99,6 +125,14 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
                     command_deleted = True
                 except TelegramAPIError as error:
                     logger.warning("Could not delete operational command %s: %s", command, error)
+        if services.guard.background:
+            # The owner always wins.  Deleting the owner's message while the guard is held
+            # keeps history consistent with what the running answer is being generated
+            # from — but an escalation is generated with dialogue=None and never reads the
+            # conversation, so here that rule protects nothing and costs a message.
+            # Nothing is lost by dropping the half-finished turn: next_fire_at was never
+            # advanced, so the row is still due and the next poll picks it up.
+            services.guard.cancel()
         if isinstance(event, Message) and services.guard.active:
             if command == "/cancel":
                 return await handler(event, data)

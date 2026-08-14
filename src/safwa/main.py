@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import sys
 from contextlib import suppress
-from datetime import UTC, datetime
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher
@@ -25,8 +23,14 @@ from .enums import AIProvider, MessageKind
 from .history import TelegramHistorySource, mark_kind, register_message
 from .memory import MemoryFileStore
 from .recovery import recover_startup
-from .scheduler import ReminderPolicy, run_scheduler
-from .telegram import GenerationGuard, OwnerAndWritingMiddleware, Services, router
+from .scheduler import run_scheduler
+from .telegram import (
+    GenerationGuard,
+    OwnerAndWritingMiddleware,
+    ReminderRuntime,
+    Services,
+    router,
+)
 
 logger = logging.getLogger(__name__)
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
@@ -153,10 +157,8 @@ async def run(settings: Settings) -> None:
             BotCommand(command="requests", description="Saved AI Requests"),
             BotCommand(command="retro", description="Latest retrospective"),
             BotCommand(command="feedback", description="Pending completion feedback"),
+            BotCommand(command="reminders", description="Your Reminders"),
             BotCommand(command="settings", description="Profile and reminders"),
-            BotCommand(command="setwake", description="Set wake time HH:MM"),
-            BotCommand(command="setbed", description="Set bed time HH:MM"),
-            BotCommand(command="setquiet", description="Set quiet range HH:MM-HH:MM"),
             BotCommand(command="setcapacity", description="Set Sprint capacity"),
             BotCommand(command="snooze", description="Snooze reminders (minutes)"),
             BotCommand(command="syncmem", description="Sync Telegram dialogue into memory"),
@@ -183,57 +185,19 @@ async def run(settings: Settings) -> None:
             )
             await session.commit()
 
-    async def send_reminder(text: str) -> bool:
-        if guard.active:
-            return False
-        snapshot = await memory.sync()
-        raw = await provider.complete(
-            [
-                {
-                    "role": "system",
-                    "content": "You are Safwa. Given one deterministically eligible reminder candidate, "
-                    "either compose one warm concise advisor message or send nothing when it would not help. "
-                    'Return JSON only: {"send":true|false,"message":"..."}.',
-                },
-                {
-                    "role": "user",
-                    "content": f"Current UTC time: {datetime.now(UTC).isoformat()}\n"
-                    f"Candidate: {text}\nPersistent memory:\n{snapshot.text}",
-                },
-            ],
-            temperature=0.2,
-        )
-        if guard.active:
-            return False
-        try:
-            decision = json.loads(raw.removeprefix("```json").removesuffix("```").strip())
-            if not decision.get("send") or not str(decision.get("message", "")).strip():
-                return False
-            reminder_text = str(decision["message"]).strip()
-        except (json.JSONDecodeError, AttributeError, TypeError):
-            return False
-        sent = await bot.send_message(
-            settings.telegram_owner_id, mark_kind(reminder_text, MessageKind.REMINDER)
-        )
-        async with database.sessions() as session:
-            await register_message(
-                session,
-                sent.chat.id,
-                sent.message_id,
-                "out",
-                MessageKind.REMINDER,
-            )
-            await session.commit()
-        return True
-
     memory_task = asyncio.create_task(memory.poll(memory_error), name="memory-file-poll")
+    reminders = ReminderRuntime(
+        services, bot, owner_id=settings.telegram_owner_id, timezone=settings.timezone
+    )
     scheduler_task = None
     if settings.scheduler_enabled:
         scheduler_task = asyncio.create_task(
             run_scheduler(
                 database.sessions,
-                ReminderPolicy(settings.timezone),
-                send_reminder,
+                timezone=settings.timezone,
+                gate=reminders.can_escalate,
+                evaluate=reminders.evaluate,
+                escalate=reminders.escalate,
                 poll_seconds=settings.scheduler_poll_seconds,
             ),
             name="reminder-scheduler",

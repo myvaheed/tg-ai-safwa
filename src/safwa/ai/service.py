@@ -4,9 +4,11 @@ import json
 import logging
 import sqlite3
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -32,13 +34,16 @@ from ..domain import (
     archive_value,
     create_card,
     create_check,
+    create_reminder,
     create_saved_request,
     create_tag,
     create_value,
+    delete_reminder,
     delete_subtree,
     finish_action,
     move_card,
     pending_checks,
+    reschedule_reminder,
     resolve_check,
     resolve_references,
     set_card_parent,
@@ -46,6 +51,7 @@ from ..domain import (
     toggle_card_energy_type,
     update_card_fields,
     update_check_fields,
+    update_reminder_text,
     update_saved_request,
     update_tag_fields,
     update_value_fields,
@@ -74,10 +80,17 @@ from ..models import (
     ChangeProposal,
     Check,
     ProposalChange,
+    Reminder,
     SavedRequest,
     Tag,
     Value,
     Workspace,
+)
+from ..reminders import (
+    ScheduleError,
+    describe,
+    schedule_from_payload,
+    schedule_payload,
 )
 from ..saved_requests import RequestQueryError, normalize_request_sql
 from .context import SYSTEM_PROMPT, DialogueMessage, planning_context
@@ -89,6 +102,7 @@ from .contracts import (
     tool_json_schema,
 )
 from .provider import OpenAICompatibleProvider, ProviderToolCall, ProviderTurn
+from .reminder_sessions import resolve_schedule
 from .sql import ReadOnlyQueryRunner, UnsafeQueryError
 
 logger = logging.getLogger(__name__)
@@ -137,6 +151,14 @@ MUTATION_TOOL_DESCRIPTIONS = {
     "value": "Open the Value editor with a creation or edit proposal;",
     "tag": "Open the Tag editor with a creation or edit proposal;",
     "request": "Prepare a saved Request creation or edit proposal.",
+    "reminder": (
+        "Propose a Reminder: instruction text plus timing in plain words. The text is handed "
+        "to you as a request when the time comes, so it must stand on its own and must name "
+        "every Card or Check it concerns by #id — look the id up with query_safwa first. "
+        "Pass the timing through verbatim in when; it is resolved elsewhere, so never invent "
+        "a date or an hour. Omit when in edit mode to change only the text and leave the "
+        "schedule alone. Nothing is saved until the user presses Save."
+    ),
     "remove": "Prepare an archive or permanent Card-deletion confirmation.",
 }
 MUTATION_TOOLS: tuple[dict[str, Any], ...] = tuple(
@@ -484,6 +506,7 @@ _ENTITY_MODELS: dict[str, Any] = {
     "tag": Tag,
     "value": Value,
     "request": SavedRequest,
+    "reminder": Reminder,
 }
 
 
@@ -928,6 +951,43 @@ class AIAdvisor:
                 prefix_len=prefix_len,
             )
 
+    def mini_query_tool(self) -> tuple[dict[str, Any], Callable[..., Any]]:
+        """`query_safwa` for a mini-session: the same guarded reader, no run bookkeeping.
+
+        A mini-session has no ``AgentRun``, so it cannot use ``_execute_query_tool``; the
+        query runner and its caps are shared, which is the part that matters.
+        """
+
+        async def read(call: ProviderToolCall) -> list[dict[str, Any]]:
+            try:
+                query = QueryToolInput.model_validate(json.loads(call.arguments or "{}"))
+                outcome = await self.query_runner.run(query.sql)
+                return outcome.as_tool_result()
+            except (
+                UnsafeQueryError,
+                sqlite3.Error,
+                TimeoutError,
+                OSError,
+                ValidationError,
+                json.JSONDecodeError,
+                TypeError,
+                ValueError,
+            ) as error:
+                return [
+                    {
+                        "status": "error",
+                        "code": "query_failed",
+                        "error": str(error),
+                        "hint": (
+                            "Fix only this SELECT and call query_safwa again. One read-only "
+                            "SELECT or WITH … SELECT over the ai_* views."
+                        ),
+                        "retryable": True,
+                    }
+                ]
+
+        return QUERY_SAFWA_TOOL, read
+
     async def _execute_query_tool(
         self, call: ProviderToolCall, run_id: int, position: int
     ) -> list[dict[str, Any]]:
@@ -1223,7 +1283,7 @@ class AIAdvisor:
         change = tool.change
         if change is None:
             raise DomainError("The proposal has no validated change to review")
-        entity: Card | Check | Tag | Value | SavedRequest | None = None
+        entity: Card | Check | Reminder | Tag | Value | SavedRequest | None = None
         expected_version = None
         if change.id and change.entity in _ENTITY_MODELS:
             entity = await session.get(_ENTITY_MODELS[change.entity], change.id)
@@ -1265,6 +1325,8 @@ class AIAdvisor:
             for spec in CARD_REFERENCE_SPECS:
                 await self._validate_named_references(session, values, spec)
             await self._guard_pending_checks(session, change, values)
+        if change.entity == "reminder":
+            values = await self._prepare_reminder_values(session, workspace, values)
         if change.entity == "request" and "sql" in values:
             try:
                 values["query_sql"] = normalize_request_sql(values.pop("sql"))
@@ -1319,6 +1381,42 @@ class AIAdvisor:
             "said how it went, otherwise cite them as [title](check:<id>) so they answer them "
             "themselves. Then retry only this unfinished completion.",
         )
+
+    async def _prepare_reminder_values(
+        self, session: AsyncSession, workspace: Workspace, values: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Resolve the free-text timing here, before the proposal row exists.
+
+        Running the setup session first is what lets the review screen show a real schedule
+        instead of the words the model happened to use, so Save applies exactly what the
+        owner approved.  An unresolvable phrase comes back as a retryable tool error, so the
+        advisor asks the owner that exact question rather than guessing an hour.
+        """
+        prepared = dict(values)
+        when = str(prepared.pop("when", "") or "").strip()
+        if not when:
+            # An edit with no timing: rule — changing the text never changes the schedule.
+            return prepared
+        tz = ZoneInfo(workspace.timezone)
+        now = utcnow()
+        try:
+            schedule = await resolve_schedule(
+                self.provider,
+                when=when,
+                instruction=str(prepared.get("instruction", "")),
+                now=now,
+                tz=tz,
+            )
+        except ScheduleError as error:
+            raise ToolPreparationError(
+                "schedule_unclear",
+                str(error),
+                "Ask the owner this exact question, then call reminder again with their "
+                "answer in when. Never invent a time.",
+            ) from error
+        prepared["schedule"] = schedule_payload(schedule)
+        prepared["schedule_text"] = describe(schedule, tz=tz, now=now)
+        return prepared
 
     async def _card_detail_snapshot(
         self, session: AsyncSession, card: Card
@@ -1458,6 +1556,16 @@ class AIAdvisor:
             outcome = CHECK_ANSWER_ACTIONS[action]
             head = f"“{_result_value(check.title)}”" if check else f"#{change.entity_id}"
             return f"Answer Check {head} ({CHECK_OUTCOME_LABELS[outcome]})"
+        if change.entity == "reminder":
+            reminder = (
+                await session.get(Reminder, change.entity_id)
+                if change.entity_id is not None
+                else None
+            )
+            text = str(values.get("instruction") or (reminder.instruction if reminder else ""))
+            head = f"Reminder “{_result_value(text)}”" if text else f"Reminder #{change.entity_id}"
+            schedule = values.get("schedule_text")
+            return f"{verb} {head}" + (f" ({schedule})" if schedule else "")
         model = _ENTITY_MODELS.get(change.entity)
         entity = (
             await session.get(model, change.entity_id)
@@ -2072,6 +2180,47 @@ class ProposalService:
     async def _parent_id(self, values: dict[str, Any]) -> int | None:
         return int(values["parent_id"]) if values.get("parent_id") is not None else None
 
+    async def _apply_reminder_change(self, change: ProposalChange, affected: list[int]) -> None:
+        """Save an approved Reminder through the same domain calls the UI uses.
+
+        The schedule was resolved when the proposal was prepared and travels in the values
+        blob, so Save writes what the review screen showed rather than re-interpreting the
+        owner's words against a clock that has since moved.
+        """
+        workspace = await self.session.get(Workspace, 1)
+        tz = ZoneInfo(workspace.timezone if workspace else "UTC")
+        values = dict(change.values)
+        payload = values.get("schedule")
+        if change.action == "create":
+            if payload is None:
+                raise DomainError("A new Reminder needs a schedule")
+            reminder = await create_reminder(
+                self.session,
+                instruction=str(values.get("instruction", "")),
+                schedule=schedule_from_payload(payload),
+                tz=tz,
+            )
+            affected.append(reminder.id)
+            return
+        if change.entity_id is None:
+            raise DomainError("This Reminder change has no target")
+        if change.action == "delete":
+            await delete_reminder(self.session, change.entity_id)
+            affected.append(change.entity_id)
+            return
+        if change.action != "update":
+            raise DomainError(f"Unsupported approved Reminder action: {change.action}")
+        reminder = await self.session.get(Reminder, change.entity_id)
+        if reminder is None or reminder.version != change.expected_version:
+            raise StaleStateError("A Reminder changed; refresh this proposal")
+        if values.get("instruction"):
+            await update_reminder_text(self.session, reminder.id, str(values["instruction"]))
+        if payload is not None:
+            await reschedule_reminder(
+                self.session, reminder.id, schedule=schedule_from_payload(payload), tz=tz
+            )
+        affected.append(reminder.id)
+
     async def _named_ids(self, values: dict[str, Any], spec: ReferenceSpec) -> set[int]:
         """Resolve one relationship at approval time against committed data.
 
@@ -2291,6 +2440,8 @@ class ProposalService:
                 affected.append(card.id)
             elif change.entity == "check":
                 await self._apply_check_change(change, affected)
+            elif change.entity == "reminder":
+                await self._apply_reminder_change(change, affected)
             elif change.entity == "tag":
                 tag = await self.session.get(Tag, change.entity_id) if change.entity_id else None
                 if change.action == "create":

@@ -19,6 +19,7 @@ from ..domain import (
     create_card,
     create_tag,
     create_value,
+    delete_reminder,
     delete_subtree,
     finish_action,
     finish_sprint,
@@ -78,6 +79,12 @@ from .commands import (
 )
 from .items import render_item_editor, render_item_text_prompt, render_saved_request
 from .proposals import continue_agent_approval, render_proposal
+from .reminders import (
+    render_reminder,
+    render_reminder_delete_prompt,
+    render_reminder_text_prompt,
+    render_reminders,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -871,13 +878,44 @@ async def _on_sprint_finish(context: CallbackContext) -> None:
 # --- AI proposals --------------------------------------------------------------
 
 
+async def _on_reminders_page(context: CallbackContext) -> None:
+    await render_reminders(context.message, context.services, page=int(context.payload.get("page", 0)))
+
+
+async def _on_reminder_view(context: CallbackContext) -> None:
+    await render_reminder(context.message, context.services, int(context.payload["id"]))
+
+
+async def _on_reminder_text_prompt(context: CallbackContext) -> None:
+    await render_reminder_text_prompt(
+        context.message, context.services, int(context.payload["id"])
+    )
+
+
+async def _on_reminder_delete_prompt(context: CallbackContext) -> None:
+    await render_reminder_delete_prompt(
+        context.message, context.services, int(context.payload["id"])
+    )
+
+
+async def _on_reminder_delete_confirm(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        await delete_reminder(session, int(context.payload["id"]))
+        await session.commit()
+    await render_reminders(context.message, context.services)
+
+
 async def _on_proposal_approve(context: CallbackContext) -> None:
     proposal_id = context.payload["id"]
     async with context.sessions() as session:
+        # Only a Card deletion is destructive: it takes a whole subtree and its historical
+        # contribution with it.  Deleting a Reminder removes a future trigger and nothing
+        # else, so it gets one Save like every other change.
         destructive = await session.scalar(
             select(ProposalChange.id).where(
                 ProposalChange.proposal_id == proposal_id,
                 ProposalChange.action == "delete",
+                ProposalChange.entity == "card",
             )
         )
         if destructive:
@@ -1006,6 +1044,11 @@ CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "feedback": _on_feedback,
     "sprint_start": _on_sprint_start,
     "sprint_finish": _on_sprint_finish,
+    "reminders_page": _on_reminders_page,
+    "reminder_view": _on_reminder_view,
+    "reminder_text_prompt": _on_reminder_text_prompt,
+    "reminder_delete_prompt": _on_reminder_delete_prompt,
+    "reminder_delete_confirm": _on_reminder_delete_confirm,
     "proposal_approve": _on_proposal_approve,
     "proposal_delete_confirm": _on_proposal_delete_confirm,
     "proposal_reject": _on_proposal_reject,

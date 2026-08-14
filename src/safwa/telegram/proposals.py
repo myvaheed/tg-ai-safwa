@@ -350,8 +350,14 @@ async def render_ai_outcome(
     message: Message,
     services: Services,
     outcome: AIOutcome,
+    *,
+    kind: MessageKind = MessageKind.DIALOGUE_ASSISTANT,
 ) -> None:
-    """Render one agent state; suspended approval batches expose only their head item."""
+    """Render one agent state; suspended approval batches expose only their head item.
+
+    ``kind`` is how a Reminder escalation marks its answer as ``REMINDER`` instead: the
+    model volunteered it, and there is no owner message above it for it to be an answer to.
+    """
     if outcome.proposal_id is not None:
         await render_proposal(message, services, outcome.proposal_id)
         return
@@ -361,7 +367,7 @@ async def render_ai_outcome(
         message,
         services,
         text,
-        kind=MessageKind.DIALOGUE_ASSISTANT,
+        kind=kind,
     )
 
 

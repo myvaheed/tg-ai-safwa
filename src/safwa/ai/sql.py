@@ -27,6 +27,7 @@ ALLOWED_VIEWS = {
     "ai_tags",
     "ai_requests",
     "ai_values",
+    "ai_reminders",
     "ai_current_sprint",
     "ai_current_sprint_metrics",
     "ai_card_events",
@@ -80,6 +81,7 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
         "ai_cards",
         "ai_checks",
         "ai_values",
+        "ai_reminders",
         "ai_current_sprint",
         "ai_current_sprint_metrics",
         "ai_card_events",
@@ -140,6 +142,16 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
                k.created_at, k.updated_at
         FROM checks k
         WHERE k.archived_at IS NULL"""
+    )
+    # `schedule` is deliberately absent: a schedule is only human-readable once `describe()`
+    # has assembled it, and duplicating that in SQL would give the model a second wording to
+    # disagree with. The raw columns are here so it can still filter on them.
+    connection.exec_driver_sql(
+        """CREATE VIEW IF NOT EXISTS ai_reminders AS
+        SELECT id, instruction, schedule_kind, weekdays, at_time, interval_minutes,
+               quiet_windows, next_fire_at, last_fired_at, fire_count,
+               created_at, updated_at
+        FROM reminders"""
     )
     connection.exec_driver_sql(
         """CREATE VIEW IF NOT EXISTS ai_current_sprint AS

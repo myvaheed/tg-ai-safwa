@@ -82,7 +82,7 @@ Use SQLite with SQLAlchemy 2, aiosqlite, WAL, foreign keys, a busy timeout, and 
 ## Core persisted data
 
 - `workspace`: mode, active Sprint, owner, timezone, and monotonic revision.
-- `user_profile`: About Me, advisor instructions, schedule, reminders, provider settings, and optional capacity.
+- `user_profile`: About Me, advisor instructions, the Reminder master switch and snooze, and optional capacity.
 - `cards`: parent, kind, title, Note, manual/effective stage, priority, Hard Time, effort, repeat data, feedback, Blocked state/description, archive/terminal state, version, and timestamps.
 - `values`, `tags`, and their Card junction tables.
 - `checks` plus the `card_checks` junction table. A Check stores title, repeatability, outcome, first-resolution timestamp and actor, and its series lineage; its Cards live in the junction table, not in a column on the Check. Pending is `outcome IS NULL`, so no Pending state is written.
@@ -93,7 +93,7 @@ Use SQLite with SQLAlchemy 2, aiosqlite, WAL, foreign keys, a busy timeout, and 
 - `saved_requests` containing verified read-only SQL.
 - `agent_runs` and `agent_steps` containing sanitized operational audit.
 - `telegram_messages` containing Telegram IDs and semantic classifications, not duplicated persona text.
-- feedback, summary, memory synchronization, reminder, job, UI session, and callback-token state.
+- feedback, summary, memory synchronization, Reminders, UI session, and callback-token state.
 
 There are no persistent unsaved-Card tables and no Card dependency table.
 
@@ -177,7 +177,7 @@ Foreground generation holds a lease. New ordinary input deletes/invalidates the 
 
 ## Reminders and retrospectives
 
-Reminder eligibility is deterministic before AI composition. Settings include timezone, wake/bed and quiet hours, proactive limits, cooldowns, weekends, snooze, capacity, About Me, and advisor instructions. Morning and evening check-in times are stored separately from wake/bed but have no command yet; until one exists, wake and bed times are the effective check-in windows. Today Actions never move automatically.
+Safwa sends a proactive message only because a Reminder the owner set fired; there are no computed nudge kinds. A Reminder is instruction text plus a schedule, and when it fires that text is handed to the main advisor as an ordinary request — the advisor decides what to do with it. Timing is authored in plain words, resolved into parameters by a setup session, and then computed in code; the owner approves the result as a normal proposal. Suppression is a per-Reminder quiet window, and `/snooze` pauses all of them. Settings keep timezone, capacity, About Me, and advisor instructions. Today Actions never move automatically. The full contract is in `docs/REMINDERS_PLAN.md`.
 
 Retrospective PNGs use Matplotlib `Agg` and show three panels plus text:
 
@@ -197,7 +197,7 @@ Verification covers:
 - transient manual Card creation and queued AI Card proposals;
 - Blocked validation and repeat copying;
 - Sprint accounting and retrospective PNGs;
-- deterministic reminder candidates, their dedupe keys, and scheduler-loop survival;
+- Reminder schedule arithmetic, the escalation gate, and scheduler-loop survival;
 - safe SQL and proposal version checks;
 - canonical Telegram history, summaries, and generation synchronization;
 - authoritative file memory and scheduled synchronization;

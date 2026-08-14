@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import date, datetime, time
+from datetime import UTC, date, datetime, time
 from typing import Any
 
 from sqlalchemy import (
@@ -9,6 +9,7 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
+    Dialect,
     Float,
     ForeignKey,
     Index,
@@ -16,6 +17,7 @@ from sqlalchemy import (
     String,
     Text,
     Time,
+    TypeDecorator,
     UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -40,6 +42,31 @@ class Base(DeclarativeBase):
     pass
 
 
+class UtcDateTime(TypeDecorator[datetime]):
+    """A ``DateTime`` that always reads back as tz-aware UTC.
+
+    SQLite has no time zone type, so ``DateTime(timezone=True)`` accepts an aware value and
+    hands back a naive one; subtracting it from ``datetime.now(UTC)`` then raises.  Reminder
+    scheduling is nothing but datetime arithmetic, so the conversion belongs in the column
+    rather than at each of the call sites that would otherwise have to remember it.
+
+    The emitted DDL is unchanged, so this is not a schema change.
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value: datetime | None, dialect: Dialect) -> datetime | None:
+        if value is None:
+            return None
+        return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
+
+    def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
+        if value is None:
+            return None
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -62,16 +89,8 @@ class UserProfile(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     about_me: Mapped[str] = mapped_column(Text, default="")
     advisor_instructions: Mapped[str] = mapped_column(Text, default="")
-    wake_time: Mapped[time | None] = mapped_column(Time)
-    bed_time: Mapped[time | None] = mapped_column(Time)
-    quiet_start: Mapped[time | None] = mapped_column(Time)
-    quiet_end: Mapped[time | None] = mapped_column(Time)
-    morning_checkin: Mapped[time | None] = mapped_column(Time)
-    evening_checkin: Mapped[time | None] = mapped_column(Time)
-    proactive_limit: Mapped[int] = mapped_column(Integer, default=3)
-    reminder_cooldown_minutes: Mapped[int] = mapped_column(Integer, default=180)
     reminders_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    weekend_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    reminders_snoozed_until: Mapped[datetime | None] = mapped_column(UtcDateTime)
     capacity_effort_points: Mapped[int | None] = mapped_column(Integer)
     memory_update_time: Mapped[time | None] = mapped_column(Time)
 
@@ -367,21 +386,42 @@ class MemorySyncState(Base):
     )
 
 
-class ReminderState(Base):
-    __tablename__ = "reminder_state"
-    kind: Mapped[str] = mapped_column(String(50), primary_key=True)
-    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    dedupe_key: Mapped[str | None] = mapped_column(String(200))
-    snoozed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+class Reminder(Base, TimestampMixin):
+    """A trigger the owner set: instruction text plus a schedule, and nothing else.
 
+    There is no `archived_at` and no `active` flag — a trigger that never fires is the
+    same as one that does not exist, so the only off switch is deletion.  There is no FK
+    to a subject Card or Check either: the id lives inside `instruction` as text, which is
+    one mechanism instead of two that can drift apart.
 
-class ScheduledJob(Base, TimestampMixin):
-    __tablename__ = "scheduled_jobs"
+    `next_fire_at` is the only column the scheduler poll reads, and it is advanced *only*
+    after an escalation succeeds.  That ordering is what makes a cancelled or crashed turn
+    lose nothing: the row is still overdue, so the next tick retries it.
+    """
+
+    __tablename__ = "reminders"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    kind: Mapped[str] = mapped_column(String(50))
-    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    status: Mapped[str] = mapped_column(String(20), default="pending")
-    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    instruction: Mapped[str] = mapped_column(Text)
+
+    schedule_kind: Mapped[str] = mapped_column(String(20))
+    weekdays: Mapped[list[str]] = mapped_column(JSON, default=list)
+    at_time: Mapped[time | None] = mapped_column(Time)
+    # UTC.  The one-shot moment, or the moment a recurrence starts; a floor, never a rhythm.
+    anchor_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    interval_minutes: Mapped[int | None] = mapped_column(Integer)
+    quiet_windows: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+    next_fire_at: Mapped[datetime] = mapped_column(UtcDateTime, index=True)
+    last_fired_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    fire_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    # A cache of the last relevance check, not state anyone may set.  All three are cleared
+    # together whenever `instruction` changes.
+    evaluated_revision: Mapped[int | None] = mapped_column(Integer)
+    last_verdict: Mapped[str | None] = mapped_column(String(20))
+    last_state: Mapped[str | None] = mapped_column(Text)
+
+    version: Mapped[int] = mapped_column(Integer, default=1)
 
 
 class UiSession(Base, TimestampMixin):

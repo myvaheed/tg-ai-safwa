@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,7 +32,7 @@ from .models import (
     CardValue,
     Check,
     FeedbackQueue,
-    ReminderState,
+    Reminder,
     SavedRequest,
     Sprint,
     SprintCommitment,
@@ -41,6 +42,7 @@ from .models import (
     Workspace,
     new_correlation_id,
 )
+from .reminders import Schedule, next_fire, schedule_columns
 from .saved_requests import RequestQueryError, normalize_request_sql
 
 
@@ -538,17 +540,8 @@ async def update_profile(session: AsyncSession, **fields: Any) -> UserProfile:
     allowed = {
         "about_me",
         "advisor_instructions",
-        "wake_time",
-        "bed_time",
-        "quiet_start",
-        "quiet_end",
-        "morning_checkin",
-        "evening_checkin",
         "capacity_effort_points",
-        "proactive_limit",
-        "reminder_cooldown_minutes",
         "reminders_enabled",
-        "weekend_enabled",
     }
     unknown = set(fields).difference(allowed)
     if unknown:
@@ -562,14 +555,81 @@ async def update_profile(session: AsyncSession, **fields: Any) -> UserProfile:
     return profile
 
 
-async def snooze_reminders(session: AsyncSession, until: datetime) -> ReminderState:
-    state = await session.get(ReminderState, "global")
-    if state is None:
-        state = ReminderState(kind="global")
-        session.add(state)
-    state.snoozed_until = until
+async def create_reminder(
+    session: AsyncSession, *, instruction: str, schedule: Schedule, tz: ZoneInfo
+) -> Reminder:
+    """Store a Reminder and compute its first fire. The schedule arrives already resolved."""
+    clean = instruction.strip()
+    if not clean:
+        raise DomainError("Reminder text cannot be empty")
+    now = utcnow()
+    first = next_fire(schedule, previous=None, now=now, tz=tz)
+    if first is None:
+        raise DomainError("That schedule has no future occurrence")
+    reminder = Reminder(instruction=clean, next_fire_at=first, **schedule_columns(schedule))
+    session.add(reminder)
+    await session.flush()
     await _bump_workspace(session)
-    return state
+    return reminder
+
+
+async def update_reminder_text(session: AsyncSession, reminder_id: int, instruction: str) -> Reminder:
+    """Edit what a Reminder tells the advisor, and nothing about when it fires.
+
+    Both surfaces that edit a Reminder land here, so the invariant holds in one place: the
+    schedule columns are untouched, and the relevance cache is dropped because the new text
+    may name different items.
+    """
+    reminder = await session.get(Reminder, reminder_id)
+    if reminder is None:
+        raise DomainError("Reminder does not exist")
+    clean = instruction.strip()
+    if not clean:
+        raise DomainError("Reminder text cannot be empty")
+    reminder.instruction = clean
+    reminder.evaluated_revision = None
+    reminder.last_verdict = None
+    reminder.last_state = None
+    reminder.version += 1
+    await _bump_workspace(session)
+    return reminder
+
+
+async def reschedule_reminder(
+    session: AsyncSession, reminder_id: int, *, schedule: Schedule, tz: ZoneInfo
+) -> Reminder:
+    reminder = await session.get(Reminder, reminder_id)
+    if reminder is None:
+        raise DomainError("Reminder does not exist")
+    now = utcnow()
+    first = next_fire(schedule, previous=None, now=now, tz=tz)
+    if first is None:
+        raise DomainError("That schedule has no future occurrence")
+    for column, value in schedule_columns(schedule).items():
+        setattr(reminder, column, value)
+    reminder.next_fire_at = first
+    reminder.version += 1
+    await _bump_workspace(session)
+    return reminder
+
+
+async def delete_reminder(session: AsyncSession, reminder_id: int) -> None:
+    """Remove a Reminder outright. There is no archive: a trigger that never fires is gone."""
+    reminder = await session.get(Reminder, reminder_id)
+    if reminder is None:
+        raise DomainError("Reminder does not exist")
+    await session.delete(reminder)
+    await _bump_workspace(session)
+
+
+async def snooze_reminders(session: AsyncSession, until: datetime) -> UserProfile:
+    """Pause every Reminder until a moment. The only snooze there is — there is no per-row one."""
+    profile = await session.get(UserProfile, 1)
+    if profile is None:
+        raise DomainError("User profile is not initialized")
+    profile.reminders_snoozed_until = until
+    await _bump_workspace(session)
+    return profile
 
 
 async def edit_card_text(session: AsyncSession, card_id: int, field: str, value: str) -> Card:

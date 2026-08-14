@@ -1,23 +1,28 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .constants import REMINDER_CATCHUP_GRACE_MINUTES
 from .enums import ProposalStatus
 from .models import (
     AgentRun,
     AgentStep,
     CallbackToken,
     ChangeProposal,
-    ScheduledJob,
+    Reminder,
     UiSession,
+    Workspace,
 )
+from .reminders import next_fire, on_wall_clock, roll_forward, schedule_of
 
 
 async def recover_startup(session: AsyncSession) -> None:
     now = datetime.now(UTC)
+    await reconcile_reminders(session, now=now)
     await session.execute(
         update(AgentRun).where(AgentRun.status == "running").values(status="interrupted")
     )
@@ -33,9 +38,34 @@ async def recover_startup(session: AsyncSession) -> None:
     )
     await session.execute(delete(CallbackToken).where(CallbackToken.expires_at < now))
     await session.execute(delete(UiSession).where(UiSession.expires_at < now))
-    await session.execute(
-        update(ScheduledJob).where(ScheduledJob.status == "running").values(status="pending")
-    )
+
+
+async def reconcile_reminders(session: AsyncSession, *, now: datetime) -> None:
+    """Bring Reminder schedules back in line with the wall clock after downtime.
+
+    There is nothing to register: the rows *are* the schedule, so boot only reconciles.
+    Anything still inside the catch-up grace is deliberately left overdue — the first poll
+    firing it *is* the catch-up.
+
+    A timezone change is handled here rather than at the change site because a wall-clock
+    schedule stores a local time: "08:30" means a different UTC instant after the move, and
+    every stored `next_fire_at` is stale at once.
+    """
+    workspace = await session.get(Workspace, 1)
+    tz = ZoneInfo(workspace.timezone if workspace else "UTC")
+    grace = timedelta(minutes=REMINDER_CATCHUP_GRACE_MINUTES)
+    for reminder in await session.scalars(select(Reminder)):
+        schedule = schedule_of(reminder)
+        if not schedule.repeating:
+            continue  # a one-shot always fires, however late
+        if not on_wall_clock(schedule, reminder.next_fire_at, tz):
+            rebuilt = next_fire(schedule, previous=None, now=now, tz=tz)
+            if rebuilt is not None:
+                reminder.next_fire_at = rebuilt
+        if now - reminder.next_fire_at > grace:
+            reminder.next_fire_at = roll_forward(
+                schedule, previous=reminder.next_fire_at, now=now, tz=tz
+            )
 
 
 async def _close_interrupted_approval_batches(session: AsyncSession) -> None:

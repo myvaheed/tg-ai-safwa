@@ -54,6 +54,7 @@ from ._presentation import (
     with_notice,
 )
 from .cards import render_dashboard, start_manual_card_creation
+from .reminders import render_reminders
 from .screens import open_citation
 
 logger = logging.getLogger(__name__)
@@ -511,6 +512,12 @@ async def command_feedback(message: Message, services: Services) -> None:
     await render_feedback(message, services)
 
 
+@router.message(Command("reminders"))
+async def command_reminders(message: Message, services: Services) -> None:
+    """Show the triggers the owner set; creation stays advisor-only, like Requests."""
+    await render_reminders(message, services)
+
+
 @router.message(Command("settings"))
 async def command_settings(message: Message, services: Services) -> None:
     async with services.sessions() as session:
@@ -523,10 +530,6 @@ async def command_settings(message: Message, services: Services) -> None:
         )
         about_me = html.escape(profile.about_me or "—")
         advisor_instructions = html.escape(profile.advisor_instructions or "—")
-        wake_time = profile.wake_time or "—"
-        bed_time = profile.bed_time or "—"
-        quiet_start = profile.quiet_start or "—"
-        quiet_end = profile.quiet_end or "—"
         capacity = profile.capacity_effort_points or "—"
         timezone = workspace.timezone
     await send_registered(
@@ -535,12 +538,10 @@ async def command_settings(message: Message, services: Services) -> None:
         "<b>Settings</b>\n"
         f"About me: {about_me}\n"
         f"Advisor instructions: {advisor_instructions}\n"
-        f"Wake/bed: {wake_time} / {bed_time}\n"
-        f"Quiet hours: {quiet_start}–{quiet_end}\n"
         f"Sprint capacity: {capacity} EP\n"
         f"Memory sync: {memory_update_time} ({timezone})\n"
-        "Edit with /setabout, /setadvisor, /setwake, /setbed, /setquiet, /setcapacity, "
-        "or /setmemtime HH:MM|off.",
+        "Edit with /setabout, /setadvisor, /setcapacity, or /setmemtime HH:MM|off.\n"
+        "Reminder timing is set through the advisor; see /reminders.",
         kind=MessageKind.DASHBOARD,
         markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
     )
@@ -573,28 +574,6 @@ async def update_profile_field(
         await update_profile(session, **{field: value})
         await session.commit()
     await send_registered(message, services, "Settings updated.", kind=MessageKind.RECEIPT)
-
-
-@router.message(Command("setwake"))
-async def command_setwake(message: Message, services: Services) -> None:
-    value = datetime.strptime((message.text or "").partition(" ")[2].strip(), "%H:%M").time()
-    await update_profile_field(message, services, "wake_time", value)
-
-
-@router.message(Command("setbed"))
-async def command_setbed(message: Message, services: Services) -> None:
-    value = datetime.strptime((message.text or "").partition(" ")[2].strip(), "%H:%M").time()
-    await update_profile_field(message, services, "bed_time", value)
-
-
-@router.message(Command("setquiet"))
-async def command_setquiet(message: Message, services: Services) -> None:
-    raw = (message.text or "").partition(" ")[2].strip()
-    start, end = [datetime.strptime(item.strip(), "%H:%M").time() for item in raw.split("-", 1)]
-    async with services.sessions() as session:
-        await update_profile(session, quiet_start=start, quiet_end=end)
-        await session.commit()
-    await send_registered(message, services, "Quiet hours updated.", kind=MessageKind.RECEIPT)
 
 
 @router.message(Command("snooze"))
@@ -680,6 +659,7 @@ async def navigation(callback: CallbackQuery, services: Services) -> None:
         "values": command_values,
         "tags": command_tags,
         "requests": command_requests,
+        "reminders": command_reminders,
         "advisor": command_advisor,
         "retro": command_retro,
         "settings": command_settings,

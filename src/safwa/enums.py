@@ -40,6 +40,27 @@ class CheckOutcome(StrEnum):
     MISSED = "missed"
 
 
+class ScheduleKind(StrEnum):
+    """How a Reminder repeats. Derived from the resolved parameters, never model-supplied."""
+
+    ONCE = "once"
+    INTERVAL = "interval"
+    DAILY = "daily"
+    WEEKLY = "weekly"
+
+
+class RelevanceVerdict(StrEnum):
+    """The relevance check answers "does this Reminder still make sense?", nothing else.
+
+    There is deliberately no "not now": that would be a firing gate, and firing gates are
+    quiet windows.  Both verdicts escalate — `irrelevant` is a flag on the escalation, not
+    a silent delete.
+    """
+
+    TRIGGER = "trigger"
+    IRRELEVANT = "irrelevant"
+
+
 class Category(StrEnum):
     SELF = "self"
     CONTRIBUTION = "contribution"
