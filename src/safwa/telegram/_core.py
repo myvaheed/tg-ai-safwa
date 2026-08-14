@@ -42,7 +42,7 @@ class Services:
     owner_id: int
     guard: GenerationGuard
     owner_name: str = "Owner"
-    # Empty until the bot identifies itself; item citations stay plain text without it.
+    # Loaded from Settings; item citations stay plain text when the username is omitted.
     bot_username: str = ""
 
 

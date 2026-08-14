@@ -104,7 +104,8 @@ Pydantic model in [ai/contracts.py](src/safwa/ai/contracts.py) → `AgentChange`
 `ProposalService.apply` calls the *same* `domain.py` functions the manual UI calls.
 **Every** proposal screen is exactly Save/Discard; a screen that needs a field control is the wrong
 screen. When the decision is the user's, the model **cites** the item instead of proposing one — no
-tool, just Markdown in its reply ([telegram/screens.py](src/safwa/telegram/screens.py)):
+tool, just Markdown in its reply ([telegram/screens.py](src/safwa/telegram/screens.py)). The five
+openable citation types are Card, Check, Tag, Value, and Saved Request:
 
 - The model writes `[Milk](check:14)`; `render_citations` escapes the reply first, then rewrites each
   citation into `<a href="https://t.me/<bot>?start=check-14">`. The href is **built here from a

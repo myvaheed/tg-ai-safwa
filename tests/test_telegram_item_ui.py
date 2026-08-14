@@ -27,7 +27,7 @@ from safwa.domain import (
     toggle_card_check,
 )
 from safwa.enums import CardStage, MessageKind
-from safwa.history import parse_citation_payload, read_kind_mark
+from safwa.history import CITATION_TYPES, parse_citation_payload, read_kind_mark
 from safwa.models import (
     CallbackToken,
     Card,
@@ -64,6 +64,7 @@ from safwa.telegram import (
 )
 from safwa.telegram._messaging import materialize_queued_dialogue
 from safwa.telegram._presentation import start_payload
+from safwa.telegram.screens import OPENABLE_MODELS
 
 
 def _telegram_module_trees() -> list[ast.Module]:
@@ -811,6 +812,12 @@ async def test_citations_become_deep_links_only_for_live_items(sessions) -> None
     services.bot_username = ""
     async with sessions() as session:
         assert "<a href" not in await render_citations(session, services, text)
+
+
+def test_citation_codec_matches_every_openable_item_screen() -> None:
+    expected = {"card", "check", "tag", "value", "request"}
+    assert set(CITATION_TYPES) == expected
+    assert set(OPENABLE_MODELS) == expected
 
 
 def test_start_payload_reads_only_a_command_line() -> None:

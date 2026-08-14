@@ -27,7 +27,8 @@ SAFWA_AI_MODEL=openai/gpt-5.6-luna
 Every derived value (`SAFWA_AI_BASE_URL`, `SAFWA_AI_MAX_RETRIES`, `SAFWA_AI_SEND_TEMPERATURE`,
 `SAFWA_AI_CACHE_BREAKPOINTS`, `SAFWA_AI_REASONING_EFFORT`) can still be set explicitly. Set the
 model and Telegram credentials in `.env`. Set `SAFWA_TELEGRAM_BOT_USERNAME` without `@`; Safwa uses
-it to build `t.me` links for Card and Check citations. Safwa upgrades its SQLite schema at startup.
+it to build `t.me` links for Card, Check, Tag, Value, and Saved Request citations. Safwa upgrades its
+SQLite schema at startup.
 
 `SAFWA_TELEGRAM_API_ID` and `SAFWA_TELEGRAM_API_HASH` belong to the Telethon user-client, not the
 bot. The Bot API cannot reread arbitrary chat history, while Safwa uses the Telegram conversation as

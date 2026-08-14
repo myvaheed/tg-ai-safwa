@@ -145,8 +145,8 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
 - Tools: one that runs immediately (`IMMEDIATE_TOOLS`) — `query_safwa(sql)` — plus the mutation tools
   `card`, `check`, `value`, `tag`, `request`, `reminder`, `remove` (`SAFWA_TOOLS`,
   [ai/service.py](../src/safwa/ai/service.py)).
-- Offering an item is not a tool. The model cites it in its own prose as `[Milk](check:14)`, over the
-  five openable types, and `render_citations`
+- Offering an item is not a tool. The model cites it in its own prose as `[Milk](check:14)`. The five
+  openable types are Card, Check, Tag, Value and Saved Request; `render_citations`
   ([telegram/screens.py](../src/safwa/telegram/screens.py)) rewrites each citation of the escaped
   reply into `<a href="https://t.me/<bot>?start=check-14">`. The href is built from a validated id and
   `SAFWA_TELEGRAM_BOT_USERNAME`, never from the model, and the payload separator is `-` because
