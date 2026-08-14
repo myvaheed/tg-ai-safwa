@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -48,6 +49,7 @@ _SUBSESSION_RESULT_CONTINUED_RE = re.compile(
 _KIND_MARK_SENTINEL = "⁠"
 _KIND_MARK_DIGITS = ("​", "‌")
 _KIND_MARK_WIDTH = 5
+_EVENT_MARK_WIDTH = 128
 _KIND_MARK_CODES: dict[str, int] = {
     MessageKind.SESSION_START.value: 1,
     MessageKind.SUBSESSION_RESULT.value: 2,
@@ -66,28 +68,55 @@ _KIND_MARK_CODES: dict[str, int] = {
 }
 _KIND_MARK_BY_CODE = {code: value for value, code in _KIND_MARK_CODES.items()}
 _KIND_MARK_RE = re.compile(
-    f"{_KIND_MARK_SENTINEL}[{''.join(_KIND_MARK_DIGITS)}]{{{_KIND_MARK_WIDTH}}}$"
+    f"{_KIND_MARK_SENTINEL}"
+    f"(?P<kind>[{''.join(_KIND_MARK_DIGITS)}]{{{_KIND_MARK_WIDTH}}})"
+    f"(?P<event>[{''.join(_KIND_MARK_DIGITS)}]{{{_EVENT_MARK_WIDTH}}})$"
 )
 
 
-def mark_kind(text: str, kind: MessageKind) -> str:
-    """Append the invisible kind label that Telegram will keep for us."""
-    code = _KIND_MARK_CODES[kind.value]
-    digits = "".join(
-        _KIND_MARK_DIGITS[(code >> shift) & 1] for shift in reversed(range(_KIND_MARK_WIDTH))
+def _mark_digits(value: int, width: int) -> str:
+    return "".join(
+        _KIND_MARK_DIGITS[(value >> shift) & 1] for shift in reversed(range(width))
     )
-    return f"{text}{_KIND_MARK_SENTINEL}{digits}"
+
+
+def mark_message(
+    text: str, kind: MessageKind, *, event_id: str | None = None
+) -> tuple[str, str]:
+    """Append an immutable invisible kind + event UUID and return both text and UUID."""
+    event_id = event_id or uuid4().hex
+    code = _KIND_MARK_CODES[kind.value]
+    marker = (
+        _KIND_MARK_SENTINEL
+        + _mark_digits(code, _KIND_MARK_WIDTH)
+        + _mark_digits(int(event_id, 16), _EVENT_MARK_WIDTH)
+    )
+    return f"{text}{marker}", event_id
+
+
+def mark_kind(text: str, kind: MessageKind, *, event_id: str | None = None) -> str:
+    """Append the invisible message marker that Telegram will keep for us."""
+    return mark_message(text, kind, event_id=event_id)[0]
+
+
+def read_message_mark(text: str) -> tuple[str | None, str | None, str]:
+    """Split a marked message into kind, event UUID, and visible text."""
+    match = _KIND_MARK_RE.search(text)
+    if match is None:
+        return None, None, text
+    code = 0
+    for digit in match.group("kind"):
+        code = code * 2 + _KIND_MARK_DIGITS.index(digit)
+    event_value = 0
+    for digit in match.group("event"):
+        event_value = event_value * 2 + _KIND_MARK_DIGITS.index(digit)
+    return _KIND_MARK_BY_CODE.get(code), f"{event_value:032x}", text[: match.start()]
 
 
 def read_kind_mark(text: str) -> tuple[str | None, str]:
     """Split a marked message into its kind and its visible text."""
-    match = _KIND_MARK_RE.search(text)
-    if match is None:
-        return None, text
-    code = 0
-    for digit in match.group()[len(_KIND_MARK_SENTINEL) :]:
-        code = code * 2 + _KIND_MARK_DIGITS.index(digit)
-    return _KIND_MARK_BY_CODE.get(code), text[: match.start()]
+    kind, _event_id, visible = read_message_mark(text)
+    return kind, visible
 
 
 # The same reasoning as the kind mark: an item citation is written as Markdown, sent as a
@@ -230,6 +259,7 @@ class TelegramHistorySource:
                     select(TelegramMessage).where(TelegramMessage.chat_id == chat_id)
                 )
             )
+        registry_by_event = {row.event_id: row for row in registry if row.event_id}
         used_registry_ids: set[int] = set()
         source_registration_seen = False
         # In a private Bot API chat, ``chat_id`` is the owner's user ID.  A
@@ -243,7 +273,7 @@ class TelegramHistorySource:
         provisional_ids: set[int] = set()
         scan_limit = max(1_000, limit * 20)
         async for message in self.client.iter_messages(entity, limit=scan_limit):
-            marked_kind, raw_text = read_kind_mark(
+            marked_kind, marked_event_id, raw_text = read_message_mark(
                 restore_citations(
                     getattr(message, "raw_text", None) or message.message or "",
                     getattr(message, "entities", None),
@@ -255,24 +285,33 @@ class TelegramHistorySource:
             sender_id = int(message.sender_id) if message.sender_id else None
             created_at = message.date.astimezone(UTC)
             direction = "out" if sender_id == self.bot_user_id else "in"
-            registration = self._registered_message(
-                registry,
-                used_registry_ids,
-                message_id=message.id,
-                direction=direction,
-                created_at=created_at,
+            registration = (
+                registry_by_event.get(marked_event_id)
+                if direction == "out" and marked_event_id is not None
+                else self._registered_message(
+                    registry,
+                    used_registry_ids,
+                    message_id=message.id,
+                    direction=direction,
+                    created_at=created_at,
+                )
+                if direction == "in"
+                else None
             )
-            kind = registration.kind if registration is not None else marked_kind
+            kind = marked_kind or (registration.kind if registration is not None else None)
             if (
                 source_message is not None
                 and registration is not None
-                and direction == "in"
                 and registration.message_id == source_message.message_id
             ):
                 source_registration_seen = True
 
             if sender_id == self.bot_user_id:
-                subsession_result = self._subsession_result_piece(raw_text)
+                subsession_result = (
+                    self._subsession_result_piece(raw_text)
+                    if kind == MessageKind.SUBSESSION_RESULT.value
+                    else None
+                )
                 if subsession_result is not None:
                     is_start, body = subsession_result
                     subsession_result_chunks.append(body)
@@ -302,23 +341,15 @@ class TelegramHistorySource:
                         )
                     # An older summary is already represented by the nearest one.
                     continue
-                if (
-                    kind is None
-                    and boundary is None
-                    and getattr(message, "reply_markup", None) is None
-                ):
-                    # Same provisional reading as for the owner: a bot message written
-                    # before kind marks existed, or by a send site that forgot one, is
-                    # plain prose with no buttons — an answer.  Screens keep their
-                    # inline keyboard, so they are still excluded here.
-                    kind = MessageKind.DIALOGUE_ASSISTANT.value
-                    provisional_ids.add(message.id)
-                if kind not in {
+                if kind == MessageKind.DIALOGUE_USER.value:
+                    role = "user"
+                elif kind in {
                     MessageKind.DIALOGUE_ASSISTANT.value,
                     MessageKind.REMINDER.value,
                 }:
+                    role = "assistant"
+                else:
                     continue
-                role = "assistant"
             elif sender_id == self.owner_id:
                 initial_request = self._new_session_request(raw_text)
                 if initial_request is not None:
@@ -535,6 +566,7 @@ async def register_message(
     direction: str,
     kind: MessageKind,
     related_id: int | None = None,
+    event_id: str | None = None,
 ) -> None:
     existing = await session.scalar(
         select(TelegramMessage).where(
@@ -545,11 +577,14 @@ async def register_message(
     if existing:
         existing.kind = kind.value
         existing.related_id = related_id
+        if event_id is not None:
+            existing.event_id = event_id
     else:
         session.add(
             TelegramMessage(
                 chat_id=chat_id,
                 message_id=message_id,
+                event_id=event_id,
                 direction=direction,
                 kind=kind.value,
                 related_id=related_id,

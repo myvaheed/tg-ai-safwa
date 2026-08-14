@@ -27,6 +27,7 @@ def test_qa_config_inherits_safe_non_bot_defaults(tmp_path: Path):
     qa = QAConfig(
         _env_file=None,
         telegram_bot_token="200:qa",
+        telegram_bot_username="safwa_qa_bot",
         telegram_user_session_path=tmp_path / "qa-user",
         telegram_owner_id=None,
         telegram_api_id=None,
@@ -44,6 +45,7 @@ def test_qa_config_inherits_safe_non_bot_defaults(tmp_path: Path):
 
     settings = resolved.settings
     assert settings.telegram_bot_token.get_secret_value() == "200:qa"
+    assert settings.telegram_bot_username == "safwa_qa_bot"
     assert settings.telegram_owner_id == base.telegram_owner_id
     assert settings.telegram_api_id == base.telegram_api_id
     assert settings.telegram_api_hash.get_secret_value() == "api-hash"

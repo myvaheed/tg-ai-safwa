@@ -2,7 +2,8 @@
 
 Fast orientation map for a new session. Companion: [STRUCTURE_GRAPH.md](STRUCTURE_GRAPH.md)
 (module/entity index), [INITIAL_PLAN.md](INITIAL_PLAN.md) + [MEMORY_HISTORY_USAGE.md](MEMORY_HISTORY_USAGE.md)
-(product spec), [INCONSISTENCIES.md](INCONSISTENCIES.md) (spec vs code drift).
+(product spec), [09-doc-code-inconsistencies.md](diagrams/09-doc-code-inconsistencies.md)
+(spec vs code drift).
 
 ## What it is
 
@@ -26,7 +27,7 @@ Python `>=3.12,<3.13`. No server, no multi-user, no Mini App.
 8. `set_my_commands` (19 commands)
 9. three background tasks, all cancelled in the polling `finally`:
    - `memory.poll(memory_error)` — 5 s `memory.md` hash watcher
-   - `run_scheduler(..., gate/evaluate/escalate from `ReminderRuntime`)` — 30 s Reminder poll,
+   - `run_scheduler(...)` with gate/escalate hooks from `ReminderRuntime` — 30 s Reminder poll,
      `SAFWA_SCHEDULER_ENABLED` (on by default)
    - `run_memory_maintenance(...)` — 60 s daily-memory-sync eligibility loop
 
@@ -142,14 +143,14 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
 `AIAdvisor.handle` → agent loop → proposals or a final message.
 
 - Tools: one that runs immediately (`IMMEDIATE_TOOLS`) — `query_safwa(sql)` — plus the mutation tools
-  `card`, `check`, `value`, `tag`, `request`, `remove` (`SAFWA_TOOLS`,
+  `card`, `check`, `value`, `tag`, `request`, `reminder`, `remove` (`SAFWA_TOOLS`,
   [ai/service.py](../src/safwa/ai/service.py)).
 - Offering an item is not a tool. The model cites it in its own prose as `[Milk](check:14)`, over the
   five openable types, and `render_citations`
   ([telegram/screens.py](../src/safwa/telegram/screens.py)) rewrites each citation of the escaped
-  reply into `<a href="https://t.me/<bot>?start=check-14">`. The href is built from a validated id,
-  never from the model, and the payload separator is `-` because `?start=` accepts only
-  `[A-Za-z0-9_-]`. An id that is missing or archived keeps its words and loses its link: the reply is
+  reply into `<a href="https://t.me/<bot>?start=check-14">`. The href is built from a validated id and
+  `SAFWA_TELEGRAM_BOT_USERNAME`, never from the model, and the payload separator is `-` because
+  `?start=` accepts only `[A-Za-z0-9_-]`. An id that is missing or archived keeps its words and loses its link: the reply is
   a `DIALOGUE_ASSISTANT` message that stays in the chat, so a dead link would stay with it.
 - Tapping one sends `/start check-14`. The middleware deletes that command and `command_start`
   (`start_payload` → `open_citation` → `open_item_screen`) sends the item's manual screen as a new
@@ -169,6 +170,9 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
 - Multiple mutation calls in one turn become independent queued proposal screens in call order; the
   queue lives in an `AgentStep` row with `kind="approval_batch"`. The model resumes only after the last
   item resolves (`resolve_approval` → `continue_agent_approval`) and receives all mutation and read results.
+- If one provider response mixes `query_safwa` and mutation tools, reads run immediately but each
+  mutation gets a short retryable `mixed_read_and_mutation_tools` result. The model retries mutations
+  in its next response, after it has seen the read data.
 - The batch also stores the request's `dialogue` and its `transcript` — every assistant/tool message the
   run produced after the context prefix. A resume rebuilds only the prefix (system prompt, planning state,
   memory, clock) and replays that transcript, so a request keeps its own intermediate steps across each
@@ -185,11 +189,11 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
   `summary`, the resolved `fields`, and a `next` instruction; the summaries the owner sees never enter
   canonical history, summaries, or memory. `_assistant_content_with_request_progress` now only serves
   batches suspended before transcripts were persisted.
-- Context = one system message (`SYSTEM_PROMPT` + `planning_context()` + `memory.text`) followed by the
-  canonical dialogue turns the history source already bounded. `planning_context` carries local time,
-  workspace mode, About Me, advisor instructions, active Values, available Tags, and Today Actions —
-  deliberately **no** Sprint metrics and **no** precomputed Card candidates; the model reaches those
-  through `query_safwa`.
+- Context has four positions: static `SYSTEM_PROMPT`; a system block with planning state and
+  `memory.text`; canonical bounded dialogue; then a trailing system block with the local clock.
+  Planning state carries workspace mode, About Me, advisor instructions, active Values, available
+  Tags, and Today Actions — deliberately **no** Sprint metrics and **no** precomputed Card candidates;
+  the model reaches those through `query_safwa`.
 
 ### Read-only SQL — triple guard
 
@@ -217,19 +221,17 @@ mention `ai_cards` and return a column named `id`.
 ### History — Telegram is the canonical dialogue store
 
 [history.py](../src/safwa/history.py) rereads the real private chat through Telethon on **every** advisor
-turn. `telegram_messages` stores only `(chat_id, message_id, direction, kind, related_id)` — never persona text.
+turn. `telegram_messages` stores only event metadata, including `(chat_id, message_id, direction,
+kind, related_id, event_id)` — never persona text.
 
 - Every bot message must be registered with a `MessageKind` (`send_registered` / `register_message`).
   Unregistered outgoing = invisible to the LLM; wrongly-kinded = UI noise leaks into persona history.
-- The kind is *also* written into the Telegram message itself: `mark_kind` appends five invisible
-  characters encoding the `MessageKind`, and `read_kind_mark` recovers it. `telegram_messages` is
-  therefore a cache, not the only copy — a rebuilt database still reads the whole dialogue back.
-  Every bot send site must mark its text; the four outside `_messaging.py` are `main.memory_error`,
-  `main.memory_error`, `dialogue.send_summary`, and the `/retro` caption. Codes in
-  `_KIND_MARK_CODES` are append-only. Owner messages cannot be marked, so an unregistered owner
-  message inside the session boundary is treated as dialogue; without a boundary it is dropped.
-  A bot message with neither a registration nor a mark (anything predating marks) is read the same
-  provisional way when it carries no inline keyboard — screens keep their buttons and stay excluded.
+- `mark_message` writes both the `MessageKind` and an immutable 128-bit event UUID into invisible
+  Telegram text; `read_message_mark` recovers them. SQLite stores the same UUID, so outgoing history
+  uses direct event lookup and visible-text edits preserve identity. A rebuilt database still recovers
+  classification from Telegram. Every bot send site must mark its text. An unmarked bot message is
+  excluded; v1 has no legacy fallback. Owner messages cannot be marked, so unregistered owner text
+  inside a valid boundary is treated as dialogue.
 - Item citations ride in the text the same way. Telethon returns plain text, so `restore_citations`
   rewrites each `?start=<type>-<id>` link entity back into the `[Milk](check:14)` the model wrote;
   otherwise the model rereads its own citations as bare words and unlearns the format. Entity offsets
@@ -242,26 +244,28 @@ turn. `telegram_messages` stores only `(chat_id, message_id, direction, kind, re
   the scan; a Summary boundary is followed by up to `SUMMARY_CONTEXT_MESSAGE_LIMIT = 20` older messages
   carrying short UTC timestamps.
 - The middleware deletes every slash command except `/newsession` (it must stay visible as the boundary).
-- Bot API and Telethon use different message-ID spaces in a private chat. `_registered_message`
-  correlates exactly-once: by ID first, then by ±15 s timestamp (ties prefer the larger Bot API ID).
-  Keep that pairing intact.
+- Bot API and Telethon use different message-ID spaces in a private chat. Outgoing messages correlate
+  by event UUID. Only owner source-message de-duplication retains the narrow ID/time heuristic because
+  a bot cannot attach a marker to incoming owner text.
 - `dialogue()` merges consecutive human/user-side items into one `user` turn with `[User]`, `[Summary]`,
   `[Initial request]`, `[Subsession result]` tags; Safwa replies use the `assistant` role.
 
 ### Sessions, summaries, memory
 
 - `/newsession <request>` sets the boundary. `/endsession [instruction]` confirms, then
-  `compress_subsession` writes one `📦 Subsession request` result, the branch is deleted from Telegram,
-  and the result stays as canonical user-side context.
+  `compress_subsession` sends and registers every `📦 Subsession request` result chunk. Only after all
+  chunks succeed is the source branch deleted; a send failure leaves it intact.
 - `PersonaContinuity.maybe_summarize` fires after an ordinary exchange once unsummarized dialogue
-  reaches `summary_trigger_tokens` (10 000, ~3 chars/token estimate) and posts a `📜 Summary`.
+  reaches `summary_trigger_tokens` (10 000, ~3 chars/token estimate). Before posting a `📜 Summary` it
+  verifies the generation lease and rereads the history snapshot; stale output is discarded.
 - **`data/memory.md` is authoritative**: UTF-8, one non-empty fact per line, ~4 000-token budget.
   `memory_fact_cache` is a disposable mirror. AI writes go through `replace_facts`, which re-checks the
   file hash **before and after** writing a temp file, then `os.replace`s — a concurrent local edit is
   preserved, not overwritten. An invalid/oversized file disables injection instead of failing the turn;
   a missing file intentionally clears memory.
 - `maintain_memory` retells ~2K-token chunks (500-token overlap), reconciles the fact list, writes
-  atomically, and only then advances `processed_message_id`.
+  atomically, and only then advances `processed_message_id`. Invalid provider JSON/schema or a stale
+  lease stops the run without changing either the file or cursor.
 - `/setmemtime HH:MM|off` gates one automatic run per local calendar day
   (`run_due_memory_maintenance`, checked once a minute, skipped while foreground is busy).
 
@@ -275,16 +279,14 @@ nudge kinds. A Reminder is instruction text plus a schedule — see
   advanced **only after an escalation succeeds** — which is why a cancelled or crashed turn loses
   nothing: the row is still overdue, so the next tick retries it.
 - The system's only output is an **escalation**: the instruction text is handed to the main advisor as
-  a request (`format_escalation`, `dialogue=None`) and the advisor answers with the tools it already
-  has. The reminder system never composes a message or renders an item.
-- Two mini-sessions ([ai/mini.py](../src/safwa/ai/mini.py),
-  [ai/reminder_sessions.py](../src/safwa/ai/reminder_sessions.py)), neither of which writes anything:
-  **setup** resolves free-text timing into parameters before the proposal row exists, so the review
-  screen shows a real schedule; **relevance** reads the `#id`s the instruction names and reports their
-  state plus a `trigger`/`irrelevant` verdict. Both verdicts escalate.
-- Two exact skips keep the relevance session off most fires: no `#id` in the instruction (nothing to
-  look up), or `workspace.revision` unchanged since the cached verdict. The second holds only because
-  advancing `next_fire_at` is written directly and does **not** bump the revision.
+  a synthetic final user turn after the canonical `history.dialogue(owner_id)`. The same
+  `/newsession`/Summary boundary policy and the same tools apply as for an ordinary request. The
+  reminder system itself never composes the answer or renders an item.
+- One write-free setup mini-session ([ai/mini.py](../src/safwa/ai/mini.py),
+  [ai/reminder_sessions.py](../src/safwa/ai/reminder_sessions.py)) resolves free-text timing before the
+  proposal row exists, so the review screen shows a real schedule. At fire time there is no preflight
+  LLM session: the main advisor receives the Reminder directly and uses `query_safwa` first when its
+  text names Safwa items.
 - Schedule arithmetic is one pure module ([reminders.py](../src/safwa/reminders.py)): `resolve`,
   `next_fire`, `roll_forward`, `describe`. `date` is always a start date; `time` is a fire clock when
   weekdays are given and a start clock otherwise.
@@ -300,9 +302,10 @@ nudge kinds. A Reminder is instruction text plus a schedule — see
 
 ### Concurrency and safety
 
-- `GenerationGuard` — a single foreground lease keyed by the source `message_id`. While held, callbacks
-  are rejected with an alert and new messages are deleted; `/cancel` and `/newsession` bypass it
-  (`/newsession` calls `guard.cancel()`, bumping `dialogue_revision`).
+- `GenerationGuard` — one foreground/background lease. While an ordinary foreground answer runs,
+  callbacks are rejected and later owner texts are deleted, represented as queued `UI_INPUT`
+  placeholders, restored as one `DIALOGUE_USER` turn, and processed next. `/cancel` and `/newsession`
+  bypass the lease and restore the queue. Summary, reminder, and memory tasks reserve background leases.
 - `dialogue.ordinary_text` captures `dialogue_revision` and `workspace.revision` before generating and
   discards the answer if either changed.
 - `OwnerAndWritingMiddleware` drops anything that is not the owner in a private chat.
@@ -318,7 +321,8 @@ nudge kinds. A Reminder is instruction text plus a schedule — see
 matches `models.py` while a changed column will *not* touch an existing `data/safwa.db`. A schema change
 means editing `models.py` and rebuilding the database (`uv run safwa-backup` first).
 
-**Do not add Alembic or write migrations.** Pre-release; the owner recreates the database.
+**Do not add Alembic or write migrations before the first release.** The owner recreates the
+pre-release database. Migration support begins after v1.
 
 27 tables: `workspace`, `user_profile`, `values`, `cards`, `card_values`, `tags`, `card_tags`,
 `checks`, `card_checks`,

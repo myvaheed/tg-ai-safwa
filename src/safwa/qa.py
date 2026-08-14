@@ -23,6 +23,7 @@ class QAConfig(BaseSettings):
     )
 
     telegram_bot_token: SecretStr | None = None
+    telegram_bot_username: str | None = None
     telegram_owner_id: int | None = None
     telegram_api_id: int | None = None
     telegram_api_hash: SecretStr | None = None
@@ -85,6 +86,7 @@ def resolve_qa_config(
     settings = Settings(
         _env_file=None,
         telegram_bot_token=qa_token,
+        telegram_bot_username=_text(qa.telegram_bot_username) or "",
         telegram_owner_id=owner_id,
         telegram_api_id=api_id,
         telegram_api_hash=api_hash,

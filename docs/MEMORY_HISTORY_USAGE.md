@@ -8,10 +8,10 @@
 - With a Summary boundary, the Summary is sent first, then up to 20 older canonical messages with short UTC timestamps for local context, then the newer dialogue.
 - Real Safwa dialogue replies use the `assistant` role. Consecutive human messages and other user-side context are combined into one `user` turn with tags such as `[User]`, `[Summary]`, and `[Initial request]`.
 - Commands, callbacks, menus, dashboards, forms, approvals, receipts, unsaved item editors, SQL/tool traces, errors, and retrospective PNGs are excluded. Every slash command is deleted from Telegram immediately except `/newsession`, which remains visible as the history boundary.
-- The current user message is correlated across the Bot API and Telethon ID spaces and included exactly once. Only registered user dialogue, generated Safwa dialogue, persona reminders, boundaries, and subsession results can enter history.
-- Every bot message also carries its own `MessageKind` inside its Telegram text, as invisible characters appended after the visible content. SQLite is therefore a cache of the classification, not its only copy: a rebuilt or restored database still reads the full dialogue back from Telegram. Owner messages cannot carry a mark, so an unregistered owner message inside the current session boundary counts as dialogue — commands and typed field values are deleted from Telegram, and a scan that never reaches a boundary is reading pre-Safwa chat and contributes nothing.
+- The current owner message is correlated across the Bot API and Telethon ID spaces and included exactly once. Only registered user dialogue, generated Safwa dialogue, persona reminders, boundaries, and subsession results can enter history.
+- Every bot message carries both its `MessageKind` and an immutable Safwa event UUID in invisible characters appended to the Telegram text. SQLite stores the same UUID, so outgoing events are classified by direct lookup even after the visible text is edited. SQLite remains a rebuildable index because the marker is authoritative. Owner messages cannot carry a mark, so their source-message de-duplication still uses the narrow Bot API/Telethon correlation; commands and typed field values are deleted from Telegram.
 - Item links are read back as the Markdown the model wrote them in, so a reply citing a Check reaches Safwa's own history as `[Milk](check:14)` rather than as the bare word.
-- The same provisional reading covers a bot message that has neither a registration nor a mark, which is what messages written before marks existed look like: with no inline keyboard it is plain prose and is read as an ordinary answer, while every interaction screen keeps its buttons and stays excluded.
+- An unmarked bot message is excluded. Version 1 has no legacy marker fallback.
 
 ## Telegram UI lifecycle
 
@@ -27,6 +27,9 @@
 - Save, Discard, or a save failure resolves only the current proposal and advances the queue. After the last item, the same message shows a consolidated Saved/Discarded/Failed result list; failures such as a discarded Tag needed by a later Card link are explicit.
 - That owner-facing list is one short line per change, phrased as the operation itself (`✅ Saved — Link Tag “Health” to Goal “Be healthy”`), with references shown by name instead of numeric IDs and no field dump. The model's own tool results keep the full resolved fields and IDs, because it needs them not to repeat its work.
 - Read tools run immediately, but the AI resumes only once every proposal is resolved. That continuation receives every mutation result and read-tool result.
+- A provider response must not mix `query_safwa` and mutation tools. If it does, reads still run but
+  mutations return a short retryable error and must be repeated in the next response after the read
+  results are known.
 - Mutation calls are prepared independently against committed data. Valid siblings still enter the proposal queue when another call has an unresolved reference. After the queue, structured errors return to the model together; it retries only unfinished calls using IDs from saved results, with at most five repair rounds and no symbolic reference format.
 - During one unresolved request, summaries of earlier proposal batches are injected into the next tool-call assistant message as temporary current-request progress. This prevents repeated completed operations, but the summaries are never added to canonical Telegram history, summaries, or memory.
 - Manual Card creation exists only in the current transient editor and is inserted on Save; leaving or discarding it creates no persistent record. AI Card creation is an ordinary queued proposal and is inserted only on Save. A discarded AI Card proposal records all proposed fields in its static result message; Goal and Idea screens never expose Action-only fields.
@@ -75,7 +78,7 @@
 
 - `/mem <fact>` adds one explicit durable fact directly to `memory.md`.
 - `/memory` displays the current validated memory and estimated token usage.
-- `/forget <line number>` removes one displayed fact.
+- Removing or editing a fact is done directly in `data/memory.md`; there is no chat command that deletes memory.
 - `/syncmem` processes new canonical Telegram dialogue since the last successful memory boundary. Safwa retells roughly 2K-token chunks, reconciles durable facts, atomically updates `memory.md`, and only then advances the processed-message marker.
 
 ## Scheduled memory synchronization

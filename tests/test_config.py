@@ -21,6 +21,12 @@ def test_lmstudio_is_the_default_endpoint():
     assert settings.resolved_ai_cache_breakpoints is False
 
 
+def test_bot_username_is_normalized_for_deep_links():
+    settings = _settings(telegram_bot_username=" @safwa_ai_bot ")
+
+    assert settings.telegram_bot_username == "safwa_ai_bot"
+
+
 def test_openrouter_derives_its_own_defaults():
     settings = _settings(ai_provider="openrouter", ai_model="openai/gpt-5.6-luna")
 

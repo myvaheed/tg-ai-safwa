@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..constants import CALLBACK_TOKEN_TTL_HOURS
 from ..enums import MessageKind, ProposalStatus
-from ..history import SUBSESSION_RESULT_HEADER, mark_kind, register_message
+from ..history import SUBSESSION_RESULT_HEADER, mark_kind, mark_message, register_message
 from ..models import (
     CallbackToken,
     ChangeProposal,
@@ -24,7 +24,7 @@ from ..models import (
     TelegramMessage,
     UiSession,
 )
-from ._core import Services
+from ._core import QueuedMessage, Services
 from ._presentation import Page, proposal_change_summary, split_telegram_text
 
 logger = logging.getLogger(__name__)
@@ -67,10 +67,21 @@ async def send_registered(
     message and therefore update that message in place.  Text-entry actions opt
     out explicitly because their prompt must be a separate conversational turn.
     """
-    text = mark_kind(text, kind)
     should_replace = (
         bool(message.from_user and message.from_user.is_bot) if replace is None else replace
     )
+    visible_text = text
+    event_id: str | None = None
+    if should_replace:
+        async with services.sessions() as session:
+            stored = await session.scalar(
+                select(TelegramMessage).where(
+                    TelegramMessage.chat_id == message.chat.id,
+                    TelegramMessage.message_id == message.message_id,
+                )
+            )
+            event_id = stored.event_id if stored is not None else None
+    text, event_id = mark_message(visible_text, kind, event_id=event_id)
     if should_replace:
         try:
             await message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
@@ -85,11 +96,20 @@ async def send_registered(
                     message.message_id,
                     error,
                 )
+                text, event_id = mark_message(visible_text, kind)
                 sent = await message.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
     else:
         sent = await message.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
     async with services.sessions() as session:
-        await register_message(session, sent.chat.id, sent.message_id, "out", kind, related_id)
+        await register_message(
+            session,
+            sent.chat.id,
+            sent.message_id,
+            "out",
+            kind,
+            related_id,
+            event_id,
+        )
         await session.commit()
     return sent
 
@@ -105,9 +125,18 @@ async def edit_registered_message(
     related_id: int | None = None,
 ) -> None:
     """Replace a known bot UI message after consuming a separate user text message."""
+    async with services.sessions() as session:
+        stored = await session.scalar(
+            select(TelegramMessage).where(
+                TelegramMessage.chat_id == message.chat.id,
+                TelegramMessage.message_id == message_id,
+            )
+        )
+        event_id = stored.event_id if stored is not None else None
+    marked_text, event_id = mark_message(text, kind, event_id=event_id)
     try:
         await message.bot.edit_message_text(
-            mark_kind(text, kind),
+            marked_text,
             chat_id=message.chat.id,
             message_id=message_id,
             reply_markup=markup,
@@ -124,6 +153,7 @@ async def edit_registered_message(
             "out",
             kind,
             related_id,
+            event_id,
         )
         await session.commit()
 
@@ -242,7 +272,11 @@ async def dismiss_prior_ui(message: Message, services: Services) -> None:
         if replacement is not None:
             try:
                 await message.bot.edit_message_text(
-                    mark_kind(replacement, MessageKind.DIALOGUE_ASSISTANT),
+                    mark_kind(
+                        replacement,
+                        MessageKind.DIALOGUE_ASSISTANT,
+                        event_id=screen.event_id,
+                    ),
                     chat_id=message.chat.id,
                     message_id=screen.message_id,
                     parse_mode=ParseMode.HTML,
@@ -266,6 +300,7 @@ async def dismiss_prior_ui(message: Message, services: Services) -> None:
                     "out",
                     MessageKind.DIALOGUE_ASSISTANT,
                     screen.related_id,
+                    screen.event_id,
                 )
                 await session.commit()
             continue
@@ -275,6 +310,36 @@ async def dismiss_prior_ui(message: Message, services: Services) -> None:
     async with services.sessions() as session:
         await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
         await session.commit()
+
+
+async def materialize_queued_dialogue(
+    message: Message, services: Services
+) -> tuple[Message, str] | None:
+    """Replace transient queue notices with one durable user-role dialogue turn."""
+    queued: list[QueuedMessage] = await services.guard.drain_queue()
+    if not queued:
+        return None
+    request = "\n\n----\n\n".join(item.text.strip() for item in queued if item.text.strip())
+    dialogue_text = f"{services.owner_name}:\n{request}"
+    sent = await send_registered(
+        message,
+        services,
+        f"<b>{html.escape(services.owner_name)}:</b>\n{html.escape(request)}",
+        kind=MessageKind.DIALOGUE_USER,
+        replace=False,
+    )
+    placeholder_ids = [
+        item.placeholder_message_id for item in queued if item.placeholder_message_id is not None
+    ]
+    if placeholder_ids:
+        try:
+            await message.bot.delete_messages(
+                chat_id=message.chat.id,
+                message_ids=placeholder_ids,
+            )
+        except TelegramAPIError as error:
+            logger.warning("Could not remove queued-message placeholders: %s", error)
+    return sent, dialogue_text
 
 
 async def delete_screen(message: Message, services: Services, message_id: int) -> None:
@@ -321,9 +386,12 @@ async def send_subsession_result(
         header = (
             SUBSESSION_RESULT_HEADER if index == 0 else f"{SUBSESSION_RESULT_HEADER} (continued)"
         )
+        marked_text, event_id = mark_message(
+            f"{header}\n{html.escape(chunk)}", MessageKind.SUBSESSION_RESULT
+        )
         sent = await message.bot.send_message(
             message.chat.id,
-            mark_kind(f"{header}\n{html.escape(chunk)}", MessageKind.SUBSESSION_RESULT),
+            marked_text,
             parse_mode=ParseMode.HTML,
         )
         async with services.sessions() as session:
@@ -333,5 +401,6 @@ async def send_subsession_result(
                 sent.message_id,
                 "out",
                 MessageKind.SUBSESSION_RESULT,
+                event_id=event_id,
             )
             await session.commit()

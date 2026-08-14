@@ -333,6 +333,7 @@ class TelegramMessage(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     chat_id: Mapped[int] = mapped_column(Integer, index=True)
     message_id: Mapped[int] = mapped_column(Integer)
+    event_id: Mapped[str | None] = mapped_column(String(32), unique=True, index=True)
     direction: Mapped[str] = mapped_column(String(10))
     kind: Mapped[str] = mapped_column(String(40), default=MessageKind.DASHBOARD.value)
     related_id: Mapped[int | None] = mapped_column(Integer)
@@ -411,12 +412,6 @@ class Reminder(Base, TimestampMixin):
     next_fire_at: Mapped[datetime] = mapped_column(UtcDateTime, index=True)
     last_fired_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     fire_count: Mapped[int] = mapped_column(Integer, default=0)
-
-    # A cache of the last relevance check, not state anyone may set.  All three are cleared
-    # together whenever `instruction` changes.
-    evaluated_revision: Mapped[int | None] = mapped_column(Integer)
-    last_verdict: Mapped[str | None] = mapped_column(String(20))
-    last_state: Mapped[str | None] = mapped_column(Text)
 
     version: Mapped[int] = mapped_column(Integer, default=1)
 

@@ -26,8 +26,7 @@ from ..domain import (
     update_profile,
 )
 from ..enums import CardKind, CardStage, MessageKind
-from ..history import mark_kind, register_message
-from ..memory import MemoryFileError
+from ..history import mark_message, register_message
 from ..models import (
     Card,
     FeedbackQueue,
@@ -39,9 +38,10 @@ from ..models import (
     Value,
     Workspace,
 )
-from ._core import Services, router
+from ._core import BACKGROUND_SOURCE_ID, Services, router
 from ._messaging import (
     delete_message_range,
+    materialize_queued_dialogue,
     send_registered,
     send_subsession_result,
     token_button,
@@ -75,8 +75,11 @@ async def end_subsession(
         await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
         transcript = await services.history.dialogue(message.chat.id)
         result = await services.advisor.compress_subsession(transcript, instruction)
-        await delete_message_range(message, start_message_id, message.message_id)
         await send_subsession_result(message, services, active_start.text, result)
+        # Keep the source branch until every result chunk is visible and registered.
+        # A failed cleanup may leave a harmless duplicate; the opposite order could
+        # permanently lose both the branch and its compressed result.
+        await delete_message_range(message, start_message_id, message.message_id)
     finally:
         services.guard.release(message.message_id)
 
@@ -98,6 +101,9 @@ async def command_start(message: Message, services: Services) -> None:
 
 @router.message(Command("newsession"))
 async def command_newsession(message: Message, services: Services) -> None:
+    # The middleware cancels an in-flight answer before dispatching /newsession. Preserve
+    # any text that was queued behind it and remove its temporary placeholders.
+    await materialize_queued_dialogue(message, services)
     parts = (message.text or "").split(maxsplit=1)
     initial_request = parts[1].strip() if len(parts) == 2 else ""
     if not initial_request:
@@ -364,7 +370,7 @@ async def command_syncmem(message: Message, services: Services) -> None:
     if (message.text or "").partition(" ")[2].strip():
         await send_registered(message, services, "Usage: /syncmem", kind=MessageKind.ERROR)
         return
-    if services.guard.active:
+    if not services.guard.reserve_background():
         await send_registered(
             message,
             services,
@@ -372,8 +378,21 @@ async def command_syncmem(message: Message, services: Services) -> None:
             kind=MessageKind.ERROR,
         )
         return
-    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-    result = await services.continuity.maintain_memory(message.chat.id)
+    revision = services.guard.dialogue_revision
+    lease_current = False
+    try:
+        await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+        result = await services.continuity.maintain_memory(
+            message.chat.id,
+            still_current=lambda: (
+                services.guard.background and services.guard.dialogue_revision == revision
+            ),
+        )
+        lease_current = services.guard.background and services.guard.dialogue_revision == revision
+    finally:
+        services.guard.release(BACKGROUND_SOURCE_ID)
+    if not lease_current:
+        return
     if result == MemoryMaintenanceResult.UPDATED:
         await record_memory_run(services.sessions)
         text, kind = "Memory synchronized from Telegram dialogue.", MessageKind.RECEIPT
@@ -405,20 +424,6 @@ async def command_remember(message: Message, services: Services) -> None:
     await send_registered(message, services, "Remembered in memory.md.", kind=MessageKind.RECEIPT)
 
 
-@router.message(Command("forget"))
-async def command_forget(message: Message, services: Services) -> None:
-    raw = (message.text or "").partition(" ")[2].strip()
-    try:
-        line = int(raw)
-        await services.memory.forget_line(line)
-    except (ValueError, MemoryFileError) as error:
-        await send_registered(message, services, html.escape(str(error)), kind=MessageKind.ERROR)
-        return
-    await send_registered(
-        message, services, "Forgotten and memory.md updated.", kind=MessageKind.RECEIPT
-    )
-
-
 @router.message(Command("retro"))
 async def command_retro(message: Message, services: Services) -> None:
     async with services.sessions() as session:
@@ -436,18 +441,25 @@ async def command_retro(message: Message, services: Services) -> None:
             return
         data = await retrospective_data(session, sprint.id)
     png = render_retrospective_png(data)
+    caption, event_id = mark_message(
+        f"Sprint {sprint.number} retrospective\n"
+        + "\n".join(retrospective_recommendations(data)),
+        MessageKind.RETROSPECTIVE_PNG,
+    )
     sent = await message.answer_photo(
         BufferedInputFile(png, filename=f"sprint-{sprint.number}-retro.png"),
-        caption=mark_kind(
-            f"Sprint {sprint.number} retrospective\n"
-            + "\n".join(retrospective_recommendations(data)),
-            MessageKind.RETROSPECTIVE_PNG,
-        ),
+        caption=caption,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[retro_back_row()]),
     )
     async with services.sessions() as session:
         await register_message(
-            session, sent.chat.id, sent.message_id, "out", MessageKind.RETROSPECTIVE_PNG, sprint.id
+            session,
+            sent.chat.id,
+            sent.message_id,
+            "out",
+            MessageKind.RETROSPECTIVE_PNG,
+            sprint.id,
+            event_id,
         )
         await session.commit()
 
@@ -620,6 +632,7 @@ async def command_status(message: Message, services: Services) -> None:
 @router.message(Command("cancel"))
 async def command_cancel(message: Message, services: Services) -> None:
     services.guard.cancel()
+    await materialize_queued_dialogue(message, services)
     await send_registered(
         message, services, "Current generation cancelled.", kind=MessageKind.RECEIPT
     )

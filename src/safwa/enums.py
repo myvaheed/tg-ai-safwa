@@ -49,16 +49,6 @@ class ScheduleKind(StrEnum):
     WEEKLY = "weekly"
 
 
-class RelevanceVerdict(StrEnum):
-    """Whether a Reminder still makes sense.
-
-    Both verdicts escalate: `irrelevant` is a flag on the escalation, not a silent delete.
-    """
-
-    TRIGGER = "trigger"
-    IRRELEVANT = "irrelevant"
-
-
 class Category(StrEnum):
     SELF = "self"
     CONTRIBUTION = "contribution"

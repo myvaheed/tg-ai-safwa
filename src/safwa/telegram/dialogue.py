@@ -18,14 +18,15 @@ from ..domain import (
     update_value_fields,
 )
 from ..enums import MessageKind
-from ..history import HistoryBoundaryMissing, HistoryEntry, mark_kind, register_message
+from ..history import HistoryBoundaryMissing, HistoryEntry, mark_message, register_message
 from ..memory import estimate_tokens
 from ..models import SummaryState, UiSession, Workspace
-from ._core import Services, router
+from ._core import BACKGROUND_SOURCE_ID, Services, router
 from ._messaging import (
     clear_message_markup,
     delete_text_input,
     dismiss_prior_ui,
+    materialize_queued_dialogue,
     send_registered,
 )
 from .cards import render_card, render_card_creation, sanitize_card_creation_state
@@ -160,8 +161,6 @@ async def ordinary_text(message: Message, services: Services) -> None:
         await register_message(
             session, message.chat.id, message.message_id, "in", MessageKind.DIALOGUE_USER
         )
-        workspace = await session.get(Workspace, 1)
-        starting_workspace_revision = workspace.revision
         await session.commit()
     source = HistoryEntry(
         message_id=message.message_id,
@@ -172,30 +171,50 @@ async def ordinary_text(message: Message, services: Services) -> None:
         kind=MessageKind.DIALOGUE_USER.value,
     )
     dialogue_revision = services.guard.dialogue_revision
-    await services.guard.acquire(message.message_id)
+    await services.guard.acquire(message.message_id, queue_messages=True)
+    current_source = source
+    current_request = message.text
     try:
-        await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-        dialogue = await services.history.dialogue(message.chat.id, source_message=source)
-        outcome = await services.advisor.handle(
-            message.text,
-            source_message_id=message.message_id,
-            dialogue=dialogue,
-        )
-        async with services.sessions() as session:
-            workspace = await session.get(Workspace, 1)
-            if (
-                services.guard.dialogue_revision != dialogue_revision
-                or workspace.revision != starting_workspace_revision
-            ):
-                return
-        await render_ai_outcome(message, services, outcome)
-        # The foreground response is now visible. Release its lease before any
-        # optional continuity work so proposal callbacks and new dialogue are not
-        # rejected while summary generation is running.
+        while True:
+            async with services.sessions() as session:
+                workspace = await session.get(Workspace, 1)
+                starting_workspace_revision = workspace.revision
+            await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+            dialogue = await services.history.dialogue(
+                message.chat.id, source_message=current_source
+            )
+            outcome = await services.advisor.handle(
+                current_request,
+                source_message_id=current_source.message_id,
+                dialogue=dialogue,
+            )
+            async with services.sessions() as session:
+                workspace = await session.get(Workspace, 1)
+                if (
+                    services.guard.dialogue_revision != dialogue_revision
+                    or workspace.revision != starting_workspace_revision
+                ):
+                    return
+            await render_ai_outcome(message, services, outcome)
+            queued = await materialize_queued_dialogue(message, services)
+            if queued is None:
+                break
+            queued_message, current_request = queued
+            await dismiss_prior_ui(queued_message, services)
+            current_source = HistoryEntry(
+                message_id=queued_message.message_id,
+                sender_id=services.owner_id,
+                role="user",
+                text=current_request,
+                created_at=queued_message.date.astimezone(UTC),
+                kind=MessageKind.DIALOGUE_USER.value,
+            )
+
         services.guard.release(message.message_id)
 
         async def send_summary(text: str, covered_id: int) -> None:
-            sent = await message.answer(mark_kind(html.escape(text), MessageKind.SUMMARY))
+            marked_text, event_id = mark_message(html.escape(text), MessageKind.SUMMARY)
+            sent = await message.answer(marked_text)
             async with services.sessions() as session:
                 await register_message(
                     session,
@@ -203,6 +222,7 @@ async def ordinary_text(message: Message, services: Services) -> None:
                     sent.message_id,
                     "out",
                     MessageKind.SUMMARY,
+                    event_id=event_id,
                 )
                 state = await session.get(SummaryState, 1)
                 if state is None:
@@ -213,7 +233,19 @@ async def ordinary_text(message: Message, services: Services) -> None:
                 state.estimated_tokens = estimate_tokens(text)
                 await session.commit()
 
-        await services.continuity.maybe_summarize(message.chat.id, send_summary)
+        if services.guard.reserve_background():
+            summary_revision = services.guard.dialogue_revision
+            try:
+                await services.continuity.maybe_summarize(
+                    message.chat.id,
+                    send_summary,
+                    still_current=lambda: (
+                        services.guard.background
+                        and services.guard.dialogue_revision == summary_revision
+                    ),
+                )
+            finally:
+                services.guard.release(BACKGROUND_SOURCE_ID)
     except HistoryBoundaryMissing as error:
         await send_registered(
             message,
@@ -231,4 +263,9 @@ async def ordinary_text(message: Message, services: Services) -> None:
             kind=MessageKind.ERROR,
         )
     finally:
+        if services.guard.active_source_id == message.message_id:
+            try:
+                await materialize_queued_dialogue(message, services)
+            except Exception:
+                logger.exception("Could not restore queued messages after generation stopped")
         services.guard.release(message.message_id)

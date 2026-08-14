@@ -574,11 +574,7 @@ async def create_reminder(
 
 
 async def update_reminder_text(session: AsyncSession, reminder_id: int, instruction: str) -> Reminder:
-    """Edit what a Reminder tells the advisor, and nothing about when it fires.
-
-    The schedule columns are untouched; the relevance cache is dropped because the new text
-    may name different items.
-    """
+    """Edit what a Reminder tells the advisor, and nothing about when it fires."""
     reminder = await session.get(Reminder, reminder_id)
     if reminder is None:
         raise DomainError("Reminder does not exist")
@@ -586,9 +582,6 @@ async def update_reminder_text(session: AsyncSession, reminder_id: int, instruct
     if not clean:
         raise DomainError("Reminder text cannot be empty")
     reminder.instruction = clean
-    reminder.evaluated_revision = None
-    reminder.last_verdict = None
-    reminder.last_state = None
     reminder.version += 1
     await _bump_workspace(session)
     return reminder

@@ -20,11 +20,12 @@ from .continuity import PersonaContinuity, run_memory_maintenance
 from .db import Database, upgrade_database
 from .domain import bootstrap_workspace
 from .enums import AIProvider, MessageKind
-from .history import TelegramHistorySource, mark_kind, register_message
+from .history import TelegramHistorySource, mark_message, register_message
 from .memory import MemoryFileStore
 from .recovery import recover_startup
 from .scheduler import run_scheduler
 from .telegram import (
+    BACKGROUND_SOURCE_ID,
     GenerationGuard,
     OwnerAndWritingMiddleware,
     ReminderRuntime,
@@ -139,7 +140,8 @@ async def run(settings: Settings) -> None:
         continuity=continuity,
         owner_id=settings.telegram_owner_id,
         guard=guard,
-        bot_username=me.username or "",
+        owner_name=settings.telegram_owner_name,
+        bot_username=settings.telegram_bot_username,
     )
     dispatcher = Dispatcher()
     router.message.outer_middleware.register(OwnerAndWritingMiddleware())
@@ -171,9 +173,10 @@ async def run(settings: Settings) -> None:
     )
 
     async def memory_error(text: str) -> None:
+        marked_text, event_id = mark_message(f"⚠️ memory.md: {text}", MessageKind.ERROR)
         sent = await bot.send_message(
             settings.telegram_owner_id,
-            mark_kind(f"⚠️ memory.md: {text}", MessageKind.ERROR),
+            marked_text,
         )
         async with database.sessions() as session:
             await register_message(
@@ -182,6 +185,7 @@ async def run(settings: Settings) -> None:
                 sent.message_id,
                 "out",
                 MessageKind.ERROR,
+                event_id=event_id,
             )
             await session.commit()
 
@@ -196,7 +200,8 @@ async def run(settings: Settings) -> None:
                 database.sessions,
                 timezone=settings.timezone,
                 gate=reminders.can_escalate,
-                evaluate=reminders.evaluate,
+                still_current=reminders.still_current,
+                release=reminders.release,
                 escalate=reminders.escalate,
                 poll_seconds=settings.scheduler_poll_seconds,
             ),
@@ -209,6 +214,9 @@ async def run(settings: Settings) -> None:
             settings.telegram_owner_id,
             lambda: guard.active,
             settings.timezone,
+            reserve_background=guard.reserve_background,
+            dialogue_revision=lambda: guard.dialogue_revision,
+            release_background=lambda: guard.release(BACKGROUND_SOURCE_ID),
         ),
         name="memory-maintenance",
     )

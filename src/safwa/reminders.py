@@ -10,7 +10,6 @@ weekdays are given and a start clock otherwise.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
@@ -23,20 +22,10 @@ from .enums import ScheduleKind
 
 MINUTES_PER_DAY = 24 * 60
 _WORKWEEK = ("Mon", "Tue", "Wed", "Thu", "Fri")
-_ITEM_REFERENCE = re.compile(r"#\d+")
 
 
 class ScheduleError(ValueError):
     """A set of resolved parameters that cannot become a schedule."""
-
-
-def mentions_item(instruction: str) -> bool:
-    """Whether the instruction names a Safwa item, and so is worth a relevance check.
-
-    An instruction with no ``#id`` in it has nothing to look up, so the relevance session
-    is skipped outright rather than asked a question it cannot answer.
-    """
-    return _ITEM_REFERENCE.search(instruction) is not None
 
 
 @dataclass(frozen=True, slots=True)

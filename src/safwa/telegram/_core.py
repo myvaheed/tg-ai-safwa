@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import html
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from aiogram import BaseMiddleware, Router
+from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery, Message, TelegramObject
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -20,8 +23,8 @@ from ..domain import (
     toggle_card_tag,
     toggle_card_value,
 )
-from ..enums import Category, EnergyType
-from ..history import TelegramHistorySource
+from ..enums import Category, EnergyType, MessageKind
+from ..history import TelegramHistorySource, mark_message, register_message
 from ..memory import MemoryFileStore
 from ..models import CardCategory, CardEnergyType, CardTag, CardValue
 
@@ -38,6 +41,7 @@ class Services:
     continuity: PersonaContinuity
     owner_id: int
     guard: GenerationGuard
+    owner_name: str = "Owner"
     # Empty until the bot identifies itself; item citations stay plain text without it.
     bot_username: str = ""
 
@@ -45,6 +49,13 @@ class Services:
 # The source id of a generation nobody asked for. Telegram message ids are positive, so a
 # negative one cannot collide with a real message.
 BACKGROUND_SOURCE_ID = -1
+
+
+@dataclass(eq=False)
+class QueuedMessage:
+    text: str
+    placeholder_message_id: int | None = None
+    ready: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 class GenerationGuard:
@@ -60,6 +71,8 @@ class GenerationGuard:
     def __init__(self) -> None:
         self.active_source_id: int | None = None
         self.dialogue_revision = 0
+        self.queue_messages = False
+        self._queued_messages: list[QueuedMessage] = []
 
     @property
     def active(self) -> bool:
@@ -69,15 +82,17 @@ class GenerationGuard:
     def background(self) -> bool:
         return self.active_source_id == BACKGROUND_SOURCE_ID
 
-    async def acquire(self, source_id: int) -> None:
+    async def acquire(self, source_id: int, *, queue_messages: bool = False) -> None:
         if self.active_source_id not in {None, source_id}:
             raise RuntimeError("Another foreground generation is active")
         self.active_source_id = source_id
+        self.queue_messages = self.queue_messages or queue_messages
 
-    def reserve(self, source_id: int) -> bool:
+    def reserve(self, source_id: int, *, queue_messages: bool = False) -> bool:
         if self.active_source_id is not None:
             return self.active_source_id == source_id
         self.active_source_id = source_id
+        self.queue_messages = queue_messages
         return True
 
     def reserve_background(self) -> bool:
@@ -88,16 +103,41 @@ class GenerationGuard:
         if self.active_source_id is not None:
             return False
         self.active_source_id = BACKGROUND_SOURCE_ID
+        self.queue_messages = False
         return True
 
     def release(self, source_id: int | None = None) -> None:
         if source_id is not None and self.active_source_id != source_id:
             return
         self.active_source_id = None
+        self.queue_messages = False
 
     def cancel(self) -> None:
         self.dialogue_revision += 1
         self.release()
+
+    def begin_queue(self, text: str) -> QueuedMessage:
+        queued = QueuedMessage(text=text)
+        self._queued_messages.append(queued)
+        return queued
+
+    def finish_queue(self, queued: QueuedMessage, placeholder_message_id: int | None) -> None:
+        queued.placeholder_message_id = placeholder_message_id
+        queued.ready.set()
+
+    def abort_queue(self, queued: QueuedMessage) -> None:
+        if queued in self._queued_messages:
+            self._queued_messages.remove(queued)
+        queued.ready.set()
+
+    async def drain_queue(self) -> list[QueuedMessage]:
+        while self._queued_messages:
+            snapshot = list(self._queued_messages)
+            await asyncio.gather(*(queued.ready.wait() for queued in snapshot))
+            if snapshot == self._queued_messages:
+                self._queued_messages.clear()
+                return snapshot
+        return []
 
 
 class OwnerAndWritingMiddleware(BaseMiddleware):
@@ -138,6 +178,41 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
                 services.guard.cancel()
                 return await handler(event, data)
             if event.message_id != services.guard.active_source_id:
+                if services.guard.queue_messages and not command and event.text:
+                    queued = services.guard.begin_queue(event.text)
+                    try:
+                        await event.delete()
+                    except TelegramAPIError:
+                        services.guard.abort_queue(queued)
+                        services.guard.cancel()
+                        return await handler(event, data)
+                    placeholder_id: int | None = None
+                    try:
+                        placeholder_text, event_id = mark_message(
+                            "Generating response... /cancel for cancelling.\n"
+                            f"Queued: {html.escape(event.text)}",
+                            MessageKind.UI_INPUT,
+                        )
+                        placeholder = await event.answer(
+                            placeholder_text,
+                            parse_mode=ParseMode.HTML,
+                        )
+                        placeholder_id = placeholder.message_id
+                        async with services.sessions() as session:
+                            await register_message(
+                                session,
+                                placeholder.chat.id,
+                                placeholder.message_id,
+                                "out",
+                                MessageKind.UI_INPUT,
+                                event_id=event_id,
+                            )
+                            await session.commit()
+                    except Exception:
+                        logger.exception("Could not render a queued-message placeholder")
+                    finally:
+                        services.guard.finish_queue(queued, placeholder_id)
+                    return None
                 if not command_deleted:
                     try:
                         await event.delete()
@@ -155,7 +230,7 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
             and bool(event.text)
             and not event.text.lstrip().startswith("/")
         ):
-            reserved = services.guard.reserve(event.message_id)
+            reserved = services.guard.reserve(event.message_id, queue_messages=True)
         try:
             return await handler(event, data)
         finally:

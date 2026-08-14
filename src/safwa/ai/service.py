@@ -880,6 +880,8 @@ class AIAdvisor:
                     }
                 )
                 pending_tools: list[PendingTool] = []
+                has_reads = any(call.name in IMMEDIATE_TOOLS for call in turn.tool_calls)
+                has_mutations = any(call.name not in IMMEDIATE_TOOLS for call in turn.tool_calls)
                 for call in turn.tool_calls:
                     tool_count += 1
                     if tool_count > MAX_TOOL_CALLS:
@@ -887,6 +889,16 @@ class AIAdvisor:
                     change = None
                     if call.name == "query_safwa":
                         result = await self._execute_query_tool(call, run_id, tool_count)
+                    elif has_reads and has_mutations:
+                        result = {
+                            "status": "error",
+                            "code": "mixed_read_and_mutation_tools",
+                            "error": "Mutation tools cannot share a response with query_safwa.",
+                            "next": (
+                                "Use the read result, then retry this mutation in the next response."
+                            ),
+                            "retryable": True,
+                        }
                     else:
                         change, result = await self._execute_mutation_tool(call, run_id, tool_count)
                     pending_tools.append(PendingTool(call=call, result=result, change=change))
@@ -997,7 +1009,7 @@ class AIAdvisor:
                     "code": "unknown_tool",
                     "error": f"Unknown tool: {call.name}",
                     "hint": (
-                        "Call one of: query_safwa, card, check, value, tag, request, remove."
+                        "Call one of: query_safwa, card, check, value, tag, request, reminder, remove."
                     ),
                     "retryable": True,
                 }

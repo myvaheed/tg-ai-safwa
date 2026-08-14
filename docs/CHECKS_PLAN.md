@@ -209,8 +209,9 @@ Tags and Values, it just never fired there.
 
 ## Build notes
 
-No migrations and no Alembic. The table changes mean the existing `data/safwa.db` will **not** match
-until it is rebuilt — run `uv run safwa-backup`, then recreate the database.
+Before the first release there are no migrations or Alembic. The table changes mean the existing
+`data/safwa.db` will **not** match until it is rebuilt — run `uv run safwa-backup`, then recreate the
+database. Migration support begins after v1.
 
 `ai_checks` must be in `ALLOWED_VIEWS` ([ai/sql.py](../src/safwa/ai/sql.py)) **and** in the view list
 inside `SYSTEM_PROMPT` ([ai/context.py:20](../src/safwa/ai/context.py:20)). Either alone leaves the

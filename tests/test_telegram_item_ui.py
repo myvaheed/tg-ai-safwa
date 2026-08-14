@@ -27,7 +27,7 @@ from safwa.domain import (
     toggle_card_check,
 )
 from safwa.enums import CardStage, MessageKind
-from safwa.history import parse_citation_payload
+from safwa.history import parse_citation_payload, read_kind_mark
 from safwa.models import (
     CallbackToken,
     Card,
@@ -62,6 +62,7 @@ from safwa.telegram import (
     render_item_text_prompt,
     render_proposal,
 )
+from safwa.telegram._messaging import materialize_queued_dialogue
 from safwa.telegram._presentation import start_payload
 
 
@@ -146,6 +147,7 @@ class FakeBot:
     def __init__(self) -> None:
         self.edits: list[tuple[int, str, object | None]] = []
         self.deleted: list[int] = []
+        self.deleted_batches: list[list[int]] = []
         self.cleared_markup: list[int] = []
 
     async def edit_message_text(
@@ -163,6 +165,10 @@ class FakeBot:
     async def delete_message(self, chat_id: int, message_id: int) -> None:
         del chat_id
         self.deleted.append(message_id)
+
+    async def delete_messages(self, *, chat_id: int, message_ids: list[int]) -> None:
+        del chat_id
+        self.deleted_batches.append(message_ids)
 
     async def edit_message_reply_markup(
         self, *, chat_id: int, message_id: int, reply_markup=None
@@ -183,6 +189,7 @@ class FakeMessage:
         bot_message: bool,
         bot: FakeBot | None = None,
         chat_id: int = 700,
+        answer_as_new: bool = False,
     ) -> None:
         self.message_id = message_id
         self.text = text
@@ -193,6 +200,8 @@ class FakeMessage:
         self.edits: list[tuple[str, object | None]] = []
         self.answers: list[str] = []
         self.was_deleted = False
+        self.answer_as_new = answer_as_new
+        self.sent_messages: list[FakeMessage] = []
 
     async def edit_text(self, text: str, *, reply_markup=None, parse_mode=None):
         del parse_mode
@@ -203,6 +212,16 @@ class FakeMessage:
         del parse_mode
         self.answers.append(text)
         del reply_markup
+        if self.answer_as_new:
+            sent = FakeMessage(
+                self.message_id + 1_000,
+                text=text,
+                bot_message=True,
+                bot=self.bot,
+                chat_id=self.chat.id,
+            )
+            self.sent_messages.append(sent)
+            return sent
         return self
 
     async def delete(self) -> None:
@@ -221,7 +240,11 @@ class FakeCallback:
 
 def services_for(sessions):
     return SimpleNamespace(
-        sessions=sessions, owner_id=42, guard=GenerationGuard(), bot_username="safwa_ai_bot"
+        sessions=sessions,
+        owner_id=42,
+        owner_name="Name Surname",
+        guard=GenerationGuard(),
+        bot_username="safwa_ai_bot",
     )
 
 
@@ -255,6 +278,94 @@ async def test_commands_are_deleted_except_newsession(sessions, monkeypatch) -> 
         "/cancel",
         "/newsession Initial request",
     ]
+
+
+async def test_messages_are_queued_with_placeholders_and_restored_as_one_turn(
+    sessions, monkeypatch
+) -> None:
+    import safwa.telegram._core as core_module
+
+    monkeypatch.setattr(core_module, "Message", FakeMessage)
+    middleware = OwnerAndWritingMiddleware()
+    services = services_for(sessions)
+    assert services.guard.reserve(1, queue_messages=True)
+    handled: list[str] = []
+
+    async def handler(event, _data):
+        handled.append(event.text)
+
+    first = FakeMessage(2, text="First queued request", bot_message=False, answer_as_new=True)
+    second = FakeMessage(
+        3,
+        text="Second queued request",
+        bot_message=False,
+        bot=first.bot,
+        answer_as_new=True,
+    )
+    await middleware(handler, first, {"services": services})
+    await middleware(handler, second, {"services": services})
+
+    assert first.was_deleted and second.was_deleted
+    assert handled == []
+    assert read_kind_mark(first.answers[0])[1] == (
+        "Generating response... /cancel for cancelling.\nQueued: First queued request"
+    )
+
+    anchor = FakeMessage(1, text="Active request", bot_message=False, bot=first.bot, answer_as_new=True)
+    restored = await materialize_queued_dialogue(anchor, services)
+
+    assert restored is not None
+    sent, request = restored
+    assert request == "Name Surname:\nFirst queued request\n\n----\n\nSecond queued request"
+    assert read_kind_mark(sent.text) == (
+        MessageKind.DIALOGUE_USER.value,
+        "<b>Name Surname:</b>\nFirst queued request\n\n----\n\nSecond queued request",
+    )
+    assert first.bot.deleted_batches == [[1002, 1003]]
+
+
+async def test_endsession_keeps_source_messages_when_result_send_fails(monkeypatch) -> None:
+    import safwa.telegram.commands as commands_module
+
+    calls: list[str] = []
+
+    class History:
+        async def active_session_start(self, _chat_id):
+            return SimpleNamespace(message_id=10, text="Initial request")
+
+        async def dialogue(self, _chat_id):
+            return []
+
+    class Advisor:
+        async def compress_subsession(self, _dialogue, _instruction):
+            return "Compressed"
+
+    async def fail_send(*_args, **_kwargs):
+        calls.append("send")
+        raise RuntimeError("Telegram send failed")
+
+    async def delete_range(*_args, **_kwargs):
+        calls.append("delete")
+
+    monkeypatch.setattr(commands_module, "send_subsession_result", fail_send)
+    monkeypatch.setattr(commands_module, "delete_message_range", delete_range)
+    services = SimpleNamespace(
+        history=History(),
+        advisor=Advisor(),
+        guard=GenerationGuard(),
+    )
+    message = FakeMessage(20, text="/endsession", bot_message=False)
+
+    with pytest.raises(RuntimeError, match="Telegram send failed"):
+        await commands_module.end_subsession(
+            message,
+            services,
+            start_message_id=10,
+            instruction="",
+        )
+
+    assert calls == ["send"]
+    assert services.guard.active is False
 
 
 async def test_proposal_ui_releases_generation_guard_before_continuity_work(sessions) -> None:
@@ -298,7 +409,7 @@ async def test_proposal_ui_releases_generation_guard_before_continuity_work(sess
 
         async def maybe_summarize(self, *_args, **_kwargs):
             self.called = True
-            assert guard.active is False
+            assert guard.background is True
 
     continuity = Continuity()
     services = SimpleNamespace(

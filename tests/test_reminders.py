@@ -10,7 +10,6 @@ from safwa.reminders import (
     Schedule,
     ScheduleError,
     describe,
-    mentions_item,
     next_fire,
     resolve,
     roll_forward,
@@ -315,18 +314,3 @@ def test_describe_tolerates_an_empty_schedule():
     assert describe(Schedule(kind=ScheduleKind.ONCE), tz=TZ, now=NOW) == "once"
 
 
-# --- the relevance short circuit ------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("instruction", "expected"),
-    [
-        ("Ask me what to start with today.", False),
-        ('Check my posture — Check #5 "Is my posture straight?"', True),
-        ("Review the launch plan — Card #88.", True),
-        ("Read chapter #3 of nothing in particular", True),  # deliberately not clever
-        ("Costs about #### to run", False),
-    ],
-)
-def test_mentions_item(instruction, expected):
-    assert mentions_item(instruction) is expected

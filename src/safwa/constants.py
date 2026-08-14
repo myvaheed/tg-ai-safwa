@@ -63,7 +63,7 @@ REMINDER_CATCHUP_GRACE_MINUTES = 120
 REMINDER_MIN_INTERVAL_MINUTES = 5
 # A mini-session has one job and one terminal tool; it does not get the agent loop's budget.
 MINI_SESSION_REPAIR_ROUNDS = 3
-RELEVANCE_MAX_TOOL_CALLS = 6
+MINI_SESSION_MAX_TOOL_CALLS = 6
 
 # --- Telegram UI ----------------------------------------------------------
 PAGE_SIZE = 5

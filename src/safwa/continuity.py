@@ -74,6 +74,8 @@ class PersonaContinuity:
         self,
         chat_id: int,
         send_summary: Callable[[str, int], Awaitable[None]],
+        *,
+        still_current: Callable[[], bool] | None = None,
     ) -> bool:
         if self._summary_lock.locked():
             return False
@@ -94,15 +96,32 @@ class PersonaContinuity:
                 ],
                 temperature=0.1,
             )
+            if still_current is not None and not still_current():
+                return False
+            current_entries = await self.history.recent(
+                chat_id, limit=HISTORY_CONTINUITY_LIMIT
+            )
+            snapshot = [(entry.message_id, entry.kind, entry.text) for entry in entries]
+            current = [(entry.message_id, entry.kind, entry.text) for entry in current_entries]
+            if current != snapshot:
+                logger.info("Discarding a stale automatic summary")
+                return False
             covered_id = entries[-1].message_id
             await send_summary("📜 Summary\n" + summary, covered_id)
             return True
 
-    async def maintain_memory(self, chat_id: int) -> MemoryMaintenanceResult:
+    async def maintain_memory(
+        self,
+        chat_id: int,
+        *,
+        still_current: Callable[[], bool] | None = None,
+    ) -> MemoryMaintenanceResult:
         if self._memory_lock.locked():
             return MemoryMaintenanceResult.BUSY
         async with self._memory_lock:
             snapshot = await self.memory.sync()
+            if still_current is not None and not still_current():
+                return MemoryMaintenanceResult.BUSY
             if not snapshot.valid:
                 return MemoryMaintenanceResult.INVALID
             async with self.sessions() as session:
@@ -114,6 +133,8 @@ class PersonaContinuity:
                 )
             except HistoryBoundaryMissing:
                 return MemoryMaintenanceResult.BOUNDARY_MISSING
+            if still_current is not None and not still_current():
+                return MemoryMaintenanceResult.BUSY
             new_entries = [
                 entry for entry in entries if not processed_id or entry.message_id > processed_id
             ]
@@ -135,6 +156,8 @@ class PersonaContinuity:
                     ],
                     temperature=0.1,
                 )
+                if still_current is not None and not still_current():
+                    return MemoryMaintenanceResult.BUSY
                 raw_result = await self.provider.complete(
                     [
                         {"role": "system", "content": MEMORY_PROMPT},
@@ -148,6 +171,8 @@ class PersonaContinuity:
                     ],
                     temperature=0,
                 )
+                if still_current is not None and not still_current():
+                    return MemoryMaintenanceResult.BUSY
                 try:
                     result = json.loads(
                         raw_result.removeprefix("```json").removesuffix("```").strip()
@@ -159,7 +184,12 @@ class PersonaContinuity:
                         raise ValueError("invalid facts")
                     facts = [fact.strip() for fact in candidate if fact.strip()]
                 except (json.JSONDecodeError, ValueError, AttributeError):
-                    logger.warning("Ignoring invalid automatic memory response")
+                    logger.warning(
+                        "Automatic memory response was invalid; leaving the cursor unchanged"
+                    )
+                    return MemoryMaintenanceResult.INVALID
+            if still_current is not None and not still_current():
+                return MemoryMaintenanceResult.BUSY
             try:
                 updated = await self.memory.replace_facts(
                     facts, expected_hash=expected_hash, provenance="inferred"
@@ -199,6 +229,9 @@ async def run_memory_maintenance(
     timezone: str,
     *,
     interval_seconds: float = MEMORY_MAINTENANCE_INTERVAL_SECONDS,
+    reserve_background: Callable[[], bool] | None = None,
+    dialogue_revision: Callable[[], int] | None = None,
+    release_background: Callable[[], None] | None = None,
 ) -> None:
     while True:
         try:
@@ -208,6 +241,9 @@ async def run_memory_maintenance(
                 chat_id,
                 is_foreground_busy,
                 timezone,
+                reserve_background=reserve_background,
+                dialogue_revision=dialogue_revision,
+                release_background=release_background,
             )
         except Exception:
             logger.exception("Scheduled memory synchronization failed")
@@ -222,10 +258,11 @@ async def run_due_memory_maintenance(
     timezone: str,
     *,
     now: datetime | None = None,
+    reserve_background: Callable[[], bool] | None = None,
+    dialogue_revision: Callable[[], int] | None = None,
+    release_background: Callable[[], None] | None = None,
 ) -> bool:
     """Run the configured once-daily memory sync if it is due."""
-    if is_foreground_busy():
-        return False
     zone = ZoneInfo(timezone)
     local_now = now.astimezone(zone) if now else datetime.now(zone)
     async with sessions() as session:
@@ -241,11 +278,25 @@ async def run_due_memory_maintenance(
             if last_run.astimezone(zone).date() >= local_now.date():
                 return False
 
-    result = await continuity.maintain_memory(chat_id)
-    if result not in {MemoryMaintenanceResult.UPDATED, MemoryMaintenanceResult.CURRENT}:
+    reserve = reserve_background or (lambda: not is_foreground_busy())
+    revision_of = dialogue_revision or (lambda: 0)
+    release = release_background or (lambda: None)
+    if not reserve():
         return False
-    await record_memory_run(sessions, local_now.astimezone(UTC))
-    return True
+    revision = revision_of()
+    try:
+        result = await continuity.maintain_memory(
+            chat_id,
+            still_current=lambda: revision_of() == revision,
+        )
+        if result not in {MemoryMaintenanceResult.UPDATED, MemoryMaintenanceResult.CURRENT}:
+            return False
+        if revision_of() != revision:
+            return False
+        await record_memory_run(sessions, local_now.astimezone(UTC))
+        return True
+    finally:
+        release()
 
 
 async def record_memory_run(

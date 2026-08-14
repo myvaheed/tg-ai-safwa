@@ -26,7 +26,13 @@ SAFWA_AI_MODEL=openai/gpt-5.6-luna
 
 Every derived value (`SAFWA_AI_BASE_URL`, `SAFWA_AI_MAX_RETRIES`, `SAFWA_AI_SEND_TEMPERATURE`,
 `SAFWA_AI_CACHE_BREAKPOINTS`, `SAFWA_AI_REASONING_EFFORT`) can still be set explicitly. Set the
-model and Telegram credentials in `.env`. Safwa upgrades its SQLite schema at startup.
+model and Telegram credentials in `.env`. Set `SAFWA_TELEGRAM_BOT_USERNAME` without `@`; Safwa uses
+it to build `t.me` links for Card and Check citations. Safwa upgrades its SQLite schema at startup.
+
+`SAFWA_TELEGRAM_API_ID` and `SAFWA_TELEGRAM_API_HASH` belong to the Telethon user-client, not the
+bot. The Bot API cannot reread arbitrary chat history, while Safwa uses the Telegram conversation as
+its canonical bounded advisor dialogue. Create the credentials at `my.telegram.org` and run
+`uv run safwa-auth` once to authorize the local session file.
 
 `data/memory.md` is the authoritative persistent persona memory. Keep exactly one non-empty fact
 per line. Safwa imports local edits automatically and never treats its SQLite mirror as canonical.
@@ -85,7 +91,8 @@ file-backed memory state.
 ## Bot navigation
 
 Use `/start`, `/today`, `/sprint`, `/backlog`, `/add`, `/drafts`, `/values`, `/advisor`, `/retro`,
-`/settings`, `/memory`, `/remember`, `/forget`, `/status`, and `/cancel`.
+`/settings`, `/memory`, `/mem`, `/syncmem`, `/status`, and `/cancel`. Remove or edit durable facts directly
+in `data/memory.md`; the file watcher imports the change.
 
 `/newsession <initial request>` begins an isolated persona branch. `/endsession [result instruction]`
 asks for confirmation, compresses that branch into one visible `📦 Subsession request` context result,

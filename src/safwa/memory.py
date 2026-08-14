@@ -175,18 +175,6 @@ class MemoryFileStore:
             [*snapshot.facts, fact.strip()], expected_hash=snapshot.file_hash, provenance="manual"
         )
 
-    async def forget_line(self, line_number: int) -> MemorySnapshot:
-        snapshot = await self.sync()
-        if not snapshot.valid:
-            raise MemoryFileError(snapshot.error or "memory.md is invalid")
-        if line_number < 1 or line_number > len(snapshot.facts):
-            raise MemoryFileError("Memory line does not exist")
-        facts = list(snapshot.facts)
-        facts.pop(line_number - 1)
-        return await self.replace_facts(
-            facts, expected_hash=snapshot.file_hash, provenance="manual"
-        )
-
     async def poll(self, on_error=None) -> None:  # type: ignore[no-untyped-def]
         last_hash: str | None = None
         while True:

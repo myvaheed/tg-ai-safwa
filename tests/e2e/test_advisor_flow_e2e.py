@@ -520,6 +520,43 @@ async def test_ai_read_query_round_trip_uses_safe_view(e2e_harness):
         assert set(step.metadata_json["columns"]) == {"committed", "completed"}
 
 
+async def test_read_and_mutation_in_one_turn_rejects_only_the_mutation(e2e_harness):
+    mixed = ProviderTurn(
+        content="",
+        tool_calls=(
+            ProviderToolCall(
+                id="mixed-read",
+                name="query_safwa",
+                arguments=json.dumps({"sql": "SELECT id FROM ai_cards LIMIT 1"}),
+            ),
+            ProviderToolCall(
+                id="mixed-write",
+                name="card",
+                arguments=json.dumps(
+                    {"mode": "create", "kind": "goal", "title": "Be healthy"}
+                ),
+            ),
+        ),
+    )
+    repaired = mutation_turn(
+        ("card", {"mode": "create", "kind": "goal", "title": "Be healthy"}),
+        prefix="after-read",
+    )
+    advisor, provider = e2e_harness.advisor([mixed, repaired])
+
+    outcome = await advisor.handle("Inspect my cards, then create the unrelated health goal")
+
+    assert outcome.proposal_id is not None
+    tool_results = {
+        item["name"]: json.loads(item["content"])
+        for item in provider.calls[1]
+        if item.get("role") == "tool"
+    }
+    assert isinstance(tool_results["query_safwa"], list)
+    assert tool_results["card"]["code"] == "mixed_read_and_mutation_tools"
+    assert tool_results["card"]["retryable"] is True
+
+
 async def test_multiple_ai_card_creations_are_reviewed_sequentially(e2e_harness):
     first_turn = mutation_turn(
         ("card", {"mode": "create", "kind": "goal", "title": "Быть здоровым"}),
@@ -1276,12 +1313,18 @@ async def test_mixed_query_and_mutation_resumes_only_after_approval(e2e_harness)
             ),
         ),
     )
-    advisor, provider = e2e_harness.advisor([mixed_turn, "The tag was saved."])
+    advisor, provider = e2e_harness.advisor(
+        [
+            mixed_turn,
+            mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
+            "The tag was saved.",
+        ]
+    )
 
     outcome = await advisor.handle("Create VrWalk and tag my recent cards")
 
     assert outcome.proposal_id is not None
-    assert len(provider.calls) == 1
+    assert len(provider.calls) == 2
     async with e2e_harness.sessions() as session:
         affected = await ProposalService(session).apply(outcome.proposal_id)
         await session.commit()
@@ -1302,11 +1345,17 @@ async def test_mixed_query_and_mutation_resumes_only_after_approval(e2e_harness)
     assert resumed is not None and resumed.kind == "answer"
     assert "✅ Saved — New Tag “VrWalk”" in resumed.message
     assert "The tag was saved." in resumed.message
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 3
     tool_messages = [message for message in provider.calls[1] if message["role"] == "tool"]
     assert [message["name"] for message in tool_messages] == ["tag", "query_safwa"]
-    assert '"status": "approved"' in str(tool_messages[0]["content"])
+    assert "mixed_read_and_mutation_tools" in str(tool_messages[0]["content"])
     assert f'"id": {card.id}' in str(tool_messages[1]["content"])
+    approved_messages = [
+        message
+        for message in provider.calls[2]
+        if message["role"] == "tool" and message["name"] == "tag"
+    ]
+    assert '"status": "approved"' in str(approved_messages[-1]["content"])
 
     async with e2e_harness.sessions() as session:
         run = await session.scalar(select(AgentRun).order_by(AgentRun.id.desc()))
@@ -1470,7 +1519,12 @@ async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_h
         ("card", {"mode": "link", "id": action.id, "tag_query": "VrWalk"}),
     )
     advisor, provider = e2e_harness.advisor(
-        [first_turn, link_turn, "VrWalk is now linked to both recent cards."]
+        [
+            first_turn,
+            mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
+            link_turn,
+            "VrWalk is now linked to both recent cards.",
+        ]
     )
     first = await advisor.handle("Create VrWalk and attach it to recent cards")
     assert first.proposal_id is not None
@@ -1486,7 +1540,7 @@ async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_h
         dialogue=[DialogueMessage(role="user", content="[Initial request]: Tag recent cards")],
     )
     assert first_link is not None and first_link.proposal_id is not None
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 3
 
     async with e2e_harness.sessions() as session:
         first_link_ids = await ProposalService(session).apply(first_link.proposal_id)
@@ -1499,7 +1553,7 @@ async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_h
         dialogue=[DialogueMessage(role="user", content="[Initial request]: Tag recent cards")],
     )
     assert second_link is not None and second_link.proposal_id is not None
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 3
 
     async with e2e_harness.sessions() as session:
         second_link_ids = await ProposalService(session).apply(second_link.proposal_id)
@@ -1512,7 +1566,7 @@ async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_h
         dialogue=[DialogueMessage(role="user", content="[Initial request]: Tag recent cards")],
     )
     assert final is not None and final.kind == "answer"
-    assert len(provider.calls) == 3
+    assert len(provider.calls) == 4
 
     async with e2e_harness.sessions() as session:
         tag = await session.scalar(select(Tag).where(Tag.name == "VrWalk"))
@@ -1575,7 +1629,7 @@ class _QueueTestCallback:
 
 class _QueueTestHistory:
     async def dialogue(self, _chat_id):
-        return [DialogueMessage(role="user", content="[Initial request]: Create a VrWalk tag")]
+        raise AssertionError("approval resume must use its persisted dialogue")
 
 
 @pytest.mark.parametrize(
@@ -1641,6 +1695,7 @@ async def test_read_queries_beside_a_proposal_still_resume_the_agent(e2e_harness
                 ("query_safwa", {"sql": "SELECT missing_column FROM ai_cards"}),
                 ("query_safwa", {"sql": "SELECT id FROM ai_cards"}),
             ),
+            mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
             "The VrWalk tag was saved; I will retry the query.",
         ]
     )
@@ -1671,7 +1726,7 @@ async def test_read_queries_beside_a_proposal_still_resume_the_agent(e2e_harness
     assert "✅ Saved — New Tag “VrWalk”" in message.rendered[-1]
     assert "The VrWalk tag was saved; I will retry the query." in message.rendered[-1]
     assert "could not generate its follow-up" not in message.rendered[-1]
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 3
     resumed_query_results = [
         str(item["content"])
         for item in provider.calls[-1]
@@ -1785,10 +1840,14 @@ async def test_new_message_discarding_a_queue_reports_what_was_already_saved(e2e
                     "card",
                     {"mode": "create", "kind": "action", "title": "Second", "effort_points": 5},
                 ),
+                (
+                    "card",
+                    {"mode": "create", "kind": "action", "title": "Third", "effort_points": 8},
+                ),
             ),
         ]
     )
-    first = await advisor.handle("Create two actions")
+    first = await advisor.handle("Create three actions")
     assert first.proposal_id is not None
     screen = _QueueTestMessage()
     services = SimpleNamespace(
@@ -1812,8 +1871,11 @@ async def test_new_message_discarding_a_queue_reports_what_was_already_saved(e2e
     # The frozen screen becomes assistant history, so it must not imply the whole
     # request was discarded when an earlier proposal in the queue was already saved.
     assert "Second" in frozen
+    assert "Third" in frozen
     assert "✅ Saved" in frozen
+    assert frozen.count("🗑 Discarded") == 2
     assert "First" in frozen
+    assert "Walk straight" not in frozen
     assert len(provider.calls) == 1
     async with e2e_harness.sessions() as session:
         titles = set(await session.scalars(select(Card.title)))

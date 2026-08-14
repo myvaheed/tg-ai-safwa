@@ -5,12 +5,10 @@ from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-from sqlalchemy import select
 
 from safwa.constants import REMINDER_CATCHUP_GRACE_MINUTES, REMINDER_FIRE_BATCH
 from safwa.domain import snooze_reminders
-from safwa.enums import RelevanceVerdict
-from safwa.models import Reminder, UserProfile, Workspace
+from safwa.models import Reminder, UserProfile
 from safwa.reminders import resolve, schedule_columns
 from safwa.scheduler import Firing, prepare, run_scheduler, settle, tick
 
@@ -35,21 +33,15 @@ async def load(sessions, reminder_id: int) -> Reminder | None:
 
 
 class Recorder:
-    """Stands in for the relevance session and the advisor turn."""
+    """Stands in for the background guard and the advisor turn."""
 
-    def __init__(self, *, open_gate=True, delivered=True, verdict=RelevanceVerdict.TRIGGER):
+    def __init__(self, *, open_gate=True, delivered=True):
         self.open_gate = open_gate
         self.delivered = delivered
-        self.verdict = verdict
-        self.evaluated: list[int] = []
         self.escalated: list[list[Firing]] = []
 
     async def gate(self) -> bool:
         return self.open_gate
-
-    async def evaluate(self, reminder: Reminder):
-        self.evaluated.append(reminder.id)
-        return self.verdict, f"state of {reminder.id}"
 
     async def escalate(self, firings: list[Firing]) -> bool:
         self.escalated.append(firings)
@@ -195,110 +187,32 @@ async def test_a_repeat_advances_from_its_scheduled_moment_not_the_delivery_mome
     assert (await load(sessions, reminder_id)).next_fire_at == NOW + timedelta(hours=2)
 
 
-# --- the two relevance skips ----------------------------------------------
+# --- direct escalation ----------------------------------------------------
 
 
-async def test_an_instruction_without_an_id_never_runs_the_session(sessions):
-    await make_reminder(sessions, instruction="Ask me what to start with today.")
+async def test_a_due_reminder_reaches_the_advisor_without_a_preflight_session(sessions):
+    reminder_id = await make_reminder(sessions, instruction="Review Card #88.")
     recorder = Recorder()
 
     await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder))
 
-    assert recorder.evaluated == []
     firing = recorder.escalated[0][0]
-    assert firing.verdict is RelevanceVerdict.TRIGGER
-    assert firing.state is None
-
-
-async def test_an_instruction_with_an_id_runs_the_session(sessions):
-    reminder_id = await make_reminder(sessions, instruction="Review Card #88.")
-    recorder = Recorder()
-
-    await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder))
-
-    assert recorder.evaluated == [reminder_id]
-    assert recorder.escalated[0][0].state == f"state of {reminder_id}"
-
-
-async def test_an_unchanged_revision_reuses_the_cached_verdict(sessions):
-    reminder_id = await make_reminder(sessions, instruction="Review Card #88.")
-    recorder = Recorder()
-
-    await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder))
-    await tick(sessions, tz=TZ, now=NOW + timedelta(hours=2), **_hooks(recorder))
-
-    assert recorder.evaluated == [reminder_id]  # evaluated once, not twice
-    assert recorder.escalated[1][0].state == f"state of {reminder_id}"
-
-
-async def test_a_changed_revision_re_runs_the_session(sessions):
-    reminder_id = await make_reminder(sessions, instruction="Review Card #88.")
-    recorder = Recorder()
-
-    await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder))
-    async with sessions() as session:
-        workspace = await session.get(Workspace, 1)
-        workspace.revision += 1
-        await session.commit()
-    await tick(sessions, tz=TZ, now=NOW + timedelta(hours=2), **_hooks(recorder))
-
-    assert recorder.evaluated == [reminder_id, reminder_id]
-
-
-async def test_advancing_next_fire_at_does_not_bump_the_workspace_revision(sessions):
-    """The revision skip only works because the scheduler's own writes are invisible to it."""
-    await make_reminder(sessions, instruction="Review Card #88.")
-    async with sessions() as session:
-        before = (await session.get(Workspace, 1)).revision
-
-    await tick(sessions, tz=TZ, now=NOW, **_hooks(Recorder()))
-
-    async with sessions() as session:
-        assert (await session.get(Workspace, 1)).revision == before
-
-
-# --- both verdicts escalate -----------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "verdict", [RelevanceVerdict.TRIGGER, RelevanceVerdict.IRRELEVANT]
-)
-async def test_both_verdicts_escalate(sessions, verdict):
-    await make_reminder(sessions, instruction="Review Card #88.")
-    recorder = Recorder(verdict=verdict)
-
-    assert await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder)) is True
-    assert recorder.escalated[0][0].verdict is verdict
-
-
-async def test_irrelevant_does_not_delete_the_row_by_itself(sessions):
-    """Deletion is the advisor's proposal and the owner's Save, never a silent side effect."""
-    reminder_id = await make_reminder(sessions, instruction="Review Card #88.")
-    recorder = Recorder(verdict=RelevanceVerdict.IRRELEVANT)
-
-    await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder))
-
-    assert await load(sessions, reminder_id) is not None
+    assert firing.reminder_id == reminder_id
+    assert firing.instruction == "Review Card #88."
 
 
 # --- prepare / settle in isolation ----------------------------------------
 
 
-async def test_settle_records_the_verdict_cache(sessions):
+async def test_settle_records_a_successful_delivery(sessions):
     reminder_id = await make_reminder(sessions, instruction="Review Card #88.")
     async with sessions() as session:
-        revision = (await session.get(Workspace, 1)).revision
-        reminders = list(await session.scalars(select(Reminder)))
-        firings = await prepare(
-            session, reminders, now=NOW, tz=TZ, evaluate=Recorder().evaluate
-        )
+        reminder = await session.get(Reminder, reminder_id)
+        firings = await prepare(session, [reminder], now=NOW, tz=TZ)
         await settle(session, firings, now=NOW, tz=TZ)
         await session.commit()
 
     reminder = await load(sessions, reminder_id)
-    assert reminder.evaluated_revision == revision
-    assert reminder.last_verdict == RelevanceVerdict.TRIGGER.value
-    assert reminder.last_state == f"state of {reminder_id}"
     assert reminder.last_fired_at == NOW
     assert reminder.fire_count == 1
 
@@ -315,9 +229,6 @@ async def test_the_loop_survives_a_failing_tick(sessions):
         calls["count"] += 1
         raise RuntimeError("boom")
 
-    async def evaluate(reminder):  # pragma: no cover - never reached
-        raise AssertionError("a failing tick reaches no reminder")
-
     async def escalate(firings):  # pragma: no cover - never reached
         raise AssertionError("a failing tick delivers nothing")
 
@@ -326,7 +237,6 @@ async def test_the_loop_survives_a_failing_tick(sessions):
             sessions,
             timezone="Europe/Istanbul",
             gate=gate,
-            evaluate=evaluate,
             escalate=escalate,
             poll_seconds=0.01,
         )
@@ -354,6 +264,5 @@ async def test_memory_update_time_column_accepts_a_time(sessions) -> None:
 def _hooks(recorder: Recorder) -> dict:
     return {
         "gate": recorder.gate,
-        "evaluate": recorder.evaluate,
         "escalate": recorder.escalate,
     }

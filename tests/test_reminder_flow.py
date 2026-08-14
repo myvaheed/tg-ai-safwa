@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
 
+from safwa.ai.context import DialogueMessage
+from safwa.ai.service import AIOutcome
 from safwa.constants import REMINDER_CATCHUP_GRACE_MINUTES
 from safwa.domain import (
     DomainError,
@@ -13,7 +16,7 @@ from safwa.domain import (
     reschedule_reminder,
     update_reminder_text,
 )
-from safwa.enums import RelevanceVerdict, ScheduleKind
+from safwa.enums import MessageKind, ScheduleKind
 from safwa.models import Reminder, Workspace
 from safwa.recovery import reconcile_reminders
 from safwa.reminders import (
@@ -25,7 +28,7 @@ from safwa.reminders import (
 )
 from safwa.scheduler import Firing
 from safwa.telegram._core import BACKGROUND_SOURCE_ID, GenerationGuard
-from safwa.telegram.escalation import format_escalation
+from safwa.telegram.escalation import ReminderRuntime, format_escalation
 
 TZ = ZoneInfo("Europe/Istanbul")
 NOW = datetime(2026, 8, 13, 9, 0, tzinfo=UTC)  # a Thursday
@@ -52,15 +55,12 @@ async def test_create_reminder_rejects_empty_text(sessions):
             await create_reminder(session, instruction="   ", schedule=schedule, tz=TZ)
 
 
-async def test_editing_text_leaves_the_schedule_alone_and_drops_the_verdict_cache(sessions):
+async def test_editing_text_leaves_the_schedule_alone(sessions):
     schedule = resolve(interval_minutes=120, now=NOW, tz=TZ)
     async with sessions() as session:
         reminder = await create_reminder(
             session, instruction="Review Card #88.", schedule=schedule, tz=TZ
         )
-        reminder.evaluated_revision = 7
-        reminder.last_verdict = RelevanceVerdict.TRIGGER.value
-        reminder.last_state = "Card #88 is In progress."
         await session.commit()
         before = reminder.next_fire_at
 
@@ -71,9 +71,6 @@ async def test_editing_text_leaves_the_schedule_alone_and_drops_the_verdict_cach
         reminder = await session.get(Reminder, reminder.id)
         assert reminder.next_fire_at == before
         assert schedule_of(reminder) == schedule
-        assert reminder.evaluated_revision is None
-        assert reminder.last_verdict is None
-        assert reminder.last_state is None
 
 
 async def test_rescheduling_replaces_every_schedule_column(sessions):
@@ -282,9 +279,6 @@ def _firing(**kwargs) -> Firing:
         fire_count=0,
         last_fired_at=None,
         due_at=NOW,
-        verdict=RelevanceVerdict.TRIGGER,
-        state=None,
-        revision=1,
     )
     return Firing(**{**defaults, **kwargs})
 
@@ -307,30 +301,11 @@ def test_a_batch_is_numbered():
     assert "3. Reminder #19" in text
 
 
-def test_no_state_line_when_the_instruction_named_no_item():
-    assert "State:" not in format_escalation([_firing()], tz=TZ, now=NOW)
-
-
-def test_a_trigger_verdict_reports_state_plainly():
-    text = format_escalation(
-        [_firing(state="Check #5 is Pending, on Card #42.")], tz=TZ, now=NOW
-    )
-    assert "State: Check #5 is Pending, on Card #42." in text
-    assert "NO LONGER RELEVANT" not in text
-
-
-def test_an_irrelevant_verdict_is_flagged_but_still_escalates():
-    text = format_escalation(
-        [
-            _firing(
-                verdict=RelevanceVerdict.IRRELEVANT,
-                state="Card #88 was completed on 2026-08-11.",
-            )
-        ],
-        tz=TZ,
-        now=NOW,
-    )
-    assert "State: NO LONGER RELEVANT — Card #88 was completed on 2026-08-11." in text
+def test_the_main_advisor_is_told_to_verify_named_items_first():
+    text = format_escalation([_firing(instruction="Review Card #88.")], tz=TZ, now=NOW)
+    assert "first use query_safwa" in text
+    assert "current state" in text
+    assert "whether the Reminder still applies" in text
 
 
 def test_a_late_firing_says_how_late():
@@ -351,3 +326,55 @@ def test_the_fire_history_is_carried_over():
     assert "fired 14 times" in text
     text = format_escalation([_firing()], tz=TZ, now=NOW)
     assert "(first time)" in text
+
+
+async def test_reminder_advisor_receives_canonical_dialogue(sessions, monkeypatch):
+    canonical = [
+        DialogueMessage(role="user", content="[Initial request]: Build a healthier routine"),
+        DialogueMessage(role="assistant", content="Let us begin with sleep."),
+    ]
+
+    class History:
+        chat_ids: list[int] = []
+
+        async def dialogue(self, chat_id: int) -> list[DialogueMessage]:
+            self.chat_ids.append(chat_id)
+            return list(canonical)
+
+    class Advisor:
+        calls: list[tuple[str, list[DialogueMessage]]] = []
+
+        async def handle(
+            self, text: str, *, dialogue: list[DialogueMessage]
+        ) -> AIOutcome:
+            self.calls.append((text, dialogue))
+            return AIOutcome("answer", "Reminder answer")
+
+    history = History()
+    advisor = Advisor()
+    guard = GenerationGuard()
+    services = SimpleNamespace(
+        sessions=sessions,
+        history=history,
+        advisor=advisor,
+        guard=guard,
+    )
+    runtime = ReminderRuntime(services, object(), owner_id=42, timezone="Europe/Istanbul")
+    rendered: list[MessageKind] = []
+
+    async def fake_render(_message, _services, _outcome, *, kind):
+        rendered.append(kind)
+
+    monkeypatch.setattr("safwa.telegram.escalation.render_ai_outcome", fake_render)
+    monkeypatch.setattr(runtime, "_anchor", lambda: object())
+
+    assert await runtime.can_escalate() is True
+    assert await runtime.escalate([_firing()]) is True
+    runtime.release()
+
+    assert history.chat_ids == [42]
+    request, dialogue = advisor.calls[0]
+    assert dialogue[:-1] == canonical
+    assert dialogue[-1] == DialogueMessage(role="user", content=request)
+    assert request.startswith("1 Reminder triggered.")
+    assert rendered == [MessageKind.REMINDER]

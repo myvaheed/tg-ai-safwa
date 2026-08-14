@@ -6,7 +6,7 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits the rest of the codebase
 
 Where the doc named a placeholder, the code settled on: `next_occurrence` → `next_fire`
 ([reminders.py](../src/safwa/reminders.py)); the mini-session runner is
-[ai/mini.py](../src/safwa/ai/mini.py) with the two Reminder sessions in
+[ai/mini.py](../src/safwa/ai/mini.py) with Reminder schedule setup in
 [ai/reminder_sessions.py](../src/safwa/ai/reminder_sessions.py); the escalation runtime is
 [telegram/escalation.py](../src/safwa/telegram/escalation.py) and the screens are
 [telegram/reminders.py](../src/safwa/telegram/reminders.py).
@@ -29,11 +29,9 @@ These are the contract. Everything below follows from them.
    *resolves* free text into parameters; the result becomes an ordinary Save/Discard screen, exactly
    like a Card or Check proposal. The only unapproved write is a one-shot deleting itself after it
    fires.
-6. **Relevance is checked by the system, never stored on the row.** Before each escalation a mini-session
-   looks up the Safwa items the instruction names by `#id`, reports their current state, and returns one
-   of two verdicts: `trigger` or `irrelevant`. It answers "does this Reminder still make sense?", never
-   "is now a good time" — time suppression is a quiet window. That state text rides along in the
-   escalation so the main advisor does not have to look it up itself.
+6. **There is no relevance preflight.** The due Reminder goes directly to the main advisor. If its text
+   mentions Safwa items, the escalation instructs the advisor to use `query_safwa` first, verify their
+   current state and decide whether the Reminder still applies.
 7. **Escalations are batched** — everything one poll found goes over in one advisor turn.
 8. **Nothing escalates while the advisor is busy**: generating, or waiting for an answer to any
    pending proposal. That proposal must resolve completely first.
@@ -77,9 +75,8 @@ poll tick
  ├─ SELECT due (above)                            → nothing? stop
  ├─ gate closed? (advisor busy / proposal open)   → stop, advance NOTHING
  ├─ for each due Reminder:
- │    no "#<id>" in the instruction?              → verdict = trigger, no state text
- │    workspace.revision == evaluated_revision?   → reuse last_verdict + last_state
- │    else                                        → RELEVANCE mini-session
+ │    stale repeat?                               → roll forward silently
+ │    otherwise                                   → create Firing
  ├─ format ONE escalation text covering the batch
  ├─ ONE main-advisor turn (guard held as background)
  └─ on success, for each Reminder:
@@ -91,6 +88,8 @@ poll tick
 
 ```
 3 Reminders triggered.
+If a Reminder mentions Safwa items, first use query_safwa to verify their current state and whether
+the Reminder still applies. Then handle the Reminder normally with the full Safwa tools.
 
 1. Reminder #7
    Text: Ask me what to start with today.
@@ -99,27 +98,23 @@ poll tick
 2. Reminder #12
    Text: Check my posture — Check #5 "Is my posture straight?"
    Schedule: every 2 hours between 09:00 and 22:00 (fired 3 times today)
-   State: Check #5 is Pending, on Card #42 (In progress). Still relevant.
 
 3. Reminder #19
    Text: Remind me to review the launch plan — Card #88.
    Schedule: once, was due 2026-08-12 09:00 (4 hours late)
-   State: NO LONGER RELEVANT — Card #88 was completed on 2026-08-11.
 ```
 
-Reminder #7 names no item, so no session ran and there is no `State` line.
-
-The advisor treats this as an ordinary request: a `check` proposal for #12 (which already carries the
-answer buttons), one sentence for #7, `remove(type="reminder", id=19)` for #19. **The reminder system
-never needed to know what a Check is.** Its only job is to format this text well.
+The advisor treats this as an ordinary request. It can answer #7 immediately; for #12 and #19 it first
+queries the named items, then decides whether to answer, create a proposal, or explain that the
+Reminder no longer applies. The scheduler never needs to know what a Card or Check is.
 
 ## Data model
 
 ```
 reminders
   id
-  instruction          text      — handed to the advisor at fire time; must be self-contained
-                                   and name every item it concerns by #id
+  instruction          text      — handed to the advisor after bounded Telegram dialogue;
+                                   should remain clear over time and name every item by #id
 
   schedule_kind        str       — once | interval | daily | weekly   (derived, never model-supplied)
   weekdays             JSON      — ["Mon",…]; all seven ⇒ daily; empty otherwise
@@ -131,14 +126,8 @@ reminders
   next_fire_at         UTC, indexed, NOT NULL — the only column the loop reads
   last_fired_at        nullable
   fire_count           int
-  evaluated_revision   nullable  — workspace.revision when the verdict below was produced
-  last_verdict         nullable  — "trigger" | "irrelevant"
-  last_state           nullable  — the state sentence that went into the escalation
   version, created_at, updated_at
 ```
-
-The three `evaluated_*`/`last_*` columns are a **cache of the relevance check**, not state the owner or
-the model can set. Clear all three whenever `instruction` is edited.
 
 Four deliberate absences:
 
@@ -147,11 +136,11 @@ Four deliberate absences:
   ([ai/service.py:1244](../src/safwa/ai/service.py:1244)), which is `None` for a model without it, so
   nothing breaks.
 - **No `condition` column.** A stored predicate would be a second description of the same thing the
-  instruction already describes, free to drift out of sync with it. The relevance session reads the
+  instruction already describes, free to drift out of sync with it. The main advisor reads the
   instruction directly.
 - **No FK to a subject Card or Check.** The id lives inside `instruction` as text. One mechanism, not
-  two that can disagree. The cost: no cascade when a Card is deleted — the relevance session notices
-  the item is gone and returns `irrelevant`, which is the intended path anyway.
+  two that can disagree. There is no cascade when a Card is deleted; at fire time the main advisor
+  queries the referenced item and explains or proposes the appropriate action.
 - **No `escalation_proposal_id`.** Rule 8 already blocks every escalation while any proposal is open,
   so a per-row pause would be dead weight.
 
@@ -166,9 +155,8 @@ repeating = schedule_kind in {"interval", "daily", "weekly"}
 itself. On a recurrence it constrains only the first fire — after that `next_fire_at` is already past
 it and the floor costs nothing to keep.
 
-**Advancing `next_fire_at` must not bump `workspace.revision`.** It is bookkeeping, not a user-visible
-mutation, and bumping it would break the revision skip below — that is why the scheduler writes the
-column directly instead of going through a `domain.py` mutation.
+**Advancing `next_fire_at` does not bump `workspace.revision`.** It is scheduler bookkeeping rather
+than an owner-visible planning mutation.
 
 ### Constants (all in [constants.py](../src/safwa/constants.py))
 
@@ -179,7 +167,7 @@ column directly instead of going through a `domain.py` mutation.
 | `REMINDER_CATCHUP_GRACE_MINUTES` | 120 | how late a missed repeat may still fire |
 | `REMINDER_MIN_INTERVAL_MINUTES` | 5 | floor for `interval_minutes` |
 | `MINI_SESSION_REPAIR_ROUNDS` | 3 | retries on an invalid terminal tool call |
-| `RELEVANCE_MAX_TOOL_CALLS` | 6 | cap for the relevance session |
+| `MINI_SESSION_MAX_TOOL_CALLS` | 6 | cap for Reminder schedule setup |
 
 ## Schedule resolution
 
@@ -298,56 +286,18 @@ clock, then convert to UTC — so 08:30 stays 08:30 across a DST shift.
   within `REMINDER_CATCHUP_GRACE_MINUTES`; otherwise roll `next_fire_at` forward silently. A weekend
   offline must not produce 32 posture escalations.
 
-## The relevance check
+## Checking referenced items
 
-Runs at fire time. Its job is to save the main advisor a lookup: find every `#id` the instruction
-names, read its current state, say in one sentence what that state is, and judge whether the Reminder
-still makes sense.
-
-Context: planning state, memory, the instruction, current local datetime. Tools: `query_safwa` and one
-terminal tool, capped at `RELEVANCE_MAX_TOOL_CALLS`.
-
-```
-complete_relevance_check(verdict: "trigger" | "irrelevant", state: str)
-```
-
-`state` is one or two sentences naming each item and its current stage/outcome. It is pasted verbatim
-into the escalation under `State:`.
-
-| Verdict | Meaning | Effect |
-|---|---|---|
-| `trigger` | the items are still live | `state` goes into the escalation as written |
-| `irrelevant` | the thing the instruction watches is Done, Cancelled or deleted | same, but flagged `NO LONGER RELEVANT` |
-
-**Both verdicts escalate.** `irrelevant` is not a silent delete — the advisor decides whether it
-deserves a `remove` proposal, and the owner decides whether to approve it.
-
-There is no third "not now" verdict. That would be a firing gate, and gates are quiet windows.
-
-### Two skips
-
-Neither is an optimisation guess; both are exact.
-
-**No `#id` in the instruction** ⇒ there is nothing to look up. Skip the session entirely, verdict
-`trigger`, no `State:` line. A plain `re.search(r"#\d+", instruction)`. This is why "the instruction
-names items by `#id`" is a prompt rule and not a nicety: it is what makes a text-only Reminder free.
-
-**Nothing changed since last time** ⇒ the same lookup returns the same answer, because the session
-reads only Safwa data and every real mutation bumps `workspace.revision`:
-
-```python
-if reminder.evaluated_revision == workspace.revision:
-    verdict, state = reminder.last_verdict, reminder.last_state   # skip the session
-```
-
-This holds *only* because the session carries no clock into its judgement and because advancing
-`next_fire_at` does not bump the revision.
+There is no separate fire-time mini-session, terminal verdict, or relevance cache. The synthetic
+Reminder request tells the main advisor: when the text mentions Safwa items, call `query_safwa` first
+to verify their current state and whether the Reminder still applies. The advisor then continues in
+the same turn with its ordinary read and proposal tools.
 
 ### Writing instructions
 
 The instruction carries the ids, so the main advisor resolves *"the posture Card"* into `#42` **once**,
-at authoring time, with the `query_safwa` it already has. The relevance session then re-reads that id
-on every fire.
+at authoring time, with the `query_safwa` it already has. At fire time the main advisor re-reads that
+id before deciding what to do.
 
 | The owner said | Instruction stored | Schedule |
 |---|---|---|
@@ -356,7 +306,7 @@ on every fire.
 | "remind me about the launch until it ships" | `Review the launch plan — Card #88.` | … |
 | "ask me each morning what to start with" | `Ask me what to start with today.` | `days=[all seven]`, `time="08:30"` |
 
-The last row names no id and so never runs a session.
+The last row names no item, so it needs no preliminary lookup in the advisor turn.
 
 ## The escalation turn
 
@@ -380,48 +330,43 @@ stay due and the next tick retries.
 ### The turn
 
 1. Gate closed → stop. Advance nothing.
-2. Take the guard, marked **background** (see below), and call `AIAdvisor.handle` with the main system
-   prompt and the formatted escalation as the request. `dialogue=None` — it builds only the cacheable
-   prefix, needs no session boundary, and never re-reads Telegram.
+2. Take the guard, marked **background** (see below), read the same canonical
+   `history.dialogue(owner_id)` used by an ordinary advisor request, and append the formatted
+   escalation as the final synthetic user turn. The normal `/newsession` or Summary boundary is
+   required.
 3. Do **not** pass `allow_silence`. An escalation is a real request; an empty turn is an upstream
    failure, retried by `AI_EMPTY_RESPONSE_ATTEMPTS` and then raised. That flag exists for resuming
    after an approval queue, where the receipts are already the answer.
 4. Register the reply as **`MessageKind.REMINDER`**, not `DIALOGUE_ASSISTANT`. That kind already means
    "proactive bot message" and is already included in dialogue, so the model later reads it as
    something it volunteered rather than an answer to a message that is not there.
-5. Only after the turn succeeds: delete the one-shots, advance the repeats, write
-   `evaluated_revision` / `last_verdict` / `last_state`.
+5. Only after the turn succeeds: delete the one-shots and advance the repeats.
 
-Because `dialogue=None`, the instruction text must stand on its own. The setup prompt says so; there
-is no validator behind it.
+The conversation is available, but the instruction should still be explicit enough to remain useful
+after time has passed and should name relevant Safwa entities by `#id`.
 
 ### Rule 9: the owner always wins
 
-`OwnerAndWritingMiddleware` ([telegram/_core.py:100](../src/safwa/telegram/_core.py:100)) currently
-**deletes** any owner message that arrives while the guard is held. That rule exists to keep history
-consistent with what the running answer is being generated from — but an escalation is generated with
-`dialogue=None` and never reads the conversation, so here it protects nothing and costs a message.
-
-`GenerationGuard` therefore records whether the holder is the owner or a background escalation:
+`GenerationGuard` records whether the holder is the owner or a background escalation:
 
 - owner event + **background** holder → cancel the escalation, hand the guard to the owner, exactly as
   `/newsession` does today;
 - owner event + **owner** holder → unchanged behaviour.
 
-Nothing is lost. The half-finished turn is discarded, `next_fire_at` was never advanced, so the row is
-still due and the next tick picks it up.
+Nothing is lost. The half-finished turn and its dialogue snapshot are discarded, `next_fire_at` was
+never advanced, so the row is still due and the next tick rereads current history and planning state.
 
 ## Deletion
 
 | Trigger | Path | Approval |
 |---|---|---|
 | a one-shot fired | same transaction, after the turn succeeds | none |
-| relevance check returned `irrelevant` | in the escalation → advisor proposes `remove` | Save |
+| advisor finds that it no longer applies | advisor may propose `remove` | Save |
 | the owner decides | `/reminders` → 🗑 | one confirm |
 | the model notices in an ordinary turn | `remove(type="reminder")` | Save |
 
-No backoff: if the check keeps saying the thing it watches is gone, Safwa keeps saying so. Silence
-would hide a Reminder watching something that no longer exists.
+Safwa never silently removes a repeating Reminder because a referenced item changed. The advisor may
+propose removal, and the owner decides whether to approve it.
 
 ## AI surface
 
@@ -476,8 +421,7 @@ Ask me what to start with today.
 - **Text is the only editable field.** The schedule is read-only, with one sentence saying the advisor
   changes it. Reuse `UiSession(kind="reminder_text")` + `delete_text_input` +
   `edit_registered_message`, exactly like `render_item_text_prompt`
-  ([telegram/items.py:155](../src/safwa/telegram/items.py:155)). It must not touch `next_fire_at`, and
-  it must clear `evaluated_revision` / `last_verdict` / `last_state`.
+  ([telegram/items.py:155](../src/safwa/telegram/items.py:155)). It must not touch `next_fire_at`.
 - **No creation button** — advisor-only, like Requests.
 - Delete asks one confirmation, reusing the `item_archive_prompt` two-step shape.
 
@@ -499,25 +443,23 @@ to `True`, or Reminders never fire on a default install.
 ## Known weaknesses
 
 1. **Cost.** Every fire is a full advisor turn — main system prompt, planning state, memory, whole
-   toolset. A 2-hour posture Reminder is ~7 turns a day. `dialogue=None` keeps the prefix
-   byte-identical so prompt caching should hit nearly all of it, batching helps when fires coincide,
-   and the two skips mean the relevance session runs only when an item is named *and* the data moved
-   — but this is still materially dearer than the old nudge path on a metered provider. Measure before
+   toolset and bounded Telegram dialogue. A 2-hour posture Reminder is ~7 turns a day. Batching helps
+   when fires coincide, but this is still materially expensive on a metered provider. Measure before
    leaning on intervals.
-2. **Self-contained instructions are unenforced.** With `dialogue=None`, "remind me to continue what
-   we discussed" is unanswerable at fire time. Same for a missing `#id`: the relevance session is
-   skipped and the advisor gets no state. Both are prompt rules with no validator. The failure is a
-   vague reminder, not a broken one.
+2. **History boundary is required.** Reminder escalation follows the ordinary advisor contract. If
+   neither `/newsession` nor Summary is reachable, the turn is not delivered and the Reminder remains
+   due for a later retry.
 3. **Recursion.** A background turn holds the `reminder` tool and could reschedule Reminders. The guard
    serialises it and only one turn runs per poll, so it cannot run away — but say so in the prompt.
-4. **`workspace.revision` mid-turn.** `dialogue.ordinary_text` discards an answer if the revision moved
-   while generating. A background turn has no equivalent check. Probably fine, but decide it
-   deliberately rather than omitting it.
+4. **Owner event mid-turn.** Reminder delivery reserves a background `GenerationGuard` lease before
+   reading history and calling the main advisor. An owner event invalidates that lease; the generated
+   result is discarded and the Reminder stays due for a later retry.
 
 ## Rebuilding the database
 
-No migrations, no Alembic. `models.py` is the only schema source and `create_all` never alters an
-existing table, so adopting this needs `uv run safwa-backup` and a fresh `data/safwa.db`.
+Before the first release there are no migrations or Alembic. `models.py` is the only schema source and
+`create_all` never alters an existing table, so adopting this needs `uv run safwa-backup` and a fresh
+`data/safwa.db`. Migration support begins after v1.
 
 `UtcDateTime` ([models.py](../src/safwa/models.py)) exists because SQLite has no time zone type:
 `DateTime(timezone=True)` accepts an aware value and returns a naive one, so `now - next_fire_at`
@@ -531,14 +473,12 @@ arithmetic gets it in the column instead. The DDL is unchanged, so it is not a s
   on an interval and on a weekly (nothing fires before it), a `days`+`date` start landing on a
   non-matching weekday, a past start on a recurrence (first fire is next occurrence, no backfill), and
   a past one-shot (rejected).
-- `tests/test_scheduler.py` (rewritten) — the gate advancing nothing, batch cap, one-shot deleted only
-  after a successful turn, both verdicts, both skips (no `#id`, unchanged revision), the escalation
-  text itself.
+- `tests/test_scheduler.py` — the gate advancing nothing, batch cap, direct escalation, catch-up and a
+  one-shot deleted only after a successful turn.
 - `tests/test_telegram_*.py` — an owner message cancelling a background escalation and leaving
   `next_fire_at` untouched.
 - `tests/e2e/` — advisor → setup mini-session → **proposal → Save** → correct `next_fire_at`, and
-  Discard → no row; `irrelevant` → escalation → deletion proposal; `/reminders` → detail → text edit
-  not moving `next_fire_at` but clearing the verdict cache.
+  Discard → no row; `/reminders` → detail → text edit without moving `next_fire_at`.
 
 Real SQLite and real services, `ScriptedProvider` at the provider boundary only.
 

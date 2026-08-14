@@ -17,9 +17,9 @@ from aiogram import Bot
 from aiogram.types import Chat, Message, User
 from sqlalchemy import func, select
 
-from ..ai.reminder_sessions import check_relevance
-from ..enums import MessageKind, ProposalStatus, RelevanceVerdict
-from ..models import AgentStep, ChangeProposal, Reminder
+from ..ai.context import DialogueMessage
+from ..enums import MessageKind, ProposalStatus
+from ..models import AgentStep, ChangeProposal
 from ..scheduler import Firing
 from ._core import BACKGROUND_SOURCE_ID, Services
 from .proposals import render_ai_outcome
@@ -37,6 +37,7 @@ class ReminderRuntime:
         self.bot = bot
         self.owner_id = owner_id
         self.tz = ZoneInfo(timezone)
+        self._lease_revision: int | None = None
 
     async def can_escalate(self) -> bool:
         """Whether the advisor is free enough to be handed an unsolicited request.
@@ -62,17 +63,23 @@ class ReminderRuntime:
                     AgentStep.metadata_json["status"].as_string().in_(["pending", "resuming"]),
                 )
             )
-            return not suspended
+            if suspended:
+                return False
+        if not self.services.guard.reserve_background():
+            return False
+        self._lease_revision = self.services.guard.dialogue_revision
+        return True
 
-    async def evaluate(self, reminder: Reminder) -> tuple[RelevanceVerdict, str | None]:
-        advisor = self.services.advisor
-        return await check_relevance(
-            advisor.provider,
-            instruction=reminder.instruction,
-            read_tool=advisor.mini_query_tool(),
-            now=datetime.now(UTC),
-            tz=self.tz,
+    def still_current(self) -> bool:
+        return (
+            self._lease_revision is not None
+            and self.services.guard.background
+            and self.services.guard.dialogue_revision == self._lease_revision
         )
+
+    def release(self) -> None:
+        self.services.guard.release(BACKGROUND_SOURCE_ID)
+        self._lease_revision = None
 
     async def escalate(self, firings: list[Firing]) -> bool:
         """Run one advisor turn over the batch. Returns whether the answer was delivered.
@@ -80,16 +87,19 @@ class ReminderRuntime:
         Returning False leaves every `next_fire_at` untouched, so the rows stay due and the
         next poll retries them.
         """
-        guard = self.services.guard
-        if not guard.reserve_background():
+        if not self.still_current():
             return False
-        revision = guard.dialogue_revision
         try:
+            request = format_escalation(firings, tz=self.tz, now=datetime.now(UTC))
+            dialogue = await self.services.history.dialogue(self.owner_id)
+            dialogue = [*dialogue, DialogueMessage(role="user", content=request)]
+            if not self.still_current():
+                return False
             outcome = await self.services.advisor.handle(
-                format_escalation(firings, tz=self.tz, now=datetime.now(UTC)),
-                dialogue=None,
+                request,
+                dialogue=dialogue,
             )
-            if guard.dialogue_revision != revision:
+            if not self.still_current():
                 # The owner arrived mid-turn and took the guard. Their message wins.
                 return False
             # REMINDER keeps the answer in dialogue while marking it as something the model
@@ -101,8 +111,6 @@ class ReminderRuntime:
         except Exception:
             logger.exception("Reminder escalation failed")
             return False
-        finally:
-            guard.release(BACKGROUND_SOURCE_ID)
 
     def _anchor(self) -> Message:
         """A stand-in for the message that would normally have started this turn.
@@ -122,7 +130,15 @@ def format_escalation(firings: list[Firing], *, tz: ZoneInfo, now: datetime) -> 
     """The whole batch as one request."""
     count = len(firings)
     header = "1 Reminder triggered." if count == 1 else f"{count} Reminders triggered."
-    blocks = [header, ""]
+    blocks = [
+        header,
+        (
+            "If a Reminder mentions Safwa items, first use query_safwa to verify their "
+            "current state and whether the Reminder still applies. Then handle the Reminder "
+            "normally with the full Safwa tools."
+        ),
+        "",
+    ]
     for position, firing in enumerate(firings, start=1):
         blocks.append(f"{position}. Reminder #{firing.reminder_id}")
         blocks.append(f"   Text: {firing.instruction}")
@@ -130,13 +146,6 @@ def format_escalation(firings: list[Firing], *, tz: ZoneInfo, now: datetime) -> 
         lateness = _lateness(firing, now=now)
         if lateness:
             blocks.append(f"   {lateness}")
-        if firing.state:
-            prefix = (
-                "State:"
-                if firing.verdict is RelevanceVerdict.TRIGGER
-                else "State: NO LONGER RELEVANT —"
-            )
-            blocks.append(f"   {prefix} {firing.state}")
         blocks.append("")
     return "\n".join(blocks).strip()
 

@@ -44,9 +44,15 @@ AI Card creation uses the normal proposal queue:
 - `Save` revalidates versions and domain rules, then inserts the Card in one short transaction.
 - `Discard` creates no planning entity and the static result message records every proposed field.
 - Multiple mutation tool calls become independent proposal screens in their original order.
+- Mutation tools are called only after all required data is known. If one provider response mixes
+  `query_safwa` and mutations, reads execute but mutations receive a retryable error and must be
+  repeated in the next response after the read results are available.
 - Mutation calls are prepared independently against committed data. Valid calls keep their original proposal order; unresolved calls return structured tool errors without cancelling valid siblings. After the current queue is resolved, the model retries only unfinished operations using IDs returned by saved proposals, for at most five repair rounds.
 - After each Save, Discard, or failure, the same Telegram message advances to the next proposal.
 - The model resumes only after the whole queue is resolved and receives all mutation and read-tool results.
+- If new ordinary text interrupts a queue, its static receipt includes every actual call: earlier Saved
+  items remain Saved and all still-pending items are shown as Discarded. Actions without a tool call
+  do not appear.
 
 Manual and AI flows call the same application/domain functions. Telegram handlers and model tools never mutate ORM objects directly.
 
@@ -147,15 +153,22 @@ Invalid Action-only fields supplied for Goal or Idea are removed at the AI bound
 LM Studio is the default OpenAI-compatible provider. Native function calling is preferred, with shallow tools:
 
 - `query_safwa(sql)` for immediate read-only retrieval;
-- `card(...)`, `check(...)`, `value(...)`, `tag(...)`, and `request(...)` for reviewed mutations;
+- `card(...)`, `check(...)`, `value(...)`, `tag(...)`, `request(...)`, and `reminder(...)` for reviewed mutations;
 - removal/archive operations through typed mutation tools.
 
 The model never writes SQL for mutation. Mutation tools normalize into typed proposal changes. Read SQL is accepted only when it is one `SELECT` or `WITH ... SELECT` over allowlisted AI views, with no base tables, DML, DDL, PRAGMA, ATTACH, extensions, or multiple statements, and with strict time/row/column/payload limits.
 
-AI context is one system message followed by the canonical dialogue turns. The system message contains:
+AI context is assembled in four stable positions:
+
+1. the static Safwa system prompt;
+2. a system block with planning state and authoritative `memory.md`;
+3. canonical dialogue turns;
+4. a trailing system block with the current local clock.
+
+The static and planning blocks contain:
 
 - concise Safwa rules, the allowlisted view list, and the tool/approval protocol;
-- current local time and workspace mode;
+- workspace mode;
 - About Me, advisor instructions, active Values, and available Tags, each with its short integer ID;
 - all Today Actions with their short integer IDs;
 - authoritative `memory.md`.
@@ -171,9 +184,9 @@ The private Telegram conversation is canonical persona history. Telethon rereads
 - Summarization triggers around 10K unsummarized dialogue tokens.
 - `data/memory.md` is authoritative, line-oriented persona memory and is limited to approximately 4K tokens.
 - File edits synchronize at startup, before memory-backed prompts/maintenance, and through a five-second hash watcher.
-- `/syncmem`, `/mem`, `/memory`, `/forget`, and `/setmemtime` provide explicit memory control.
+- `/syncmem`, `/mem`, `/memory`, and `/setmemtime` provide explicit memory control. Existing facts are edited or removed only through `data/memory.md`.
 
-Foreground generation holds a lease. New ordinary input deletes/invalidates the active interaction UI, cancels stale generation, and prevents an answer against obsolete dialogue or workspace state.
+Foreground generation holds a lease. New ordinary input is deleted from Telegram, shown immediately in a temporary `Generating response...` queue message, then restored as one owner turn after the current answer. Queued messages are separated by `----`. Revisions prevent an answer against obsolete dialogue or workspace state.
 
 ## Reminders and retrospectives
 
@@ -188,7 +201,7 @@ Retrospective PNGs use Matplotlib `Agg` and show three panels plus text:
 
 ## Fresh-schema delivery
 
-Development currently assumes a fresh database. There are no migrations: startup creates the schema straight from the current SQLAlchemy metadata, so a fresh database always matches `models.py`. No compatibility migration is maintained for the removed unsaved-Card or dependency structures.
+Development through the first release assumes a fresh database. There are no migrations: startup creates the schema straight from the current SQLAlchemy metadata, so a fresh database always matches `models.py`. Migration support begins after v1; no pre-release compatibility migration is maintained.
 
 Verification covers:
 

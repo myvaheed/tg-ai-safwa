@@ -1,4 +1,4 @@
-"""The Reminder poll: find what is due, check it still matters, escalate once.
+"""The Reminder poll: find what is due and escalate it once.
 
 The poll *is* the alarm clock — there is no scheduling library and no in-memory timer set.
 ``Reminder.next_fire_at`` is the only column the loop reads, and it is advanced **only after
@@ -27,9 +27,8 @@ from .constants import (
     REMINDER_FIRE_BATCH,
     SCHEDULER_POLL_SECONDS,
 )
-from .enums import RelevanceVerdict
-from .models import Reminder, UserProfile, Workspace
-from .reminders import describe, mentions_item, roll_forward, schedule_of
+from .models import Reminder, UserProfile
+from .reminders import describe, roll_forward, schedule_of
 
 logger = logging.getLogger(__name__)
 
@@ -44,15 +43,13 @@ class Firing:
     fire_count: int
     last_fired_at: datetime | None
     due_at: datetime
-    verdict: RelevanceVerdict
-    state: str | None
-    revision: int
 
 
 # Supplied by the runtime so this module stays free of the advisor and the bot.
 Gate = Callable[[], Awaitable[bool]]
-Evaluator = Callable[[Reminder], Awaitable[tuple[RelevanceVerdict, str | None]]]
 Escalator = Callable[[list[Firing]], Awaitable[bool]]
+LeaseCheck = Callable[[], bool]
+LeaseRelease = Callable[[], None]
 
 
 async def reminders_paused(session: AsyncSession, *, now: datetime) -> bool:
@@ -94,16 +91,8 @@ async def prepare(
     *,
     now: datetime,
     tz: ZoneInfo,
-    evaluate: Evaluator,
 ) -> list[Firing]:
-    """Resolve each due Reminder into a Firing, rolling stale repeats forward instead.
-
-    The two skips live here.  An instruction naming no ``#id`` has nothing to look up, and
-    an unchanged ``workspace.revision`` guarantees the previous answer still holds — both
-    are exact, not heuristics.
-    """
-    workspace = await session.get(Workspace, 1)
-    revision = workspace.revision if workspace else 0
+    """Resolve each due Reminder into a Firing, rolling stale repeats forward instead."""
     firings: list[Firing] = []
     for reminder in reminders:
         schedule = schedule_of(reminder)
@@ -112,7 +101,6 @@ async def prepare(
                 schedule, previous=reminder.next_fire_at, now=now, tz=tz
             )
             continue
-        verdict, state = await _verdict(reminder, revision=revision, evaluate=evaluate)
         firings.append(
             Firing(
                 reminder_id=reminder.id,
@@ -121,22 +109,9 @@ async def prepare(
                 fire_count=reminder.fire_count,
                 last_fired_at=reminder.last_fired_at,
                 due_at=reminder.next_fire_at,
-                verdict=verdict,
-                state=state,
-                revision=revision,
             )
         )
     return firings
-
-
-async def _verdict(
-    reminder: Reminder, *, revision: int, evaluate: Evaluator
-) -> tuple[RelevanceVerdict, str | None]:
-    if not mentions_item(reminder.instruction):
-        return RelevanceVerdict.TRIGGER, None
-    if reminder.evaluated_revision == revision and reminder.last_verdict:
-        return RelevanceVerdict(reminder.last_verdict), reminder.last_state
-    return await evaluate(reminder)
 
 
 async def settle(
@@ -157,9 +132,6 @@ async def settle(
             continue
         reminder.last_fired_at = now
         reminder.fire_count += 1
-        reminder.evaluated_revision = firing.revision
-        reminder.last_verdict = firing.verdict.value
-        reminder.last_state = firing.state
         reminder.next_fire_at = roll_forward(schedule, previous=firing.due_at, now=now, tz=tz)
 
 
@@ -168,8 +140,9 @@ async def tick(
     *,
     tz: ZoneInfo,
     gate: Gate,
-    evaluate: Evaluator,
     escalate: Escalator,
+    still_current: LeaseCheck = lambda: True,
+    release: LeaseRelease = lambda: None,
     now: datetime | None = None,
 ) -> bool:
     """One poll. Returns whether an escalation was delivered."""
@@ -180,22 +153,34 @@ async def tick(
         reminders = await due_reminders(session, now=moment)
         if not reminders:
             return False
-        if not await gate():
-            # Not queued anywhere: nothing is advanced, so the rows stay due and the next
-            # tick retries them once the advisor is free.
-            return False
-        firings = await prepare(session, reminders, now=moment, tz=tz, evaluate=evaluate)
-        await session.commit()
-        if not firings:
-            return False
-
-    delivered = await escalate(firings)
-    if not delivered:
+        reminder_ids = [reminder.id for reminder in reminders]
+    if not await gate():
+        # Not queued anywhere: nothing is advanced, so the rows stay due and the next
+        # tick retries them once the advisor is free.
         return False
-    async with sessions() as session:
-        await settle(session, firings, now=moment, tz=tz)
-        await session.commit()
-    return True
+    try:
+        async with sessions() as session:
+            attached = list(
+                await session.scalars(select(Reminder).where(Reminder.id.in_(reminder_ids)))
+            )
+            by_id = {reminder.id: reminder for reminder in attached}
+            reminders = [by_id[item_id] for item_id in reminder_ids if item_id in by_id]
+            firings = await prepare(session, reminders, now=moment, tz=tz)
+            if not still_current():
+                return False
+            await session.commit()
+            if not firings:
+                return False
+
+        delivered = await escalate(firings)
+        if not delivered:
+            return False
+        async with sessions() as session:
+            await settle(session, firings, now=moment, tz=tz)
+            await session.commit()
+        return True
+    finally:
+        release()
 
 
 async def run_scheduler(
@@ -203,14 +188,22 @@ async def run_scheduler(
     *,
     timezone: str,
     gate: Gate,
-    evaluate: Evaluator,
     escalate: Escalator,
+    still_current: LeaseCheck = lambda: True,
+    release: LeaseRelease = lambda: None,
     poll_seconds: float = SCHEDULER_POLL_SECONDS,
 ) -> None:
     tz = ZoneInfo(timezone)
     while True:
         try:
-            await tick(sessions, tz=tz, gate=gate, evaluate=evaluate, escalate=escalate)
+            await tick(
+                sessions,
+                tz=tz,
+                gate=gate,
+                still_current=still_current,
+                release=release,
+                escalate=escalate,
+            )
         except asyncio.CancelledError:
             raise
         except Exception:

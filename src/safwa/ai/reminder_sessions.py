@@ -1,23 +1,15 @@
-"""The two Reminder mini-sessions.
-
-Setup turns a free-text timing phrase into schedule parameters; relevance reads the items an
-instruction names at fire time.  Neither writes anything.
-"""
+"""The Reminder setup mini-session: free-text timing into schedule parameters."""
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from ..constants import RELEVANCE_MAX_TOOL_CALLS, WEEKDAY_NAMES
-from ..enums import RelevanceVerdict
+from ..constants import MINI_SESSION_MAX_TOOL_CALLS, WEEKDAY_NAMES
 from ..reminders import Schedule, ScheduleError, resolve
-from .contracts import NotClearEnoughInput, RelevanceCheckInput, ReminderConfigInput
-from .mini import MiniSessionError, ReadTool, TerminalTool, run_mini_session
+from .contracts import NotClearEnoughInput, ReminderConfigInput
+from .mini import TerminalTool, run_mini_session
 from .provider import OpenAICompatibleProvider
-
-logger = logging.getLogger(__name__)
 
 SETUP_PROMPT = """You turn one plain-language timing phrase into schedule parameters.
 
@@ -37,19 +29,6 @@ schedule — call not_clear_enough with the single question the owner must answe
 
 Relative phrases are resolved against the current time given below: "in 90 minutes" is a
 single occurrence at that moment, not an interval."""
-
-RELEVANCE_PROMPT = """Report the current state of every Safwa item a Reminder's text names by
-#id, and judge whether the Reminder still makes sense.
-
-Use query_safwa to read the items. Then call complete_relevance_check exactly once.
-
-verdict:
-- trigger — the items are still live, or the text names nothing that could expire.
-- irrelevant — what the Reminder watches is Done, Cancelled, or gone.
-
-state: one or two sentences for a reader, not a data dump — each item by #id with its current
-stage or outcome. When the verdict is irrelevant, say plainly what happened and when."""
-
 
 async def resolve_schedule(
     provider: OpenAICompatibleProvider,
@@ -83,7 +62,7 @@ async def resolve_schedule(
                 model=NotClearEnoughInput,
             ),
         ),
-        max_tool_calls=RELEVANCE_MAX_TOOL_CALLS,
+        max_tool_calls=MINI_SESSION_MAX_TOOL_CALLS,
     )
     if result.name == "not_clear_enough":
         raise ScheduleError(result.payload.reason)
@@ -97,41 +76,3 @@ async def resolve_schedule(
         now=now,
         tz=tz,
     )
-
-
-async def check_relevance(
-    provider: OpenAICompatibleProvider,
-    *,
-    instruction: str,
-    read_tool: tuple[dict, ReadTool],
-    now: datetime,
-    tz: ZoneInfo,
-) -> tuple[RelevanceVerdict, str | None]:
-    """Read the items an instruction names and judge whether it still makes sense.
-
-    A failure here fires the Reminder anyway, with no state line.
-    """
-    context = (
-        f"Reminder text: {instruction}\n"
-        f"Current local time: {now.astimezone(tz):%Y-%m-%d %H:%M}, timezone {tz.key}"
-    )
-    try:
-        result = await run_mini_session(
-            provider,
-            system_prompt=RELEVANCE_PROMPT,
-            context=context,
-            terminals=(
-                TerminalTool(
-                    name="complete_relevance_check",
-                    description="Report the items' state and whether the Reminder still applies.",
-                    model=RelevanceCheckInput,
-                ),
-            ),
-            read_tool=read_tool,
-            max_tool_calls=RELEVANCE_MAX_TOOL_CALLS,
-        )
-    except (MiniSessionError, RuntimeError):
-        logger.exception("Relevance check failed; firing without a state line")
-        return RelevanceVerdict.TRIGGER, None
-    payload: RelevanceCheckInput = result.payload
-    return RelevanceVerdict(payload.verdict), payload.state.strip() or None

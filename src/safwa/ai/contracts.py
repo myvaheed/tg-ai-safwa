@@ -380,8 +380,8 @@ class ReminderToolInput(ToolInput):
     instruction: str = Field(
         description=(
             "What Safwa should do when the time comes, handed to the advisor as a request. "
-            "It must stand on its own — the conversation is not available then — and must "
-            "name every Safwa item it concerns by #id."
+            "The bounded conversation is available then, but the instruction should remain clear "
+            "after time has passed and must name every Safwa item it concerns by #id."
         )
     )
     when: str | None = Field(
@@ -440,16 +440,6 @@ class ReminderConfigInput(ToolInput):
 class NotClearEnoughInput(ToolInput):
     reason: str = Field(
         description="The one question the owner must answer, in their words."
-    )
-
-
-class RelevanceCheckInput(ToolInput):
-    verdict: Literal["trigger", "irrelevant"]
-    state: str = Field(
-        description=(
-            "One or two sentences naming each item the instruction mentions and its current "
-            "stage or outcome. Pasted verbatim into the escalation."
-        )
     )
 
 
