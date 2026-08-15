@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
 
+from safwa.constants import MEMORY_READ_TOKEN_BUDGET
 from safwa.continuity import (
     MemoryMaintenanceResult,
     PersonaContinuity,
@@ -39,11 +40,23 @@ class SequenceProvider:
         return self.responses.pop(0)
 
 
+class RecordingProvider:
+    def __init__(self, *responses: str) -> None:
+        self.responses = list(responses)
+        self.requests: list[list[dict[str, str]]] = []
+
+    async def complete(self, messages, **_kwargs) -> str:
+        self.requests.append(messages)
+        return self.responses.pop(0)
+
+
 class SequenceHistory:
     def __init__(self, *snapshots: list[HistoryEntry]) -> None:
         self.snapshots = list(snapshots)
+        self.reads: list[dict[str, Any]] = []
 
-    async def recent(self, *_args, **_kwargs) -> list[HistoryEntry]:
+    async def recent(self, *_args, **kwargs) -> list[HistoryEntry]:
+        self.reads.append(kwargs)
         if len(self.snapshots) == 1:
             return list(self.snapshots[0])
         return list(self.snapshots.pop(0))
@@ -148,7 +161,7 @@ async def test_invalid_memory_response_keeps_file_and_cursor_unchanged(
     assert memory_path.read_text(encoding="utf-8") == "Existing fact"
     async with sessions() as session:
         state = await session.get(MemorySyncState, 1)
-    assert state is None or state.processed_message_id is None
+    assert state is None or state.processed_until is None
 
 
 async def test_summary_is_discarded_when_history_changes_during_generation(sessions) -> None:
@@ -183,3 +196,104 @@ async def test_summary_is_discarded_when_history_changes_during_generation(sessi
 
     assert await continuity.maybe_summarize(42, send_summary) is False
     assert sent == []
+
+
+async def test_a_new_summary_rewrites_the_previous_one(sessions) -> None:
+    """The window keeps only the newest Summary, so the older one must be folded in."""
+    previous = HistoryEntry(
+        message_id=9,
+        sender_id=99,
+        role="user",
+        text="Everything before today.",
+        created_at=datetime.now(UTC),
+        kind=MessageKind.SUMMARY.value,
+    )
+    entry = HistoryEntry(
+        message_id=10,
+        sender_id=42,
+        role="user",
+        text="A long enough request",
+        created_at=datetime.now(UTC),
+        kind=MessageKind.DIALOGUE_USER.value,
+    )
+    provider = RecordingProvider("The rewritten summary")
+    continuity = PersonaContinuity(
+        sessions,
+        SequenceHistory([previous, entry]),  # type: ignore[arg-type]
+        cast(Any, provider),
+        cast(Any, None),
+        summary_trigger_tokens=1,
+        chars_per_token=1,
+    )
+    sent: list[tuple[str, int]] = []
+
+    async def send_summary(text: str, covered_id: int) -> None:
+        sent.append((text, covered_id))
+
+    assert await continuity.maybe_summarize(42, send_summary) is True
+    request = provider.requests[0][-1]["content"]
+    assert request.startswith("Previous summary:\nEverything before today.")
+    assert "A long enough request" in request
+    assert sent == [("📜 Summary\nThe rewritten summary", 10)]
+
+
+async def test_summarize_below_the_trigger_only_happens_when_forced(sessions) -> None:
+    entry = HistoryEntry(
+        message_id=10,
+        sender_id=42,
+        role="user",
+        text="Short",
+        created_at=datetime.now(UTC),
+        kind=MessageKind.DIALOGUE_USER.value,
+    )
+    provider = RecordingProvider("Forced summary")
+    continuity = PersonaContinuity(
+        sessions,
+        SequenceHistory([entry]),  # type: ignore[arg-type]
+        cast(Any, provider),
+        cast(Any, None),
+        summary_trigger_tokens=10_000,
+    )
+    sent: list[tuple[str, int]] = []
+
+    async def send_summary(text: str, covered_id: int) -> None:
+        sent.append((text, covered_id))
+
+    assert await continuity.maybe_summarize(42, send_summary) is False
+    assert await continuity.maybe_summarize(42, send_summary, force=True) is True
+    assert sent == [("📜 Summary\nForced summary", 10)]
+
+
+async def test_memory_reads_back_to_its_own_cursor(sessions, tmp_path: Path) -> None:
+    memory_path = tmp_path / "memory.md"
+    memory_path.write_text("Existing fact", encoding="utf-8")
+    cursor = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
+    async with sessions() as session:
+        session.add(MemorySyncState(id=1, processed_until=cursor))
+        await session.commit()
+    entry = HistoryEntry(
+        message_id=10,
+        sender_id=42,
+        role="user",
+        text="A durable new fact",
+        created_at=cursor + timedelta(hours=1),
+        kind=MessageKind.DIALOGUE_USER.value,
+    )
+    history = SequenceHistory([entry])
+    continuity = PersonaContinuity(
+        sessions,
+        cast(Any, history),
+        SequenceProvider("Retold fact", '{"facts":["A durable new fact"]}'),  # type: ignore[arg-type]
+        MemoryFileStore(memory_path, sessions),
+    )
+
+    result = await continuity.maintain_memory(42)
+
+    assert result is MemoryMaintenanceResult.UPDATED
+    # SQLite hands the cursor back naive; `recent` is what normalizes it to UTC.
+    assert history.reads == [
+        {"token_budget": MEMORY_READ_TOKEN_BUDGET, "since": cursor.replace(tzinfo=None)}
+    ]
+    async with sessions() as session:
+        state = await session.get(MemorySyncState, 1)
+    assert state.processed_until.replace(tzinfo=UTC) == entry.created_at

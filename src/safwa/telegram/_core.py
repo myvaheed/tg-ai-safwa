@@ -167,7 +167,7 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
             command_token = command_text.split(maxsplit=1)[0] if command_text else ""
             if command_token.startswith("/"):
                 command = command_token.split("@", 1)[0].casefold()
-            if command and command != "/newsession":
+            if command:
                 try:
                     await event.delete()
                     command_deleted = True
@@ -179,9 +179,6 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
             services.guard.cancel()
         if isinstance(event, Message) and services.guard.active:
             if command == "/cancel":
-                return await handler(event, data)
-            if command == "/newsession":
-                services.guard.cancel()
                 return await handler(event, data)
             if event.message_id != services.guard.active_source_id:
                 if services.guard.queue_messages and not command and event.text:

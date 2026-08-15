@@ -24,7 +24,7 @@ Python `>=3.12,<3.13`. No server, no multi-user, no Mini App.
 5. `Bot` (`parse_mode=HTML`) → `TelegramHistorySource.from_settings(..., bot_user_id=me.id)` → `.start()`
 6. `PersonaContinuity` → `GenerationGuard` → `Services` dataclass → `dispatcher["services"]`
 7. `OwnerAndWritingMiddleware` on both message and callback outer middleware; `router` included
-8. `sync_bot_commands` (19 commands, 18 while the workspace is in Planning)
+8. `sync_bot_commands` (20 commands, 19 while the workspace is in Planning)
 9. four background tasks, all cancelled in the polling `finally`:
    - `memory.poll(memory_error)` — 5 s `memory.md` hash watcher
    - `run_scheduler(...)` with gate/escalate hooks from `ReminderRuntime` — 30 s Reminder poll,
@@ -244,42 +244,44 @@ kind, related_id, event_id)` — never persona text.
   Telegram text; `read_message_mark` recovers them. SQLite stores the same UUID, so outgoing history
   uses direct event lookup and visible-text edits preserve identity. A rebuilt database still recovers
   classification from Telegram. Every bot send site must mark its text. An unmarked bot message is
-  excluded; v1 has no legacy fallback. Owner messages cannot be marked, so unregistered owner text
-  inside a valid boundary is treated as dialogue.
+  excluded; v1 has no legacy fallback. Owner messages cannot be marked, so owner text that is still in
+  the chat is treated as dialogue.
 - Item citations ride in the text the same way. Telethon returns plain text, so `restore_citations`
   rewrites each `?start=<type>-<id>` link entity back into the `[Milk](check:14)` the model wrote;
   otherwise the model rereads its own citations as bare words and unlearns the format. Entity offsets
   are UTF-16 units, so the slicing happens in surrogate space.
-- Only `DIALOGUE_USER`, `DIALOGUE_ASSISTANT`, `REMINDER`, `SUMMARY`, `SESSION_START`, and
-  `SUBSESSION_RESULT` become dialogue. Everything else (`COMMAND`, `UI_INPUT`, `DASHBOARD`,
-  `CARD_EDITOR`, `APPROVAL`, `RECEIPT`, `RETROSPECTIVE_PNG`, `ERROR`) is excluded.
-- **Boundary required**: a visible `/newsession <request>` or the nearest `📜 Summary`. Without one,
-  `recent(..., require_boundary=True)` raises `HistoryBoundaryMissing`. A `/newsession` always `break`s
-  the scan; a Summary boundary is followed by up to `SUMMARY_CONTEXT_MESSAGE_LIMIT = 20` older messages
-  carrying short UTC timestamps.
-- The middleware deletes every slash command except `/newsession` (it must stay visible as the boundary).
+- Only `DIALOGUE_USER`, `DIALOGUE_ASSISTANT`, `REMINDER`, and `SUMMARY` become dialogue. Everything
+  else (`COMMAND`, `UI_INPUT`, `DASHBOARD`, `CARD_EDITOR`, `APPROVAL`, `RECEIPT`,
+  `RETROSPECTIVE_PNG`, `ERROR`) is excluded.
+- **Bounded by tokens**: `recent` walks backwards and stops at the first of
+  `HISTORY_MESSAGE_TOKEN_BUDGET = 8 000` spent, the newest `📜 Summary`, or the oldest row in
+  `telegram_messages`. The budget is checked before an entry is taken, so the cut lands between
+  messages. A Summary boundary is followed by up to `SUMMARY_CONTEXT_MESSAGE_LIMIT = 20` older
+  messages, and `HISTORY_SCAN_LIMIT` caps the walk itself.
+- The middleware deletes every slash command, which is what makes surviving owner text dialogue.
 - Bot API and Telethon use different message-ID spaces in a private chat. Outgoing messages correlate
   by event UUID. Only owner source-message de-duplication retains the narrow ID/time heuristic because
   a bot cannot attach a marker to incoming owner text.
-- `dialogue()` merges consecutive human/user-side items into one `user` turn with `[User]`, `[Summary]`,
-  `[Initial request]`, `[Subsession result]` tags; Safwa replies use the `assistant` role.
+- `dialogue()` merges consecutive human/user-side items into one `user` turn with `[User]` and
+  `[Summary]` tags; Safwa replies use the `assistant` role. A local timestamp is prepended once per
+  hour of conversation, not once per message.
 
-### Sessions, summaries, memory
+### Summaries and memory
 
-- `/newsession <request>` sets the boundary. `/endsession [instruction]` confirms, then
-  `compress_subsession` sends and registers every `📦 Subsession request` result chunk. Only after all
-  chunks succeed is the source branch deleted; a send failure leaves it intact.
 - `PersonaContinuity.maybe_summarize` fires after an ordinary exchange once unsummarized dialogue
-  reaches `summary_trigger_tokens` (10 000, ~3 chars/token estimate). Before posting a `📜 Summary` it
-  verifies the generation lease and rereads the history snapshot; stale output is discarded.
+  reaches `summary_trigger_tokens` (6 000), and `/summarize` forces it. The previous Summary is fed
+  back in and rewritten rather than dropped, because the window keeps only the newest one. Before
+  posting a `📜 Summary` it verifies the generation lease and rereads the history snapshot; stale
+  output is discarded.
 - **`data/memory.md` is authoritative**: UTF-8, one non-empty fact per line, ~4 000-token budget.
   `memory_fact_cache` is a disposable mirror. AI writes go through `replace_facts`, which re-checks the
   file hash **before and after** writing a temp file, then `os.replace`s — a concurrent local edit is
   preserved, not overwritten. An invalid/oversized file disables injection instead of failing the turn;
   a missing file intentionally clears memory.
-- `maintain_memory` retells ~2K-token chunks (500-token overlap), reconciles the fact list, writes
-  atomically, and only then advances `processed_message_id`. Invalid provider JSON/schema or a stale
-  lease stops the run without changing either the file or cursor.
+- `maintain_memory` reads back to its own cursor (`MemorySyncState.processed_until`, a time), retells
+  ~2K-token chunks (500-token overlap), reconciles the fact list, writes atomically, and only then
+  advances the cursor. Invalid provider JSON/schema or a stale lease stops the run without changing
+  either the file or the cursor.
 - `/setmemtime HH:MM|off` gates one automatic run per local calendar day
   (`run_due_memory_maintenance`, checked once a minute, skipped while foreground is busy).
 
@@ -293,9 +295,9 @@ nudge kinds. A Reminder is instruction text plus a schedule — see
   advanced **only after an escalation succeeds** — which is why a cancelled or crashed turn loses
   nothing: the row is still overdue, so the next tick retries it.
 - The system's only output is an **escalation**: the instruction text is handed to the main advisor as
-  a synthetic final user turn after the canonical `history.dialogue(owner_id)`. The same
-  `/newsession`/Summary boundary policy and the same tools apply as for an ordinary request. The
-  reminder system itself never composes the answer or renders an item.
+  a synthetic final user turn after the canonical `history.dialogue(owner_id)`. The same bounded
+  window and the same tools apply as for an ordinary request. The reminder system itself never
+  composes the answer or renders an item.
 - One write-free setup mini-session ([ai/mini.py](../src/safwa/ai/mini.py),
   [ai/reminder_sessions.py](../src/safwa/ai/reminder_sessions.py)) resolves free-text timing before the
   proposal row exists, so the review screen shows a real schedule. At fire time there is no preflight
@@ -318,8 +320,8 @@ nudge kinds. A Reminder is instruction text plus a schedule — see
 
 - `GenerationGuard` — one foreground/background lease. While an ordinary foreground answer runs,
   callbacks are rejected and later owner texts are deleted, represented as queued `UI_INPUT`
-  placeholders, restored as one `DIALOGUE_USER` turn, and processed next. `/cancel` and `/newsession`
-  bypass the lease and restore the queue. Summary, reminder, and memory tasks reserve background leases.
+  placeholders, restored as one `DIALOGUE_USER` turn, and processed next. `/cancel` bypasses the lease
+  and restores the queue. Summary, reminder, and memory tasks reserve background leases.
 - `dialogue.ordinary_text` captures `dialogue_revision` and `workspace.revision` before generating and
   discards the answer if either changed.
 - `OwnerAndWritingMiddleware` drops anything that is not the owner in a private chat.

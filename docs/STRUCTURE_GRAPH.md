@@ -209,8 +209,8 @@ flowchart TD
 | [`telegram/screens.py`](../src/safwa/telegram/screens.py) | Deep links из advisor prose в domain screens | `render_citations`, `open_citation`, `open_item_screen` |
 | [`telegram/proposals.py`](../src/safwa/telegram/proposals.py) | Read-only proposal UI, queue progression и agent continuation | `render_proposal`, `continue_agent_approval`, `render_ai_outcome` |
 | [`telegram/escalation.py`](../src/safwa/telegram/escalation.py) | Due Reminder → bounded dialogue → main advisor | `ReminderRuntime`, `format_escalation` |
-| [`telegram/commands.py`](../src/safwa/telegram/commands.py) | Slash-command handlers | session, dashboard, memory, settings, status и cancellation commands |
-| [`telegram/callbacks.py`](../src/safwa/telegram/callbacks.py) | Single-use `cb:` action handlers | item/card/check/proposal/subsession callbacks |
+| [`telegram/commands.py`](../src/safwa/telegram/commands.py) | Slash-command handlers | dashboard, memory, summary, settings, status и cancellation commands |
+| [`telegram/callbacks.py`](../src/safwa/telegram/callbacks.py) | Single-use `cb:` action handlers | item/card/check/proposal callbacks |
 | [`telegram/dialogue.py`](../src/safwa/telegram/dialogue.py) | Ordinary owner text → advisor loop → queued turns → summary | `ordinary_text` |
 | [`telegram/__init__.py`](../src/safwa/telegram/__init__.py) | Импорт handler-модулей ради router registration | package exports |
 
@@ -232,7 +232,7 @@ sequenceDiagram
 
     U->>MW: Обычный текст
     MW->>MW: foreground guard
-    MW->>H: dialogue с обычной boundary policy
+    MW->>H: dialogue в пределах token budget
     H-->>A: canonical DialogueMessage list
     A-->>T: answer или proposal
     opt Пока шла генерация пришли новые сообщения
@@ -267,7 +267,7 @@ sequenceDiagram
 
     S->>G: reserve_background
     S->>H: dialogue(owner_id)
-    H-->>S: /newsession или Summary bounded dialogue
+    H-->>S: token-bounded dialogue
     S->>A: dialogue + synthetic escalation user turn
     Note over A: Для упомянутых Safwa items<br/>сначала query_safwa в том же turn
     A-->>T: REMINDER answer или proposal
@@ -282,10 +282,11 @@ sequenceDiagram
 flowchart TD
     CHAT["Telethon messages"] --> MARK["Read kind + event UUID marker"]
     MARK --> FILTER["Exclude UI, approvals, receipts, errors и commands"]
-    FILTER --> BOUNDARY{"Nearest boundary"}
-    BOUNDARY -->|"/newsession"| SESSION["Initial request + newer dialogue"]
-    BOUNDARY -->|"Summary"| SUMMARY["Summary + bounded older context + newer dialogue"]
-    SESSION --> TURNS["Merge canonical user/assistant turns"]
+    FILTER --> STOP{"Первый достигнутый край"}
+    STOP -->|"Token budget"| WINDOW["Newest messages, cut на границе сообщения"]
+    STOP -->|"Summary"| SUMMARY["Summary + до 20 older messages + newer dialogue"]
+    STOP -->|"Oldest registration"| WINDOW
+    WINDOW --> TURNS["Merge canonical user/assistant turns"]
     SUMMARY --> TURNS
 ```
 
@@ -298,7 +299,7 @@ flowchart LR
     RECONCILE --> VALID{"Valid JSON и current lease?"}
     VALID -->|"Нет"| KEEP["Не менять file/cursor"]
     VALID -->|"Да"| FILE["Atomic memory.md replace"]
-    FILE --> CURSOR["Advance processed_message_id"]
+    FILE --> CURSOR["Advance processed_until"]
 ```
 
 ## Модели по подсистемам
@@ -338,7 +339,7 @@ flowchart LR
 | Новый Telegram screen | Feature renderer | `_presentation.py`, `_messaging.py`, callback token routing |
 | Новая slash-команда | `telegram/commands.py` | bot command registration в `main.py`, history classification |
 | Изменение истории | `history.py` | marker/send sites, continuity, history tests и diagrams |
-| Изменение Reminder flow | `scheduler.py` + `telegram/escalation.py` | reminder sessions, guard, history boundary и scheduler tests |
+| Изменение Reminder flow | `scheduler.py` + `telegram/escalation.py` | reminder sessions, guard, history window и scheduler tests |
 | Изменение памяти | `memory.py` + `continuity.py` | watcher, commands, cursor atomicity и backup |
 
 Связанные документы: [ARCHITECTURE.md](ARCHITECTURE.md),

@@ -95,10 +95,9 @@ Use `/start`, `/today`, `/sprint`, `/backlog`, `/add`, `/drafts`, `/values`, `/a
 `/settings`, `/memory`, `/mem`, `/syncmem`, `/status`, and `/cancel`. Remove or edit durable facts directly
 in `data/memory.md`; the file watcher imports the change.
 
-`/newsession <initial request>` begins an isolated persona branch. `/endsession [result instruction]`
-asks for confirmation, compresses that branch into one visible `📦 Subsession request` context result,
-then removes the branch's Telegram messages. The result becomes part of the parent Safwa dialogue; card,
-Sprint, Value, and memory data are never deleted.
+The advisor reads a window of the chat bounded by a token budget, so nothing has to be started or
+ended. `/summarize` writes a `📜 Summary` on demand, which becomes the far edge of that window;
+card, Sprint, Value, and memory data are never deleted.
 
 Every new card is first stored as an isolated draft. It reaches dashboards and metrics only after the
 review screen's **Create** action.

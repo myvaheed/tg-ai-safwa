@@ -266,7 +266,7 @@ def button_texts(markup) -> list[str]:
     return [button.text for row in markup.inline_keyboard for button in row]
 
 
-async def test_commands_are_deleted_except_newsession(sessions, monkeypatch) -> None:
+async def test_every_command_is_deleted_and_still_dispatched(sessions, monkeypatch) -> None:
     import safwa.telegram._core as core_module
 
     monkeypatch.setattr(core_module, "Message", FakeMessage)
@@ -282,16 +282,7 @@ async def test_commands_are_deleted_except_newsession(sessions, monkeypatch) -> 
         await middleware(handler, message, {"services": services})
         assert message.was_deleted is True
 
-    boundary = FakeMessage(10, text="/newsession Initial request", bot_message=False)
-    await middleware(handler, boundary, {"services": services})
-
-    assert boundary.was_deleted is False
-    assert handled == [
-        "/start",
-        "/mem remember this",
-        "/cancel",
-        "/newsession Initial request",
-    ]
+    assert handled == ["/start", "/mem remember this", "/cancel"]
 
 
 async def test_messages_are_queued_with_placeholders_and_restored_as_one_turn(
@@ -336,50 +327,6 @@ async def test_messages_are_queued_with_placeholders_and_restored_as_one_turn(
         "<b>Name Surname:</b>\nFirst queued request\n\n----\n\nSecond queued request",
     )
     assert first.bot.deleted_batches == [[1002, 1003]]
-
-
-async def test_endsession_keeps_source_messages_when_result_send_fails(monkeypatch) -> None:
-    import safwa.telegram.commands as commands_module
-
-    calls: list[str] = []
-
-    class History:
-        async def active_session_start(self, _chat_id):
-            return SimpleNamespace(message_id=10, text="Initial request")
-
-        async def dialogue(self, _chat_id):
-            return []
-
-    class Advisor:
-        async def compress_subsession(self, _dialogue, _instruction):
-            return "Compressed"
-
-    async def fail_send(*_args, **_kwargs):
-        calls.append("send")
-        raise RuntimeError("Telegram send failed")
-
-    async def delete_range(*_args, **_kwargs):
-        calls.append("delete")
-
-    monkeypatch.setattr(commands_module, "send_subsession_result", fail_send)
-    monkeypatch.setattr(commands_module, "delete_message_range", delete_range)
-    services = SimpleNamespace(
-        history=History(),
-        advisor=Advisor(),
-        guard=GenerationGuard(),
-    )
-    message = FakeMessage(20, text="/endsession", bot_message=False)
-
-    with pytest.raises(RuntimeError, match="Telegram send failed"):
-        await commands_module.end_subsession(
-            message,
-            services,
-            start_message_id=10,
-            instruction="",
-        )
-
-    assert calls == ["send"]
-    assert services.guard.active is False
 
 
 async def test_proposal_ui_releases_generation_guard_before_continuity_work(sessions) -> None:

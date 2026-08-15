@@ -41,18 +41,31 @@ DEFAULT_CELL_LIMIT = 2_000
 QUERY_TIMEOUT_SECONDS = 2.0
 
 # --- Telegram history -----------------------------------------------------
-HISTORY_RECENT_LIMIT = 120
-HISTORY_CONTINUITY_LIMIT = 500
+# The advisor window is a token budget rather than a message count: a Summary of at most
+# SUMMARY_TOKEN_CEILING plus as many recent messages as the remainder pays for.
+HISTORY_TOKEN_BUDGET = 10_000
+SUMMARY_TOKEN_CEILING = 2_000
+HISTORY_MESSAGE_TOKEN_BUDGET = HISTORY_TOKEN_BUDGET - SUMMARY_TOKEN_CEILING
 SUMMARY_CONTEXT_MESSAGE_LIMIT = 20
+# A ceiling on how many Telegram messages one backwards scan may walk.  The budget, a
+# Summary, or the oldest registration normally stops it far sooner.
+HISTORY_SCAN_LIMIT = 2_000
 # Bot API and Telethon disagree on message IDs; correlate by timestamp within this window.
 MESSAGE_CORRELATION_SECONDS = 15
 
 # --- Summaries and memory -------------------------------------------------
-SUMMARY_TRIGGER_TOKENS = 10_000
+# Below HISTORY_MESSAGE_TOKEN_BUDGET, so a Summary is written while the window still
+# holds every message it covers.
+SUMMARY_TRIGGER_TOKENS = 6_000
 MEMORY_TOKEN_BUDGET = 4_000
-TOKEN_CHARS_ESTIMATE = 3.0
+# A tokenizer splits Latin at roughly 4 characters and Cyrillic at roughly 2, so a mixed
+# dialogue is counted low by the generous end and would overrun its budget.
+TOKEN_CHARS_ESTIMATE = 2.5
 MEMORY_RETELL_CHUNK_TOKENS = 2_000
 MEMORY_RETELL_OVERLAP_TOKENS = 500
+# Memory reads back to its own cursor rather than to a fixed message count; this only caps
+# how much one catch-up run may swallow after a long gap.
+MEMORY_READ_TOKEN_BUDGET = 20_000
 
 # --- Background loops -----------------------------------------------------
 MEMORY_POLL_SECONDS = 5.0

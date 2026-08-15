@@ -77,7 +77,6 @@ from .commands import (
     command_start,
     command_tags,
     command_values,
-    end_subsession,
     render_feedback,
     render_sprint_length_prompt,
     sync_bot_commands,
@@ -251,44 +250,6 @@ async def _on_item_back(context: CallbackContext) -> None:
 
 async def _on_request_view(context: CallbackContext) -> None:
     await render_saved_request(context.message, context.services, context.payload["id"])
-
-
-# --- Subsessions ---------------------------------------------------------------
-
-
-async def _on_subsession_confirm(context: CallbackContext) -> None:
-    await send_registered(
-        context.message,
-        context.services,
-        "<b>Compressing subsession…</b>",
-        kind=MessageKind.APPROVAL,
-    )
-    try:
-        await end_subsession(
-            context.message,
-            context.services,
-            start_message_id=int(context.payload["start_message_id"]),
-            instruction=str(context.payload.get("instruction", "")),
-        )
-    except Exception:
-        logger.exception("Could not end Safwa subsession")
-        await send_registered(
-            context.message,
-            context.services,
-            "Safwa could not compress the subsession. The branch was not deleted.",
-            kind=MessageKind.ERROR,
-            markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
-        )
-
-
-async def _on_subsession_cancel(context: CallbackContext) -> None:
-    await send_registered(
-        context.message,
-        context.services,
-        "Subsession end cancelled. The branch is unchanged.",
-        kind=MessageKind.RECEIPT,
-        markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
-    )
 
 
 # --- Transient manual Card draft -----------------------------------------------
@@ -1079,8 +1040,6 @@ CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "item_archive_confirm": _on_item_archive_confirm,
     "item_back": _on_item_back,
     "request_view": _on_request_view,
-    "subsession_confirm": _on_subsession_confirm,
-    "subsession_cancel": _on_subsession_cancel,
     "card_create_view": _on_card_draft_view,
     "card_create_edit_text": _on_card_draft_edit_text,
     "card_create_toggle": _on_card_draft_toggle,

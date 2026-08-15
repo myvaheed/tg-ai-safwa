@@ -16,16 +16,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..constants import CALLBACK_TOKEN_TTL_HOURS
 from ..enums import MessageKind, ProposalStatus
-from ..history import SUBSESSION_RESULT_HEADER, mark_kind, mark_message, register_message
+from ..history import mark_kind, mark_message, register_message
+from ..memory import estimate_tokens
 from ..models import (
     CallbackToken,
     ChangeProposal,
     ProposalChange,
+    SummaryState,
     TelegramMessage,
     UiSession,
 )
 from ._core import QueuedMessage, Services
-from ._presentation import Page, proposal_change_summary, split_telegram_text
+from ._presentation import Page, proposal_change_summary
 
 logger = logging.getLogger(__name__)
 
@@ -368,39 +370,26 @@ async def delete_screen(message: Message, services: Services, message_id: int) -
             await session.commit()
 
 
-async def delete_message_range(message: Message, first_id: int, last_id: int) -> None:
-    if last_id < first_id:
-        return
-    for offset in range(first_id, last_id + 1, 100):
-        await message.bot.delete_messages(
-            chat_id=message.chat.id,
-            message_ids=list(range(offset, min(offset + 100, last_id + 1))),
-        )
-
-
-async def send_subsession_result(
-    message: Message, services: Services, initial_request: str, result: str
+async def send_summary(
+    message: Message, services: Services, text: str, covered_id: int
 ) -> None:
-    payload = f"{initial_request.strip()}\n\nSubsession result\n{result.strip()}"
-    for index, chunk in enumerate(split_telegram_text(payload)):
-        header = (
-            SUBSESSION_RESULT_HEADER if index == 0 else f"{SUBSESSION_RESULT_HEADER} (continued)"
+    """Post one Summary and move the cut place `recent` reads back to."""
+    marked_text, event_id = mark_message(html.escape(text), MessageKind.SUMMARY)
+    sent = await message.answer(marked_text)
+    async with services.sessions() as session:
+        await register_message(
+            session,
+            sent.chat.id,
+            sent.message_id,
+            "out",
+            MessageKind.SUMMARY,
+            event_id=event_id,
         )
-        marked_text, event_id = mark_message(
-            f"{header}\n{html.escape(chunk)}", MessageKind.SUBSESSION_RESULT
-        )
-        sent = await message.bot.send_message(
-            message.chat.id,
-            marked_text,
-            parse_mode=ParseMode.HTML,
-        )
-        async with services.sessions() as session:
-            await register_message(
-                session,
-                sent.chat.id,
-                sent.message_id,
-                "out",
-                MessageKind.SUBSESSION_RESULT,
-                event_id=event_id,
-            )
-            await session.commit()
+        state = await session.get(SummaryState, 1)
+        if state is None:
+            state = SummaryState(id=1)
+            session.add(state)
+        state.summary_message_id = sent.message_id
+        state.covered_message_id = covered_id
+        state.estimated_tokens = estimate_tokens(text)
+        await session.commit()

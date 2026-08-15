@@ -21,9 +21,8 @@ from ..domain import (
     update_value_fields,
 )
 from ..enums import MessageKind
-from ..history import HistoryBoundaryMissing, HistoryEntry, mark_message, register_message
-from ..memory import estimate_tokens
-from ..models import SummaryState, UiSession, Workspace
+from ..history import HistoryEntry, register_message
+from ..models import UiSession, Workspace
 from ._core import BACKGROUND_SOURCE_ID, Services, router
 from ._messaging import (
     clear_message_markup,
@@ -31,6 +30,7 @@ from ._messaging import (
     dismiss_prior_ui,
     materialize_queued_dialogue,
     send_registered,
+    send_summary,
 )
 from .cards import render_card, render_card_creation, sanitize_card_creation_state
 from .commands import command_settings, render_sprint_length_prompt
@@ -249,33 +249,14 @@ async def ordinary_text(message: Message, services: Services) -> None:
 
         services.guard.release(message.message_id)
 
-        async def send_summary(text: str, covered_id: int) -> None:
-            marked_text, event_id = mark_message(html.escape(text), MessageKind.SUMMARY)
-            sent = await message.answer(marked_text)
-            async with services.sessions() as session:
-                await register_message(
-                    session,
-                    sent.chat.id,
-                    sent.message_id,
-                    "out",
-                    MessageKind.SUMMARY,
-                    event_id=event_id,
-                )
-                state = await session.get(SummaryState, 1)
-                if state is None:
-                    state = SummaryState(id=1)
-                    session.add(state)
-                state.summary_message_id = sent.message_id
-                state.covered_message_id = covered_id
-                state.estimated_tokens = estimate_tokens(text)
-                await session.commit()
-
         if services.guard.reserve_background():
             summary_revision = services.guard.dialogue_revision
             try:
                 await services.continuity.maybe_summarize(
                     message.chat.id,
-                    send_summary,
+                    lambda text, covered_id: send_summary(
+                        message, services, text, covered_id
+                    ),
                     still_current=lambda: (
                         services.guard.background
                         and services.guard.dialogue_revision == summary_revision
@@ -283,13 +264,6 @@ async def ordinary_text(message: Message, services: Services) -> None:
                 )
             finally:
                 services.guard.release(BACKGROUND_SOURCE_ID)
-    except HistoryBoundaryMissing as error:
-        await send_registered(
-            message,
-            services,
-            html.escape(str(error)),
-            kind=MessageKind.ERROR,
-        )
     except Exception as error:
         logger.exception("Could not handle ordinary text")
         await send_registered(

@@ -3,12 +3,11 @@
 ## Telegram history
 
 - The private Telegram chat is the source of truth. Safwa rereads real messages through Telethon for every advisor request; SQLite stores only message IDs and semantic classifications.
-- History must have a visible boundary: `/newsession <initial request>` or the nearest `📜 Summary`. Without one, advisor requests and `/syncmem` stop and explain how to start a session.
-- With a `/newsession` boundary, its text is sent as `[Initial request]`, followed by canonical dialogue after it.
-- With a Summary boundary, the Summary is sent first, then up to 20 older canonical messages with short UTC timestamps for local context, then the newer dialogue.
-- Real Safwa dialogue replies use the `assistant` role. Consecutive human messages and other user-side context are combined into one `user` turn with tags such as `[User]`, `[Summary]`, and `[Initial request]`.
-- Commands, callbacks, menus, dashboards, forms, approvals, receipts, unsaved item editors, SQL/tool traces, errors, and retrospective PNGs are excluded. Every slash command is deleted from Telegram immediately except `/newsession`, which remains visible as the history boundary.
-- The current owner message is correlated across the Bot API and Telethon ID spaces and included exactly once. Only registered user dialogue, generated Safwa dialogue, persona reminders, boundaries, and subsession results can enter history.
+- The history window is a token budget, not a message count. Safwa reads backwards and stops at the first of roughly 8,000 tokens of messages, the nearest `📜 Summary`, or the oldest message Safwa ever recorded. The cut always lands between messages, never inside one.
+- With a Summary in range, the Summary is sent first, then up to 20 older canonical messages for local context, then the newer dialogue.
+- Real Safwa dialogue replies use the `assistant` role. Consecutive human messages and other user-side context are combined into one `user` turn with tags such as `[User]` and `[Summary]`. A local timestamp is prepended once per hour of conversation rather than to every message.
+- Commands, callbacks, menus, dashboards, forms, approvals, receipts, unsaved item editors, SQL/tool traces, errors, and retrospective PNGs are excluded. Every slash command is deleted from Telegram immediately, which is what makes surviving owner text dialogue.
+- The current owner message is correlated across the Bot API and Telethon ID spaces and included exactly once. Only owner text, generated Safwa dialogue, persona reminders, and summaries can enter history.
 - Every bot message carries both its `MessageKind` and an immutable Safwa event UUID in invisible characters appended to the Telegram text. SQLite stores the same UUID, so outgoing events are classified by direct lookup even after the visible text is edited. SQLite remains a rebuildable index because the marker is authoritative. Owner messages cannot carry a mark, so their source-message de-duplication still uses the narrow Bot API/Telethon correlation; commands and typed field values are deleted from Telegram.
 - Item links are read back as the Markdown the model wrote them in, so a reply citing a Check reaches Safwa's own history as `[Milk](check:14)` rather than as the bare word.
 - An unmarked bot message is excluded. Version 1 has no legacy marker fallback.
@@ -54,17 +53,12 @@
 - Cache reads and writes are reported per response in the `AI RESPONSE` log line. They are not
   stored in the database.
 
-## Sessions and subsessions
-
-- `/newsession <initial request>` creates the current history boundary.
-- `/endsession [result instruction]` offers a confirmation to compress everything since the active `/newsession`.
-- On approval, Safwa generates one compact subsession result, deletes that branch from Telegram, and leaves the result as canonical user-side context. Cancelling keeps the branch unchanged.
-
 ## Summary
 
 - After an ordinary advisor exchange, Safwa checks the canonical unsummarized dialogue size.
-- At approximately 10,000 tokens it creates a visible `📜 Summary` of personal reflections, decisions, reasons, advice, and unresolved topics—not current planning database state or internal operations.
-- The nearest Summary becomes the next history boundary. If generation fails, the existing Telegram history remains authoritative and Safwa retries later.
+- At approximately 6,000 tokens it creates a visible `📜 Summary` of personal reflections, decisions, reasons, advice, and unresolved topics—not current planning database state or internal operations. `/summarize` writes one immediately, which is how context is cut deliberately.
+- The Summary is a general part plus one dated section per day, and the newest day is the detailed one. A new Summary rewrites the previous one instead of replacing it blindly, folding older days into the general part, because only the newest Summary stays in the window.
+- The nearest Summary becomes the far edge of the window. If generation fails, the existing Telegram history remains authoritative and Safwa retries later.
 
 ## `memory.md`
 
@@ -79,7 +73,7 @@
 - `/mem <fact>` adds one explicit durable fact directly to `memory.md`.
 - `/memory` displays the current validated memory and estimated token usage.
 - Removing or editing a fact is done directly in `data/memory.md`; there is no chat command that deletes memory.
-- `/syncmem` processes new canonical Telegram dialogue since the last successful memory boundary. Safwa retells roughly 2K-token chunks, reconciles durable facts, atomically updates `memory.md`, and only then advances the processed-message marker.
+- `/syncmem` processes canonical Telegram dialogue back to memory's own cursor, which is the time of the last message it successfully processed. Safwa retells roughly 2K-token chunks, reconciles durable facts, atomically updates `memory.md`, and only then advances the cursor.
 
 ## Scheduled memory synchronization
 

@@ -22,7 +22,6 @@ from ..constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ..continuity import MemoryMaintenanceResult, parse_memory_update_time, record_memory_run
 from ..domain import (
     DomainError,
-    StaleStateError,
     snooze_reminders,
     update_profile,
 )
@@ -41,10 +40,9 @@ from ..models import (
 )
 from ._core import BACKGROUND_SOURCE_ID, Services, router, sprint_is_active
 from ._messaging import (
-    delete_message_range,
     materialize_queued_dialogue,
     send_registered,
-    send_subsession_result,
+    send_summary,
     token_button,
 )
 from ._presentation import (
@@ -82,33 +80,10 @@ BOT_COMMANDS = [
     BotCommand(command="mem", description="Add a durable memory fact"),
     BotCommand(command="setmemtime", description="Set daily memory sync time"),
     BotCommand(command="memory", description="Inspect memory.md"),
+    BotCommand(command="summarize", description="Summarize the dialogue now"),
     BotCommand(command="status", description="Safwa diagnostics"),
     BotCommand(command="cancel", description="Cancel generation"),
 ]
-
-
-async def end_subsession(
-    message: Message,
-    services: Services,
-    *,
-    start_message_id: int,
-    instruction: str,
-) -> None:
-    active_start = await services.history.active_session_start(message.chat.id)
-    if active_start is None or active_start.message_id != start_message_id:
-        raise StaleStateError("This subsession has changed or is no longer active")
-    await services.guard.acquire(message.message_id)
-    try:
-        await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-        transcript = await services.history.dialogue(message.chat.id)
-        result = await services.advisor.compress_subsession(transcript, instruction)
-        await send_subsession_result(message, services, active_start.text, result)
-        # Keep the source branch until every result chunk is visible and registered.
-        # A failed cleanup may leave a harmless duplicate; the opposite order could
-        # permanently lose both the branch and its compressed result.
-        await delete_message_range(message, start_message_id, message.message_id)
-    finally:
-        services.guard.release(message.message_id)
 
 
 @router.message(Command("start"))
@@ -128,85 +103,37 @@ async def command_start(message: Message, services: Services) -> None:
     )
 
 
-@router.message(Command("newsession"))
-async def command_newsession(message: Message, services: Services) -> None:
-    # The middleware cancels an in-flight answer before dispatching /newsession. Preserve
-    # any text that was queued behind it and remove its temporary placeholders.
-    await materialize_queued_dialogue(message, services)
-    parts = (message.text or "").split(maxsplit=1)
-    initial_request = parts[1].strip() if len(parts) == 2 else ""
-    if not initial_request:
+@router.message(Command("summarize"))
+async def command_summarize(message: Message, services: Services) -> None:
+    """Cut the context deliberately: post a Summary now instead of waiting for the budget."""
+    if not services.guard.reserve_background():
         await send_registered(
             message,
             services,
-            "Usage: <code>/newsession your initial request or situation</code>",
+            "Wait for the current advisor response, then retry /summarize.",
             kind=MessageKind.ERROR,
         )
         return
-    async with services.sessions() as session:
-        await register_message(
-            session,
+    revision = services.guard.dialogue_revision
+    try:
+        await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+        written = await services.continuity.maybe_summarize(
             message.chat.id,
-            message.message_id,
-            "in",
-            MessageKind.SESSION_START,
+            lambda text, covered_id: send_summary(message, services, text, covered_id),
+            force=True,
+            still_current=lambda: (
+                services.guard.background and services.guard.dialogue_revision == revision
+            ),
         )
-        await session.commit()
-    await send_registered(
-        message,
-        services,
-        "🆕 New Safwa session started. I will use this initial request as the dialogue boundary.",
-        kind=MessageKind.RECEIPT,
-        markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
-    )
-
-
-@router.message(Command("endsession"))
-async def command_endsession(message: Message, services: Services) -> None:
-    active_start = await services.history.active_session_start(message.chat.id)
-    if active_start is None:
+    finally:
+        services.guard.release(BACKGROUND_SOURCE_ID)
+    if not written:
         await send_registered(
             message,
             services,
-            "There is no active <code>/newsession</code> branch to end.",
-            kind=MessageKind.ERROR,
-            markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
+            "There is no new dialogue to summarize.",
+            kind=MessageKind.RECEIPT,
         )
-        return
-    parts = (message.text or "").split(maxsplit=1)
-    instruction = parts[1].strip() if len(parts) == 2 else ""
-    async with services.sessions() as session:
-        confirm = await token_button(
-            session,
-            services.owner_id,
-            "✅ Compress and delete branch",
-            "subsession_confirm",
-            {
-                "start_message_id": active_start.message_id,
-                "instruction": instruction,
-            },
-        )
-        cancel = await token_button(
-            session,
-            services.owner_id,
-            "↩️ Keep branch",
-            "subsession_cancel",
-        )
-        await session.commit()
-    instruction_text = (
-        html.escape(instruction) if instruction else "Use a concise planning/advisory result."
-    )
-    await send_registered(
-        message,
-        services,
-        "<b>End this subsession?</b>\n"
-        "Safwa will compress everything since the active <code>/newsession</code>, delete that "
-        "branch from Telegram, and leave one compact context result.\n\n"
-        f"<b>Initial request:</b>\n<blockquote>{html.escape(active_start.text)}</blockquote>\n\n"
-        f"<b>Result instruction:</b>\n<blockquote>{instruction_text}</blockquote>",
-        kind=MessageKind.APPROVAL,
-        markup=InlineKeyboardMarkup(inline_keyboard=[[confirm], [cancel]]),
-    )
 
 
 @router.message(Command("today"))
@@ -378,12 +305,6 @@ async def command_syncmem(message: Message, services: Services) -> None:
         text, kind = "Memory is already synchronized.", MessageKind.RECEIPT
     elif result == MemoryMaintenanceResult.BUSY:
         text, kind = "Memory synchronization is already running.", MessageKind.ERROR
-    elif result == MemoryMaintenanceResult.BOUNDARY_MISSING:
-        text, kind = (
-            "No /newsession or Summary boundary was found in Telegram. "
-            "Start with /newsession followed by your initial request.",
-            MessageKind.ERROR,
-        )
     else:
         text, kind = "memory.md needs attention; synchronization was not run.", MessageKind.ERROR
     await send_registered(message, services, text, kind=kind)

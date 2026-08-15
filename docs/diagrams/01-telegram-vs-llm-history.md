@@ -24,7 +24,7 @@ sequenceDiagram
     H->>DB: Ищет исходящие по Safwa event UUID
     Note over H,DB: Текст сообщений в SQLite не копируется
     H->>H: Восстанавливает inline kind, event UUID и citations
-    H->>H: Находит /newsession или ближайший Summary
+    H->>H: Останавливается на budget, Summary или самой старой регистрации
     H->>H: Отбрасывает UI, команды, approvals и ошибки
     H->>H: Только owner source дедуплицирует по ID/времени
     H->>H: Добавляет source_message ровно один раз
@@ -50,50 +50,42 @@ flowchart TD
 
     BK -->|"DIALOGUE_ASSISTANT или REMINDER"| IN["Включить как assistant"]
     BK -->|"DIALOGUE_USER"| UIN["Включить как user<br/>(восстановленная очередь)"]
-    BK -->|"SUMMARY"| BD["Граница и user-side context"]
-    BK -->|"SUBSESSION_RESULT"| SUB["Собрать части и включить как user-side context"]
+    BK -->|"SUMMARY"| BD["Дальний край окна и user-side context"]
     BK -->|"UI, APPROVAL, RECEIPT, ERROR и прочее"| X
     BK -->|"Нет marker"| X
 
-    UK -->|"/newsession с текстом"| NS["Граница: Initial request"]
     UK -->|"DIALOGUE_USER"| UIN["Включить как user"]
-    UK -->|"Незарегистрированный обычный текст до найденной границы"| UIN
+    UK -->|"Незарегистрированный обычный текст"| UIN
     UK -->|"Slash-команда или UI input"| X
 
-    NS --> OUT["Сформировать DialogueMessage[]"]
-    BD --> OLDER["Добавить до 20 более старых сообщений с UTC timestamp"]
-    OLDER --> OUT
-    SUB --> OUT
+    BD --> OLDER["Добавить до 20 более старых сообщений"]
+    OLDER --> OUT["Сформировать DialogueMessage[]"]
     IN --> OUT
     UIN --> OUT
 ```
 
-В контекст допускаются только:
-
-- `DIALOGUE_USER`, `DIALOGUE_ASSISTANT`, `REMINDER`;
-- границы `SESSION_START` и `SUMMARY`;
-- итог завершённой ветки `SUBSESSION_RESULT`.
+В контекст допускаются только `DIALOGUE_USER`, `DIALOGUE_ASSISTANT`, `REMINDER` и `SUMMARY`.
 
 Команды, callback-действия, dashboards, редакторы, prompts для ввода поля, proposals, receipts,
-SQL/tool payloads, ошибки и PNG ретроспективы исключаются. Все slash-команды удаляются из чата,
-кроме `/newsession`, потому что она должна остаться видимой границей.
+SQL/tool payloads, ошибки и PNG ретроспективы исключаются. Все slash-команды удаляются из чата —
+именно поэтому уцелевший текст owner считается диалогом.
 
-## Граница и сбор turns
+## Край окна и сбор turns
 
 ```mermaid
 flowchart LR
-    N["Новые сообщения"] --> B{"Ближайшая граница"}
-    B -->|"/newsession request"| I["user: Initial request"]
+    N["Новые сообщения, newest-first"] --> B{"Первый достигнутый край"}
+    B -->|"Token budget"| R["Cut на границе сообщения"]
     B -->|"Summary"| S["user: Summary"]
-    S --> C["До 20 старых сообщений с timestamps"]
-    I --> R["Диалог после границы"]
+    B -->|"Самая старая регистрация"| R
+    S --> C["До 20 более старых сообщений"]
     C --> R
     R --> M["Соседние user-side элементы объединяются"]
     M --> T["Соседние assistant replies объединяются"]
     T --> D["DialogueMessage role/content"]
 ```
 
-Без видимой границы advisor и `/syncmem` завершаются с `HistoryBoundaryMissing`. Текущее сообщение
+Локальный timestamp добавляется раз в час разговора, а не к каждому сообщению. Текущее сообщение
 пользователя передаётся как `source_message`: если Telethon-регистрация уже сопоставлена, дубликат не
 добавляется; иначе оно дописывается в конец. Узкая ID/time-корреляция остаётся только здесь, потому что
 бот не может встроить marker в сообщение owner. Немаркированные bot-сообщения не считаются диалогом:

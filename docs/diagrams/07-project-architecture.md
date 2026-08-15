@@ -112,7 +112,7 @@ rendering/messaging/core; `_presentation.py` остаётся чистым фо�
 | `_core.py` | `Services`, router, guard, owner/private middleware, callback context |
 | `_presentation.py` | Чистые labels, HTML/markup helpers и pagination |
 | `_messaging.py` | Все send/edit/delete, регистрация `MessageKind`, callback tokens, закрытие старого UI |
-| `commands.py` | Slash-command handlers и lifecycle subsession |
+| `commands.py` | Slash-command handlers |
 | `callbacks.py` | Единственный callback-token dispatcher и action handlers |
 | `dialogue.py` | Обычный текст, UI text inputs и основной advisor turn |
 | `cards.py` | Card editor, creation draft, selectors и dashboards |

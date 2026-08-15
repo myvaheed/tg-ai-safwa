@@ -81,16 +81,17 @@ Consequences that break silently if ignored:
 
 - Every bot message must be registered with a `MessageKind` (`send_registered`, `register_message`).
   An unregistered outgoing message is invisible to the LLM; a wrongly-kinded one leaks UI noise into
-  persona history. Only `DIALOGUE_USER`, `DIALOGUE_ASSISTANT`, `REMINDER`, summaries, `/newsession`,
-  and subsession results become dialogue.
+  persona history. Only `DIALOGUE_USER`, `DIALOGUE_ASSISTANT`, `REMINDER`, and summaries become
+  dialogue.
 - The kind and immutable 128-bit event UUID are also carried *in the Telegram text* by `mark_message`;
   `read_message_mark` reads them back. The same UUID in `telegram_messages` gives direct outgoing-event
   correlation even if visible text is edited, while a rebuilt database still recovers classification
   from Telegram. Mark every bot send. An unmarked bot message is excluded; v1 has no legacy fallback.
-- Dialogue needs a visible boundary: a `/newsession <request>` message or the nearest `📜 Summary`.
-  Without one, `recent(..., require_boundary=True)` raises `HistoryBoundaryMissing`.
-- The middleware deletes every slash command except `/newsession` (which must stay visible as the
-  boundary), and `delete_text_input` deletes typed field values as `UI_INPUT`.
+- The window is a token budget, not a message count: `recent` walks backwards and stops at the first
+  of `HISTORY_MESSAGE_TOKEN_BUDGET` spent, the newest `📜 Summary`, or the oldest row in
+  `telegram_messages`. The cut always lands between messages. `/summarize` posts a Summary on demand.
+- Owner text that is still in the chat is dialogue: the middleware deletes every slash command and
+  `delete_text_input` deletes typed field values as `UI_INPUT`, so survival is the evidence.
 - Bot API and Telethon use different message-ID spaces in a private chat. Outgoing messages use the
   event UUID; only owner source-message de-duplication uses narrow ID/time correlation because the bot
   cannot add a marker to owner text.
@@ -176,8 +177,8 @@ first system message. `SAFWA_AI_CACHE_BREAKPOINTS` adds `cache_control` markers 
 
 - `GenerationGuard` is the single foreground/background lease. During an ordinary foreground answer,
   callbacks are rejected and new owner texts are deleted, represented by `UI_INPUT` placeholders, then
-  restored as one `DIALOGUE_USER` turn and processed next. `/cancel` and `/newsession` bypass the lease
-  and restore queued text. Summary, reminders, and memory maintenance reserve background leases and
+  restored as one `DIALOGUE_USER` turn and processed next. `/cancel` bypasses the lease and restores
+  queued text. Summary, reminders, and memory maintenance reserve background leases and
   verify the revision before publishing or committing.
 - `OwnerAndWritingMiddleware` drops anything that is not the owner in a private chat.
 - Every inline button is a single-use `CallbackToken` row rendered as `cb:<token>` (24 h expiry);

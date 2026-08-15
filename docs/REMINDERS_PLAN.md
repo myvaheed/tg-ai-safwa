@@ -332,8 +332,7 @@ stay due and the next tick retries.
 1. Gate closed → stop. Advance nothing.
 2. Take the guard, marked **background** (see below), read the same canonical
    `history.dialogue(owner_id)` used by an ordinary advisor request, and append the formatted
-   escalation as the final synthetic user turn. The normal `/newsession` or Summary boundary is
-   required.
+   escalation as the final synthetic user turn, inside the same token-bounded window.
 3. Do **not** pass `allow_silence`. An escalation is a real request; an empty turn is an upstream
    failure, retried by `AI_EMPTY_RESPONSE_ATTEMPTS` and then raised. That flag exists for resuming
    after an approval queue, where the receipts are already the answer.
@@ -349,8 +348,7 @@ after time has passed and should name relevant Safwa entities by `#id`.
 
 `GenerationGuard` records whether the holder is the owner or a background escalation:
 
-- owner event + **background** holder → cancel the escalation, hand the guard to the owner, exactly as
-  `/newsession` does today;
+- owner event + **background** holder → cancel the escalation and hand the guard to the owner;
 - owner event + **owner** holder → unchanged behaviour.
 
 Nothing is lost. The half-finished turn and its dialogue snapshot are discarded, `next_fire_at` was
@@ -446,8 +444,8 @@ to `True`, or Reminders never fire on a default install.
    toolset and bounded Telegram dialogue. A 2-hour posture Reminder is ~7 turns a day. Batching helps
    when fires coincide, but this is still materially expensive on a metered provider. Measure before
    leaning on intervals.
-2. **History boundary is required.** Reminder escalation follows the ordinary advisor contract. If
-   neither `/newsession` nor Summary is reachable, the turn is not delivered and the Reminder remains
+2. **The window is the ordinary one.** Reminder escalation follows the ordinary advisor contract and
+   reads the same token-bounded dialogue. A read failure leaves the turn undelivered and the Reminder
    due for a later retry.
 3. **Recursion.** A background turn holds the `reminder` tool and could reschedule Reminders. The guard
    serialises it and only one turn runs per poll, so it cannot run away — but say so in the prompt.

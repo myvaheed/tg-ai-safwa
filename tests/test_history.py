@@ -3,13 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-import pytest
 from sqlalchemy import update
 from telethon.tl.types import MessageEntityTextUrl
 
 from safwa.enums import MessageKind
 from safwa.history import (
-    HistoryBoundaryMissing,
     HistoryEntry,
     TelegramHistorySource,
     mark_kind,
@@ -54,7 +52,20 @@ async def register(
         await session.commit()
 
 
-async def test_history_fails_closed_and_starts_at_newsession(sessions) -> None:
+async def backdate(sessions, chat_id: int, moment: datetime) -> None:
+    """Put every registration at `moment`, which is what the read floor is taken from."""
+    async with sessions() as session:
+        await session.execute(
+            update(TelegramMessage)
+            .where(TelegramMessage.chat_id == chat_id)
+            .values(created_at=moment)
+        )
+        await session.commit()
+
+
+async def test_surviving_owner_text_is_dialogue_down_to_the_oldest_registration(
+    sessions,
+) -> None:
     chat_id, owner_id, bot_id = 100, 42, 99
     at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
     messages = [
@@ -74,17 +85,16 @@ async def test_history_fails_closed_and_starts_at_newsession(sessions) -> None:
             bot_id,
             at + timedelta(minutes=1),
         ),
-        FakeTelegramMessage(5, "/newsession Help me plan a calmer week", owner_id, at),
         FakeTelegramMessage(
-            4, "Old unrelated private-chat message", owner_id, at - timedelta(minutes=1)
+            4, "Old unrelated private-chat message", owner_id, at - timedelta(hours=1)
         ),
-        FakeTelegramMessage(3, "An old message from the bot", bot_id, at - timedelta(minutes=2)),
+        FakeTelegramMessage(3, "An old message from the bot", bot_id, at - timedelta(hours=2)),
     ]
     await register(sessions, chat_id, 9, "in", MessageKind.DIALOGUE_USER)
     await register(sessions, chat_id, 8, "in", MessageKind.UI_INPUT)
     await register(sessions, chat_id, 7, "out", MessageKind.DIALOGUE_ASSISTANT)
     await register(sessions, chat_id, 6, "out", MessageKind.DASHBOARD)
-    await register(sessions, chat_id, 5, "in", MessageKind.SESSION_START)
+    await backdate(sessions, chat_id, at + timedelta(minutes=1))
     source = TelegramHistorySource(
         FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
     )
@@ -92,18 +102,14 @@ async def test_history_fails_closed_and_starts_at_newsession(sessions) -> None:
     entries = await source.recent(chat_id)
 
     assert [(entry.kind, entry.text) for entry in entries] == [
-        (MessageKind.SESSION_START.value, "Help me plan a calmer week"),
         (MessageKind.DIALOGUE_ASSISTANT.value, "Hello — how can I help?"),
         (MessageKind.DIALOGUE_USER.value, "Hello Safwa"),
     ]
     dialogue = await source.dialogue(chat_id)
-    assert dialogue[0].content == "[Initial request]: Help me plan a calmer week"
-    assert [message.role for message in dialogue] == ["user", "assistant", "user"]
-    assert (await source.active_session_start(chat_id)).message_id == 5
-    assert source.client.entity_ids == [bot_id, bot_id, bot_id]
+    assert [message.role for message in dialogue] == ["assistant", "user"]
 
 
-async def test_summary_is_pinned_first_with_twenty_timestamped_prior_messages(sessions) -> None:
+async def test_summary_is_pinned_first_with_twenty_prior_messages(sessions) -> None:
     chat_id, owner_id, bot_id = 101, 42, 99
     at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
     older = [
@@ -125,22 +131,18 @@ async def test_summary_is_pinned_first_with_twenty_timestamped_prior_messages(se
         ),
         FakeTelegramMessage(
             98,
-            mark_kind(
-                "📜 Summary\nThe important earlier context.", MessageKind.SUMMARY
-            ),
+            mark_kind("📜 Summary\nThe important earlier context.", MessageKind.SUMMARY),
             bot_id,
             at + timedelta(minutes=98),
         ),
         *older,
-        FakeTelegramMessage(
-            67, "/newsession Start this project", owner_id, at + timedelta(minutes=67)
-        ),
     ]
     await register(sessions, chat_id, 100, "in", MessageKind.DIALOGUE_USER)
     await register(sessions, chat_id, 99, "out", MessageKind.DIALOGUE_ASSISTANT)
     await register(sessions, chat_id, 98, "out", MessageKind.SUMMARY)
     for message in older:
         await register(sessions, chat_id, message.id, "in", MessageKind.DIALOGUE_USER)
+    await backdate(sessions, chat_id, at)
     source = TelegramHistorySource(
         FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
     )
@@ -155,10 +157,39 @@ async def test_summary_is_pinned_first_with_twenty_timestamped_prior_messages(se
 
     dialogue = await source.dialogue(chat_id)
     assert dialogue[0].role == "user"
-    assert dialogue[0].content.startswith("[Summary]: The important earlier context.")
-    assert "[2026-08-08 13:18 UTC] User: Older Safwa dialogue 78" in dialogue[0].content
+    assert dialogue[0].content.startswith("[2026-08-08 13:38] [Summary]: The important")
+    assert "\n[User]: Older Safwa dialogue 78" in dialogue[0].content
+    # The whole window falls inside one hour, so it carries exactly one stamp.
+    assert dialogue[0].content.count("[2026-08-08") == 1
     assert dialogue[-2].role == "assistant"
     assert dialogue[-1].content == "[User]: Current turn"
+
+
+async def test_the_window_is_cut_on_a_message_boundary_when_the_budget_runs_out(
+    sessions,
+) -> None:
+    chat_id, owner_id, bot_id = 107, 42, 99
+    at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
+    messages = [
+        FakeTelegramMessage(
+            message_id,
+            f"{message_id} " + "word " * 40,
+            owner_id,
+            at + timedelta(minutes=message_id),
+        )
+        for message_id in range(9, 0, -1)
+    ]
+    for message in messages:
+        await register(sessions, chat_id, message.id, "in", MessageKind.DIALOGUE_USER)
+    await backdate(sessions, chat_id, at)
+    source = TelegramHistorySource(
+        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+    )
+
+    entries = await source.recent(chat_id, token_budget=250)
+
+    # Each message costs about 82 tokens, so three fit and the fourth is left whole.
+    assert [entry.message_id for entry in entries] == [7, 8, 9]
 
 
 async def test_private_chat_correlates_telethon_and_bot_api_message_ids(sessions) -> None:
@@ -172,7 +203,6 @@ async def test_private_chat_correlates_telethon_and_bot_api_message_ids(sessions
             bot_id,
             at + timedelta(seconds=1),
         ),
-        FakeTelegramMessage(95_001, "/newsession Initial request", owner_id, at),
     ]
     await register(sessions, chat_id, 13, "in", MessageKind.DIALOGUE_USER)
     await register(sessions, chat_id, 12, "out", MessageKind.DIALOGUE_ASSISTANT)
@@ -192,10 +222,9 @@ async def test_private_chat_correlates_telethon_and_bot_api_message_ids(sessions
         FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
     )
 
-    entries = await source.recent(chat_id, require_boundary=True)
+    entries = await source.recent(chat_id)
 
     assert [(entry.kind, entry.text) for entry in entries] == [
-        (MessageKind.SESSION_START.value, "Initial request"),
         (MessageKind.DIALOGUE_ASSISTANT.value, "Safwa answer"),
         (MessageKind.DIALOGUE_USER.value, "Continue"),
     ]
@@ -212,7 +241,6 @@ async def test_current_source_is_not_duplicated_across_telegram_id_spaces(sessio
             bot_id,
             at + timedelta(seconds=1),
         ),
-        FakeTelegramMessage(95_001, "/newsession Initial request", owner_id, at),
     ]
     await register(sessions, chat_id, 13, "in", MessageKind.DIALOGUE_USER)
     await register(sessions, chat_id, 12, "out", MessageKind.DIALOGUE_ASSISTANT)
@@ -243,95 +271,36 @@ async def test_current_source_is_not_duplicated_across_telegram_id_spaces(sessio
     dialogue = await source.dialogue(chat_id, source_message=current)
 
     assert dialogue[-1].role == "user"
-    assert dialogue[-1].content == "[User]: Как дела?"
+    assert dialogue[-1].content.endswith("[User]: Как дела?")
 
 
-async def test_dialogue_requires_a_newsession_or_summary_boundary(
-    sessions,
-) -> None:
+async def test_owner_text_older_than_every_registration_is_excluded(sessions) -> None:
     chat_id, owner_id, bot_id = 102, 42, 99
     at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
-    source_message = HistoryEntry(
-        message_id=3,
-        sender_id=owner_id,
-        role="user",
-        text="Привет",
-        created_at=at,
-        kind=MessageKind.DIALOGUE_USER.value,
-    )
-    source = TelegramHistorySource(
-        FakeTelegramClient(
-            [
-                FakeTelegramMessage(3, "Привет", owner_id, at),
-                FakeTelegramMessage(2, "Old unrelated text", owner_id, at - timedelta(minutes=1)),
-                FakeTelegramMessage(1, "Old bot UI", bot_id, at - timedelta(minutes=2)),
-            ]
-        ),
-        sessions,
-        bot_user_id=bot_id,
-        owner_id=owner_id,
-    )
-    await register(sessions, chat_id, 2, "in", MessageKind.DIALOGUE_USER)
-
-    with pytest.raises(HistoryBoundaryMissing, match="/newsession or Summary"):
-        await source.dialogue(chat_id, source_message=source_message)
-
-
-async def test_subsession_result_is_reassembled_as_parent_context(sessions) -> None:
-    chat_id, owner_id, bot_id = 103, 42, 99
-    at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
     messages = [
-        FakeTelegramMessage(5, "What should I do next?", owner_id, at + timedelta(minutes=3)),
-        FakeTelegramMessage(
-            4,
-            mark_kind(
-                "📦 Subsession request (continued)\nSecond result part.",
-                MessageKind.SUBSESSION_RESULT,
-            ),
-            bot_id,
-            at + timedelta(minutes=2),
-        ),
-        FakeTelegramMessage(
-            3,
-            mark_kind(
-                "📦 Subsession request\nFirst result part.",
-                MessageKind.SUBSESSION_RESULT,
-            ),
-            bot_id,
-            at + timedelta(minutes=1),
-        ),
-        FakeTelegramMessage(2, "Unrelated old private-chat text", owner_id, at),
+        FakeTelegramMessage(3, "Привет", owner_id, at),
+        FakeTelegramMessage(2, "Old unrelated text", owner_id, at - timedelta(hours=1)),
+        FakeTelegramMessage(1, "Old bot UI", bot_id, at - timedelta(hours=2)),
     ]
-    await register(sessions, chat_id, 5, "in", MessageKind.DIALOGUE_USER)
-    await register(sessions, chat_id, 4, "out", MessageKind.SUBSESSION_RESULT)
-    await register(sessions, chat_id, 3, "out", MessageKind.SUBSESSION_RESULT)
     source = TelegramHistorySource(
         FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
     )
+    await register(sessions, chat_id, 3, "in", MessageKind.DIALOGUE_USER)
+    await backdate(sessions, chat_id, at)
 
     entries = await source.recent(chat_id)
 
-    assert [(entry.kind, entry.text) for entry in entries] == [
-        (MessageKind.SUBSESSION_RESULT.value, "First result part.\nSecond result part."),
-        (MessageKind.DIALOGUE_USER.value, "What should I do next?"),
-    ]
-    dialogue = await source.dialogue(chat_id)
-    assert dialogue == [
-        type(dialogue[0])(
-            role="user",
-            content="[Subsession result]: First result part.\nSecond result part.\n"
-            "[User]: What should I do next?",
-        )
-    ]
+    assert [entry.text for entry in entries] == ["Привет"]
 
 
 async def test_dialogue_groups_every_user_message_until_the_next_ai_response(sessions) -> None:
     source = TelegramHistorySource(None, sessions, bot_user_id=99, owner_id=42)
+    at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
     entries = [
-        HistoryEntry(1, 42, "user", "First thought", datetime.now(UTC), "dialogue_user"),
-        HistoryEntry(2, 42, "user", "Second thought", datetime.now(UTC), "dialogue_user"),
-        HistoryEntry(3, 99, "assistant", "Safwa reply", datetime.now(UTC), "dialogue_assistant"),
-        HistoryEntry(4, 42, "user", "Follow-up", datetime.now(UTC), "dialogue_user"),
+        HistoryEntry(1, 42, "user", "First thought", at, "dialogue_user"),
+        HistoryEntry(2, 42, "user", "Second thought", at, "dialogue_user"),
+        HistoryEntry(3, 99, "assistant", "Safwa reply", at, "dialogue_assistant"),
+        HistoryEntry(4, 42, "user", "Follow-up", at + timedelta(hours=1), "dialogue_user"),
     ]
 
     async def recent(*_args, **_kwargs):
@@ -340,10 +309,11 @@ async def test_dialogue_groups_every_user_message_until_the_next_ai_response(ses
     source.recent = recent  # type: ignore[method-assign]
     dialogue = await source.dialogue(100)
 
+    # One stamp per hour of conversation, not one per message.
     assert [(item.role, item.content) for item in dialogue] == [
-        ("user", "[User]: First thought\n[User]: Second thought"),
+        ("user", "[2026-08-08 12:00] [User]: First thought\n[User]: Second thought"),
         ("assistant", "Safwa reply"),
-        ("user", "[User]: Follow-up"),
+        ("user", "[2026-08-08 13:00] [User]: Follow-up"),
     ]
 
 
@@ -359,7 +329,6 @@ async def test_colliding_id_space_does_not_drop_the_newest_dialogue_message(sess
             bot_id,
             at - timedelta(seconds=30),
         ),
-        FakeTelegramMessage(404, "/newsession Начнём", owner_id, at - timedelta(minutes=5)),
     ]
     await register(sessions, chat_id, 465, "in", MessageKind.DIALOGUE_USER)
     await register(sessions, chat_id, 464, "out", MessageKind.DIALOGUE_ASSISTANT)
@@ -384,10 +353,9 @@ async def test_colliding_id_space_does_not_drop_the_newest_dialogue_message(sess
         FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
     )
 
-    entries = await source.recent(chat_id, require_boundary=True)
+    entries = await source.recent(chat_id)
 
     assert [(entry.kind, entry.text) for entry in entries] == [
-        (MessageKind.SESSION_START.value, "Начнём"),
         (MessageKind.DIALOGUE_ASSISTANT.value, "Цель удалена."),
         (MessageKind.DIALOGUE_USER.value, "Создай задачу подтянуться 20 раз"),
     ]
@@ -398,9 +366,7 @@ async def test_kind_marks_rebuild_history_without_registrations(sessions) -> Non
     chat_id, owner_id, bot_id = 100, 42, 99
     at = datetime(2026, 8, 11, 12, 0, tzinfo=UTC)
     messages = [
-        FakeTelegramMessage(
-            14, "What should I do next?", owner_id, at + timedelta(days=1)
-        ),
+        FakeTelegramMessage(14, "What should I do next?", owner_id, at + timedelta(days=1)),
         FakeTelegramMessage(
             13, mark_kind("<b>Today</b>", MessageKind.DASHBOARD), bot_id, at + timedelta(minutes=3)
         ),
@@ -411,17 +377,14 @@ async def test_kind_marks_rebuild_history_without_registrations(sessions) -> Non
             at + timedelta(minutes=2),
         ),
         FakeTelegramMessage(11, "I want to stretch daily", owner_id, at + timedelta(minutes=1)),
-        FakeTelegramMessage(10, "/newsession Let us begin", owner_id, at),
-        FakeTelegramMessage(9, "Old unrelated private-chat message", owner_id, at - timedelta(1)),
     ]
     source = TelegramHistorySource(
         FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
     )
 
-    entries = await source.recent(chat_id, require_boundary=True)
+    entries = await source.recent(chat_id)
 
     assert [(entry.kind, entry.text) for entry in entries] == [
-        (MessageKind.SESSION_START.value, "Let us begin"),
         (MessageKind.DIALOGUE_USER.value, "I want to stretch daily"),
         (MessageKind.DIALOGUE_ASSISTANT.value, "Stretching sounds good."),
         (MessageKind.DIALOGUE_USER.value, "What should I do next?"),
@@ -446,13 +409,12 @@ async def test_item_links_read_back_as_the_citations_the_model_wrote(sessions) -
                 MessageEntityTextUrl(0, 2, "https://example.com/not-safwa"),
             ],
         ),
-        FakeTelegramMessage(20, "/newsession Let us begin", owner_id, at),
     ]
     source = TelegramHistorySource(
         FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
     )
 
-    entries = await source.recent(chat_id, require_boundary=True)
+    entries = await source.recent(chat_id)
 
     assert entries[-1].text == "🎯 Answer [Milk](check:14), then close [Market](card:12)."
 
@@ -466,20 +428,6 @@ def test_restore_citations_only_rewrites_safwa_deep_links() -> None:
     # A link that is not an item link is left exactly as the user reads it.
     for url in ("https://t.me/x?start=sprint-1", "https://t.me/safwa_ai_bot", "https://ok.dev"):
         assert restore_citations("Milk", [MessageEntityTextUrl(0, 4, url)]) == "Milk"
-
-
-async def test_unregistered_owner_text_without_a_boundary_stays_excluded(sessions) -> None:
-    chat_id, owner_id, bot_id = 100, 42, 99
-    at = datetime(2026, 8, 11, 12, 0, tzinfo=UTC)
-    messages = [
-        FakeTelegramMessage(3, "Old unrelated private-chat message", owner_id, at),
-        FakeTelegramMessage(2, "Another one", owner_id, at - timedelta(minutes=1)),
-    ]
-    source = TelegramHistorySource(
-        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
-    )
-
-    assert await source.recent(chat_id) == []
 
 
 def test_kind_mark_round_trips_and_is_invisible() -> None:
@@ -510,15 +458,13 @@ async def test_unmarked_bot_prose_is_excluded(sessions) -> None:
         FakeTelegramMessage(24, "<b>Today</b>", bot_id, at + timedelta(minutes=3), object()),
         FakeTelegramMessage(23, "Safwa plans your week.", bot_id, at + timedelta(minutes=2)),
         FakeTelegramMessage(22, "How does Safwa work?", owner_id, at + timedelta(minutes=1)),
-        FakeTelegramMessage(21, "/newsession Let us begin", owner_id, at),
     ]
     source = TelegramHistorySource(
         FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
     )
 
-    entries = await source.recent(chat_id, require_boundary=True)
+    entries = await source.recent(chat_id)
 
     assert [(entry.kind, entry.text) for entry in entries] == [
-        (MessageKind.SESSION_START.value, "Let us begin"),
         (MessageKind.DIALOGUE_USER.value, "How does Safwa work?"),
     ]

@@ -45,8 +45,8 @@ sequenceDiagram
     else Свободна
         C->>M: maintain_memory(chat_id)
         M->>F: sync и сохранить expected_hash
-        M->>DB: Прочитать processed_message_id
-        M->>H: recent(require_boundary=true)
+        M->>DB: Прочитать processed_until
+        M->>H: recent(since=cursor)
         H-->>M: Только новые канонические сообщения
         M->>M: Разбить примерно по 2K токенов с overlap
         loop Для каждого chunk
@@ -63,10 +63,10 @@ sequenceDiagram
         M->>F: replace_facts(facts, expected_hash)
         alt Hash не изменился
             F-->>M: Atomic replace выполнен
-            M->>DB: Обновить processed_message_id и file_hash
+            M->>DB: Обновить processed_until и file_hash
         else Было локальное изменение
             F-->>M: MemoryFileError; локальная версия сохранена
-            Note over M,DB: processed_message_id не продвигается
+            Note over M,DB: processed_until не продвигается
         end
     end
 ```
@@ -88,7 +88,7 @@ flowchart TD
     R --> S["Sync файла и SQLite mirror"]
 ```
 
-Изменение маркера `processed_message_id` происходит только после успешной атомарной записи. Это
+Изменение курсора `processed_until` происходит только после успешной атомарной записи. Это
 гарантирует повторную обработку диалога после сбоя и не позволяет AI затереть более свежую ручную
 правку.
 

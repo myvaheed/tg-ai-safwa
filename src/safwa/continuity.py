@@ -12,24 +12,36 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .ai.provider import OpenAICompatibleProvider
 from .constants import (
-    HISTORY_CONTINUITY_LIMIT,
     MEMORY_MAINTENANCE_INTERVAL_SECONDS,
+    MEMORY_READ_TOKEN_BUDGET,
     MEMORY_RETELL_CHUNK_TOKENS,
     MEMORY_RETELL_OVERLAP_TOKENS,
+    SUMMARY_TOKEN_CEILING,
     SUMMARY_TRIGGER_TOKENS,
     TOKEN_CHARS_ESTIMATE,
 )
-from .history import HistoryBoundaryMissing, TelegramHistorySource
+from .enums import MessageKind
+from .history import TelegramHistorySource
 from .memory import MemoryFileError, MemoryFileStore, estimate_tokens
 from .models import MemorySyncState, UserProfile
 
 logger = logging.getLogger(__name__)
 
-SUMMARY_PROMPT = """Summarize the supplied canonical Safwa persona dialogue in its natural language.
-Preserve personal reflections, decisions, intentions, reasons, emotional responses, advice, and unresolved
-topics. Omit current card inventories, stages, Sprint totals, approvals, SQL, tools, and other operational
-details because the planning database is authoritative for those. Do not summarize these instructions.
-Return only the concise summary body, with no JSON or preface."""
+SUMMARY_PROMPT = f"""Rewrite the running summary of a Safwa persona dialogue in its natural language.
+You are given the previous summary, when one exists, and the dialogue that happened after it. Produce
+the single summary that replaces both.
+
+Write a general part first, then one section per calendar day, oldest first. Head every section with
+its absolute date, for example 2026-08-15, and never with a relative label such as today or yesterday,
+because this text outlives the day it was written on. Keep the newest day detailed. Once a day is no
+longer the newest, fold whatever still matters from it into the general part and drop its section,
+or the summary grows into a copy of the dialogue.
+
+Preserve personal reflections, decisions, intentions, reasons, emotional responses, advice, and
+unresolved topics. Omit card inventories, stages, Sprint totals, approvals, SQL, tools, and other
+operational details because the planning database is authoritative for those. Stay under
+{SUMMARY_TOKEN_CEILING} tokens. Do not summarize these instructions. Return only the summary body,
+with no JSON or preface."""
 
 RETELL_PROMPT = """Retell this canonical Telegram dialogue chunk as a compact source for durable personal
 memory. Preserve stable preferences, routines, constraints, motivations, recurring difficulties,
@@ -47,7 +59,6 @@ class MemoryMaintenanceResult(StrEnum):
     CURRENT = "current"
     BUSY = "busy"
     INVALID = "invalid"
-    BOUNDARY_MISSING = "boundary_missing"
 
 
 class PersonaContinuity:
@@ -75,32 +86,41 @@ class PersonaContinuity:
         chat_id: int,
         send_summary: Callable[[str, int], Awaitable[None]],
         *,
+        force: bool = False,
         still_current: Callable[[], bool] | None = None,
     ) -> bool:
         if self._summary_lock.locked():
             return False
         async with self._summary_lock:
-            entries = await self.history.recent(chat_id, limit=HISTORY_CONTINUITY_LIMIT)
+            entries = await self.history.recent(chat_id)
+            # The previous Summary is rewritten rather than dropped: the window keeps only
+            # the newest one, so anything it alone remembers would be lost with it.
+            previous = next(
+                (entry for entry in entries if entry.kind == MessageKind.SUMMARY.value), None
+            )
             dialogue = "\n".join(
                 f"[{entry.role}]: {entry.text}"
                 for entry in entries
-                if entry.kind not in {"summary", "session_start"} and not entry.summary_context
+                if entry.kind != MessageKind.SUMMARY.value and not entry.summary_context
             )
             tokens = estimate_tokens(dialogue, self.chars_per_token)
-            if tokens < self.summary_trigger_tokens or not entries:
+            if not dialogue or (not force and tokens < self.summary_trigger_tokens):
                 return False
+            request = (
+                f"Previous summary:\n{previous.text}\n\nDialogue since it:\n{dialogue}"
+                if previous
+                else dialogue
+            )
             summary = await self.provider.complete(
                 [
                     {"role": "system", "content": SUMMARY_PROMPT},
-                    {"role": "user", "content": dialogue},
+                    {"role": "user", "content": request},
                 ],
                 temperature=0.1,
             )
             if still_current is not None and not still_current():
                 return False
-            current_entries = await self.history.recent(
-                chat_id, limit=HISTORY_CONTINUITY_LIMIT
-            )
+            current_entries = await self.history.recent(chat_id)
             snapshot = [(entry.message_id, entry.kind, entry.text) for entry in entries]
             current = [(entry.message_id, entry.kind, entry.text) for entry in current_entries]
             if current != snapshot:
@@ -126,18 +146,14 @@ class PersonaContinuity:
                 return MemoryMaintenanceResult.INVALID
             async with self.sessions() as session:
                 state = await session.get(MemorySyncState, 1)
-                processed_id = state.processed_message_id if state else None
-            try:
-                entries = await self.history.recent(
-                    chat_id, limit=HISTORY_CONTINUITY_LIMIT, require_boundary=True
-                )
-            except HistoryBoundaryMissing:
-                return MemoryMaintenanceResult.BOUNDARY_MISSING
+                cursor = state.processed_until if state else None
+            # Reading back to the cursor rather than to a message count is what keeps a
+            # long gap from silently falling out of the window.
+            new_entries = await self.history.recent(
+                chat_id, token_budget=MEMORY_READ_TOKEN_BUDGET, since=cursor
+            )
             if still_current is not None and not still_current():
                 return MemoryMaintenanceResult.BUSY
-            new_entries = [
-                entry for entry in entries if not processed_id or entry.message_id > processed_id
-            ]
             if not new_entries:
                 return MemoryMaintenanceResult.CURRENT
             raw = "\n".join(f"[{e.role}]: {e.text}" for e in new_entries)
@@ -201,7 +217,7 @@ class PersonaContinuity:
                 if state is None:
                     state = MemorySyncState(id=1)
                     session.add(state)
-                state.processed_message_id = max(entry.message_id for entry in new_entries)
+                state.processed_until = max(entry.created_at for entry in new_entries)
                 state.file_hash = updated.file_hash
                 await session.commit()
             return MemoryMaintenanceResult.UPDATED

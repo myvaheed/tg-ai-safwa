@@ -182,15 +182,15 @@ The static and planning blocks contain:
 
 Every item in those lists is written as the citation the model reuses in a reply, `[name](kind:id)`.
 
-The system message deliberately carries no Sprint metrics and no precomputed Card candidates: the model reaches those through `query_safwa` over `ai_current_sprint_metrics` and `ai_cards`, so context stays small and never goes stale. The dialogue turns that follow already carry the nearest Summary or `/newsession` boundary applied by the history source. Tool schemas are supplied through the provider's native function-calling parameter, not inlined in the prompt.
+The system message deliberately carries no Sprint metrics and no precomputed Card candidates: the model reaches those through `query_safwa` over `ai_current_sprint_metrics` and `ai_cards`, so context stays small and never goes stale. The dialogue turns that follow are already bounded by the history source's token budget. Tool schemas are supplied through the provider's native function-calling parameter, not inlined in the prompt.
 
 ## History and memory
 
-The private Telegram conversation is canonical persona history. Telethon rereads it for each advisor turn. Include ordinary user dialogue, final generated Safwa replies, visible summaries, `/newsession`, and subsession results. Exclude menus, forms, proposal UIs, receipts, callbacks, SQL, tool traces, status/errors, reminders classified as operational, and retrospective PNGs.
+The private Telegram conversation is canonical persona history. Telethon rereads it for each advisor turn. Include ordinary user dialogue, final generated Safwa replies, and visible summaries. Exclude menus, forms, proposal UIs, receipts, callbacks, SQL, tool traces, status/errors, reminders classified as operational, and retrospective PNGs.
 
-- `/newsession <initial request>` or the nearest visible `📜 Summary` is required as the history boundary.
-- A Summary boundary is followed by up to 20 older canonical messages with short timestamps, then newer dialogue.
-- Summarization triggers around 10K unsummarized dialogue tokens.
+- The window is a token budget: roughly 8K tokens of messages, cut on a message boundary, stopping at the nearest visible `📜 Summary` or at the oldest message Safwa recorded.
+- A Summary is followed by up to 20 older canonical messages, then newer dialogue. A local timestamp is prepended once per hour of conversation.
+- Summarization triggers around 6K unsummarized dialogue tokens, and `/summarize` forces it. A new Summary rewrites the previous one.
 - `data/memory.md` is authoritative, line-oriented persona memory and is limited to approximately 4K tokens.
 - File edits synchronize at startup, before memory-backed prompts/maintenance, and through a five-second hash watcher.
 - `/syncmem`, `/mem`, `/memory`, and `/setmemtime` provide explicit memory control. Existing facts are edited or removed only through `data/memory.md`.

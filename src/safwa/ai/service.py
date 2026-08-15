@@ -114,11 +114,6 @@ def _allows_parent(child_kind: str | None, parent_kind: str | None) -> bool:
         return parent_kind in {CardKind.GOAL.value, CardKind.IDEA.value}
     return False
 
-SUBSESSION_RESULT_PROMPT = """Compress this isolated Safwa planning/advisory branch into one concise
-context message for the parent conversation. Preserve concrete outcomes, decisions, personal insights,
-unresolved issues, and any planning implications. Write in the conversation's language. Do not mention
-summaries, sessions, prompts, tools, SQL, or AI. Do not claim unapproved changes happened."""
-
 QUERY_SAFWA_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -801,8 +796,7 @@ class AIAdvisor:
                 ),
             },
         ]
-        # The history source has already applied the real Telegram session or
-        # Summary boundary and the 20-message summary context policy.
+        # The history source has already bounded the window by its token budget.
         messages.extend({"role": item.role, "content": item.content} for item in dialogue)
         if self.cache_breakpoints:
             messages[0] = _cache_breakpoint(messages[0])
@@ -811,25 +805,6 @@ class AIAdvisor:
                 messages[-1] = _cache_breakpoint(messages[-1])
         messages.append({"role": "system", "content": context.clock})
         return messages
-
-    async def compress_subsession(
-        self, dialogue: list[DialogueMessage], instruction: str = ""
-    ) -> str:
-        """Return a compact, natural-language result before a subsession is removed."""
-        transcript = "\n".join(f"[{item.role.title()}]: {item.content}" for item in dialogue)
-        if not transcript.strip():
-            raise DomainError("The subsession has no canonical Safwa dialogue to compress")
-        suffix = f"\n\nUser instruction:\n{instruction.strip()}" if instruction.strip() else ""
-        return await self.provider.complete(
-            [
-                {"role": "system", "content": SUBSESSION_RESULT_PROMPT},
-                {
-                    "role": "user",
-                    "content": f"<subsession_history>\n{transcript}\n</subsession_history>{suffix}",
-                },
-            ],
-            temperature=0.1,
-        )
 
     async def _provider_turn(self, messages: list[dict[str, Any]]) -> ProviderTurn:
         _log_provider_request(messages)
