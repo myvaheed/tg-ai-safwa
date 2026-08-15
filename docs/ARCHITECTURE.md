@@ -46,7 +46,7 @@ not one package per layer:
 | domain | [domain.py](../src/safwa/domain.py), [enums.py](../src/safwa/enums.py), [models.py](../src/safwa/models.py), [saved_requests.py](../src/safwa/saved_requests.py), [reminders.py](../src/safwa/reminders.py) |
 | application | [domain.py](../src/safwa/domain.py) (mutations), [ai/service.py](../src/safwa/ai/service.py) (`ProposalService`), [continuity.py](../src/safwa/continuity.py), [scheduler.py](../src/safwa/scheduler.py), [analytics.py](../src/safwa/analytics.py) |
 | infrastructure | [db.py](../src/safwa/db.py), [history.py](../src/safwa/history.py), [memory.py](../src/safwa/memory.py), [ai/provider.py](../src/safwa/ai/provider.py), [ai/sql.py](../src/safwa/ai/sql.py), [backup.py](../src/safwa/backup.py) |
-| telegram | [telegram/](../src/safwa/telegram) (15 modules, ~5.5k lines) |
+| telegram | [telegram/](../src/safwa/telegram) (16 modules, ~5.5k lines) |
 | ai | [ai/](../src/safwa/ai) (context, contracts, diary, mini, provider, reminder_sessions, service, sql, subagents) |
 | bootstrap | [main.py](../src/safwa/main.py), [config.py](../src/safwa/config.py), [constants.py](../src/safwa/constants.py), [recovery.py](../src/safwa/recovery.py), [qa.py](../src/safwa/qa.py) |
 
@@ -63,7 +63,7 @@ _presentation.py    pure text/labels/markup/paging — no session, no bot
    ↑
 _messaging.py       every send/edit/delete + MessageKind registration + token buttons
    ↑
-cards.py  checks.py  items.py    render modules
+cards.py  checks.py  items.py  diary.py    render modules
    ↑
 screens.py  proposals.py    what one AI turn shows: cited items, the review screen
    ↑
@@ -161,16 +161,22 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
   `reminder`, `remove`, `propose_diary_update`
   (`SAFWA_TOOLS`, [ai/service.py](../src/safwa/ai/service.py)).
   `call_subagent` is offered only when a `SubagentRunner` is wired.
-- Offering an item is not a tool. The model cites it in its own prose as `[Milk](check:14)`. The five
-  openable types are Card, Check, Tag, Value and Saved Request; `render_citations`
+- Offering an item is not a tool. The model cites it in its own prose as `[Milk](check:14)`. The six
+  openable types are Card, Check, Tag, Value, Saved Request and Diary day; `render_citations`
   ([telegram/screens.py](../src/safwa/telegram/screens.py)) rewrites each citation of the escaped
   reply into `<a href="https://t.me/<bot>?start=check-14">`. The href is built from a validated id and
   `SAFWA_TELEGRAM_BOT_USERNAME`, never from the model, and the payload separator is `-` because
   `?start=` accepts only `[A-Za-z0-9_-]`. An id that is missing or archived keeps its words and loses its link: the reply is
   a `DIALOGUE_ASSISTANT` message that stays in the chat, so a dead link would stay with it.
+- A `diary:` citation is the one the advisor never authors — it cannot read the Diary and only copies
+  what its `diary` subagent returned. Its **label** is rebuilt from the entry as well (`diary_label`
+  → `04.03.2026 [6 🙂]`), so the date and score on the link are always the saved ones; that bracketed
+  score is why `CITATION_PATTERN` permits one level of nesting inside a label.
 - Tapping one sends `/start check-14`. The middleware deletes that command and `command_start`
   (`start_payload` → `open_citation` → `open_item_screen`) sends the item's manual screen as a new
   message, leaving the reply above it intact. A vanished item answers `⚠️ Error while opening: …`.
+  `diary-12` opens [telegram/diary.py](../src/safwa/telegram/diary.py) `render_diary`: the whole day,
+  read-only and without a single button, because the Diary is written through proposals alone.
 - The `card` tool writes **every** Card link — `value_*`, `tag_*`, `check_*`, one relationship group per
   `link`/`unlink` call. The `check` tool only creates, edits and answers a Check; it never attaches one.
   Since the UI cannot create, rename or (un)link a Check, those paths exist only here.
@@ -230,19 +236,26 @@ terminal report; the terminal call *is* the answer, and prose is fed back as a r
   `AgentRun` id.
 - The roster is prose in `SYSTEM_PROMPT` (`# Subagents`) — a static block inside the cacheable
   prefix. There is no discovery tool, so **a subagent missing from that section cannot be called**.
-- **Diary** ([ai/diary.py](../src/safwa/ai/diary.py)): settles the whole change — which day, which
-  entry, and whether that day is written or removed. It works the date out from the owner's words,
-  so the advisor never has to. It reads that day's conversation
-  (`TelegramHistorySource.day_transcript`) *and* `ai_diary`, `ai_card_events`, `ai_checks`, because
-  work done from the buttons never reaches the conversation and what the day felt like never reaches
-  the database. It has `query_safwa`, so its own prompt lists those views — one it is not told about
-  is one it cannot use. Its prompt also fixes the entry's language rather than inheriting the
-  advisor's. `diary_report` carries `date` plus exactly one of `entry` (with a remark), `remove`, or
-  `question`.
+- **Diary** ([ai/diary.py](../src/safwa/ai/diary.py)): owns the Diary outright. `ai_diary` is absent
+  from the advisor's `SYSTEM_PROMPT`, so reading a day, writing one, rewriting one and removing one
+  all arrive here. It settles the whole change — which day, which entry, and whether that day is
+  written or removed — and works the date out from the owner's words, so the advisor never has to. It
+  reads that day's conversation (`TelegramHistorySource.day_transcript`), `observe_stamp` for a draft
+  already offered, *and* `ai_diary`, `ai_card_events`, `ai_checks`, because work done from the buttons
+  never reaches the conversation and what the day felt like never reaches the database. It has
+  `query_safwa`, so its own prompt lists those views — one it is not told about is one it cannot use.
+  Its prompt also fixes the entry's language rather than inheriting the advisor's.
+- `diary_report` carries exactly one of `entry` (with `date`, a remark and a `feeling_score`),
+  `remove` (with `date`), `answer`, or `question`. `answer` is the read-only ending: it cites each day
+  as `[dd.mm.yyyy](diary:<id>)` for the advisor to relay word for word, and issues no stamp.
+- `feeling_score` is 0–10 and nullable, stored on `diary_entries` and carried by the stamp.
+  `FEELING_SCORE_EMOJI` ([constants.py](../src/safwa/constants.py)) is the whole scale; the
+  `# Feeling score` block of `DIARY_PROMPT` is the whole rubric. 5 is an ordinary day, and **0 is
+  never the model's choice** — only the owner's own word.
 - The report becomes a `diary_stamps` row carrying the whole change — date, host-resolved `entry_id`,
-  `action`, body, remark — and the advisor receives only the stamp, the date, the action, the
-  character count, and the remark. The body never travels through the advisor, which is what stops it
-  being silently edited.
+  `action`, body, score, remark — and the advisor receives only the stamp, the date, the action, the
+  character count, the score, and the remark. The body never travels through the advisor, which is
+  what stops it being silently edited.
 - `propose_diary_update(stamp)` takes nothing else: preparation reads the row back and fills in the
   change's action, target, and values. A missing or expired stamp is a retryable
   `ToolPreparationError`.
@@ -251,8 +264,13 @@ terminal report; the terminal call *is* the answer, and prose is fed back as a r
   save. Unspent, a stamp expires at the end of the local day it was *issued* on, so a back-dated
   entry gets the same working life as today's.
 - A `diary_entries` row is one local date — `entry_date` is UNIQUE, so a second draft for a day
-  updates it. The remark is screen-only and is not stored, and the entry text reaches the
-  conversation in full through both receipts.
+  updates it. The remark is screen-only and is not stored.
+- **No receipt carries the day.** `_diary_detail_lines` gives the date, the score, a character count
+  and `Draft: <stamp>`; the entry itself appears only on the review screen and on `render_diary`. A
+  receipt stays in the conversation and would be re-read on every later turn, so `observe_stamp`
+  replaces it: the subagent reads a refused draft back from its stamp and a saved day from `ai_diary`.
+  Because only the conversation carries a stamp into the next turn, a resolved Diary change that was
+  not approved tells the advisor to end its reply with that `Draft:` line.
 - The nightly ask is an ordinary Reminder marked `system`, derived from Settings by
   `sync_diary_reminder` and rebuilt at startup: the Settings screen's Diary time moves it or, on
   `off`, deletes it, and the Diary instruction is appended to its text. It is hidden from `/reminders`
@@ -274,9 +292,11 @@ Pending is a null column. It is also the only route to a Check linked to no Card
 needs no join view: `ai_cards` carries `direct_checks` (titles) and `pending_checks` (count).
 
 Views are dropped and rebuilt by `create_ai_views` **on every startup** — change view shape there,
-never with a migration. A new view must be added to `ALLOWED_VIEWS` *and* to the view list inside
-`SYSTEM_PROMPT` ([ai/context.py:20](../src/safwa/ai/context.py:20)) or the model cannot use it. The
-same function drops the `card_search` FTS5 table and its triggers from older databases.
+never with a migration. A new view must be added to `ALLOWED_VIEWS` *and* to the view list of every
+prompt that should reach it, or that reader cannot use it. `ALLOWED_VIEWS` is shared by every reader,
+so the prompt is what scopes one: `ai_diary` is allowed, and only `DIARY_PROMPT` names it — which is
+what keeps the advisor out of the Diary. The same function drops the `card_search` FTS5 table and its
+triggers from older databases.
 
 Saved Requests reuse the same validator plus two extra rules (`normalize_request_sql`): the query must
 mention `ai_cards` and return a column named `id`.

@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from safwa.ai.diary import DiarySubagent
 from safwa.ai.provider import ProviderToolCall, ProviderTurn
-from safwa.ai.service import ProposalService, query_read_tool
+from safwa.ai.service import ProposalService, _resolved_tool_result, query_read_tool
 from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.domain import create_diary_entry
 from safwa.models import DiaryEntry, DiaryStamp
@@ -81,7 +81,17 @@ async def test_a_draft_travels_from_the_subagent_to_a_saved_entry(e2e_harness):
     subagent = diary_for(
         e2e_harness,
         turn(("read_day", {})),
-        turn(("diary_report", {"date": TODAY, "entry": "Рынок закрыл.", "remark": "One thing held."})),
+        turn(
+            (
+                "diary_report",
+                {
+                    "date": TODAY,
+                    "entry": "Рынок закрыл.",
+                    "feeling_score": 7,
+                    "remark": "One thing held.",
+                },
+            )
+        ),
     )
     advisor, _ = e2e_harness.advisor(
         [
@@ -100,11 +110,14 @@ async def test_a_draft_travels_from_the_subagent_to_a_saved_entry(e2e_harness):
     async with e2e_harness.sessions() as session:
         entries = list(await session.scalars(select(DiaryEntry)))
         spent = await session.get(DiaryStamp, stamp.stamp)
-    assert [entry.body for entry in entries] == ["Рынок закрыл."]
+    assert [(entry.body, entry.feeling_score) for entry in entries] == [("Рынок закрыл.", 7)]
     assert affected == [entries[0].id]
     assert entries[0].entry_date.isoformat() == TODAY
-    # The receipt carries the whole entry, so the model reads the saved day back.
-    assert "Entry: Рынок закрыл." in description.fields
+    # The receipt names the draft rather than repeating the day into the conversation.
+    assert "Entry: 13 characters" in description.fields
+    assert "Feeling: 7" in description.fields
+    assert f"Draft: {stamp.stamp}" in description.fields
+    assert not any("Рынок закрыл" in field for field in description.fields)
     assert description.summary == f"New Diary entry for {TODAY}"
     # Saving settles the day, so the stamp behind it is spent.
     assert spent is None
@@ -238,6 +251,65 @@ async def test_a_discarded_change_survives_but_a_saved_day_clears_every_draft(e2
     # The older draft describes the day as it was; re-proposing it would revert the save.
     assert remaining == []
     assert [entry.body for entry in entries] == ["Второй черновик."]
+
+
+async def test_a_resolved_diary_change_hands_back_the_stamp_and_not_the_day(e2e_harness):
+    subagent = diary_for(
+        e2e_harness,
+        turn(("diary_report", {"date": TODAY, "entry": "Длинный день.", "remark": "Held."})),
+    )
+    advisor, _ = e2e_harness.advisor(
+        [turn(("call_subagent", {"name": "diary", "request": "Запиши день."})), "Готово."],
+        subagents=(subagent,),
+    )
+    await advisor.handle("Запиши день")
+    stamp = await _newest_stamp(e2e_harness)
+
+    advisor, _ = e2e_harness.advisor([turn(("propose_diary_update", {"stamp": stamp.stamp}))])
+    proposal = await advisor.handle("Покажи")
+    async with e2e_harness.sessions() as session:
+        description = await advisor.describe_proposal(session, proposal.proposal_id or 0)
+    resolved = _resolved_tool_result(
+        {
+            "change": {"entity": "diary", "action": "create", "values": {"stamp": stamp.stamp}},
+            "details": description.fields,
+        },
+        "discarded",
+        {},
+    )
+
+    # The advisor never reads the day, and the stamp is what survives into the conversation.
+    assert not any("Длинный день" in field for field in resolved["fields"])
+    assert f"Draft: {stamp.stamp}" in resolved["fields"]
+    assert f"`Draft: {stamp.stamp}`" in resolved["next"]
+
+
+async def test_a_reading_request_comes_back_as_an_answer_and_settles_nothing(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        entry = await create_diary_entry(
+            session, entry_date=date.today(), body="Рынок закрыл.", feeling_score=7
+        )
+        await session.commit()
+        entry_id = entry.id
+    cited = f"[04.03.2026](diary:{entry_id})"
+    subagent = diary_for(
+        e2e_harness, turn(("diary_report", {"answer": f"Тот день: {cited}."}))
+    )
+    advisor, _ = e2e_harness.advisor(
+        [
+            turn(("call_subagent", {"name": "diary", "request": "Что я писал сегодня?"})),
+            f"Ты писал: {cited}.",
+        ],
+        subagents=(subagent,),
+    )
+
+    outcome = await advisor.handle("Что я писал сегодня в дневнике?")
+
+    # Reading proposes nothing, and the day travels back as a link the owner can open.
+    assert outcome.proposal_id is None
+    assert cited in outcome.message
+    async with e2e_harness.sessions() as session:
+        assert list(await session.scalars(select(DiaryStamp))) == []
 
 
 async def test_a_stamp_the_advisor_invented_is_refused_and_retryable(e2e_harness):

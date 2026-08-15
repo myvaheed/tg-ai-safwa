@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..ai.service import AIOutcome, failure_reason
+from ..constants import FEELING_SCORE_EMOJI
 from ..domain import (
     CARD_REFERENCE_SPECS,
     DomainError,
@@ -108,7 +109,7 @@ async def _proposal_item_state(
     elif change.entity == "diary" and change.entity_id:
         entry = await session.get(DiaryEntry, change.entity_id)
         if entry is not None:
-            current = {"body": entry.body}
+            current = {"body": entry.body, "feeling_score": entry.feeling_score}
     elif change.entity == "check" and change.entity_id:
         check = await session.get(Check, change.entity_id)
         if check is not None:
@@ -294,7 +295,11 @@ async def render_proposal(
                     f"{html.escape(_display_diff_value(proposed.get('repeatable')))}"
                 )
             elif change.entity == "diary":
+                shown = current if change.action == "delete" else proposed
                 heading = f"Date: {html.escape(str(proposed.get('entry_date') or ''))}"
+                if shown.get("feeling_score") is not None:
+                    score = int(shown["feeling_score"])
+                    heading += f"\nFeeling: {score} {FEELING_SCORE_EMOJI[score]}"
                 if change.action == "update":
                     heading += "\nThis replaces the entry already saved for that day."
                 elif change.action == "delete":

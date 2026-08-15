@@ -63,7 +63,8 @@ shared choice tables) ← [_presentation.py](src/safwa/telegram/_presentation.py
 markup, paging — touches neither a session nor the bot) ← [_messaging.py](src/safwa/telegram/_messaging.py)
 (every send/edit/delete plus the `MessageKind` registration) ← the render modules
 [cards.py](src/safwa/telegram/cards.py), [items.py](src/safwa/telegram/items.py),
-[checks.py](src/safwa/telegram/checks.py) ← [screens.py](src/safwa/telegram/screens.py) and
+[checks.py](src/safwa/telegram/checks.py), [diary.py](src/safwa/telegram/diary.py)
+← [screens.py](src/safwa/telegram/screens.py) and
 [proposals.py](src/safwa/telegram/proposals.py) ← the handler modules
 [commands.py](src/safwa/telegram/commands.py), [callbacks.py](src/safwa/telegram/callbacks.py),
 [dialogue.py](src/safwa/telegram/dialogue.py). Only those last three register `@router` handlers, and
@@ -107,8 +108,8 @@ Pydantic model in [ai/contracts.py](src/safwa/ai/contracts.py) → `AgentChange`
 `ProposalService.apply` calls the *same* `domain.py` functions the manual UI calls.
 **Every** proposal screen is exactly Save/Discard; a screen that needs a field control is the wrong
 screen. When the decision is the user's, the model **cites** the item instead of proposing one — no
-tool, just Markdown in its reply ([telegram/screens.py](src/safwa/telegram/screens.py)). The five
-openable citation types are Card, Check, Tag, Value, and Saved Request:
+tool, just Markdown in its reply ([telegram/screens.py](src/safwa/telegram/screens.py)). The six
+openable citation types are Card, Check, Tag, Value, Saved Request, and Diary day:
 
 - The model writes `[Milk](check:14)`; `render_citations` escapes the reply first, then rewrites each
   citation into `<a href="https://t.me/<bot>?start=check-14">`. The href is **built here from a
@@ -117,6 +118,10 @@ openable citation types are Card, Check, Tag, Value, and Saved Request:
   while the model writes `:`.
 - Citations are resolved before sending: an id that is missing or archived keeps its words and loses
   its link, because a `DIALOGUE_ASSISTANT` message stays in the chat for good and a dead link with it.
+- `diary:` is the one type the advisor never writes: it cannot read the Diary, so it only copies a
+  `[04.03.2026](diary:12)` its `diary` subagent handed back. The label is rebuilt here too, from the
+  entry — `diary_label` gives `04.03.2026 [6 🙂]`, so the date and score on the link are the saved
+  ones. That bracketed score is why `CITATION_PATTERN` allows one level of nesting in a label.
 - The codec lives in [history.py](src/safwa/history.py) next to `mark_message`, for the same reason:
   Telethon returns plain text, so `restore_citations` reads the link entities of every message back
   into `[Milk](check:14)`. Without it the model rereads its own citations as bare words and unlearns
@@ -158,30 +163,43 @@ The roster is prose in `SYSTEM_PROMPT` under `# Subagents` — there is no disco
 subagent must be added *both* to the runner in [main.py](src/safwa/main.py) *and* to that section,
 exactly like a new `ai_*` view.
 
-The Diary subagent ([ai/diary.py](src/safwa/ai/diary.py)) **settles the whole change itself** — which
-day, which entry, and whether that day is written or removed. The advisor only passes the owner's
-words through and proposes the result. It reads the day's conversation (`day_transcript`, a period
-walked with `stop_at_summary=False` and closed at both ends) **and** `ai_diary`, `ai_card_events`,
-`ai_checks`, because manual UI work never reaches the conversation and the day's mood never reaches
-the database. Its own prompt names those views: it has `query_safwa`, so a view it is not told about
-is a view it cannot use. `diary_report` carries `date` plus exactly one of `entry` (with a remark),
-`remove`, or `question`.
+The Diary subagent ([ai/diary.py](src/safwa/ai/diary.py)) **owns the Diary outright**: the advisor
+has no `ai_diary` in its prompt, so reading a day, writing one, rewriting one and removing one all go
+through `call_subagent("diary", …)`. It settles the whole change itself — which day, which entry, and
+whether that day is written or removed — while the advisor only passes the owner's words through and
+proposes the result. It reads the day's conversation (`day_transcript`, a period walked with
+`stop_at_summary=False` and closed at both ends), `observe_stamp` for a draft already offered, **and**
+`ai_diary`, `ai_card_events`, `ai_checks`, because manual UI work never reaches the conversation and
+the day's mood never reaches the database. Its own prompt names those views: it has `query_safwa`, so
+a view it is not told about is a view it cannot use. `diary_report` carries exactly one of `entry`
+(with `date`, a remark and a `feeling_score`), `remove` (with `date`), `answer`, or `question`.
+`answer` is the read-only ending: it cites each day as `[dd.mm.yyyy](diary:<id>)` for the advisor to
+relay, and issues no stamp.
+
+`feeling_score` is 0–10, nullable, and stored on the entry. The scale, its emoji and its one hard
+rule live in one place each: `FEELING_SCORE_EMOJI` ([constants.py](src/safwa/constants.py)) and the
+`# Feeling score` block of `DIARY_PROMPT`. 5 is an ordinary day; **0 is never the model's choice**,
+only the owner's own word.
 
 The report becomes a `diary_stamps` row holding the whole change — date, `entry_id` resolved
-host-side, `action`, body, remark — and the advisor receives only the stamp, the date, the action,
-the length, and the remark. `propose_diary_update(stamp)` therefore takes **nothing else**:
-preparation reads the row back and fills in `AgentChange.action`, `.id` and `.values`, so the model
-cannot rewrite an entry, retarget it, or move it to another day. A missing or expired stamp is a
-retryable `ToolPreparationError`. Discard leaves the stamp alone, so the same change is re-offered
-from it; **Save clears every stamp for that date**, because an older draft still describes the day as
-it was and re-proposing one would revert what the owner just approved. Unspent, it expires at the end
-of the local day it was **issued** on, not the day it describes, so a back-dated entry gets the same
-working life as today's.
+host-side, `action`, body, score, remark — and the advisor receives only the stamp, the date, the
+action, the length, the score, and the remark. `propose_diary_update(stamp)` therefore takes
+**nothing else**: preparation reads the row back and fills in `AgentChange.action`, `.id` and
+`.values`, so the model cannot rewrite an entry, retarget it, or move it to another day. A missing or
+expired stamp is a retryable `ToolPreparationError`. Discard leaves the stamp alone, so the same
+change is re-offered from it; **Save clears every stamp for that date**, because an older draft still
+describes the day as it was and re-proposing one would revert what the owner just approved. Unspent,
+it expires at the end of the local day it was **issued** on, not the day it describes, so a
+back-dated entry gets the same working life as today's.
 
 A `diary_entries` row is one local date (`entry_date` is UNIQUE), so a second draft for a day updates
-rather than adds; the remark is screen-only and never stored. Both receipts carry the entry in full —
-that is how the model reads the saved day back — so `_diary_detail_lines` bypasses the 100-character
-cut every other detail line takes.
+rather than adds; the remark is screen-only and never stored. The review screen shows the day in
+full, but **no receipt ever does**: `_diary_detail_lines` gives the date, the score, a character
+count and `Draft: <stamp>`, because a receipt stays in the conversation and would be re-read on every
+later turn. That is what `observe_stamp` is for — the subagent reads a refused draft back from its
+stamp, and a saved day from `ai_diary`. A resolved Diary change that was not approved therefore tells
+the advisor to end its reply with the `Draft:` line, since only the conversation carries a stamp into
+the next turn.
 
 ### Read-only SQL is triple-guarded
 

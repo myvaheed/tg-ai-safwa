@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import html
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from ..constants import PAGE_SIZE, PROPOSAL_OUTCOME_DETAIL_LIMIT, TELEGRAM_TEXT_LIMIT
+from ..constants import (
+    DIARY_DATE_FORMAT,
+    FEELING_SCORE_EMOJI,
+    PAGE_SIZE,
+    PROPOSAL_OUTCOME_DETAIL_LIMIT,
+    TELEGRAM_TEXT_LIMIT,
+)
 from ..enums import CardKind, Category, EnergyType, Priority
 from ..models import Card, ProposalChange
 
@@ -34,6 +40,13 @@ ENERGY_EMOJIS = {
     EnergyType.SOCIAL.value: "🤝",
     EnergyType.VALUES.value: "💎",
 }
+
+
+def diary_label(entry_date: date, feeling_score: int | None) -> str:
+    """How a Diary day is named everywhere: on its screen, and on the link that opens it."""
+    written = entry_date.strftime(DIARY_DATE_FORMAT)
+    emoji = FEELING_SCORE_EMOJI.get(feeling_score) if feeling_score is not None else None
+    return f"{written} [{feeling_score} {emoji}]" if emoji else written
 
 
 def typed_label(value: Any, emojis: dict[str, str]) -> str:

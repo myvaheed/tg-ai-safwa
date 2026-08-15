@@ -464,15 +464,21 @@ class DiaryProposalInput(ToolInput):
 
 
 class DiaryReportInput(ToolInput):
-    """The Diary subagent's one ending: a day rewritten, a day removed, or a question."""
+    """The Diary subagent's one ending: a day written, a day removed, an answer, or a question."""
 
     date: str | None = Field(
         default=None,
-        description="The day this report settles, as YYYY-MM-DD. Required unless sending question.",
+        description="The day this report settles, as YYYY-MM-DD. Required with entry or remove.",
     )
     entry: str | None = Field(
         default=None,
         description="That whole day in the owner's voice. It replaces the saved entry.",
+    )
+    feeling_score: int | None = Field(
+        default=None,
+        ge=0,
+        le=10,
+        description="How the day felt, 0-10. Send it with entry. Omit it when the day is silent.",
     )
     remark: str | None = Field(
         default=None,
@@ -480,6 +486,13 @@ class DiaryReportInput(ToolInput):
     )
     remove: bool = Field(
         default=False, description="True instead of entry, to delete that day's entry."
+    )
+    answer: str | None = Field(
+        default=None,
+        description=(
+            "Instead of entry, when the owner only asked to read the Diary. Cite every day "
+            "as [dd.mm.yyyy](diary:<id>)."
+        ),
     )
     question: str | None = Field(
         default=None, description="Instead of entry, when the day holds nothing to write yet."
@@ -497,12 +510,14 @@ class DiaryReportInput(ToolInput):
 
     @model_validator(mode="after")
     def exactly_one_shape(self) -> DiaryReportInput:
-        if sum([bool(self.entry), self.remove, bool(self.question)]) != 1:
+        if sum([bool(self.entry), self.remove, bool(self.answer), bool(self.question)]) != 1:
             raise ValueError(
-                "Send exactly one of entry (the day's text), remove, or question"
+                "Send exactly one of entry (the day's text), remove, answer, or question"
             )
-        if not self.question and not self.date:
+        if (self.entry or self.remove) and not self.date:
             raise ValueError("date is required for an entry or a removal")
+        if self.feeling_score is not None and not self.entry:
+            raise ValueError("feeling_score belongs to an entry")
         return self
 
 

@@ -11,11 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..domain import DomainError
 from ..enums import MessageKind
 from ..history import CITATION_PATTERN, citation_payload, parse_citation_payload
-from ..models import Card, Check, SavedRequest, Tag, Value
+from ..models import Card, Check, DiaryEntry, SavedRequest, Tag, Value
 from ._core import Services
 from ._messaging import send_registered
+from ._presentation import diary_label
 from .cards import render_card
 from .checks import render_check
+from .diary import render_diary
 from .items import render_item_editor, render_saved_request
 
 logger = logging.getLogger(__name__)
@@ -26,6 +28,7 @@ OPENABLE_MODELS: dict[str, Any] = {
     "tag": Tag,
     "value": Value,
     "request": SavedRequest,
+    "diary": DiaryEntry,
 }
 
 
@@ -57,6 +60,8 @@ async def open_item_screen(
         await render_saved_request(
             message, services, item_id, extra_rows=extra_rows, replace=replace
         )
+    elif item_type == "diary":
+        await render_diary(message, services, item_id, extra_rows=extra_rows, replace=replace)
     else:
         raise DomainError(f"{item_type.title()} has no screen to open")
 
@@ -80,23 +85,33 @@ async def render_citations(session: AsyncSession, services: Services, text: str)
     ``text`` is already HTML-escaped: only the href is added, and it is built here from a
     validated id, never taken from the model. An item that no longer exists loses its link
     instead of leaving a dead one in a message that stays in the chat for good.
+
+    A Diary day is also *named* here rather than by the model, so the date and the score on
+    the link are always the saved ones.
     """
     matches = list(CITATION_PATTERN.finditer(text))
     if not matches:
         return text
-    live: set[tuple[str, int]] = set()
+    live: dict[tuple[str, int], str | None] = {}
     if services.bot_username:
         for item_type, item_id in {(match[2], int(match[3])) for match in matches}:
             item = await session.get(OPENABLE_MODELS[item_type], item_id)
-            if item is not None and getattr(item, "archived_at", None) is None:
-                live.add((item_type, item_id))
+            if item is None or getattr(item, "archived_at", None) is not None:
+                continue
+            live[(item_type, item_id)] = (
+                diary_label(item.entry_date, item.feeling_score)
+                if item_type == "diary"
+                else None
+            )
 
     def build(match: re.Match[str]) -> str:
         label, item_type, item_id = match[1], match[2], int(match[3])
         if (item_type, item_id) not in live:
             return label
         link = f"https://t.me/{services.bot_username}?start={citation_payload(item_type, item_id)}"
-        return f'<a href="{link}">{label}</a>'
+        override = live[(item_type, item_id)]
+        shown = html.escape(override) if override is not None else label
+        return f'<a href="{link}">{shown}</a>'
 
     return CITATION_PATTERN.sub(build, text)
 

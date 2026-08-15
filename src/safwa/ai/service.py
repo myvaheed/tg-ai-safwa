@@ -523,19 +523,20 @@ def _value_details(entity: str, values: dict[str, Any], *, creating: bool) -> li
 
 
 def _diary_detail_lines(change: ProposalChange) -> list[str]:
-    """The entry in full: the receipt is how the model reads the saved day back.
+    """The stamp, never the entry: a receipt stays in the conversation for good.
 
-    Every other detail line is a short field and takes `_detail_value`'s 100-character cut,
-    which would leave an entry as a fragment.
+    A day's text printed here would be re-read on every later turn and would spend the
+    history budget it costs.  The diary subagent reads a draft back through `observe_stamp`
+    and a saved day through `ai_diary`, so neither needs the body to travel.
     """
     values = dict(change.values)
     lines = [f"Date: {values.get('entry_date', '')}"]
     if change.action == "delete":
         lines.append("Entry: removed")
     else:
-        lines.append(f"Entry: {values.get('body', '')}")
-        if values.get("remark"):
-            lines.append(f"Remark: {values['remark']}")
+        lines.append(f"Entry: {len(str(values.get('body') or ''))} characters")
+        if values.get("feeling_score") is not None:
+            lines.append(f"Feeling: {values['feeling_score']}")
     lines.append(f"Draft: {values.get('stamp', '')}")
     return lines
 
@@ -750,6 +751,14 @@ def _resolved_tool_result(
     payload["next"] = _DECISION_NEXT_STEPS.get(
         decision, "Continue with the rest of the user's request."
     )
+    # A refused Diary draft is still on file, but only the conversation can carry its stamp
+    # forward: the tool results of this turn are gone by the next one.
+    stamp = dict(change.get("values") or {}).get("stamp")
+    if change.get("entity") == "diary" and stamp and decision != "approved":
+        payload["next"] += (
+            f" End your reply with the line `Draft: {stamp}` so the diary subagent can rework "
+            "this day from it later."
+        )
     return payload
 
 
@@ -1512,6 +1521,7 @@ class AIAdvisor:
             "stamp": stamp.stamp,
             "entry_date": stamp.entry_date.isoformat(),
             "body": stamp.body,
+            "feeling_score": stamp.feeling_score,
             "remark": stamp.remark,
         }
 
@@ -2479,9 +2489,13 @@ class ProposalService:
     async def _apply_diary_change(self, change: ProposalChange, affected: list[int]) -> None:
         values = dict(change.values)
         entry_date = date.fromisoformat(str(values["entry_date"]))
+        feeling_score = values.get("feeling_score")
         if change.action == "create":
             entry = await create_diary_entry(
-                self.session, entry_date=entry_date, body=str(values.get("body", ""))
+                self.session,
+                entry_date=entry_date,
+                body=str(values.get("body", "")),
+                feeling_score=feeling_score,
             )
             affected.append(entry.id)
         elif change.action in {"update", "delete"}:
@@ -2496,7 +2510,9 @@ class ProposalService:
             if change.action == "delete":
                 await delete_diary_entry(self.session, entry_id)
             else:
-                await update_diary_entry(self.session, entry_id, str(values.get("body", "")))
+                await update_diary_entry(
+                    self.session, entry_id, str(values.get("body", "")), feeling_score
+                )
             affected.append(entry_id)
         else:
             raise DomainError(f"Unsupported approved Diary action: {change.action}")

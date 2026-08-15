@@ -177,7 +177,7 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
     )
     connection.exec_driver_sql(
         """CREATE VIEW IF NOT EXISTS ai_diary AS
-        SELECT id, entry_date, body, created_at, updated_at FROM diary_entries"""
+        SELECT id, entry_date, body, feeling_score, created_at, updated_at FROM diary_entries"""
     )
 
 

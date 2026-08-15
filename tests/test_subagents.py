@@ -185,7 +185,12 @@ async def test_a_subagent_is_never_offered_a_mutation_or_another_subagent(sessio
 
     await runner(sessions, subagent).run("diary", "Write today's entry.")
 
-    assert provider.offered[0] == ["read_day", "query_safwa", "diary_report"]
+    assert provider.offered[0] == [
+        "read_day",
+        "observe_stamp",
+        "query_safwa",
+        "diary_report",
+    ]
 
 
 async def test_the_run_is_traced_as_its_own_agent_run(sessions) -> None:

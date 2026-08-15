@@ -169,7 +169,7 @@ flowchart TD
 | [`ai/mini.py`](../src/safwa/ai/mini.py) | Узкая tool-only LLM-сессия | `run_mini_session`, `ReadToolSpec`, `TerminalTool`, terminal/retry protocol |
 | [`ai/reminder_sessions.py`](../src/safwa/ai/reminder_sessions.py) | Setup mini-session для расписаний Reminder | `resolve_schedule` |
 | [`ai/subagents.py`](../src/safwa/ai/subagents.py) | Запуск named subagent под собственным `AgentRun` и deadline | `SubagentRunner`, `Subagent`, `SubagentOutcome` |
-| [`ai/diary.py`](../src/safwa/ai/diary.py) | Diary subagent: определяет день и действие, читает его из двух источников и отдаёт change под stamp | `DiarySubagent`, `DIARY_PROMPT`, `DIARY_REPORT` |
+| [`ai/diary.py`](../src/safwa/ai/diary.py) | Diary subagent: единственный читатель Diary — определяет день, действие и feeling_score, отдаёт change под stamp или answer с цитатами | `DiarySubagent`, `DIARY_PROMPT`, `DIARY_REPORT`, `OBSERVE_STAMP_TOOL` |
 | [`ai/service.py`](../src/safwa/ai/service.py) | Main agent loop, read tools, proposals, continuation и apply | `AIAdvisor`, `AIOutcome`, `ProposalService`, `_run_agent_loop`, `_materialize` |
 
 ### Main advisor context
@@ -192,12 +192,14 @@ mutations получают retryable error и повторяются следу�
 flowchart LR
     CALL["call_subagent(name, request)"] --> RUNNER["SubagentRunner: AgentRun + deadline"]
     RUNNER --> MINI["run_mini_session: read tools + один terminal"]
-    MINI --> READ["read_day(date) + query_safwa над ai_diary/ai_card_events/ai_checks"]
-    MINI --> REPORT["diary_report: date + entry+remark, remove или question"]
-    REPORT --> STAMP["DiaryStamp хранит дату, entry_id, action и body host-side"]
+    MINI --> READ["read_day(date) + observe_stamp(stamp) + query_safwa над ai_diary/ai_card_events/ai_checks"]
+    MINI --> REPORT["diary_report: entry+date+remark+feeling_score, remove, answer или question"]
+    REPORT --> ANSWER["answer: цитаты [dd.mm.yyyy](diary:id) для advisor, без stamp"]
+    REPORT --> STAMP["DiaryStamp хранит дату, entry_id, action, body и score host-side"]
     STAMP --> RESULT["Advisor получает только stamp, не текст и не цель"]
     RESULT --> PROPOSE["propose_diary_update(stamp) восстанавливает change из stamp"]
     PROPOSE --> SCREEN["Save/Discard screen → DiaryEntry (одна на дату)"]
+    SCREEN --> RECEIPT["Receipt: дата, score, длина и Draft: stamp — без текста дня"]
 ```
 
 ## Telegram package
@@ -207,7 +209,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    HANDLERS["commands.py / callbacks.py / dialogue.py"] --> FEATURES["cards.py / checks.py / items.py / reminders.py / sprint.py / proposals.py / screens.py"]
+    HANDLERS["commands.py / callbacks.py / dialogue.py"] --> FEATURES["cards.py / checks.py / items.py / diary.py / reminders.py / sprint.py / proposals.py / screens.py"]
     FEATURES --> IO["_messaging.py"]
     FEATURES --> VIEW["_presentation.py"]
     IO --> CORE["_core.py"]
@@ -227,6 +229,7 @@ flowchart TD
 | [`telegram/checks.py`](../src/safwa/telegram/checks.py) | Check screens и answer UI | Check renderer и pending-check gate screens |
 | [`telegram/items.py`](../src/safwa/telegram/items.py) | Shared Tag/Value editors и Saved Request screens | item renderer, list screens, text prompts |
 | [`telegram/reminders.py`](../src/safwa/telegram/reminders.py) | Manual Reminder list/detail/text screens | Reminder renderers и schedule presentation |
+| [`telegram/diary.py`](../src/safwa/telegram/diary.py) | Read-only экран одного дня Diary | `render_diary` |
 | [`telegram/screens.py`](../src/safwa/telegram/screens.py) | Deep links из advisor prose в domain screens | `render_citations`, `open_citation`, `open_item_screen` |
 | [`telegram/proposals.py`](../src/safwa/telegram/proposals.py) | Read-only proposal UI, queue progression и agent continuation | `render_proposal`, `continue_agent_approval`, `render_ai_outcome` |
 | [`telegram/escalation.py`](../src/safwa/telegram/escalation.py) | Due Reminder → bounded dialogue → main advisor | `ReminderRuntime`, `format_escalation` |

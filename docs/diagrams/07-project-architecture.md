@@ -42,7 +42,7 @@ flowchart TD
     MAIN --> SCH["scheduler.py"]
     MAIN --> DB["db.py + models.py"]
 
-    HANDLERS["commands.py<br/>callbacks.py<br/>dialogue.py"] --> SCREENS["cards.py, checks.py, items.py,<br/>reminders.py, screens.py, proposals.py"]
+    HANDLERS["commands.py<br/>callbacks.py<br/>dialogue.py"] --> SCREENS["cards.py, checks.py, items.py, diary.py,<br/>reminders.py, screens.py, proposals.py"]
     SCREENS --> MSG["telegram/_messaging.py"]
     MSG --> PRESENT["telegram/_presentation.py"]
     PRESENT --> CORE
@@ -105,7 +105,7 @@ rendering/messaging/core; `_presentation.py` остаётся чистым фо�
 | `mini.py` | Узкие LLM-сессии, завершаемые одним terminal tool call |
 | `reminder_sessions.py` | Setup mini-session для расписаний Reminders |
 | `subagents.py` | Запуск named subagent под собственным `AgentRun` и wall-clock deadline |
-| `diary.py` | Diary subagent: читает день и возвращает draft под stamp |
+| `diary.py` | Diary subagent: единственный читатель Diary — draft под stamp или answer с цитатами |
 
 ### Пакет `telegram`
 
@@ -120,6 +120,7 @@ rendering/messaging/core; `_presentation.py` остаётся чистым фо�
 | `cards.py` | Card editor, creation draft, selectors и dashboards |
 | `checks.py` | Check screens и ответы пользователя |
 | `items.py` | Общие Tag/Value/Request item screens |
+| `diary.py` | Read-only экран одного дня Diary |
 | `reminders.py` | `/reminders` list/detail, text edit и delete confirmation |
 | `screens.py` | Открытие citations и связанная item-навигация |
 | `proposals.py` | Read-only proposal rendering и продолжение agent approval |

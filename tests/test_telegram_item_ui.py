@@ -840,8 +840,45 @@ async def test_citations_become_deep_links_only_for_live_items(sessions) -> None
         assert "<a href" not in await render_citations(session, services, text)
 
 
+async def test_a_diary_citation_is_named_by_the_entry_and_opens_the_whole_day(sessions) -> None:
+    async with sessions() as session:
+        entry = await create_diary_entry(
+            session,
+            entry_date=date(2026, 3, 4),
+            body="Долгий день, но рынок закрыл.",
+            feeling_score=6,
+        )
+        await session.commit()
+        entry_id = entry.id
+
+    services = services_for(sessions)
+    async with sessions() as session:
+        # Whatever the model wrote as the label, the link shows the saved date and score.
+        rendered = await render_citations(
+            session, services, html.escape(f"Тот день: [что-то своё](diary:{entry_id}).")
+        )
+    assert (
+        f'<a href="https://t.me/safwa_ai_bot?start=diary-{entry_id}">04.03.2026 [6 🙂]</a>'
+        in rendered
+    )
+
+    # The bracketed score comes back out of Telegram as part of the label, and still links.
+    async with sessions() as session:
+        assert f"?start=diary-{entry_id}" in await render_citations(
+            session, services, html.escape(f"[04.03.2026 [6 🙂]](diary:{entry_id})")
+        )
+
+    message = FakeMessage(970, bot_message=True)
+    await open_item_screen(message, services, "diary", entry_id)
+    text, markup = message.edits[-1]
+    assert "📔 04.03.2026 [6 🙂]" in text
+    assert "Долгий день, но рынок закрыл." in text
+    # The Diary is written through proposals alone, so its screen offers no control.
+    assert markup is None
+
+
 def test_citation_codec_matches_every_openable_item_screen() -> None:
-    expected = {"card", "check", "tag", "value", "request"}
+    expected = {"card", "check", "tag", "value", "request", "diary"}
     assert set(CITATION_TYPES) == expected
     assert set(OPENABLE_MODELS) == expected
 
@@ -1335,6 +1372,7 @@ async def test_diary_proposal_shows_the_entry_itself_and_only_save_or_discard(
                     "stamp": "abc123",
                     "entry_date": "2026-08-15",
                     "body": "Сходил на рынок, вечером стало легче.",
+                    "feeling_score": 6,
                     "remark": "A day that ended better than it began.",
                 },
             )
@@ -1348,6 +1386,7 @@ async def test_diary_proposal_shows_the_entry_itself_and_only_save_or_discard(
 
     assert "<b>Edit Diary entry · AI proposal</b>" in text
     assert "Date: 2026-08-15" in text
+    assert "Feeling: 6 🙂" in text
     assert "This replaces the entry already saved for that day." in text
     assert "Сходил на рынок, вечером стало легче." in text
     assert "<i>A day that ended better than it began.</i>" in text

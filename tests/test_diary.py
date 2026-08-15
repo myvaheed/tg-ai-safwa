@@ -16,7 +16,7 @@ from safwa.ai.provider import ProviderToolCall, ProviderTurn
 from safwa.ai.service import MUTATION_TOOL_DESCRIPTIONS
 from safwa.ai.sql import ALLOWED_VIEWS
 from safwa.ai.subagents import SubagentRunner
-from safwa.constants import DIARY_TIME_DEFAULT
+from safwa.constants import DIARY_TIME_DEFAULT, FEELING_SCORE_EMOJI
 from safwa.domain import (
     DIARY_REMINDER_INSTRUCTION,
     DomainError,
@@ -33,6 +33,7 @@ from safwa.domain import (
 from safwa.enums import ScheduleKind
 from safwa.models import DiaryEntry, DiaryStamp, Reminder
 from safwa.reminders import resolve, schedule_of
+from safwa.telegram._presentation import diary_label
 
 
 class RecordingProvider:
@@ -107,11 +108,12 @@ async def run_diary(sessions, provider: RecordingProvider, request: str = "Write
     return outcome.result
 
 
-def test_the_diary_view_is_allowed_and_named_to_both_readers() -> None:
+def test_only_the_subagent_is_told_about_the_diary_view() -> None:
     """A view missing from a prompt is a view that reader can never use."""
     assert "ai_diary" in ALLOWED_VIEWS
-    assert "`ai_diary(id, entry_date, body" in SYSTEM_PROMPT
-    assert "`ai_diary(id, entry_date, body" in DIARY_PROMPT
+    assert "`ai_diary(id, entry_date, body, feeling_score" in DIARY_PROMPT
+    # The advisor reaches the Diary only through the subagent, so it is not named to it.
+    assert "ai_diary" not in SYSTEM_PROMPT
 
 
 def test_the_saving_tool_carries_only_a_stamp() -> None:
@@ -134,6 +136,29 @@ def test_a_report_names_its_day_and_exactly_one_outcome() -> None:
         DiaryReportInput.model_validate({"date": "15.08.2026", "entry": "День."})
     assert DiaryReportInput.model_validate({"question": "Which day?"}).date is None
     assert DiaryReportInput.model_validate({"date": "2026-08-15", "remove": True}).remove
+    # Reading the Diary needs no day and settles nothing.
+    assert DiaryReportInput.model_validate({"answer": "[04.03.2026](diary:3)"}).date is None
+
+
+def test_a_feeling_score_belongs_to_an_entry_and_runs_from_zero_to_ten() -> None:
+    assert DiaryReportInput.model_validate(
+        {"date": "2026-08-15", "entry": "День.", "feeling_score": 0}
+    ).feeling_score == 0
+    for out_of_scale in (-1, 11):
+        with pytest.raises(ValueError):
+            DiaryReportInput.model_validate(
+                {"date": "2026-08-15", "entry": "День.", "feeling_score": out_of_scale}
+            )
+    with pytest.raises(ValueError):
+        DiaryReportInput.model_validate({"date": "2026-08-15", "remove": True, "feeling_score": 7})
+
+
+def test_the_scale_is_stated_once_and_the_model_never_reaches_for_zero() -> None:
+    assert set(FEELING_SCORE_EMOJI) == set(range(11))
+    assert "Never choose 0 yourself." in DIARY_PROMPT
+    assert diary_label(date(2026, 3, 4), 6) == "04.03.2026 [6 🙂]"
+    # A day that said nothing about how it felt is named by its date alone.
+    assert diary_label(date(2026, 3, 4), None) == "04.03.2026"
 
 
 async def test_a_day_holds_one_entry_and_a_later_draft_replaces_it(sessions) -> None:
@@ -244,6 +269,54 @@ async def test_a_question_carries_no_stamp_and_no_date(sessions) -> None:
     assert "stamp" not in result
     async with sessions() as session:
         assert list(await session.scalars(select(DiaryStamp))) == []
+
+
+async def test_a_reading_request_answers_with_citations_and_settles_nothing(sessions) -> None:
+    provider = RecordingProvider(
+        turn("diary_report", answer="Тот день был тяжёлым: [04.03.2026](diary:3).")
+    )
+
+    result = await run_diary(sessions, provider, "Что я писал четвёртого марта?")
+
+    assert result["shape"] == "answer"
+    assert result["answer"] == "Тот день был тяжёлым: [04.03.2026](diary:3)."
+    assert "stamp" not in result
+    async with sessions() as session:
+        assert list(await session.scalars(select(DiaryStamp))) == []
+
+
+async def test_a_draft_carries_its_score_and_reads_back_from_its_stamp(sessions) -> None:
+    today = date.today()
+    provider = RecordingProvider(
+        turn(
+            "diary_report",
+            date=today.isoformat(),
+            entry="Хороший день.",
+            feeling_score=8,
+            remark="Something held.",
+        )
+    )
+
+    result = await run_diary(sessions, provider)
+
+    # The advisor is told the score but never the text.
+    assert result["feeling_score"] == 8
+    assert "Хороший день." not in json.dumps(result, ensure_ascii=False)
+    async with sessions() as session:
+        stamp = await session.get(DiaryStamp, result["stamp"])
+    assert stamp is not None and stamp.feeling_score == 8
+
+    subagent, _ = diary_subagent(sessions, RecordingProvider())
+    observed = await subagent._observe_stamp(
+        ProviderToolCall(id="c", name="observe_stamp", arguments=json.dumps({"stamp": stamp.stamp}))
+    )
+    assert (observed["entry"], observed["feeling_score"]) == ("Хороший день.", 8)
+
+    # A spent stamp sends the reader to the saved day instead.
+    missing = await subagent._observe_stamp(
+        ProviderToolCall(id="c", name="observe_stamp", arguments=json.dumps({"stamp": "gone"}))
+    )
+    assert (missing["code"], missing["retryable"]) == ("stamp_not_found", True)
 
 
 # --- the system Reminder behind the Diary ---------------------------------

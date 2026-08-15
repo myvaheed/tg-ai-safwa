@@ -40,6 +40,22 @@ DIARY_DAY_TOKEN_BUDGET = 12_000
 # Local clock the Diary's system Reminder fires on out of the box; Settings moves it,
 # and `off` there removes the row.
 DIARY_TIME_DEFAULT = "22:00"
+# How a Diary day is written wherever it is named: "04.03.2026 [6 🙂]".
+DIARY_DATE_FORMAT = "%d.%m.%Y"
+# How the day felt, 0-10. 5 is an ordinary day; 0 is the owner's own word, never the model's.
+FEELING_SCORE_EMOJI = {
+    0: "⚫",
+    1: "😨",
+    2: "😞",
+    3: "🙁",
+    4: "😕",
+    5: "😐",
+    6: "🙂",
+    7: "😊",
+    8: "😃",
+    9: "🤩",
+    10: "🌟",
+}
 
 # --- query_safwa result caps ----------------------------------------------
 # Sized for a local model: one result should inform a turn, not consume its context.

@@ -112,9 +112,14 @@ def read_kind_mark(text: str) -> tuple[str | None, str]:
 # The same reasoning as the kind mark: an item citation is written as Markdown, sent as a
 # link, and must read back as the Markdown the model wrote.  Telethon hands us plain text,
 # so a link would otherwise return as bare words and teach the model that citing is optional.
-CITATION_TYPES = ("card", "check", "tag", "value", "request")
+CITATION_TYPES = ("card", "check", "tag", "value", "request", "diary")
+# A Diary day is labelled "04.03.2026 [6 🙂]", so one level of nesting is part of the shape
+# rather than a malformed citation.  The two branches cannot match the same character, so
+# the alternation stays linear.
 CITATION_PATTERN = re.compile(
-    r"\[([^\[\]\n]{1,120})\]\((" + "|".join(CITATION_TYPES) + r"):(\d{1,9})\)"
+    r"\[((?:[^\[\]\n]|\[[^\[\]\n]*\]){1,120})\]\(("
+    + "|".join(CITATION_TYPES)
+    + r"):(\d{1,9})\)"
 )
 # A deep-link start payload accepts only [A-Za-z0-9_-], so the type separator differs.
 _CITATION_PAYLOAD_RE = re.compile(r"^(" + "|".join(CITATION_TYPES) + r")-(\d{1,9})$")

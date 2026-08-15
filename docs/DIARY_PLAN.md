@@ -11,31 +11,42 @@ so each phase left the bot working on its own.
 
 These are the contract. Everything below follows from them.
 
-1. A Diary entry is **one day's text in the owner's own voice**, plus the advisor's remark on the
-   screen. One entry per local calendar date. The day is usually today, but the owner may ask for any
-   day — "add this to yesterday" — so the date is something to work out, never something to assume.
+1. A Diary entry is **one day's text in the owner's own voice**, plus a `feeling_score` and the
+   advisor's remark on the screen. One entry per local calendar date. The day is usually today, but
+   the owner may ask for any day — "add this to yesterday" — so the date is something to work out,
+   never something to assume.
 2. The entry text is written by the **Diary subagent**, never by the advisor. The advisor decides
    *when* to propose and *what to ask*, and it never authors or edits the body.
 3. The subagent **reads and reports; it never mutates**. It has no mutation tool at all. It does
-   decide the whole change: which day, which entry, and whether that day is written or removed. The
-   advisor carries the owner's words in and the stamp out, and nothing else.
-4. A subagent report always carries the whole day as it stands now, taking the already saved entry
+   decide the whole change: which day, which entry, the score, and whether that day is written or
+   removed. The advisor carries the owner's words in and the stamp out, and nothing else.
+4. **The subagent is the only reader of the Diary.** `ai_diary` is named in its prompt and in no
+   other, so every Diary request — including "what did I write on Wednesday" — is a
+   `call_subagent("diary", …)`. A read-only request ends in `answer`, which cites each day as
+   `[dd.mm.yyyy](diary:<id>)` for the advisor to relay, and issues no stamp.
+5. A subagent report always carries the whole day as it stands now, taking the already saved entry
    into account. Overwriting is the normal path, not an exception.
-5. Saving goes through the ordinary proposal path: `propose_diary_update` → `ChangeProposal` → a
+6. `feeling_score` is 0–10 and may be absent. 5 is an ordinary day and the rest of the ladder is
+   read against it. **0 is the owner's word alone** — the subagent never chooses it. The scale lives
+   in `FEELING_SCORE_EMOJI` and the rubric in `DIARY_PROMPT`, once each.
+7. Saving goes through the ordinary proposal path: `propose_diary_update` → `ChangeProposal` → a
    read-only Save/Discard screen → `ProposalService.apply` → the same `domain.py` function a manual
    path would call. Every proposal screen stays exactly Save/Discard.
-6. A **stamp** proves a subagent read happened and carries the change it decided on. It is issued
+8. A **stamp** proves a subagent read happened and carries the change it decided on. It is issued
    only together with a change, and it dies at the end of the local day it was *issued* on — not the
    day it describes, or a back-dated entry would be born expired. A discarded proposal can be
    re-offered from it without another subagent run; Save spends it, and with it every other stamp for
    that date, since a settled day makes every draft of that day out of date.
-7. The proposal outcome is visible in the conversation. Both Save and Discard post a
-   `DIALOGUE_ASSISTANT` receipt, so the model reads back what was saved or refused — including the
-   entry text itself.
-8. Only the newest interactive screen is live. Any command, any menu navigation, and any new
-   dialogue text dismisses the ones above it.
-9. `call_subagent` is **synchronous**. The advisor blocks on it and receives the report as a tool
-   result in the same turn.
+9. The proposal outcome is visible in the conversation, **but the day's text is not**: the receipt
+   carries the date, the score, a character count and `Draft: <stamp>`. A receipt stays in the chat
+   and would be re-read on every later turn. The subagent reaches a refused draft through
+   `observe_stamp(stamp)` and a saved day through `ai_diary`, so nothing is lost by keeping the body
+   out. A change that was not approved tells the advisor to end its reply with that `Draft:` line —
+   only the conversation carries a stamp into the next turn.
+10. Only the newest interactive screen is live. Any command, any menu navigation, and any new
+    dialogue text dismisses the ones above it.
+11. `call_subagent` is **synchronous**. The advisor blocks on it and receives the report as a tool
+    result in the same turn.
 
 ## Decisions taken, with the alternative that was rejected
 
@@ -174,14 +185,14 @@ conversation and manual UI work, and a five-minute hang is cut off.
   so a create over a day that already has an entry cannot reach the UNIQUE constraint at Save, and a
   removal of a day with nothing saved comes back as a report the advisor can simply relay.
 - The subagent reads `ai_diary` as well: it is the only way to see what a day already says, and it
-  has `query_safwa`, so the view has to be named in **its** prompt too, not only the advisor's.
+  has `query_safwa`, so the view has to be named in **its** prompt.
 - `read_day` takes a date, and `recent` gains an `until` bound. A period open at the newest end
   would fold today's conversation into yesterday's entry.
 - `AgentChange.entity` gains `diary`; `MUTATION_TOOL_MODELS`, `_ENTITY_MODELS`, the `apply` branch,
   and a render branch in `render_proposal` follow. Without the render branch the screen falls into
   the generic path and shows a summary line instead of the text.
-- `ai_diary` view in `create_ai_views`, added to `ALLOWED_VIEWS` **and** to the view list inside
-  `SYSTEM_PROMPT` — missing the second makes the view invisible to the model.
+- `ai_diary` view in `create_ai_views`, added to `ALLOWED_VIEWS` **and** to the view list of the
+  prompt that should reach it — missing the second makes the view invisible to that reader.
 
 **Done when** a full round trip works: subagent → proposal → Save → the entry is in the table and
 its text is in the conversation; and a second run the same day offers an overwrite.
@@ -206,12 +217,27 @@ its text is in the conversation; and a second run the same day offers an overwri
 **Done when** the Diary fires from Settings at 22:00, the Reminder behind it appears nowhere in the
 UI or in `ai_reminders`, and changing the time in Settings moves it.
 
+## Phase 6 — the Diary belongs to its subagent · done
+
+- Drop `ai_diary` from `SYSTEM_PROMPT`. The advisor cannot read the Diary at all, so every Diary
+  request routes to the subagent; `ALLOWED_VIEWS` is shared, so the prompt is what scopes a reader.
+- `diary` joins `CITATION_TYPES` and `OPENABLE_MODELS`, and `render_diary` shows one day read-only —
+  no button, because the Diary has no manual write path to offer. The label is built host-side by
+  `diary_label`, so a day always reads `04.03.2026 [6 🙂]` wherever it is named, and
+  `CITATION_PATTERN` gains one level of bracket nesting to carry that score inside a label.
+- `diary_report` gains `answer`, the read-only ending, and `feeling_score`, which lands on
+  `diary_entries` and on the stamp.
+- The receipt loses the day's text and keeps the stamp; `observe_stamp` gives it back to the
+  subagent. Without this a long entry is spent from the history budget on every later turn.
+
+**Done when** a read-only question comes back as a link the owner can tap, a saved day keeps its
+score, and a refused draft can be reworked from its stamp without the text ever entering the chat.
+
 ## Deferred
 
 - Asynchronous `call_subagent`, with the result queue and startup reconcile it requires.
 - A second subagent. The roster format should not be generalized before there is one.
-- A `diary` citation type and a `/diary` browsing screen. Five openable types is a documented
-  invariant; a sixth is its own decision, not a side effect of this feature.
+- A `/diary` browsing screen. A day is reachable only through a citation the subagent wrote.
 
 ## Documentation kept in step
 
