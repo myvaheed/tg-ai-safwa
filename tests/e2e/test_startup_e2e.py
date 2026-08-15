@@ -154,7 +154,7 @@ async def test_full_startup_reaches_polling_and_cleans_up(tmp_path: Path, monkey
     assert FakeDispatcher.instances[0].data["services"].bot_username == "configured_safwa_bot"
     assert FakeBot.instances[0].commands_set is True
     command_names = {command.command for command in FakeBot.instances[0].commands}
-    assert {"mem", "syncmem", "setmemtime"} <= command_names
+    assert {"mem", "syncmem", "settings"} <= command_names
     assert FakeBot.instances[0].session.closed is True
     assert FakeProvider.instances[0].closed is True
     assert FakeHistoryFactory.instance.started is True

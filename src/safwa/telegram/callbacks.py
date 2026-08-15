@@ -78,7 +78,7 @@ from .commands import (
     command_tags,
     command_values,
     render_feedback,
-    render_sprint_length_prompt,
+    render_settings_field_prompt,
     sync_bot_commands,
 )
 from .items import render_item_editor, render_item_text_prompt, render_saved_request
@@ -894,8 +894,10 @@ async def _on_sprint_finish(context: CallbackContext) -> None:
 # --- Settings ------------------------------------------------------------------
 
 
-async def _on_settings_sprint_length(context: CallbackContext) -> None:
-    await render_sprint_length_prompt(context.message, context.services)
+async def _on_settings_edit(context: CallbackContext) -> None:
+    await render_settings_field_prompt(
+        context.message, context.services, str(context.payload["field"])
+    )
 
 
 async def _on_settings_back(context: CallbackContext) -> None:
@@ -1085,7 +1087,7 @@ CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "sprint_back": _on_sprint_back,
     "sprint_start": _on_sprint_start,
     "sprint_finish": _on_sprint_finish,
-    "settings_sprint_length": _on_settings_sprint_length,
+    "settings_edit": _on_settings_edit,
     "settings_back": _on_settings_back,
     "reminders_page": _on_reminders_page,
     "reminder_view": _on_reminder_view,

@@ -71,7 +71,6 @@ The only cron-like logic needed is `next_fire`, specified below.
 
 ```
 poll tick
- ├─ reminders_enabled false, or snoozed?          → stop
  ├─ SELECT due (above)                            → nothing? stop
  ├─ gate closed? (advisor busy / proposal open)   → stop, advance NOTHING
  ├─ for each due Reminder:
@@ -483,7 +482,7 @@ Real SQLite and real services, `ScriptedProvider` at the provider boundary only.
 ## Deferred
 
 - Monthly and yearly shapes — one more branch in `next_fire`.
-- Per-Reminder snooze; the global `/snooze` is enough for now.
+- Snooze in any form. A quiet window on an interval schedule is the only mute.
 - Adaptive poll sleep (`min(next_fire_at) - now`, clamped to 5–30 s) for minute-accurate delivery.
 - Removing feedback; the "Today ends at HH:MM" day boundary.
 - Reminder-authored Checks — a Reminder points at an existing Check, it does not create one.

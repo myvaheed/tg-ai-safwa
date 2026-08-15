@@ -29,7 +29,7 @@ from .constants import (
     SPRINT_EXPIRY_POLL_SECONDS,
 )
 from .domain import expire_due_sprint
-from .models import Reminder, UserProfile
+from .models import Reminder
 from .reminders import describe, roll_forward, schedule_of
 
 logger = logging.getLogger(__name__)
@@ -53,14 +53,6 @@ Escalator = Callable[[list[Firing]], Awaitable[bool]]
 LeaseCheck = Callable[[], bool]
 LeaseRelease = Callable[[], None]
 Announcer = Callable[[int], Awaitable[None]]
-
-
-async def reminders_paused(session: AsyncSession, *, now: datetime) -> bool:
-    profile = await session.get(UserProfile, 1)
-    if profile is None or not profile.reminders_enabled:
-        return True
-    snoozed = profile.reminders_snoozed_until
-    return snoozed is not None and snoozed > now
 
 
 async def due_reminders(
@@ -151,8 +143,6 @@ async def tick(
     """One poll. Returns whether an escalation was delivered."""
     moment = now or datetime.now(UTC)
     async with sessions() as session:
-        if await reminders_paused(session, now=moment):
-            return False
         reminders = await due_reminders(session, now=moment)
         if not reminders:
             return False

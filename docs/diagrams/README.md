@@ -9,10 +9,7 @@
 5. [Reminders](05-reminders.md)
 6. [Proposals и смешанные tool calls](06-proposals.md)
 7. [Архитектура проекта](07-project-architecture.md)
-8. [Решения по найденным странностям](08-current-solution-oddities.md)
-9. [Противоречия между документацией и кодом](09-doc-code-inconsistencies.md)
 
 Диаграммы дополняют [ARCHITECTURE.md](../ARCHITECTURE.md),
 [MEMORY_HISTORY_USAGE.md](../MEMORY_HISTORY_USAGE.md) и
-[REMINDERS_PLAN.md](../REMINDERS_PLAN.md). Роли product spec, descriptive docs и фактической реализации
-при расхождениях разобраны в [аудите противоречий](09-doc-code-inconsistencies.md).
+[REMINDERS_PLAN.md](../REMINDERS_PLAN.md).

@@ -23,7 +23,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
-from .constants import SPRINT_LENGTH_DAYS
+from .constants import DIARY_TIME_DEFAULT, SPRINT_LENGTH_DAYS
 from .enums import (
     ActorType,
     CardStage,
@@ -91,11 +91,15 @@ class UserProfile(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     about_me: Mapped[str] = mapped_column(Text, default="")
     advisor_instructions: Mapped[str] = mapped_column(Text, default="")
-    reminders_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    reminders_snoozed_until: Mapped[datetime | None] = mapped_column(UtcDateTime)
     capacity_effort_points: Mapped[int | None] = mapped_column(Integer)
     sprint_length_days: Mapped[int] = mapped_column(Integer, default=SPRINT_LENGTH_DAYS)
     memory_update_time: Mapped[time | None] = mapped_column(Time)
+    # NULL is the Diary's off switch: `sync_diary_reminder` deletes the system Reminder
+    # rather than keeping a second flag that could disagree with it.
+    diary_time: Mapped[time | None] = mapped_column(
+        Time, default=time.fromisoformat(DIARY_TIME_DEFAULT)
+    )
+    diary_instructions: Mapped[str] = mapped_column(Text, default="")
 
 
 class Value(Base, TimestampMixin):
@@ -411,6 +415,9 @@ class Reminder(Base, TimestampMixin):
     sprint_id: Mapped[int | None] = mapped_column(
         ForeignKey("sprints.id", ondelete="CASCADE"), index=True
     )
+    # Safwa's own trigger, derived from Settings: hidden from `/reminders` and from
+    # `ai_reminders`, and refused by the edit and delete paths.
+    system: Mapped[bool] = mapped_column(Boolean, default=False)
 
     schedule_kind: Mapped[str] = mapped_column(String(20))
     weekdays: Mapped[list[str]] = mapped_column(JSON, default=list)

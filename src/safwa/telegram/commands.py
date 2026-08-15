@@ -3,7 +3,8 @@ from __future__ import annotations
 import html
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime, timedelta
+from dataclasses import dataclass
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
 
 from aiogram import Bot, F
@@ -20,10 +21,9 @@ from sqlalchemy import delete, func, select
 
 from ..analytics import render_retrospective_png, retrospective_data, retrospective_recommendations
 from ..constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
-from ..continuity import MemoryMaintenanceResult, parse_memory_update_time, record_memory_run
+from ..continuity import MemoryMaintenanceResult, record_memory_run
 from ..domain import (
     DomainError,
-    snooze_reminders,
     update_profile,
 )
 from ..enums import CardStage, MessageKind
@@ -39,6 +39,7 @@ from ..models import (
     Value,
     Workspace,
 )
+from ..reminders import parse_clock_or_off
 from ._core import BACKGROUND_SOURCE_ID, Services, router, sprint_is_active
 from ._messaging import (
     dismiss_prior_ui,
@@ -76,11 +77,8 @@ BOT_COMMANDS = [
     BotCommand(command="feedback", description="Pending completion feedback"),
     BotCommand(command="reminders", description="Your Reminders"),
     BotCommand(command="settings", description="Profile and reminders"),
-    BotCommand(command="setcapacity", description="Set Sprint capacity"),
-    BotCommand(command="snooze", description="Snooze reminders (minutes)"),
     BotCommand(command="syncmem", description="Sync Telegram dialogue into memory"),
     BotCommand(command="mem", description="Add a durable memory fact"),
-    BotCommand(command="setmemtime", description="Set daily memory sync time"),
     BotCommand(command="memory", description="Inspect memory.md"),
     BotCommand(command="summarize", description="Summarize the dialogue now"),
     BotCommand(command="status", description="Safwa diagnostics"),
@@ -435,6 +433,98 @@ async def command_reminders(message: Message, services: Services) -> None:
     await render_reminders(message, services)
 
 
+@dataclass(frozen=True, slots=True)
+class SettingsField:
+    """One `user_profile` value the Settings screen edits through a button and a prompt.
+
+    `parse` raises `ValueError` carrying the sentence the retry prompt shows, so a bad
+    answer is answered by the same screen rather than an error message somewhere else.
+    """
+
+    title: str
+    label: str
+    instruction: str
+    parse: Callable[[str], Any]
+    show: Callable[[Any], str]
+
+
+def _parse_sprint_length(raw: str) -> int:
+    if not raw.isdigit() or not SPRINT_LENGTH_MIN_DAYS <= int(raw) <= SPRINT_LENGTH_MAX_DAYS:
+        raise ValueError(
+            f"Send a whole number between {SPRINT_LENGTH_MIN_DAYS} and {SPRINT_LENGTH_MAX_DAYS}."
+        )
+    return int(raw)
+
+
+def _parse_capacity(raw: str) -> int | None:
+    if raw.lower() == "off":
+        return None
+    if not raw.isdigit() or int(raw) <= 0:
+        raise ValueError("Send a positive number of effort points, or off.")
+    return int(raw)
+
+
+def _parse_daily_time(raw: str) -> time | None:
+    try:
+        return parse_clock_or_off(raw)
+    except ValueError:
+        raise ValueError("Send a time as HH:MM, for example 22:00, or off.") from None
+
+
+def _clock(value: time | None) -> str:
+    return value.strftime("%H:%M") if value else "off"
+
+
+# Rendered in this order, both as lines on the Settings screen and as its buttons.
+SETTINGS_FIELDS: dict[str, SettingsField] = {
+    "sprint_length_days": SettingsField(
+        title="Sprint length",
+        label="🏁 Sprint length",
+        instruction=(
+            f"Send a number of days between {SPRINT_LENGTH_MIN_DAYS} and "
+            f"{SPRINT_LENGTH_MAX_DAYS}. It applies to the next Sprint you start."
+        ),
+        parse=_parse_sprint_length,
+        show=lambda value: f"{value} days",
+    ),
+    "capacity_effort_points": SettingsField(
+        title="Sprint capacity",
+        label="🎯 Sprint capacity",
+        instruction="Send the effort points one Sprint holds, or off to stop tracking it.",
+        parse=_parse_capacity,
+        show=lambda value: f"{value} EP" if value else "off",
+    ),
+    "memory_update_time": SettingsField(
+        title="Memory sync",
+        label="🧠 Memory sync",
+        instruction=(
+            "Send the local time the dialogue is folded into memory.md, as HH:MM, or off."
+        ),
+        parse=_parse_daily_time,
+        show=_clock,
+    ),
+    "diary_time": SettingsField(
+        title="Diary",
+        label="📔 Diary time",
+        instruction=(
+            "Send the local time Safwa writes up your day, as HH:MM, or off to stop asking."
+        ),
+        parse=_parse_daily_time,
+        show=_clock,
+    ),
+    "diary_instructions": SettingsField(
+        title="Diary instruction",
+        label="✍️ Diary instruction",
+        instruction=(
+            "Send a standing instruction for the Diary — what to always notice, or how to "
+            "write it. Send off to drop it."
+        ),
+        parse=lambda raw: "" if raw.lower() == "off" else raw,
+        show=lambda value: value or "off",
+    ),
+}
+
+
 @router.message(Command("settings"))
 async def command_settings(
     message: Message, services: Services, *, notice: str | None = None
@@ -444,50 +534,49 @@ async def command_settings(
         workspace = await session.get(Workspace, 1)
         if profile is None or workspace is None:
             raise DomainError("Workspace is not initialized")
-        memory_update_time = (
-            profile.memory_update_time.strftime("%H:%M") if profile.memory_update_time else "off"
-        )
-        about_me = html.escape(profile.about_me or "—")
-        advisor_instructions = html.escape(profile.advisor_instructions or "—")
-        capacity = profile.capacity_effort_points or "—"
-        length = profile.sprint_length_days
-        timezone = workspace.timezone
-        edit_length = await token_button(
-            session, services.owner_id, "🏁 Sprint length", "settings_sprint_length"
-        )
+        lines = [
+            "<b>Settings</b>",
+            f"About me: {html.escape(profile.about_me or '—')}",
+            f"Advisor instructions: {html.escape(profile.advisor_instructions or '—')}",
+        ]
+        buttons = []
+        for name, field in SETTINGS_FIELDS.items():
+            lines.append(
+                f"{field.title}: {html.escape(field.show(getattr(profile, name)))}"
+            )
+            buttons.append(
+                await token_button(
+                    session, services.owner_id, field.label, "settings_edit", {"field": name}
+                )
+            )
+        lines.append(f"Timezone: {html.escape(workspace.timezone)}")
+        lines.append("Tap a setting to change it. Text fields use /setabout and /setadvisor.")
         await session.commit()
+    rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
     await send_registered(
         message,
         services,
-        with_notice(
-            "<b>Settings</b>\n"
-            f"About me: {about_me}\n"
-            f"Advisor instructions: {advisor_instructions}\n"
-            f"Sprint length: {length} days\n"
-            f"Sprint capacity: {capacity} EP\n"
-            f"Memory sync: {memory_update_time} ({timezone})\n"
-            "Edit with /setabout, /setadvisor, /setcapacity, or /setmemtime HH:MM|off.",
-            notice,
-        ),
+        with_notice("\n".join(lines), notice),
         kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=[[edit_length], menu_row()]),
+        markup=InlineKeyboardMarkup(inline_keyboard=[*rows, menu_row()]),
     )
 
 
-async def render_sprint_length_prompt(
-    message: Message, services: Services, *, notice: str | None = None
+async def render_settings_field_prompt(
+    message: Message, services: Services, field_name: str, *, notice: str | None = None
 ) -> None:
+    field = SETTINGS_FIELDS[field_name]
     async with services.sessions() as session:
         profile = await session.get(UserProfile, 1)
         if profile is None:
             raise DomainError("Workspace is not initialized")
-        current = profile.sprint_length_days
+        current = field.show(getattr(profile, field_name))
         await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
         session.add(
             UiSession(
                 owner_id=services.owner_id,
-                kind="sprint_length",
-                state={"message_id": message.message_id},
+                kind="settings_field",
+                state={"field": field_name, "message_id": message.message_id},
                 expires_at=datetime.now(UTC) + SETTINGS_PROMPT_TTL,
             )
         )
@@ -497,9 +586,7 @@ async def render_sprint_length_prompt(
         message,
         services,
         with_notice(
-            f"<b>Sprint length</b>\nCurrently {current} days.\n"
-            f"Send a number of days between {SPRINT_LENGTH_MIN_DAYS} and "
-            f"{SPRINT_LENGTH_MAX_DAYS}. It applies to the next Sprint you start.",
+            f"<b>{field.title}</b>\nCurrently {html.escape(current)}.\n{field.instruction}",
             notice,
         ),
         kind=MessageKind.CARD_EDITOR,
@@ -536,49 +623,6 @@ async def command_setadvisor(message: Message, services: Services) -> None:
     await send_registered(
         message, services, "Advisor Instructions updated.", kind=MessageKind.RECEIPT
     )
-
-
-async def update_profile_field(
-    message: Message, services: Services, field: str, value: Any
-) -> None:
-    async with services.sessions() as session:
-        await update_profile(session, **{field: value})
-        await session.commit()
-    await send_registered(message, services, "Settings updated.", kind=MessageKind.RECEIPT)
-
-
-@router.message(Command("snooze"))
-async def command_snooze(message: Message, services: Services) -> None:
-    raw = (message.text or "").partition(" ")[2].strip()
-    minutes = int(raw) if raw else 60
-    if not 1 <= minutes <= 24 * 60:
-        raise DomainError("Snooze must be between 1 and 1440 minutes")
-    async with services.sessions() as session:
-        await snooze_reminders(session, datetime.now(UTC) + timedelta(minutes=minutes))
-        await session.commit()
-    await send_registered(
-        message, services, f"Reminders snoozed for {minutes} minutes.", kind=MessageKind.RECEIPT
-    )
-
-
-@router.message(Command("setcapacity"))
-async def command_setcapacity(message: Message, services: Services) -> None:
-    raw = (message.text or "").partition(" ")[2].strip()
-    value = int(raw) if raw else None
-    if value is not None and value <= 0:
-        raise DomainError("Capacity must be positive or omitted")
-    await update_profile_field(message, services, "capacity_effort_points", value)
-
-
-@router.message(Command("setmemtime"))
-async def command_setmemtime(message: Message, services: Services) -> None:
-    raw = (message.text or "").partition(" ")[2].strip()
-    try:
-        value = parse_memory_update_time(raw)
-    except ValueError as error:
-        await send_registered(message, services, html.escape(str(error)), kind=MessageKind.ERROR)
-        return
-    await update_profile_field(message, services, "memory_update_time", value)
 
 
 @router.message(Command("status"))

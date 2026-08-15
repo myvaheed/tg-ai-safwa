@@ -152,7 +152,7 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
         SELECT id, instruction, schedule_kind, weekdays, at_time, interval_minutes,
                quiet_windows, next_fire_at, last_fired_at, fire_count,
                created_at, updated_at
-        FROM reminders"""
+        FROM reminders WHERE system = 0"""
     )
     connection.exec_driver_sql(
         """CREATE VIEW IF NOT EXISTS ai_current_sprint AS

@@ -78,7 +78,7 @@
 
 ## Scheduled memory synchronization
 
-- `/setmemtime HH:MM` enables one automatic `/syncmem`-equivalent run per local calendar day after that time. `/setmemtime off` disables it; the default is off.
+- The Memory sync time in `/settings` enables one automatic `/syncmem`-equivalent run per local calendar day after that time. Setting it to `off` disables it; the default is off.
 - The configured value and workspace timezone appear in `/settings`.
 - A lightweight scheduler checks eligibility once per minute. It does not call the LLM on startup or every hour: it runs only when the configured time is due and no successful run was recorded that day.
 - Foreground advisor generation has priority. If Safwa is busy, the scheduled sync waits for a later check.

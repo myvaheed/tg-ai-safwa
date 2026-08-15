@@ -90,7 +90,7 @@ Use SQLite with SQLAlchemy 2, aiosqlite, WAL, foreign keys, a busy timeout, and 
 ## Core persisted data
 
 - `workspace`: mode, active Sprint, owner, timezone, and monotonic revision.
-- `user_profile`: About Me, advisor instructions, the Reminder master switch and snooze, and optional capacity.
+- `user_profile`: About Me, advisor instructions, the Diary clock and instruction, and optional capacity.
 - `cards`: parent, kind, title, Note, manual/effective stage, priority, Hard Time, effort, repeat data, feedback, Blocked state/description, archive/terminal state, version, and timestamps.
 - `values`, `tags`, and their Card junction tables.
 - `checks` plus the `card_checks` junction table. A Check stores title, repeatability, outcome, first-resolution timestamp and actor, and its series lineage; its Cards live in the junction table, not in a column on the Check. Pending is `outcome IS NULL`, so no Pending state is written.
@@ -193,13 +193,13 @@ The private Telegram conversation is canonical persona history. Telethon rereads
 - Summarization triggers around 6K unsummarized dialogue tokens, and `/summarize` forces it. A new Summary rewrites the previous one.
 - `data/memory.md` is authoritative, line-oriented persona memory and is limited to approximately 4K tokens.
 - File edits synchronize at startup, before memory-backed prompts/maintenance, and through a five-second hash watcher.
-- `/syncmem`, `/mem`, `/memory`, and `/setmemtime` provide explicit memory control. Existing facts are edited or removed only through `data/memory.md`.
+- `/syncmem`, `/mem`, `/memory`, and the Memory sync time in Settings provide explicit memory control. Existing facts are edited or removed only through `data/memory.md`.
 
 Foreground generation holds a lease. New ordinary input is deleted from Telegram, shown immediately in a temporary `Generating response...` queue message, then restored as one owner turn after the current answer. Queued messages are separated by `----`. Revisions prevent an answer against obsolete dialogue or workspace state.
 
 ## Reminders and retrospectives
 
-Safwa sends a proactive message only because a Reminder the owner set fired; there are no computed nudge kinds. A Reminder is instruction text plus a schedule, and when it fires that text is handed to the main advisor as an ordinary request — the advisor decides what to do with it. Timing is authored in plain words, resolved into parameters by a setup session, and then computed in code; the owner approves the result as a normal proposal. Suppression is a per-Reminder quiet window, and `/snooze` pauses all of them. Settings keep timezone, capacity, About Me, and advisor instructions. Today Actions never move automatically. The full contract is in `docs/REMINDERS_PLAN.md`.
+Safwa sends a proactive message only because a Reminder the owner set fired; there are no computed nudge kinds. A Reminder is instruction text plus a schedule, and when it fires that text is handed to the main advisor as an ordinary request — the advisor decides what to do with it. Timing is authored in plain words, resolved into parameters by a setup session, and then computed in code; the owner approves the result as a normal proposal. Suppression is a per-Reminder quiet window, and there is no global mute. Settings keep timezone, capacity, About Me, advisor instructions, and the Diary clock and instruction. Today Actions never move automatically. The full contract is in `docs/REMINDERS_PLAN.md`.
 
 Retrospective PNGs use Matplotlib `Agg` and show three panels plus text:
 

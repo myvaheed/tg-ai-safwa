@@ -31,7 +31,13 @@ async def render_reminders(message: Message, services: Services, *, page: int = 
     async with services.sessions() as session:
         tz = await _timezone(session)
         now = datetime.now(UTC)
-        reminders = list(await session.scalars(select(Reminder).order_by(Reminder.next_fire_at)))
+        reminders = list(
+            await session.scalars(
+                select(Reminder)
+                .where(Reminder.system.is_(False))
+                .order_by(Reminder.next_fire_at)
+            )
+        )
         window = paginate(reminders, page)
         rows = [
             [

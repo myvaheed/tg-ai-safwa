@@ -54,6 +54,11 @@ def parse_clock(raw: str) -> time:
         raise ScheduleError(f"A time must look like HH:MM, got {raw!r}") from error
 
 
+def parse_clock_or_off(raw: str) -> time | None:
+    """A daily Settings clock. ``off`` is None, which is how that setting is switched off."""
+    return None if raw.strip().lower() == "off" else parse_clock(raw)
+
+
 def parse_day(raw: str) -> date_type:
     try:
         return datetime.strptime(raw.strip(), "%d.%m.%Y").date()

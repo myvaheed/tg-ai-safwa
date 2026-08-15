@@ -2,8 +2,7 @@
 
 Fast orientation map for a new session. Companion: [STRUCTURE_GRAPH.md](STRUCTURE_GRAPH.md)
 (module/entity index), [INITIAL_PLAN.md](INITIAL_PLAN.md) + [MEMORY_HISTORY_USAGE.md](MEMORY_HISTORY_USAGE.md)
-(product spec), [09-doc-code-inconsistencies.md](diagrams/09-doc-code-inconsistencies.md)
-(spec vs code drift).
+(product spec).
 
 ## What it is
 
@@ -26,7 +25,7 @@ Python `>=3.12,<3.13`. No server, no multi-user, no Mini App.
    subagent reads through
 7. `PersonaContinuity` → `GenerationGuard` → `Services` dataclass → `dispatcher["services"]`
 8. `OwnerAndWritingMiddleware` on both message and callback outer middleware; `router` included
-9. `sync_bot_commands` (20 commands, 19 while the workspace is in Planning)
+9. `sync_bot_commands` (17 commands, 16 while the workspace is in Planning)
 10. four background tasks, all cancelled in the polling `finally`:
     - `memory.poll(memory_error)` — 5 s `memory.md` hash watcher
     - `run_scheduler(...)` with gate/escalate hooks from `ReminderRuntime` — 30 s Reminder poll,
@@ -254,6 +253,10 @@ terminal report; the terminal call *is* the answer, and prose is fed back as a r
 - A `diary_entries` row is one local date — `entry_date` is UNIQUE, so a second draft for a day
   updates it. The remark is screen-only and is not stored, and the entry text reaches the
   conversation in full through both receipts.
+- The nightly ask is an ordinary Reminder marked `system`, derived from Settings by
+  `sync_diary_reminder` and rebuilt at startup: the Settings screen's Diary time moves it or, on
+  `off`, deletes it, and the Diary instruction is appended to its text. It is hidden from `/reminders`
+  and from `ai_reminders`, and the three edit paths in `domain.py` refuse it.
 
 ### Read-only SQL — triple guard
 
@@ -313,7 +316,7 @@ kind, related_id, event_id)` — never persona text.
 ### Summaries and memory
 
 - `PersonaContinuity.maybe_summarize` fires after an ordinary exchange once unsummarized dialogue
-  reaches `summary_trigger_tokens` (6 000), and `/summarize` forces it. The previous Summary is fed
+  reaches `summary_trigger_tokens` (8 000), and `/summarize` forces it. The previous Summary is fed
   back in and rewritten rather than dropped, because the window keeps only the newest one. Before
   posting a `📜 Summary` it verifies the generation lease and rereads the history snapshot; stale
   output is discarded.
@@ -326,18 +329,20 @@ kind, related_id, event_id)` — never persona text.
   ~2K-token chunks (500-token overlap), reconciles the fact list, writes atomically, and only then
   advances the cursor. Invalid provider JSON/schema or a stale lease stops the run without changing
   either the file or the cursor.
-- `/setmemtime HH:MM|off` gates one automatic run per local calendar day
+- The Memory sync time in Settings (`HH:MM`, or `off`) gates one automatic run per local calendar day
   (`run_due_memory_maintenance`, checked once a minute, skipped while foreground is busy).
 
 ### Reminders
 
-Safwa sends a proactive message **only** because a Reminder the owner set fired. There are no computed
-nudge kinds. A Reminder is instruction text plus a schedule — see
-[REMINDERS_PLAN.md](REMINDERS_PLAN.md) for the full contract.
+Safwa sends a proactive message **only** because a Reminder fired — one the owner set, or the one
+Settings derives for the Diary. There are no computed nudge kinds. A Reminder is instruction text plus
+a schedule — see [REMINDERS_PLAN.md](REMINDERS_PLAN.md) for the full contract.
 
 - The 30 s poll *is* the alarm clock. `Reminder.next_fire_at` is the only column it reads, and it is
   advanced **only after an escalation succeeds** — which is why a cancelled or crashed turn loses
   nothing: the row is still overdue, so the next tick retries it.
+- There is no global mute. A `system` Reminder fires like any other; quiet windows on an interval
+  schedule are the only way to silence one.
 - The system's only output is an **escalation**: the instruction text is handed to the main advisor as
   a synthetic final user turn after the canonical `history.dialogue(owner_id)`. The same bounded
   window and the same tools apply as for an ordinary request. The reminder system itself never

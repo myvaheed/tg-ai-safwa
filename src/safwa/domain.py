@@ -14,6 +14,7 @@ from .constants import (
     SPRINT_LENGTH_DAYS,
     SPRINT_LENGTH_MAX_DAYS,
     SPRINT_LENGTH_MIN_DAYS,
+    WEEKDAY_NAMES,
 )
 from .enums import (
     LIVE_STAGE_PRECEDENCE,
@@ -592,7 +593,9 @@ async def update_profile(session: AsyncSession, **fields: Any) -> UserProfile:
         "advisor_instructions",
         "capacity_effort_points",
         "sprint_length_days",
-        "reminders_enabled",
+        "memory_update_time",
+        "diary_time",
+        "diary_instructions",
     }
     length = fields.get("sprint_length_days")
     if length is not None and not SPRINT_LENGTH_MIN_DAYS <= length <= SPRINT_LENGTH_MAX_DAYS:
@@ -608,8 +611,62 @@ async def update_profile(session: AsyncSession, **fields: Any) -> UserProfile:
         raise DomainError("User profile is not initialized")
     for field_name, value in fields.items():
         setattr(profile, field_name, value)
+    if {"diary_time", "diary_instructions"} & set(fields):
+        await sync_diary_reminder(session)
     await _bump_workspace(session)
     return profile
+
+
+DIARY_REMINDER_INSTRUCTION = (
+    "End of day. Call the diary subagent for today, then propose what it reports."
+)
+
+
+async def sync_diary_reminder(session: AsyncSession) -> Reminder | None:
+    """Rebuild the hidden Diary Reminder from Settings, which is its only source.
+
+    Called on every write to those fields and again at startup, so it must be idempotent:
+    an unchanged clock keeps `next_fire_at` rather than pushing a due fire away.
+    """
+    profile = await session.get(UserProfile, 1)
+    if profile is None:
+        raise DomainError("User profile is not initialized")
+    existing = await session.scalar(select(Reminder).where(Reminder.system.is_(True)))
+    if profile.diary_time is None:
+        if existing is not None:
+            await session.delete(existing)
+        return None
+
+    workspace = await session.get(Workspace, 1)
+    tz = ZoneInfo(workspace.timezone if workspace else "UTC")
+    schedule = Schedule(
+        kind=ScheduleKind.DAILY, weekdays=WEEKDAY_NAMES, at_time=profile.diary_time
+    )
+    extra = profile.diary_instructions.strip()
+    instruction = f"{DIARY_REMINDER_INSTRUCTION} {extra}" if extra else DIARY_REMINDER_INSTRUCTION
+    first = next_fire(schedule, previous=None, now=utcnow(), tz=tz)
+    if first is None:
+        raise DomainError("That schedule has no future occurrence")
+
+    if existing is None:
+        existing = Reminder(
+            instruction=instruction,
+            system=True,
+            next_fire_at=first,
+            **schedule_columns(schedule),
+        )
+        session.add(existing)
+        await session.flush()
+        return existing
+    if existing.instruction == instruction and existing.at_time == profile.diary_time:
+        return existing
+    existing.instruction = instruction
+    if existing.at_time != profile.diary_time:
+        for column, value in schedule_columns(schedule).items():
+            setattr(existing, column, value)
+        existing.next_fire_at = first
+    existing.version += 1
+    return existing
 
 
 async def create_reminder(
@@ -632,9 +689,7 @@ async def create_reminder(
 
 async def update_reminder_text(session: AsyncSession, reminder_id: int, instruction: str) -> Reminder:
     """Edit what a Reminder tells the advisor, and nothing about when it fires."""
-    reminder = await session.get(Reminder, reminder_id)
-    if reminder is None:
-        raise DomainError("Reminder does not exist")
+    reminder = await _editable_reminder(session, reminder_id)
     clean = instruction.strip()
     if not clean:
         raise DomainError("Reminder text cannot be empty")
@@ -647,9 +702,7 @@ async def update_reminder_text(session: AsyncSession, reminder_id: int, instruct
 async def reschedule_reminder(
     session: AsyncSession, reminder_id: int, *, schedule: Schedule, tz: ZoneInfo
 ) -> Reminder:
-    reminder = await session.get(Reminder, reminder_id)
-    if reminder is None:
-        raise DomainError("Reminder does not exist")
+    reminder = await _editable_reminder(session, reminder_id)
     now = utcnow()
     first = next_fire(schedule, previous=None, now=now, tz=tz)
     if first is None:
@@ -664,21 +717,19 @@ async def reschedule_reminder(
 
 async def delete_reminder(session: AsyncSession, reminder_id: int) -> None:
     """Remove a Reminder outright; there is no archive."""
-    reminder = await session.get(Reminder, reminder_id)
-    if reminder is None:
-        raise DomainError("Reminder does not exist")
+    reminder = await _editable_reminder(session, reminder_id)
     await session.delete(reminder)
     await _bump_workspace(session)
 
 
-async def snooze_reminders(session: AsyncSession, until: datetime) -> UserProfile:
-    """Pause every Reminder until a moment."""
-    profile = await session.get(UserProfile, 1)
-    if profile is None:
-        raise DomainError("User profile is not initialized")
-    profile.reminders_snoozed_until = until
-    await _bump_workspace(session)
-    return profile
+async def _editable_reminder(session: AsyncSession, reminder_id: int) -> Reminder:
+    """A Reminder the owner and the advisor may touch — never Safwa's own."""
+    reminder = await session.get(Reminder, reminder_id)
+    if reminder is None:
+        raise DomainError("Reminder does not exist")
+    if reminder.system:
+        raise DomainError("That Reminder belongs to Safwa; change it in Settings")
+    return reminder
 
 
 async def edit_card_text(session: AsyncSession, card_id: int, field: str, value: str) -> Card:

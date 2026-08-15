@@ -37,6 +37,9 @@ SUSPENDED_BATCH_LOOKUP_LIMIT = 50
 SUBAGENT_DEADLINE_SECONDS = 300.0
 # How much of a day's conversation the Diary reader may hand back in one call.
 DIARY_DAY_TOKEN_BUDGET = 12_000
+# Local clock the Diary's system Reminder fires on out of the box; Settings moves it,
+# and `off` there removes the row.
+DIARY_TIME_DEFAULT = "22:00"
 
 # --- query_safwa result caps ----------------------------------------------
 # Sized for a local model: one result should inform a turn, not consume its context.

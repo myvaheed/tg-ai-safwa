@@ -7,7 +7,6 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from safwa.constants import REMINDER_CATCHUP_GRACE_MINUTES, REMINDER_FIRE_BATCH
-from safwa.domain import snooze_reminders
 from safwa.models import Reminder, UserProfile
 from safwa.reminders import resolve, schedule_columns
 from safwa.scheduler import Firing, prepare, run_scheduler, settle, tick
@@ -75,27 +74,16 @@ async def test_a_failed_escalation_advances_nothing(sessions):
     assert reminder.fire_count == 0
 
 
-async def test_reminders_disabled_stops_the_tick(sessions):
-    await make_reminder(sessions)
+async def test_a_system_reminder_fires_like_any_other(sessions):
+    """It is hidden from the UI and from the model, never from the poll."""
+    reminder_id = await make_reminder(sessions)
     async with sessions() as session:
-        profile = await session.get(UserProfile, 1)
-        profile.reminders_enabled = False
+        (await session.get(Reminder, reminder_id)).system = True
         await session.commit()
     recorder = Recorder()
 
-    assert await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder)) is False
-    assert not recorder.escalated
-
-
-async def test_a_snooze_stops_the_tick_until_it_expires(sessions):
-    await make_reminder(sessions)
-    async with sessions() as session:
-        await snooze_reminders(session, NOW + timedelta(hours=1))
-        await session.commit()
-    recorder = Recorder()
-
-    assert await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder)) is False
-    assert await tick(sessions, tz=TZ, now=NOW + timedelta(hours=2), **_hooks(recorder)) is True
+    assert await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder)) is True
+    assert recorder.escalated
 
 
 # --- batching -------------------------------------------------------------

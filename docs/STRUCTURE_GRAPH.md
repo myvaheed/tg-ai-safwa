@@ -83,6 +83,7 @@ flowchart LR
 | Долговременная persona memory | `data/memory.md` | AI context, `/memory`, maintenance | File edits, `/mem`, `PersonaContinuity` |
 | Proposal/agent progress | `AgentRun`, `AgentStep`, `ChangeProposal` | AI continuation, proposal UI, recovery | `AIAdvisor`, `ProposalService`, approval handlers |
 | Reminder schedule и delivery state | `Reminder` | Scheduler, UI, AI views | Domain operations и `scheduler.settle` |
+| Diary clock и instruction | `UserProfile` | `sync_diary_reminder` → системный `Reminder` | Кнопки `/settings` через `update_profile` |
 | Transient Telegram UI | `UiSession`, `CallbackToken` | Telegram handlers | `_messaging.py`, renderers, recovery |
 
 ## Composition root

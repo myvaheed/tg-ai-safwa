@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import select
@@ -15,14 +16,23 @@ from safwa.ai.provider import ProviderToolCall, ProviderTurn
 from safwa.ai.service import MUTATION_TOOL_DESCRIPTIONS
 from safwa.ai.sql import ALLOWED_VIEWS
 from safwa.ai.subagents import SubagentRunner
+from safwa.constants import DIARY_TIME_DEFAULT
 from safwa.domain import (
+    DIARY_REMINDER_INSTRUCTION,
     DomainError,
     create_diary_entry,
     delete_diary_entry,
+    delete_reminder,
     diary_entry_for,
+    reschedule_reminder,
+    sync_diary_reminder,
     update_diary_entry,
+    update_profile,
+    update_reminder_text,
 )
-from safwa.models import DiaryEntry, DiaryStamp
+from safwa.enums import ScheduleKind
+from safwa.models import DiaryEntry, DiaryStamp, Reminder
+from safwa.reminders import resolve, schedule_of
 
 
 class RecordingProvider:
@@ -234,3 +244,70 @@ async def test_a_question_carries_no_stamp_and_no_date(sessions) -> None:
     assert "stamp" not in result
     async with sessions() as session:
         assert list(await session.scalars(select(DiaryStamp))) == []
+
+
+# --- the system Reminder behind the Diary ---------------------------------
+
+
+async def system_reminder(sessions) -> Reminder | None:
+    async with sessions() as session:
+        return await session.scalar(select(Reminder).where(Reminder.system.is_(True)))
+
+
+async def test_settings_is_the_only_source_of_the_diary_reminder(sessions) -> None:
+    async with sessions() as session:
+        await sync_diary_reminder(session)
+        await session.commit()
+    reminder = await system_reminder(sessions)
+    assert reminder is not None
+    assert reminder.at_time == time.fromisoformat(DIARY_TIME_DEFAULT)
+    assert schedule_of(reminder).kind is ScheduleKind.DAILY
+    first_fire = reminder.next_fire_at
+
+    # A restart re-runs the projection; an unchanged clock must not push the fire away.
+    async with sessions() as session:
+        await sync_diary_reminder(session)
+        await session.commit()
+    assert (await system_reminder(sessions)).next_fire_at == first_fire
+
+    async with sessions() as session:
+        await update_profile(session, diary_time=time(7, 30))
+        await session.commit()
+    moved = await system_reminder(sessions)
+    assert moved.at_time == time(7, 30)
+    assert moved.next_fire_at != first_fire
+
+    async with sessions() as session:
+        await update_profile(session, diary_time=None)
+        await session.commit()
+    assert await system_reminder(sessions) is None
+
+
+async def test_the_extra_instruction_reaches_the_reminder_text(sessions) -> None:
+    async with sessions() as session:
+        await update_profile(session, diary_instructions="Спроси про сон.")
+        await session.commit()
+    reminder = await system_reminder(sessions)
+    assert reminder.instruction.startswith(DIARY_REMINDER_INSTRUCTION)
+    assert reminder.instruction.endswith("Спроси про сон.")
+
+    async with sessions() as session:
+        await update_profile(session, diary_instructions="")
+        await session.commit()
+    assert (await system_reminder(sessions)).instruction == DIARY_REMINDER_INSTRUCTION
+
+
+async def test_the_diary_reminder_is_not_the_owners_to_edit(sessions) -> None:
+    async with sessions() as session:
+        await sync_diary_reminder(session)
+        await session.commit()
+    reminder_id = (await system_reminder(sessions)).id
+    schedule = resolve(clock="09:00", days=["Mon"], now=datetime.now(UTC), tz=ZoneInfo("UTC"))
+
+    async with sessions() as session:
+        with pytest.raises(DomainError):
+            await update_reminder_text(session, reminder_id, "Mine now.")
+        with pytest.raises(DomainError):
+            await reschedule_reminder(session, reminder_id, schedule=schedule, tz=ZoneInfo("UTC"))
+        with pytest.raises(DomainError):
+            await delete_reminder(session, reminder_id)

@@ -47,15 +47,17 @@ sequenceDiagram
 свободный текст сначала должен быть разобран mini-session и проверен чистой арифметикой
 `reminders.py`.
 
+Собственный Reminder Safwa помечен `system`: его выводит `sync_diary_reminder` из Settings, он скрыт
+из `/reminders` и из `ai_reminders`, а edit/delete в `domain.py` его отклоняют. Глобального mute нет —
+единственная тишина это quiet windows у interval schedule.
+
 ## Один scheduler tick
 
 ```mermaid
 flowchart TD
-    T["Tick, обычно каждые 30 секунд"] --> PAUSE{"Reminders enabled<br/>и snooze закончился?"}
-    PAUSE -->|"Нет"| END["Ничего не делать"]
-    PAUSE -->|"Да"| DUE["SELECT next_fire_at <= now<br/>по времени, с batch limit"]
+    T["Tick, обычно каждые 30 секунд"] --> DUE["SELECT next_fire_at <= now<br/>по времени, с batch limit"]
     DUE --> EMPTY{"Есть due rows?"}
-    EMPTY -->|"Нет"| END
+    EMPTY -->|"Нет"| END["Ничего не делать"]
     EMPTY -->|"Да"| GATE{"Получен background lease,<br/>нет pending proposal/batch?"}
     GATE -->|"Нет"| RETRY["Не менять due rows;<br/>повторить на следующем tick"]
     GATE -->|"Да"| PREP["prepare каждого Reminder"]

@@ -9,7 +9,6 @@ from aiogram.enums import ChatAction
 from aiogram.types import Message
 from sqlalchemy import delete, select
 
-from ..constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ..domain import (
     DomainError,
     edit_card_text,
@@ -33,7 +32,7 @@ from ._messaging import (
     send_summary,
 )
 from .cards import render_card, render_card_creation, sanitize_card_creation_state
-from .commands import command_settings, render_sprint_length_prompt
+from .commands import SETTINGS_FIELDS, command_settings, render_settings_field_prompt
 from .items import render_item_editor
 from .proposals import render_ai_outcome
 from .reminders import render_reminder
@@ -109,26 +108,26 @@ async def ordinary_text(message: Message, services: Services) -> None:
         await clear_message_markup(message, message_id)
         await render_sprint_confirm(message, services)
         return
-    if ui_kind == "sprint_length":
-        message_id = int(ui_state["message_id"])
-        raw = message.text.strip()
+    if ui_kind == "settings_field":
+        field_name = str(ui_state["field"])
         await delete_text_input(message, services)
-        await clear_message_markup(message, message_id)
-        if not raw.isdigit() or not (
-            SPRINT_LENGTH_MIN_DAYS <= int(raw) <= SPRINT_LENGTH_MAX_DAYS
-        ):
-            await render_sprint_length_prompt(
-                message,
-                services,
-                notice=f"Send a whole number between {SPRINT_LENGTH_MIN_DAYS} and "
-                f"{SPRINT_LENGTH_MAX_DAYS}.",
+        await clear_message_markup(message, int(ui_state["message_id"]))
+        field = SETTINGS_FIELDS.get(field_name)
+        if field is None:
+            await command_settings(message, services)
+            return
+        try:
+            value = field.parse(message.text.strip())
+        except ValueError as error:
+            await render_settings_field_prompt(
+                message, services, field_name, notice=str(error)
             )
             return
         async with services.sessions() as session:
-            await update_profile(session, sprint_length_days=int(raw))
+            await update_profile(session, **{field_name: value})
             await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
             await session.commit()
-        await command_settings(message, services, notice=f"Sprint length is now {raw} days.")
+        await command_settings(message, services, notice=f"{field.title} updated.")
         return
     if ui_kind == "card_create_text":
         async with services.sessions() as session:

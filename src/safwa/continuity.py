@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
@@ -326,17 +326,3 @@ async def record_memory_run(
             session.add(state)
         state.memory_last_run_at = occurred_at or datetime.now(UTC)
         await session.commit()
-
-
-def parse_memory_update_time(value: str) -> time | None:
-    normalized = value.strip().lower()
-    if normalized == "off":
-        return None
-    if len(normalized) != 5 or normalized[2] != ":":
-        raise ValueError("Memory update time must use HH:MM, for example 03:00, or off.")
-    try:
-        return time.fromisoformat(normalized)
-    except ValueError as error:
-        raise ValueError(
-            "Memory update time must use a valid 24-hour HH:MM value, for example 03:00, or off."
-        ) from error

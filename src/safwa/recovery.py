@@ -7,6 +7,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .constants import REMINDER_CATCHUP_GRACE_MINUTES
+from .domain import sync_diary_reminder
 from .enums import ProposalStatus
 from .models import (
     AgentRun,
@@ -23,6 +24,8 @@ from .reminders import next_fire, on_wall_clock, roll_forward, schedule_of
 
 async def recover_startup(session: AsyncSession) -> None:
     now = datetime.now(UTC)
+    # Before the reconcile, so a Diary Reminder created here is rolled forward with the rest.
+    await sync_diary_reminder(session)
     await reconcile_reminders(session, now=now)
     await session.execute(
         update(AgentRun).where(AgentRun.status == "running").values(status="interrupted")

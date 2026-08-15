@@ -47,9 +47,8 @@ scheduler, daily memory maintenance) that are cancelled in the polling `finally`
 `docs/INITIAL_PLAN.md` and `docs/MEMORY_HISTORY_USAGE.md` are the authoritative product spec —
 read them before changing history, memory, proposal, or UI behavior. `docs/ARCHITECTURE.md` and
 `docs/STRUCTURE_GRAPH.md` map features and entities to files for fast orientation. When sources drift:
-the product spec says what should happen, code and tests say what happens now, descriptive docs explain
-the current design, and `docs/diagrams/09-doc-code-inconsistencies.md` records unresolved differences.
-Do not present an unimplemented spec item as current behavior. The layer responsibilities exist as flat
+the product spec says what should happen, code and tests say what happens now, and descriptive docs
+explain the current design. Do not present an unimplemented spec item as current behavior. The layer responsibilities exist as flat
 files: [domain.py](src/safwa/domain.py) (invariants + all mutations), [telegram/](src/safwa/telegram)
 (all UI), and [ai/service.py](src/safwa/ai/service.py) (agent loop + proposals).
 
@@ -273,7 +272,12 @@ first system message. `SAFWA_AI_CACHE_BREAKPOINTS` adds `cache_control` markers 
   schedule arithmetic. `ReminderRuntime.escalate` reads the normal bounded Telegram dialogue and
   appends the formatted Reminder batch as a synthetic user turn for the main advisor. The advisor uses
   `query_safwa` first when the text names Safwa items. Only a delivered outcome reaches `settle`; an
-  owner event cancels the background lease and leaves the Reminder due.
+  owner event cancels the background lease and leaves the Reminder due. There is no global mute — a
+  quiet window on an interval schedule is the only one.
+- A `system` Reminder is Safwa's own. `sync_diary_reminder` derives the Diary's from Settings on every
+  write to those fields and again at startup, so it is idempotent: an unchanged clock keeps
+  `next_fire_at`. It is filtered out of the `ai_reminders` view and the `/reminders` list, and
+  `_editable_reminder` refuses it — which is what makes Settings its only source.
 
 ## Schema gotcha
 

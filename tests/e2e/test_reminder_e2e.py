@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
 from safwa.ai.provider import ProviderToolCall, ProviderTurn
 from safwa.ai.service import ProposalService
+from safwa.domain import update_profile
 from safwa.enums import ProposalStatus
 from safwa.models import ChangeProposal, ProposalChange, Reminder
 from safwa.reminders import schedule_of
@@ -195,3 +196,17 @@ async def test_ai_reminders_view_is_readable(e2e_harness):
     result = await reader.run("SELECT id, instruction, schedule_kind FROM ai_reminders")
     rows = result.as_tool_result()
     assert rows and rows[0]["schedule_kind"] == "interval"
+
+
+async def test_the_diary_reminder_is_invisible_to_the_model(e2e_harness):
+    """Unnameable is unmutatable: the model cannot ask to change an id it never reads."""
+    async with e2e_harness.sessions() as session:
+        await update_profile(session, diary_time=time(22, 0))
+        await session.commit()
+    advisor, _provider = e2e_harness.advisor([])
+
+    result = await advisor.query_runner.run("SELECT id FROM ai_reminders")
+
+    assert result.as_tool_result() == []
+    async with e2e_harness.sessions() as session:
+        assert await session.scalar(select(Reminder).where(Reminder.system.is_(True))) is not None

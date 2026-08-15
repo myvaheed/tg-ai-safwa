@@ -1,12 +1,11 @@
 # Safwa — Diary (plan)
 
-**Not implemented.** This file is the contract to build against: the rules below are what the code
-should be written to, and a change to the behaviour is a change to this file first.
-Read [ARCHITECTURE.md](ARCHITECTURE.md) for how the existing pieces fit together.
+**Implemented, all five phases.** This file stays the contract: a change to the behaviour is a change
+to this file first. Read [ARCHITECTURE.md](ARCHITECTURE.md) for how the pieces fit together.
 
-The feature needs four things Safwa does not have yet — a subagent runner, a history window bounded
-by tokens instead of a session marker, a Diary entity, and a hidden system Reminder. They are staged
-so each phase leaves the bot working on its own.
+The feature needed four things Safwa did not have — a subagent runner, a history window bounded
+by tokens instead of a session marker, a Diary entity, and a hidden system Reminder. They were staged
+so each phase left the bot working on its own.
 
 ## Rules
 
@@ -187,15 +186,16 @@ conversation and manual UI work, and a five-minute hang is cut off.
 **Done when** a full round trip works: subagent → proposal → Save → the entry is in the table and
 its text is in the conversation; and a second run the same day offers an overwrite.
 
-## Phase 5 — the system Reminder and Settings
+## Phase 5 — the system Reminder and Settings · done
 
 - A `system` column on `reminders`. Filter it out of the `ai_reminders` view, out of the
   `/reminders` query, and guard update/delete in `domain.py`. Nothing else: a Reminder the model
   cannot see in `ai_reminders` is a Reminder whose id it cannot name, so the mutation tools need no
   special case.
 - Settings gains Diary on/off, the end-of-day time (default `DIARY_TIME_DEFAULT = "22:00"` in
-  constants), and the extra instruction passed to the subagent. Follow the `/setmemtime HH:MM|off`
-  shape — `off` is the switch, so there is no second flag to keep in sync.
+  constants), and the extra instruction passed to the subagent. `off` is the switch, so there is no
+  second flag to keep in sync. Every Settings value is edited from its own button and a typed
+  answer — one `SettingsField` table drives the lines, the buttons, and the prompts.
 - Settings is the single source of truth: writing it updates the hidden Reminder row through
   `domain.py`, and `reconcile_reminders` rebuilds its wall clock after a timezone move, as it does
   for every other row.
@@ -213,10 +213,8 @@ UI or in `ai_reminders`, and changing the time in Settings moves it.
 - A `diary` citation type and a `/diary` browsing screen. Five openable types is a documented
   invariant; a sixth is its own decision, not a side effect of this feature.
 
-## Documentation to update when the phases land
+## Documentation kept in step
 
 [ARCHITECTURE.md](ARCHITECTURE.md) (runtime wiring, feature map, table count, command count),
-[STRUCTURE_GRAPH.md](STRUCTURE_GRAPH.md), [CLAUDE.md](../CLAUDE.md) (the history and proposal
-sections both describe session boundaries), and
-[diagrams/09-doc-code-inconsistencies.md](diagrams/09-doc-code-inconsistencies.md) for anything left
-unresolved.
+[STRUCTURE_GRAPH.md](STRUCTURE_GRAPH.md), [CLAUDE.md](../CLAUDE.md), and
+[diagrams/05-reminders.md](diagrams/05-reminders.md).

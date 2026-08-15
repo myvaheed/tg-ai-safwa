@@ -5,13 +5,10 @@ from pathlib import Path
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
-import pytest
-
 from safwa.constants import MEMORY_READ_TOKEN_BUDGET
 from safwa.continuity import (
     MemoryMaintenanceResult,
     PersonaContinuity,
-    parse_memory_update_time,
     run_due_memory_maintenance,
 )
 from safwa.enums import MessageKind
@@ -60,20 +57,6 @@ class SequenceHistory:
         if len(self.snapshots) == 1:
             return list(self.snapshots[0])
         return list(self.snapshots.pop(0))
-
-
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [("03:00", time(3, 0)), ("23:59", time(23, 59)), ("off", None), ("OFF", None)],
-)
-def test_parse_memory_update_time(raw: str, expected: time | None) -> None:
-    assert parse_memory_update_time(raw) == expected
-
-
-@pytest.mark.parametrize("raw", ["", "3:00", "24:00", "tomorrow"])
-def test_parse_memory_update_time_rejects_invalid_values(raw: str) -> None:
-    with pytest.raises(ValueError, match="Memory update time"):
-        parse_memory_update_time(raw)
 
 
 async def test_daily_memory_sync_runs_once_after_configured_time(sessions) -> None:

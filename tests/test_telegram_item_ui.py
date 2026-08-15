@@ -5,8 +5,9 @@ import html
 import importlib
 import inspect
 import pkgutil
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import select
@@ -15,12 +16,15 @@ import safwa.telegram as telegram_source
 from safwa.ai.context import DialogueMessage
 from safwa.ai.service import AIOutcome, ProposalDescription, ProposalService
 from safwa.ai.sql import create_ai_views
+from safwa.constants import DIARY_TIME_DEFAULT
 from safwa.domain import (
+    DIARY_REMINDER_INSTRUCTION,
     DomainError,
     archive_tag,
     create_card,
     create_check,
     create_diary_entry,
+    create_reminder,
     create_saved_request,
     create_tag,
     create_value,
@@ -28,6 +32,7 @@ from safwa.domain import (
     set_sprint_success_criteria,
     start_sprint,
     toggle_card_check,
+    update_profile,
 )
 from safwa.enums import CardStage, MessageKind
 from safwa.history import CITATION_TYPES, parse_citation_payload, read_kind_mark
@@ -45,9 +50,11 @@ from safwa.models import (
     Tag,
     TelegramMessage,
     UiSession,
+    UserProfile,
     Value,
     Workspace,
 )
+from safwa.reminders import resolve
 from safwa.telegram import (
     CALLBACK_ACTIONS,
     GenerationGuard,
@@ -71,7 +78,8 @@ from safwa.telegram import (
 )
 from safwa.telegram._messaging import materialize_queued_dialogue
 from safwa.telegram._presentation import start_payload
-from safwa.telegram.commands import command_start
+from safwa.telegram.commands import command_settings, command_start
+from safwa.telegram.reminders import render_reminders
 from safwa.telegram.screens import OPENABLE_MODELS
 from safwa.telegram.sprint import render_sprint_confirm
 
@@ -1548,3 +1556,88 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
         assert set(
             await session.scalars(select(CardTag.tag_id).where(CardTag.card_id == card_id))
         ) == {tag.id}
+
+
+async def test_the_reminders_screen_and_settings_hide_safwas_own_reminder(sessions) -> None:
+    """The owner sets the Diary in Settings; the Reminder behind it is not theirs to see."""
+    async with sessions() as session:
+        await update_profile(session, diary_time=time(22, 0))
+        await create_reminder(
+            session,
+            instruction="Check my posture.",
+            schedule=resolve(interval_minutes=120, now=datetime.now(UTC), tz=ZoneInfo("UTC")),
+            tz=ZoneInfo("UTC"),
+        )
+        await session.commit()
+
+    listing = FakeMessage(910, bot_message=True)
+    await render_reminders(listing, services_for(sessions))
+    settings = FakeMessage(911, bot_message=True)
+    await command_settings(settings, services_for(sessions))
+
+    labels = button_texts(listing.edits[-1][1])
+    assert any("Check my posture" in label for label in labels)
+    assert not any(DIARY_REMINDER_INSTRUCTION[:20] in label for label in labels)
+    assert "Diary: 22:00" in settings.edits[-1][0]
+
+
+@pytest.mark.parametrize(
+    ("label", "typed", "field", "expected", "shown"),
+    [
+        ("📔 Diary time", "07:15", "diary_time", time(7, 15), "Diary: 07:15"),
+        ("📔 Diary time", "off", "diary_time", None, "Diary: off"),
+        ("🧠 Memory sync", "03:00", "memory_update_time", time(3, 0), "Memory sync: 03:00"),
+        ("🎯 Sprint capacity", "21", "capacity_effort_points", 21, "Sprint capacity: 21 EP"),
+        ("✍️ Diary instruction", "Спроси про сон.", "diary_instructions", "Спроси про сон.",
+         "Diary instruction: Спроси про сон."),
+        ("🏁 Sprint length", "21", "sprint_length_days", 21, "Sprint length: 21 days"),
+    ],
+)
+async def test_every_settings_value_is_edited_from_its_own_button(
+    sessions, label, typed, field, expected, shown
+) -> None:
+    services = services_for(sessions)
+    message = FakeMessage(920, bot_message=True, answer_as_new=True)
+    await command_settings(message, services)
+
+    button = next(
+        item for row in message.edits[-1][1].inline_keyboard for item in row if item.text == label
+    )
+    await callback_token_handler(
+        FakeCallback(button.callback_data.split(":", 1)[1], message), services
+    )
+    async with sessions() as session:
+        ui = await session.scalar(select(UiSession))
+        assert (ui.kind, ui.state["field"]) == ("settings_field", field)
+
+    answer = FakeMessage(921, text=typed, bot_message=False, bot=message.bot)
+    await ordinary_text(answer, services)
+
+    async with sessions() as session:
+        assert getattr(await session.get(UserProfile, 1), field) == expected
+    assert shown in answer.answers[-1]
+
+
+async def test_a_rejected_settings_value_reopens_its_own_prompt(sessions) -> None:
+    services = services_for(sessions)
+    message = FakeMessage(930, bot_message=True, answer_as_new=True)
+    await command_settings(message, services)
+    button = next(
+        item
+        for row in message.edits[-1][1].inline_keyboard
+        for item in row
+        if item.text == "📔 Diary time"
+    )
+    await callback_token_handler(
+        FakeCallback(button.callback_data.split(":", 1)[1], message), services
+    )
+
+    answer = FakeMessage(931, text="tomorrow", bot_message=False, bot=message.bot)
+    await ordinary_text(answer, services)
+
+    assert "Send a time as HH:MM" in answer.answers[-1]
+    async with sessions() as session:
+        assert (await session.get(UserProfile, 1)).diary_time == time.fromisoformat(
+            DIARY_TIME_DEFAULT
+        )
+        assert (await session.scalar(select(UiSession))).kind == "settings_field"
