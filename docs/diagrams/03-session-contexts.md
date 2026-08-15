@@ -39,7 +39,7 @@ flowchart TD
 
     MAIN --> MC["SYSTEM_PROMPT + planning + memory<br/>+ bounded Telegram dialogue + clock<br/>+ все Safwa tools"]
     SETUP --> SC["SETUP_PROMPT + when + instruction<br/>+ local time/timezone<br/>+ только terminal tools"]
-    SUB --> SBC["DIARY_PROMPT + дата и request advisor;<br/>день читается через read_day и query_safwa<br/>+ один terminal diary_report"]
+    SUB --> SBC["DIARY_PROMPT + сегодняшняя дата и request advisor;<br/>нужный день subagent определяет сам и читает<br/>через read_day(date) и query_safwa (ai_diary и др.)<br/>+ один terminal diary_report"]
     SUM --> SUC["SUMMARY_PROMPT + предыдущий Summary<br/>+ unsummarized canonical dialogue"]
     RETELL --> MEC["RETELL_PROMPT + chunk;<br/>затем MEMORY_PROMPT + facts + retelling"]
 ```

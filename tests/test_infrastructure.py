@@ -66,12 +66,14 @@ async def test_startup_sweeps_diary_stamps_whose_day_is_over(sessions):
                 DiaryStamp(
                     stamp="yesterday",
                     entry_date=today - timedelta(days=1),
+                    action="create",
                     body="Old.",
                     expires_at=datetime.now(UTC) - timedelta(hours=1),
                 ),
                 DiaryStamp(
                     stamp="today",
                     entry_date=today,
+                    action="create",
                     body="Current.",
                     expires_at=datetime.now(UTC) + timedelta(hours=1),
                 ),

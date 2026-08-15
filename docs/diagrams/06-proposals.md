@@ -1,8 +1,15 @@
 # Proposals и tool calls
 
 LLM никогда не применяет mutation напрямую. `query_safwa` и `call_subagent` — immediate tools;
-`card`, `check`, `value`, `tag`, `request`, `reminder` и `remove` создают reviewable proposals с явным
-Save/Discard.
+`card`, `check`, `value`, `tag`, `request`, `reminder`, `remove` и `propose_diary_update` создают
+reviewable proposals с явным Save/Discard.
+
+`propose_diary_update` принимает только stamp. Дату, целевую запись, action (create/update/delete),
+body и remark решил Diary subagent, и preparation восстанавливает из `DiaryStamp` весь change
+целиком. Discard не расходует stamp, поэтому отклонённый change предлагается снова из того же stamp
+до конца дня, в который он был выдан. Save расходует его вместе со всеми остальными stamp той же
+даты: старый черновик описывает день таким, каким он был, и его повторное предложение откатило бы
+только что сохранённое.
 
 ## Read перед mutation
 

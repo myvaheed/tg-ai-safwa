@@ -168,7 +168,7 @@ flowchart TD
 | [`ai/mini.py`](../src/safwa/ai/mini.py) | Узкая tool-only LLM-сессия | `run_mini_session`, `ReadToolSpec`, `TerminalTool`, terminal/retry protocol |
 | [`ai/reminder_sessions.py`](../src/safwa/ai/reminder_sessions.py) | Setup mini-session для расписаний Reminder | `resolve_schedule` |
 | [`ai/subagents.py`](../src/safwa/ai/subagents.py) | Запуск named subagent под собственным `AgentRun` и deadline | `SubagentRunner`, `Subagent`, `SubagentOutcome` |
-| [`ai/diary.py`](../src/safwa/ai/diary.py) | Diary subagent: читает день из двух источников и отдаёт draft под stamp | `DiarySubagent`, `DIARY_PROMPT`, `DIARY_REPORT` |
+| [`ai/diary.py`](../src/safwa/ai/diary.py) | Diary subagent: определяет день и действие, читает его из двух источников и отдаёт change под stamp | `DiarySubagent`, `DIARY_PROMPT`, `DIARY_REPORT` |
 | [`ai/service.py`](../src/safwa/ai/service.py) | Main agent loop, read tools, proposals, continuation и apply | `AIAdvisor`, `AIOutcome`, `ProposalService`, `_run_agent_loop`, `_materialize` |
 
 ### Main advisor context
@@ -191,10 +191,12 @@ mutations получают retryable error и повторяются следу�
 flowchart LR
     CALL["call_subagent(name, request)"] --> RUNNER["SubagentRunner: AgentRun + deadline"]
     RUNNER --> MINI["run_mini_session: read tools + один terminal"]
-    MINI --> READ["read_day + query_safwa"]
-    MINI --> REPORT["diary_report: entry+remark или question"]
-    REPORT --> STAMP["DiaryStamp хранит body host-side"]
-    STAMP --> RESULT["Advisor получает stamp, не текст"]
+    MINI --> READ["read_day(date) + query_safwa над ai_diary/ai_card_events/ai_checks"]
+    MINI --> REPORT["diary_report: date + entry+remark, remove или question"]
+    REPORT --> STAMP["DiaryStamp хранит дату, entry_id, action и body host-side"]
+    STAMP --> RESULT["Advisor получает только stamp, не текст и не цель"]
+    RESULT --> PROPOSE["propose_diary_update(stamp) восстанавливает change из stamp"]
+    PROPOSE --> SCREEN["Save/Discard screen → DiaryEntry (одна на дату)"]
 ```
 
 ## Telegram package
@@ -328,7 +330,8 @@ flowchart LR
 | Planning tree | `Card`, `CardValue`, `CardTag`, `CardCheck`, `Check`, `Value`, `Tag`, `CardEvent` |
 | Sprint | `Sprint`, `SprintCommitment`, `CardCategory`, `CardEnergyType` |
 | Saved queries | `SavedRequest` |
-| Agent и approvals | `AgentRun`, `AgentStep`, `ChangeProposal`, `ProposalChange`, `DiaryStamp` |
+| Agent и approvals | `AgentRun`, `AgentStep`, `ChangeProposal`, `ProposalChange` |
+| Diary | `DiaryEntry`, `DiaryStamp` |
 | Telegram continuity | `TelegramMessage`, `SummaryState`, `UiSession`, `CallbackToken` |
 | Persona memory | `MemoryFactCache`, `MemorySyncState` |
 | Proactive work | `Reminder`, `FeedbackQueue` |
@@ -344,7 +347,7 @@ flowchart LR
 | Summary и memory | `test_continuity.py`, `test_memory.py` |
 | Reminder arithmetic и scheduler | `test_reminders.py`, `test_reminder_flow.py`, `test_scheduler.py` |
 | Provider/config/infrastructure | `test_provider.py`, `test_config.py`, `test_infrastructure.py`, `test_backup.py` |
-| Subagents и Diary | `test_subagents.py`, `tests/e2e/test_subagent_e2e.py` |
+| Subagents и Diary | `test_subagents.py`, `test_diary.py`, `tests/e2e/test_subagent_e2e.py`, `tests/e2e/test_diary_e2e.py` |
 | End-to-end agent behavior | `tests/e2e/test_advisor_flow_e2e.py`, `test_reminder_e2e.py`, `test_checks_e2e.py`, `test_startup_e2e.py` |
 
 ## Куда вносить изменение

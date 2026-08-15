@@ -5,12 +5,12 @@ import logging
 import sqlite3
 import time
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..constants import (
@@ -33,10 +33,12 @@ from ..domain import (
     archive_value,
     create_card,
     create_check,
+    create_diary_entry,
     create_reminder,
     create_saved_request,
     create_tag,
     create_value,
+    delete_diary_entry,
     delete_reminder,
     delete_subtree,
     finish_action,
@@ -50,6 +52,7 @@ from ..domain import (
     toggle_card_energy_type,
     update_card_fields,
     update_check_fields,
+    update_diary_entry,
     update_reminder_text,
     update_saved_request,
     update_tag_fields,
@@ -78,6 +81,8 @@ from ..models import (
     CardValue,
     ChangeProposal,
     Check,
+    DiaryEntry,
+    DiaryStamp,
     ProposalChange,
     Reminder,
     SavedRequest,
@@ -156,15 +161,19 @@ MUTATION_TOOL_DESCRIPTIONS = {
         "in edit mode to change only the text and leave the schedule alone."
     ),
     "remove": "Prepare an archive or permanent Card-deletion confirmation.",
+    "propose_diary_update": (
+        "Open the Diary review UI for the change the diary subagent prepared. Send its stamp and "
+        "nothing else: the day, the text, and whether it is written or removed all come from the "
+        "stamp. A discarded change can be sent again from the same stamp."
+    ),
 }
 CALL_SUBAGENT_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
         "name": "call_subagent",
         "description": (
-            "Hand one job to a specialist that reads the data itself and reports back "
-            "inside this turn. The roster in your instructions names every subagent and "
-            "when to call it."
+            "Hand one job to a subagent that reads the data itself and answers in this "
+            "turn. Your instructions name every subagent and when to call it."
         ),
         "parameters": tool_json_schema(CallSubagentInput),
     },
@@ -186,10 +195,9 @@ IMMEDIATE_TOOLS = frozenset({"query_safwa", "call_subagent"})
 
 
 def query_read_tool(query_runner: ReadOnlyQueryRunner) -> ReadToolSpec:
-    """`query_safwa` for a session with no ``AgentRun`` of the advisor's to record into.
+    """`query_safwa` for a session with no `AgentRun` to record steps into.
 
-    The query runner and its caps are shared, which is the part that matters; only the
-    advisor's own step bookkeeping is left out.
+    The runner and its caps are shared; only the advisor's step bookkeeping is left out.
     """
 
     async def read(call: ProviderToolCall) -> list[dict[str, Any]]:
@@ -514,6 +522,24 @@ def _value_details(entity: str, values: dict[str, Any], *, creating: bool) -> li
     ]
 
 
+def _diary_detail_lines(change: ProposalChange) -> list[str]:
+    """The entry in full: the receipt is how the model reads the saved day back.
+
+    Every other detail line is a short field and takes `_detail_value`'s 100-character cut,
+    which would leave an entry as a fragment.
+    """
+    values = dict(change.values)
+    lines = [f"Date: {values.get('entry_date', '')}"]
+    if change.action == "delete":
+        lines.append("Entry: removed")
+    else:
+        lines.append(f"Entry: {values.get('body', '')}")
+        if values.get("remark"):
+            lines.append(f"Remark: {values['remark']}")
+    lines.append(f"Draft: {values.get('stamp', '')}")
+    return lines
+
+
 def _raw_change_details(change: AgentChange | None) -> list[str]:
     if change is None:
         return []
@@ -570,6 +596,7 @@ _ENTITY_MODELS: dict[str, Any] = {
     "value": Value,
     "request": SavedRequest,
     "reminder": Reminder,
+    "diary": DiaryEntry,
 }
 
 
@@ -809,7 +836,7 @@ class AIAdvisor:
         self.provider_name = provider_name
         self.cache_breakpoints = cache_breakpoints
         self.subagents = subagents
-        # Without a runner there is no roster to call, so the tool is not offered at all.
+        # No runner means no roster, so the tool is not offered at all.
         self.tools = (*SAFWA_TOOLS, CALL_SUBAGENT_TOOL) if subagents else SAFWA_TOOLS
 
     async def handle(
@@ -1071,7 +1098,8 @@ class AIAdvisor:
                     "code": "unknown_tool",
                     "error": f"Unknown tool: {call.name}",
                     "hint": (
-                        "Call one of: query_safwa, card, check, value, tag, request, reminder, remove."
+                        "Call one of: query_safwa, card, check, value, tag, request, reminder, "
+                        "remove, propose_diary_update."
                     ),
                     "retryable": True,
                 }
@@ -1356,7 +1384,9 @@ class AIAdvisor:
         change = tool.change
         if change is None:
             raise DomainError("The proposal has no validated change to review")
-        entity: Card | Check | Reminder | Tag | Value | SavedRequest | None = None
+        if change.entity == "diary":
+            await self._resolve_diary_change(session, change)
+        entity: Card | Check | DiaryEntry | Reminder | Tag | Value | SavedRequest | None = None
         expected_version = None
         if change.id and change.entity in _ENTITY_MODELS:
             entity = await session.get(_ENTITY_MODELS[change.entity], change.id)
@@ -1454,6 +1484,36 @@ class AIAdvisor:
             "said how it went, otherwise cite them as [title](check:<id>) so they answer them "
             "themselves. Then retry only this unfinished completion.",
         )
+
+    async def _resolve_diary_change(
+        self, session: AsyncSession, change: AgentChange
+    ) -> None:
+        """Fill the change in from the stamp, since the tool call carries only that.
+
+        Discard leaves the stamp alone so the change can be offered again; Save clears it.
+        """
+        stamp = await session.get(DiaryStamp, str(change.values.get("stamp") or ""))
+        call_first = "Call the diary subagent, then propose the stamp it reports back."
+        if stamp is None:
+            raise ToolPreparationError(
+                "diary_stamp_not_found",
+                "There is no Diary draft under that stamp.",
+                call_first,
+            )
+        if stamp.expires_at <= utcnow():
+            raise ToolPreparationError(
+                "diary_stamp_expired",
+                f"The draft for {stamp.entry_date.isoformat()} has expired.",
+                call_first,
+            )
+        change.action = stamp.action
+        change.id = stamp.entry_id
+        change.values = {
+            "stamp": stamp.stamp,
+            "entry_date": stamp.entry_date.isoformat(),
+            "body": stamp.body,
+            "remark": stamp.remark,
+        }
 
     async def _prepare_reminder_values(
         self, session: AsyncSession, workspace: Workspace, values: dict[str, Any]
@@ -1626,6 +1686,8 @@ class AIAdvisor:
             outcome = CHECK_ANSWER_ACTIONS[action]
             head = f"“{_result_value(check.title)}”" if check else f"#{change.entity_id}"
             return f"Answer Check {head} ({CHECK_OUTCOME_LABELS[outcome]})"
+        if change.entity == "diary":
+            return f"{verb} Diary entry for {values.get('entry_date', '')}".strip()
         if change.entity == "reminder":
             reminder = (
                 await session.get(Reminder, change.entity_id)
@@ -1720,6 +1782,8 @@ class AIAdvisor:
 
         if proposed_change.entity == "check":
             return await self._check_detail_lines(session, proposed_change)
+        if proposed_change.entity == "diary":
+            return _diary_detail_lines(proposed_change)
 
         model = {
             "tag": Tag,
@@ -2412,6 +2476,36 @@ class ProposalService:
             raise DomainError(f"Unsupported Check action: {change.action}")
         affected.append(check.id)
 
+    async def _apply_diary_change(self, change: ProposalChange, affected: list[int]) -> None:
+        values = dict(change.values)
+        entry_date = date.fromisoformat(str(values["entry_date"]))
+        if change.action == "create":
+            entry = await create_diary_entry(
+                self.session, entry_date=entry_date, body=str(values.get("body", ""))
+            )
+            affected.append(entry.id)
+        elif change.action in {"update", "delete"}:
+            entry = (
+                await self.session.get(DiaryEntry, change.entity_id)
+                if change.entity_id
+                else None
+            )
+            if entry is None or entry.version != change.expected_version:
+                raise StaleStateError("The Diary entry changed; refresh this proposal")
+            entry_id = entry.id
+            if change.action == "delete":
+                await delete_diary_entry(self.session, entry_id)
+            else:
+                await update_diary_entry(self.session, entry_id, str(values.get("body", "")))
+            affected.append(entry_id)
+        else:
+            raise DomainError(f"Unsupported approved Diary action: {change.action}")
+        # Every draft of the day, not just the saved one: an older stamp describes the day
+        # as it was, so re-proposing one would revert this save.
+        await self.session.execute(
+            delete(DiaryStamp).where(DiaryStamp.entry_date == entry_date)
+        )
+
     async def apply(self, proposal_id: int, *, allow_destructive: bool = False) -> list[int]:
         proposal = await self.session.get(ChangeProposal, proposal_id)
         if proposal is None or proposal.status != ProposalStatus.PENDING.value:
@@ -2521,6 +2615,8 @@ class ProposalService:
                 affected.append(card.id)
             elif change.entity == "check":
                 await self._apply_check_change(change, affected)
+            elif change.entity == "diary":
+                await self._apply_diary_change(change, affected)
             elif change.entity == "reminder":
                 await self._apply_reminder_change(change, affected)
             elif change.entity == "tag":

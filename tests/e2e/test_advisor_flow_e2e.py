@@ -1288,6 +1288,7 @@ async def test_advisor_sends_layered_system_blocks_and_canonical_dialogue(e2e_ha
         "request",
         "reminder",
         "remove",
+        "propose_diary_update",
     ]
 
 

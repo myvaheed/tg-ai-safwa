@@ -88,8 +88,11 @@ Consequences that break silently if ignored:
   correlation even if visible text is edited, while a rebuilt database still recovers classification
   from Telegram. Mark every bot send. An unmarked bot message is excluded; v1 has no legacy fallback.
 - The window is a token budget, not a message count: `recent` walks backwards and stops at the first
-  of `HISTORY_MESSAGE_TOKEN_BUDGET` spent, the newest `📜 Summary`, or the oldest row in
-  `telegram_messages`. The cut always lands between messages. `/summarize` posts a Summary on demand.
+  of `SUMMARY_TRIGGER_TOKENS` spent, the newest `📜 Summary`, or the oldest row in
+  `telegram_messages`. The cut always lands between messages, and `HISTORY_TOKEN_BUDGET` is just that
+  trigger plus `SUMMARY_TOKEN_CEILING` — one knob, so a Summary is written exactly when the message
+  window fills. `until` bounds the other end, which is what lets a caller read one past day.
+  `/summarize` posts a Summary on demand.
 - Owner text that is still in the chat is dialogue: the middleware deletes every slash command and
   `delete_text_input` deletes typed field values as `UI_INPUT`, so survival is the evidence.
 - Bot API and Telethon use different message-ID spaces in a private chat. Outgoing messages use the
@@ -99,7 +102,7 @@ Consequences that break silently if ignored:
 ### AI mutations are always proposals
 
 The model never mutates and never writes mutation SQL. Path:
-tool call (`card`, `check`, `value`, `tag`, `request`, `remove`) →
+tool call (`card`, `check`, `value`, `tag`, `request`, `reminder`, `remove`, `propose_diary_update`) →
 Pydantic model in [ai/contracts.py](src/safwa/ai/contracts.py) → `AgentChange` →
 `ChangeProposal` + `ProposalChange` rows → a read-only review screen with only **Save**/**Discard** →
 `ProposalService.apply` calls the *same* `domain.py` functions the manual UI calls.
@@ -156,13 +159,30 @@ The roster is prose in `SYSTEM_PROMPT` under `# Subagents` — there is no disco
 subagent must be added *both* to the runner in [main.py](src/safwa/main.py) *and* to that section,
 exactly like a new `ai_*` view.
 
-The Diary subagent ([ai/diary.py](src/safwa/ai/diary.py)) reads the day's conversation
-(`day_transcript`, which walks a period with `stop_at_summary=False`) **and** `ai_card_events` /
-`ai_checks.resolved_at`, because manual UI work never reaches the conversation and the day's mood
-never reaches the database. `diary_report` carries an entry with a remark, or the one question that
-would make the day writable — never both. A draft is stored as a `diary_stamps` row and the advisor
-receives only the stamp, the length, and the remark: the body never travels through the advisor, so
-it cannot be silently rewritten. The stamp is reusable until it expires at the end of its local day.
+The Diary subagent ([ai/diary.py](src/safwa/ai/diary.py)) **settles the whole change itself** — which
+day, which entry, and whether that day is written or removed. The advisor only passes the owner's
+words through and proposes the result. It reads the day's conversation (`day_transcript`, a period
+walked with `stop_at_summary=False` and closed at both ends) **and** `ai_diary`, `ai_card_events`,
+`ai_checks`, because manual UI work never reaches the conversation and the day's mood never reaches
+the database. Its own prompt names those views: it has `query_safwa`, so a view it is not told about
+is a view it cannot use. `diary_report` carries `date` plus exactly one of `entry` (with a remark),
+`remove`, or `question`.
+
+The report becomes a `diary_stamps` row holding the whole change — date, `entry_id` resolved
+host-side, `action`, body, remark — and the advisor receives only the stamp, the date, the action,
+the length, and the remark. `propose_diary_update(stamp)` therefore takes **nothing else**:
+preparation reads the row back and fills in `AgentChange.action`, `.id` and `.values`, so the model
+cannot rewrite an entry, retarget it, or move it to another day. A missing or expired stamp is a
+retryable `ToolPreparationError`. Discard leaves the stamp alone, so the same change is re-offered
+from it; **Save clears every stamp for that date**, because an older draft still describes the day as
+it was and re-proposing one would revert what the owner just approved. Unspent, it expires at the end
+of the local day it was **issued** on, not the day it describes, so a back-dated entry gets the same
+working life as today's.
+
+A `diary_entries` row is one local date (`entry_date` is UNIQUE), so a second draft for a day updates
+rather than adds; the remark is screen-only and never stored. Both receipts carry the entry in full —
+that is how the model reads the saved day back — so `_diary_detail_lines` bypasses the 100-character
+cut every other detail line takes.
 
 ### Read-only SQL is triple-guarded
 
@@ -275,6 +295,11 @@ at that point.
   start with `from __future__ import annotations`.
 - Comments are used sparingly and only to explain non-obvious *why* (Telegram/Telethon quirks,
   ordering constraints). Match that density; do not add narrative comments.
+- **Everything the model reads is written for a small local model — 4B to 12B.** System prompts,
+  tool descriptions, field descriptions, `hint`, and `next` are short, imperative, and concrete:
+  numbered or bulleted steps, one instruction per line, the exact tool and field names. No rationale,
+  no reassurance, no restating a rule in a second way. A paragraph explaining *why* costs context and
+  is followed worse than one line saying *what*. Say a thing once, where it is used.
 - Docs follow the same rule. Edit the fewest places that are actually wrong, and keep the edit as
   short as the line it replaces. Describe the behavior that exists now — never the design it
   replaced, why the old one was dropped, or how deliberate the new one is.

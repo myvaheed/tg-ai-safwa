@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date as calendar_date
 from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
@@ -128,7 +129,7 @@ class QueryToolInput(ToolInput):
 
 
 class AgentChange(BaseModel):
-    entity: Literal["card", "check", "tag", "value", "request", "reminder"]
+    entity: Literal["card", "check", "tag", "value", "request", "reminder", "diary"]
     action: Literal[
         "create",
         "update",
@@ -444,43 +445,64 @@ class NotClearEnoughInput(ToolInput):
 
 
 class CallSubagentInput(ToolInput):
-    name: str = Field(description="The subagent to run, exactly as the roster names it.")
+    name: str = Field(description="The subagent to run, spelled as your instructions spell it.")
     request: str = Field(
         description=(
-            "What it must do, and anything the owner just said that it needs. It reads "
-            "the data itself; it does not see this conversation."
+            "What it must do, plus anything the user just said that it needs. It cannot "
+            "see this conversation."
         )
     )
 
 
-class DiaryReportInput(ToolInput):
-    """The Diary subagent's one ending: the day as it stands, or the question blocking it."""
+class DiaryProposalInput(ToolInput):
+    """The advisor's half of a Diary change: the stamp, and nothing else.
 
+    The date, the target entry, and the action come from the stamp row.
+    """
+
+    stamp: str = Field(description="The stamp from the diary subagent, copied exactly.")
+
+
+class DiaryReportInput(ToolInput):
+    """The Diary subagent's one ending: a day rewritten, a day removed, or a question."""
+
+    date: str | None = Field(
+        default=None,
+        description="The day this report settles, as YYYY-MM-DD. Required unless sending question.",
+    )
     entry: str | None = Field(
         default=None,
-        description=(
-            "The whole day in the owner's own voice, including whatever was already "
-            "written for it. It replaces the saved entry rather than extending it."
-        ),
+        description="That whole day in the owner's voice. It replaces the saved entry.",
     )
     remark: str | None = Field(
         default=None,
-        description=(
-            "One sentence in Safwa's own voice about the day. Shown beside the entry, "
-            "never stored inside it."
-        ),
+        description="One sentence in Safwa's voice about the day. Shown beside it, not stored.",
+    )
+    remove: bool = Field(
+        default=False, description="True instead of entry, to delete that day's entry."
     )
     question: str | None = Field(
-        default=None,
-        description="Sent instead of an entry when the day holds nothing to write yet.",
+        default=None, description="Instead of entry, when the day holds nothing to write yet."
     )
+
+    @field_validator("date")
+    @classmethod
+    def validate_calendar_date(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            return calendar_date.fromisoformat(value.strip()).isoformat()
+        except ValueError as error:
+            raise ValueError("date must be a calendar date written as YYYY-MM-DD") from error
 
     @model_validator(mode="after")
     def exactly_one_shape(self) -> DiaryReportInput:
-        if bool(self.entry) == bool(self.question):
+        if sum([bool(self.entry), self.remove, bool(self.question)]) != 1:
             raise ValueError(
-                "Send entry for the day's text, or question when there is none — exactly one"
+                "Send exactly one of entry (the day's text), remove, or question"
             )
+        if not self.question and not self.date:
+            raise ValueError("date is required for an entry or a removal")
         return self
 
 
@@ -492,6 +514,7 @@ MUTATION_TOOL_MODELS: dict[str, type[BaseModel]] = {
     "request": RequestToolInput,
     "reminder": ReminderToolInput,
     "remove": RemoveToolInput,
+    "propose_diary_update": DiaryProposalInput,
 }
 
 
@@ -501,6 +524,10 @@ def mutation_change_from_tool(name: str, arguments: dict[str, Any]) -> AgentChan
     if model is None:
         raise ValueError(f"Unknown mutation tool: {name}")
     payload = model.model_validate(arguments).model_dump(exclude_unset=True)
+    if name == "propose_diary_update":
+        # The date, the target, and the action all come from the stamp; preparation
+        # fills them in, so the call itself carries nothing to get wrong.
+        return AgentChange(entity="diary", action="update", values={"stamp": payload["stamp"]})
     if name == "remove":
         return AgentChange(
             entity=payload["type"],

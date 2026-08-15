@@ -37,6 +37,7 @@ from .models import (
     CardTag,
     CardValue,
     Check,
+    DiaryEntry,
     FeedbackQueue,
     Reminder,
     SavedRequest,
@@ -444,6 +445,49 @@ async def archive_saved_request(session: AsyncSession, request_id: int) -> Saved
     request.version += 1
     await _bump_workspace(session)
     return request
+
+
+async def diary_entry_for(session: AsyncSession, entry_date: date) -> DiaryEntry | None:
+    return await session.scalar(select(DiaryEntry).where(DiaryEntry.entry_date == entry_date))
+
+
+async def create_diary_entry(
+    session: AsyncSession, *, entry_date: date, body: str
+) -> DiaryEntry:
+    """Write a day's first entry; a second one for the same date is an update."""
+    text = body.strip()
+    if not text:
+        raise DomainError("A Diary entry cannot be empty")
+    if await diary_entry_for(session, entry_date) is not None:
+        raise DomainError("This day already has a Diary entry")
+    entry = DiaryEntry(entry_date=entry_date, body=text)
+    session.add(entry)
+    await session.flush()
+    await _bump_workspace(session)
+    return entry
+
+
+async def update_diary_entry(session: AsyncSession, entry_id: int, body: str) -> DiaryEntry:
+    """Replace a day's entry. The Diary is rewritten whole, never patched."""
+    entry = await session.get(DiaryEntry, entry_id)
+    if entry is None:
+        raise DomainError("Diary entry does not exist")
+    text = body.strip()
+    if not text:
+        raise DomainError("A Diary entry cannot be empty")
+    entry.body = text
+    entry.version += 1
+    await _bump_workspace(session)
+    return entry
+
+
+async def delete_diary_entry(session: AsyncSession, entry_id: int) -> None:
+    """Remove a day's entry outright; the Diary has no archive."""
+    entry = await session.get(DiaryEntry, entry_id)
+    if entry is None:
+        raise DomainError("Diary entry does not exist")
+    await session.delete(entry)
+    await _bump_workspace(session)
 
 
 async def create_value(

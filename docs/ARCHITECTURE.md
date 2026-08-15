@@ -159,7 +159,8 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
 
 - Tools: two that run immediately (`IMMEDIATE_TOOLS`) — `query_safwa(sql)` and
   `call_subagent(name, request)` — plus the mutation tools `card`, `check`, `value`, `tag`, `request`,
-  `reminder`, `remove` (`SAFWA_TOOLS`, [ai/service.py](../src/safwa/ai/service.py)).
+  `reminder`, `remove`, `propose_diary_update`
+  (`SAFWA_TOOLS`, [ai/service.py](../src/safwa/ai/service.py)).
   `call_subagent` is offered only when a `SubagentRunner` is wired.
 - Offering an item is not a tool. The model cites it in its own prose as `[Milk](check:14)`. The five
   openable types are Card, Check, Tag, Value and Saved Request; `render_citations`
@@ -230,14 +231,29 @@ terminal report; the terminal call *is* the answer, and prose is fed back as a r
   `AgentRun` id.
 - The roster is prose in `SYSTEM_PROMPT` (`# Subagents`) — a static block inside the cacheable
   prefix. There is no discovery tool, so **a subagent missing from that section cannot be called**.
-- **Diary** ([ai/diary.py](../src/safwa/ai/diary.py)): reads the day's conversation
-  (`TelegramHistorySource.day_transcript`) *and* `ai_card_events` / `ai_checks.resolved_at`, because
+- **Diary** ([ai/diary.py](../src/safwa/ai/diary.py)): settles the whole change — which day, which
+  entry, and whether that day is written or removed. It works the date out from the owner's words,
+  so the advisor never has to. It reads that day's conversation
+  (`TelegramHistorySource.day_transcript`) *and* `ai_diary`, `ai_card_events`, `ai_checks`, because
   work done from the buttons never reaches the conversation and what the day felt like never reaches
-  the database. Its prompt fixes the entry's language rather than inheriting the advisor's. Its
-  `diary_report` has exactly two shapes: an entry with a remark, or the one question that would make the day writable — never both.
-- A draft is stored as a `diary_stamps` row and the advisor receives only the stamp, the character
-  count, and the remark. The body never travels through the advisor, which is what stops it being
-  silently edited. The stamp is reusable until it expires at the end of its own local day.
+  the database. It has `query_safwa`, so its own prompt lists those views — one it is not told about
+  is one it cannot use. Its prompt also fixes the entry's language rather than inheriting the
+  advisor's. `diary_report` carries `date` plus exactly one of `entry` (with a remark), `remove`, or
+  `question`.
+- The report becomes a `diary_stamps` row carrying the whole change — date, host-resolved `entry_id`,
+  `action`, body, remark — and the advisor receives only the stamp, the date, the action, the
+  character count, and the remark. The body never travels through the advisor, which is what stops it
+  being silently edited.
+- `propose_diary_update(stamp)` takes nothing else: preparation reads the row back and fills in the
+  change's action, target, and values. A missing or expired stamp is a retryable
+  `ToolPreparationError`.
+- Discard leaves the stamp alone, so the same change is re-offered from it. Save clears every stamp
+  for that date — an older draft describes the day as it was, so re-proposing one would revert the
+  save. Unspent, a stamp expires at the end of the local day it was *issued* on, so a back-dated
+  entry gets the same working life as today's.
+- A `diary_entries` row is one local date — `entry_date` is UNIQUE, so a second draft for a day
+  updates it. The remark is screen-only and is not stored, and the entry text reaches the
+  conversation in full through both receipts.
 
 ### Read-only SQL — triple guard
 
@@ -277,11 +293,15 @@ kind, related_id, event_id)` — never persona text.
   else (`COMMAND`, `UI_INPUT`, `DASHBOARD`, `CARD_EDITOR`, `APPROVAL`, `RECEIPT`,
   `RETROSPECTIVE_PNG`, `ERROR`) is excluded.
 - **Bounded by tokens**: `recent` walks backwards and stops at the first of
-  `HISTORY_MESSAGE_TOKEN_BUDGET = 8 000` spent, the newest `📜 Summary`, or the oldest row in
+  `SUMMARY_TRIGGER_TOKENS = 8 000` spent, the newest `📜 Summary`, or the oldest row in
   `telegram_messages`. The budget is checked before an entry is taken, so the cut lands between
   messages. A Summary boundary is followed by up to `SUMMARY_CONTEXT_MESSAGE_LIMIT = 20` older
-  messages, and `HISTORY_SCAN_LIMIT` caps the walk itself.
-- `day_transcript` reads a period instead of a window: it walks back to a given moment with `stop_at_summary=False`, because a Summary written at noon must not cut that day in half.
+  messages, and `HISTORY_SCAN_LIMIT` caps the walk itself. `HISTORY_TOKEN_BUDGET` is derived —
+  the trigger plus `SUMMARY_TOKEN_CEILING = 2 000` — so the message window and the summarization
+  trigger cannot drift apart.
+- `day_transcript` reads a period instead of a window: `since` and `until` close it at both ends and
+  `stop_at_summary=False` walks through Summaries, because a Summary written at noon must not cut
+  that day in half and today's conversation must not leak into yesterday's.
 - The middleware deletes every slash command, which is what makes surviving owner text dialogue.
 - Bot API and Telethon use different message-ID spaces in a private chat. Outgoing messages correlate
   by event UUID. Only owner source-message de-duplication retains the narrow ID/time heuristic because
@@ -367,12 +387,12 @@ means editing `models.py` and rebuilding the database (`uv run safwa-backup` fir
 **Do not add Alembic or write migrations before the first release.** The owner recreates the
 pre-release database. Migration support begins after v1.
 
-28 tables: `workspace`, `user_profile`, `values`, `cards`, `card_values`, `tags`, `card_tags`,
+29 tables: `workspace`, `user_profile`, `values`, `cards`, `card_values`, `tags`, `card_tags`,
 `checks`, `card_checks`,
 `saved_requests`, `card_categories`, `card_energy_types`, `sprints`, `sprint_commitments`, `card_events`,
 `change_proposals`, `proposal_changes`, `agent_runs`, `agent_steps`, `telegram_messages`,
 `feedback_queue`, `summary_state`, `memory_fact_cache`, `memory_sync_state`, `reminders`,
-`ui_sessions`, `callback_tokens`, `diary_stamps`.
+`ui_sessions`, `callback_tokens`, `diary_entries`, `diary_stamps`.
 
 Enums are `StrEnum` but columns store plain strings — always compare/assign `.value`.
 

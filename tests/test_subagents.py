@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, datetime
+from datetime import date, datetime
 from typing import Any
 
 import pytest
@@ -14,6 +14,8 @@ from safwa.ai.mini import MiniSessionError, ReadToolSpec
 from safwa.ai.provider import ProviderToolCall, ProviderTurn
 from safwa.ai.subagents import SubagentRunner
 from safwa.models import AgentRun, AgentStep, DiaryStamp
+
+TODAY = date.today().isoformat()
 
 
 class ScriptedProvider:
@@ -48,8 +50,8 @@ class StubDayReader:
         self.transcript = transcript
         self.reads: list[dict[str, Any]] = []
 
-    async def day_transcript(self, chat_id: int, *, start, token_budget) -> str:
-        self.reads.append({"chat_id": chat_id, "start": start, "token_budget": token_budget})
+    async def day_transcript(self, chat_id: int, *, start, end, token_budget) -> str:
+        self.reads.append({"chat_id": chat_id, "start": start, "end": end})
         return self.transcript
 
 
@@ -117,7 +119,7 @@ def test_the_roster_names_every_subagent_that_can_be_called() -> None:
 async def test_the_diary_reads_both_sources_and_reports_a_stamped_draft(sessions) -> None:
     provider = ScriptedProvider(
         calls(("read_day", {}), ("query_safwa", {"sql": "SELECT 1 FROM ai_card_events"})),
-        calls(("diary_report", {"entry": "Сходил на рынок.", "remark": "A steady day."})),
+        calls(("diary_report", {"date": TODAY, "entry": "Сходил на рынок.", "remark": "A steady day."})),
     )
     subagent, history = diary_subagent(sessions, provider)
 
@@ -136,7 +138,7 @@ async def test_the_diary_reads_both_sources_and_reports_a_stamped_draft(sessions
 
 
 async def test_a_stamp_expires_at_the_end_of_its_own_local_day(sessions) -> None:
-    provider = ScriptedProvider(calls(("diary_report", {"entry": "A quiet day.", "remark": "—"})))
+    provider = ScriptedProvider(calls(("diary_report", {"date": TODAY, "entry": "A quiet day.", "remark": "—"})))
     subagent, _ = diary_subagent(sessions, provider)
 
     result = await runner(sessions, subagent).run("diary", "Write today's entry.")
@@ -144,8 +146,7 @@ async def test_a_stamp_expires_at_the_end_of_its_own_local_day(sessions) -> None
     async with sessions() as session:
         stamp = await session.get(DiaryStamp, result.result["stamp"])
     assert stamp is not None
-    # SQLite hands the column back naive; it was written in UTC.
-    local_end = stamp.expires_at.replace(tzinfo=UTC).astimezone(subagent.tz)
+    local_end = stamp.expires_at.astimezone(subagent.tz)
     assert (local_end.hour, local_end.minute) == (0, 0)
     assert (local_end.date() - stamp.entry_date).days == 1
 
@@ -167,8 +168,8 @@ async def test_nothing_to_write_carries_a_question_and_issues_no_stamp(sessions)
 
 async def test_a_report_carrying_both_shapes_is_repaired_rather_than_accepted(sessions) -> None:
     provider = ScriptedProvider(
-        calls(("diary_report", {"entry": "A day.", "question": "Which day?"})),
-        calls(("diary_report", {"entry": "A day.", "remark": "Short."})),
+        calls(("diary_report", {"date": TODAY, "entry": "A day.", "question": "Which day?"})),
+        calls(("diary_report", {"date": TODAY, "entry": "A day.", "remark": "Short."})),
     )
     subagent, _ = diary_subagent(sessions, provider)
 
@@ -179,7 +180,7 @@ async def test_a_report_carrying_both_shapes_is_repaired_rather_than_accepted(se
 
 
 async def test_a_subagent_is_never_offered_a_mutation_or_another_subagent(sessions) -> None:
-    provider = ScriptedProvider(calls(("diary_report", {"entry": "A day.", "remark": "Short."})))
+    provider = ScriptedProvider(calls(("diary_report", {"date": TODAY, "entry": "A day.", "remark": "Short."})))
     subagent, _ = diary_subagent(sessions, provider)
 
     await runner(sessions, subagent).run("diary", "Write today's entry.")
@@ -190,7 +191,7 @@ async def test_a_subagent_is_never_offered_a_mutation_or_another_subagent(sessio
 async def test_the_run_is_traced_as_its_own_agent_run(sessions) -> None:
     provider = ScriptedProvider(
         calls(("read_day", {})),
-        calls(("diary_report", {"entry": "A day.", "remark": "Short."})),
+        calls(("diary_report", {"date": TODAY, "entry": "A day.", "remark": "Short."})),
     )
     subagent, _ = diary_subagent(sessions, provider)
 
@@ -270,12 +271,12 @@ async def test_an_unknown_name_is_retryable_and_starts_no_run(sessions) -> None:
 
 
 @pytest.mark.parametrize("timezone", ["Europe/Istanbul", "Pacific/Kiritimati"])
-async def test_the_day_is_read_from_the_local_midnight_of_the_entry_date(
+async def test_a_day_is_read_between_its_own_local_midnights(
     sessions, timezone: str
 ) -> None:
     provider = ScriptedProvider(
         calls(("read_day", {})),
-        calls(("diary_report", {"entry": "A day.", "remark": "Short."})),
+        calls(("diary_report", {"date": TODAY, "entry": "A day.", "remark": "Short."})),
     )
     history = StubDayReader("[10:00] [User]: Morning.")
     subagent = DiarySubagent(
@@ -287,9 +288,12 @@ async def test_the_day_is_read_from_the_local_midnight_of_the_entry_date(
         timezone=timezone,
     )
 
-    result = await runner(sessions, subagent).run("diary", "Write today's entry.")
+    await runner(sessions, subagent).run("diary", "Write today's entry.")
 
     start: datetime = history.reads[0]["start"]
+    end: datetime = history.reads[0]["end"]
     local_start = start.astimezone(subagent.tz)
     assert (local_start.hour, local_start.minute) == (0, 0)
-    assert local_start.date().isoformat() == result.result["entry_date"]
+    assert (end - start).days == 1
+    # No date argument means the subagent's own local day, not the host's.
+    assert local_start.date() == datetime.now(subagent.tz).date()

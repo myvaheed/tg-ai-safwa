@@ -446,18 +446,37 @@ class CallbackToken(Base):
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-class DiaryStamp(Base):
-    """Proof that the Diary subagent read the day, and where its draft waits.
+class DiaryEntry(Base, TimestampMixin):
+    """One local day in the owner's own words.
 
-    The body never travels through the advisor, so the stamp is what the advisor holds
-    instead of the text.  It is reusable until it expires at the end of its own local
-    day: a discarded proposal is re-offered from the same stamp, without a second run.
+    ``entry_date`` is unique, so a later draft replaces the day rather than joining it.
+    Safwa's remark is screen-only and not stored, so the entry keeps one voice.
+    """
+
+    __tablename__ = "diary_entries"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    entry_date: Mapped[date] = mapped_column(Date, unique=True)
+    body: Mapped[str] = mapped_column(Text)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class DiaryStamp(Base):
+    """The whole Diary change the subagent decided on, waiting for the owner's Save.
+
+    The advisor holds the stamp and never the text, so it cannot rewrite an entry it is
+    not meant to author; the row therefore carries everything the proposal needs.  Save
+    clears it, Discard leaves it, and unspent it expires at the end of the local day it
+    was issued on — the day it *describes* may be older.
     """
 
     __tablename__ = "diary_stamps"
     stamp: Mapped[str] = mapped_column(String(24), primary_key=True)
     entry_date: Mapped[date] = mapped_column(Date, index=True)
-    body: Mapped[str] = mapped_column(Text)
+    entry_id: Mapped[int | None] = mapped_column(
+        ForeignKey("diary_entries.id", ondelete="SET NULL")
+    )
+    action: Mapped[str] = mapped_column(String(20))
+    body: Mapped[str] = mapped_column(Text, default="")
     remark: Mapped[str] = mapped_column(Text, default="")
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    expires_at: Mapped[datetime] = mapped_column(UtcDateTime, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

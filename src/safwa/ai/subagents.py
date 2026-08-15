@@ -1,9 +1,8 @@
 """Subagents: a named prompt with its own read tools that reports and never mutates.
 
-The advisor blocks on `call_subagent`, so a subagent is bounded by a wall clock rather
-than by a provider-call count — a deadline aborts a stalled read loop, which a call cap
-only notices after the call returns.  A subagent's tool set holds reads and one terminal
-report; it never carries a mutation tool, and never carries `call_subagent` itself.
+Its tool set holds reads and one terminal report — never a mutation tool, and never
+`call_subagent` itself.  The advisor blocks on it, so it is bounded by a wall clock: a
+call cap only notices a stalled read loop after the call returns.
 """
 
 from __future__ import annotations
@@ -114,15 +113,13 @@ class SubagentRunner:
                         f"The {name} subagent did not finish within "
                         f"{self.deadline_seconds:.0f} seconds."
                     ),
-                    # Retrying costs the owner the same wait again with nothing new to
-                    # go on, so the advisor answers without it instead.
+                    # A retry costs the owner the same wait with nothing new to go on.
                     "retryable": False,
-                    "next": "Answer without it and tell the owner it did not finish.",
+                    "next": "Answer without it and tell the user it did not finish.",
                 },
                 run_id,
             )
-        # Any failure is reported, never raised: a subagent is one tool call inside the
-        # owner's turn, and losing the whole answer to it would cost far more than it did.
+        # Reported, never raised: one failed tool call must not cost the whole turn.
         except Exception as error:
             logger.warning("SUBAGENT %s failed: %s", name, error, exc_info=True)
             await self._finish(run_id, "failed", started, type(error).__name__)
@@ -132,7 +129,7 @@ class SubagentRunner:
                     "code": "subagent_failed",
                     "error": str(error),
                     "retryable": False,
-                    "next": "Answer without it and tell the owner it did not finish.",
+                    "next": "Answer without it and tell the user it did not finish.",
                 },
                 run_id,
             )

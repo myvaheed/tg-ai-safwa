@@ -33,10 +33,9 @@ MAX_REPAIR_ROUNDS = 5
 SUSPENDED_BATCH_LOOKUP_LIMIT = 50
 
 # --- Subagents ------------------------------------------------------------
-# A subagent blocks the advisor's turn, so it is bounded by the clock rather than by a
-# provider-call count: the deadline aborts a stalled read loop, which a call cap cannot.
+# A subagent blocks the advisor's turn, so the clock bounds it instead of a call count.
 SUBAGENT_DEADLINE_SECONDS = 300.0
-# How much of the day's conversation the Diary reader may hand back in one call.
+# How much of a day's conversation the Diary reader may hand back in one call.
 DIARY_DAY_TOKEN_BUDGET = 12_000
 
 # --- query_safwa result caps ----------------------------------------------
@@ -49,10 +48,11 @@ QUERY_TIMEOUT_SECONDS = 2.0
 
 # --- Telegram history -----------------------------------------------------
 # The advisor window is a token budget rather than a message count: a Summary of at most
-# SUMMARY_TOKEN_CEILING plus as many recent messages as the remainder pays for.
-HISTORY_TOKEN_BUDGET = 10_000
+# SUMMARY_TOKEN_CEILING plus the messages SUMMARY_TRIGGER_TOKENS pays for.  The trigger is
+# the message budget itself, so a Summary is written exactly when the window is full.
 SUMMARY_TOKEN_CEILING = 2_000
-HISTORY_MESSAGE_TOKEN_BUDGET = HISTORY_TOKEN_BUDGET - SUMMARY_TOKEN_CEILING
+SUMMARY_TRIGGER_TOKENS = 8_000
+HISTORY_TOKEN_BUDGET = SUMMARY_TRIGGER_TOKENS + SUMMARY_TOKEN_CEILING
 SUMMARY_CONTEXT_MESSAGE_LIMIT = 20
 # A ceiling on how many Telegram messages one backwards scan may walk.  The budget, a
 # Summary, or the oldest registration normally stops it far sooner.
@@ -61,9 +61,6 @@ HISTORY_SCAN_LIMIT = 2_000
 MESSAGE_CORRELATION_SECONDS = 15
 
 # --- Summaries and memory -------------------------------------------------
-# Below HISTORY_MESSAGE_TOKEN_BUDGET, so a Summary is written while the window still
-# holds every message it covers.
-SUMMARY_TRIGGER_TOKENS = 6_000
 MEMORY_TOKEN_BUDGET = 4_000
 # A tokenizer splits Latin at roughly 4 characters and Cyrillic at roughly 2, so a mixed
 # dialogue is counted low by the generous end and would overrun its budget.

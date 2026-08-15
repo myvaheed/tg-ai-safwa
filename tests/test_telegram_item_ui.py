@@ -5,7 +5,7 @@ import html
 import importlib
 import inspect
 import pkgutil
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -20,6 +20,7 @@ from safwa.domain import (
     archive_tag,
     create_card,
     create_check,
+    create_diary_entry,
     create_saved_request,
     create_tag,
     create_value,
@@ -1300,6 +1301,91 @@ async def test_card_check_link_proposal_shows_the_check_in_overview_and_diff(ses
 
     assert "Checks: Walk upright" in text
     assert "• Checks: — → Walk upright" in text
+
+
+async def test_diary_proposal_shows_the_entry_itself_and_only_save_or_discard(
+    sessions,
+) -> None:
+    async with sessions() as session:
+        workspace = await session.get(Workspace, 1)
+        proposal = ChangeProposal(
+            message="Save today's Diary entry",
+            workspace_revision=workspace.revision,
+            status="pending",
+        )
+        session.add(proposal)
+        await session.flush()
+        session.add(
+            ProposalChange(
+                proposal_id=proposal.id,
+                position=0,
+                entity="diary",
+                action="update",
+                entity_id=7,
+                expected_version=1,
+                values={
+                    "stamp": "abc123",
+                    "entry_date": "2026-08-15",
+                    "body": "Сходил на рынок, вечером стало легче.",
+                    "remark": "A day that ended better than it began.",
+                },
+            )
+        )
+        await session.commit()
+        proposal_id = proposal.id
+
+    message = FakeMessage(65, bot_message=True)
+    await render_proposal(message, services_for(sessions), proposal_id)
+    text, markup = message.edits[-1]
+
+    assert "<b>Edit Diary entry · AI proposal</b>" in text
+    assert "Date: 2026-08-15" in text
+    assert "This replaces the entry already saved for that day." in text
+    assert "Сходил на рынок, вечером стало легче." in text
+    assert "<i>A day that ended better than it began.</i>" in text
+    # The screen is the entry; a field diff would only repeat it, and the stamp is
+    # bookkeeping the owner never has to read.
+    assert "<b>Proposed changes</b>" not in text
+    assert "abc123" not in text
+    assert button_texts(markup) == ["✅ Save", "🗑 Discard"]
+
+
+async def test_diary_removal_shows_the_entry_it_would_delete(sessions) -> None:
+    async with sessions() as session:
+        entry = await create_diary_entry(
+            session, entry_date=date(2026, 8, 14), body="День, который уходит."
+        )
+        workspace = await session.get(Workspace, 1)
+        proposal = ChangeProposal(
+            message="Remove that day's Diary entry",
+            workspace_revision=workspace.revision,
+            status="pending",
+        )
+        session.add(proposal)
+        await session.flush()
+        session.add(
+            ProposalChange(
+                proposal_id=proposal.id,
+                position=0,
+                entity="diary",
+                action="delete",
+                entity_id=entry.id,
+                expected_version=entry.version,
+                values={"stamp": "abc123", "entry_date": "2026-08-14", "body": "", "remark": ""},
+            )
+        )
+        await session.commit()
+        proposal_id = proposal.id
+
+    message = FakeMessage(66, bot_message=True)
+    await render_proposal(message, services_for(sessions), proposal_id)
+    text, markup = message.edits[-1]
+
+    assert "<b>Remove Diary entry · AI proposal</b>" in text
+    assert "This removes that day's entry for good." in text
+    # The owner reads what is about to go, not an empty replacement.
+    assert "День, который уходит." in text
+    assert button_texts(markup) == ["✅ Save", "🗑 Discard"]
 
 
 async def test_card_creation_proposal_has_no_proposed_changes_section(sessions) -> None:

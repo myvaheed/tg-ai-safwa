@@ -31,6 +31,7 @@ ALLOWED_VIEWS = {
     "ai_current_sprint",
     "ai_current_sprint_metrics",
     "ai_card_events",
+    "ai_diary",
 }
 FORBIDDEN = re.compile(
     r"\b(insert|update|delete|replace|alter|drop|create|pragma|attach|detach|vacuum|reindex|analyze)\b",
@@ -85,6 +86,7 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
         "ai_current_sprint",
         "ai_current_sprint_metrics",
         "ai_card_events",
+        "ai_diary",
     ):
         connection.exec_driver_sql(f"DROP VIEW IF EXISTS {view_name}")
     # Card lookup goes through `ai_cards`, so drop the `card_search` FTS5 table and its
@@ -172,6 +174,10 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
     connection.exec_driver_sql(
         """CREATE VIEW IF NOT EXISTS ai_card_events AS
         SELECT id, card_id, sprint_id, actor, operation, created_at FROM card_events"""
+    )
+    connection.exec_driver_sql(
+        """CREATE VIEW IF NOT EXISTS ai_diary AS
+        SELECT id, entry_date, body, created_at, updated_at FROM diary_entries"""
     )
 
 

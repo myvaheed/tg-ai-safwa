@@ -30,6 +30,7 @@ from ..models import (
     CardEnergyType,
     ChangeProposal,
     Check,
+    DiaryEntry,
     ProposalChange,
     Tag,
     Value,
@@ -104,6 +105,10 @@ async def _proposal_item_state(
                 "description": value.description,
                 "active": value.active,
             }
+    elif change.entity == "diary" and change.entity_id:
+        entry = await session.get(DiaryEntry, change.entity_id)
+        if entry is not None:
+            current = {"body": entry.body}
     elif change.entity == "check" and change.entity_id:
         check = await session.get(Check, change.entity_id)
         if check is not None:
@@ -262,12 +267,14 @@ async def render_proposal(
         if notice:
             text_parts.append(html.escape(notice))
         text_parts.append(html.escape(proposal.message))
-        if len(changes) == 1 and changes[0].entity in {"card", "tag", "value", "check"}:
+        if len(changes) == 1 and changes[0].entity in {"card", "tag", "value", "check", "diary"}:
             change = changes[0]
             current, proposed = await _proposal_item_state(session, change)
-            item_name = change.entity.title()
+            item_name = "Diary entry" if change.entity == "diary" else change.entity.title()
             if change.action == "create":
                 mode_name = "Create"
+            elif change.entity == "diary" and change.action == "delete":
+                mode_name = "Remove"
             elif change.action in CHECK_ANSWER_ACTIONS and change.entity == "check":
                 mode_name = "Answer"
             else:
@@ -286,12 +293,26 @@ async def render_proposal(
                     f"Repeatable: "
                     f"{html.escape(_display_diff_value(proposed.get('repeatable')))}"
                 )
+            elif change.entity == "diary":
+                heading = f"Date: {html.escape(str(proposed.get('entry_date') or ''))}"
+                if change.action == "update":
+                    heading += "\nThis replaces the entry already saved for that day."
+                elif change.action == "delete":
+                    heading += "\nThis removes that day's entry for good."
+                text_parts.append(heading)
+                if change.action == "delete":
+                    text_parts.append(html.escape(str(current.get("body") or "")))
+                else:
+                    text_parts.append(html.escape(str(proposed.get("body") or "")))
+                    if proposed.get("remark"):
+                        text_parts.append(f"<i>{html.escape(str(proposed['remark']))}</i>")
             elif change.entity == "card":
                 display = await _proposal_card_display_state(session, proposed)
                 text_parts.append(card_overview_text(display, heading="Card overview"))
             if change.entity == "card" and change.action != "create":
                 diffs = await _proposal_card_diffs(session, current, proposed)
-            elif change.entity == "card":
+            # The Diary screen is the entry itself; a field diff would only repeat it.
+            elif change.entity in {"card", "diary"}:
                 diffs = []
             else:
                 diffs = [

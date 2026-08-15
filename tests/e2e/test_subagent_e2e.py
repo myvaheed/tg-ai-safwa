@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 
 import pytest
 from sqlalchemy import select
@@ -12,6 +13,8 @@ from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.domain import create_card, finish_action
 from safwa.enums import CardKind, CardStage
 from safwa.models import AgentRun, AgentStep, DiaryStamp
+
+TODAY = date.today().isoformat()
 
 pytestmark = pytest.mark.e2e
 
@@ -44,7 +47,7 @@ class StubDayReader:
     def __init__(self, transcript: str) -> None:
         self.transcript = transcript
 
-    async def day_transcript(self, _chat_id: int, *, start, token_budget) -> str:  # noqa: ARG002
+    async def day_transcript(self, _chat_id: int, *, start, end, token_budget) -> str:  # noqa: ARG002
         return self.transcript
 
 
@@ -84,6 +87,7 @@ async def test_a_subagent_report_reaches_the_model_without_the_entry_text(e2e_ha
                 (
                     "diary_report",
                     {
+                        "date": TODAY,
                         "entry": "Закрыл рынок, хоть и поздно.",
                         "remark": "One thing finished is still a finished day.",
                     },
@@ -129,7 +133,7 @@ async def test_a_subagent_report_reaches_the_model_without_the_entry_text(e2e_ha
 async def test_a_subagent_and_a_mutation_in_one_response_rejects_the_mutation(e2e_harness):
     subagent, _ = diary_for(
         e2e_harness,
-        [turn(("diary_report", {"entry": "Короткий день.", "remark": "Short."}))],
+        [turn(("diary_report", {"date": TODAY, "entry": "Короткий день.", "remark": "Short."}))],
     )
     advisor, provider = e2e_harness.advisor(
         [
@@ -158,7 +162,7 @@ async def test_a_subagent_and_a_mutation_in_one_response_rejects_the_mutation(e2
 async def test_an_unknown_subagent_name_is_repaired_in_the_next_response(e2e_harness):
     subagent, _ = diary_for(
         e2e_harness,
-        [turn(("diary_report", {"entry": "Короткий день.", "remark": "Short."}))],
+        [turn(("diary_report", {"date": TODAY, "entry": "Короткий день.", "remark": "Short."}))],
     )
     advisor, provider = e2e_harness.advisor(
         [

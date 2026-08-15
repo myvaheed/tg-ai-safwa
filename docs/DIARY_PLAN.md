@@ -13,18 +13,23 @@ so each phase leaves the bot working on its own.
 These are the contract. Everything below follows from them.
 
 1. A Diary entry is **one day's text in the owner's own voice**, plus the advisor's remark on the
-   screen. One entry per local calendar date.
+   screen. One entry per local calendar date. The day is usually today, but the owner may ask for any
+   day — "add this to yesterday" — so the date is something to work out, never something to assume.
 2. The entry text is written by the **Diary subagent**, never by the advisor. The advisor decides
    *when* to propose and *what to ask*, and it never authors or edits the body.
-3. The subagent **reads and reports; it never mutates**. It has no mutation tool at all.
+3. The subagent **reads and reports; it never mutates**. It has no mutation tool at all. It does
+   decide the whole change: which day, which entry, and whether that day is written or removed. The
+   advisor carries the owner's words in and the stamp out, and nothing else.
 4. A subagent report always carries the whole day as it stands now, taking the already saved entry
    into account. Overwriting is the normal path, not an exception.
-5. Saving goes through the ordinary proposal path: `propose_diary` → `ChangeProposal` → a read-only
-   Save/Discard screen → `ProposalService.apply` → the same `domain.py` function a manual path would
-   call. Every proposal screen stays exactly Save/Discard.
-6. A **stamp** proves a subagent read happened. It is issued only together with a draft, it is bound
-   to the entry's local date, and it dies at the end of that date. It is reusable within the day, so
-   a discarded proposal can be re-offered without another subagent run.
+5. Saving goes through the ordinary proposal path: `propose_diary_update` → `ChangeProposal` → a
+   read-only Save/Discard screen → `ProposalService.apply` → the same `domain.py` function a manual
+   path would call. Every proposal screen stays exactly Save/Discard.
+6. A **stamp** proves a subagent read happened and carries the change it decided on. It is issued
+   only together with a change, and it dies at the end of the local day it was *issued* on — not the
+   day it describes, or a back-dated entry would be born expired. A discarded proposal can be
+   re-offered from it without another subagent run; Save spends it, and with it every other stamp for
+   that date, since a settled day makes every draft of that day out of date.
 7. The proposal outcome is visible in the conversation. Both Save and Discard post a
    `DIALOGUE_ASSISTANT` receipt, so the model reads back what was saved or refused — including the
    entry text itself.
@@ -43,9 +48,11 @@ These are the contract. Everything below follows from them.
 - **No `available_subagents()` tool.** The roster is static text in `SYSTEM_PROMPT`, which lives in
   the cacheable prefix. A discovery tool costs a round trip per turn and would hand the advisor the
   subagent's own system prompt, which it neither executes nor should imitate.
-- **Text lives host-side under the stamp.** `propose_diary` takes the stamp and an explicit `id`;
-  the body and the advisor remark are read from the stamp record. Passing a long body through the
-  advisor costs tokens and invites silent edits, which rule 2 forbids.
+- **The whole change lives host-side under the stamp.** `propose_diary_update` takes the stamp and
+  nothing else; the date, the target entry, the action, the body and the remark are all read from the
+  stamp record. Passing a long body through the advisor costs tokens and invites silent edits, which
+  rule 2 forbids — and a date or an id the advisor could restate is a date or an id it could get
+  wrong, which rule 3 forbids for the same reason.
 - **No special staleness rule for the Diary proposal.** Phase 2 makes any command or navigation
   dismiss the open screen, so the window in which `workspace.revision` could drift under a live
   Diary proposal is closed. The existing `StaleStateError` check stays untouched — no `if` for one
@@ -68,8 +75,9 @@ this lands first and alone.
   `MessageKind.SUBSESSION_RESULT`, the `subsession_confirm`/`subsession_cancel` callbacks, the
   middleware's `/newsession` exception, and `MemoryMaintenanceResult.BOUNDARY_MISSING`.
   Mark codes **1 and 2 are retired, never reused** — `_KIND_MARK_CODES` is append-only.
-- `HISTORY_TOKEN_BUDGET = 10_000` in [constants.py](../src/safwa/constants.py), spent as a Summary
-  of at most 2 000 plus roughly 8 000 of messages. Accumulate newest-first and **cut on a message
+- The window in [constants.py](../src/safwa/constants.py) is a Summary of at most
+  `SUMMARY_TOKEN_CEILING = 2 000` plus `SUMMARY_TRIGGER_TOKENS = 8 000` of messages, and
+  `HISTORY_TOKEN_BUDGET` is simply their sum. Accumulate newest-first and **cut on a message
   boundary**, never mid-message. Replaces `HISTORY_RECENT_LIMIT` and `HISTORY_CONTINUITY_LIMIT`.
 - Owner text that survived in the chat is dialogue unconditionally: commands are deleted by the
   middleware and field input by `delete_text_input`, so survival is the evidence the boundary used
@@ -84,8 +92,9 @@ this lands first and alone.
   Summary grows into a copy of the dialogue. State the 2 000-token ceiling in the prompt.
 - Summarization reads back to the previous Summary or to the token cap, whichever comes first, and
   **rewrites** that Summary rather than writing beside it — the window keeps only the newest one, so
-  anything the older one alone remembered would otherwise be lost with it. `SUMMARY_TRIGGER_TOKENS`
-  drops to 6 000: a trigger at or above the message budget can never be reached.
+  anything the older one alone remembered would otherwise be lost with it. The message budget **is**
+  `SUMMARY_TRIGGER_TOKENS`, so there is one knob rather than two that can drift: a Summary is written
+  exactly when the window is full.
 - Memory reads back to **its own cursor**, not to a fixed count. This also fixes a live defect:
   `maintain_memory` currently fetches 500 messages and only then filters by
   `MemorySyncState.processed_message_id`, so anything older than 500 messages since the last sync is
@@ -148,23 +157,30 @@ budget, and repairs fed back as tool results.
 **Done when** a Diary subagent invoked by hand returns a usable draft for a day of mixed
 conversation and manual UI work, and a five-minute hang is cut off.
 
-## Phase 4 — the Diary entity
+## Phase 4 — the Diary entity · done
 
 - `diary_entries` in [models.py](../src/safwa/models.py): `entry_date` **UNIQUE**, body, `version`,
   timestamps. The advisor's remark is screen-only and is not stored — the entry keeps the owner's
   voice alone. Schema changes mean rebuilding the database; run `uv run safwa-backup` first.
-- The stamp record holds the draft body, the advisor remark, the target `id`, and the entry date.
-  Reuse the `CallbackToken` pattern — a row, a TTL, an atomic claim — rather than a second nonce
-  mechanism. It expires at the end of its local day.
-- `propose_diary(stamp, id=None)`: the body comes from the stamp, `id` is passed explicitly. A stamp
-  that is missing, expired, or belongs to another date returns a retryable `ToolPreparationError`
-  telling the model to call the subagent first. The stamp is **not** consumed — a discarded proposal
-  can be re-offered from it the same day.
+- The stamp record holds the entry date, the target `entry_id`, the `action`, the draft body and the
+  advisor remark. Reuse the `CallbackToken` pattern — a row, a TTL, an atomic claim — rather than a
+  second nonce mechanism. It expires at the end of the local day it was issued on.
+- `propose_diary_update(stamp)`: every other field comes from the stamp, including the action, so one
+  tool covers create, edit and remove without the advisor choosing between them. A stamp that is
+  missing or expired returns a retryable `ToolPreparationError` telling the model to call the
+  subagent first. Discard does **not** consume the stamp — a discarded proposal can be re-offered
+  from it the same day — while Save clears every stamp for that date.
+- `diary_report` therefore carries `date` plus exactly one of `entry` (with `remark`), `remove`, or
+  `question`. The host resolves `date` to an entry itself and derives the action from what it finds,
+  so a create over a day that already has an entry cannot reach the UNIQUE constraint at Save, and a
+  removal of a day with nothing saved comes back as a report the advisor can simply relay.
+- The subagent reads `ai_diary` as well: it is the only way to see what a day already says, and it
+  has `query_safwa`, so the view has to be named in **its** prompt too, not only the advisor's.
+- `read_day` takes a date, and `recent` gains an `until` bound. A period open at the newest end
+  would fold today's conversation into yesterday's entry.
 - `AgentChange.entity` gains `diary`; `MUTATION_TOOL_MODELS`, `_ENTITY_MODELS`, the `apply` branch,
   and a render branch in `render_proposal` follow. Without the render branch the screen falls into
   the generic path and shows a summary line instead of the text.
-- Cap the body length in [constants.py](../src/safwa/constants.py). `TELEGRAM_TEXT_LIMIT` is 3 900
-  and the screen also carries a heading and the remark.
 - `ai_diary` view in `create_ai_views`, added to `ALLOWED_VIEWS` **and** to the view list inside
   `SYSTEM_PROMPT` — missing the second makes the view invisible to the model.
 

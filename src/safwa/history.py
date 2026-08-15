@@ -20,10 +20,10 @@ from telethon.helpers import add_surrogate, del_surrogate
 from .ai.context import DialogueMessage
 from .config import Settings
 from .constants import (
-    HISTORY_MESSAGE_TOKEN_BUDGET,
     HISTORY_SCAN_LIMIT,
     MESSAGE_CORRELATION_SECONDS,
     SUMMARY_CONTEXT_MESSAGE_LIMIT,
+    SUMMARY_TRIGGER_TOKENS,
 )
 from .enums import MessageKind
 from .memory import estimate_tokens
@@ -236,8 +236,9 @@ class TelegramHistorySource:
         self,
         chat_id: int,
         *,
-        token_budget: int = HISTORY_MESSAGE_TOKEN_BUDGET,
+        token_budget: int = SUMMARY_TRIGGER_TOKENS,
         since: datetime | None = None,
+        until: datetime | None = None,
         source_message: HistoryEntry | None = None,
         stop_at_summary: bool = True,
     ) -> list[HistoryEntry]:
@@ -245,7 +246,8 @@ class TelegramHistorySource:
 
         The scan walks backwards and stops at the first of three edges — ``since``, the
         newest Summary, or ``token_budget`` spent.  The budget is checked before an entry
-        is taken, so the cut always lands between messages.
+        is taken, so the cut always lands between messages.  ``until`` skips everything
+        newer instead of stopping, which is what closes a past day at both ends.
 
         ``stop_at_summary=False`` skips Summaries instead of treating one as an edge, for
         a caller that asked for a period rather than for a window: a Summary written at
@@ -260,6 +262,7 @@ class TelegramHistorySource:
                 )
             )
         since = _aware(since) if since else None
+        until = _aware(until) if until else None
         registry_by_event = {row.event_id: row for row in registry if row.event_id}
         used_registry_ids: set[int] = set()
         source_registration_seen = False
@@ -293,6 +296,8 @@ class TelegramHistorySource:
                 since is not None and created_at <= since
             ):
                 break
+            if until is not None and created_at >= until:
+                continue
             if not raw_text:
                 continue
             sender_id = int(message.sender_id) if message.sender_id else None
@@ -449,15 +454,18 @@ class TelegramHistorySource:
         return f"{head}{entry.text}"
 
     async def day_transcript(
-        self, chat_id: int, *, start: datetime, token_budget: int
+        self, chat_id: int, *, start: datetime, end: datetime, token_budget: int
     ) -> str:
         """One period of dialogue as plain text, oldest first, stamped to the minute.
 
-        A window is packed for a model that already has the conversation in its context;
-        this is read by one that has none, so every line says who spoke and when.
+        Read by a model that does not have the conversation, so every line says who spoke.
         """
         entries = await self.recent(
-            chat_id, token_budget=token_budget, since=start, stop_at_summary=False
+            chat_id,
+            token_budget=token_budget,
+            since=start,
+            until=end,
+            stop_at_summary=False,
         )
         return "\n".join(
             f"[{entry.created_at.astimezone(self.tz):%H:%M}] "
