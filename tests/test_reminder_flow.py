@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -378,3 +379,48 @@ async def test_reminder_advisor_receives_canonical_dialogue(sessions, monkeypatc
     assert dialogue[-1] == DialogueMessage(role="user", content=request)
     assert request.startswith("1 Reminder triggered.")
     assert rendered == [MessageKind.REMINDER]
+
+
+async def test_cancelling_a_foreground_lease_aborts_its_task() -> None:
+    """Bumping the revision only marks the answer stale; the provider calls must stop."""
+    guard = GenerationGuard()
+    started = asyncio.Event()
+    finished = False
+
+    async def generation() -> None:
+        nonlocal finished
+        guard.reserve(101)
+        started.set()
+        await asyncio.sleep(30)
+        finished = True
+
+    task = asyncio.create_task(generation())
+    await started.wait()
+
+    guard.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert task.cancelled()
+    assert finished is False
+    assert not guard.active
+
+
+async def test_cancelling_a_background_lease_leaves_its_loop_running() -> None:
+    """A background holder's task is a long-lived loop; cancelling it would end the loop."""
+    guard = GenerationGuard()
+    started = asyncio.Event()
+
+    async def loop() -> None:
+        guard.reserve_background()
+        started.set()
+        await asyncio.sleep(30)
+
+    task = asyncio.create_task(loop())
+    await started.wait()
+
+    guard.cancel()
+    await asyncio.sleep(0)
+
+    assert not task.cancelled()
+    task.cancel()

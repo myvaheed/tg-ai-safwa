@@ -94,6 +94,9 @@ REQUEST_RESULT_LIMIT = 25
 CHECK_LIST_LIMIT = 25
 TELEGRAM_TEXT_LIMIT = 3_900
 CALLBACK_TOKEN_TTL_HOURS = 24
+# A resolved proposal stays in the dialogue for good, so its receipt is capped rather than
+# carrying every field of a wide edit.
+PROPOSAL_OUTCOME_DETAIL_LIMIT = 6
 
 # --- Provider -------------------------------------------------------------
 AI_TIMEOUT_SECONDS = 120.0

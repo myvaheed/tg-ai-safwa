@@ -57,6 +57,14 @@ class Services:
 BACKGROUND_SOURCE_ID = -1
 
 
+def _current_task() -> asyncio.Task[Any] | None:
+    """The running task, or None when the guard is driven outside a loop, as in tests."""
+    try:
+        return asyncio.current_task()
+    except RuntimeError:
+        return None
+
+
 @dataclass(eq=False)
 class QueuedMessage:
     text: str
@@ -72,6 +80,10 @@ class GenerationGuard:
     middleware reject callbacks and delete incoming messages, so only one answer is ever
     being written into the chat.  ``dialogue_revision`` is bumped by :meth:`cancel` and is
     how a generation already in flight learns to discard its result.
+
+    A foreground holder also registers its own task, so :meth:`cancel` stops the provider
+    traffic instead of only marking the answer stale.  A background holder does not: its
+    task is a long-lived loop, and cancelling that would end the loop rather than the run.
     """
 
     def __init__(self) -> None:
@@ -79,6 +91,7 @@ class GenerationGuard:
         self.dialogue_revision = 0
         self.queue_messages = False
         self._queued_messages: list[QueuedMessage] = []
+        self._task: asyncio.Task[Any] | None = None
 
     @property
     def active(self) -> bool:
@@ -93,12 +106,14 @@ class GenerationGuard:
             raise RuntimeError("Another foreground generation is active")
         self.active_source_id = source_id
         self.queue_messages = self.queue_messages or queue_messages
+        self._task = _current_task()
 
     def reserve(self, source_id: int, *, queue_messages: bool = False) -> bool:
         if self.active_source_id is not None:
             return self.active_source_id == source_id
         self.active_source_id = source_id
         self.queue_messages = queue_messages
+        self._task = _current_task()
         return True
 
     def reserve_background(self) -> bool:
@@ -110,6 +125,7 @@ class GenerationGuard:
             return False
         self.active_source_id = BACKGROUND_SOURCE_ID
         self.queue_messages = False
+        self._task = None
         return True
 
     def release(self, source_id: int | None = None) -> None:
@@ -117,10 +133,15 @@ class GenerationGuard:
             return
         self.active_source_id = None
         self.queue_messages = False
+        self._task = None
 
     def cancel(self) -> None:
+        """Stop the current generation, and abort its task when the owner still holds it."""
+        task = self._task
         self.dialogue_revision += 1
         self.release()
+        if task is not None and task is not _current_task() and not task.done():
+            task.cancel()
 
     def begin_queue(self, text: str) -> QueuedMessage:
         queued = QueuedMessage(text=text)

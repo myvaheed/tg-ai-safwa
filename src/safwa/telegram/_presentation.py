@@ -9,7 +9,7 @@ from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from ..constants import PAGE_SIZE, TELEGRAM_TEXT_LIMIT
+from ..constants import PAGE_SIZE, PROPOSAL_OUTCOME_DETAIL_LIMIT, TELEGRAM_TEXT_LIMIT
 from ..enums import CardKind, Category, EnergyType, Priority
 from ..models import Card, ProposalChange
 
@@ -105,6 +105,45 @@ def proposal_change_summary(change: ProposalChange) -> str:
     values = ", ".join(f"{key}={value!r}" for key, value in change.values.items())
     suffix = f": {values}" if values else ""
     return f"{change.action.title()} {change.entity.title()}{target}{suffix}"
+
+
+PROPOSAL_OUTCOME_HEADINGS = {
+    "approved": "✅ Saved",
+    "discarded": "🗑 Discarded",
+    "failed": "⚠️ Failed",
+}
+
+
+def _carries_a_value(field: str) -> bool:
+    """Whether a `Label: value` detail line says anything. `—` is the empty rendering."""
+    _, separator, value = field.partition(": ")
+    return not separator or value.strip() not in {"", "—", "— → —"}
+
+
+def proposal_outcome_text(
+    decision: str,
+    summary: str,
+    fields: list[str] | None = None,
+    *,
+    notice: str | None = None,
+) -> str:
+    """The one text a resolved proposal leaves in the conversation.
+
+    Save, Discard, and the screen a navigation freezes all read the same way, so the model
+    rereading the dialogue learns what happened from one shape rather than three.
+    """
+    parts = [f"<b>{PROPOSAL_OUTCOME_HEADINGS.get(decision, 'Resolved')}</b>"]
+    if notice:
+        parts.append(html.escape(notice))
+    if summary:
+        parts.append(html.escape(summary))
+    details = [field for field in (fields or []) if _carries_a_value(field)]
+    if details:
+        capped = details[:PROPOSAL_OUTCOME_DETAIL_LIMIT]
+        if len(details) > PROPOSAL_OUTCOME_DETAIL_LIMIT:
+            capped.append(f"… and {len(details) - PROPOSAL_OUTCOME_DETAIL_LIMIT} more")
+        parts.append("\n".join(f"• {html.escape(field)}" for field in capped))
+    return "\n".join(parts)
 
 
 def card_overview_text(state: dict[str, Any], *, heading: str = "Card") -> str:

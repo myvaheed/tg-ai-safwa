@@ -144,8 +144,10 @@ no underscore (the whole package is private behind `__init__.__all__`).
   until Save.
 - Text-field editing replaces the screen with a focused prompt; the typed reply is deleted as
   `UI_INPUT` and the item screen is restored (`delete_text_input` + `edit_registered_message`).
-- `dismiss_prior_ui` removes stale `DASHBOARD`/`CARD_EDITOR`/`APPROVAL` screens before new dialogue
-  and converts an unanswered proposal into a static result message.
+- `dismiss_prior_ui` leaves exactly one interaction screen live: it removes **every other**
+  `DASHBOARD`/`CARD_EDITOR`/`APPROVAL` screen, not just the older ones, so a button pressed on a
+  dashboard below an open proposal still answers that proposal. It runs from `ordinary_text`, from
+  `nav:` navigation, and from a `router.message` middleware for every slash command.
 - All bot text is HTML — escape user/model text with `html.escape`.
 
 ### AI advisor
@@ -321,7 +323,10 @@ nudge kinds. A Reminder is instruction text plus a schedule — see
 - `GenerationGuard` — one foreground/background lease. While an ordinary foreground answer runs,
   callbacks are rejected and later owner texts are deleted, represented as queued `UI_INPUT`
   placeholders, restored as one `DIALOGUE_USER` turn, and processed next. `/cancel` bypasses the lease
-  and restores the queue. Summary, reminder, and memory tasks reserve background leases.
+  and restores the queue; a foreground holder registers its own task, so cancelling aborts the provider
+  traffic rather than only marking the answer stale. A background holder registers none — its task is a
+  long-lived loop — and still stops through the revision check. Summary, reminder, and memory tasks
+  reserve background leases.
 - `dialogue.ordinary_text` captures `dialogue_revision` and `workspace.revision` before generating and
   discards the answer if either changed.
 - `OwnerAndWritingMiddleware` drops anything that is not the owner in a private chat.

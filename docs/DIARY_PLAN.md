@@ -96,7 +96,7 @@ this lands first and alone.
 **Done when** a fresh chat with no marker at all produces a correct bounded dialogue, a forced
 `/summarize` cuts it, and memory picks up every message since its cursor.
 
-## Phase 2 — one live screen, one outcome text
+## Phase 2 — one live screen, one outcome text · done
 
 - A single outcome formatter, used by all three sites that describe a resolved proposal: the Save
   receipt, the Discard receipt, and the frozen screen `dismiss_prior_ui` leaves behind. Today each

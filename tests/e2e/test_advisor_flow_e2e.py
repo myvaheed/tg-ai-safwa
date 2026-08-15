@@ -4,7 +4,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from safwa.ai.context import SYSTEM_PROMPT, DialogueMessage
 from safwa.ai.provider import ProviderToolCall, ProviderTurn
@@ -2192,3 +2192,83 @@ async def test_suspended_batch_persists_the_request_dialogue_and_transcript(e2e_
     ]
     assert [message["role"] for message in metadata["transcript"]] == ["assistant", "tool"]
     assert metadata["transcript"][0]["tool_calls"][0]["function"]["name"] == "tag"
+
+
+async def _standalone_tag_proposal(e2e_harness, advisor, name: str) -> int:
+    """A proposal with no live approval batch, which is the plain receipt path."""
+    outcome = await advisor.handle(f"Create a {name} tag")
+    assert outcome.proposal_id is not None
+    async with e2e_harness.sessions() as session:
+        await session.execute(delete(AgentStep).where(AgentStep.kind == "approval_batch"))
+        await session.commit()
+    return outcome.proposal_id
+
+
+@pytest.mark.parametrize(
+    ("action", "expected_status", "heading"),
+    [
+        ("proposal_approve", "approved", "✅ Saved"),
+        ("proposal_reject", "rejected", "🗑 Discarded"),
+    ],
+)
+async def test_a_resolved_proposal_leaves_one_readable_line_in_the_dialogue(
+    e2e_harness, action, expected_status, heading
+):
+    advisor, _provider = e2e_harness.advisor(
+        [mutation_turn(("tag", {"mode": "create", "name": "VrWalk"}))]
+    )
+    proposal_id = await _standalone_tag_proposal(e2e_harness, advisor, "VrWalk")
+    message = _QueueTestMessage()
+    services = SimpleNamespace(
+        sessions=e2e_harness.sessions,
+        advisor=advisor,
+        history=_QueueTestHistory(),
+        owner_id=42,
+        guard=GenerationGuard(),
+    )
+    await render_proposal(message, services, proposal_id)
+    async with e2e_harness.sessions() as session:
+        token = await session.scalar(
+            select(CallbackToken).where(CallbackToken.action == action)
+        )
+
+    await callback_token_handler(_QueueTestCallback(token.token, message), services)
+
+    async with e2e_harness.sessions() as session:
+        proposal = await session.get(ChangeProposal, proposal_id)
+    assert proposal.status == expected_status
+    receipt = message.rendered[-1]
+    assert heading in receipt
+    # The owner-facing line, not "Updated 1 item(s)".
+    assert "New Tag “VrWalk”" in receipt
+    assert "Name: VrWalk" in receipt
+
+
+async def test_navigating_away_freezes_the_proposal_into_the_same_outcome_text(e2e_harness):
+    advisor, _provider = e2e_harness.advisor(
+        [mutation_turn(("tag", {"mode": "create", "name": "VrWalk"}))]
+    )
+    proposal_id = await _standalone_tag_proposal(e2e_harness, advisor, "VrWalk")
+    message = _QueueTestMessage()
+    services = SimpleNamespace(
+        sessions=e2e_harness.sessions,
+        advisor=advisor,
+        history=_QueueTestHistory(),
+        owner_id=42,
+        guard=GenerationGuard(),
+    )
+    await render_proposal(message, services, proposal_id)
+    # A screen *below* the proposal: the old "older than this message" selector missed it.
+    dashboard = SimpleNamespace(message_id=1, chat=message.chat, bot=message.bot)
+
+    await dismiss_prior_ui(dashboard, services)
+
+    async with e2e_harness.sessions() as session:
+        proposal = await session.get(ChangeProposal, proposal_id)
+        tag = await session.scalar(select(Tag).where(Tag.name == "VrWalk"))
+    assert proposal.status == "rejected"
+    assert tag is None
+    frozen = message.bot.edits[-1]
+    assert "🗑 Discarded" in frozen
+    assert "You continued the conversation without saving it." in frozen
+    assert "New Tag “VrWalk”" in frozen

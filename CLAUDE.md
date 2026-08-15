@@ -177,8 +177,9 @@ first system message. `SAFWA_AI_CACHE_BREAKPOINTS` adds `cache_control` markers 
 
 - `GenerationGuard` is the single foreground/background lease. During an ordinary foreground answer,
   callbacks are rejected and new owner texts are deleted, represented by `UI_INPUT` placeholders, then
-  restored as one `DIALOGUE_USER` turn and processed next. `/cancel` bypasses the lease and restores
-  queued text. Summary, reminders, and memory maintenance reserve background leases and
+  restored as one `DIALOGUE_USER` turn and processed next. `/cancel` bypasses the lease, restores
+  queued text, and cancels the foreground task itself; a background holder registers no task, because
+  its task is a long-lived loop. Summary, reminders, and memory maintenance reserve background leases and
   verify the revision before publishing or committing.
 - `OwnerAndWritingMiddleware` drops anything that is not the owner in a private chat.
 - Every inline button is a single-use `CallbackToken` row rendered as `cb:<token>` (24 h expiry);

@@ -21,13 +21,12 @@ from ..memory import estimate_tokens
 from ..models import (
     CallbackToken,
     ChangeProposal,
-    ProposalChange,
     SummaryState,
     TelegramMessage,
     UiSession,
 )
 from ._core import QueuedMessage, Services
-from ._presentation import Page, proposal_change_summary
+from ._presentation import Page, proposal_outcome_text
 
 logger = logging.getLogger(__name__)
 
@@ -214,7 +213,11 @@ async def paging_row(
 
 
 async def dismiss_prior_ui(message: Message, services: Services) -> None:
-    """Ensure an interaction screen is never left active above new dialogue."""
+    """Leave exactly one interaction screen live: the one this event belongs to.
+
+    The selector is "every other screen", not "every older screen" — a button pressed on a
+    dashboard below an open proposal still has to answer that proposal.
+    """
     ui_kinds = {
         MessageKind.DASHBOARD.value,
         MessageKind.CARD_EDITOR.value,
@@ -228,7 +231,7 @@ async def dismiss_prior_ui(message: Message, services: Services) -> None:
                     TelegramMessage.chat_id == message.chat.id,
                     TelegramMessage.direction == "out",
                     TelegramMessage.kind.in_(ui_kinds),
-                    TelegramMessage.message_id < message.message_id,
+                    TelegramMessage.message_id != message.message_id,
                 )
                 .order_by(TelegramMessage.message_id.desc())
             )
@@ -240,19 +243,14 @@ async def dismiss_prior_ui(message: Message, services: Services) -> None:
             async with services.sessions() as session:
                 proposal = await session.get(ChangeProposal, screen.related_id)
                 if proposal is not None and proposal.status == "pending":
-                    changes = list(
-                        await session.scalars(
-                            select(ProposalChange)
-                            .where(ProposalChange.proposal_id == proposal.id)
-                            .order_by(ProposalChange.position)
-                        )
+                    advisor = getattr(services, "advisor", None)
+                    description = (
+                        await advisor.describe_proposal(session, proposal.id)
+                        if advisor is not None
+                        else None
                     )
                     proposal.status = ProposalStatus.REJECTED.value
-                    proposed = "\n".join(
-                        f"• {html.escape(proposal_change_summary(change))}" for change in changes
-                    )
                     await session.commit()
-                    advisor = getattr(services, "advisor", None)
                     progress = (
                         await advisor.cancel_approval_for_target("proposal", proposal.id)
                         if advisor is not None
@@ -267,9 +265,11 @@ async def dismiss_prior_ui(message: Message, services: Services) -> None:
                             "discarded.\n\n" + html.escape(progress)
                         )
                     else:
-                        replacement = (
-                            "<b>Proposal discarded</b>\n"
-                            "You continued the conversation without saving it.\n\n" + proposed
+                        replacement = proposal_outcome_text(
+                            "discarded",
+                            description.summary if description else "",
+                            description.fields if description else None,
+                            notice="You continued the conversation without saving it.",
                         )
         if replacement is not None:
             try:

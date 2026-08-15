@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -40,6 +41,7 @@ from ..models import (
 )
 from ._core import BACKGROUND_SOURCE_ID, Services, router, sprint_is_active
 from ._messaging import (
+    dismiss_prior_ui,
     materialize_queued_dialogue,
     send_registered,
     send_summary,
@@ -84,6 +86,23 @@ BOT_COMMANDS = [
     BotCommand(command="status", description="Safwa diagnostics"),
     BotCommand(command="cancel", description="Cancel generation"),
 ]
+
+
+@router.message.middleware()
+async def dismiss_screens_before_a_command(
+    handler: Callable[[Message, dict[str, Any]], Awaitable[Any]],
+    event: Message,
+    data: dict[str, Any],
+) -> Any:
+    """A command is the owner leaving whatever screen was open, so it answers none of them.
+
+    Registered once here rather than called from twenty handlers.  Ordinary text dismisses
+    from `dialogue.ordinary_text` instead, because typed field input must reach its live
+    editor untouched.
+    """
+    if (event.text or "").lstrip().startswith("/"):
+        await dismiss_prior_ui(event, data["services"])
+    return await handler(event, data)
 
 
 @router.message(Command("start"))
@@ -603,6 +622,8 @@ async def navigation(callback: CallbackQuery, services: Services) -> None:
         # only the media screen rather than sending an unnecessary new message.
         await callback.message.delete()
         return
+    # Walking into the menu is an answer too: whatever else was open is refused.
+    await dismiss_prior_ui(callback.message, services)
     handlers = {
         "home": command_start,
         "today": command_today,

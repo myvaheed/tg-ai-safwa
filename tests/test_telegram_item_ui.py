@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 import safwa.telegram as telegram_source
 from safwa.ai.context import DialogueMessage
-from safwa.ai.service import AIOutcome, ProposalService
+from safwa.ai.service import AIOutcome, ProposalDescription, ProposalService
 from safwa.ai.sql import create_ai_views
 from safwa.domain import (
     DomainError,
@@ -252,13 +252,24 @@ class FakeCallback:
         self.answers.append((text, show_alert))
 
 
-def services_for(sessions):
+class StubAdvisor:
+    """Only the two hooks a dismissed proposal screen reaches for."""
+
+    async def describe_proposal(self, _session, _proposal_id) -> ProposalDescription:
+        return ProposalDescription(summary="Rename Tag “Family”", fields=["Name: Home → Family"])
+
+    async def cancel_approval_for_target(self, _target_type, _target_id) -> str | None:
+        return None
+
+
+def services_for(sessions, *, advisor=None):
     return SimpleNamespace(
         sessions=sessions,
         owner_id=42,
         owner_name="Name Surname",
         guard=GenerationGuard(),
         bot_username="safwa_ai_bot",
+        advisor=advisor,
     )
 
 
@@ -441,13 +452,14 @@ async def test_new_dialogue_discards_and_freezes_pending_proposal(sessions) -> N
 
     bot = FakeBot()
     incoming = FakeMessage(11, text="Another question", bot_message=False, bot=bot)
-    await dismiss_prior_ui(incoming, services_for(sessions))
+    await dismiss_prior_ui(incoming, services_for(sessions, advisor=StubAdvisor()))
 
     assert bot.deleted == [9]
     assert bot.edits[0][0] == 10
-    assert "Proposal discarded" in bot.edits[0][1]
-    assert "name=" in bot.edits[0][1]
-    assert "Family" in bot.edits[0][1]
+    assert "🗑 Discarded" in bot.edits[0][1]
+    assert "You continued the conversation without saving it." in bot.edits[0][1]
+    assert "Rename Tag “Family”" in bot.edits[0][1]
+    assert "• Name: Home → Family" in bot.edits[0][1]
     async with sessions() as session:
         proposal = await session.get(ChangeProposal, proposal_id)
         assert proposal.status == "rejected"
@@ -459,6 +471,51 @@ async def test_new_dialogue_discards_and_freezes_pending_proposal(sessions) -> N
             await session.scalar(select(TelegramMessage).where(TelegramMessage.message_id == 9))
             is None
         )
+
+
+async def test_a_command_dismisses_every_other_screen(sessions) -> None:
+    """A command is the owner walking away, so the middleware answers the open screens."""
+    from safwa.telegram.commands import dismiss_screens_before_a_command
+
+    async with sessions() as session:
+        session.add_all(
+            [
+                TelegramMessage(
+                    chat_id=700,
+                    message_id=20,
+                    direction="out",
+                    kind=MessageKind.DASHBOARD.value,
+                ),
+                TelegramMessage(
+                    chat_id=700,
+                    message_id=40,
+                    direction="out",
+                    kind=MessageKind.CARD_EDITOR.value,
+                ),
+            ]
+        )
+        await session.commit()
+
+    bot = FakeBot()
+    services = services_for(sessions, advisor=StubAdvisor())
+    handled: list[str] = []
+
+    async def handler(event, _data):
+        handled.append(event.text)
+
+    # Between the two screens, so "older than this message" would have spared the newer one.
+    command = FakeMessage(30, text="/today", bot_message=False, bot=bot)
+    await dismiss_screens_before_a_command(handler, command, {"services": services})
+
+    assert handled == ["/today"]
+    assert sorted(bot.deleted) == [20, 40]
+
+    text = FakeMessage(31, text="Not a command", bot_message=False, bot=bot)
+    await dismiss_screens_before_a_command(handler, text, {"services": services})
+
+    # Ordinary text dismisses from `ordinary_text`, after its live-editor branches.
+    assert handled == ["/today", "Not a command"]
+    assert sorted(bot.deleted) == [20, 40]
 
 
 async def test_tag_field_input_reuses_editor_message_and_deletes_input(sessions) -> None:

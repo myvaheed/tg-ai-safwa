@@ -283,6 +283,14 @@ class AIOutcome:
     proposal_id: int | None = None
 
 
+@dataclass(frozen=True)
+class ProposalDescription:
+    """One proposal in owner-facing words: a headline plus its `Label: value` lines."""
+
+    summary: str
+    fields: list[str] = field(default_factory=list)
+
+
 @dataclass
 class PendingTool:
     call: ProviderToolCall
@@ -444,18 +452,27 @@ def _normalized_card_details(values: dict[str, Any], *, creating: bool) -> dict[
     return fields
 
 
-def _raw_change_details(change: AgentChange | None) -> list[str]:
-    if change is None:
-        return []
-    values = (
-        _normalized_card_details(change.values, creating=change.action == "create")
-        if change.entity == "card"
-        else dict(change.values)
+def _value_details(entity: str, values: dict[str, Any], *, creating: bool) -> list[str]:
+    fields = (
+        _normalized_card_details(values, creating=creating) if entity == "card" else dict(values)
     )
     return [
         f"{_DETAIL_LABELS.get(field, field.replace('_', ' ').title())}: {_detail_value(value)}"
-        for field, value in values.items()
+        for field, value in fields.items()
     ]
+
+
+def _raw_change_details(change: AgentChange | None) -> list[str]:
+    if change is None:
+        return []
+    return _value_details(change.entity, change.values, creating=change.action == "create")
+
+
+def _stored_change_details(change: ProposalChange) -> list[str]:
+    """The same lines taken from the persisted row, for a caller with no `AgentChange`."""
+    return _value_details(
+        change.entity, dict(change.values), creating=change.action == "create"
+    )
 
 
 def _approval_change_label(tool: dict[str, Any]) -> str:
@@ -1566,6 +1583,18 @@ class AIAdvisor:
         tail = [] if action == "create" else list(details)
         return f"{verb} {head}" + (f" ({' · '.join(tail)})" if tail else "")
 
+    async def describe_proposal(
+        self, session: AsyncSession, proposal_id: int
+    ) -> ProposalDescription:
+        """How one proposal reads to the owner: the same line and fields a receipt uses.
+
+        Read it **before** applying — the field lines are a before/after diff against
+        committed state, and after `apply` that diff is empty.
+        """
+        fields = await self._proposal_result_details(session, proposal_id, None)
+        summary = await self._proposal_display_line(session, proposal_id, None, fields)
+        return ProposalDescription(summary=summary, fields=fields)
+
     async def _proposal_result_details(
         self,
         session: AsyncSession,
@@ -1592,7 +1621,7 @@ class AIAdvisor:
                 else None
             )
             if card is None:
-                return _raw_change_details(fallback)
+                return _raw_change_details(fallback) or _stored_change_details(proposed_change)
             before = await self._card_detail_snapshot(session, card)
             if proposed_change.action in {"link", "unlink"}:
                 relationship = _normalized_card_details(values, creating=False)
@@ -1628,14 +1657,14 @@ class AIAdvisor:
             "request": SavedRequest,
         }.get(proposed_change.entity)
         if proposed_change.action == "create" or model is None:
-            return _raw_change_details(fallback)
+            return _raw_change_details(fallback) or _stored_change_details(proposed_change)
         entity = (
             await session.get(model, proposed_change.entity_id)
             if proposed_change.entity_id is not None
             else None
         )
         if entity is None:
-            return _raw_change_details(fallback)
+            return _raw_change_details(fallback) or _stored_change_details(proposed_change)
         if proposed_change.action in {"archive", "delete"}:
             label = getattr(entity, "name", f"#{entity.id}")
             return [f"Item: {_result_value(label)}"]

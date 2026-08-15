@@ -57,7 +57,7 @@ from ._core import (
     router,
 )
 from ._messaging import send_registered, token_button
-from ._presentation import menu_row, with_notice
+from ._presentation import menu_row, proposal_outcome_text, with_notice
 from .cards import (
     card_creation_errors,
     card_editor_back_state,
@@ -965,6 +965,9 @@ async def _on_proposal_approve(context: CallbackContext) -> None:
                 markup=InlineKeyboardMarkup(inline_keyboard=[[confirm]]),
             )
             return
+        # Read the description before applying: its field lines diff against committed
+        # state, which the apply is about to become.
+        description = await context.services.advisor.describe_proposal(session, proposal_id)
         affected = await ProposalService(session).apply(proposal_id)
         await session.commit()
     if await continue_agent_approval(
@@ -979,7 +982,7 @@ async def _on_proposal_approve(context: CallbackContext) -> None:
     await send_registered(
         context.message,
         context.services,
-        f"✅ Saved proposal. Updated {len(affected)} item(s).",
+        proposal_outcome_text("approved", description.summary, description.fields),
         kind=MessageKind.DIALOGUE_ASSISTANT,
     )
 
@@ -987,6 +990,7 @@ async def _on_proposal_approve(context: CallbackContext) -> None:
 async def _on_proposal_delete_confirm(context: CallbackContext) -> None:
     proposal_id = context.payload["id"]
     async with context.sessions() as session:
+        description = await context.services.advisor.describe_proposal(session, proposal_id)
         affected = await ProposalService(session).apply(proposal_id, allow_destructive=True)
         await session.commit()
     if await continue_agent_approval(
@@ -1001,14 +1005,20 @@ async def _on_proposal_delete_confirm(context: CallbackContext) -> None:
     await send_registered(
         context.message,
         context.services,
-        f"Permanently deleted {len(affected)} selected item(s).",
-        kind=MessageKind.RECEIPT,
+        proposal_outcome_text(
+            "approved",
+            description.summary,
+            description.fields,
+            notice=f"Permanently deleted {len(affected)} item(s).",
+        ),
+        kind=MessageKind.DIALOGUE_ASSISTANT,
     )
 
 
 async def _on_proposal_reject(context: CallbackContext) -> None:
     proposal_id = context.payload["id"]
     async with context.sessions() as session:
+        description = await context.services.advisor.describe_proposal(session, proposal_id)
         await ProposalService(session).reject(proposal_id)
         await session.commit()
     if await continue_agent_approval(
@@ -1023,7 +1033,7 @@ async def _on_proposal_reject(context: CallbackContext) -> None:
     await send_registered(
         context.message,
         context.services,
-        "🗑 Proposal discarded.",
+        proposal_outcome_text("discarded", description.summary, description.fields),
         kind=MessageKind.DIALOGUE_ASSISTANT,
     )
 
