@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from safwa.ai.provider import ProviderTurn
 from safwa.ai.service import AIAdvisor
 from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
+from safwa.ai.subagents import SubagentRunner
 from safwa.db import Database, upgrade_database
 from safwa.domain import bootstrap_workspace
 from safwa.memory import MemoryFileStore
@@ -52,6 +53,7 @@ class E2EHarness:
         responses: list[str | ProviderTurn],
         *,
         cache_breakpoints: bool = False,
+        subagents: tuple[object, ...] = (),
     ) -> tuple[AIAdvisor, ScriptedProvider]:
         provider = ScriptedProvider(responses)
         advisor = AIAdvisor(
@@ -61,6 +63,16 @@ class E2EHarness:
             ReadOnlyQueryRunner(self.database_path),
             model_name="e2e-scripted-model",
             cache_breakpoints=cache_breakpoints,
+            subagents=(
+                SubagentRunner(
+                    self.sessions,
+                    subagents,  # type: ignore[arg-type]
+                    provider_name="e2e",
+                    model_name="e2e-scripted-model",
+                )
+                if subagents
+                else None
+            ),
         )
         return advisor, provider
 

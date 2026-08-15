@@ -150,7 +150,11 @@ flowchart TD
     PROVIDER["ai/provider.py"] --> SERVICE
     SQL["ai/sql.py"] --> SERVICE
     MINI["ai/mini.py"] --> RS["ai/reminder_sessions.py"]
+    MINI --> DIARY["ai/diary.py"]
+    MINI --> SUB["ai/subagents.py"]
+    DIARY --> SUB
     RS --> SERVICE
+    SUB --> SERVICE
     SERVICE --> PROPOSALS["ChangeProposal + AgentStep"]
     SERVICE --> DOMAIN["domain.py through ProposalService"]
 ```
@@ -161,8 +165,10 @@ flowchart TD
 | [`ai/contracts.py`](../src/safwa/ai/contracts.py) | Pydantic schemas и native tool definitions | mutation tool models, `MUTATION_TOOL_MODELS`, `mutation_change_from_tool` |
 | [`ai/provider.py`](../src/safwa/ai/provider.py) | OpenAI-compatible transport, retries и provider turns | `ProviderTurn`, `ProviderToolCall`, `OpenAICompatibleProvider` |
 | [`ai/sql.py`](../src/safwa/ai/sql.py) | Read-only SQL validation и isolated SQLite execution | `validate_read_sql`, `ReadOnlyQueryRunner`, `UnsafeQueryError` |
-| [`ai/mini.py`](../src/safwa/ai/mini.py) | Узкая tool-only LLM-сессия | `run_tool_session`, terminal/retry protocol |
+| [`ai/mini.py`](../src/safwa/ai/mini.py) | Узкая tool-only LLM-сессия | `run_mini_session`, `ReadToolSpec`, `TerminalTool`, terminal/retry protocol |
 | [`ai/reminder_sessions.py`](../src/safwa/ai/reminder_sessions.py) | Setup mini-session для расписаний Reminder | `resolve_schedule` |
+| [`ai/subagents.py`](../src/safwa/ai/subagents.py) | Запуск named subagent под собственным `AgentRun` и deadline | `SubagentRunner`, `Subagent`, `SubagentOutcome` |
+| [`ai/diary.py`](../src/safwa/ai/diary.py) | Diary subagent: читает день из двух источников и отдаёт draft под stamp | `DiarySubagent`, `DIARY_PROMPT`, `DIARY_REPORT` |
 | [`ai/service.py`](../src/safwa/ai/service.py) | Main agent loop, read tools, proposals, continuation и apply | `AIAdvisor`, `AIOutcome`, `ProposalService`, `_run_agent_loop`, `_materialize` |
 
 ### Main advisor context
@@ -175,9 +181,21 @@ flowchart LR
     CLOCK --> PROVIDER["Provider turn"]
 ```
 
-`query_safwa` выполняется немедленно. Mutation tools создают отдельные proposal screens. Если provider
-смешал reads и mutations в одном response, reads выполняются, а mutations получают retryable error и
-повторяются следующим response после появления read results.
+`query_safwa` и `call_subagent` выполняются немедленно. Mutation tools создают отдельные proposal
+screens. Если provider смешал immediate tools и mutations в одном response, reads выполняются, а
+mutations получают retryable error и повторяются следующим response после появления read results.
+
+### Subagent run
+
+```mermaid
+flowchart LR
+    CALL["call_subagent(name, request)"] --> RUNNER["SubagentRunner: AgentRun + deadline"]
+    RUNNER --> MINI["run_mini_session: read tools + один terminal"]
+    MINI --> READ["read_day + query_safwa"]
+    MINI --> REPORT["diary_report: entry+remark или question"]
+    REPORT --> STAMP["DiaryStamp хранит body host-side"]
+    STAMP --> RESULT["Advisor получает stamp, не текст"]
+```
 
 ## Telegram package
 
@@ -310,7 +328,7 @@ flowchart LR
 | Planning tree | `Card`, `CardValue`, `CardTag`, `CardCheck`, `Check`, `Value`, `Tag`, `CardEvent` |
 | Sprint | `Sprint`, `SprintCommitment`, `CardCategory`, `CardEnergyType` |
 | Saved queries | `SavedRequest` |
-| Agent и approvals | `AgentRun`, `AgentStep`, `ChangeProposal`, `ProposalChange` |
+| Agent и approvals | `AgentRun`, `AgentStep`, `ChangeProposal`, `ProposalChange`, `DiaryStamp` |
 | Telegram continuity | `TelegramMessage`, `SummaryState`, `UiSession`, `CallbackToken` |
 | Persona memory | `MemoryFactCache`, `MemorySyncState` |
 | Proactive work | `Reminder`, `FeedbackQueue` |
@@ -326,6 +344,7 @@ flowchart LR
 | Summary и memory | `test_continuity.py`, `test_memory.py` |
 | Reminder arithmetic и scheduler | `test_reminders.py`, `test_reminder_flow.py`, `test_scheduler.py` |
 | Provider/config/infrastructure | `test_provider.py`, `test_config.py`, `test_infrastructure.py`, `test_backup.py` |
+| Subagents и Diary | `test_subagents.py`, `tests/e2e/test_subagent_e2e.py` |
 | End-to-end agent behavior | `tests/e2e/test_advisor_flow_e2e.py`, `test_reminder_e2e.py`, `test_checks_e2e.py`, `test_startup_e2e.py` |
 
 ## Куда вносить изменение
@@ -336,6 +355,7 @@ flowchart LR
 | Новое поле schema | `models.py` | domain, renderers, AI views/context; fresh DB до v1 |
 | Новый read-only AI view | `db.py` | `ALLOWED_VIEWS`, `SYSTEM_PROMPT`, SQL tests |
 | Новый mutation tool | `ai/contracts.py` | `ai/service.py`, proposal presentation, prompt и e2e tests |
+| Новый subagent | Модуль рядом с `ai/diary.py` | roster в `SYSTEM_PROMPT`, wiring в `main.py`, subagent tests |
 | Новый Telegram screen | Feature renderer | `_presentation.py`, `_messaging.py`, callback token routing |
 | Новая slash-команда | `telegram/commands.py` | bot command registration в `main.py`, history classification |
 | Изменение истории | `history.py` | marker/send sites, continuity, history tests и diagrams |

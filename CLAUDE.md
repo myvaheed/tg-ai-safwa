@@ -131,9 +131,10 @@ last item resolves (`resolve_approval` → `continue_agent_approval`), receiving
 results. Failed preparations return structured tool errors and are retried for at most
 `MAX_REPAIR_ROUNDS = 5` (`MAX_TOOL_CALLS = 64`).
 
-Do not mix `query_safwa` and mutation tools in one provider response. Runtime executes the reads but
-returns `mixed_read_and_mutation_tools` for each mutation, which the model retries in the next response
-after seeing the read data. `tool_call_id` is opaque provider state; never ask the model to manage it.
+Do not mix an immediate tool (`query_safwa`, `call_subagent`) and mutation tools in one provider
+response. Runtime executes the reads but returns `mixed_read_and_mutation_tools` for each mutation,
+which the model retries in the next response after seeing the read data. `tool_call_id` is opaque
+provider state; never ask the model to manage it.
 
 A suspended batch owns the whole request, not just its last tool call: it stores that request's
 `dialogue` and its `transcript` (every assistant/tool message produced past the context prefix,
@@ -141,6 +142,27 @@ A suspended batch owns the whole request, not just its last tool call: it stores
 with the decisions filled in, so the model keeps its own intermediate steps and does not re-read
 Telegram to resume. Anything the model must know across an approval belongs in a tool result — the
 resolved one carries `status`, `entity`, `action`, `summary`, `fields`, and `next`.
+
+### A subagent reads and reports; it never mutates
+
+`call_subagent(name, request)` is an immediate tool: [ai/subagents.py](src/safwa/ai/subagents.py)
+runs the named specialist inside the advisor's turn and hands back its report as the tool result.
+A subagent is a mini-session ([ai/mini.py](src/safwa/ai/mini.py)) with read tools and one terminal
+report — no mutation tool, and no `call_subagent`, so there is no recursion. It gets its own
+`AgentRun` and is bounded by `asyncio.wait_for(SUBAGENT_DEADLINE_SECONDS)`, which is why it needs
+no provider-call cap; a timeout comes back as a non-retryable tool result, never an exception.
+
+The roster is prose in `SYSTEM_PROMPT` under `# Subagents` — there is no discovery tool, so a new
+subagent must be added *both* to the runner in [main.py](src/safwa/main.py) *and* to that section,
+exactly like a new `ai_*` view.
+
+The Diary subagent ([ai/diary.py](src/safwa/ai/diary.py)) reads the day's conversation
+(`day_transcript`, which walks a period with `stop_at_summary=False`) **and** `ai_card_events` /
+`ai_checks.resolved_at`, because manual UI work never reaches the conversation and the day's mood
+never reaches the database. `diary_report` carries an entry with a remark, or the one question that
+would make the day writable — never both. A draft is stored as a `diary_stamps` row and the advisor
+receives only the stamp, the length, and the remark: the body never travels through the advisor, so
+it cannot be silently rewritten. The stamp is reusable until it expires at the end of its local day.
 
 ### Read-only SQL is triple-guarded
 

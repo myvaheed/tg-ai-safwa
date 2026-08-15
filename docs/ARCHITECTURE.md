@@ -20,17 +20,19 @@ Python `>=3.12,<3.13`. No server, no multi-user, no Mini App.
 1. `Settings` (pydantic-settings, `SAFWA_` prefix, `.env`) — [config.py](../src/safwa/config.py)
 2. `Database` — async engine + `PRAGMA foreign_keys/WAL/busy_timeout` ([db.py:37](../src/safwa/db.py:37))
 3. one boot session: `bootstrap_workspace` → `recover_startup` → `create_ai_views`
-4. `OpenAICompatibleProvider` → `MemoryFileStore.sync()` → `ReadOnlyQueryRunner` → `AIAdvisor`
+4. `OpenAICompatibleProvider` → `MemoryFileStore.sync()` → `ReadOnlyQueryRunner`
 5. `Bot` (`parse_mode=HTML`) → `TelegramHistorySource.from_settings(..., bot_user_id=me.id)` → `.start()`
-6. `PersonaContinuity` → `GenerationGuard` → `Services` dataclass → `dispatcher["services"]`
-7. `OwnerAndWritingMiddleware` on both message and callback outer middleware; `router` included
-8. `sync_bot_commands` (20 commands, 19 while the workspace is in Planning)
-9. four background tasks, all cancelled in the polling `finally`:
-   - `memory.poll(memory_error)` — 5 s `memory.md` hash watcher
-   - `run_scheduler(...)` with gate/escalate hooks from `ReminderRuntime` — 30 s Reminder poll,
-     `SAFWA_SCHEDULER_ENABLED` (on by default)
-   - `run_sprint_expiry(...)` — 300 s poll that closes a Sprint past its end date and says so
-   - `run_memory_maintenance(...)` — 60 s daily-memory-sync eligibility loop
+6. `AIAdvisor` with a `SubagentRunner` over `DiarySubagent` — after the history source, which a
+   subagent reads through
+7. `PersonaContinuity` → `GenerationGuard` → `Services` dataclass → `dispatcher["services"]`
+8. `OwnerAndWritingMiddleware` on both message and callback outer middleware; `router` included
+9. `sync_bot_commands` (20 commands, 19 while the workspace is in Planning)
+10. four background tasks, all cancelled in the polling `finally`:
+    - `memory.poll(memory_error)` — 5 s `memory.md` hash watcher
+    - `run_scheduler(...)` with gate/escalate hooks from `ReminderRuntime` — 30 s Reminder poll,
+      `SAFWA_SCHEDULER_ENABLED` (on by default)
+    - `run_sprint_expiry(...)` — 300 s poll that closes a Sprint past its end date and says so
+    - `run_memory_maintenance(...)` — 60 s daily-memory-sync eligibility loop
 
 Memory maintenance stands down while `guard.active`; the Reminder poll has its own wider gate
 (`ReminderRuntime.can_escalate`) that also waits out any open proposal.
@@ -46,7 +48,7 @@ not one package per layer:
 | application | [domain.py](../src/safwa/domain.py) (mutations), [ai/service.py](../src/safwa/ai/service.py) (`ProposalService`), [continuity.py](../src/safwa/continuity.py), [scheduler.py](../src/safwa/scheduler.py), [analytics.py](../src/safwa/analytics.py) |
 | infrastructure | [db.py](../src/safwa/db.py), [history.py](../src/safwa/history.py), [memory.py](../src/safwa/memory.py), [ai/provider.py](../src/safwa/ai/provider.py), [ai/sql.py](../src/safwa/ai/sql.py), [backup.py](../src/safwa/backup.py) |
 | telegram | [telegram/](../src/safwa/telegram) (15 modules, ~5.5k lines) |
-| ai | [ai/](../src/safwa/ai) (context, contracts, mini, provider, reminder_sessions, service, sql) |
+| ai | [ai/](../src/safwa/ai) (context, contracts, diary, mini, provider, reminder_sessions, service, sql, subagents) |
 | bootstrap | [main.py](../src/safwa/main.py), [config.py](../src/safwa/config.py), [constants.py](../src/safwa/constants.py), [recovery.py](../src/safwa/recovery.py), [qa.py](../src/safwa/qa.py) |
 
 [constants.py](../src/safwa/constants.py) holds every limit, budget, cap, interval, and the effort
@@ -155,9 +157,10 @@ no underscore (the whole package is private behind `__init__.__all__`).
 Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `history.dialogue()` →
 `AIAdvisor.handle` → agent loop → proposals or a final message.
 
-- Tools: one that runs immediately (`IMMEDIATE_TOOLS`) — `query_safwa(sql)` — plus the mutation tools
-  `card`, `check`, `value`, `tag`, `request`, `reminder`, `remove` (`SAFWA_TOOLS`,
-  [ai/service.py](../src/safwa/ai/service.py)).
+- Tools: two that run immediately (`IMMEDIATE_TOOLS`) — `query_safwa(sql)` and
+  `call_subagent(name, request)` — plus the mutation tools `card`, `check`, `value`, `tag`, `request`,
+  `reminder`, `remove` (`SAFWA_TOOLS`, [ai/service.py](../src/safwa/ai/service.py)).
+  `call_subagent` is offered only when a `SubagentRunner` is wired.
 - Offering an item is not a tool. The model cites it in its own prose as `[Milk](check:14)`. The five
   openable types are Card, Check, Tag, Value and Saved Request; `render_citations`
   ([telegram/screens.py](../src/safwa/telegram/screens.py)) rewrites each citation of the escaped
@@ -183,7 +186,7 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
 - Multiple mutation calls in one turn become independent queued proposal screens in call order; the
   queue lives in an `AgentStep` row with `kind="approval_batch"`. The model resumes only after the last
   item resolves (`resolve_approval` → `continue_agent_approval`) and receives all mutation and read results.
-- If one provider response mixes `query_safwa` and mutation tools, reads run immediately but each
+- If one provider response mixes an immediate tool and mutation tools, reads run immediately but each
   mutation gets a short retryable `mixed_read_and_mutation_tools` result. The model retries mutations
   in its next response, after it has seen the read data.
 - The batch also stores the request's `dialogue` and its `transcript` — every assistant/tool message the
@@ -210,6 +213,31 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
   only while a Sprint runs — Today Actions. Every item is written as its citation, `[name](kind:id)`,
   ready to reuse in a reply. Deliberately **no** Sprint metrics and **no** precomputed Card
   candidates; the model reaches those through `query_safwa`.
+
+### Subagents
+
+[ai/subagents.py](../src/safwa/ai/subagents.py) runs one named specialist inside the advisor's turn.
+A subagent is a mini-session ([ai/mini.py](../src/safwa/ai/mini.py)) with several read tools and one
+terminal report; the terminal call *is* the answer, and prose is fed back as a retryable tool result.
+
+- It **reads and never mutates**. Its tool set holds no mutation tool and no `call_subagent`, so
+  there is no recursion.
+- `SubagentRunner` gives each run its own `AgentRun` and `subagent_read`/`subagent_terminal`
+  `AgentStep` rows, and bounds it with `asyncio.wait_for(SUBAGENT_DEADLINE_SECONDS = 300)`. The
+  clock replaces a provider-call cap, which cannot interrupt a call already in flight. A timeout or
+  an exhausted repair budget comes back as a non-retryable tool result, never an exception.
+- The advisor's own run records the hand-off as a `subagent_call` step carrying the subagent's
+  `AgentRun` id.
+- The roster is prose in `SYSTEM_PROMPT` (`# Subagents`) — a static block inside the cacheable
+  prefix. There is no discovery tool, so **a subagent missing from that section cannot be called**.
+- **Diary** ([ai/diary.py](../src/safwa/ai/diary.py)): reads the day's conversation
+  (`TelegramHistorySource.day_transcript`) *and* `ai_card_events` / `ai_checks.resolved_at`, because
+  work done from the buttons never reaches the conversation and what the day felt like never reaches
+  the database. Its prompt fixes the entry's language rather than inheriting the advisor's. Its
+  `diary_report` has exactly two shapes: an entry with a remark, or the one question that would make the day writable — never both.
+- A draft is stored as a `diary_stamps` row and the advisor receives only the stamp, the character
+  count, and the remark. The body never travels through the advisor, which is what stops it being
+  silently edited. The stamp is reusable until it expires at the end of its own local day.
 
 ### Read-only SQL — triple guard
 
@@ -243,15 +271,8 @@ kind, related_id, event_id)` — never persona text.
 - Every bot message must be registered with a `MessageKind` (`send_registered` / `register_message`).
   Unregistered outgoing = invisible to the LLM; wrongly-kinded = UI noise leaks into persona history.
 - `mark_message` writes both the `MessageKind` and an immutable 128-bit event UUID into invisible
-  Telegram text; `read_message_mark` recovers them. SQLite stores the same UUID, so outgoing history
-  uses direct event lookup and visible-text edits preserve identity. A rebuilt database still recovers
-  classification from Telegram. Every bot send site must mark its text. An unmarked bot message is
-  excluded; v1 has no legacy fallback. Owner messages cannot be marked, so owner text that is still in
-  the chat is treated as dialogue.
-- Item citations ride in the text the same way. Telethon returns plain text, so `restore_citations`
-  rewrites each `?start=<type>-<id>` link entity back into the `[Milk](check:14)` the model wrote;
-  otherwise the model rereads its own citations as bare words and unlearns the format. Entity offsets
-  are UTF-16 units, so the slicing happens in surrogate space.
+  Telegram text; `read_message_mark` recovers them. SQLite stores the same UUID, so outgoing history uses direct event lookup and visible-text edits preserve identity. A rebuilt database still recovers classification from Telegram. Every bot send site must mark its text. An unmarked bot message is excluded; v1 has no legacy fallback. Owner messages cannot be marked, so owner text that is still in the chat is treated as dialogue.
+- Item citations ride in the text the same way. Telethon returns plain text, so `restore_citations`rewrites each `?start=<type>-<id>` link entity back into the `[Milk](check:14)` the model wrote; otherwise the model rereads its own citations as bare words and unlearns the format. Entity offsets are UTF-16 units, so the slicing happens in surrogate space.
 - Only `DIALOGUE_USER`, `DIALOGUE_ASSISTANT`, `REMINDER`, and `SUMMARY` become dialogue. Everything
   else (`COMMAND`, `UI_INPUT`, `DASHBOARD`, `CARD_EDITOR`, `APPROVAL`, `RECEIPT`,
   `RETROSPECTIVE_PNG`, `ERROR`) is excluded.
@@ -260,6 +281,7 @@ kind, related_id, event_id)` — never persona text.
   `telegram_messages`. The budget is checked before an entry is taken, so the cut lands between
   messages. A Summary boundary is followed by up to `SUMMARY_CONTEXT_MESSAGE_LIMIT = 20` older
   messages, and `HISTORY_SCAN_LIMIT` caps the walk itself.
+- `day_transcript` reads a period instead of a window: it walks back to a given moment with `stop_at_summary=False`, because a Summary written at noon must not cut that day in half.
 - The middleware deletes every slash command, which is what makes surviving owner text dialogue.
 - Bot API and Telethon use different message-ID spaces in a private chat. Outgoing messages correlate
   by event UUID. Only owner source-message de-duplication retains the narrow ID/time heuristic because
@@ -345,12 +367,12 @@ means editing `models.py` and rebuilding the database (`uv run safwa-backup` fir
 **Do not add Alembic or write migrations before the first release.** The owner recreates the
 pre-release database. Migration support begins after v1.
 
-27 tables: `workspace`, `user_profile`, `values`, `cards`, `card_values`, `tags`, `card_tags`,
+28 tables: `workspace`, `user_profile`, `values`, `cards`, `card_values`, `tags`, `card_tags`,
 `checks`, `card_checks`,
 `saved_requests`, `card_categories`, `card_energy_types`, `sprints`, `sprint_commitments`, `card_events`,
 `change_proposals`, `proposal_changes`, `agent_runs`, `agent_steps`, `telegram_messages`,
 `feedback_queue`, `summary_state`, `memory_fact_cache`, `memory_sync_state`, `reminders`,
-`ui_sessions`, `callback_tokens`.
+`ui_sessions`, `callback_tokens`, `diary_stamps`.
 
 Enums are `StrEnum` but columns store plain strings — always compare/assign `.value`.
 

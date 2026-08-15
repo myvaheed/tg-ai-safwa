@@ -443,6 +443,47 @@ class NotClearEnoughInput(ToolInput):
     )
 
 
+class CallSubagentInput(ToolInput):
+    name: str = Field(description="The subagent to run, exactly as the roster names it.")
+    request: str = Field(
+        description=(
+            "What it must do, and anything the owner just said that it needs. It reads "
+            "the data itself; it does not see this conversation."
+        )
+    )
+
+
+class DiaryReportInput(ToolInput):
+    """The Diary subagent's one ending: the day as it stands, or the question blocking it."""
+
+    entry: str | None = Field(
+        default=None,
+        description=(
+            "The whole day in the owner's own voice, including whatever was already "
+            "written for it. It replaces the saved entry rather than extending it."
+        ),
+    )
+    remark: str | None = Field(
+        default=None,
+        description=(
+            "One sentence in Safwa's own voice about the day. Shown beside the entry, "
+            "never stored inside it."
+        ),
+    )
+    question: str | None = Field(
+        default=None,
+        description="Sent instead of an entry when the day holds nothing to write yet.",
+    )
+
+    @model_validator(mode="after")
+    def exactly_one_shape(self) -> DiaryReportInput:
+        if bool(self.entry) == bool(self.question):
+            raise ValueError(
+                "Send entry for the day's text, or question when there is none — exactly one"
+            )
+        return self
+
+
 MUTATION_TOOL_MODELS: dict[str, type[BaseModel]] = {
     "card": CardToolInput,
     "check": CheckToolInput,

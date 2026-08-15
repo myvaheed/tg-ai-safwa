@@ -4,7 +4,6 @@ import json
 import logging
 import sqlite3
 import time
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -97,13 +96,16 @@ from .context import SYSTEM_PROMPT, DialogueMessage, planning_context
 from .contracts import (
     MUTATION_TOOL_MODELS,
     AgentChange,
+    CallSubagentInput,
     QueryToolInput,
     mutation_change_from_tool,
     tool_json_schema,
 )
+from .mini import ReadToolSpec
 from .provider import OpenAICompatibleProvider, ProviderToolCall, ProviderTurn
 from .reminder_sessions import resolve_schedule
 from .sql import ReadOnlyQueryRunner, UnsafeQueryError
+from .subagents import SubagentRunner
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +157,18 @@ MUTATION_TOOL_DESCRIPTIONS = {
     ),
     "remove": "Prepare an archive or permanent Card-deletion confirmation.",
 }
+CALL_SUBAGENT_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "call_subagent",
+        "description": (
+            "Hand one job to a specialist that reads the data itself and reports back "
+            "inside this turn. The roster in your instructions names every subagent and "
+            "when to call it."
+        ),
+        "parameters": tool_json_schema(CallSubagentInput),
+    },
+}
 MUTATION_TOOLS: tuple[dict[str, Any], ...] = tuple(
     {
         "type": "function",
@@ -168,7 +182,45 @@ MUTATION_TOOLS: tuple[dict[str, Any], ...] = tuple(
 )
 SAFWA_TOOLS = (QUERY_SAFWA_TOOL, *MUTATION_TOOLS)
 # Tools that run during the turn instead of becoming a proposal the owner approves.
-IMMEDIATE_TOOLS = frozenset({"query_safwa"})
+IMMEDIATE_TOOLS = frozenset({"query_safwa", "call_subagent"})
+
+
+def query_read_tool(query_runner: ReadOnlyQueryRunner) -> ReadToolSpec:
+    """`query_safwa` for a session with no ``AgentRun`` of the advisor's to record into.
+
+    The query runner and its caps are shared, which is the part that matters; only the
+    advisor's own step bookkeeping is left out.
+    """
+
+    async def read(call: ProviderToolCall) -> list[dict[str, Any]]:
+        try:
+            query = QueryToolInput.model_validate(json.loads(call.arguments or "{}"))
+            outcome = await query_runner.run(query.sql)
+            return outcome.as_tool_result()
+        except (
+            UnsafeQueryError,
+            sqlite3.Error,
+            TimeoutError,
+            OSError,
+            ValidationError,
+            json.JSONDecodeError,
+            TypeError,
+            ValueError,
+        ) as error:
+            return [
+                {
+                    "status": "error",
+                    "code": "query_failed",
+                    "error": str(error),
+                    "hint": (
+                        "Fix only this SELECT and call query_safwa again. One read-only "
+                        "SELECT or WITH … SELECT over the ai_* views."
+                    ),
+                    "retryable": True,
+                }
+            ]
+
+    return ReadToolSpec(QUERY_SAFWA_TOOL, read)
 
 
 def _has_explicit_tool_value(value: Any) -> bool:
@@ -747,6 +799,7 @@ class AIAdvisor:
         model_name: str,
         provider_name: str = "openai-compatible",
         cache_breakpoints: bool = False,
+        subagents: SubagentRunner | None = None,
     ) -> None:
         self.sessions = sessions
         self.provider = provider
@@ -755,6 +808,9 @@ class AIAdvisor:
         self.model_name = model_name
         self.provider_name = provider_name
         self.cache_breakpoints = cache_breakpoints
+        self.subagents = subagents
+        # Without a runner there is no roster to call, so the tool is not offered at all.
+        self.tools = (*SAFWA_TOOLS, CALL_SUBAGENT_TOOL) if subagents else SAFWA_TOOLS
 
     async def handle(
         self,
@@ -832,7 +888,7 @@ class AIAdvisor:
         else:
             turn = await complete_turn(
                 messages,
-                tools=list(SAFWA_TOOLS),
+                tools=list(self.tools),
             )
         _log_provider_response(turn)
         return turn
@@ -881,11 +937,16 @@ class AIAdvisor:
                     change = None
                     if call.name == "query_safwa":
                         result = await self._execute_query_tool(call, run_id, tool_count)
+                    elif call.name == "call_subagent":
+                        result = await self._execute_subagent_tool(call, run_id, tool_count)
                     elif has_reads and has_mutations:
                         result = {
                             "status": "error",
                             "code": "mixed_read_and_mutation_tools",
-                            "error": "Mutation tools cannot share a response with query_safwa.",
+                            "error": (
+                                "Mutation tools cannot share a response with query_safwa or "
+                                "call_subagent."
+                            ),
                             "next": (
                                 "Use the read result, then retry this mutation in the next response."
                             ),
@@ -954,42 +1015,51 @@ class AIAdvisor:
                 prefix_len=prefix_len,
             )
 
-    def mini_query_tool(self) -> tuple[dict[str, Any], Callable[..., Any]]:
-        """`query_safwa` for a mini-session: the same guarded reader, no run bookkeeping.
-
-        A mini-session has no ``AgentRun``, so it cannot use ``_execute_query_tool``; the
-        query runner and its caps are shared, which is the part that matters.
-        """
-
-        async def read(call: ProviderToolCall) -> list[dict[str, Any]]:
-            try:
-                query = QueryToolInput.model_validate(json.loads(call.arguments or "{}"))
-                outcome = await self.query_runner.run(query.sql)
-                return outcome.as_tool_result()
-            except (
-                UnsafeQueryError,
-                sqlite3.Error,
-                TimeoutError,
-                OSError,
-                ValidationError,
-                json.JSONDecodeError,
-                TypeError,
-                ValueError,
-            ) as error:
-                return [
-                    {
-                        "status": "error",
-                        "code": "query_failed",
-                        "error": str(error),
-                        "hint": (
-                            "Fix only this SELECT and call query_safwa again. One read-only "
-                            "SELECT or WITH … SELECT over the ai_* views."
-                        ),
-                        "retryable": True,
-                    }
-                ]
-
-        return QUERY_SAFWA_TOOL, read
+    async def _execute_subagent_tool(
+        self, call: ProviderToolCall, run_id: int, position: int
+    ) -> dict[str, Any]:
+        """Run one subagent to its report inside this turn, and record the hand-off."""
+        try:
+            arguments = CallSubagentInput.model_validate(json.loads(call.arguments or "{}"))
+        except (ValidationError, json.JSONDecodeError, TypeError, ValueError) as error:
+            return {
+                "status": "error",
+                "code": "invalid_arguments",
+                "error": (
+                    _validation_error_summary(error)
+                    if isinstance(error, ValidationError)
+                    else str(error)
+                ),
+                "hint": 'Send {"name": "<subagent>", "request": "<what it must do>"}.',
+                "retryable": True,
+            }
+        if self.subagents is None:
+            return {
+                "status": "error",
+                "code": "no_subagents",
+                "error": "No subagent is available in this deployment.",
+                "retryable": False,
+                "next": "Answer without one.",
+            }
+        outcome = await self.subagents.run(arguments.name, arguments.request)
+        async with self.sessions() as session:
+            session.add(
+                AgentStep(
+                    run_id=run_id,
+                    position=position,
+                    kind="subagent_call",
+                    metadata_json={
+                        "tool_call_id": call.id,
+                        "subagent": arguments.name,
+                        "request": arguments.request,
+                        # The subagent keeps its own AgentRun; this is the link to it.
+                        "subagent_run_id": outcome.run_id,
+                        "status": outcome.result.get("status"),
+                    },
+                )
+            )
+            await session.commit()
+        return outcome.result
 
     async def _execute_query_tool(
         self, call: ProviderToolCall, run_id: int, position: int

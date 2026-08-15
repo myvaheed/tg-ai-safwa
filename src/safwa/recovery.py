@@ -13,6 +13,7 @@ from .models import (
     AgentStep,
     CallbackToken,
     ChangeProposal,
+    DiaryStamp,
     Reminder,
     UiSession,
     Workspace,
@@ -38,6 +39,7 @@ async def recover_startup(session: AsyncSession) -> None:
     )
     await session.execute(delete(CallbackToken).where(CallbackToken.expires_at < now))
     await session.execute(delete(UiSession).where(UiSession.expires_at < now))
+    await session.execute(delete(DiaryStamp).where(DiaryStamp.expires_at < now))
 
 
 async def reconcile_reminders(session: AsyncSession, *, now: datetime) -> None:

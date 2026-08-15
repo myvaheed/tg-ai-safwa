@@ -32,6 +32,13 @@ MAX_TOOL_CALLS = 64
 MAX_REPAIR_ROUNDS = 5
 SUSPENDED_BATCH_LOOKUP_LIMIT = 50
 
+# --- Subagents ------------------------------------------------------------
+# A subagent blocks the advisor's turn, so it is bounded by the clock rather than by a
+# provider-call count: the deadline aborts a stalled read loop, which a call cap cannot.
+SUBAGENT_DEADLINE_SECONDS = 300.0
+# How much of the day's conversation the Diary reader may hand back in one call.
+DIARY_DAY_TOKEN_BUDGET = 12_000
+
 # --- query_safwa result caps ----------------------------------------------
 # Sized for a local model: one result should inform a turn, not consume its context.
 DEFAULT_ROW_LIMIT = 50

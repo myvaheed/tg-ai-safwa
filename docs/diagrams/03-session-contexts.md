@@ -1,7 +1,7 @@
 # Контексты LLM и окно истории
 
 «Сессия» здесь означает отдельный вызов LLM со своим узким prompt: main advisor, reminder
-mini-session, summary или memory maintenance. Видимых Telegram-веток нет: окно диалога ограничено
+mini-session, subagent, summary или memory maintenance. Видимых Telegram-веток нет: окно диалога ограничено
 token budget, ближайшим Summary и самой старой регистрацией.
 
 ## Main advisor context
@@ -33,11 +33,13 @@ flowchart TD
     E{"Тип LLM-сессии"}
     E --> MAIN["Main advisor"]
     E --> SETUP["Reminder setup mini-session"]
+    E --> SUB["Diary subagent"]
     E --> SUM["Summary"]
     E --> RETELL["Memory retell + reconcile"]
 
     MAIN --> MC["SYSTEM_PROMPT + planning + memory<br/>+ bounded Telegram dialogue + clock<br/>+ все Safwa tools"]
     SETUP --> SC["SETUP_PROMPT + when + instruction<br/>+ local time/timezone<br/>+ только terminal tools"]
+    SUB --> SBC["DIARY_PROMPT + дата и request advisor;<br/>день читается через read_day и query_safwa<br/>+ один terminal diary_report"]
     SUM --> SUC["SUMMARY_PROMPT + предыдущий Summary<br/>+ unsummarized canonical dialogue"]
     RETELL --> MEC["RETELL_PROMPT + chunk;<br/>затем MEMORY_PROMPT + facts + retelling"]
 ```
@@ -50,13 +52,16 @@ system/planning/memory/dialogue/clock context и все Safwa tools.
 Если Reminder упоминает Safwa item, synthetic turn просит main advisor сначала проверить его через
 `query_safwa`; отдельной relevance-сессии нет.
 
-Mini-sessions не создают `AgentRun`, proposals и approval queue. Они обязаны завершиться валидным
-terminal tool call; проза, неизвестный tool и невалидные аргументы возвращаются модели как retryable
-ошибка.
+Mini-sessions не создают proposals и approval queue. Они обязаны завершиться валидным terminal tool
+call; проза, неизвестный tool и невалидные аргументы возвращаются модели как retryable ошибка.
+Reminder setup не пишет `AgentRun`; subagent пишет свой собственный и ограничен wall-clock deadline
+вместо cap на число вызовов.
 
 Код: [context.py](../../src/safwa/ai/context.py),
 [service.py](../../src/safwa/ai/service.py),
 [mini.py](../../src/safwa/ai/mini.py),
+[subagents.py](../../src/safwa/ai/subagents.py),
+[diary.py](../../src/safwa/ai/diary.py),
 [reminder_sessions.py](../../src/safwa/ai/reminder_sessions.py),
 [history.py](../../src/safwa/history.py),
 [continuity.py](../../src/safwa/continuity.py).

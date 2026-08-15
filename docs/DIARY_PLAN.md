@@ -116,7 +116,7 @@ this lands first and alone.
 **Done when** a proposal cannot survive a menu tap, `/cancel` stops provider traffic within a
 second, and one saved Card leaves one readable line in the conversation.
 
-## Phase 3 — the subagent runner
+## Phase 3 — the subagent runner · done
 
 Generalize [ai/mini.py](../src/safwa/ai/mini.py) rather than writing a second engine. It already has
 the shape: its own system prompt, its own tool set, a terminal call that *is* the answer, its own
@@ -140,6 +140,10 @@ budget, and repairs fed back as tool results.
 - The subagent reads both sources, because neither alone is the day: the conversation for what was
   said and felt, `ai_card_events` and `ai_checks.resolved_at` for what was actually done. Manual UI
   work leaves no trace in the dialogue at all.
+- The `diary_stamps` row lands here rather than in Phase 4: a draft report carries a stamp, so the
+  record that holds the body has to exist before `call_subagent` can return one. Phase 4 adds the
+  entry id to it alongside `diary_entries`. Until then the advisor is told a draft is ready and can
+  voice the remark, but there is no tool that saves it.
 
 **Done when** a Diary subagent invoked by hand returns a usable draft for a day of mixed
 conversation and manual UI work, and a five-minute hang is cut off.

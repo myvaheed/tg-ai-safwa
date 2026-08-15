@@ -1,13 +1,13 @@
 # Proposals и tool calls
 
-LLM никогда не применяет mutation напрямую. `query_safwa` — immediate read-only tool; `card`,
-`check`, `value`, `tag`, `request`, `reminder` и `remove` создают reviewable proposals с явным
+LLM никогда не применяет mutation напрямую. `query_safwa` и `call_subagent` — immediate tools;
+`card`, `check`, `value`, `tag`, `request`, `reminder` и `remove` создают reviewable proposals с явным
 Save/Discard.
 
 ## Read перед mutation
 
 Mutation разрешена только когда все нужные данные уже известны модели. Если один provider response
-содержит `query_safwa` и mutation tools, Safwa выполняет reads, но отклоняет **только mutations** этого
+содержит immediate tool и mutation tools, Safwa выполняет reads, но отклоняет **только mutations** этого
 response короткой retryable-ошибкой. Следующий provider response уже видит read results и повторяет
 нужные mutations отдельно.
 

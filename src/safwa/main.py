@@ -10,9 +10,11 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
+from .ai.diary import DiarySubagent
 from .ai.provider import OpenAICompatibleProvider, ProviderConfig
-from .ai.service import AIAdvisor
+from .ai.service import AIAdvisor, query_read_tool
 from .ai.sql import ReadOnlyQueryRunner, create_ai_views
+from .ai.subagents import SubagentRunner
 from .config import Settings
 from .constants import AI_APP_TITLE, AI_APP_URL
 from .continuity import PersonaContinuity, run_memory_maintenance
@@ -106,15 +108,6 @@ async def run(settings: Settings) -> None:
         row_limit=settings.ai_query_row_limit,
         char_budget=settings.ai_query_char_budget,
     )
-    advisor = AIAdvisor(
-        database.sessions,
-        provider,
-        memory,
-        query_runner,
-        model_name=settings.ai_model,
-        provider_name=settings.ai_provider.value,
-        cache_breakpoints=settings.resolved_ai_cache_breakpoints,
-    )
     bot = Bot(
         token=settings.telegram_bot_token.get_secret_value(),
         # Item citations are t.me links to this bot; a preview card under every answer
@@ -124,6 +117,31 @@ async def run(settings: Settings) -> None:
     me = await bot.get_me()
     history = TelegramHistorySource.from_settings(settings, database.sessions, bot_user_id=me.id)
     await history.start()
+    # The advisor is built after the history source because a subagent reads through it.
+    advisor = AIAdvisor(
+        database.sessions,
+        provider,
+        memory,
+        query_runner,
+        model_name=settings.ai_model,
+        provider_name=settings.ai_provider.value,
+        cache_breakpoints=settings.resolved_ai_cache_breakpoints,
+        subagents=SubagentRunner(
+            database.sessions,
+            (
+                DiarySubagent(
+                    database.sessions,
+                    provider,
+                    history,
+                    query_read_tool(query_runner),
+                    chat_id=settings.telegram_owner_id,
+                    timezone=settings.timezone,
+                ),
+            ),
+            provider_name=settings.ai_provider.value,
+            model_name=settings.ai_model,
+        ),
+    )
     continuity = PersonaContinuity(
         database.sessions,
         history,

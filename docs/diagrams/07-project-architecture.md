@@ -104,6 +104,8 @@ rendering/messaging/core; `_presentation.py` остаётся чистым фо�
 | `sql.py` | Read-only `query_safwa` и allowlist AI views |
 | `mini.py` | Узкие LLM-сессии, завершаемые одним terminal tool call |
 | `reminder_sessions.py` | Setup mini-session для расписаний Reminders |
+| `subagents.py` | Запуск named subagent под собственным `AgentRun` и wall-clock deadline |
+| `diary.py` | Diary subagent: читает день и возвращает draft под stamp |
 
 ### Пакет `telegram`
 

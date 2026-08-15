@@ -239,12 +239,17 @@ class TelegramHistorySource:
         token_budget: int = HISTORY_MESSAGE_TOKEN_BUDGET,
         since: datetime | None = None,
         source_message: HistoryEntry | None = None,
+        stop_at_summary: bool = True,
     ) -> list[HistoryEntry]:
         """The dialogue window: the newest Summary plus as many messages as fit.
 
         The scan walks backwards and stops at the first of three edges — ``since``, the
         newest Summary, or ``token_budget`` spent.  The budget is checked before an entry
         is taken, so the cut always lands between messages.
+
+        ``stop_at_summary=False`` skips Summaries instead of treating one as an edge, for
+        a caller that asked for a period rather than for a window: a Summary written at
+        noon must not cut that day in half.
         """
         if self.client is None:
             return [source_message] if source_message else []
@@ -316,6 +321,8 @@ class TelegramHistorySource:
             if sender_id == self.bot_user_id:
                 summary = self._summary_body(raw_text)
                 if summary is not None:
+                    if not stop_at_summary:
+                        continue
                     if boundary is None:
                         boundary = HistoryEntry(
                             message_id=message.id,
@@ -440,6 +447,23 @@ class TelegramHistorySource:
         if entry.summary_context or entry.role == "user":
             return f"{head}[{entry.role.title()}]: {entry.text}"
         return f"{head}{entry.text}"
+
+    async def day_transcript(
+        self, chat_id: int, *, start: datetime, token_budget: int
+    ) -> str:
+        """One period of dialogue as plain text, oldest first, stamped to the minute.
+
+        A window is packed for a model that already has the conversation in its context;
+        this is read by one that has none, so every line says who spoke and when.
+        """
+        entries = await self.recent(
+            chat_id, token_budget=token_budget, since=start, stop_at_summary=False
+        )
+        return "\n".join(
+            f"[{entry.created_at.astimezone(self.tz):%H:%M}] "
+            f"[{entry.role.title()}]: {entry.text}"
+            for entry in entries
+        )
 
     async def dialogue(
         self, chat_id: int, *, source_message: HistoryEntry | None = None

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import create_engine, inspect, select
 
 from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from safwa.db import upgrade_database
-from safwa.models import AgentRun, AgentStep, Base, Card, CardTag, Tag
+from safwa.models import AgentRun, AgentStep, Base, Card, CardTag, DiaryStamp, Tag
 from safwa.recovery import recover_startup
 
 
@@ -55,6 +56,34 @@ async def test_startup_releases_an_interrupted_agent_continuation(sessions):
     assert steps[0].metadata_json["status"] == "completed"
     assert steps[0].metadata_json["continuation_error"] == "InterruptedAtStartup"
     assert steps[1].metadata_json["status"] == "pending"
+
+
+async def test_startup_sweeps_diary_stamps_whose_day_is_over(sessions):
+    today = date(2026, 8, 15)
+    async with sessions() as session:
+        session.add_all(
+            [
+                DiaryStamp(
+                    stamp="yesterday",
+                    entry_date=today - timedelta(days=1),
+                    body="Old.",
+                    expires_at=datetime.now(UTC) - timedelta(hours=1),
+                ),
+                DiaryStamp(
+                    stamp="today",
+                    entry_date=today,
+                    body="Current.",
+                    expires_at=datetime.now(UTC) + timedelta(hours=1),
+                ),
+            ]
+        )
+        await session.commit()
+
+        await recover_startup(session)
+        await session.commit()
+
+        remaining = list(await session.scalars(select(DiaryStamp.stamp)))
+    assert remaining == ["today"]
 
 
 async def test_read_only_query_runner_reads_only_ai_views(tmp_path):

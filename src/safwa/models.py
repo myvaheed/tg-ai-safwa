@@ -444,3 +444,20 @@ class CallbackToken(Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DiaryStamp(Base):
+    """Proof that the Diary subagent read the day, and where its draft waits.
+
+    The body never travels through the advisor, so the stamp is what the advisor holds
+    instead of the text.  It is reusable until it expires at the end of its own local
+    day: a discarded proposal is re-offered from the same stamp, without a second run.
+    """
+
+    __tablename__ = "diary_stamps"
+    stamp: Mapped[str] = mapped_column(String(24), primary_key=True)
+    entry_date: Mapped[date] = mapped_column(Date, index=True)
+    body: Mapped[str] = mapped_column(Text)
+    remark: Mapped[str] = mapped_column(Text, default="")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
