@@ -137,7 +137,7 @@ flowchart LR
 | [`continuity.py`](../src/safwa/continuity.py) | Summary и синхронизация Telegram dialogue → memory | `PersonaContinuity`, `run_memory_maintenance`, `run_due_memory_maintenance` |
 | [`history.py`](../src/safwa/history.py) | Каноническая история из Telegram и event marker codec | `TelegramHistorySource`, `HistoryEntry`, `mark_message`, `read_message_mark`, citations |
 | [`memory.py`](../src/safwa/memory.py) | Валидация, atomic replace и watcher для `memory.md` | `MemoryFileStore`, `MemorySnapshot`, `parse_memory`, `memory_hash` |
-| [`asr.py`](../src/safwa/asr.py) | Транскрипция голосового сообщения через OpenAI-совместимый endpoint | `AudioClip`, `TranscriptionResult`, `Transcriber`, `OpenAITranscriber`, `build_transcriber` |
+| [`asr.py`](../src/safwa/asr.py) | Транскрипция голосового сообщения: OpenAI-совместимый endpoint или локальный CTranslate2 | `AudioClip`, `TranscriptionResult`, `Transcriber`, `ProgressCallback`, `OpenAITranscriber`, `FasterWhisperTranscriber`, `build_transcriber` |
 | [`recovery.py`](../src/safwa/recovery.py) | Startup reconciliation interrupted operational state | `recover_startup`, `reconcile_reminders` |
 | [`analytics.py`](../src/safwa/analytics.py) | Retrospective data, recommendations и PNG | `retrospective_data`, `retrospective_recommendations`, `render_retrospective_png` |
 | [`backup.py`](../src/safwa/backup.py) | Portable backup/restore SQLite + `memory.md` | `create_backup`, `restore_backup` и CLI entry points |
@@ -285,7 +285,8 @@ flowchart LR
     V["voice / audio / video_note"] --> G["duration и size guards"]
     G --> D["bot.download"]
     D --> TR["Transcriber.transcribe"]
-    TR --> S["send_transcript: split_telegram_text + DIALOGUE_USER"]
+    TR -.->|"faster_whisper: сегменты"| P["STATUS-сообщение с процентами, затем удаляется"]
+    TR --> S["send_owner_turn: split_telegram_text + DIALOGUE_USER"]
     S --> RT["run_dialogue_turn"]
     TR -.->|guard занят| Q["queue_owner_text"]
 ```

@@ -9,12 +9,17 @@ class AIProvider(StrEnum):
 
 
 class ASRProvider(StrEnum):
-    """Where a voice message is transcribed. Each speaks the same OpenAI-compatible API."""
+    """Where a voice message is transcribed.
+
+    The first three speak the same OpenAI-compatible API; `faster_whisper` decodes in
+    this process instead of calling one.
+    """
 
     OFF = "off"
     OPENAI = "openai"
     GROQ = "groq"
     LOCAL = "local"
+    FASTER_WHISPER = "faster_whisper"
 
 
 class WorkspaceMode(StrEnum):
@@ -97,6 +102,8 @@ class MessageKind(StrEnum):
     CARD_EDITOR = "card_editor"
     APPROVAL = "approval"
     RECEIPT = "receipt"
+    # Transient progress the sender deletes again, never part of the conversation.
+    STATUS = "status"
     RETROSPECTIVE_PNG = "retrospective_png"
     ERROR = "error"
 

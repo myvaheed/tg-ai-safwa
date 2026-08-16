@@ -28,8 +28,10 @@ from ..history import HistoryEntry, register_message
 from ..models import UiSession, Workspace
 from ._core import BACKGROUND_SOURCE_ID, Services, audio_payload, queue_owner_text, router
 from ._messaging import (
+    delete_screen,
     delete_text_input,
     dismiss_prior_ui,
+    edit_registered_message,
     materialize_queued_dialogue,
     send_owner_turn,
     send_registered,
@@ -280,6 +282,7 @@ async def voice_message(message: Message, services: Services) -> None:
         return
 
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    progress = _TranscriptionProgress(message, services)
     try:
         buffer = await message.bot.download(audio.file_id, destination=BytesIO())
         result = await services.transcriber.transcribe(
@@ -288,7 +291,8 @@ async def voice_message(message: Message, services: Services) -> None:
                 filename=_audio_filename(message),
                 mime_type=getattr(audio, "mime_type", None) or "audio/ogg",
                 duration_seconds=float(duration),
-            )
+            ),
+            progress=progress.report,
         )
     except (TranscriptionError, TelegramAPIError) as error:
         await send_registered(
@@ -298,6 +302,8 @@ async def voice_message(message: Message, services: Services) -> None:
             kind=MessageKind.ERROR,
         )
         return
+    finally:
+        await progress.clear()
 
     if (
         services.guard.active
@@ -318,6 +324,38 @@ async def voice_message(message: Message, services: Services) -> None:
         kind=MessageKind.DIALOGUE_USER.value,
     )
     await run_dialogue_turn(message, services, result.text, source)
+
+
+class _TranscriptionProgress:
+    """A throwaway percentage while a local decode runs, deleted once it ends.
+
+    It is a `STATUS` message, so it never becomes dialogue, and it is created on the
+    first report rather than up front: a hosted endpoint reports nothing and a short
+    clip is done before the first edit would land.
+    """
+
+    def __init__(self, message: Message, services: Services) -> None:
+        self.message = message
+        self.services = services
+        self.message_id: int | None = None
+
+    async def report(self, done: float, total: float) -> None:
+        text = f"🎧 Transcribing… {int(done / total * 100) if total else 0}%"
+        if self.message_id is None:
+            sent = await send_registered(
+                self.message, self.services, text, kind=MessageKind.STATUS, replace=False
+            )
+            self.message_id = sent.message_id
+            return
+        await edit_registered_message(
+            self.message, self.services, self.message_id, text, kind=MessageKind.STATUS
+        )
+
+    async def clear(self) -> None:
+        if self.message_id is None:
+            return
+        await delete_screen(self.message, self.services, self.message_id)
+        self.message_id = None
 
 
 def _audio_filename(message: Message) -> str:

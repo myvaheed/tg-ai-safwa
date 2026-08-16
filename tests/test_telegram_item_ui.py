@@ -1860,13 +1860,19 @@ async def test_a_rejected_settings_value_reopens_its_own_prompt(sessions) -> Non
 class ScriptedTranscriber:
     """The ASR network boundary: one canned transcript, or one failure."""
 
-    def __init__(self, text: str = "", error: str = "") -> None:
+    def __init__(
+        self, text: str = "", error: str = "", progress_at: tuple[float, ...] = ()
+    ) -> None:
         self.text = text
         self.error = error
+        self.progress_at = progress_at
         self.clips: list[object] = []
 
-    async def transcribe(self, clip):
+    async def transcribe(self, clip, *, progress=None):
         self.clips.append(clip)
+        for done in self.progress_at:
+            if progress is not None:
+                await progress(done, clip.duration_seconds)
         if self.error:
             raise TranscriptionError(self.error)
         return TranscriptionResult(text=self.text, elapsed_seconds=0.1)
@@ -1944,6 +1950,26 @@ async def test_long_transcript_is_split_and_answered_once(sessions, monkeypatch)
     assert len(dialogue_rows) == len(message.sent_messages)
     assert len(turns) == 1
     assert turns[0][0] == transcript
+
+
+async def test_decode_progress_is_shown_then_removed(sessions, monkeypatch) -> None:
+    capture_dialogue_turns(monkeypatch)
+    transcriber = ScriptedTranscriber("Done at last.", progress_at=(30.0, 90.0))
+    services = services_for(sessions, transcriber=transcriber)
+    message = voice_message_for(946, duration=120)
+
+    await voice_message(message, services)
+
+    status = message.sent_messages[0]
+    assert "Transcribing" in status.text
+    assert "25%" in status.text
+    assert [text for _id, text, _markup in message.bot.edits if "75%" in text]
+    assert status.message_id in message.bot.deleted
+    assert "Done at last." in message.sent_messages[-1].text
+    async with sessions() as session:
+        rows = list(await session.scalars(select(TelegramMessage)))
+    # The percentage is transient: it leaves no row behind and never becomes dialogue.
+    assert all(row.kind != MessageKind.STATUS.value for row in rows)
 
 
 async def test_voice_message_without_a_transcriber_explains_itself(sessions) -> None:

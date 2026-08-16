@@ -14,6 +14,7 @@ from .constants import (
     AI_TIMEOUT_SECONDS,
     DEFAULT_CHAR_BUDGET,
     DEFAULT_ROW_LIMIT,
+    FASTER_WHISPER_MODEL,
     GROQ_ASR_BASE_URL,
     GROQ_ASR_MODEL,
     LMSTUDIO_BASE_URL,
@@ -70,6 +71,8 @@ ASR_DEFAULTS: dict[ASRProvider, ASRDefaults] = {
     ASRProvider.OPENAI: ASRDefaults(base_url=OPENAI_ASR_BASE_URL, model=OPENAI_ASR_MODEL),
     ASRProvider.GROQ: ASRDefaults(base_url=GROQ_ASR_BASE_URL, model=GROQ_ASR_MODEL),
     ASRProvider.LOCAL: ASRDefaults(base_url=LOCAL_ASR_BASE_URL, model=LOCAL_ASR_MODEL),
+    # In-process: there is no endpoint to reach, so no base URL either.
+    ASRProvider.FASTER_WHISPER: ASRDefaults(base_url="", model=FASTER_WHISPER_MODEL),
 }
 
 
@@ -114,6 +117,9 @@ class Settings(BaseSettings):
     asr_base_url: str = ""
     # An ISO code pins the language; empty leaves the engine to detect one per message.
     asr_language: str = ""
+    # faster_whisper only. On every HTTP path the device is the server's problem.
+    asr_device: str = Field(default="auto", pattern=r"^(auto|cpu|cuda)$")
+    asr_compute_type: str = ""
     asr_log_timing: bool = True
     timezone: str = "Europe/Istanbul"
     summary_trigger_tokens: int = SUMMARY_TRIGGER_TOKENS
@@ -130,10 +136,15 @@ class Settings(BaseSettings):
     def normalize_bot_username(cls, value: object) -> str:
         return str(value or "").strip().removeprefix("@")
 
-    @field_validator("asr_language", mode="before")
+    @field_validator("asr_language", "asr_compute_type", mode="before")
     @classmethod
-    def normalize_asr_language(cls, value: object) -> str:
+    def normalize_asr_text(cls, value: object) -> str:
         return str(value or "").strip().lower()
+
+    @field_validator("asr_device", mode="before")
+    @classmethod
+    def normalize_asr_device(cls, value: object) -> str:
+        return str(value or "auto").strip().lower()
 
     @field_validator("timezone")
     @classmethod

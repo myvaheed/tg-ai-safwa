@@ -158,13 +158,33 @@ no underscore (the whole package is private behind `__init__.__all__`).
 
 ### Voice input
 
+Why it is shaped this way, including the rejected alternatives: [ASR_PLAN.md](ASR_PLAN.md).
+
 `SAFWA_ASR_PROVIDER` is `off` by default and `Services.transcriber` is then `None`, which is what
 keeps the bot text-only. `openai`, `groq` and `local` all speak the same OpenAI-compatible
 `/audio/transcriptions` API, so one `OpenAITranscriber` ([asr.py](../src/safwa/asr.py)) covers a
 metered endpoint and a self-hosted whisper server alike — they differ by base URL.
 
+`faster_whisper` is the offline engine behind the `asr-local` extra: CTranslate2 in this process, no
+server and no API key. Its model is built once at startup and decoded in `asyncio.to_thread`, so
+polling is never blocked, and the decode carries no timeout — a local run cannot hang on a network,
+and abandoning the wait would leave the thread running anyway. A missing extra fails at startup with
+the install command.
+
+`SAFWA_ASR_DEVICE` resolves against what actually loads. CTranslate2 loads cuBLAS/cuDNN with its
+first kernel rather than when the model is built, so a missing DLL raises either at startup or a
+whole decode later; both fall back to `cpu`, log the reason once, and the mid-decode one rebuilds
+and retries that same recording, dropping a CUDA-only compute type on the way. The `asr-cuda` extra
+supplies those DLLs as wheels, which land in `site-packages/nvidia/*/bin` where nothing looks, so
+`_register_cuda_runtime` registers them before `faster_whisper` is imported — through
+`add_dll_directory` **and** `PATH`, since the lazy load goes through the ordinary search order.
+
+It is also the only engine that reports progress: it yields segments while decoding, so
+`transcribe(progress=…)` edits one `STATUS` message, throttled and only past
+`ASR_PROGRESS_MIN_AUDIO_SECONDS`, which `_TranscriptionProgress` deletes when the decode ends.
+
 `voice_message` ([telegram/dialogue.py](../src/safwa/telegram/dialogue.py)) guards duration and
-size, downloads the file, transcribes it, posts the transcript with `send_transcript`, then hands
+size, downloads the file, transcribes it, posts the transcript with `send_owner_turn`, then hands
 the same `run_dialogue_turn` the text path uses. A voice message arriving mid-generation cannot be
 queued by the middleware, which has no text to queue, so it reaches the handler and its transcript
 is queued instead (`queue_owner_text`). `SAFWA_ASR_LANGUAGE` pins the language; left empty the
@@ -339,7 +359,7 @@ kind, related_id, event_id)` — never persona text.
   Telegram text; `read_message_mark` recovers them. SQLite stores the same UUID, so outgoing history uses direct event lookup and visible-text edits preserve identity. A rebuilt database still recovers classification from Telegram. Every bot send site must mark its text. An unmarked bot message is excluded; v1 has no legacy fallback. Owner messages cannot be marked, so owner text that is still in the chat is treated as dialogue.
 - Item citations ride in the text the same way. Telethon returns plain text, so `restore_citations`rewrites each `?start=<type>-<id>` link entity back into the `[Milk](check:14)` the model wrote; otherwise the model rereads its own citations as bare words and unlearns the format. Entity offsets are UTF-16 units, so the slicing happens in surrogate space.
 - Only `DIALOGUE_USER`, `DIALOGUE_ASSISTANT`, `REMINDER`, and `SUMMARY` become dialogue. Everything
-  else (`COMMAND`, `UI_INPUT`, `DASHBOARD`, `CARD_EDITOR`, `APPROVAL`, `RECEIPT`,
+  else (`COMMAND`, `UI_INPUT`, `DASHBOARD`, `CARD_EDITOR`, `APPROVAL`, `RECEIPT`, `STATUS`,
   `RETROSPECTIVE_PNG`, `ERROR`) is excluded.
 - **Bounded by tokens**: `recent` walks backwards and stops at the first of
   `SUMMARY_TRIGGER_TOKENS = 8 000` spent, the newest `📜 Summary`, or the oldest row in
@@ -354,7 +374,7 @@ kind, related_id, event_id)` — never persona text.
 - The middleware deletes every slash command, which is what makes surviving owner text dialogue.
 - A voice message carries no text, so Telethon reads nothing back for it and it is skipped. Its
   transcript is the only trace of what was said and reaches the chat as a `DIALOGUE_USER` bot
-  message (`send_transcript`), the way queued owner text does. A monologue past
+  message (`send_owner_turn`), the way queued owner text does. A monologue past
   `TELEGRAM_TEXT_LIMIT` becomes several such messages and is answered once, after the last.
 - Bot API and Telethon use different message-ID spaces in a private chat. Outgoing messages correlate
   by event UUID. Only owner source-message de-duplication retains the narrow ID/time heuristic because
@@ -460,6 +480,8 @@ arithmetic. It emits identical DDL, so it is not a schema change.
 
 ```powershell
 uv sync --extra dev
+uv sync --extra asr-local    # offline voice input (faster-whisper), optional
+uv sync --extra asr-cuda     # the same plus the CUDA runtime wheels (~1.3 GB)
 uv run safwa                 # run the bot (long polling)
 uv run safwa-auth            # one-time Telethon user-session login
 uv run safwa-qa-auth         # separate QA Telethon session

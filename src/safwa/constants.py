@@ -157,3 +157,17 @@ LOCAL_ASR_BASE_URL = "http://127.0.0.1:8000/v1"
 OPENAI_ASR_MODEL = "gpt-4o-mini-transcribe"
 GROQ_ASR_MODEL = "whisper-large-v3-turbo"
 LOCAL_ASR_MODEL = "Systran/faster-whisper-small"
+# The in-process engine. `small` fits ~1 GB; `large-v3-turbo` is the upgrade.
+FASTER_WHISPER_MODEL = "small"
+# CTranslate2 has no float16 kernel on the CPU, so each device carries its own default.
+FASTER_WHISPER_CPU_COMPUTE_TYPE = "int8"
+FASTER_WHISPER_CUDA_COMPUTE_TYPE = "float16"
+# A CPU fallback drops these rather than let CTranslate2 silently widen them to float32.
+FASTER_WHISPER_CUDA_ONLY_COMPUTE_TYPES = frozenset({"float16", "int8_float16"})
+# The `nvidia-*-cu12` wheels of the asr-cuda extra, whose DLLs CTranslate2 loads by name.
+CUDA_RUNTIME_PACKAGES = ("cublas", "cudnn", "cuda_nvrtc")
+FASTER_WHISPER_BEAM_SIZE = 5
+# A local decode is silent for minutes, so it reports a percentage. Shorter audio
+# finishes before the first edit would land, and Telegram rate-limits edits.
+ASR_PROGRESS_MIN_AUDIO_SECONDS = 60.0
+ASR_PROGRESS_MIN_INTERVAL_SECONDS = 5.0

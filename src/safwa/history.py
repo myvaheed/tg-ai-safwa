@@ -55,6 +55,7 @@ _KIND_MARK_CODES: dict[str, int] = {
     MessageKind.RECEIPT.value: 12,
     MessageKind.RETROSPECTIVE_PNG.value: 13,
     MessageKind.ERROR.value: 14,
+    MessageKind.STATUS.value: 15,
 }
 _KIND_MARK_BY_CODE = {code: value for value, code in _KIND_MARK_CODES.items()}
 _KIND_MARK_RE = re.compile(

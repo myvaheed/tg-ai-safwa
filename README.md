@@ -51,6 +51,28 @@ SAFWA_ASR_API_KEY=gsk_...
 SAFWA_ASR_LANGUAGE=ru
 ```
 
+`faster_whisper` transcribes offline instead, in Safwa's own process — no server, no API key, no
+network. It needs one extra, either the engine alone or the engine plus the CUDA runtime as wheels
+(~1.3 GB), which Safwa registers itself:
+
+```powershell
+uv sync --extra asr-local
+uv sync --extra asr-cuda
+```
+
+```dotenv
+SAFWA_ASR_PROVIDER=faster_whisper
+SAFWA_ASR_MODEL=large-v3-turbo
+SAFWA_ASR_DEVICE=auto
+SAFWA_ASR_LANGUAGE=ru
+```
+
+The model is fetched from Hugging Face on first start and cached — `small` is ~500 MB,
+`large-v3-turbo` ~1.6 GB. `auto` uses the GPU when the CUDA runtime loads and otherwise transcribes
+on the CPU, logging the reason once; `cpu` skips the attempt. `SAFWA_ASR_COMPUTE_TYPE` is `int8` on
+the CPU and `float16` on CUDA unless you set it. A long recording shows a percentage while it
+decodes.
+
 Pin `SAFWA_ASR_LANGUAGE` to the language you speak. Left empty the engine detects one per message
 from its first seconds, which misfires on short notes and then transcribes into the wrong language.
 
