@@ -465,6 +465,40 @@ def test_event_marker_survives_message_edits() -> None:
     )
 
 
+async def test_a_receipt_reads_back_as_a_tool_result_rather_than_as_safwa_words(
+    sessions,
+) -> None:
+    """The interface's receipt is the owner's channel; only Safwa's prose stays assistant."""
+    source = TelegramHistorySource(None, sessions, bot_user_id=99, owner_id=42)
+    at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
+    entries = [
+        HistoryEntry(1, 42, "user", "Создай действие убраться в комнате", at, "dialogue_user"),
+        HistoryEntry(
+            2,
+            99,
+            "assistant",
+            "✅ Saved — New Action “Убраться в комнате” (Backlog · 2 EP)\n\nГотово!",
+            at,
+            "dialogue_assistant",
+        ),
+    ]
+
+    async def recent(*_args, **_kwargs):
+        return entries
+
+    source.recent = recent  # type: ignore[method-assign]
+    dialogue = await source.dialogue(100)
+
+    assert [(item.role, item.content) for item in dialogue] == [
+        (
+            "user",
+            "[2026-08-08 12:00] [User]: Создай действие убраться в комнате\n"
+            "[Tool result]: New Action “Убраться в комнате” (Backlog · 2 EP) — applied",
+        ),
+        ("assistant", "Готово!"),
+    ]
+
+
 async def test_unmarked_bot_prose_is_excluded(sessions) -> None:
     """First-version history accepts bot dialogue only when Safwa marked it."""
     chat_id, owner_id, bot_id = 100, 42, 99

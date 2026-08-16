@@ -91,6 +91,14 @@ SUMMARY_CONTEXT_MESSAGE_LIMIT = 20
 HISTORY_SCAN_LIMIT = 2_000
 # Bot API and Telethon disagree on message IDs; correlate by timestamp within this window.
 MESSAGE_CORRELATION_SECONDS = 15
+# The interface owns the Saved/Discarded/Failed line.  History replays it as a tool result
+# instead of as words Safwa said, so each prefix says what it meant.
+RECEIPT_MEANINGS = {
+    "✅ Saved": "applied",
+    "⚡ Auto-saved": "applied",
+    "🗑 Discarded": "not applied, the user rejected it",
+    "⚠️ Failed": "not applied, it failed",
+}
 
 # --- Summaries and memory -------------------------------------------------
 MEMORY_TOKEN_BUDGET = 4_000

@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..constants import (
     MAX_REPAIR_ROUNDS,
     MAX_TOOL_CALLS,
+    RECEIPT_MEANINGS,
     SUSPENDED_BATCH_LOOKUP_LIMIT,
 )
 from ..domain import (
@@ -686,9 +687,10 @@ def _compose_display_outcome(message: str, summaries: list[str]) -> str:
     """Attach each application-owned result receipt exactly once.
 
     The interface, rather than the model, owns Saved/Discarded/Failed receipts.  Approval
-    batches can accumulate overlapping summary blocks, and a provider may still echo the
-    canonical line despite its prompt.  Normalize those exact receipt lines here so every
-    outcome path observes the same ownership and idempotence rule.
+    batches can accumulate overlapping summary blocks, and a provider may still echo a
+    receipt in wording of its own.  Anything that opens with a receipt prefix is therefore
+    dropped from the body, not only a line that matches one of ours character for
+    character.
     """
     receipt_lines: list[str] = []
     for summary in summaries:
@@ -700,8 +702,9 @@ def _compose_display_outcome(message: str, summaries: list[str]) -> str:
     body = message.strip()
     if not receipt_lines:
         return body
-    receipt_set = set(receipt_lines)
-    body_lines = [line for line in body.splitlines() if line.strip() not in receipt_set]
+    body_lines = [
+        line for line in body.splitlines() if not line.strip().startswith(tuple(RECEIPT_MEANINGS))
+    ]
     body = "\n".join(body_lines).strip()
     receipt = "\n".join(receipt_lines)
     return f"{receipt}\n\n{body}" if body else receipt
@@ -741,19 +744,16 @@ def _assistant_content_with_request_progress(
 
 _DECISION_NEXT_STEPS = {
     "approved": (
-        "This change is saved. The interface reports that receipt, so do not repeat or paraphrase "
-        "it. Do not propose it again. Continue with the parts of the user's request that "
-        "are still unfinished, then answer."
+        "This change is saved. Do not propose it again. Continue with the parts of the "
+        "user's request that are still unfinished, then answer."
     ),
     "discarded": (
-        "The user rejected this change, so it does not exist. The interface reports that receipt, "
-        "so do not repeat or paraphrase it. Do not retry it unless the user asks again. Continue "
-        "with the rest of the request, then answer."
+        "The user rejected this change, so it does not exist. Do not retry it unless the "
+        "user asks again. Continue with the rest of the request, then answer."
     ),
     "failed": (
-        "Applying this change failed, so nothing was written for it. The interface reports that "
-        "receipt, so do not repeat it. Read `error`, fix only this call, and retry it once; every "
-        "other resolved call in this request stands."
+        "Applying this change failed, so nothing was written for it. Read `error`, fix only "
+        "this call, and retry it once; every other resolved call in this request stands."
     ),
 }
 

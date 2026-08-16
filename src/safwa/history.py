@@ -22,6 +22,7 @@ from .config import Settings
 from .constants import (
     HISTORY_SCAN_LIMIT,
     MESSAGE_CORRELATION_SECONDS,
+    RECEIPT_MEANINGS,
     SUMMARY_CONTEXT_MESSAGE_LIMIT,
     SUMMARY_TRIGGER_TOKENS,
 )
@@ -170,6 +171,25 @@ def _citation_from_url(url: str | None) -> str | None:
 def _aware(moment: datetime) -> datetime:
     """SQLite hands back naive datetimes; every comparison here is in UTC."""
     return (moment if moment.tzinfo else moment.replace(tzinfo=UTC)).astimezone(UTC)
+
+
+# A receipt is the interface speaking, not Safwa.  Left inside an assistant message it is
+# the only example of a mutation the model ever sees, because Telegram keeps no tool call —
+# so it reads as "answering a request means printing Saved" and the model stops calling the
+# tool.  Replaying it in the owner's channel keeps the fact and drops the example.
+def split_receipts(text: str) -> tuple[list[str], str]:
+    """Split a bot message into tool-result lines and the words Safwa actually said."""
+    notes: list[str] = []
+    spoken: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        prefix = next((item for item in RECEIPT_MEANINGS if stripped.startswith(item)), None)
+        if prefix is None:
+            spoken.append(line)
+        else:
+            change = stripped[len(prefix) :].removeprefix(" — ").strip()
+            notes.append(f"[Tool result]: {change} — {RECEIPT_MEANINGS[prefix]}")
+    return notes, "\n".join(spoken).strip()
 
 
 @dataclass(frozen=True)
@@ -499,7 +519,17 @@ class TelegramHistorySource:
             hour = (local.year, local.month, local.day, local.hour)
             stamp = local.strftime("%Y-%m-%d %H:%M") if hour != stamped_hour else None
             stamped_hour = hour
-            content = self._dialogue_content(entry, stamp)
+            notes, spoken = (
+                split_receipts(entry.text) if entry.role == "assistant" else ([], entry.text)
+            )
+            # A tool result belongs to this turn but not to Safwa's voice, so it leads the
+            # owner block that the answer replies to.
+            for note in notes:
+                pending_user.append(f"[{stamp}] {note}" if stamp else note)
+                stamp = None
+            if not spoken:
+                continue
+            content = self._dialogue_content(replace(entry, text=spoken), stamp)
             if entry.role == "assistant" and not entry.summary_context:
                 flush_user()
                 if dialogue and dialogue[-1].role == "assistant":
