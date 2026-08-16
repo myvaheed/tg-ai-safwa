@@ -116,6 +116,9 @@ SELECTOR_PAGE_SIZE = 10
 REQUEST_RESULT_LIMIT = 25
 CHECK_LIST_LIMIT = 25
 TELEGRAM_TEXT_LIMIT = 3_900
+# A queue notice is transient and deleted on drain, so it previews the turn rather than
+# repeating it — a transcribed monologue would not fit in one message anyway.
+QUEUE_PREVIEW_CHARS = 300
 CALLBACK_TOKEN_TTL_HOURS = 24
 # A resolved proposal stays in the dialogue for good, so its receipt is capped rather than
 # carrying every field of a wide edit.
@@ -136,3 +139,21 @@ AI_MAX_RETRIES_REMOTE = 3
 # Sent to OpenRouter as HTTP-Referer/X-Title for request attribution.
 AI_APP_URL = "https://github.com/myvaheed/tg-ai-safwa"
 AI_APP_TITLE = "Safwa"
+
+# --- Speech recognition ---------------------------------------------------
+# One call covers the upload and the whole file's decode, so the budget follows the audio.
+ASR_TIMEOUT_BASE_SECONDS = 60.0
+ASR_TIMEOUT_PER_AUDIO_SECOND = 1.0
+# Longer audio is refused with a plain message rather than left to time out.
+ASR_MAX_DURATION_SECONDS = 1_800
+# The Bot API refuses to serve a file larger than this, whatever the provider accepts.
+ASR_MAX_FILE_BYTES = 20 * 1024 * 1024
+# An upload is expensive to repeat, so a failure is retried less eagerly than a chat call.
+ASR_MAX_RETRIES = 2
+OPENAI_ASR_BASE_URL = "https://api.openai.com/v1"
+GROQ_ASR_BASE_URL = "https://api.groq.com/openai/v1"
+# The default for a whisper server the owner runs themselves.
+LOCAL_ASR_BASE_URL = "http://127.0.0.1:8000/v1"
+OPENAI_ASR_MODEL = "gpt-4o-mini-transcribe"
+GROQ_ASR_MODEL = "whisper-large-v3-turbo"
+LOCAL_ASR_MODEL = "Systran/faster-whisper-small"

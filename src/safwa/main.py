@@ -16,6 +16,7 @@ from .ai.provider import OpenAICompatibleProvider, ProviderConfig
 from .ai.service import AIAdvisor, query_read_tool
 from .ai.sql import ReadOnlyQueryRunner, create_ai_views
 from .ai.subagents import SubagentRunner
+from .asr import build_transcriber
 from .config import Settings
 from .constants import AI_APP_TITLE, AI_APP_URL
 from .continuity import PersonaContinuity, run_memory_maintenance
@@ -153,6 +154,14 @@ async def run(settings: Settings) -> None:
         chars_per_token=settings.token_chars_estimate,
     )
     guard = GenerationGuard()
+    transcriber = build_transcriber(settings)
+    if transcriber is not None:
+        logger.info(
+            "Voice input enabled: %s %s (language=%s)",
+            settings.asr_provider.value,
+            settings.resolved_asr_model,
+            settings.asr_language or "auto",
+        )
     services = Services(
         sessions=database.sessions,
         advisor=advisor,
@@ -163,6 +172,7 @@ async def run(settings: Settings) -> None:
         guard=guard,
         owner_name=settings.telegram_owner_name,
         bot_username=settings.telegram_bot_username,
+        transcriber=transcriber,
     )
     dispatcher = Dispatcher()
     router.message.outer_middleware.register(OwnerAndWritingMiddleware())
@@ -255,6 +265,8 @@ async def run(settings: Settings) -> None:
             with suppress(asyncio.CancelledError):
                 await task
         await history.close()
+        if transcriber is not None:
+            await transcriber.close()
         await provider.close()
         await bot.session.close()
         await database.dispose()

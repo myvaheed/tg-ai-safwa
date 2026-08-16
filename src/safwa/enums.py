@@ -8,6 +8,15 @@ class AIProvider(StrEnum):
     OPENROUTER = "openrouter"
 
 
+class ASRProvider(StrEnum):
+    """Where a voice message is transcribed. Each speaks the same OpenAI-compatible API."""
+
+    OFF = "off"
+    OPENAI = "openai"
+    GROQ = "groq"
+    LOCAL = "local"
+
+
 class WorkspaceMode(StrEnum):
     PLANNING = "planning"
     SPRINT = "sprint"

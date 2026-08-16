@@ -16,7 +16,8 @@ import safwa.telegram as telegram_source
 from safwa.ai.context import DialogueMessage
 from safwa.ai.service import AIOutcome, ProposalDescription, ProposalService
 from safwa.ai.sql import create_ai_views
-from safwa.constants import DIARY_TIME_DEFAULT
+from safwa.asr import TranscriptionError, TranscriptionResult
+from safwa.constants import ASR_MAX_DURATION_SECONDS, DIARY_TIME_DEFAULT, TELEGRAM_TEXT_LIMIT
 from safwa.domain import (
     DIARY_REMINDER_INSTRUCTION,
     DomainError,
@@ -75,6 +76,7 @@ from safwa.telegram import (
     render_proposal,
     render_sprint,
     render_today,
+    voice_message,
 )
 from safwa.telegram._messaging import materialize_queued_dialogue
 from safwa.telegram._presentation import start_payload
@@ -163,6 +165,9 @@ def test_every_card_relationship_is_wired_to_both_selector_surfaces() -> None:
 
 class FakeBot:
     def __init__(self) -> None:
+        self.id = 999
+        self.downloads: list[str] = []
+        self.audio_bytes = b"OggS-fake-audio"
         self.edits: list[tuple[int, str, object | None]] = []
         self.deleted: list[int] = []
         self.deleted_batches: list[list[int]] = []
@@ -198,6 +203,11 @@ class FakeBot:
     async def send_chat_action(self, chat_id: int, action) -> None:
         del chat_id, action
 
+    async def download(self, file_id: str, destination):
+        self.downloads.append(file_id)
+        destination.write(self.audio_bytes)
+        return destination
+
     async def set_my_commands(self, commands) -> None:
         self.published_commands.append([command.command for command in commands])
 
@@ -212,9 +222,13 @@ class FakeMessage:
         bot: FakeBot | None = None,
         chat_id: int = 700,
         answer_as_new: bool = False,
+        voice: SimpleNamespace | None = None,
     ) -> None:
         self.message_id = message_id
         self.text = text
+        self.voice = voice
+        self.audio = None
+        self.video_note = None
         self.bot = bot or FakeBot()
         self.chat = SimpleNamespace(id=chat_id, type="private")
         self.from_user = SimpleNamespace(id=42, is_bot=bot_message)
@@ -236,8 +250,10 @@ class FakeMessage:
         self.answers.append(text)
         self.answer_markups.append(reply_markup)
         if self.answer_as_new:
+            # Telegram hands out a fresh id per message; a repeated one would collapse
+            # several registrations into one row.
             sent = FakeMessage(
-                self.message_id + 1_000,
+                self.message_id + 1_000 + len(self.sent_messages),
                 text=text,
                 bot_message=True,
                 bot=self.bot,
@@ -271,7 +287,7 @@ class StubAdvisor:
         return None
 
 
-def services_for(sessions, *, advisor=None):
+def services_for(sessions, *, advisor=None, transcriber=None):
     return SimpleNamespace(
         sessions=sessions,
         owner_id=42,
@@ -279,6 +295,7 @@ def services_for(sessions, *, advisor=None):
         guard=GenerationGuard(),
         bot_username="safwa_ai_bot",
         advisor=advisor,
+        transcriber=transcriber,
     )
 
 
@@ -1838,3 +1855,171 @@ async def test_a_rejected_settings_value_reopens_its_own_prompt(sessions) -> Non
             DIARY_TIME_DEFAULT
         )
         assert (await session.scalar(select(UiSession))).kind == "text_input"
+
+
+class ScriptedTranscriber:
+    """The ASR network boundary: one canned transcript, or one failure."""
+
+    def __init__(self, text: str = "", error: str = "") -> None:
+        self.text = text
+        self.error = error
+        self.clips: list[object] = []
+
+    async def transcribe(self, clip):
+        self.clips.append(clip)
+        if self.error:
+            raise TranscriptionError(self.error)
+        return TranscriptionResult(text=self.text, elapsed_seconds=0.1)
+
+    async def close(self) -> None:
+        return None
+
+
+def voice_message_for(
+    message_id: int, *, duration: int = 12, file_size: int = 4_096
+) -> FakeMessage:
+    return FakeMessage(
+        message_id,
+        bot_message=False,
+        answer_as_new=True,
+        voice=SimpleNamespace(
+            file_id=f"voice-{message_id}",
+            duration=duration,
+            file_size=file_size,
+            mime_type="audio/ogg",
+        ),
+    )
+
+
+def capture_dialogue_turns(monkeypatch) -> list[tuple[str, object]]:
+    """Stop at the handler's edge: the advisor loop itself is the text path's test."""
+    import safwa.telegram.dialogue as dialogue_module
+
+    turns: list[tuple[str, object]] = []
+
+    async def fake_turn(_message, _services, request, source):
+        turns.append((request, source))
+
+    monkeypatch.setattr(dialogue_module, "run_dialogue_turn", fake_turn)
+    return turns
+
+
+async def test_voice_message_becomes_one_owner_dialogue_turn(sessions, monkeypatch) -> None:
+    turns = capture_dialogue_turns(monkeypatch)
+    transcriber = ScriptedTranscriber("Renew the passport this week.")
+    services = services_for(sessions, transcriber=transcriber)
+    message = voice_message_for(940)
+
+    await voice_message(message, services)
+
+    assert message.bot.downloads == ["voice-940"]
+    assert transcriber.clips[0].filename == "voice.ogg"
+    assert transcriber.clips[0].duration_seconds == 12.0
+    posted = message.sent_messages
+    assert len(posted) == 1
+    assert "Renew the passport this week." in posted[0].text
+    async with sessions() as session:
+        rows = list(await session.scalars(select(TelegramMessage)))
+    dialogue_rows = [row for row in rows if row.kind == MessageKind.DIALOGUE_USER.value]
+    assert [row.direction for row in dialogue_rows] == ["out"]
+    assert turns == [("Renew the passport this week.", turns[0][1])]
+    assert turns[0][1].role == "user"
+    assert turns[0][1].message_id == posted[0].message_id
+
+
+async def test_long_transcript_is_split_and_answered_once(sessions, monkeypatch) -> None:
+    turns = capture_dialogue_turns(monkeypatch)
+    transcript = " ".join(f"word{index}" for index in range(1_200))
+    services = services_for(sessions, transcriber=ScriptedTranscriber(transcript))
+    message = voice_message_for(941, duration=600)
+
+    await voice_message(message, services)
+
+    assert len(message.sent_messages) > 1
+    assert "Name Surname:" in message.sent_messages[0].text
+    assert all("Name Surname:" not in item.text for item in message.sent_messages[1:])
+    async with sessions() as session:
+        rows = list(await session.scalars(select(TelegramMessage)))
+    dialogue_rows = [row for row in rows if row.kind == MessageKind.DIALOGUE_USER.value]
+    assert len(dialogue_rows) == len(message.sent_messages)
+    assert len(turns) == 1
+    assert turns[0][0] == transcript
+
+
+async def test_voice_message_without_a_transcriber_explains_itself(sessions) -> None:
+    services = services_for(sessions, transcriber=None)
+    message = voice_message_for(942)
+
+    await voice_message(message, services)
+
+    assert "SAFWA_ASR_PROVIDER" in message.answers[-1]
+    assert message.bot.downloads == []
+
+
+async def test_failed_transcription_reports_and_changes_nothing(sessions, monkeypatch) -> None:
+    turns = capture_dialogue_turns(monkeypatch)
+    services = services_for(
+        sessions, transcriber=ScriptedTranscriber(error="upstream refused the file")
+    )
+    message = voice_message_for(943)
+
+    await voice_message(message, services)
+
+    assert "could not transcribe" in message.answers[-1]
+    assert "upstream refused the file" in message.answers[-1]
+    assert turns == []
+    async with sessions() as session:
+        rows = list(await session.scalars(select(TelegramMessage)))
+    assert all(row.kind != MessageKind.DIALOGUE_USER.value for row in rows)
+
+
+async def test_overlong_recording_is_refused_before_download(sessions, monkeypatch) -> None:
+    turns = capture_dialogue_turns(monkeypatch)
+    transcriber = ScriptedTranscriber("never reached")
+    services = services_for(sessions, transcriber=transcriber)
+    message = voice_message_for(944, duration=ASR_MAX_DURATION_SECONDS + 1)
+
+    await voice_message(message, services)
+
+    assert message.bot.downloads == []
+    assert transcriber.clips == []
+    assert turns == []
+    assert "transcribes up to" in message.answers[-1]
+
+
+async def test_voice_arriving_during_generation_is_queued(sessions, monkeypatch) -> None:
+    turns = capture_dialogue_turns(monkeypatch)
+    services = services_for(sessions, transcriber=ScriptedTranscriber("And one more thing."))
+    await services.guard.acquire(900, queue_messages=True)
+    message = voice_message_for(945)
+
+    await voice_message(message, services)
+
+    assert turns == []
+    assert message.was_deleted is False
+    assert "Queued: And one more thing." in message.answers[-1]
+    assert [item.text for item in await services.guard.drain_queue()] == ["And one more thing."]
+
+
+async def test_a_queued_transcript_is_previewed_and_split_on_drain(sessions) -> None:
+    transcript = " ".join(f"word{index}" for index in range(1_200))
+    services = services_for(sessions, transcriber=ScriptedTranscriber(transcript))
+    await services.guard.acquire(950, queue_messages=True)
+    message = voice_message_for(951)
+
+    await voice_message(message, services)
+
+    placeholder = message.answers[-1]
+    assert len(placeholder) < TELEGRAM_TEXT_LIMIT
+    assert "…" in placeholder
+    assert "word1199" not in placeholder
+
+    drain_target = FakeMessage(952, bot_message=False, answer_as_new=True, bot=message.bot)
+    sent, dialogue_text = await materialize_queued_dialogue(drain_target, services)
+
+    assert len(drain_target.sent_messages) > 1
+    # TELEGRAM_TEXT_LIMIT budgets the body; the name prefix and the invisible kind mark
+    # ride on top of it and still have to fit Telegram's own 4096.
+    assert all(len(item.text) <= 4_096 for item in drain_target.sent_messages)
+    assert sent is drain_target.sent_messages[-1]
+    assert transcript in dialogue_text

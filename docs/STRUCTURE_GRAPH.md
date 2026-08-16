@@ -137,6 +137,7 @@ flowchart LR
 | [`continuity.py`](../src/safwa/continuity.py) | Summary и синхронизация Telegram dialogue → memory | `PersonaContinuity`, `run_memory_maintenance`, `run_due_memory_maintenance` |
 | [`history.py`](../src/safwa/history.py) | Каноническая история из Telegram и event marker codec | `TelegramHistorySource`, `HistoryEntry`, `mark_message`, `read_message_mark`, citations |
 | [`memory.py`](../src/safwa/memory.py) | Валидация, atomic replace и watcher для `memory.md` | `MemoryFileStore`, `MemorySnapshot`, `parse_memory`, `memory_hash` |
+| [`asr.py`](../src/safwa/asr.py) | Транскрипция голосового сообщения через OpenAI-совместимый endpoint | `AudioClip`, `TranscriptionResult`, `Transcriber`, `OpenAITranscriber`, `build_transcriber` |
 | [`recovery.py`](../src/safwa/recovery.py) | Startup reconciliation interrupted operational state | `recover_startup`, `reconcile_reminders` |
 | [`analytics.py`](../src/safwa/analytics.py) | Retrospective data, recommendations и PNG | `retrospective_data`, `retrospective_recommendations`, `render_retrospective_png` |
 | [`backup.py`](../src/safwa/backup.py) | Portable backup/restore SQLite + `memory.md` | `create_backup`, `restore_backup` и CLI entry points |
@@ -274,6 +275,21 @@ sequenceDiagram
     T->>C: maybe_summarize под background guard
 ```
 
+### Голосовое сообщение
+
+Голосовое не несёт текста, поэтому Telethon его не видит: транскрипт — единственный след сказанного,
+и он попадает в чат как bot message с меткой `DIALOGUE_USER`, ровно как отложенный текст владельца.
+
+```mermaid
+flowchart LR
+    V["voice / audio / video_note"] --> G["duration и size guards"]
+    G --> D["bot.download"]
+    D --> TR["Transcriber.transcribe"]
+    TR --> S["send_transcript: split_telegram_text + DIALOGUE_USER"]
+    S --> RT["run_dialogue_turn"]
+    TR -.->|guard занят| Q["queue_owner_text"]
+```
+
 ### Proposal queue
 
 ```mermaid
@@ -359,6 +375,7 @@ flowchart LR
 | Summary и memory | `test_continuity.py`, `test_memory.py` |
 | Reminder arithmetic и scheduler | `test_reminders.py`, `test_reminder_flow.py`, `test_scheduler.py` |
 | Provider/config/infrastructure | `test_provider.py`, `test_config.py`, `test_infrastructure.py`, `test_backup.py` |
+| Голосовой ввод | `test_asr.py`, voice-тесты в `test_telegram_item_ui.py` |
 | Subagents и Diary | `test_subagents.py`, `test_diary.py`, `tests/e2e/test_subagent_e2e.py`, `tests/e2e/test_diary_e2e.py` |
 | End-to-end agent behavior | `tests/e2e/test_advisor_flow_e2e.py`, `test_reminder_e2e.py`, `test_checks_e2e.py`, `test_startup_e2e.py` |
 
@@ -376,6 +393,7 @@ flowchart LR
 | Изменение истории | `history.py` | marker/send sites, continuity, history tests и diagrams |
 | Изменение Reminder flow | `scheduler.py` + `telegram/escalation.py` | reminder sessions, guard, history window и scheduler tests |
 | Изменение памяти | `memory.py` + `continuity.py` | watcher, commands, cursor atomicity и backup |
+| Новый ASR backend | `asr.py` | `ASRProvider`, `ASR_DEFAULTS`, wiring в `main.py`, `.env.example` |
 
 Связанные документы: [ARCHITECTURE.md](ARCHITECTURE.md),
 [MEMORY_HISTORY_USAGE.md](MEMORY_HISTORY_USAGE.md),

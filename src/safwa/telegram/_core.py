@@ -10,10 +10,12 @@ from typing import Any
 from aiogram import BaseMiddleware, Router
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError
-from aiogram.types import CallbackQuery, Message, TelegramObject
+from aiogram.types import Audio, CallbackQuery, Message, TelegramObject, VideoNote, Voice
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..ai.service import AIAdvisor
+from ..asr import Transcriber
+from ..constants import QUEUE_PREVIEW_CHARS
 from ..continuity import PersonaContinuity
 from ..domain import (
     TAG_REFERENCE,
@@ -30,6 +32,11 @@ from ..models import CardCategory, CardEnergyType, CardTag, CardValue, Workspace
 
 logger = logging.getLogger(__name__)
 router = Router(name="safwa")
+
+
+def audio_payload(message: Message) -> Audio | Voice | VideoNote | None:
+    """The audio a message carries, whichever of the three Telegram shapes it arrived in."""
+    return message.voice or message.audio or message.video_note
 
 
 async def sprint_is_active(session: AsyncSession) -> bool:
@@ -50,6 +57,8 @@ class Services:
     owner_name: str = "Owner"
     # Loaded from Settings; item citations stay plain text when the username is omitted.
     bot_username: str = ""
+    # None when SAFWA_ASR_PROVIDER is off, which is what makes the bot text-only.
+    transcriber: Transcriber | None = None
 
 
 # The source id of a generation nobody asked for. Telegram message ids are positive, so a
@@ -203,40 +212,13 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
                 return await handler(event, data)
             if event.message_id != services.guard.active_source_id:
                 if services.guard.queue_messages and not command and event.text:
-                    queued = services.guard.begin_queue(event.text)
-                    try:
-                        await event.delete()
-                    except TelegramAPIError:
-                        services.guard.abort_queue(queued)
-                        services.guard.cancel()
-                        return await handler(event, data)
-                    placeholder_id: int | None = None
-                    try:
-                        placeholder_text, event_id = mark_message(
-                            "Generating response... /cancel for cancelling.\n"
-                            f"Queued: {html.escape(event.text)}",
-                            MessageKind.UI_INPUT,
-                        )
-                        placeholder = await event.answer(
-                            placeholder_text,
-                            parse_mode=ParseMode.HTML,
-                        )
-                        placeholder_id = placeholder.message_id
-                        async with services.sessions() as session:
-                            await register_message(
-                                session,
-                                placeholder.chat.id,
-                                placeholder.message_id,
-                                "out",
-                                MessageKind.UI_INPUT,
-                                event_id=event_id,
-                            )
-                            await session.commit()
-                    except Exception:
-                        logger.exception("Could not render a queued-message placeholder")
-                    finally:
-                        services.guard.finish_queue(queued, placeholder_id)
-                    return None
+                    if await queue_owner_text(event, services, event.text, delete_source=True):
+                        return None
+                    services.guard.cancel()
+                    return await handler(event, data)
+                if services.guard.queue_messages and audio_payload(event) is not None:
+                    # Only the handler can turn audio into text this queue can hold.
+                    return await handler(event, data)
                 if not command_deleted:
                     try:
                         await event.delete()
@@ -248,18 +230,60 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
             await event.answer("Safwa is responding. Use /cancel to stop it.", show_alert=True)
             return None
         reserved = False
-        if (
-            isinstance(event, Message)
-            and not services.guard.active
-            and bool(event.text)
-            and not event.text.lstrip().startswith("/")
-        ):
-            reserved = services.guard.reserve(event.message_id, queue_messages=True)
+        if isinstance(event, Message) and not services.guard.active:
+            is_dialogue = (
+                bool(event.text) and not event.text.lstrip().startswith("/")
+            ) or audio_payload(event) is not None
+            if is_dialogue:
+                reserved = services.guard.reserve(event.message_id, queue_messages=True)
         try:
             return await handler(event, data)
         finally:
             if reserved:
                 services.guard.release(event.message_id)
+
+
+async def queue_owner_text(
+    message: Message, services: Services, text: str, *, delete_source: bool
+) -> bool:
+    """Hold one owner turn until the running generation finishes.
+
+    False means the message could not be taken out of the chat, so the caller has to stop
+    the generation and handle the turn now instead.  A transcript is queued without a
+    source to delete: the voice message it came from carries no text and is invisible to
+    the dialogue anyway.
+    """
+    queued = services.guard.begin_queue(text)
+    if delete_source:
+        try:
+            await message.delete()
+        except TelegramAPIError:
+            services.guard.abort_queue(queued)
+            return False
+    placeholder_id: int | None = None
+    try:
+        preview = text if len(text) <= QUEUE_PREVIEW_CHARS else text[:QUEUE_PREVIEW_CHARS] + "…"
+        placeholder_text, event_id = mark_message(
+            f"Generating response... /cancel for cancelling.\nQueued: {html.escape(preview)}",
+            MessageKind.UI_INPUT,
+        )
+        placeholder = await message.answer(placeholder_text, parse_mode=ParseMode.HTML)
+        placeholder_id = placeholder.message_id
+        async with services.sessions() as session:
+            await register_message(
+                session,
+                placeholder.chat.id,
+                placeholder.message_id,
+                "out",
+                MessageKind.UI_INPUT,
+                event_id=event_id,
+            )
+            await session.commit()
+    except Exception:
+        logger.exception("Could not render a queued-message placeholder")
+    finally:
+        services.guard.finish_queue(queued, placeholder_id)
+    return True
 
 
 @dataclass(frozen=True)

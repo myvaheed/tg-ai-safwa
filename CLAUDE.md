@@ -98,6 +98,16 @@ Consequences that break silently if ignored:
 - Bot API and Telethon use different message-ID spaces in a private chat. Outgoing messages use the
   event UUID; only owner source-message de-duplication uses narrow ID/time correlation because the bot
   cannot add a marker to owner text.
+- A voice message carries no text, so Telethon reads nothing back and skips it. Its transcript is the
+  only trace of what was said and reaches the chat as a `DIALOGUE_USER` **bot** message
+  (`send_transcript`), exactly like queued owner text. Past `TELEGRAM_TEXT_LIMIT` it is several such
+  messages, answered once after the last. `voice_message` then calls the same `run_dialogue_turn` the
+  text path uses; the middleware cannot queue audio, so a voice note arriving mid-generation reaches
+  the handler and its *transcript* is queued (`queue_owner_text`).
+  [asr.py](src/safwa/asr.py) has one engine: every provider (`openai`, `groq`, `local`) speaks the
+  OpenAI-compatible `/audio/transcriptions` API, so a self-hosted whisper server is a base URL, not a
+  second code path. `SAFWA_ASR_PROVIDER=off` leaves `Services.transcriber` `None` and the bot
+  text-only. There is no language cache: `SAFWA_ASR_LANGUAGE` pins one, empty detects per message.
 
 ### AI mutations are always proposals
 

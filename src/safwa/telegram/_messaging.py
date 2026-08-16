@@ -26,7 +26,7 @@ from ..models import (
     UiSession,
 )
 from ._core import QueuedMessage, Services
-from ._presentation import Page, proposal_outcome_text
+from ._presentation import Page, proposal_outcome_text, split_telegram_text
 
 logger = logging.getLogger(__name__)
 
@@ -323,13 +323,7 @@ async def materialize_queued_dialogue(
         return None
     request = "\n\n----\n\n".join(item.text.strip() for item in queued if item.text.strip())
     dialogue_text = f"{services.owner_name}:\n{request}"
-    sent = await send_registered(
-        message,
-        services,
-        f"<b>{html.escape(services.owner_name)}:</b>\n{html.escape(request)}",
-        kind=MessageKind.DIALOGUE_USER,
-        replace=False,
-    )
+    sent = await send_owner_turn(message, services, request)
     placeholder_ids = [
         item.placeholder_message_id for item in queued if item.placeholder_message_id is not None
     ]
@@ -342,6 +336,30 @@ async def materialize_queued_dialogue(
         except TelegramAPIError as error:
             logger.warning("Could not remove queued-message placeholders: %s", error)
     return sent, dialogue_text
+
+
+async def send_owner_turn(message: Message, services: Services, text: str) -> Message:
+    """Post the owner's words as their own dialogue turn, and return the last part.
+
+    Used wherever those words did not reach the chat as owner text: a transcript, because
+    a voice message carries none, and a queue drain, because the messages it holds were
+    deleted.  Either can outgrow one Telegram message, so both are split here.
+    """
+    sent: Message | None = None
+    for index, part in enumerate(split_telegram_text(text)):
+        # `dialogue()` merges consecutive user entries into one turn, so the name belongs
+        # on the first part only; repeating it would read as several turns.
+        head = f"<b>{html.escape(services.owner_name)}:</b>\n" if index == 0 else ""
+        sent = await send_registered(
+            message,
+            services,
+            head + html.escape(part),
+            kind=MessageKind.DIALOGUE_USER,
+            replace=False,
+        )
+    if sent is None:
+        raise ValueError("Refusing to post an empty dialogue turn")
+    return sent
 
 
 async def delete_screen(message: Message, services: Services, message_id: int) -> None:

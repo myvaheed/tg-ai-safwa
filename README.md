@@ -38,6 +38,26 @@ its canonical bounded advisor dialogue. Create the credentials at `my.telegram.o
 `data/memory.md` is the authoritative persistent persona memory. Keep exactly one non-empty fact
 per line. Safwa imports local edits automatically and never treats its SQLite mirror as canonical.
 
+## Voice input
+
+`SAFWA_ASR_PROVIDER` is `off` by default, which keeps Safwa text-only. `groq`, `openai` and `local`
+all speak the same OpenAI-compatible `/audio/transcriptions` API, so `local` covers any whisper
+server you run yourself — `whisper.cpp`'s `server`, `faster-whisper-server`, `speaches` — through
+`SAFWA_ASR_BASE_URL`:
+
+```dotenv
+SAFWA_ASR_PROVIDER=groq
+SAFWA_ASR_API_KEY=gsk_...
+SAFWA_ASR_LANGUAGE=ru
+```
+
+Pin `SAFWA_ASR_LANGUAGE` to the language you speak. Left empty the engine detects one per message
+from its first seconds, which misfires on short notes and then transcribes into the wrong language.
+
+Safwa answers a voice message by posting its transcript as your own dialogue turn and replying to
+that. A voice message carries no text, so the transcript is what the advisor reads; correct a bad
+one by sending the correction as your next message.
+
 ## Tests
 
 ```powershell

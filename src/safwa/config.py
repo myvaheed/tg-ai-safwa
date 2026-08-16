@@ -14,15 +14,21 @@ from .constants import (
     AI_TIMEOUT_SECONDS,
     DEFAULT_CHAR_BUDGET,
     DEFAULT_ROW_LIMIT,
+    GROQ_ASR_BASE_URL,
+    GROQ_ASR_MODEL,
     LMSTUDIO_BASE_URL,
+    LOCAL_ASR_BASE_URL,
+    LOCAL_ASR_MODEL,
     MEMORY_POLL_SECONDS,
     MEMORY_TOKEN_BUDGET,
+    OPENAI_ASR_BASE_URL,
+    OPENAI_ASR_MODEL,
     OPENROUTER_BASE_URL,
     SCHEDULER_POLL_SECONDS,
     SUMMARY_TRIGGER_TOKENS,
     TOKEN_CHARS_ESTIMATE,
 )
-from .enums import AIProvider
+from .enums import AIProvider, ASRProvider
 
 
 @dataclass(frozen=True)
@@ -50,6 +56,20 @@ PROVIDER_DEFAULTS: dict[AIProvider, ProviderDefaults] = {
         send_temperature=False,
         cache_breakpoints=True,
     ),
+}
+
+
+@dataclass(frozen=True)
+class ASRDefaults:
+    base_url: str
+    model: str
+
+
+ASR_DEFAULTS: dict[ASRProvider, ASRDefaults] = {
+    ASRProvider.OFF: ASRDefaults(base_url="", model=""),
+    ASRProvider.OPENAI: ASRDefaults(base_url=OPENAI_ASR_BASE_URL, model=OPENAI_ASR_MODEL),
+    ASRProvider.GROQ: ASRDefaults(base_url=GROQ_ASR_BASE_URL, model=GROQ_ASR_MODEL),
+    ASRProvider.LOCAL: ASRDefaults(base_url=LOCAL_ASR_BASE_URL, model=LOCAL_ASR_MODEL),
 }
 
 
@@ -86,6 +106,15 @@ class Settings(BaseSettings):
     # model to narrow the query, so raise these only if the model has context to spare.
     ai_query_row_limit: int = Field(default=DEFAULT_ROW_LIMIT, gt=0)
     ai_query_char_budget: int = Field(default=DEFAULT_CHAR_BUDGET, gt=0)
+    # Voice input. `off` leaves the bot text-only; a voice message then gets one plain reply.
+    asr_provider: ASRProvider = ASRProvider.OFF
+    asr_api_key: SecretStr = SecretStr("")
+    # Left unset these follow ASR_DEFAULTS for the selected asr_provider.
+    asr_model: str = ""
+    asr_base_url: str = ""
+    # An ISO code pins the language; empty leaves the engine to detect one per message.
+    asr_language: str = ""
+    asr_log_timing: bool = True
     timezone: str = "Europe/Istanbul"
     summary_trigger_tokens: int = SUMMARY_TRIGGER_TOKENS
     memory_token_budget: int = MEMORY_TOKEN_BUDGET
@@ -100,6 +129,11 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_bot_username(cls, value: object) -> str:
         return str(value or "").strip().removeprefix("@")
+
+    @field_validator("asr_language", mode="before")
+    @classmethod
+    def normalize_asr_language(cls, value: object) -> str:
+        return str(value or "").strip().lower()
 
     @field_validator("timezone")
     @classmethod
@@ -132,6 +166,22 @@ class Settings(BaseSettings):
         if self.ai_cache_breakpoints is None:
             return self.provider_defaults.cache_breakpoints
         return self.ai_cache_breakpoints
+
+    @property
+    def asr_enabled(self) -> bool:
+        return self.asr_provider is not ASRProvider.OFF
+
+    @property
+    def asr_defaults(self) -> ASRDefaults:
+        return ASR_DEFAULTS[self.asr_provider]
+
+    @property
+    def resolved_asr_base_url(self) -> str:
+        return self.asr_base_url or self.asr_defaults.base_url
+
+    @property
+    def resolved_asr_model(self) -> str:
+        return self.asr_model or self.asr_defaults.model
 
     @property
     def async_database_url(self) -> str:

@@ -23,7 +23,8 @@ Python `>=3.12,<3.13`. No server, no multi-user, no Mini App.
 5. `Bot` (`parse_mode=HTML`) → `TelegramHistorySource.from_settings(..., bot_user_id=me.id)` → `.start()`
 6. `AIAdvisor` with a `SubagentRunner` over `DiarySubagent` — after the history source, which a
    subagent reads through
-7. `PersonaContinuity` → `GenerationGuard` → `Services` dataclass → `dispatcher["services"]`
+7. `PersonaContinuity` → `GenerationGuard` → `build_transcriber` (`None` unless
+   `SAFWA_ASR_PROVIDER` is set) → `Services` dataclass → `dispatcher["services"]`
 8. `OwnerAndWritingMiddleware` on both message and callback outer middleware; `router` included
 9. `sync_bot_commands` (17 commands, 16 while the workspace is in Planning)
 10. four background tasks, all cancelled in the polling `finally`:
@@ -154,6 +155,20 @@ no underscore (the whole package is private behind `__init__.__all__`).
   dashboard below an open proposal still answers that proposal. It runs from `ordinary_text`, from
   `nav:` navigation, and from a `router.message` middleware for every slash command.
 - All bot text is HTML — escape user/model text with `html.escape`.
+
+### Voice input
+
+`SAFWA_ASR_PROVIDER` is `off` by default and `Services.transcriber` is then `None`, which is what
+keeps the bot text-only. `openai`, `groq` and `local` all speak the same OpenAI-compatible
+`/audio/transcriptions` API, so one `OpenAITranscriber` ([asr.py](../src/safwa/asr.py)) covers a
+metered endpoint and a self-hosted whisper server alike — they differ by base URL.
+
+`voice_message` ([telegram/dialogue.py](../src/safwa/telegram/dialogue.py)) guards duration and
+size, downloads the file, transcribes it, posts the transcript with `send_transcript`, then hands
+the same `run_dialogue_turn` the text path uses. A voice message arriving mid-generation cannot be
+queued by the middleware, which has no text to queue, so it reaches the handler and its transcript
+is queued instead (`queue_owner_text`). `SAFWA_ASR_LANGUAGE` pins the language; left empty the
+engine detects one per message, which misfires on short notes.
 
 ### AI advisor
 
@@ -337,6 +352,10 @@ kind, related_id, event_id)` — never persona text.
   `stop_at_summary=False` walks through Summaries, because a Summary written at noon must not cut
   that day in half and today's conversation must not leak into yesterday's.
 - The middleware deletes every slash command, which is what makes surviving owner text dialogue.
+- A voice message carries no text, so Telethon reads nothing back for it and it is skipped. Its
+  transcript is the only trace of what was said and reaches the chat as a `DIALOGUE_USER` bot
+  message (`send_transcript`), the way queued owner text does. A monologue past
+  `TELEGRAM_TEXT_LIMIT` becomes several such messages and is answered once, after the last.
 - Bot API and Telethon use different message-ID spaces in a private chat. Outgoing messages correlate
   by event UUID. Only owner source-message de-duplication retains the narrow ID/time heuristic because
   a bot cannot attach a marker to incoming owner text.
