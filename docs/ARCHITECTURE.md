@@ -187,11 +187,18 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
   answer the owner already gave, or cites the Check so they answer it themselves.
 - **The model never mutates and never writes mutation SQL.** Tool call → Pydantic model in
   [ai/contracts.py](../src/safwa/ai/contracts.py) → `AgentChange` → `ChangeProposal` + `ProposalChange`
-  rows → a read-only review screen with only **Save**/**Discard** → `ProposalService.apply` calls the
-  *same* `domain.py` functions the manual UI calls.
+  rows → request-only autoapproval for an allowlisted operation, or a read-only review screen with
+  only **Save**/**Discard** → `ProposalService.apply` calls the *same* `domain.py` functions the manual
+  UI calls. The reviewer never mutates; its terminal decision is applied by the ordinary service.
 - Multiple mutation calls in one turn become independent queued proposal screens in call order; the
   queue lives in an `AgentStep` row with `kind="approval_batch"`. The model resumes only after the last
   item resolves (`resolve_approval` → `continue_agent_approval`) and receives all mutation and read results.
+- [ai/autoapproval.py](../src/safwa/ai/autoapproval.py) reviews only the active queue head. Its
+  declarative `(entity, action)` registry optionally restricts changed fields and is the single place
+  to enable another operation. The mini-session receives the final owner request and fresh normalized
+  diff, never dialogue history. An ineligible operation, `require_review`, or reviewer/apply failure
+  leaves the original pending proposal untouched; approved auto-saves use the same transaction that
+  resolves the batch item and are recorded as `⚡ Auto-saved`.
 - If one provider response mixes an immediate tool and mutation tools, reads run immediately but each
   mutation gets a short retryable `mixed_read_and_mutation_tools` result. The model retries mutations
   in its next response, after it has seen the read data.

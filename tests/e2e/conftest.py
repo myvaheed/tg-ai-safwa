@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from safwa.ai.autoapproval import AutoApprovalReviewer
 from safwa.ai.provider import ProviderTurn
 from safwa.ai.service import AIAdvisor
 from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
@@ -54,6 +55,7 @@ class E2EHarness:
         *,
         cache_breakpoints: bool = False,
         subagents: tuple[object, ...] = (),
+        autoapprove: bool = False,
     ) -> tuple[AIAdvisor, ScriptedProvider]:
         provider = ScriptedProvider(responses)
         advisor = AIAdvisor(
@@ -63,6 +65,7 @@ class E2EHarness:
             ReadOnlyQueryRunner(self.database_path),
             model_name="e2e-scripted-model",
             cache_breakpoints=cache_breakpoints,
+            autoapproval=AutoApprovalReviewer(provider) if autoapprove else None,
             subagents=(
                 SubagentRunner(
                     self.sessions,

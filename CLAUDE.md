@@ -104,8 +104,10 @@ Consequences that break silently if ignored:
 The model never mutates and never writes mutation SQL. Path:
 tool call (`card`, `check`, `value`, `tag`, `request`, `reminder`, `remove`, `propose_diary_update`) →
 Pydantic model in [ai/contracts.py](src/safwa/ai/contracts.py) → `AgentChange` →
-`ChangeProposal` + `ProposalChange` rows → a read-only review screen with only **Save**/**Discard** →
-`ProposalService.apply` calls the *same* `domain.py` functions the manual UI calls.
+`ChangeProposal` + `ProposalChange` rows → the request-only autoapproval reviewer for an allowlisted
+operation, or a read-only review screen with only **Save**/**Discard** → `ProposalService.apply` calls
+the *same* `domain.py` functions the manual UI calls. Autoapproval never bypasses proposal persistence
+or `ProposalService`; reviewer doubt/failure leaves the original pending screen unchanged.
 **Every** proposal screen is exactly Save/Discard; a screen that needs a field control is the wrong
 screen. When the decision is the user's, the model **cites** the item instead of proposing one — no
 tool, just Markdown in its reply ([telegram/screens.py](src/safwa/telegram/screens.py)). The six
@@ -137,6 +139,12 @@ queue lives in an `AgentStep` row with `kind="approval_batch"`. The model resume
 last item resolves (`resolve_approval` → `continue_agent_approval`), receiving all mutation and read
 results. Failed preparations return structured tool errors and are retried for at most
 `MAX_REPAIR_ROUNDS = 5` (`MAX_TOOL_CALLS = 64`).
+
+[`ai/autoapproval.py`](src/safwa/ai/autoapproval.py) checks only the active queue head. Code owns one
+declarative `(entity, action)` registry and optional allowed fields; the mini-session owns semantic
+matching against the final owner request and the fresh proposal diff. There is no batch-size,
+history-reference, or request-source heuristic. `autoapprove` applies and resolves atomically;
+`require_review`, an ineligible operation, or any reviewer error renders the proposal normally.
 
 Do not mix an immediate tool (`query_safwa`, `call_subagent`) and mutation tools in one provider
 response. Runtime executes the reads but returns `mixed_read_and_mutation_tools` for each mutation,

@@ -10,6 +10,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
+from .ai.autoapproval import AutoApprovalReviewer
 from .ai.diary import DiarySubagent
 from .ai.provider import OpenAICompatibleProvider, ProviderConfig
 from .ai.service import AIAdvisor, query_read_tool
@@ -126,6 +127,7 @@ async def run(settings: Settings) -> None:
         model_name=settings.ai_model,
         provider_name=settings.ai_provider.value,
         cache_breakpoints=settings.resolved_ai_cache_breakpoints,
+        autoapproval=AutoApprovalReviewer(provider),
         subagents=SubagentRunner(
             database.sessions,
             (

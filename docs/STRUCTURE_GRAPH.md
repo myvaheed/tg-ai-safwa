@@ -153,9 +153,11 @@ flowchart TD
     MINI["ai/mini.py"] --> RS["ai/reminder_sessions.py"]
     MINI --> DIARY["ai/diary.py"]
     MINI --> SUB["ai/subagents.py"]
+    MINI --> AUTO["ai/autoapproval.py"]
     DIARY --> SUB
     RS --> SERVICE
     SUB --> SERVICE
+    AUTO --> SERVICE
     SERVICE --> PROPOSALS["ChangeProposal + AgentStep"]
     SERVICE --> DOMAIN["domain.py through ProposalService"]
 ```
@@ -167,6 +169,7 @@ flowchart TD
 | [`ai/provider.py`](../src/safwa/ai/provider.py) | OpenAI-compatible transport, retries и provider turns | `ProviderTurn`, `ProviderToolCall`, `OpenAICompatibleProvider` |
 | [`ai/sql.py`](../src/safwa/ai/sql.py) | Read-only SQL validation и isolated SQLite execution | `validate_read_sql`, `ReadOnlyQueryRunner`, `UnsafeQueryError` |
 | [`ai/mini.py`](../src/safwa/ai/mini.py) | Узкая tool-only LLM-сессия | `run_mini_session`, `ReadToolSpec`, `TerminalTool`, terminal/retry protocol |
+| [`ai/autoapproval.py`](../src/safwa/ai/autoapproval.py) | Request-only semantic review для allowlisted proposal operations | `AutoApprovalReviewer`, `AutoApprovalRule`, `DEFAULT_AUTOAPPROVAL_RULES` |
 | [`ai/reminder_sessions.py`](../src/safwa/ai/reminder_sessions.py) | Setup mini-session для расписаний Reminder | `resolve_schedule` |
 | [`ai/subagents.py`](../src/safwa/ai/subagents.py) | Запуск named subagent под собственным `AgentRun` и deadline | `SubagentRunner`, `Subagent`, `SubagentOutcome` |
 | [`ai/diary.py`](../src/safwa/ai/diary.py) | Diary subagent: единственный читатель Diary — определяет день, действие и feeling_score, отдаёт change под stamp или answer с цитатами | `DiarySubagent`, `DIARY_PROMPT`, `DIARY_REPORT`, `OBSERVE_STAMP_TOOL` |

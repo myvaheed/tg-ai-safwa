@@ -97,6 +97,7 @@ from ..reminders import (
     schedule_payload,
 )
 from ..saved_requests import RequestQueryError, normalize_request_sql
+from .autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
 from .context import SYSTEM_PROMPT, DialogueMessage, planning_context
 from .contracts import (
     MUTATION_TOOL_MODELS,
@@ -634,6 +635,8 @@ def _approval_results_summary(
             "failed": "⚠️ Failed",
             "error": "⚠️ Failed",
         }.get(status, f"⚠️ {status.title()}")
+        if status == "approved" and result.get("approval_source") == "auto":
+            prefix = "⚡ Auto-saved"
         if for_display:
             line = f"{prefix} — " + (
                 str(tool.get("display") or "") or _approval_change_label(tool)
@@ -836,6 +839,7 @@ class AIAdvisor:
         provider_name: str = "openai-compatible",
         cache_breakpoints: bool = False,
         subagents: SubagentRunner | None = None,
+        autoapproval: AutoApprovalReviewer | None = None,
     ) -> None:
         self.sessions = sessions
         self.provider = provider
@@ -845,6 +849,7 @@ class AIAdvisor:
         self.provider_name = provider_name
         self.cache_breakpoints = cache_breakpoints
         self.subagents = subagents
+        self.autoapproval = autoapproval
         # No runner means no roster, so the tool is not offered at all.
         self.tools = (*SAFWA_TOOLS, CALL_SUBAGENT_TOOL) if subagents else SAFWA_TOOLS
 
@@ -1981,6 +1986,14 @@ class AIAdvisor:
                             "display_result_summaries": result.display_result_summaries,
                             "tool_calls": tool_results,
                             "queue": queue,
+                            "request": next(
+                                (
+                                    str(item.get("content", ""))
+                                    for item in reversed(dialogue)
+                                    if item.get("role") == "user"
+                                ),
+                                "",
+                            ),
                             # The suspended turn resumes from these, not from a fresh read:
                             # the request the owner actually made and everything the model
                             # already did for it inside this run.
@@ -2024,7 +2037,87 @@ class AIAdvisor:
                     )
                 return await self._materialize(repaired, run_id, dialogue=dialogue)
             return AIOutcome("answer", result.message)
-        return self._target_outcome(result.message, targets[0][1])
+        return await self._advance_autoapprovals(
+            self._target_outcome(result.message, targets[0][1])
+        )
+
+    async def _autoapproval_candidate(
+        self, proposal_id: int
+    ) -> tuple[int, AutoApprovalCandidate] | None:
+        """Build the reviewer's request-only view for the active head of one batch."""
+        async with self.sessions() as session:
+            batch = await self._pending_batch_for_target(session, "proposal", proposal_id)
+            if batch is None:
+                return None
+            metadata = dict(batch.metadata_json or {})
+            head = next(
+                (item for item in metadata.get("queue", []) if item.get("status") == "pending"),
+                None,
+            )
+            if (
+                head is None
+                or head.get("type") != "proposal"
+                or int(head.get("id", 0)) != proposal_id
+            ):
+                return None
+            change = await session.scalar(
+                select(ProposalChange).where(ProposalChange.proposal_id == proposal_id)
+            )
+            if change is None:
+                return None
+            description = await self.describe_proposal(session, proposal_id)
+            request = str(metadata.get("request") or "")
+            if not request:
+                request = next(
+                    (
+                        str(item.get("content", ""))
+                        for item in reversed(metadata.get("dialogue") or [])
+                        if item.get("role") == "user"
+                    ),
+                    "",
+                )
+            return batch.id, AutoApprovalCandidate(
+                owner_request=request,
+                entity=change.entity,
+                action=change.action,
+                entity_id=change.entity_id,
+                values=dict(change.values),
+                summary=description.summary,
+                fields=tuple(description.fields),
+            )
+
+    async def _advance_autoapprovals(self, outcome: AIOutcome) -> AIOutcome:
+        """Auto-save one eligible head; resolving it advances and checks the next head."""
+        if self.autoapproval is None or outcome.kind != "proposal" or outcome.proposal_id is None:
+            return outcome
+        loaded = await self._autoapproval_candidate(outcome.proposal_id)
+        if loaded is None:
+            return outcome
+        _batch_id, candidate = loaded
+        verdict = await self.autoapproval.review(candidate)
+        if not verdict.approved:
+            return outcome
+        try:
+            advanced = await self.resolve_approval(
+                "proposal",
+                outcome.proposal_id,
+                decision="approved",
+                result={
+                    "approval_source": "auto",
+                    "autoapproval_reason": verdict.reason,
+                },
+                apply_proposal=True,
+            )
+        except Exception as error:
+            # `apply_proposal` and the batch decision share one transaction. A failure
+            # therefore leaves the original pending proposal safe to render as-is.
+            logger.warning(
+                "Autoapproval apply failed for proposal #%s; keeping manual review: %s",
+                outcome.proposal_id,
+                error,
+            )
+            return outcome
+        return advanced or AIOutcome("answer", "⚡ Auto-saved the proposed change.")
 
     async def _pending_batch_for_target(
         self,
@@ -2092,13 +2185,20 @@ class AIAdvisor:
         decision: str,
         result: dict[str, Any],
         dialogue: list[DialogueMessage] | None = None,
+        apply_proposal: bool = False,
     ) -> AIOutcome | None:
         """Resolve one queued UI target and resume the suspended tool turn once complete."""
         started = time.monotonic()
+        next_outcome: AIOutcome | None = None
         async with self.sessions() as session:
             batch = await self._pending_batch_for_target(session, target_type, target_id)
             if batch is None:
                 return None
+            if apply_proposal:
+                if target_type != "proposal" or decision != "approved":
+                    raise DomainError("Only an approved proposal can be applied while resolving")
+                affected = await ProposalService(session).apply(target_id)
+                result = {**result, "affected_ids": affected}
             if decision == "failed" and target_type == "proposal":
                 proposal = await session.get(ChangeProposal, target_id)
                 if proposal is not None and proposal.status == ProposalStatus.PENDING.value:
@@ -2128,25 +2228,29 @@ class AIAdvisor:
                 metadata["status"] = "pending"
                 batch.metadata_json = metadata
                 await session.commit()
-                return self._target_outcome(
+                next_outcome = self._target_outcome(
                     "Review the next proposed change.",
                     next_target,
                 )
-            metadata["status"] = "resuming"
-            batch.metadata_json = metadata
-            run_id = batch.run_id
-            prior_tool_count = int(metadata.get("tool_count", 0))
-            prior_repair_rounds = int(metadata.get("repair_rounds", 0))
-            repair_exhausted = bool(metadata.get("repair_exhausted", False))
-            prior_result_summaries = list(metadata.get("result_summaries", []))
-            prior_display_result_summaries = list(
-                metadata.get("display_result_summaries", [])
-            )
-            stored_transcript = [dict(item) for item in metadata.get("transcript") or []]
-            turn_dialogue = [dict(item) for item in metadata.get("dialogue") or []] or [
-                {"role": item.role, "content": item.content} for item in dialogue or []
-            ]
-            await session.commit()
+            else:
+                metadata["status"] = "resuming"
+                batch.metadata_json = metadata
+                run_id = batch.run_id
+                prior_tool_count = int(metadata.get("tool_count", 0))
+                prior_repair_rounds = int(metadata.get("repair_rounds", 0))
+                repair_exhausted = bool(metadata.get("repair_exhausted", False))
+                prior_result_summaries = list(metadata.get("result_summaries", []))
+                prior_display_result_summaries = list(
+                    metadata.get("display_result_summaries", [])
+                )
+                stored_transcript = [dict(item) for item in metadata.get("transcript") or []]
+                turn_dialogue = [dict(item) for item in metadata.get("dialogue") or []] or [
+                    {"role": item.role, "content": item.content} for item in dialogue or []
+                ]
+                await session.commit()
+
+        if next_outcome is not None:
+            return await self._advance_autoapprovals(next_outcome)
 
         try:
             result_summary = _safe_approval_results_summary(tools)
