@@ -416,9 +416,10 @@ Ask me what to start with today.
 ```
 
 - **Text is the only editable field.** The schedule is read-only, with one sentence saying the advisor
-  changes it. Reuse `UiSession(kind="reminder_text")` + `delete_text_input` +
-  `edit_registered_message`, exactly like `render_item_text_prompt`
-  ([telegram/items.py:155](../src/safwa/telegram/items.py:155)). It must not touch `next_fire_at`.
+  changes it. Reuse the shared `TextInputScreen` / `UiSession(kind="text_input")`: it replaces the
+  Reminder view with the copyable current value and Back button, redraws the same view on validation
+  error, and restores the Reminder view after Back or a valid submission. It must not touch
+  `next_fire_at`.
 - **No creation button** — advisor-only, like Requests.
 - Delete asks one confirmation, reusing the `item_archive_prompt` two-step shape.
 

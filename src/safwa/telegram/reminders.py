@@ -13,15 +13,16 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from aiogram.types import InlineKeyboardMarkup, Message
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from ..domain import DomainError
 from ..enums import MessageKind
-from ..models import Reminder, UiSession, Workspace
+from ..models import Reminder, Workspace
 from ..reminders import describe, schedule_of
 from ._core import Services
-from ._messaging import paging_row, send_registered, token_button
+from ._messaging import edit_registered_message, paging_row, send_registered, token_button
 from ._presentation import menu_row, paginate
+from .text_input import TextInputScreen, render_text_input
 
 _TEXT_PREVIEW = 40
 _PROMPT_TTL = timedelta(minutes=30)
@@ -68,7 +69,13 @@ async def render_reminders(message: Message, services: Services, *, page: int = 
     )
 
 
-async def render_reminder(message: Message, services: Services, reminder_id: int) -> None:
+async def render_reminder(
+    message: Message,
+    services: Services,
+    reminder_id: int,
+    *,
+    replace_message_id: int | None = None,
+) -> None:
     async with services.sessions() as session:
         reminder = await session.get(Reminder, reminder_id)
         if reminder is None:
@@ -85,14 +92,26 @@ async def render_reminder(message: Message, services: Services, reminder_id: int
             session, services.owner_id, "↩️ Back", "reminders_page", {"page": 0}
         )
         await session.commit()
-    await send_registered(
-        message,
-        services,
-        text,
-        kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=[[edit, remove], [back]]),
-        related_id=reminder_id,
-    )
+    markup = InlineKeyboardMarkup(inline_keyboard=[[edit, remove], [back]])
+    if replace_message_id is not None:
+        await edit_registered_message(
+            message,
+            services,
+            replace_message_id,
+            text,
+            kind=MessageKind.DASHBOARD,
+            markup=markup,
+            related_id=reminder_id,
+        )
+    else:
+        await send_registered(
+            message,
+            services,
+            text,
+            kind=MessageKind.DASHBOARD,
+            markup=markup,
+            related_id=reminder_id,
+        )
 
 
 async def render_reminder_text_prompt(
@@ -103,28 +122,21 @@ async def render_reminder_text_prompt(
         if reminder is None:
             raise DomainError("Reminder does not exist")
         current = reminder.instruction
-        await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
-        session.add(
-            UiSession(
-                owner_id=services.owner_id,
-                kind="reminder_text",
-                state={"reminder_id": reminder_id, "message_id": message.message_id},
-                expires_at=datetime.now(UTC) + _PROMPT_TTL,
-            )
-        )
-        back = await token_button(
-            session, services.owner_id, "↩️ Back", "reminder_view", {"id": reminder_id}
-        )
-        await session.commit()
-    await send_registered(
+    await render_text_input(
         message,
         services,
-        f"<b>Current text</b>\n{html.escape(current)}\n\n"
-        "Send the new text. It must stand on its own when it fires, so name any Card or "
-        "Check by #id. The schedule will not change.",
-        kind=MessageKind.CARD_EDITOR,
-        markup=InlineKeyboardMarkup(inline_keyboard=[[back]]),
-        replace=False,
+        screen=TextInputScreen(
+            title="Edit Reminder text",
+            current_value=current,
+            instruction=(
+                "Send the new text. It must stand on its own when it fires, so name any Card or "
+                "Check by #id. The schedule will not change."
+            ),
+            back_action="reminder_view",
+            back_payload={"id": reminder_id},
+            related_id=reminder_id,
+        ),
+        state={"flow": "reminder", "reminder_id": reminder_id},
     )
 
 

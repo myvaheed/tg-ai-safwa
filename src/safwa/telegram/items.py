@@ -17,6 +17,7 @@ from ._core import ITEM_REFERENCES, Services
 from ._messaging import edit_registered_message, send_registered, token_button
 from ._presentation import kind_label, menu_row
 from .cards import linked_card_count
+from .text_input import TextInputScreen, render_text_input
 
 logger = logging.getLogger(__name__)
 
@@ -231,23 +232,18 @@ async def render_item_text_prompt(
             raise DomainError("Item editor expired")
         state = dict(editor.state)
         state["field"] = field
-        state["message_id"] = message.message_id
-        editor.kind = "item_text"
-        editor.state = state
-        back = await token_button(
-            session,
-            services.owner_id,
-            "↩️ Back",
-            "item_text_back",
-            {"entity": entity, "mode": mode, "id": item_id},
-        )
-        await session.commit()
+        state["flow"] = "item"
     current = str(state.get("values", {}).get(field, ""))
-    await send_registered(
+    await render_text_input(
         message,
         services,
-        f"<b>Current {html.escape(field)}</b>: {html.escape(current or '—')}\n\n"
-        f"Set new {html.escape(field.title())}",
-        kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=[[back]]),
+        screen=TextInputScreen(
+            title=f"Edit {entity.title()} {field.title()}",
+            current_value=current,
+            instruction=f"Send the new {field}.",
+            back_action="item_text_back",
+            back_payload={"entity": entity, "mode": mode, "id": item_id},
+            related_id=item_id,
+        ),
+        state=state,
     )

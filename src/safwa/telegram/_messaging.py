@@ -64,9 +64,9 @@ async def send_registered(
     """Render a UI state, replacing an inline-action screen when possible.
 
     Command and ordinary-text handlers receive a user message, so their response
-    remains a new bot message.  Callback handlers receive the bot's previous
-    message and therefore update that message in place.  Text-entry actions opt
-    out explicitly because their prompt must be a separate conversational turn.
+    remains a new bot message. Callback handlers receive the bot's previous
+    message and therefore update that message in place. Callers only opt out for
+    intentionally additive history messages.
     """
     should_replace = (
         bool(message.from_user and message.from_user.is_bot) if replace is None else replace

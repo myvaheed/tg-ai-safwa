@@ -63,6 +63,8 @@ _presentation.py    pure text/labels/markup/paging — no session, no bot
    ↑
 _messaging.py       every send/edit/delete + MessageKind registration + token buttons
    ↑
+text_input.py       reusable ordinary-text editor: current value, validation, Back
+   ↑
 cards.py  checks.py  items.py  diary.py    render modules
    ↑
 screens.py  proposals.py    what one AI turn shows: cited items, the review screen
@@ -140,11 +142,13 @@ no underscore (the whole package is private behind `__init__.__all__`).
 - Every inline button is a single-use `CallbackToken` row rendered as `cb:<token>` (24 h expiry),
   claimed atomically by `UPDATE … RETURNING` in `callback_token_handler`. Menu buttons use `nav:<action>`.
 - `CALLBACK_ACTIONS` ([callbacks.py:814](../src/safwa/telegram/callbacks.py:814)) is the action→handler registry.
-- `UiSession` holds transient editor state (`card_create`, `card_create_text`, `card_text`,
-  `card_blocked_text`, `item_text`); deleted on navigation. Manual Card creation persists **nothing**
-  until Save.
-- Text-field editing replaces the screen with a focused prompt; the typed reply is deleted as
-  `UI_INPUT` and the item screen is restored (`delete_text_input` + `edit_registered_message`).
+- `UiSession` holds transient editor state. Every ordinary-text editor uses the shared `text_input`
+  kind: it replaces its originating screen in place, shows the copyable current value and `↩️ Back`,
+  and records the source message plus its return action. A rejected field value redraws that same
+  editor with its validation error; Back and a successful value both restore the preceding screen in
+  the same message. Manual Card creation persists **nothing** until Save.
+- The typed reply is deleted as `UI_INPUT`; its flow renderer restores the previous screen through
+  `delete_text_input` and `edit_registered_message`.
 - `dismiss_prior_ui` leaves exactly one interaction screen live: it removes **every other**
   `DASHBOARD`/`CARD_EDITOR`/`APPROVAL` screen, not just the older ones, so a button pressed on a
   dashboard below an open proposal still answers that proposal. It runs from `ordinary_text`, from

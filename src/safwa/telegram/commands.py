@@ -4,7 +4,7 @@ import html
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, time, timedelta
+from datetime import time
 from typing import Any
 
 from aiogram import Bot, F
@@ -24,7 +24,6 @@ from ..constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ..continuity import MemoryMaintenanceResult, record_memory_run
 from ..domain import (
     DomainError,
-    update_profile,
 )
 from ..enums import CardStage, MessageKind
 from ..history import mark_message, register_message
@@ -43,6 +42,7 @@ from ..reminders import parse_clock_or_off
 from ._core import BACKGROUND_SOURCE_ID, Services, router, sprint_is_active
 from ._messaging import (
     dismiss_prior_ui,
+    edit_registered_message,
     materialize_queued_dialogue,
     send_registered,
     send_summary,
@@ -59,10 +59,9 @@ from .cards import render_dashboard, start_manual_card_creation
 from .reminders import render_reminders
 from .screens import open_citation
 from .sprint import render_sprint, render_today
+from .text_input import TextInputScreen, render_text_input
 
 logger = logging.getLogger(__name__)
-
-SETTINGS_PROMPT_TTL = timedelta(minutes=30)
 
 # Published to Telegram by `sync_bot_commands`, which drops Today outside a Sprint.
 BOT_COMMANDS = [
@@ -477,6 +476,20 @@ def _clock(value: time | None) -> str:
 
 # Rendered in this order, both as lines on the Settings screen and as its buttons.
 SETTINGS_FIELDS: dict[str, SettingsField] = {
+    "about_me": SettingsField(
+        title="About me",
+        label="👤 About me",
+        instruction="Send what Safwa should know about you. Send off to clear it.",
+        parse=lambda raw: "" if raw.lower() == "off" else raw,
+        show=lambda value: value or "off",
+    ),
+    "advisor_instructions": SettingsField(
+        title="Advisor instructions",
+        label="🧭 Advisor instructions",
+        instruction="Send standing instructions for Safwa. Send off to clear them.",
+        parse=lambda raw: "" if raw.lower() == "off" else raw,
+        show=lambda value: value or "off",
+    ),
     "sprint_length_days": SettingsField(
         title="Sprint length",
         label="🏁 Sprint length",
@@ -527,7 +540,11 @@ SETTINGS_FIELDS: dict[str, SettingsField] = {
 
 @router.message(Command("settings"))
 async def command_settings(
-    message: Message, services: Services, *, notice: str | None = None
+    message: Message,
+    services: Services,
+    *,
+    notice: str | None = None,
+    replace_message_id: int | None = None,
 ) -> None:
     async with services.sessions() as session:
         profile = await session.get(UserProfile, 1)
@@ -550,16 +567,22 @@ async def command_settings(
                 )
             )
         lines.append(f"Timezone: {html.escape(workspace.timezone)}")
-        lines.append("Tap a setting to change it. Text fields use /setabout and /setadvisor.")
+        lines.append("Tap a setting to change it.")
         await session.commit()
     rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
-    await send_registered(
-        message,
-        services,
-        with_notice("\n".join(lines), notice),
-        kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=[*rows, menu_row()]),
-    )
+    text = with_notice("\n".join(lines), notice)
+    markup = InlineKeyboardMarkup(inline_keyboard=[*rows, menu_row()])
+    if replace_message_id is not None:
+        await edit_registered_message(
+            message,
+            services,
+            replace_message_id,
+            text,
+            kind=MessageKind.DASHBOARD,
+            markup=markup,
+        )
+    else:
+        await send_registered(message, services, text, kind=MessageKind.DASHBOARD, markup=markup)
 
 
 async def render_settings_field_prompt(
@@ -571,27 +594,18 @@ async def render_settings_field_prompt(
         if profile is None:
             raise DomainError("Workspace is not initialized")
         current = field.show(getattr(profile, field_name))
-        await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
-        session.add(
-            UiSession(
-                owner_id=services.owner_id,
-                kind="settings_field",
-                state={"field": field_name, "message_id": message.message_id},
-                expires_at=datetime.now(UTC) + SETTINGS_PROMPT_TTL,
-            )
-        )
-        back = await token_button(session, services.owner_id, "↩️ Back", "settings_back")
-        await session.commit()
-    await send_registered(
+    await render_text_input(
         message,
         services,
-        with_notice(
-            f"<b>{field.title}</b>\nCurrently {html.escape(current)}.\n{field.instruction}",
-            notice,
+        screen=TextInputScreen(
+            title=field.title,
+            current_value=current,
+            instruction=field.instruction,
+            back_action="settings_back",
+            back_payload={},
         ),
-        kind=MessageKind.CARD_EDITOR,
-        markup=InlineKeyboardMarkup(inline_keyboard=[[back]]),
-        replace=False,
+        state={"flow": "settings", "field": field_name},
+        notice=notice,
     )
 
 
@@ -603,26 +617,6 @@ async def sync_bot_commands(bot: Bot, *, sprint_active: bool) -> None:
         if sprint_active or command.command != "today"
     ]
     await bot.set_my_commands(commands)
-
-
-@router.message(Command("setabout"))
-async def command_setabout(message: Message, services: Services) -> None:
-    value = (message.text or "").partition(" ")[2].strip()
-    async with services.sessions() as session:
-        await update_profile(session, about_me=value)
-        await session.commit()
-    await send_registered(message, services, "About Me updated.", kind=MessageKind.RECEIPT)
-
-
-@router.message(Command("setadvisor"))
-async def command_setadvisor(message: Message, services: Services) -> None:
-    value = (message.text or "").partition(" ")[2].strip()
-    async with services.sessions() as session:
-        await update_profile(session, advisor_instructions=value)
-        await session.commit()
-    await send_registered(
-        message, services, "Advisor Instructions updated.", kind=MessageKind.RECEIPT
-    )
 
 
 @router.message(Command("status"))

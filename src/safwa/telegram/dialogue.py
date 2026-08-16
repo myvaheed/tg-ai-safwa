@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import html
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from aiogram import F
 from aiogram.enums import ChatAction
@@ -24,7 +24,6 @@ from ..history import HistoryEntry, register_message
 from ..models import UiSession, Workspace
 from ._core import BACKGROUND_SOURCE_ID, Services, router
 from ._messaging import (
-    clear_message_markup,
     delete_text_input,
     dismiss_prior_ui,
     materialize_queued_dialogue,
@@ -32,11 +31,12 @@ from ._messaging import (
     send_summary,
 )
 from .cards import render_card, render_card_creation, sanitize_card_creation_state
-from .commands import SETTINGS_FIELDS, command_settings, render_settings_field_prompt
+from .commands import SETTINGS_FIELDS, command_settings
 from .items import render_item_editor
 from .proposals import render_ai_outcome
 from .reminders import render_reminder
-from .sprint import render_sprint_confirm
+from .sprint import render_sprint
+from .text_input import reject_text_input, required_text, validate_text_input
 
 logger = logging.getLogger(__name__)
 
@@ -56,142 +56,175 @@ async def ordinary_text(message: Message, services: Services) -> None:
         ui_kind = ui.kind if ui is not None else None
         ui_state = dict(ui.state) if ui is not None else {}
 
-    if ui_kind == "item_text":
-        entity = str(ui_state["entity"])
-        mode = str(ui_state["mode"])
-        field = str(ui_state["field"])
-        item_id = ui_state.get("item_id")
-        message_id = int(ui_state["message_id"])
-        values = dict(ui_state.get("values", {}))
-        values[field] = message.text.strip()
-        async with services.sessions() as session:
-            if mode == "view":
-                if entity == "value":
-                    await update_value_fields(session, int(item_id), **{field: values[field]})
-                else:
-                    await update_tag_fields(session, int(item_id), **{field: values[field]})
-            await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
-            await session.commit()
-        input_deleted = await delete_text_input(message, services)
-        if not input_deleted:
-            await clear_message_markup(message, message_id)
-        await render_item_editor(
-            message,
-            services,
-            entity,
-            mode=mode,
-            item_id=int(item_id) if item_id is not None else None,
-            values=values,
-            replace_message_id=message_id if input_deleted else None,
-        )
-        return
-    if ui_kind == "reminder_text":
-        reminder_id = int(ui_state["reminder_id"])
-        message_id = int(ui_state["message_id"])
-        async with services.sessions() as session:
-            await update_reminder_text(session, reminder_id, message.text)
-            await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
-            await session.commit()
-        input_deleted = await delete_text_input(message, services)
-        if not input_deleted:
-            await clear_message_markup(message, message_id)
-        await render_reminder(message, services, reminder_id)
-        return
-    if ui_kind == "sprint_criteria":
-        message_id = int(ui_state["message_id"])
-        async with services.sessions() as session:
-            await set_sprint_success_criteria(session, message.text)
-            await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
-            await session.commit()
-        await delete_text_input(message, services)
-        # The prompt stays in the chat as its own turn, so only its buttons must go.
-        await clear_message_markup(message, message_id)
-        await render_sprint_confirm(message, services)
-        return
-    if ui_kind == "settings_field":
-        field_name = str(ui_state["field"])
-        await delete_text_input(message, services)
-        await clear_message_markup(message, int(ui_state["message_id"]))
-        field = SETTINGS_FIELDS.get(field_name)
-        if field is None:
-            await command_settings(message, services)
-            return
-        try:
-            value = field.parse(message.text.strip())
-        except ValueError as error:
-            await render_settings_field_prompt(
-                message, services, field_name, notice=str(error)
+    if ui_kind == "text_input":
+        flow = str(ui_state.get("flow", ""))
+        screen_state = dict(ui_state.get("text_input") or {})
+        message_id = int(screen_state["message_id"])
+
+        if flow == "item":
+            entity = str(ui_state["entity"])
+            mode = str(ui_state["mode"])
+            field = str(ui_state["field"])
+            item_id = ui_state.get("item_id")
+            values = dict(ui_state.get("values", {}))
+            try:
+                value = validate_text_input(
+                    message.text, required_text(f"{entity.title()} name") if field == "name" else None
+                )
+                values[field] = str(value)
+                async with services.sessions() as session:
+                    if mode == "view":
+                        if entity == "value":
+                            await update_value_fields(session, int(item_id), **{field: values[field]})
+                        else:
+                            await update_tag_fields(session, int(item_id), **{field: values[field]})
+                    await session.execute(
+                        delete(UiSession).where(UiSession.owner_id == services.owner_id)
+                    )
+                    await session.commit()
+            except (DomainError, ValueError) as error:
+                await reject_text_input(message, services, ui_state, str(error))
+                return
+            await delete_text_input(message, services)
+            await render_item_editor(
+                message,
+                services,
+                entity,
+                mode=mode,
+                item_id=int(item_id) if item_id is not None else None,
+                values=values,
+                replace_message_id=message_id,
             )
             return
-        async with services.sessions() as session:
-            await update_profile(session, **{field_name: value})
-            await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
-            await session.commit()
-        await command_settings(message, services, notice=f"{field.title} updated.")
-        return
-    if ui_kind == "card_create_text":
-        async with services.sessions() as session:
-            editor = await session.scalar(
-                select(UiSession).where(UiSession.owner_id == services.owner_id)
+        if flow == "reminder":
+            reminder_id = int(ui_state["reminder_id"])
+            try:
+                value = validate_text_input(message.text, required_text("Reminder text"))
+                async with services.sessions() as session:
+                    await update_reminder_text(session, reminder_id, str(value))
+                    await session.execute(
+                        delete(UiSession).where(UiSession.owner_id == services.owner_id)
+                    )
+                    await session.commit()
+            except (DomainError, ValueError) as error:
+                await reject_text_input(message, services, ui_state, str(error))
+                return
+            await delete_text_input(message, services)
+            await render_reminder(message, services, reminder_id, replace_message_id=message_id)
+            return
+        if flow == "sprint":
+            try:
+                value = validate_text_input(message.text, required_text("Success criteria"))
+                async with services.sessions() as session:
+                    await set_sprint_success_criteria(session, str(value))
+                    await session.execute(
+                        delete(UiSession).where(UiSession.owner_id == services.owner_id)
+                    )
+                    await session.commit()
+            except (DomainError, ValueError) as error:
+                await reject_text_input(message, services, ui_state, str(error))
+                return
+            await delete_text_input(message, services)
+            await render_sprint(message, services, replace_message_id=message_id)
+            return
+        if flow == "settings":
+            field_name = str(ui_state["field"])
+            field = SETTINGS_FIELDS.get(field_name)
+            if field is None:
+                await reject_text_input(message, services, ui_state, "That setting is no longer available.")
+                return
+            try:
+                value = validate_text_input(message.text, field.parse)
+                async with services.sessions() as session:
+                    await update_profile(session, **{field_name: value})
+                    await session.execute(
+                        delete(UiSession).where(UiSession.owner_id == services.owner_id)
+                    )
+                    await session.commit()
+            except (DomainError, ValueError) as error:
+                await reject_text_input(message, services, ui_state, str(error))
+                return
+            await delete_text_input(message, services)
+            await command_settings(
+                message,
+                services,
+                notice=f"{field.title} updated.",
+                replace_message_id=message_id,
             )
-            if editor is None:
-                raise DomainError("Card creation is no longer active")
-            state = dict(editor.state or {})
-            field = str(state.pop("input_field"))
-            message_id = int(state.pop("message_id"))
-            state[field] = message.text.strip()
-            editor.kind = "card_create"
-            editor.state = sanitize_card_creation_state(state)
-            await session.commit()
-        input_deleted = await delete_text_input(message, services)
-        if not input_deleted:
-            await clear_message_markup(message, message_id)
-        await render_card_creation(
-            message,
-            services,
-            replace_message_id=message_id if input_deleted else None,
-        )
-        return
-    if ui_kind == "card_text":
-        async with services.sessions() as session:
-            value = message.text.strip()
-            card = await edit_card_text(session, ui_state["card_id"], ui_state["field"], value)
-            await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
-            await session.commit()
-        input_deleted = await delete_text_input(message, services)
-        if not input_deleted:
-            await clear_message_markup(message, int(ui_state["message_id"]))
-        await render_card(
-            message,
-            services,
-            card.id,
-            replace_message_id=int(ui_state["message_id"]) if input_deleted else None,
-            back=dict(ui_state.get("back", {})),
-        )
-        return
-    if ui_kind == "card_blocked_text":
-        async with services.sessions() as session:
-            card = await update_card_fields(
-                session,
-                ui_state["card_id"],
-                {
-                    "blocked": True,
-                    "blocked_description": message.text.strip(),
-                },
+            return
+        if flow == "card_create":
+            field = str(ui_state["input_field"])
+            try:
+                validator = (
+                    required_text("Card title")
+                    if field == "title"
+                    else required_text("Blocked description")
+                    if field == "blocked_description"
+                    else None
+                )
+                value = validate_text_input(message.text, validator)
+                state = dict(ui_state)
+                state.pop("text_input", None)
+                state.pop("input_field", None)
+                state.pop("flow", None)
+                state[field] = str(value)
+                async with services.sessions() as session:
+                    await session.execute(
+                        delete(UiSession).where(UiSession.owner_id == services.owner_id)
+                    )
+                    session.add(
+                        UiSession(
+                            owner_id=services.owner_id,
+                            kind="card_create",
+                            state=sanitize_card_creation_state(state),
+                            expires_at=datetime.now(UTC) + timedelta(minutes=30),
+                        )
+                    )
+                    await session.commit()
+            except (DomainError, ValueError) as error:
+                await reject_text_input(message, services, ui_state, str(error))
+                return
+            await delete_text_input(message, services)
+            await render_card_creation(message, services, replace_message_id=message_id)
+            return
+        if flow in {"card", "card_blocked"}:
+            card_id = int(ui_state["card_id"])
+            field = "blocked_description" if flow == "card_blocked" else str(ui_state["field"])
+            try:
+                validator = (
+                    required_text("Card title")
+                    if field == "title"
+                    else required_text("Blocked description")
+                    if field == "blocked_description"
+                    else None
+                )
+                value = validate_text_input(message.text, validator)
+                async with services.sessions() as session:
+                    if flow == "card_blocked":
+                        card = await update_card_fields(
+                            session,
+                            card_id,
+                            {"blocked": True, "blocked_description": str(value)},
+                        )
+                    else:
+                        card = await edit_card_text(session, card_id, field, str(value))
+                    await session.execute(
+                        delete(UiSession).where(UiSession.owner_id == services.owner_id)
+                    )
+                    await session.commit()
+            except (DomainError, ValueError) as error:
+                await reject_text_input(message, services, ui_state, str(error))
+                return
+            await delete_text_input(message, services)
+            await render_card(
+                message,
+                services,
+                card.id,
+                replace_message_id=message_id,
+                back=dict(ui_state.get("back", {})),
             )
-            await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
-            await session.commit()
-        input_deleted = await delete_text_input(message, services)
-        if not input_deleted:
-            await clear_message_markup(message, int(ui_state["message_id"]))
-        await render_card(
-            message,
-            services,
-            card.id,
-            replace_message_id=int(ui_state["message_id"]) if input_deleted else None,
-            back=dict(ui_state.get("back", {})),
-        )
-        return
+            return
+
     await dismiss_prior_ui(message, services)
     async with services.sessions() as session:
         await register_message(

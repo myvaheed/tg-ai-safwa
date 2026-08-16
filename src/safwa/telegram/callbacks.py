@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import html
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from aiogram import F
@@ -95,6 +95,7 @@ from .sprint import (
     render_sprint_criteria_prompt,
     render_today,
 )
+from .text_input import TextInputScreen, render_text_input
 
 logger = logging.getLogger(__name__)
 
@@ -265,6 +266,8 @@ async def _on_card_draft_view(context: CallbackContext) -> None:
         state = dict(draft.state or {})
         state.pop("input_field", None)
         state.pop("message_id", None)
+        state.pop("text_input", None)
+        state.pop("flow", None)
         draft.kind = "card_create"
         draft.state = sanitize_card_creation_state(state)
         await session.commit()
@@ -277,19 +280,19 @@ async def _on_card_draft_edit_text(context: CallbackContext) -> None:
         draft = await require_card_draft(session, context.owner_id)
         state = dict(draft.state or {})
         current = str(state.get(field) or "")
-        state.update(input_field=field, message_id=context.message.message_id)
-        draft.kind = "card_create_text"
-        draft.state = state
-        back = await token_button(session, context.owner_id, "↩️ Back", "card_create_view")
-        await session.commit()
-    await send_registered(
+        state["input_field"] = field
+        state["flow"] = "card_create"
+    await render_text_input(
         context.message,
         context.services,
-        f"<b>Current {html.escape(field.replace('_', ' '))}</b>: "
-        f"{html.escape(current or '—')}\n\n"
-        f"Set new {html.escape(field.replace('_', ' ').title())}",
-        kind=MessageKind.CARD_EDITOR,
-        markup=InlineKeyboardMarkup(inline_keyboard=[[back]]),
+        screen=TextInputScreen(
+            title=f"Edit Card {field.replace('_', ' ').title()}",
+            current_value=current,
+            instruction=f"Send the new {field.replace('_', ' ')}.",
+            back_action="card_create_view",
+            back_payload={},
+        ),
+        state=state,
     )
 
 
@@ -487,41 +490,22 @@ async def _on_card_edit_text(context: CallbackContext) -> None:
     field = context.payload["field"]
     async with context.sessions() as session:
         back_state = await card_editor_back_state(session, context.owner_id)
-        await _clear_ui_sessions(session, context.owner_id)
         card = await session.get(Card, card_id)
         if card is None:
             raise DomainError("Card does not exist")
-        session.add(
-            UiSession(
-                owner_id=context.owner_id,
-                kind="card_text",
-                state={
-                    "card_id": card_id,
-                    "field": field,
-                    "message_id": context.message.message_id,
-                    "back": back_state,
-                },
-                expires_at=datetime.now(UTC) + timedelta(minutes=30),
-            )
-        )
-        back = await token_button(
-            session,
-            context.owner_id,
-            "↩️ Back",
-            "card_view",
-            {"id": card_id, "back": back_state},
-        )
         current = str(getattr(card, field) or "")
-        await session.commit()
-    await send_registered(
+    await render_text_input(
         context.message,
         context.services,
-        f"<b>Current {html.escape(field)}</b>: "
-        f"{html.escape(current or '—')}\n\n"
-        f"Set new {html.escape(field.title())}",
-        kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=[[back]]),
-        related_id=card_id,
+        screen=TextInputScreen(
+            title=f"Edit Card {field.replace('_', ' ').title()}",
+            current_value=current,
+            instruction=f"Send the new {field.replace('_', ' ')}.",
+            back_action="card_view",
+            back_payload={"id": card_id, "back": back_state},
+            related_id=card_id,
+        ),
+        state={"flow": "card", "card_id": card_id, "field": field, "back": back_state},
     )
 
 
@@ -548,6 +532,7 @@ async def _on_card_set_field(context: CallbackContext) -> None:
 
 async def _on_card_toggle_field(context: CallbackContext) -> None:
     field = context.payload["field"]
+    blocked_prompt: tuple[int, str, dict[str, Any]] | None = None
     async with context.sessions() as session:
         card = await session.get(Card, context.payload["id"])
         if card is None:
@@ -555,41 +540,30 @@ async def _on_card_toggle_field(context: CallbackContext) -> None:
         if field == "blocked" and not card.blocked:
             # Blocking always needs a reason, so ask for it before writing anything.
             back_state = await card_editor_back_state(session, context.owner_id)
-            await _clear_ui_sessions(session, context.owner_id)
-            session.add(
-                UiSession(
-                    owner_id=context.owner_id,
-                    kind="card_blocked_text",
-                    state={
-                        "card_id": card.id,
-                        "message_id": context.message.message_id,
-                        "back": back_state,
-                    },
-                    expires_at=datetime.now(UTC) + timedelta(minutes=30),
-                )
-            )
-            back_button = await token_button(
+            blocked_prompt = (card.id, str(card.blocked_description or ""), back_state)
+        else:
+            await update_card_fields(
                 session,
-                context.owner_id,
-                "↩️ Back",
-                "card_view",
-                {"id": card.id, "back": back_state},
+                card.id,
+                {field: not bool(getattr(card, field))},
             )
             await session.commit()
-            await send_registered(
-                context.message,
-                context.services,
-                "<b>Mark Card as blocked</b>\n\nDescribe what is blocking it.",
-                kind=MessageKind.CARD_EDITOR,
-                markup=InlineKeyboardMarkup(inline_keyboard=[[back_button]]),
-            )
-            return
-        await update_card_fields(
-            session,
-            card.id,
-            {field: not bool(getattr(card, field))},
+    if blocked_prompt is not None:
+        card_id, current, back_state = blocked_prompt
+        await render_text_input(
+            context.message,
+            context.services,
+            screen=TextInputScreen(
+                title="Mark Card as blocked",
+                current_value=current,
+                instruction="Describe what is blocking it.",
+                back_action="card_view",
+                back_payload={"id": card_id, "back": back_state},
+                related_id=card_id,
+            ),
+            state={"flow": "card_blocked", "card_id": card_id, "back": back_state},
         )
-        await session.commit()
+        return
     await render_card(context.message, context.services, context.payload["id"])
 
 

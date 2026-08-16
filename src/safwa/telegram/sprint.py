@@ -11,16 +11,17 @@ from __future__ import annotations
 import html
 from datetime import UTC, datetime, timedelta
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
-from sqlalchemy import delete, func, select
+from aiogram.types import InlineKeyboardMarkup, Message
+from sqlalchemy import func, select
 
 from ..domain import DomainError, sprint_length_days, sprint_metrics
 from ..enums import CardKind, CardStage, MessageKind
-from ..models import Card, Sprint, UiSession, UserProfile, Workspace
+from ..models import Card, Sprint, UserProfile, Workspace
 from ._core import Services
-from ._messaging import paging_row, send_registered, token_button
+from ._messaging import edit_registered_message, paging_row, send_registered, token_button
 from ._presentation import menu_row, with_notice
 from .cards import card_list_rows, card_list_text
+from .text_input import TextInputAction, TextInputScreen, render_text_input
 
 _PROMPT_TTL = timedelta(minutes=30)
 
@@ -78,14 +79,21 @@ async def render_today(
 
 
 async def render_sprint(
-    message: Message, services: Services, *, page: int = 0, notice: str | None = None
+    message: Message,
+    services: Services,
+    *,
+    page: int = 0,
+    notice: str | None = None,
+    replace_message_id: int | None = None,
 ) -> None:
     """The running Sprint with its Actions, or the Planning screen that starts one."""
     async with services.sessions() as session:
         workspace = await session.get(Workspace, 1)
         active_sprint_id = workspace.active_sprint_id if workspace else None
     if active_sprint_id is None:
-        await _render_planning(message, services, notice=notice)
+        await _render_planning(
+            message, services, notice=notice, replace_message_id=replace_message_id
+        )
         return
     async with services.sessions() as session:
         sprint = await session.get(Sprint, active_sprint_id)
@@ -117,13 +125,19 @@ async def render_sprint(
         )
         title = f"Sprint {sprint.number}"
         await session.commit()
-    await send_registered(
-        message,
-        services,
-        with_notice(card_list_text(title, current, descriptions, header=header), notice),
-        kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=rows),
-    )
+    text = with_notice(card_list_text(title, current, descriptions, header=header), notice)
+    markup = InlineKeyboardMarkup(inline_keyboard=rows)
+    if replace_message_id is not None:
+        await edit_registered_message(
+            message,
+            services,
+            replace_message_id,
+            text,
+            kind=MessageKind.DASHBOARD,
+            markup=markup,
+        )
+    else:
+        await send_registered(message, services, text, kind=MessageKind.DASHBOARD, markup=markup)
 
 
 async def render_sprint_criteria_prompt(
@@ -135,41 +149,21 @@ async def render_sprint_criteria_prompt(
         if workspace is None or workspace.active_sprint_id:
             raise DomainError("A Sprint is already running")
         current = workspace.sprint_success_criteria.strip()
-        await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
-        session.add(
-            UiSession(
-                owner_id=services.owner_id,
-                kind="sprint_criteria",
-                state={"message_id": message.message_id},
-                expires_at=datetime.now(UTC) + _PROMPT_TTL,
-            )
-        )
-        rows: list[list[InlineKeyboardButton]] = []
-        if current:
-            rows.append(
-                [
-                    await token_button(
-                        session, services.owner_id, "✅ Leave current", "sprint_confirm"
-                    )
-                ]
-            )
-        rows.append([await token_button(session, services.owner_id, "↩️ Back", "sprint_back")])
-        await session.commit()
-    body = (
-        f"<b>Current Success criteria</b>\n{html.escape(current)}\n\n"
-        if current
-        else "<b>Success criteria</b>\n"
-    )
-    await send_registered(
+    await render_text_input(
         message,
         services,
-        with_notice(
-            body + "Send what this Sprint must achieve. It is what the Sprint is judged against.",
-            notice,
+        screen=TextInputScreen(
+            title="Sprint Success criteria",
+            current_value=current,
+            instruction="Send what this Sprint must achieve. It is what the Sprint is judged against.",
+            back_action="sprint_back",
+            back_payload={},
+            extra_actions=(
+                (TextInputAction("✅ Continue to plan", "sprint_confirm", {}),) if current else ()
+            ),
         ),
-        kind=MessageKind.CARD_EDITOR,
-        markup=InlineKeyboardMarkup(inline_keyboard=rows),
-        replace=False,
+        state={"flow": "sprint"},
+        notice=notice,
     )
 
 
@@ -240,7 +234,11 @@ async def render_sprint_confirm(
 
 
 async def _render_planning(
-    message: Message, services: Services, *, notice: str | None = None
+    message: Message,
+    services: Services,
+    *,
+    notice: str | None = None,
+    replace_message_id: int | None = None,
 ) -> None:
     async with services.sessions() as session:
         workspace = await session.get(Workspace, 1)
@@ -269,18 +267,24 @@ async def _render_planning(
         if capacity and selected_effort > capacity
         else ""
     )
-    await send_registered(
-        message,
-        services,
-        with_notice(
-            "<b>Planning</b>\nActions in Sprint and Today are preselected for the next Sprint.\n"
-            f"Success criteria: {html.escape(criteria) if criteria else 'not set yet'}\n"
-            f"Selected effort: {selected_effort} EP{warning}",
-            notice,
-        ),
-        kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=[[start], menu_row()]),
+    text = with_notice(
+        "<b>Planning</b>\nActions in Sprint and Today are preselected for the next Sprint.\n"
+        f"Success criteria: {html.escape(criteria) if criteria else 'not set yet'}\n"
+        f"Selected effort: {selected_effort} EP{warning}",
+        notice,
     )
+    markup = InlineKeyboardMarkup(inline_keyboard=[[start], menu_row()])
+    if replace_message_id is not None:
+        await edit_registered_message(
+            message,
+            services,
+            replace_message_id,
+            text,
+            kind=MessageKind.DASHBOARD,
+            markup=markup,
+        )
+    else:
+        await send_registered(message, services, text, kind=MessageKind.DASHBOARD, markup=markup)
 
 
 async def _stage_actions(session, *stages: CardStage) -> list[Card]:  # type: ignore[no-untyped-def]

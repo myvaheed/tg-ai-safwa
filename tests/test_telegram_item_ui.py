@@ -79,7 +79,7 @@ from safwa.telegram import (
 from safwa.telegram._messaging import materialize_queued_dialogue
 from safwa.telegram._presentation import start_payload
 from safwa.telegram.commands import command_settings, command_start
-from safwa.telegram.reminders import render_reminders
+from safwa.telegram.reminders import render_reminder, render_reminders
 from safwa.telegram.screens import OPENABLE_MODELS
 from safwa.telegram.sprint import render_sprint_confirm
 
@@ -539,9 +539,26 @@ async def test_tag_field_input_reuses_editor_message_and_deletes_input(sessions)
         item_id=None,
         field="name",
     )
+    prompt_id, prompt_text, prompt_markup = callback.bot.edits[-1]
+    assert prompt_id == 30
+    assert "Current value:\n<pre>—</pre>" in prompt_text
+    assert button_texts(prompt_markup) == ["↩️ Back"]
+
+    invalid_input = FakeMessage(
+        31,
+        text="   ",
+        bot_message=False,
+        bot=callback.bot,
+    )
+    await ordinary_text(invalid_input, services)
+
+    assert invalid_input.was_deleted is True
+    assert "Tag name cannot be empty" in callback.bot.edits[-1][1]
+    async with sessions() as session:
+        assert (await session.scalar(select(UiSession))).kind == "text_input"
 
     user_input = FakeMessage(
-        31,
+        32,
         text="Family",
         bot_message=False,
         bot=callback.bot,
@@ -557,7 +574,7 @@ async def test_tag_field_input_reuses_editor_message_and_deletes_input(sessions)
         assert ui.kind == "item_editor"
         assert ui.state["values"]["name"] == "Family"
         classified = await session.scalar(
-            select(TelegramMessage).where(TelegramMessage.message_id == 31)
+            select(TelegramMessage).where(TelegramMessage.message_id == 32)
         )
         assert classified.kind == MessageKind.UI_INPUT.value
 
@@ -619,8 +636,9 @@ async def test_card_note_input_updates_same_creation_message(sessions) -> None:
         session.add(
             UiSession(
                 owner_id=42,
-                kind="card_create_text",
-                state={
+                    kind="text_input",
+                    state={
+                        "flow": "card_create",
                     "kind": "action",
                     "title": "Run",
                     "note": "",
@@ -635,8 +653,18 @@ async def test_card_note_input_updates_same_creation_message(sessions) -> None:
                     "energy_types": [],
                     "value_ids": [],
                     "tag_ids": [],
-                    "input_field": "note",
-                    "message_id": 40,
+                        "input_field": "note",
+                        "text_input": {
+                            "message_id": 40,
+                            "title": "Edit Card Note",
+                            "current_value": "",
+                            "instruction": "Send the new note.",
+                            "back_action": "card_create_view",
+                            "back_payload": {},
+                            "related_id": None,
+                            "ttl_seconds": 1800,
+                            "extra_actions": [],
+                        },
                 },
                 expires_at=datetime.now(UTC).replace(year=2030),
             )
@@ -918,8 +946,105 @@ async def test_card_text_field_prompt_replaces_creation_message(sessions) -> Non
     await callback_token_handler(FakeCallback("card-title", message), services_for(sessions))
 
     assert message.answers == []
-    assert "Set new Title" in message.edits[-1][0]
-    assert button_texts(message.edits[-1][1]) == ["↩️ Back"]
+    prompt_id, prompt_text, prompt_markup = message.bot.edits[-1]
+    assert prompt_id == 45
+    assert "<b>Edit Card Title</b>" in prompt_text
+    assert "Current value:\n<pre>—</pre>" in prompt_text
+    assert button_texts(prompt_markup) == ["↩️ Back"]
+
+    blank = FakeMessage(46, text=" ", bot_message=False, bot=message.bot)
+    await ordinary_text(blank, services_for(sessions))
+
+    assert blank.was_deleted is True
+    assert "Card title cannot be empty" in message.bot.edits[-1][1]
+    async with sessions() as session:
+        assert (await session.scalar(select(UiSession))).kind == "text_input"
+
+
+async def test_card_text_and_blocked_reason_stay_on_one_validated_editor(sessions) -> None:
+    async with sessions() as session:
+        card = await create_card(session, kind="idea", title="Original")
+        await session.commit()
+        card_id = card.id
+
+    services = services_for(sessions)
+    message = FakeMessage(47, bot_message=True)
+    await render_card(message, services, card_id)
+
+    title_button = next(
+        button
+        for row in message.edits[-1][1].inline_keyboard
+        for button in row
+        if button.text == "✏️ Title"
+    )
+    await callback_token_handler(
+        FakeCallback(title_button.callback_data.split(":", 1)[1], message), services
+    )
+    assert "Current value:\n<pre>Original</pre>" in message.bot.edits[-1][1]
+
+    invalid_title = FakeMessage(48, text=" ", bot_message=False, bot=message.bot)
+    await ordinary_text(invalid_title, services)
+    assert "Card title cannot be empty" in message.bot.edits[-1][1]
+
+    valid_title = FakeMessage(49, text="Renamed", bot_message=False, bot=message.bot)
+    await ordinary_text(valid_title, services)
+    assert valid_title.was_deleted is True
+    assert "Renamed" in message.bot.edits[-1][1]
+
+    blocked_button = next(
+        button
+        for row in message.bot.edits[-1][2].inline_keyboard
+        for button in row
+        if button.text == "🚧 Blocked"
+    )
+    await callback_token_handler(
+        FakeCallback(blocked_button.callback_data.split(":", 1)[1], message), services
+    )
+    assert "Mark Card as blocked" in message.bot.edits[-1][1]
+
+    invalid_reason = FakeMessage(50, text=" ", bot_message=False, bot=message.bot)
+    await ordinary_text(invalid_reason, services)
+    assert "Blocked description cannot be empty" in message.bot.edits[-1][1]
+
+    valid_reason = FakeMessage(51, text="Waiting for API access", bot_message=False, bot=message.bot)
+    await ordinary_text(valid_reason, services)
+    async with sessions() as session:
+        card = await session.get(Card, card_id)
+        assert (card.blocked, card.blocked_description) == (True, "Waiting for API access")
+    assert "Waiting for API access" in message.bot.edits[-1][1]
+
+
+async def test_reminder_text_requires_a_value_and_restores_its_view(sessions) -> None:
+    async with sessions() as session:
+        reminder = await create_reminder(
+            session,
+            instruction="Take a walk.",
+            schedule=resolve(interval_minutes=120, now=datetime.now(UTC), tz=ZoneInfo("UTC")),
+            tz=ZoneInfo("UTC"),
+        )
+        await session.commit()
+        reminder_id = reminder.id
+
+    services = services_for(sessions)
+    message = FakeMessage(52, bot_message=True)
+    await render_reminder(message, services, reminder_id)
+    edit = next(
+        button
+        for row in message.edits[-1][1].inline_keyboard
+        for button in row
+        if button.text == "✏️ Text"
+    )
+    await callback_token_handler(FakeCallback(edit.callback_data.split(":", 1)[1], message), services)
+    assert "Current value:\n<pre>Take a walk.</pre>" in message.bot.edits[-1][1]
+
+    invalid = FakeMessage(53, text=" ", bot_message=False, bot=message.bot)
+    await ordinary_text(invalid, services)
+    assert "Reminder text cannot be empty" in message.bot.edits[-1][1]
+
+    valid = FakeMessage(54, text="Walk around the block.", bot_message=False, bot=message.bot)
+    await ordinary_text(valid, services)
+    assert valid.was_deleted is True
+    assert "Walk around the block." in message.bot.edits[-1][1]
 
 
 async def test_manual_card_creation_uses_save_discard_and_no_parent_control(sessions) -> None:
@@ -1161,16 +1286,45 @@ async def test_starting_a_sprint_needs_criteria_then_confirms_the_plan(sessions)
 
     await callback_token_handler(FakeCallback(start.callback_data.split(":", 1)[1], message), services)
 
-    prompt = message.sent_messages[-1]
-    assert "Send what this Sprint must achieve" in prompt.text
+    prompt_id, prompt_text, prompt_markup = message.bot.edits[-1]
+    assert prompt_id == 77
+    assert "Send what this Sprint must achieve" in prompt_text
+    assert button_texts(prompt_markup) == ["↩️ Back"]
     async with sessions() as session:
-        assert (await session.scalar(select(UiSession))).kind == "sprint_criteria"
+        assert (await session.scalar(select(UiSession))).kind == "text_input"
 
-    typed = FakeMessage(78, text="Ship v2 to production", bot_message=False, bot=message.bot)
+    invalid = FakeMessage(78, text=" ", bot_message=False, bot=message.bot)
+    await ordinary_text(invalid, services)
+    assert invalid.was_deleted is True
+    assert "Success criteria cannot be empty" in message.bot.edits[-1][1]
+
+    typed = FakeMessage(79, text="Ship v2 to production", bot_message=False, bot=message.bot)
     await ordinary_text(typed, services)
 
-    confirm_text, confirm_markup = typed.answers[-1], typed.answer_markups[-1]
-    assert "Success criteria: Ship v2 to production" in confirm_text
+    planning_id, planning_text, planning_markup = message.bot.edits[-1]
+    assert planning_id == 77
+    assert "Success criteria: Ship v2 to production" in planning_text
+    assert "▶️ Start 14-day Sprint" in button_texts(planning_markup)
+
+    start_again = next(
+        button
+        for row in planning_markup.inline_keyboard
+        for button in row
+        if button.text.startswith("▶️ Start")
+    )
+    await callback_token_handler(
+        FakeCallback(start_again.callback_data.split(":", 1)[1], message), services
+    )
+    continue_button = next(
+        button
+        for row in message.bot.edits[-1][2].inline_keyboard
+        for button in row
+        if button.text == "✅ Continue to plan"
+    )
+    await callback_token_handler(
+        FakeCallback(continue_button.callback_data.split(":", 1)[1], message), services
+    )
+    confirm_text, confirm_markup = message.edits[-1]
     # Both Sprint and Today Actions are committed, so both are shown before Start.
     assert "Sprint work" in confirm_text
     assert "☀️ Today work" in confirm_text
@@ -1623,6 +1777,8 @@ async def test_the_reminders_screen_and_settings_hide_safwas_own_reminder(sessio
 @pytest.mark.parametrize(
     ("label", "typed", "field", "expected", "shown"),
     [
+        ("👤 About me", "I prefer mornings.", "about_me", "I prefer mornings.", "About me: I prefer mornings."),
+        ("🧭 Advisor instructions", "Keep plans concise.", "advisor_instructions", "Keep plans concise.", "Advisor instructions: Keep plans concise."),
         ("📔 Diary time", "07:15", "diary_time", time(7, 15), "Diary: 07:15"),
         ("📔 Diary time", "off", "diary_time", None, "Diary: off"),
         ("🧠 Memory sync", "03:00", "memory_update_time", time(3, 0), "Memory sync: 03:00"),
@@ -1647,14 +1803,15 @@ async def test_every_settings_value_is_edited_from_its_own_button(
     )
     async with sessions() as session:
         ui = await session.scalar(select(UiSession))
-        assert (ui.kind, ui.state["field"]) == ("settings_field", field)
+        assert (ui.kind, ui.state["field"]) == ("text_input", field)
+        assert "Current value:\n<pre>" in message.bot.edits[-1][1]
 
     answer = FakeMessage(921, text=typed, bot_message=False, bot=message.bot)
     await ordinary_text(answer, services)
 
     async with sessions() as session:
         assert getattr(await session.get(UserProfile, 1), field) == expected
-    assert shown in answer.answers[-1]
+    assert shown in message.bot.edits[-1][1]
 
 
 async def test_a_rejected_settings_value_reopens_its_own_prompt(sessions) -> None:
@@ -1674,9 +1831,10 @@ async def test_a_rejected_settings_value_reopens_its_own_prompt(sessions) -> Non
     answer = FakeMessage(931, text="tomorrow", bot_message=False, bot=message.bot)
     await ordinary_text(answer, services)
 
-    assert "Send a time as HH:MM" in answer.answers[-1]
+    assert answer.was_deleted is True
+    assert "Send a time as HH:MM" in message.bot.edits[-1][1]
     async with sessions() as session:
         assert (await session.get(UserProfile, 1)).diary_time == time.fromisoformat(
             DIARY_TIME_DEFAULT
         )
-        assert (await session.scalar(select(UiSession))).kind == "settings_field"
+        assert (await session.scalar(select(UiSession))).kind == "text_input"
