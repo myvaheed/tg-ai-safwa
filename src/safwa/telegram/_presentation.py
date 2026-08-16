@@ -10,7 +10,7 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from ..constants import (
-    DIARY_DATE_FORMAT,
+    DIARY_MONTH_NAMES,
     FEELING_SCORE_EMOJI,
     PAGE_SIZE,
     PROPOSAL_OUTCOME_DETAIL_LIMIT,
@@ -44,9 +44,9 @@ ENERGY_EMOJIS = {
 
 def diary_label(entry_date: date, feeling_score: int | None) -> str:
     """How a Diary day is named everywhere: on its screen, and on the link that opens it."""
-    written = entry_date.strftime(DIARY_DATE_FORMAT)
+    written = f"{entry_date.day} {DIARY_MONTH_NAMES[entry_date.month - 1]}"
     emoji = FEELING_SCORE_EMOJI.get(feeling_score) if feeling_score is not None else None
-    return f"{written} [{feeling_score} {emoji}]" if emoji else written
+    return f"{written} · {emoji}{feeling_score}" if emoji else written
 
 
 def typed_label(value: Any, emojis: dict[str, str]) -> str:
@@ -74,6 +74,11 @@ def with_notice(body: str, notice: str | None) -> str:
 
 def kind_label(value: Any) -> str:
     return typed_label(value, _KIND_EMOJIS)
+
+
+def kind_emoji(value: Any) -> str:
+    """Return the compact Card-kind marker without repeating its text label."""
+    return _KIND_EMOJIS.get(str(getattr(value, "value", value)).strip().casefold(), "")
 
 
 def category_expression(values: Any) -> str:

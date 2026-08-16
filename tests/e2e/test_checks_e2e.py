@@ -273,7 +273,7 @@ async def test_citations_link_live_items_and_drop_missing_ones(e2e_harness):
     services = _services(e2e_harness, advisor)
     await render_ai_outcome(message, services, outcome)
     text = message.rendered[-1]
-    assert f'?start=card-{card_id}">Go to the market</a>' in text
+    assert f'?start=card-{card_id}">⭐️ Go to the market · ⚡3</a>' in text
     assert f'?start=check-{check_ids[0]}">Milk</a>' in text
     # An item that no longer exists keeps its words and loses its link: the reply stays in
     # the chat for good, so a dead link would outlive every retry.

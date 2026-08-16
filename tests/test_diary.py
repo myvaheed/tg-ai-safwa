@@ -156,9 +156,9 @@ def test_a_feeling_score_belongs_to_an_entry_and_runs_from_zero_to_ten() -> None
 def test_the_scale_is_stated_once_and_the_model_never_reaches_for_zero() -> None:
     assert set(FEELING_SCORE_EMOJI) == set(range(11))
     assert "Never choose 0 yourself." in DIARY_PROMPT
-    assert diary_label(date(2026, 3, 4), 6) == "04.03.2026 [6 🙂]"
+    assert diary_label(date(2026, 3, 4), 6) == "4 марта · 🙂6"
     # A day that said nothing about how it felt is named by its date alone.
-    assert diary_label(date(2026, 3, 4), None) == "04.03.2026"
+    assert diary_label(date(2026, 3, 4), None) == "4 марта"
 
 
 async def test_a_day_holds_one_entry_and_a_later_draft_replaces_it(sessions) -> None:

@@ -431,16 +431,15 @@ def test_restore_citations_only_rewrites_safwa_deep_links() -> None:
         assert restore_citations("Milk", [MessageEntityTextUrl(0, 4, url)]) == "Milk"
 
 
-def test_a_diary_label_survives_the_brackets_its_score_is_written_in() -> None:
-    """The score rides inside the label, so the citation carries one level of nesting."""
+def test_a_compact_diary_label_round_trips_as_a_citation() -> None:
     restored = restore_citations(
-        "Тот день: 04.03.2026 [6 🙂].",
-        [MessageEntityTextUrl(10, 17, "https://t.me/x?start=diary-12")],
+        "Тот день: 4 марта · 🙂6.",
+        [MessageEntityTextUrl(10, 13, "https://t.me/x?start=diary-12")],
     )
-    assert restored == "Тот день: [04.03.2026 [6 🙂]](diary:12)."
+    assert restored == "Тот день: [4 марта · 🙂6](diary:12)."
     match = CITATION_PATTERN.search(restored)
     assert match is not None
-    assert (match[1], match[2], match[3]) == ("04.03.2026 [6 🙂]", "diary", "12")
+    assert (match[1], match[2], match[3]) == ("4 марта · 🙂6", "diary", "12")
     # An unrelated bracket pair still does not swallow the citation next to it.
     neighbour = CITATION_PATTERN.search("[note] and [Milk](check:14)")
     assert neighbour is not None and neighbour[1] == "Milk"

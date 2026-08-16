@@ -874,7 +874,10 @@ async def test_citations_become_deep_links_only_for_live_items(sessions) -> None
     async with sessions() as session:
         rendered = await render_citations(session, services, text)
 
-    assert f'<a href="https://t.me/safwa_ai_bot?start=card-{card_id}">Pull &amp; ups</a>' in rendered
+    assert (
+        f'<a href="https://t.me/safwa_ai_bot?start=card-{card_id}">⭐️ Pull-ups · ⚡1</a>'
+        in rendered
+    )
     # An archived item is as gone as a deleted one, and an unknown type is not a citation.
     assert f"[Training](tag:{tag_id})" not in rendered and "Training" in rendered
     assert "nothing" in rendered and "card-4242" not in rendered
@@ -883,6 +886,60 @@ async def test_citations_become_deep_links_only_for_live_items(sessions) -> None
     services.bot_username = ""
     async with sessions() as session:
         assert "<a href" not in await render_citations(session, services, text)
+
+
+async def test_citations_use_compact_labels_from_saved_items(sessions) -> None:
+    async with sessions() as session:
+        await (await session.connection()).run_sync(create_ai_views)
+        goal = await create_card(session, kind="goal", title="Быть здоровым")
+        action = await create_card(
+            session,
+            kind="action",
+            title="Бегать 3 км",
+            parent_id=goal.id,
+            effort_points=2,
+            categories={"self"},
+            energy_types={"physical", "social"},
+        )
+        value = await create_value(session, "Свобода")
+        tag = await create_tag(session, "Здоровье")
+        long_tag = await create_tag(session, "x" * 20)
+        request = await create_saved_request(
+            session, "План на неделю", "SELECT id FROM ai_cards WHERE kind = 'action'"
+        )
+        diary = await create_diary_entry(
+            session, entry_date=date(2026, 8, 16), body="Хороший день.", feeling_score=6
+        )
+        await session.commit()
+
+    services = services_for(sessions)
+    text = html.escape(
+        " ".join(
+            (
+                f"[goal](card:{goal.id})",
+                f"[action](card:{action.id})",
+                f"[value](value:{value.id})",
+                f"[tag](tag:{tag.id})",
+                f"[long tag](tag:{long_tag.id})",
+                f"[request](request:{request.id})",
+                f"[diary](diary:{diary.id})",
+            )
+        )
+    )
+    async with sessions() as session:
+        rendered = await render_citations(session, services, text)
+
+    expected = {
+        f"card-{goal.id}": "🎯 Быть здоровым · ⚡0/2",
+        f"card-{action.id}": "⭐️ Бегать 3 км · 💪🤝·🌱·⚡2",
+        f"value-{value.id}": "💎 Свобода",
+        f"tag-{tag.id}": "🏷 Здоровье",
+        f"tag-{long_tag.id}": f"🏷 {'x' * 18}…",
+        f"request-{request.id}": "💬 План на неделю · 1",
+        f"diary-{diary.id}": "16 августа · 🙂6",
+    }
+    for payload, label in expected.items():
+        assert f'?start={payload}">{label}</a>' in rendered
 
 
 async def test_a_diary_citation_is_named_by_the_entry_and_opens_the_whole_day(sessions) -> None:
@@ -903,20 +960,20 @@ async def test_a_diary_citation_is_named_by_the_entry_and_opens_the_whole_day(se
             session, services, html.escape(f"Тот день: [что-то своё](diary:{entry_id}).")
         )
     assert (
-        f'<a href="https://t.me/safwa_ai_bot?start=diary-{entry_id}">04.03.2026 [6 🙂]</a>'
+        f'<a href="https://t.me/safwa_ai_bot?start=diary-{entry_id}">4 марта · 🙂6</a>'
         in rendered
     )
 
-    # The bracketed score comes back out of Telegram as part of the label, and still links.
+    # The compact score comes back out of Telegram as part of the label, and still links.
     async with sessions() as session:
         assert f"?start=diary-{entry_id}" in await render_citations(
-            session, services, html.escape(f"[04.03.2026 [6 🙂]](diary:{entry_id})")
+            session, services, html.escape(f"[4 марта · 🙂6](diary:{entry_id})")
         )
 
     message = FakeMessage(970, bot_message=True)
     await open_item_screen(message, services, "diary", entry_id)
     text, markup = message.edits[-1]
-    assert "📔 04.03.2026 [6 🙂]" in text
+    assert "📔 4 марта · 🙂6" in text
     assert "Долгий день, но рынок закрыл." in text
     # The Diary is written through proposals alone, so its screen offers no control.
     assert markup is None

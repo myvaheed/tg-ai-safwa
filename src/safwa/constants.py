@@ -40,8 +40,21 @@ DIARY_DAY_TOKEN_BUDGET = 12_000
 # Local clock the Diary's system Reminder fires on out of the box; Settings moves it,
 # and `off` there removes the row.
 DIARY_TIME_DEFAULT = "22:00"
-# How a Diary day is written wherever it is named: "04.03.2026 [6 🙂]".
-DIARY_DATE_FORMAT = "%d.%m.%Y"
+# Genitive month names keep compact Diary labels natural in the Russian UI, e.g. "16 августа".
+DIARY_MONTH_NAMES = (
+    "января",
+    "февраля",
+    "марта",
+    "апреля",
+    "мая",
+    "июня",
+    "июля",
+    "августа",
+    "сентября",
+    "октября",
+    "ноября",
+    "декабря",
+)
 # How the day felt, 0-10. 5 is an ordinary day; 0 is the owner's own word, never the model's.
 FEELING_SCORE_EMOJI = {
     0: "⚫",

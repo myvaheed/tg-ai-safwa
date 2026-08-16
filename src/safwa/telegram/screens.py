@@ -6,15 +6,26 @@ import re
 from typing import Any
 
 from aiogram.types import InlineKeyboardButton, Message
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..domain import DomainError
-from ..enums import MessageKind
+from ..domain import DomainError, card_progress
+from ..enums import CardKind, MessageKind
 from ..history import CITATION_PATTERN, citation_payload, parse_citation_payload
-from ..models import Card, Check, DiaryEntry, SavedRequest, Tag, Value
+from ..models import (
+    Card,
+    CardCategory,
+    CardEnergyType,
+    Check,
+    DiaryEntry,
+    SavedRequest,
+    Tag,
+    Value,
+)
+from ..saved_requests import request_cards
 from ._core import Services
 from ._messaging import send_registered
-from ._presentation import diary_label
+from ._presentation import CATEGORY_EMOJIS, ENERGY_EMOJIS, diary_label, kind_emoji
 from .cards import render_card
 from .checks import render_check
 from .diary import render_diary
@@ -30,6 +41,72 @@ OPENABLE_MODELS: dict[str, Any] = {
     "request": SavedRequest,
     "diary": DiaryEntry,
 }
+
+CITATION_TITLE_LIMIT = 19
+
+
+def _short_citation_title(value: str) -> str:
+    """Keep a citation recognisable without letting it consume an advisor reply."""
+    title = value.strip()
+    return f"{title[: CITATION_TITLE_LIMIT - 1]}…" if len(title) > CITATION_TITLE_LIMIT else title
+
+
+def _emoji_group(values: list[str], emojis: dict[str, str]) -> str:
+    """Render a set of existing field icons in the product's established order."""
+    present = set(values)
+    return "".join(emoji for field, emoji in emojis.items() if field in present)
+
+
+def _with_citation_fields(leading: str, fields: list[str]) -> str:
+    return f"{leading} · {'·'.join(fields)}" if fields else leading
+
+
+async def _card_citation_label(session: AsyncSession, card: Card) -> str:
+    leading = f"{kind_emoji(card.kind)} {_short_citation_title(card.title)}"
+    if card.kind in {CardKind.GOAL.value, CardKind.IDEA.value}:
+        progress = await card_progress(session, card.id)
+        return _with_citation_fields(
+            leading, [f"⚡{progress['completed_effort']}/{progress['total_effort']}"]
+        )
+    if card.kind != CardKind.ACTION.value:
+        return leading
+
+    categories = list(
+        await session.scalars(
+            select(CardCategory.category).where(CardCategory.card_id == card.id)
+        )
+    )
+    energy_types = list(
+        await session.scalars(
+            select(CardEnergyType.energy_type).where(CardEnergyType.card_id == card.id)
+        )
+    )
+    fields = [
+        group
+        for group in (
+            _emoji_group(energy_types, ENERGY_EMOJIS),
+            _emoji_group(categories, CATEGORY_EMOJIS),
+            f"⚡{card.effort_points}" if card.effort_points is not None else "",
+        )
+        if group
+    ]
+    return _with_citation_fields(leading, fields)
+
+
+async def _citation_label(session: AsyncSession, item_type: str, item: Any) -> str | None:
+    """Build the fixed, compact label for item types that own their presentation."""
+    if item_type == "card":
+        return await _card_citation_label(session, item)
+    if item_type == "tag":
+        return f"🏷 {_short_citation_title(item.name)}"
+    if item_type == "value":
+        return f"💎 {_short_citation_title(item.name)}"
+    if item_type == "request":
+        matches = await request_cards(session, item.query_sql)
+        return _with_citation_fields(f"💬 {_short_citation_title(item.name)}", [str(len(matches))])
+    if item_type == "diary":
+        return diary_label(item.entry_date, item.feeling_score)
+    return None
 
 
 async def open_item_screen(
@@ -86,8 +163,8 @@ async def render_citations(session: AsyncSession, services: Services, text: str)
     validated id, never taken from the model. An item that no longer exists loses its link
     instead of leaving a dead one in a message that stays in the chat for good.
 
-    A Diary day is also *named* here rather than by the model, so the date and the score on
-    the link are always the saved ones.
+    Live Cards and saved item types are also named here rather than by the model.  That keeps
+    every link compact and gives its metadata directly from the current saved item.
     """
     matches = list(CITATION_PATTERN.finditer(text))
     if not matches:
@@ -98,11 +175,7 @@ async def render_citations(session: AsyncSession, services: Services, text: str)
             item = await session.get(OPENABLE_MODELS[item_type], item_id)
             if item is None or getattr(item, "archived_at", None) is not None:
                 continue
-            live[(item_type, item_id)] = (
-                diary_label(item.entry_date, item.feeling_score)
-                if item_type == "diary"
-                else None
-            )
+            live[(item_type, item_id)] = await _citation_label(session, item_type, item)
 
     def build(match: re.Match[str]) -> str:
         label, item_type, item_id = match[1], match[2], int(match[3])
