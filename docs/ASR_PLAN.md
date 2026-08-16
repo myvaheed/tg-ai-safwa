@@ -64,7 +64,9 @@ Consequences of this shape:
 - `history.py`, `ai/service.py`, `ai/contracts.py`, `domain.py` are **not touched**. The advisor
   never learns audio exists.
 - Transcription runs *before* `guard.acquire`, so a voice note arriving mid-generation queues as
-  plain text through the existing text-based queue, unchanged.
+  plain text through the existing text-based queue, unchanged. The lease is read after the decode,
+  never before it: a decode lasts long enough for the lease to have been taken, dropped or handed to
+  a background generation in the meantime.
 - A mis-transcription becomes permanent canonical dialogue, like a typo the owner sends. It is
   corrected by typing a correction. No confirm screen — that would be a second kind of dialogue turn
   to reason about for a case the owner can already fix in one message.

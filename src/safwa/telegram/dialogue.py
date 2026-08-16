@@ -25,7 +25,7 @@ from ..domain import (
 )
 from ..enums import MessageKind
 from ..history import HistoryEntry, register_message
-from ..models import UiSession, Workspace
+from ..models import UiSession
 from ._core import BACKGROUND_SOURCE_ID, Services, audio_payload, queue_owner_text, router
 from ._messaging import (
     delete_screen,
@@ -305,13 +305,15 @@ async def voice_message(message: Message, services: Services) -> None:
     finally:
         await progress.clear()
 
-    if (
-        services.guard.active
-        and services.guard.queue_messages
-        and services.guard.active_source_id != message.message_id
-    ):
-        await queue_owner_text(message, services, result.text, delete_source=False)
-        return
+    # The lease is settled only now: the middleware could not know what this message said
+    # until it was decoded, and a decode is long enough for the lease to have changed hands.
+    if services.guard.background:
+        services.guard.cancel()
+    if services.guard.active and services.guard.active_source_id != message.message_id:
+        if services.guard.queue_messages:
+            await queue_owner_text(message, services, result.text, delete_source=False)
+            return
+        services.guard.cancel()
 
     await dismiss_prior_ui(message, services)
     sent = await send_owner_turn(message, services, result.text)
@@ -377,14 +379,11 @@ async def run_dialogue_turn(
     as a bot message rather than as their own text.
     """
     dialogue_revision = services.guard.dialogue_revision
-    await services.guard.acquire(message.message_id, queue_messages=True)
     current_source = source
     current_request = request
     try:
+        await services.guard.acquire(message.message_id, queue_messages=True)
         while True:
-            async with services.sessions() as session:
-                workspace = await session.get(Workspace, 1)
-                starting_workspace_revision = workspace.revision
             await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
             dialogue = await services.history.dialogue(
                 message.chat.id, source_message=current_source
@@ -394,13 +393,11 @@ async def run_dialogue_turn(
                 source_message_id=current_source.message_id,
                 dialogue=dialogue,
             )
-            async with services.sessions() as session:
-                workspace = await session.get(Workspace, 1)
-                if (
-                    services.guard.dialogue_revision != dialogue_revision
-                    or workspace.revision != starting_workspace_revision
-                ):
-                    return
+            # Only the owner invalidates their own answer. The workspace revision does not:
+            # an autoapproved change bumps it from inside this very turn.
+            if services.guard.dialogue_revision != dialogue_revision:
+                logger.info("Discarding an answer the owner already moved past")
+                return
             await render_ai_outcome(message, services, outcome)
             queued = await materialize_queued_dialogue(message, services)
             if queued is None:
@@ -434,7 +431,7 @@ async def run_dialogue_turn(
             finally:
                 services.guard.release(BACKGROUND_SOURCE_ID)
     except Exception as error:
-        logger.exception("Could not handle ordinary text")
+        logger.exception("Could not complete an advisor turn")
         await send_registered(
             message,
             services,

@@ -2080,6 +2080,38 @@ async def test_single_tag_callback_never_leaves_dead_buttons_when_follow_up_fail
     assert len(provider.calls) == 2
 
 
+async def test_application_owned_saved_receipt_is_rendered_once_when_model_echoes_it(
+    e2e_harness,
+) -> None:
+    title = "Вес 65 кг к концу 2026 года"
+    receipt = f"✅ Saved — New Goal “{title}” (Backlog)"
+    advisor, provider = e2e_harness.advisor(
+        [
+            mutation_turn(("card", {"mode": "create", "kind": "goal", "title": title})),
+            f"{receipt}\n\nГотово! Твоя вторая цель добавлена.",
+        ]
+    )
+
+    first = await advisor.handle(f"Создай цель {title}")
+    assert first.proposal_id is not None
+    async with e2e_harness.sessions() as session:
+        affected_ids = await ProposalService(session).apply(first.proposal_id)
+        await session.commit()
+
+    final = await advisor.resolve_approval(
+        "proposal",
+        first.proposal_id,
+        decision="approved",
+        result={"affected_ids": affected_ids},
+    )
+
+    assert final is not None
+    assert final.message.startswith(receipt)
+    assert final.message.count(receipt) == 1
+    assert "Готово! Твоя вторая цель добавлена." in final.message
+    assert len(provider.calls) == 2
+
+
 async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
     """A multi-step request must keep every step it already took across each approval."""
     advisor, provider = e2e_harness.advisor(

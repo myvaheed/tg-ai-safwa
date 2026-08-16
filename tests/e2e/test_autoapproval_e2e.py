@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from safwa.ai.context import DialogueMessage
 from safwa.ai.provider import ProviderToolCall, ProviderTurn
 from safwa.ai.service import ProposalService
-from safwa.domain import create_card
+from safwa.domain import create_card, create_tag, create_value
 from safwa.enums import ProposalStatus
 from safwa.models import AgentStep, Card, CardTag, ChangeProposal, Tag, Value
 
@@ -40,23 +40,23 @@ def review_turn(name: str, reason: str) -> ProviderTurn:
     )
 
 
-async def test_exact_allowlisted_creation_is_autoapproved(e2e_harness):
-    request = "Create an Action named Buy milk with effort 1"
+async def action(e2e_harness, title: str = "Buy milk") -> Card:
+    async with e2e_harness.sessions() as session:
+        card = await create_card(
+            session, kind="action", title=title, stage="backlog", effort_points=1
+        )
+        await session.commit()
+        return card
+
+
+async def test_an_exact_allowlisted_edit_is_autoapproved(e2e_harness):
+    card = await action(e2e_harness)
+    request = "Rename Buy milk to Buy oat milk"
     advisor, provider = e2e_harness.advisor(
         [
-            mutation_turn(
-                (
-                    "card",
-                    {
-                        "mode": "create",
-                        "kind": "action",
-                        "title": "Buy milk",
-                        "effort_points": 1,
-                    },
-                )
-            ),
+            mutation_turn(("card", {"mode": "edit", "id": card.id, "title": "Buy oat milk"})),
             review_turn("autoapprove", "The operation and every non-default value are explicit."),
-            "Created it.",
+            "Renamed it.",
         ],
         autoapprove=True,
     )
@@ -75,65 +75,100 @@ async def test_exact_allowlisted_creation_is_autoapproved(e2e_harness):
     assert reviewer_context["owner_request"] == request
     assert reviewer_context["operation"] == {
         "entity": "card",
-        "action": "create",
-        "entity_id": None,
+        "action": "update",
+        "entity_id": card.id,
     }
-    assert reviewer_context["normalized_values"]["title"] == "Buy milk"
+    assert reviewer_context["normalized_values"]["title"] == "Buy oat milk"
 
     resolved = json.loads(
         str(next(message for message in provider.calls[2] if message["role"] == "tool")["content"])
     )
     assert resolved["status"] == "approved"
     assert resolved["approval_source"] == "auto"
-    assert resolved["autoapproval_reason"].startswith("The operation")
+    # The user pressed nothing, so the model must not report this as their decision.
+    assert resolved["next"].startswith("Safwa saved this one itself")
     async with e2e_harness.sessions() as session:
-        card = await session.scalar(select(Card))
+        stored = await session.get(Card, card.id)
         proposal = await session.scalar(select(ChangeProposal))
-        assert card is not None and card.title == "Buy milk"
+        assert stored is not None and stored.title == "Buy oat milk"
         assert proposal is not None and proposal.status == ProposalStatus.APPROVED.value
 
 
-async def test_reviewer_doubt_leaves_the_original_proposal_pending(e2e_harness):
+async def test_creation_is_never_autoapproved(e2e_harness):
     advisor, provider = e2e_harness.advisor(
         [
-            mutation_turn(("tag", {"mode": "create", "name": "Maybe work"})),
+            mutation_turn(
+                (
+                    "card",
+                    {
+                        "mode": "create",
+                        "kind": "action",
+                        "title": "Buy milk",
+                        "effort_points": 1,
+                    },
+                )
+            )
+        ],
+        autoapprove=True,
+    )
+
+    outcome = await advisor.handle("Create an Action named Buy milk with effort 1")
+
+    assert outcome.kind == "proposal"
+    # The reviewer is not even consulted: creation is not on the allowlist.
+    assert len(provider.calls) == 1
+    async with e2e_harness.sessions() as session:
+        assert await session.scalar(select(func.count(Card.id))) == 0
+
+
+async def test_reviewer_doubt_leaves_the_original_proposal_pending(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        tag = await create_tag(session, name="Work")
+        await session.commit()
+    advisor, provider = e2e_harness.advisor(
+        [
+            mutation_turn(("tag", {"mode": "edit", "id": tag.id, "name": "Maybe work"})),
             review_turn("require_review", "The requested name is not exact enough."),
         ],
         autoapprove=True,
     )
 
-    outcome = await advisor.handle("Create a suitable work tag")
+    outcome = await advisor.handle("Give the work tag a better name")
 
     assert outcome.kind == "proposal"
     assert outcome.proposal_id is not None
     assert len(provider.calls) == 2
     async with e2e_harness.sessions() as session:
-        assert await session.scalar(select(func.count(Tag.id))) == 0
+        assert (await session.get(Tag, tag.id)).name == "Work"
         proposal = await session.get(ChangeProposal, outcome.proposal_id)
         assert proposal is not None and proposal.status == ProposalStatus.PENDING.value
 
 
 async def test_batch_is_reviewed_head_first_without_a_bulk_block(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        tag = await create_tag(session, name="Work")
+        value = await create_value(session, name="Freedom")
+        await session.commit()
     advisor, provider = e2e_harness.advisor(
         [
             mutation_turn(
-                ("tag", {"mode": "create", "name": "Work"}),
-                ("value", {"mode": "create", "name": "Freedom"}),
+                ("tag", {"mode": "edit", "id": tag.id, "name": "Career"}),
+                ("value", {"mode": "edit", "id": value.id, "name": "Autonomy"}),
             ),
-            review_turn("autoapprove", "The requested Tag is exact."),
+            review_turn("autoapprove", "The requested Tag name is exact."),
             review_turn("require_review", "The requested Value needs manual review."),
         ],
         autoapprove=True,
     )
 
-    outcome = await advisor.handle("Create the Work tag and the Freedom value")
+    outcome = await advisor.handle("Rename the Work tag to Career and the Freedom value")
 
     assert outcome.kind == "proposal"
     assert outcome.proposal_id is not None
     assert len(provider.calls) == 3
     async with e2e_harness.sessions() as session:
-        assert await session.scalar(select(func.count(Tag.id))) == 1
-        assert await session.scalar(select(func.count(Value.id))) == 0
+        assert (await session.get(Tag, tag.id)).name == "Career"
+        assert (await session.get(Value, value.id)).name == "Freedom"
         batch = await session.scalar(select(AgentStep).where(AgentStep.kind == "approval_batch"))
         assert batch is not None
         assert [item["status"] for item in batch.metadata_json["queue"]] == [
@@ -144,19 +179,23 @@ async def test_batch_is_reviewed_head_first_without_a_bulk_block(e2e_harness):
 
 
 async def test_next_head_is_autoapproved_after_a_manual_save(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        tag = await create_tag(session, name="Work")
+        value = await create_value(session, name="Freedom")
+        await session.commit()
     advisor, provider = e2e_harness.advisor(
         [
             mutation_turn(
-                ("tag", {"mode": "create", "name": "Work"}),
-                ("value", {"mode": "create", "name": "Freedom"}),
+                ("tag", {"mode": "edit", "id": tag.id, "name": "Career"}),
+                ("value", {"mode": "edit", "id": value.id, "name": "Autonomy"}),
             ),
             review_turn("require_review", "Keep the first item manual."),
             review_turn("autoapprove", "The second item is an exact request match."),
-            "Both items are saved.",
+            "Both items are renamed.",
         ],
         autoapprove=True,
     )
-    first = await advisor.handle("Create the Work tag and the Freedom value")
+    first = await advisor.handle("Rename the Work tag and the Freedom value")
     assert first.proposal_id is not None
     async with e2e_harness.sessions() as session:
         affected = await ProposalService(session).apply(first.proposal_id)
@@ -167,30 +206,30 @@ async def test_next_head_is_autoapproved_after_a_manual_save(e2e_harness):
         first.proposal_id,
         decision="approved",
         result={"affected_ids": affected},
-        dialogue=[DialogueMessage(role="user", content="Create the two items")],
+        dialogue=[DialogueMessage(role="user", content="Rename the two items")],
     )
 
     assert outcome is not None and outcome.kind == "answer"
     assert "⚡ Auto-saved" in outcome.message
     assert len(provider.calls) == 4
     async with e2e_harness.sessions() as session:
-        assert await session.scalar(select(func.count(Tag.id))) == 1
-        assert await session.scalar(select(func.count(Value.id))) == 1
+        assert (await session.get(Tag, tag.id)).name == "Career"
+        assert (await session.get(Value, value.id)).name == "Autonomy"
 
 
 async def test_multi_step_request_can_be_autoapproved_one_proposal_at_a_time(e2e_harness):
-    request = "Create the Goal Enter university, create the Study tag, and link it to the Goal"
+    card = await action(e2e_harness, "Enter university")
+    async with e2e_harness.sessions() as session:
+        tag = await create_tag(session, name="Study")
+        await session.commit()
+    request = "Rename Enter university to Enrol, then link the Study tag to it"
     advisor, provider = e2e_harness.advisor(
         [
-            mutation_turn(
-                ("card", {"mode": "create", "kind": "goal", "title": "Enter university"})
-            ),
-            review_turn("autoapprove", "Creating this Goal is one correct requested part."),
-            mutation_turn(("tag", {"mode": "create", "name": "Study"})),
-            review_turn("autoapprove", "Creating this Tag is one correct requested part."),
-            mutation_turn(("card", {"mode": "link", "id": 1, "tag_id": 1})),
-            review_turn("autoapprove", "The requested Tag is linked to the requested Goal."),
-            "The Goal, Tag, and link are ready.",
+            mutation_turn(("card", {"mode": "edit", "id": card.id, "title": "Enrol"})),
+            review_turn("autoapprove", "The rename is one correct requested part."),
+            mutation_turn(("card", {"mode": "link", "id": card.id, "tag_id": tag.id})),
+            review_turn("autoapprove", "The requested Tag is linked to the requested Card."),
+            "The rename and the link are ready.",
         ],
         autoapprove=True,
     )
@@ -198,28 +237,17 @@ async def test_multi_step_request_can_be_autoapproved_one_proposal_at_a_time(e2e
     outcome = await advisor.handle(request)
 
     assert outcome.kind == "answer"
-    assert len(provider.calls) == 7
-    for call_index in (1, 3, 5):
+    assert len(provider.calls) == 5
+    for call_index in (1, 3):
         context = json.loads(str(provider.calls[call_index][1]["content"]))
         assert context["owner_request"] == request
     async with e2e_harness.sessions() as session:
-        card = await session.scalar(select(Card))
-        tag = await session.scalar(select(Tag))
-        assert card is not None and card.title == "Enter university"
-        assert tag is not None and tag.name == "Study"
+        assert (await session.get(Card, card.id)).title == "Enrol"
         assert await session.get(CardTag, (card.id, tag.id)) is not None
 
 
 async def test_non_allowlisted_operation_does_not_call_the_reviewer(e2e_harness):
-    async with e2e_harness.sessions() as session:
-        card = await create_card(
-            session,
-            kind="action",
-            title="Buy milk",
-            stage="backlog",
-            effort_points=1,
-        )
-        await session.commit()
+    card = await action(e2e_harness)
 
     advisor, provider = e2e_harness.advisor(
         [mutation_turn(("card", {"mode": "move", "id": card.id, "stage": "today"}))],

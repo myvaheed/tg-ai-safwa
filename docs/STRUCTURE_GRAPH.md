@@ -230,8 +230,8 @@ flowchart TD
 | Файл | Ответственность | Ключевые символы |
 |---|---|---|
 | [`telegram/_core.py`](../src/safwa/telegram/_core.py) | Shared services, router, generation coordination и owner middleware | `Services`, `GenerationGuard`, `OwnerAndWritingMiddleware`, `CallbackContext` |
-| [`telegram/_presentation.py`](../src/safwa/telegram/_presentation.py) | Чистые labels, text formatting, markup и paging | `Page`, menu helpers, proposal summaries, `split_telegram_text` |
-| [`telegram/_messaging.py`](../src/safwa/telegram/_messaging.py) | Все send/edit/delete operations и semantic registration | `send_registered`, `edit_registered_message`, `dismiss_prior_ui`, queue materialization |
+| [`telegram/_presentation.py`](../src/safwa/telegram/_presentation.py) | Чистые labels, text formatting, markup и paging | `Page`, menu helpers, proposal summaries, `split_telegram_text`, `name_from_about_me` |
+| [`telegram/_messaging.py`](../src/safwa/telegram/_messaging.py) | Все send/edit/delete operations и semantic registration | `send_registered`, `edit_registered_message`, `dismiss_prior_ui`, `send_owner_turn`, `owner_display_name`, queue materialization |
 | [`telegram/text_input.py`](../src/safwa/telegram/text_input.py) | Общий редактор обычного текста: Current value, Back, повторный рендер ошибки и custom validation | `TextInputScreen`, `render_text_input`, `validate_text_input`, `reject_text_input` |
 | [`telegram/cards.py`](../src/safwa/telegram/cards.py) | Card overview, creation editor, selectors и общий список Cards | `card_list_rows`, `render_dashboard`, Card render/start/sanitize functions |
 | [`telegram/sprint.py`](../src/safwa/telegram/sprint.py) | Today, Sprint dashboard и старт Sprint | `render_today`, `render_sprint`, `render_sprint_criteria_prompt`, `render_sprint_confirm` |
@@ -286,9 +286,10 @@ flowchart LR
     G --> D["bot.download"]
     D --> TR["Transcriber.transcribe"]
     TR -.->|"faster_whisper: сегменты"| P["STATUS-сообщение с процентами, затем удаляется"]
-    TR --> S["send_owner_turn: split_telegram_text + DIALOGUE_USER"]
+    TR --> L["lease: background отменяется, чужой foreground ждёт или отменяется"]
+    L --> S["send_owner_turn: owner_display_name + split_telegram_text + DIALOGUE_USER"]
     S --> RT["run_dialogue_turn"]
-    TR -.->|guard занят| Q["queue_owner_text"]
+    L -.->|guard занят и очередь открыта| Q["queue_owner_text"]
 ```
 
 ### Proposal queue

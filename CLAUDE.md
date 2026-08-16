@@ -168,8 +168,9 @@ scatters OpenRouter's sticky provider routing.
 - Effort is restricted to `EFFORT_POINTS` and required for Actions; the `Literal` in
   `ai/contracts.py` mirrors it — change both together.
 - Enums are `StrEnum` but columns store plain strings — always compare/assign `.value`.
-- Entities carry a `version`, and `workspace.revision` invalidates an in-flight AI answer.
-  `StaleStateError` is the expected failure.
+- Entities carry a `version`, and `workspace.revision` is what a pending proposal is checked against
+  before it applies. `StaleStateError` is the expected failure. Only `dialogue_revision` invalidates
+  an in-flight answer, because the answer's own autoapproved change moves `workspace.revision`.
 - Reminders are deterministic first: the scheduler only does schedule arithmetic, and the advisor
   composes the message. Safwa sends a proactive message only because a Reminder fired.
 

@@ -42,6 +42,7 @@ from ._presentation import (
     card_overview_text,
     category_expression,
     energy_expression,
+    markdown_to_telegram_html,
     proposal_change_summary,
 )
 from .screens import render_citations
@@ -384,7 +385,9 @@ async def render_ai_outcome(
         await render_proposal(message, services, outcome.proposal_id)
         return
     async with services.sessions() as session:
-        text = await render_citations(session, services, html.escape(outcome.message))
+        text = await render_citations(
+            session, services, markdown_to_telegram_html(outcome.message)
+        )
     await send_registered(
         message,
         services,

@@ -322,7 +322,7 @@ async def materialize_queued_dialogue(
     if not queued:
         return None
     request = "\n\n----\n\n".join(item.text.strip() for item in queued if item.text.strip())
-    dialogue_text = f"{services.owner_name}:\n{request}"
+    dialogue_text = f"{owner_display_name(message, services)}:\n{request}"
     sent = await send_owner_turn(message, services, request)
     placeholder_ids = [
         item.placeholder_message_id for item in queued if item.placeholder_message_id is not None
@@ -338,6 +338,19 @@ async def materialize_queued_dialogue(
     return sent, dialogue_text
 
 
+def owner_display_name(message: Message, services: Services) -> str:
+    """What to call the owner in their own dialogue turns.
+
+    The role is what the model reads, so it is always there; the Telegram name only
+    qualifies it.  A Reminder anchor carries no real `from_user`, and a bot message is not
+    the owner, so both fall back to the bare role.
+    """
+    user = message.from_user
+    if user is not None and user.id == services.owner_id and user.full_name.strip():
+        return f"User {user.full_name.strip()}"
+    return "User"
+
+
 async def send_owner_turn(message: Message, services: Services, text: str) -> Message:
     """Post the owner's words as their own dialogue turn, and return the last part.
 
@@ -345,11 +358,12 @@ async def send_owner_turn(message: Message, services: Services, text: str) -> Me
     a voice message carries none, and a queue drain, because the messages it holds were
     deleted.  Either can outgrow one Telegram message, so both are split here.
     """
+    name = owner_display_name(message, services)
     sent: Message | None = None
     for index, part in enumerate(split_telegram_text(text)):
         # `dialogue()` merges consecutive user entries into one turn, so the name belongs
         # on the first part only; repeating it would read as several turns.
-        head = f"<b>{html.escape(services.owner_name)}:</b>\n" if index == 0 else ""
+        head = f"<b>{html.escape(name)}:</b>\n" if index == 0 else ""
         sent = await send_registered(
             message,
             services,

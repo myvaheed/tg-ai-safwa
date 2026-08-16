@@ -86,7 +86,6 @@ class Settings(BaseSettings):
     telegram_bot_token: SecretStr
     telegram_bot_username: str = Field(default="", pattern=r"^[A-Za-z0-9_]*$")
     telegram_owner_id: int
-    telegram_owner_name: str = "Owner"
     telegram_api_id: int | None = None
     telegram_api_hash: SecretStr | None = None
     telegram_history_required: bool = True

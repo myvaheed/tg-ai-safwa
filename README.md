@@ -78,7 +78,8 @@ from its first seconds, which misfires on short notes and then transcribes into 
 
 Safwa answers a voice message by posting its transcript as your own dialogue turn and replying to
 that. A voice message carries no text, so the transcript is what the advisor reads; correct a bad
-one by sending the correction as your next message.
+one by sending the correction as your next message. The turn is headed `User <your Telegram display
+name>`, or just `User` when Telegram gives none.
 
 ## Tests
 

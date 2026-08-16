@@ -119,7 +119,7 @@ no underscore (the whole package is private behind `__init__.__all__`).
 - **Archive/delete**: `archive_subtree` (reversible, keeps events), `delete_subtree` (needs a second
   destructive confirmation), `archive_tag`/`archive_value` drop links atomically and clear focus.
 - **Optimistic concurrency**: every entity has `version`; `workspace.revision` bumps on mutation and
-  invalidates an in-flight AI answer. Expected failure: `StaleStateError`.
+  is what a pending proposal is checked against before it applies. Expected failure: `StaleStateError`.
 - **Audit**: `card_events` (actor, operation, before/after snapshot, correlation, sprint).
 
 ### Telegram UI
@@ -187,8 +187,11 @@ It is also the only engine that reports progress: it yields segments while decod
 size, downloads the file, transcribes it, posts the transcript with `send_owner_turn`, then hands
 the same `run_dialogue_turn` the text path uses. A voice message arriving mid-generation cannot be
 queued by the middleware, which has no text to queue, so it reaches the handler and its transcript
-is queued instead (`queue_owner_text`). `SAFWA_ASR_LANGUAGE` pins the language; left empty the
-engine detects one per message, which misfires on short notes.
+is queued instead (`queue_owner_text`). The lease is therefore settled after the decode rather than
+before it: a decode runs long enough for the lease to have changed hands, so the handler drops a
+background generation and cancels a foreground one that cannot queue, exactly as the middleware
+does for text. `SAFWA_ASR_LANGUAGE` pins the language; left empty the engine detects one per
+message, which misfires on short notes.
 
 ### AI advisor
 
@@ -234,7 +237,9 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
   item resolves (`resolve_approval` → `continue_agent_approval`) and receives all mutation and read results.
 - [ai/autoapproval.py](../src/safwa/ai/autoapproval.py) reviews only the active queue head. Its
   declarative `(entity, action)` registry optionally restricts changed fields and is the single place
-  to enable another operation. The mini-session receives the final owner request and fresh normalized
+  to enable another operation; creation is not in it, so every new item takes the review screen. An
+  auto-save says so in its own tool result, so the model reports it as done rather than as the
+  owner's decision. The mini-session receives the final owner request and fresh normalized
   diff, never dialogue history. An ineligible operation, `require_review`, or reviewer/apply failure
   leaves the original pending proposal untouched; approved auto-saves use the same transaction that
   resolves the batch item and are recorded as `⚡ Auto-saved`.
@@ -376,6 +381,8 @@ kind, related_id, event_id)` — never persona text.
   transcript is the only trace of what was said and reaches the chat as a `DIALOGUE_USER` bot
   message (`send_owner_turn`), the way queued owner text does. A monologue past
   `TELEGRAM_TEXT_LIMIT` becomes several such messages and is answered once, after the last.
+  `owner_display_name` heads the first of them `User <Telegram display name>`, or just `User` where
+  there is no owner message to read a name from.
 - Bot API and Telethon use different message-ID spaces in a private chat. Outgoing messages correlate
   by event UUID. Only owner source-message de-duplication retains the narrow ID/time heuristic because
   a bot cannot attach a marker to incoming owner text.
@@ -444,8 +451,9 @@ a schedule — see [REMINDERS_PLAN.md](REMINDERS_PLAN.md) for the full contract.
   traffic rather than only marking the answer stale. A background holder registers none — its task is a
   long-lived loop — and still stops through the revision check. Summary, reminder, and memory tasks
   reserve background leases.
-- `dialogue.ordinary_text` captures `dialogue_revision` and `workspace.revision` before generating and
-  discards the answer if either changed.
+- `run_dialogue_turn` captures `dialogue_revision` before generating and discards the answer if it
+  changed. Only the owner bumps it, through `cancel`; the workspace revision does not gate the answer,
+  because an autoapproved change bumps it from inside the very turn being rendered.
 - `OwnerAndWritingMiddleware` drops anything that is not the owner in a private chat.
 - `recover_startup` reconciles interrupted `agent_runs`, `resuming` approval batches, expired proposals,
   callback tokens, UI sessions, and Reminder schedules on every boot. `reconcile_reminders` rolls a

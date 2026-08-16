@@ -42,7 +42,7 @@ OPENABLE_MODELS: dict[str, Any] = {
     "diary": DiaryEntry,
 }
 
-CITATION_TITLE_LIMIT = 19
+CITATION_TITLE_LIMIT = 25
 
 
 def _short_citation_title(value: str) -> str:

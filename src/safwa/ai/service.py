@@ -682,6 +682,31 @@ def _safe_approval_results_summary(
         return ""
 
 
+def _compose_display_outcome(message: str, summaries: list[str]) -> str:
+    """Attach each application-owned result receipt exactly once.
+
+    The interface, rather than the model, owns Saved/Discarded/Failed receipts.  Approval
+    batches can accumulate overlapping summary blocks, and a provider may still echo the
+    canonical line despite its prompt.  Normalize those exact receipt lines here so every
+    outcome path observes the same ownership and idempotence rule.
+    """
+    receipt_lines: list[str] = []
+    for summary in summaries:
+        for raw_line in summary.splitlines():
+            line = raw_line.strip()
+            if line and line not in receipt_lines:
+                receipt_lines.append(line)
+
+    body = message.strip()
+    if not receipt_lines:
+        return body
+    receipt_set = set(receipt_lines)
+    body_lines = [line for line in body.splitlines() if line.strip() not in receipt_set]
+    body = "\n".join(body_lines).strip()
+    receipt = "\n".join(receipt_lines)
+    return f"{receipt}\n\n{body}" if body else receipt
+
+
 def _with_queued_siblings(result: Any, queued: int) -> Any:
     """Tell a failed call that the request's valid calls are still queued for review.
 
@@ -716,16 +741,19 @@ def _assistant_content_with_request_progress(
 
 _DECISION_NEXT_STEPS = {
     "approved": (
-        "This change is saved. Do not propose it again. Continue with the parts of the user's "
-        "request that are still unfinished, then answer."
+        "This change is saved. The interface reports that receipt, so do not repeat or paraphrase "
+        "it. Do not propose it again. Continue with the parts of the user's request that "
+        "are still unfinished, then answer."
     ),
     "discarded": (
-        "The user rejected this change, so it does not exist. Do not retry it unless the user "
-        "asks again. Continue with the rest of the request, then answer."
+        "The user rejected this change, so it does not exist. The interface reports that receipt, "
+        "so do not repeat or paraphrase it. Do not retry it unless the user asks again. Continue "
+        "with the rest of the request, then answer."
     ),
     "failed": (
-        "Applying this change failed, so nothing was written for it. Read `error`, fix only this "
-        "call, and retry it once; every other resolved call in this request stands."
+        "Applying this change failed, so nothing was written for it. The interface reports that "
+        "receipt, so do not repeat it. Read `error`, fix only this call, and retry it once; every "
+        "other resolved call in this request stands."
     ),
 }
 
@@ -754,6 +782,9 @@ def _resolved_tool_result(
     payload["next"] = _DECISION_NEXT_STEPS.get(
         decision, "Continue with the rest of the user's request."
     )
+    if decision == "approved" and result.get("approval_source") == "auto":
+        # The user pressed nothing, so "you saved it" would be wrong in the reply.
+        payload["next"] = "Safwa saved this one itself; the user did not decide. " + payload["next"]
     # A refused Diary draft is still on file, but only the conversation can carry its stamp
     # forward: the tool results of this turn are gone by the next one.
     stamp = dict(change.get("values") or {}).get("stamp")
@@ -2031,9 +2062,8 @@ class AIAdvisor:
                 repaired.result_summaries = list(result.result_summaries)
                 repaired.display_result_summaries = list(result.display_result_summaries)
                 if repaired.display_result_summaries:
-                    repaired.message = (
-                        "\n\n".join(repaired.display_result_summaries)
-                        + f"\n\n{repaired.message}"
+                    repaired.message = _compose_display_outcome(
+                        repaired.message, repaired.display_result_summaries
                     )
                 return await self._materialize(repaired, run_id, dialogue=dialogue)
             return AIOutcome("answer", result.message)
@@ -2264,13 +2294,10 @@ class AIAdvisor:
             if display_summary:
                 current_display_result_summaries.append(display_summary)
             if repair_exhausted:
-                message = (
-                    "\n\n".join(current_display_result_summaries) + "\n\n"
-                    if current_display_result_summaries
-                    else ""
-                ) + (
-                    "I could not prepare the remaining requested changes after five repair attempts. "
-                    "No unfinished operation was applied."
+                message = _compose_display_outcome(
+                    "I could not prepare the remaining requested changes after five repair "
+                    "attempts. No unfinished operation was applied.",
+                    current_display_result_summaries,
                 )
                 async with self.sessions() as session:
                     stored_batch = await session.get(AgentStep, batch.id)
@@ -2333,10 +2360,9 @@ class AIAdvisor:
             loop_result.result_summaries = current_result_summaries
             loop_result.display_result_summaries = current_display_result_summaries
             if loop_result.display_result_summaries:
-                loop_result.message = (
-                    "\n\n".join(loop_result.display_result_summaries)
-                    + f"\n\n{loop_result.message}"
-                ).strip()
+                loop_result.message = _compose_display_outcome(
+                    loop_result.message, loop_result.display_result_summaries
+                )
             elif not loop_result.message:
                 # The model added nothing and there is no receipt to stand in for it, so
                 # the resolved screen still has to say that the request is finished.
@@ -2367,9 +2393,11 @@ class AIAdvisor:
             if result_summary:
                 return AIOutcome(
                     "answer",
-                    f"{result_summary}\n\n"
-                    f"⚠️ Safwa could not generate its follow-up ({failure_reason(error)}). "
-                    "You can continue with a new message.",
+                    _compose_display_outcome(
+                        f"⚠️ Safwa could not generate its follow-up ({failure_reason(error)}). "
+                        "You can continue with a new message.",
+                        [result_summary],
+                    ),
                 )
             raise
 
@@ -2419,7 +2447,7 @@ class AIAdvisor:
                 tools, include_preparation_errors=False, for_display=True
             ),
         ]
-        return "\n\n".join(summary for summary in summaries if summary) or ""
+        return _compose_display_outcome("", [summary for summary in summaries if summary])
 
     async def _finish_run(
         self, run_id: int, status: str, started: float, error_code: str | None = None

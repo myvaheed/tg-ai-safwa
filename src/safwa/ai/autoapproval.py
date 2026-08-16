@@ -28,10 +28,6 @@ class AutoApprovalRule:
         return self.allowed_fields is None or set(values).issubset(self.allowed_fields)
 
 
-_CREATE_RULE = AutoApprovalRule(
-    "Approve only when creating this exact item, including every meaningful non-default value, "
-    "is clearly requested. Ordinary type defaults are acceptable."
-)
 _SCALAR_UPDATE = (
     "Approve only when every changed field and its exact new value are clearly requested. "
     "Do not infer an additional edit from what would merely be useful."
@@ -43,11 +39,9 @@ _RELATIONSHIP_LINK = (
 
 # This is the only operation allowlist. Extending autoapproval is deliberately a data change:
 # add an (entity, action) entry and, for updates, name the fields that action may alter.
+# Creation is deliberately absent: a new item is the one change the owner cannot spot as a
+# correction of something they already know, so every create takes the review screen.
 DEFAULT_AUTOAPPROVAL_RULES: dict[tuple[str, str], AutoApprovalRule] = {
-    ("card", "create"): _CREATE_RULE,
-    ("check", "create"): _CREATE_RULE,
-    ("tag", "create"): _CREATE_RULE,
-    ("value", "create"): _CREATE_RULE,
     (
         "card",
         "link",

@@ -34,7 +34,7 @@ sequenceDiagram
 
 Placeholder имеет `MessageKind.UI_INPUT` и не попадает в LLM-историю. Восстановленный текст
 отправляется ботом с `MessageKind.DIALOGUE_USER`, поэтому в истории остаётся ровно один owner-side
-turn. Имя берётся из `SAFWA_TELEGRAM_OWNER_NAME`.
+turn. Заголовок — `User <отображаемое имя в Telegram>`, либо просто `User`.
 
 Если генерация завершилась ошибкой, очередь всё равно материализуется и placeholders удаляются —
 текст не теряется. `/cancel` отменяет текущий lease и также восстанавливает очередь.

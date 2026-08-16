@@ -36,7 +36,12 @@ from safwa.domain import (
     update_profile,
 )
 from safwa.enums import CardStage, MessageKind
-from safwa.history import CITATION_TYPES, parse_citation_payload, read_kind_mark
+from safwa.history import (
+    CITATION_TYPES,
+    HistoryEntry,
+    parse_citation_payload,
+    read_kind_mark,
+)
 from safwa.models import (
     CallbackToken,
     Card,
@@ -65,6 +70,7 @@ from safwa.telegram import (
     handle_card_creation_chooser,
     open_item_screen,
     ordinary_text,
+    render_ai_outcome,
     render_card,
     render_card_choices,
     render_card_creation,
@@ -81,6 +87,7 @@ from safwa.telegram import (
 from safwa.telegram._messaging import materialize_queued_dialogue
 from safwa.telegram._presentation import start_payload
 from safwa.telegram.commands import command_settings, command_start
+from safwa.telegram.dialogue import run_dialogue_turn
 from safwa.telegram.reminders import render_reminder, render_reminders
 from safwa.telegram.screens import OPENABLE_MODELS
 from safwa.telegram.sprint import render_sprint_confirm
@@ -231,7 +238,7 @@ class FakeMessage:
         self.video_note = None
         self.bot = bot or FakeBot()
         self.chat = SimpleNamespace(id=chat_id, type="private")
-        self.from_user = SimpleNamespace(id=42, is_bot=bot_message)
+        self.from_user = SimpleNamespace(id=42, is_bot=bot_message, full_name="Name Surname")
         self.date = datetime.now(UTC)
         self.edits: list[tuple[str, object | None]] = []
         self.answers: list[str] = []
@@ -291,7 +298,6 @@ def services_for(sessions, *, advisor=None, transcriber=None):
     return SimpleNamespace(
         sessions=sessions,
         owner_id=42,
-        owner_name="Name Surname",
         guard=GenerationGuard(),
         bot_username="safwa_ai_bot",
         advisor=advisor,
@@ -358,10 +364,10 @@ async def test_messages_are_queued_with_placeholders_and_restored_as_one_turn(
 
     assert restored is not None
     sent, request = restored
-    assert request == "Name Surname:\nFirst queued request\n\n----\n\nSecond queued request"
+    assert request == "User Name Surname:\nFirst queued request\n\n----\n\nSecond queued request"
     assert read_kind_mark(sent.text) == (
         MessageKind.DIALOGUE_USER.value,
-        "<b>Name Surname:</b>\nFirst queued request\n\n----\n\nSecond queued request",
+        "<b>User Name Surname:</b>\nFirst queued request\n\n----\n\nSecond queued request",
     )
     assert first.bot.deleted_batches == [[1002, 1003]]
 
@@ -903,7 +909,7 @@ async def test_citations_use_compact_labels_from_saved_items(sessions) -> None:
         )
         value = await create_value(session, "Свобода")
         tag = await create_tag(session, "Здоровье")
-        long_tag = await create_tag(session, "x" * 20)
+        long_tag = await create_tag(session, "x" * 26)
         request = await create_saved_request(
             session, "План на неделю", "SELECT id FROM ai_cards WHERE kind = 'action'"
         )
@@ -934,12 +940,40 @@ async def test_citations_use_compact_labels_from_saved_items(sessions) -> None:
         f"card-{action.id}": "⭐️ Бегать 3 км · 💪🤝·🌱·⚡2",
         f"value-{value.id}": "💎 Свобода",
         f"tag-{tag.id}": "🏷 Здоровье",
-        f"tag-{long_tag.id}": f"🏷 {'x' * 18}…",
+        f"tag-{long_tag.id}": f"🏷 {'x' * 24}…",
         f"request-{request.id}": "💬 План на неделю · 1",
         f"diary-{diary.id}": "16 августа · 🙂6",
     }
     for payload, label in expected.items():
         assert f'?start={payload}">{label}</a>' in rendered
+
+
+async def test_ai_markdown_is_rendered_as_safe_html_around_live_citations(sessions) -> None:
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Быть здоровым")
+        await session.commit()
+        goal_id = goal.id
+
+    message = FakeMessage(949, bot_message=False)
+    await render_ai_outcome(
+        message,
+        services_for(sessions),
+        AIOutcome(
+            "answer",
+            f"Это **важно**: **[цель](card:{goal_id})**; *курсив*, ~~нет~~, "
+            "`x < y` и <script>.",
+        ),
+    )
+    _kind, visible = read_kind_mark(message.answers[-1])
+
+    assert "<b>важно</b>" in visible
+    assert f'<b><a href="https://t.me/safwa_ai_bot?start=card-{goal_id}">' in visible
+    assert "</a></b>" in visible
+    assert "<i>курсив</i>" in visible
+    assert "<s>нет</s>" in visible
+    assert "<code>x &lt; y</code>" in visible
+    assert "&lt;script&gt;" in visible
+    assert "**" not in visible
 
 
 async def test_a_diary_citation_is_named_by_the_entry_and_opens_the_whole_day(sessions) -> None:
@@ -1999,8 +2033,8 @@ async def test_long_transcript_is_split_and_answered_once(sessions, monkeypatch)
     await voice_message(message, services)
 
     assert len(message.sent_messages) > 1
-    assert "Name Surname:" in message.sent_messages[0].text
-    assert all("Name Surname:" not in item.text for item in message.sent_messages[1:])
+    assert "User Name Surname:" in message.sent_messages[0].text
+    assert all("User Name Surname:" not in item.text for item in message.sent_messages[1:])
     async with sessions() as session:
         rows = list(await session.scalars(select(TelegramMessage)))
     dialogue_rows = [row for row in rows if row.kind == MessageKind.DIALOGUE_USER.value]
@@ -2106,3 +2140,117 @@ async def test_a_queued_transcript_is_previewed_and_split_on_drain(sessions) -> 
     assert all(len(item.text) <= 4_096 for item in drain_target.sent_messages)
     assert sent is drain_target.sent_messages[-1]
     assert transcript in dialogue_text
+
+
+async def test_a_transcript_keeps_its_turn_when_the_lease_changed_hands(
+    sessions, monkeypatch
+) -> None:
+    """A decode is long enough for a background generation to have taken the lease."""
+    turns = capture_dialogue_turns(monkeypatch)
+    services = services_for(sessions, transcriber=ScriptedTranscriber("Plan my week."))
+    message = voice_message_for(953)
+    assert services.guard.reserve_background()
+
+    await voice_message(message, services)
+
+    assert [request for request, _source in turns] == ["Plan my week."]
+    assert services.guard.background is False
+
+
+class TurnAdvisor:
+    """One answer, produced by a turn that saved a change the way autoapproval does."""
+
+    def __init__(self, sessions) -> None:
+        self.sessions = sessions
+
+    async def handle(self, request, *, source_message_id=None, dialogue=None):
+        del request, source_message_id, dialogue
+        async with self.sessions() as session:
+            await set_sprint_success_criteria(session, "Ship the release")
+            await session.commit()
+        return AIOutcome("answer", "⚡ Auto-saved the proposed change.")
+
+
+def turn_services(sessions):
+    services = services_for(sessions, advisor=None)
+    services.advisor = TurnAdvisor(sessions)
+    services.history = SimpleNamespace(dialogue=_empty_dialogue)
+    services.continuity = SimpleNamespace(maybe_summarize=_no_summary)
+    return services
+
+
+async def _empty_dialogue(_chat_id, *, source_message=None):
+    del source_message
+    return []
+
+
+async def _no_summary(_chat_id, _send, *, still_current=None):
+    del still_current
+
+
+async def test_an_autoapproved_change_still_reaches_the_chat(sessions) -> None:
+    """The workspace revision moves inside the turn, so it cannot invalidate the answer."""
+    services = turn_services(sessions)
+    message = FakeMessage(960, text="Save it", bot_message=False, answer_as_new=True)
+    source = HistoryEntry(
+        message_id=960,
+        sender_id=42,
+        role="user",
+        text="Save it",
+        created_at=datetime.now(UTC),
+        kind=MessageKind.DIALOGUE_USER.value,
+    )
+
+    await run_dialogue_turn(message, services, "Save it", source)
+
+    assert any("Auto-saved" in item.text for item in message.sent_messages)
+    async with sessions() as session:
+        assert (await session.get(Workspace, 1)).revision > 0
+
+
+async def test_a_cancelled_turn_is_not_rendered(sessions) -> None:
+    services = turn_services(sessions)
+    original_handle = services.advisor.handle
+
+    async def cancel_then_answer(request, *, source_message_id=None, dialogue=None):
+        services.guard.cancel()
+        return await original_handle(
+            request, source_message_id=source_message_id, dialogue=dialogue
+        )
+
+    services.advisor.handle = cancel_then_answer
+    message = FakeMessage(961, text="Save it", bot_message=False, answer_as_new=True)
+    source = HistoryEntry(
+        message_id=961,
+        sender_id=42,
+        role="user",
+        text="Save it",
+        created_at=datetime.now(UTC),
+        kind=MessageKind.DIALOGUE_USER.value,
+    )
+
+    await run_dialogue_turn(message, services, "Save it", source)
+
+    assert message.sent_messages == []
+
+
+async def test_the_owner_turn_is_headed_by_the_telegram_name(sessions, monkeypatch) -> None:
+    capture_dialogue_turns(monkeypatch)
+    services = services_for(sessions, transcriber=ScriptedTranscriber("Plan my week."))
+    message = voice_message_for(962)
+
+    await voice_message(message, services)
+
+    assert "<b>User Name Surname:</b>" in message.sent_messages[0].text
+
+
+async def test_a_turn_with_no_owner_message_is_headed_by_the_bare_role(sessions) -> None:
+    """A Reminder anchor carries no real `from_user`, so only the role is left."""
+    services = services_for(sessions)
+    services.guard.finish_queue(services.guard.begin_queue("Later, then."), None)
+    anchor = FakeMessage(964, bot_message=True, answer_as_new=True)
+    anchor.from_user = SimpleNamespace(id=1, is_bot=True, full_name="Safwa")
+
+    _sent, dialogue_text = await materialize_queued_dialogue(anchor, services)
+
+    assert dialogue_text.startswith("User:")

@@ -170,7 +170,6 @@ async def run(settings: Settings) -> None:
         continuity=continuity,
         owner_id=settings.telegram_owner_id,
         guard=guard,
-        owner_name=settings.telegram_owner_name,
         bot_username=settings.telegram_bot_username,
         transcriber=transcriber,
     )

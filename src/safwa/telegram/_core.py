@@ -54,7 +54,6 @@ class Services:
     continuity: PersonaContinuity
     owner_id: int
     guard: GenerationGuard
-    owner_name: str = "Owner"
     # Loaded from Settings; item citations stay plain text when the username is omitted.
     bot_username: str = ""
     # None when SAFWA_ASR_PROVIDER is off, which is what makes the bot text-only.
