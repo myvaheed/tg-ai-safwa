@@ -11,7 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain import DomainError, card_progress
 from ..enums import CardKind, MessageKind
-from ..history import CITATION_PATTERN, citation_payload, parse_citation_payload
+from ..history import (
+    CITATION_MARKUP,
+    CITATION_PATTERN,
+    citation_payload,
+    parse_citation_payload,
+)
 from ..models import (
     Card,
     CardCategory,
@@ -168,7 +173,7 @@ async def render_citations(session: AsyncSession, services: Services, text: str)
     """
     matches = list(CITATION_PATTERN.finditer(text))
     if not matches:
-        return text
+        return CITATION_MARKUP.sub(lambda match: match[1], text)
     live: dict[tuple[str, int], str | None] = {}
     if services.bot_username:
         for item_type, item_id in {(match[2], int(match[3])) for match in matches}:
@@ -186,7 +191,9 @@ async def render_citations(session: AsyncSession, services: Services, text: str)
         shown = html.escape(override) if override is not None else label
         return f'<a href="{link}">{shown}</a>'
 
-    return CITATION_PATTERN.sub(build, text)
+    # A target that is not an id — a stamp, a date, an invented number — never reached the
+    # pass above, and raw Markdown must not stay in a message the chat keeps for good.
+    return CITATION_MARKUP.sub(lambda match: match[1], CITATION_PATTERN.sub(build, text))
 
 
 async def report_open_failure(

@@ -105,7 +105,7 @@ async def test_a_subagent_report_reaches_the_model_without_the_entry_text(e2e_ha
 
     outcome = await advisor.handle("Запиши, как прошёл день")
 
-    assert outcome.kind == "answer"
+    assert outcome.kind == "proposal"
     result = next(
         json.loads(item["content"])
         for item in provider.calls[1]
@@ -124,9 +124,17 @@ async def test_a_subagent_report_reaches_the_model_without_the_entry_text(e2e_ha
             step.kind
             for step in await session.scalars(select(AgentStep).order_by(AgentStep.id))
         ]
-    # The advisor's run and the subagent's are separate; the hand-off links them.
-    assert [run.status for run in runs] == ["completed", "completed"]
-    assert kinds == ["subagent_read", "subagent_read", "subagent_terminal", "subagent_call"]
+    # The advisor's run and the subagent's are separate; the hand-off links them.  The
+    # advisor's own run waits, because Safwa sent the stamp for it.
+    assert [run.status for run in runs] == ["awaiting_approval", "completed"]
+    assert kinds == [
+        "subagent_read",
+        "subagent_read",
+        "subagent_terminal",
+        "subagent_call",
+        "mutation_intent",
+        "approval_batch",
+    ]
     assert diary_provider.turns == []
 
 
@@ -175,7 +183,7 @@ async def test_an_unknown_subagent_name_is_repaired_in_the_next_response(e2e_har
 
     outcome = await advisor.handle("Запиши, как прошёл день")
 
-    assert outcome.kind == "answer"
+    assert outcome.kind == "proposal"
     rejected = json.loads(
         next(item for item in provider.calls[1] if item.get("role") == "tool")["content"]
     )

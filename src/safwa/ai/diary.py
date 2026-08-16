@@ -259,15 +259,15 @@ class DiarySubagent:
             "stamp": stamp,
             # The body stays host-side: the advisor cannot edit what it never saw.
             "next": (
-                "Call propose_diary_update with this stamp in your next response. It "
-                "carries the day and the text; you have neither and must not write one."
+                "Safwa opens the review screen for this stamp itself. Answer in one or two "
+                "sentences. Never write the entry text or a diary link."
             ),
         }
         if not payload.remove:
             report["characters"] = len(payload.entry or "")
             report["feeling_score"] = payload.feeling_score
             report["remark"] = payload.remark or ""
-            report["next"] += " Say remark to the user as your own words."
+            report["next"] += " Say remark as your own words."
         return report
 
     async def _issue_stamp(

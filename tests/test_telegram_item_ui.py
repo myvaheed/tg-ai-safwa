@@ -894,6 +894,20 @@ async def test_citations_become_deep_links_only_for_live_items(sessions) -> None
         assert "<a href" not in await render_citations(session, services, text)
 
 
+async def test_a_citation_aimed_at_something_that_is_not_an_id_keeps_only_its_words(
+    sessions,
+) -> None:
+    """A stamp is not an id, and raw Markdown must never reach the chat."""
+    services = services_for(sessions)
+    text = html.escape("Записал [📅 17 августа 2026 · 🌟5](diary:wwsouhzg_fB8) за сегодня.")
+
+    async with sessions() as session:
+        rendered = await render_citations(session, services, text)
+
+    assert "diary:wwsouhzg_fB8" not in rendered and "<a href" not in rendered
+    assert "Записал 📅 17 августа 2026 · 🌟5 за сегодня." in rendered
+
+
 async def test_citations_use_compact_labels_from_saved_items(sessions) -> None:
     async with sessions() as session:
         await (await session.connection()).run_sync(create_ai_views)

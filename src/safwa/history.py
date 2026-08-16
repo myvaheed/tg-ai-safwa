@@ -123,6 +123,13 @@ CITATION_PATTERN = re.compile(
     + "|".join(CITATION_TYPES)
     + r"):(\d{1,9})\)"
 )
+# The same shape with any target: a citation the model aimed at something that is not an id
+# still has to leave the chat as words rather than as raw Markdown.
+CITATION_MARKUP = re.compile(
+    r"\[((?:[^\[\]\n]|\[[^\[\]\n]*\]){1,120})\]\((?:"
+    + "|".join(CITATION_TYPES)
+    + r"):[^)\s]{0,64}\)"
+)
 # A deep-link start payload accepts only [A-Za-z0-9_-], so the type separator differs.
 _CITATION_PAYLOAD_RE = re.compile(r"^(" + "|".join(CITATION_TYPES) + r")-(\d{1,9})$")
 _CITATION_HOSTS = frozenset({"t.me", "www.t.me", "telegram.me"})

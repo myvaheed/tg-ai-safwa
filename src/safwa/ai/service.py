@@ -163,11 +163,6 @@ MUTATION_TOOL_DESCRIPTIONS = {
         "in edit mode to change only the text and leave the schedule alone."
     ),
     "remove": "Prepare an archive or permanent Card-deletion confirmation.",
-    "propose_diary_update": (
-        "Open the Diary review UI for the change the diary subagent prepared. Send its stamp and "
-        "nothing else: the day, the text, and whether it is written or removed all come from the "
-        "stamp. A discarded change can be sent again from the same stamp."
-    ),
 }
 CALL_SUBAGENT_TOOL: dict[str, Any] = {
     "type": "function",
@@ -190,10 +185,17 @@ MUTATION_TOOLS: tuple[dict[str, Any], ...] = tuple(
         },
     }
     for name, model in MUTATION_TOOL_MODELS.items()
+    # A described tool is an offered tool: `propose_diary_update` stays a contract the
+    # runtime fills from a stamp, and the model is never asked for a stamp it cannot read.
+    if name in MUTATION_TOOL_DESCRIPTIONS
 )
 SAFWA_TOOLS = (QUERY_SAFWA_TOOL, *MUTATION_TOOLS)
 # Tools that run during the turn instead of becoming a proposal the owner approves.
 IMMEDIATE_TOOLS = frozenset({"query_safwa", "call_subagent"})
+# A subagent that settles a feature itself reports a stamp instead of the change, and one
+# mutation tool turns that stamp back into a proposal.  The mapping is what lets the runtime
+# make that call, so a feature never depends on the model remembering to.
+SUBAGENT_PROPOSAL_TOOLS = {"diary": "propose_diary_update"}
 
 
 def query_read_tool(query_runner: ReadOnlyQueryRunner) -> ReadToolSpec:
@@ -652,6 +654,20 @@ def _approval_results_summary(
             line = f"{prefix} — " + (
                 str(tool.get("display") or "") or _approval_change_label(tool)
             )
+            if status != "approved":
+                # A change that was not written can be asked for again, and a Diary draft
+                # is readable only through its stamp.  Saving spends that stamp, so the
+                # reference belongs on the outcomes that left the draft standing.
+                draft = next(
+                    (
+                        str(detail)
+                        for detail in tool.get("details") or []
+                        if str(detail).startswith("Draft: ")
+                    ),
+                    "",
+                )
+                if draft:
+                    line += f" · {draft}"
         else:
             line = f"{prefix} — {_approval_change_label(tool)}"
             affected_ids = result.get("affected_ids") or []
@@ -718,6 +734,14 @@ def _compose_display_outcome(message: str, summaries: list[str]) -> str:
     body = "\n".join(body_lines).strip()
     receipt = "\n".join(receipt_lines)
     return f"{receipt}\n\n{body}" if body else receipt
+
+
+def _stamp_debt(result: Any) -> tuple[str, str] | None:
+    """The mutation tool a subagent's stamp owes its call to, if it issued one."""
+    if not isinstance(result, dict) or not result.get("stamp"):
+        return None
+    tool_name = SUBAGENT_PROPOSAL_TOOLS.get(str(result.get("subagent", "")))
+    return (tool_name, str(result["stamp"])) if tool_name else None
 
 
 def _with_queued_siblings(result: Any, queued: int) -> Any:
@@ -787,6 +811,10 @@ def _resolved_tool_result(
     except Exception:  # a label defect must never break an already-committed change
         logger.exception("Could not label a resolved approval queue item")
     details = list(tool.get("details") or [])
+    if decision == "approved":
+        # Saving spends the draft behind a stamp, so naming it here only invites the model
+        # to quote a token that no longer opens anything.
+        details = [detail for detail in details if not str(detail).startswith("Draft: ")]
     if details:
         payload["fields"] = details
     payload["next"] = _DECISION_NEXT_STEPS.get(
@@ -795,14 +823,6 @@ def _resolved_tool_result(
     if decision == "approved" and result.get("approval_source") == "auto":
         # The user pressed nothing, so "you saved it" would be wrong in the reply.
         payload["next"] = "Safwa saved this one itself; the user did not decide. " + payload["next"]
-    # A refused Diary draft is still on file, but only the conversation can carry its stamp
-    # forward: the tool results of this turn are gone by the next one.
-    stamp = dict(change.get("values") or {}).get("stamp")
-    if change.get("entity") == "diary" and stamp and decision != "approved":
-        payload["next"] += (
-            f" End your reply with the line `Draft: {stamp}` so the diary subagent can rework "
-            "this day from it later."
-        )
     return payload
 
 
@@ -988,6 +1008,7 @@ class AIAdvisor:
         the owner has already been shown the request's results: after an approval queue
         the model may have nothing left to add, and that is not a failure.
         """
+        unspent_stamp: tuple[str, str] | None = None
         while True:
             turn = await self._provider_turn(messages)
             if turn.tool_calls:
@@ -1018,6 +1039,7 @@ class AIAdvisor:
                         result = await self._execute_query_tool(call, run_id, tool_count)
                     elif call.name == "call_subagent":
                         result = await self._execute_subagent_tool(call, run_id, tool_count)
+                        unspent_stamp = _stamp_debt(result) or unspent_stamp
                     elif has_reads and has_mutations:
                         result = {
                             "status": "error",
@@ -1084,6 +1106,52 @@ class AIAdvisor:
                     repair_rounds += 1
                 continue
 
+            if unspent_stamp:
+                # The stamp is the subagent's finished work; the advisor only relays its
+                # words.  Sending it is arithmetic, so the runtime does it rather than
+                # asking the model again for a call it already skipped once.
+                tool_count += 1
+                call = ProviderToolCall(
+                    id=f"stamp_{unspent_stamp[1]}",
+                    name=unspent_stamp[0],
+                    arguments=json.dumps({"stamp": unspent_stamp[1]}),
+                )
+                unspent_stamp = None
+                change, result = await self._execute_mutation_tool(call, run_id, tool_count)
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": turn.content or None,
+                        "tool_calls": [
+                            {
+                                "id": call.id,
+                                "type": "function",
+                                "function": {"name": call.name, "arguments": call.arguments},
+                            }
+                        ],
+                    }
+                )
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call.id,
+                        "name": call.name,
+                        "content": json.dumps(result, ensure_ascii=False, default=str),
+                    }
+                )
+                if change is None:
+                    # A stale or spent stamp is nothing the model can fix; let it answer.
+                    logger.info("Runtime stamp call rejected: %s", result.get("error"))
+                else:
+                    return AgentLoopResult(
+                        message=turn.content or "I prepared the proposed change for your review.",
+                        pending_tools=[PendingTool(call=call, result=result, change=change)],
+                        assistant_content=turn.content or None,
+                        tool_count=tool_count,
+                        repair_rounds=repair_rounds,
+                        messages=_json_safe(messages),
+                        prefix_len=prefix_len,
+                    )
             if not turn.content and not allow_silence:
                 raise DomainError("The advisor finished without a response")
             return AgentLoopResult(
@@ -1138,7 +1206,8 @@ class AIAdvisor:
                 )
             )
             await session.commit()
-        return outcome.result
+        # Which specialist answered, so an unspent stamp finds its mutation tool.
+        return {**outcome.result, "subagent": arguments.name}
 
     async def _execute_query_tool(
         self, call: ProviderToolCall, run_id: int, position: int
@@ -1151,7 +1220,7 @@ class AIAdvisor:
                     "error": f"Unknown tool: {call.name}",
                     "hint": (
                         "Call one of: query_safwa, card, check, value, tag, request, reminder, "
-                        "remove, propose_diary_update."
+                        "remove."
                     ),
                     "retryable": True,
                 }
@@ -1740,7 +1809,9 @@ class AIAdvisor:
             head = f"“{_result_value(check.title)}”" if check else f"#{change.entity_id}"
             return f"Answer Check {head} ({CHECK_OUTCOME_LABELS[outcome]})"
         if change.entity == "diary":
-            return f"{verb} Diary entry for {values.get('entry_date', '')}".strip()
+            label = f"{verb} Diary entry for {values.get('entry_date', '')}".strip()
+            score = values.get("feeling_score")
+            return label if score is None else f"{label} with feeling score {score}"
         if change.entity == "reminder":
             reminder = (
                 await session.get(Reminder, change.entity_id)

@@ -200,8 +200,8 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
 
 - Tools: two that run immediately (`IMMEDIATE_TOOLS`) — `query_safwa(sql)` and
   `call_subagent(name, request)` — plus the mutation tools `card`, `check`, `value`, `tag`, `request`,
-  `reminder`, `remove`, `propose_diary_update`
-  (`SAFWA_TOOLS`, [ai/service.py](../src/safwa/ai/service.py)).
+  `reminder`, `remove` (`SAFWA_TOOLS`, [ai/service.py](../src/safwa/ai/service.py)).
+  `propose_diary_update` is a contract without a description, so only the runtime sends it.
   `call_subagent` is offered only when a `SubagentRunner` is wired.
 - Offering an item is not a tool. The model cites it in its own prose as `[Milk](check:14)`. The six
   openable types are Card, Check, Tag, Value, Saved Request and Diary day; `render_citations`
@@ -311,6 +311,8 @@ terminal report; the terminal call *is* the answer, and prose is fed back as a r
 - `propose_diary_update(stamp)` takes nothing else: preparation reads the row back and fills in the
   change's action, target, and values. A missing or expired stamp is a retryable
   `ToolPreparationError`.
+- Sending the stamp is arithmetic, so the runtime does it: when the advisor answers without that
+  call, `_run_agent_loop` makes it (`SUBAGENT_PROPOSAL_TOOLS`) and the answer becomes the proposal.
 - Discard leaves the stamp alone, so the same change is re-offered from it. Save clears every stamp
   for that date — an older draft describes the day as it was, so re-proposing one would revert the
   save. Unspent, a stamp expires at the end of the local day it was *issued* on, so a back-dated

@@ -29,7 +29,8 @@ These are the contract. Everything below follows from them.
 6. `feeling_score` is 0–10 and may be absent. 5 is an ordinary day and the rest of the ladder is
    read against it. **0 is the owner's word alone** — the subagent never chooses it. The scale lives
    in `FEELING_SCORE_EMOJI` and the rubric in `DIARY_PROMPT`, once each.
-7. Saving goes through the ordinary proposal path: `propose_diary_update` → `ChangeProposal` → a
+7. Saving goes through the ordinary proposal path, and the runtime sends the stamp itself when the
+   advisor's answer skipped it: `propose_diary_update` → `ChangeProposal` → a
    read-only Save/Discard screen → `ProposalService.apply` → the same `domain.py` function a manual
    path would call. Every proposal screen stays exactly Save/Discard.
 8. A **stamp** proves a subagent read happened and carries the change it decided on. It is issued

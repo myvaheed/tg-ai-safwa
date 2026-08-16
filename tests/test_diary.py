@@ -13,7 +13,7 @@ from safwa.ai.contracts import DiaryReportInput, mutation_change_from_tool
 from safwa.ai.diary import DIARY_PROMPT, DiarySubagent
 from safwa.ai.mini import ReadToolSpec
 from safwa.ai.provider import ProviderToolCall, ProviderTurn
-from safwa.ai.service import MUTATION_TOOL_DESCRIPTIONS
+from safwa.ai.service import MUTATION_TOOL_DESCRIPTIONS, _approval_results_summary
 from safwa.ai.sql import ALLOWED_VIEWS
 from safwa.ai.subagents import SubagentRunner
 from safwa.constants import DIARY_TIME_DEFAULT, FEELING_SCORE_EMOJI
@@ -117,10 +117,31 @@ def test_only_the_subagent_is_told_about_the_diary_view() -> None:
 
 
 def test_the_saving_tool_carries_only_a_stamp() -> None:
-    assert "propose_diary_update" in MUTATION_TOOL_DESCRIPTIONS
+    # The runtime sends the stamp, so the model is never offered the tool.
+    assert "propose_diary_update" not in MUTATION_TOOL_DESCRIPTIONS
     change = mutation_change_from_tool("propose_diary_update", {"stamp": "s1"})
     # Date, target and action are filled in from the stamp at preparation.
     assert (change.entity, change.id, change.values) == ("diary", None, {"stamp": "s1"})
+
+
+def test_only_an_unsaved_diary_receipt_points_back_at_its_draft() -> None:
+    tool: dict[str, Any] = {
+        "change": {"entity": "diary", "action": "create", "values": {"stamp": "s1"}},
+        "display": "New Diary entry for 2026-08-16",
+        "details": ["Date: 2026-08-16", "Entry: 5 characters", "Draft: s1"],
+        "target": {"type": "proposal", "id": 1},
+    }
+    discarded = _approval_results_summary(
+        [{**tool, "result": {"status": "discarded"}}], for_display=True
+    )
+    saved = _approval_results_summary(
+        [{**tool, "result": {"status": "approved"}}], for_display=True
+    )
+
+    # The draft is still readable through its stamp, so the conversation keeps the way back.
+    assert discarded == "🗑 Discarded — New Diary entry for 2026-08-16 · Draft: s1"
+    # Saving spends every stamp for that day; naming one would send the subagent to a dead draft.
+    assert saved == "✅ Saved — New Diary entry for 2026-08-16"
 
 
 def test_a_report_names_its_day_and_exactly_one_outcome() -> None:

@@ -103,7 +103,8 @@ async def test_a_draft_travels_from_the_subagent_to_a_saved_entry(e2e_harness):
 
     outcome = await advisor.handle("Запиши, как прошёл день")
 
-    assert outcome.kind == "answer"
+    # The model answered in prose; Safwa sent the stamp for it.
+    assert outcome.kind == "proposal"
     stamp = await _newest_stamp(e2e_harness)
     affected, description = await _save(e2e_harness, stamp.stamp)
 
@@ -118,7 +119,7 @@ async def test_a_draft_travels_from_the_subagent_to_a_saved_entry(e2e_harness):
     assert "Feeling: 7" in description.fields
     assert f"Draft: {stamp.stamp}" in description.fields
     assert not any("Рынок закрыл" in field for field in description.fields)
-    assert description.summary == f"New Diary entry for {TODAY}"
+    assert description.summary == f"New Diary entry for {TODAY} with feeling score 7"
     # Saving settles the day, so the stamp behind it is spent.
     assert spent is None
 
@@ -269,19 +270,18 @@ async def test_a_resolved_diary_change_hands_back_the_stamp_and_not_the_day(e2e_
     proposal = await advisor.handle("Покажи")
     async with e2e_harness.sessions() as session:
         description = await advisor.describe_proposal(session, proposal.proposal_id or 0)
-    resolved = _resolved_tool_result(
-        {
-            "change": {"entity": "diary", "action": "create", "values": {"stamp": stamp.stamp}},
-            "details": description.fields,
-        },
-        "discarded",
-        {},
-    )
+    tool = {
+        "change": {"entity": "diary", "action": "create", "values": {"stamp": stamp.stamp}},
+        "details": description.fields,
+    }
+    discarded = _resolved_tool_result(tool, "discarded", {})
+    approved = _resolved_tool_result(tool, "approved", {})
 
-    # The advisor never reads the day, and the stamp is what survives into the conversation.
-    assert not any("Длинный день" in field for field in resolved["fields"])
-    assert f"Draft: {stamp.stamp}" in resolved["fields"]
-    assert f"`Draft: {stamp.stamp}`" in resolved["next"]
+    # The advisor never reads the day; the draft it can still rework is named by its stamp.
+    assert not any("Длинный день" in field for field in discarded["fields"])
+    assert f"Draft: {stamp.stamp}" in discarded["fields"]
+    # A saved day spent that stamp, so the model is never handed a token that opens nothing.
+    assert not any(field.startswith("Draft: ") for field in approved["fields"])
 
 
 async def test_a_reading_request_comes_back_as_an_answer_and_settles_nothing(e2e_harness):

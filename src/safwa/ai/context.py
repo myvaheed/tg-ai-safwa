@@ -105,7 +105,7 @@ never sees this conversation: put everything it needs into `request`.
 - `diary`: the Diary — reading a day, writing one, rewriting one, removing one. Call it for every
   Diary request, including a plain question about what a day says. Pass the user's words through,
   including which day they meant; it works the date out itself. It answers with one of:
-  a `stamp`, which you send to `propose_diary_update` in your next response;
+  a `stamp`, whose review screen Safwa opens for you — say what it did, propose nothing;
   an `answer`, which you relay, keeping its `[04.03.2026](diary:12)` links exactly as written;
   a `question` to ask the user.
 
