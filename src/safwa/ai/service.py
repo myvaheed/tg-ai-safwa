@@ -398,6 +398,16 @@ def _json_safe(value: Any) -> Any:
     return json.loads(json.dumps(value, ensure_ascii=False, default=str))
 
 
+def _system_note(content: str) -> dict[str, Any]:
+    """Carry a system block as owner text.
+
+    Only ``messages[0]`` may be a system message: the Qwen3.5 chat template raises
+    ``System message must be at the beginning`` on any later one.
+    """
+
+    return {"role": "user", "content": f"[System]: {content}"}
+
+
 def _cache_breakpoint(message: dict[str, Any]) -> dict[str, Any]:
     """Mark the end of a reusable prefix.
 
@@ -933,13 +943,10 @@ class AIAdvisor:
         # Anything volatile goes after the dialogue, never into a system block.
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "system",
-                "content": (
-                    f"Current planning state:\n{context.state}"
-                    f"\n\nPersistent memory:\n{memory.text}"
-                ),
-            },
+            _system_note(
+                f"Current planning state:\n{context.state}"
+                f"\n\nPersistent memory:\n{memory.text}"
+            ),
         ]
         # The history source has already bounded the window by its token budget.
         messages.extend({"role": item.role, "content": item.content} for item in dialogue)
@@ -948,7 +955,7 @@ class AIAdvisor:
             messages[1] = _cache_breakpoint(messages[1])
             if dialogue:
                 messages[-1] = _cache_breakpoint(messages[-1])
-        messages.append({"role": "system", "content": context.clock})
+        messages.append(_system_note(context.clock))
         return messages
 
     async def _provider_turn(self, messages: list[dict[str, Any]]) -> ProviderTurn:

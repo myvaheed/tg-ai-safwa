@@ -39,7 +39,9 @@
 
 - An advisor request is assembled in four positions, ordered by how often each one changes: the
   static system prompt, then current planning state plus `memory.md`, then the canonical dialogue,
-  then a trailing system message holding the current local time.
+  then a trailing block holding the current local time.
+- Only `messages[0]` is a system message. Every later context block travels as a user message
+  prefixed `[System]: ` — the Qwen3.5 chat template rejects a second system message.
 - The clock is deliberately last. **Any new volatile context belongs after the dialogue, never
   inside a system block.** A value that changes every request invalidates the whole cached prefix
   ahead of it and, on OpenRouter, also scatters sticky provider routing, which identifies a

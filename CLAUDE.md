@@ -200,6 +200,10 @@ they change, so a remote provider can cache the prefix. **New volatile context g
 dialogue, never into a system block** — one timestamp in `messages[0]` costs every cache hit and
 scatters OpenRouter's sticky provider routing.
 
+Only `messages[0]` is a system message. Any other context block goes through `_system_note`, which
+sends it as a user message prefixed `[System]: ` — the Qwen3.5 chat template raises on a second
+system message.
+
 ### Concurrency and UI state
 
 - `GenerationGuard` is the single foreground/background lease. While an answer runs, callbacks are

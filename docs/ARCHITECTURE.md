@@ -262,8 +262,9 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
   `summary`, the resolved `fields`, and a `next` instruction; the summaries the owner sees never enter
   canonical history, summaries, or memory. `_assistant_content_with_request_progress` now only serves
   batches suspended before transcripts were persisted.
-- Context has four positions: static `SYSTEM_PROMPT`; a system block with planning state and
-  `memory.text`; canonical bounded dialogue; then a trailing system block with the local clock.
+- Context has four positions: static `SYSTEM_PROMPT`; a block with planning state and
+  `memory.text`; canonical bounded dialogue; then a trailing block with the local clock. Only the
+  first is a system message; the other two are user messages prefixed `[System]: `.
   Planning state carries workspace mode, About Me, advisor instructions, active Values, available
   Tags, the Sprint with its Success criteria (or the Planning notice and the draft criteria), up to
   `CONTEXT_CRITICAL_CARD_LIMIT = 10` critical Cards with those carrying an active Value first, and —

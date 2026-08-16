@@ -13,7 +13,7 @@ token budget, ближайшим Summary и самой старой регист
 flowchart LR
     A["1. SYSTEM_PROMPT<br/>правила Safwa и tools"] --> B["2. Planning state + memory.md<br/>profile, Values, Tags, Sprint, critical, Today"]
     B --> C["3. Канонический Telegram dialogue<br/>уже ограниченный history.py"]
-    C --> D["4. Current local time<br/>последний system message"]
+    C --> D["4. Current local time<br/>последний блок [System]:"]
     D --> L["Provider complete_turn"]
 
     A -.->|cache breakpoint| CA["stable cache"]

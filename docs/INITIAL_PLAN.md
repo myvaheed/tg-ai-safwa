@@ -166,9 +166,9 @@ The model never writes SQL for mutation. Mutation tools normalize into typed pro
 AI context is assembled in four stable positions:
 
 1. the static Safwa system prompt;
-2. a system block with planning state and authoritative `memory.md`;
+2. a `[System]:` block with planning state and authoritative `memory.md`;
 3. canonical dialogue turns;
-4. a trailing system block with the current local clock.
+4. a trailing `[System]:` block with the current local clock.
 
 The static and planning blocks contain:
 

@@ -1210,7 +1210,7 @@ async def test_cacheable_prefix_is_byte_stable_across_turns(e2e_harness):
     first, second = provider.calls
     # Only the trailing clock may differ; everything before it must be reusable.
     assert first[:-1] == second[:-1]
-    assert str(first[-1]["content"]).startswith("Current local time:")
+    assert str(first[-1]["content"]).startswith("[System]: Current local time:")
 
 
 async def test_cache_breakpoints_mark_exactly_the_stable_prefix(e2e_harness):
@@ -1256,17 +1256,18 @@ async def test_advisor_sends_layered_system_blocks_and_canonical_dialogue(e2e_ha
 
     assert outcome.kind == "answer"
     messages = provider.calls[0]
+    # Only messages[0] may be a system message; later blocks travel as owner text.
     assert [message["role"] for message in messages] == [
         "system",
-        "system",
+        "user",
         "user",
         "assistant",
         "user",
-        "system",
+        "user",
     ]
     assert messages[-2]["content"] == dialogue[-1].content
     # The volatile clock is the last block so the prefix before it stays cacheable.
-    assert messages[-1]["content"].startswith("Current local time:")
+    assert messages[-1]["content"].startswith("[System]: Current local time:")
     system = str(messages[0]["content"])
     assert system == SYSTEM_PROMPT
     assert "query_safwa" in system
@@ -2177,9 +2178,9 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
     last = provider.calls[3]
     assert [message["role"] for message in last] == [
         "system",
-        "system",
         "user",
-        "system",
+        "user",
+        "user",
         "assistant",
         "tool",
         "assistant",
