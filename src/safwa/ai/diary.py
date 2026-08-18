@@ -11,9 +11,9 @@ from ..constants import DIARY_DAY_TOKEN_BUDGET, WEEKDAY_NAMES
 from .mini import ReadToolSpec
 from .provider import ProviderToolCall
 
-DIARY_PROMPT = """You keep the owner's Diary. One day, one entry, in their own voice.
+DIARY_PROMPT = """You keep the user's Diary. One day, one entry, in their own voice.
 
-1. Pick the day: today, unless the owner names another.
+1. Pick the day: today, unless the user names another.
 2. Read it from every source — work done with buttons never reaches the conversation, and how the
    day felt never reaches the database.
    - `read_day(date)` — that day's conversation.
@@ -25,22 +25,18 @@ DIARY_PROMPT = """You keep the owner's Diary. One day, one entry, in their own v
 3. Then call the tool once:
    - `diary(mode="update", date=…, pov=…, ai_comment=…, feeling_score=…)` — whether or not that day
      is written already. Fold in the saved entry: yours replaces it, so what you leave out is lost.
-   - `diary(mode="delete", date=…)` — the owner asked for that day to go.
+   - `diary(mode="delete", date=…)` — the user asked for that day to go.
    If your sources do not make the day writable, say in one sentence what is missing instead.
 
 # pov
-`pov` is the day itself, and only the owner speaks in it: first person, their words, their language.
-Never "you". No advice, no praise, no task list. Name people and items as the owner names them, and
+`pov` is the day itself, and only the user speaks in it: first person, their words, their language.
+Never "you". No advice, no praise, no task list. Name people and items as the user names them, and
 write nothing your sources do not show.
-`ai_comment` is your one line to the owner about that day — noticing, not praising.
+`ai_comment` is your one line to the user about that day — noticing, not praising.
 
 # feeling_score
 0-10: how the day felt to *them*, read from what they said about it, not from how much they
 finished. Pick the band first, then the number inside it.
-- 1-3 a bad day: something went wrong and stayed with them.
-- 4-6 close to an ordinary day: a little under, even, a little over.
-- 7-10 a good day: something went right and they said so.
-
 - 1 the worst day this month. Distressed, no way through, and they say so plainly.
 - 2 several things went wrong. Angry, grieving, or worn down by the end.
 - 3 one thing went clearly wrong and coloured the rest of the day.
@@ -52,14 +48,14 @@ finished. Pick the band first, then the number inside it.
 - 9 excited, proud, or moved. They call the day great.
 - 10 one of the best days of their life. Probably a day they will never forget.
 When two numbers both fit, take the one nearer 5. Omit `feeling_score` when the day left no sign at
-all of how it felt. Send 0 only when the owner asks for it in words. Never choose 0 yourself.
+all of how it felt. Send 0 only when the user asks for it in words. Never choose 0 yourself.
 """
 
 READ_DAY_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
         "name": "read_day",
-        "description": "One day of the owner's conversation with Safwa, oldest first.",
+        "description": "One day of the user's conversation with Safwa, oldest first.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -114,7 +110,7 @@ def day_read_tool(
         )
         return {
             "date": day.isoformat(),
-            "conversation": transcript or "The owner said nothing to Safwa that day.",
+            "conversation": transcript or "The user said nothing to Safwa that day.",
         }
 
     return ReadToolSpec(READ_DAY_TOOL, read_day)

@@ -90,7 +90,7 @@ async def test_a_routed_subagent_hands_its_words_back_and_the_advisor_speaks(e2e
     assert outcome.message == "Готово — [08.03.2026](diary:4)."
     # It read under its own prompt, not the Advisor's.
     assert str(provider.calls[1][0]["content"]).startswith("# Safwa")
-    assert "You keep the owner's Diary" in str(provider.calls[1][0]["content"])
+    assert "You keep the user's Diary" in str(provider.calls[1][0]["content"])
     # The route call was answered in place, so the Advisor resumed where it left off.
     handed_back = json.loads(
         next(item for item in provider.calls[3] if item.get("role") == "tool")["content"]

@@ -151,7 +151,15 @@ class AgentChange(BaseModel):
 class CardToolInput(ToolInput):
     semantic_null_fields = frozenset({"parent_id"})
 
-    mode: Literal["create", "update", "move", "complete", "cancel", "reopen", "link", "unlink"]
+    mode: Literal["create", "update", "move", "complete", "cancel", "reopen", "link", "unlink"] = (
+        Field(
+            description=(
+                "move changes only the stage; update changes every other field. complete and "
+                "cancel are how a Card reaches Done and Cancelled, and reopen brings it back. "
+                "link and unlink attach one relationship type. Archiving is the remove tool."
+            )
+        )
+    )
     id: PositiveInt | None = None
     kind: Literal["goal", "idea", "action"] | None = None
     title: str | None = None
@@ -277,7 +285,12 @@ class CardToolInput(ToolInput):
 
 
 class CheckToolInput(ToolInput):
-    mode: Literal["create", "update", "complete", "cancel"]
+    mode: Literal["create", "update", "complete", "cancel"] = Field(
+        description=(
+            "complete answers the Check Passed and cancel answers it Missed; update renames it "
+            "or changes repeatable. Archiving is the remove tool."
+        )
+    )
     id: PositiveInt | None = None
     title: str | None = None
     repeatable: bool | None = None
@@ -428,7 +441,7 @@ class ReminderConfigInput(ToolInput):
 
 class NotClearEnoughInput(ToolInput):
     reason: str = Field(
-        description="The one question the owner must answer, in their words."
+        description="The one question the user must answer, in their words."
     )
 
 
@@ -437,7 +450,7 @@ class RouteInput(ToolInput):
 
 
 class DiaryToolInput(ToolInput):
-    """One day of the Diary: written in the owner's voice, or removed."""
+    """One day of the Diary: written in the user's voice, or removed."""
 
     mode: Literal["update", "delete"] = Field(
         description="update writes that day, replacing what is saved; delete removes it."
@@ -445,11 +458,11 @@ class DiaryToolInput(ToolInput):
     date: str = Field(description="The day this settles, as YYYY-MM-DD.")
     pov: str | None = Field(
         default=None,
-        description="With update: that whole day in the owner's voice. It replaces the saved entry.",
+        description="With update: that whole day in the user's voice. It replaces the saved entry.",
     )
     ai_comment: str | None = Field(
         default=None,
-        description="With update: one sentence of your own about the day, addressed to the owner.",
+        description="With update: one sentence of your own about the day, addressed to the user.",
     )
     feeling_score: int | None = Field(
         default=None,

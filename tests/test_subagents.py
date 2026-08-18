@@ -44,7 +44,7 @@ def test_the_routing_rules_name_every_subagent_that_can_be_routed_to() -> None:
 def test_a_routed_prompt_carries_the_one_persona_block() -> None:
     routed = diary_routed(StubDayReader(""))
     assert routed.prompt.startswith(PERSONA)
-    assert "You keep the owner's Diary" in routed.prompt
+    assert "You keep the user's Diary" in routed.prompt
     # Voice and citation rules are stated once, where every subagent gets the same copy.
     assert "(card:12)" in PERSONA
     assert "(diary:12)" in PERSONA
