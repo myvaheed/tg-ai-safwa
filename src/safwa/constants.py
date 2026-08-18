@@ -38,11 +38,10 @@ SESSION_IDLE_DAYS = 2
 # --- Subagents ------------------------------------------------------------
 # A subagent blocks the advisor's turn, so the clock bounds it instead of a call count.
 SUBAGENT_DEADLINE_SECONDS = 300.0
+
+SUBAGENT_HISTORY_LAST_MESSAGES = 10
 # How much of a day's conversation the Diary reader may hand back in one call.
 DIARY_DAY_TOKEN_BUDGET = 12_000
-# How much of the conversation a routed Diary session sees. It reads the day itself with
-# `read_day`; this is only enough to be told what to change about what it just proposed.
-DIARY_HISTORY_MESSAGES = 4
 # Local clock the Diary's system Reminder fires on out of the box; Settings moves it,
 # and `off` there removes the row.
 DIARY_TIME_DEFAULT = "22:00"

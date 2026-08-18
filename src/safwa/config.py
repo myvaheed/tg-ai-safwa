@@ -98,6 +98,7 @@ class Settings(BaseSettings):
     ai_timeout_seconds: float = AI_TIMEOUT_SECONDS
     ai_max_output_tokens: int = AI_MAX_OUTPUT_TOKENS
     ai_structured_output: bool = False
+    ai_tool_choice_required: bool = True
     # Left unset these follow PROVIDER_DEFAULTS for the selected ai_provider.
     ai_base_url: str | None = None
     ai_max_retries: int | None = Field(default=None, ge=0)

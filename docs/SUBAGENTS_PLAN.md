@@ -1,6 +1,6 @@
 # Safwa — Subagents (plan)
 
-**Implemented, all seven phases.** This file stays the contract: a change to the behaviour is a
+**Implemented, all eight phases.** This file stays the contract: a change to the behaviour is a
 change to this file first. Read [ARCHITECTURE.md](ARCHITECTURE.md) for how the pieces fit together
 today, and [DIARY_PLAN.md](DIARY_PLAN.md) for the one feature that is owned outright by a subagent.
 
@@ -81,7 +81,15 @@ These are the contract. Everything below follows from them.
     included: it cites `[16.08.2026](diary:12)` and the whole day opens behind the link. Owning a
     feature is owning its *writes*, so a mutation tool belongs to its subagent and the Advisor holds
     none at all.
-17. **Everything a model reads is written for a 4B–12B model.** Short, imperative, concrete; each
+17. **A subagent reads the conversation as data, never as its own turns.** The Advisor is that
+    conversation's assistant; a subagent is not, and prose sitting in the `assistant` slot is a
+    standing demonstration of answering in prose — which is the one thing a subagent must not do.
+    It gets the newest messages wrapped in `<Conversation>`, one tag per author, and none of them
+    is its own.
+18. **A subagent opens with a tool call.** It was routed to for the work, so its first turn is
+    required to call a tool. Only the first: the loop ends on a turn that calls none, so a session
+    that must always call one never ends.
+19. **Everything a model reads is written for a 4B–12B model.** Short, imperative, concrete; each
     rule stated once, in the prompt that uses it.
 
 ## Decisions taken, with the alternative that was rejected
@@ -94,7 +102,7 @@ These are the contract. Everything below follows from them.
   Advisor's message list, as if the Advisor had made them. Three things break: the Advisor sees
   `tool_calls` naming tools its own `tools` array does not hold, which a small model reconciles by
   calling them; the `pov` of a Diary day rides inside those arguments into every later hop; and each
-  route carries every earlier one, which is the opposite of what `history_messages` scopes. The
+  route carries every earlier one, which is the opposite of what the subagent window scopes. The
   receipt says what happened, in the shape the owner already reads.
 - **The subagent's prose returns instead of reaching the chat.** Two narrators split one turn into
   two half-answers, and the second one cannot see the first. Returning `text` costs a relay, and the
@@ -256,8 +264,8 @@ voice, and it is exactly the thing a correction lands on.
 - Whether that day already exists is a fact about the data, so `_resolve_diary_change` reads
   `ai_diary` and settles `update` into create or update, and refuses a `delete` of a day that was
   never written — retryably, with the sentence to say.
-- `declared context`: `history_messages = DIARY_HISTORY_MESSAGES`, no planning state. Not *none* — a
-  resumed session has to see "capitalise the name".
+- `declared context`: no planning state. The conversation window is not *none* — a resumed session
+  has to see "capitalise the name".
 - The day never travels through a tool result: the receipt carries the date, the score and a
   character count. A receipt stays in the chat and would be re-read on every later turn, while the
   draft is already held by the session that wrote it.
@@ -313,8 +321,8 @@ blind against what the first one already changed.
 
   The lines are the ones the owner reads, byte for byte and unprefixed: naming the subagent that
   produced each one would be a second receipt format for one reader. The block sits outside the
-  dialogue, so a narrow `history_messages` window cannot trim it, and it lives on the session row, so
-  a resume rebuilds it.
+  conversation, so the window cannot trim it, and it lives on the session row, so a resume rebuilds
+  it.
 - It carries facts only. What is still *unaddressed* is the Advisor's judgment and stays in the
   Advisor's transcript; the subagent reads the owner's own message for that.
 
@@ -323,7 +331,7 @@ turn adds no block at all. — covered by `test_the_second_subagent_reads_what_t
 
 ## Phase 7 — sized for the model · done
 
-The owner runs a 4B–12B model (rule 17). Prompts and receipts are the two surfaces it reads, and both
+The owner runs a 4B–12B model (rule 19). Prompts and receipts are the two surfaces it reads, and both
 are written for a reader that infers less than a large model does.
 
 - `SYSTEM_PROMPT` is 47 lines: what Safwa is, every `ai_*` view, the one rule that it reads and never
@@ -346,6 +354,33 @@ owner picked and none they did not. — covered by
 `test_the_routing_rules_name_every_subagent_that_can_be_routed_to`,
 `test_a_routed_prompt_carries_the_one_persona_block` and
 `test_the_scale_is_stated_once_and_the_model_never_reaches_for_zero`.
+
+## Phase 8 — the conversation as data · done
+
+A subagent inherits the owner'''s conversation, and every Advisor answer in it arrives in the
+`assistant` slot — the slot the subagent writes to itself. At 4B–12B that is a few-shot
+demonstration of answering in prose, and it beats a prompt that says to propose (rules 17, 18).
+
+- `conversation_block` ([history.py](../src/safwa/history.py)) renders the dialogue as one
+  `<Conversation>` element, a tag per author: `<User>`, `<Advisor>`, `<Summary>`, `<ToolResult>`,
+  each stamped `at="…"` where history stamps it. It parses the labels `_dialogue_content` and
+  `split_receipts` already write, so the Advisor'''s own context is untouched — the Advisor is the
+  assistant of that conversation and reads the roles as they are.
+- `_routed_context` sends it as one `[System]` note, so a routed session has exactly one authored
+  `assistant` message: its own tool calls.
+- `SUBAGENT_HISTORY_LAST_MESSAGES` is one window for every subagent. Per-subagent windows made the
+  board'''s the whole budget, which is the session that degraded.
+- `PERSONA` says what is true since `route` returns: the Advisor routed here and is waiting, and
+  what the subagent writes goes back to it. It used to say the opposite — answering the owner
+  directly, relayed by no one — which is the behaviour the history was demonstrating.
+- `tool_choice="required"` on the first turn of a routed session, `auto` after it, behind
+  `ai_tool_choice_required` for a server that rejects the value instead of ignoring it.
+
+**Done when** a subagent'''s context holds no prose it did not write, and its first turn must be a
+tool call. — covered by `test_conversation_block_tags_every_line_by_who_wrote_it`,
+`test_conversation_block_is_empty_when_the_conversation_is`,
+`test_a_subagent_reads_the_tail_of_the_conversation_as_tagged_data` and
+`test_a_subagent_is_required_to_open_with_a_tool_call`.
 
 ## Deferred
 

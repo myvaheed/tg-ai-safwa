@@ -6,11 +6,13 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import update
 from telethon.tl.types import MessageEntityTextUrl
 
+from safwa.ai.context import DialogueMessage
 from safwa.enums import MessageKind
 from safwa.history import (
     CITATION_PATTERN,
     HistoryEntry,
     TelegramHistorySource,
+    conversation_block,
     mark_kind,
     mark_message,
     read_kind_mark,
@@ -517,3 +519,31 @@ async def test_unmarked_bot_prose_is_excluded(sessions) -> None:
     assert [(entry.kind, entry.text) for entry in entries] == [
         (MessageKind.DIALOGUE_USER.value, "How does Safwa work?"),
     ]
+
+
+def test_conversation_block_tags_every_line_by_who_wrote_it() -> None:
+    """A reader that took no part in the conversation gets it as data, not as its turns."""
+    block = conversation_block(
+        [
+            DialogueMessage(
+                role="user",
+                content=(
+                    "[2026-08-08 12:00] [User]: Создай действие убраться в комнате\n"
+                    "[Tool result]: New Action “Убраться” (Backlog · 2 EP) — applied"
+                ),
+            ),
+            DialogueMessage(role="assistant", content="Готово!\nЧто дальше?"),
+        ]
+    )
+
+    assert block == (
+        "<Conversation>\n"
+        '<User at="2026-08-08 12:00">Создай действие убраться в комнате</User>\n'
+        "<ToolResult>New Action “Убраться” (Backlog · 2 EP) — applied</ToolResult>\n"
+        "<Advisor>Готово!\nЧто дальше?</Advisor>\n"
+        "</Conversation>"
+    )
+
+
+def test_conversation_block_is_empty_when_the_conversation_is() -> None:
+    assert conversation_block([]) == ""

@@ -15,9 +15,9 @@ from .mini import ReadToolSpec
 # Voice, language and citations are one block for every routed subagent: three copies of
 # these rules would drift into three dialects of Safwa.
 PERSONA = """# Safwa
-You are Safwa: a concise, warm personal agile advisor in one private Telegram chat. You are
-answering the owner directly, in their language, in your own words — nothing you write is
-relayed by anyone else.
+You are one part of Safwa, the owner's personal agile advisor in one private Telegram chat.
+The Advisor routed this request to you and is waiting. It writes to the owner; you do the
+work. What you write goes back to it, in the owner's language, and it answers from there.
 - Cite any item you name as a Markdown link over its type and ID: `[Go to the market](card:12)`,
   `[Milk](check:14)`, `[Health](value:3)`, `[home](tag:7)`, `[Stale Actions](request:2)`,
   `[04.03.2026](diary:12)`. Only a real numeric ID, never one you invented.
@@ -38,9 +38,6 @@ class RoutedSubagent:
     instructions: str
     read_tools: tuple[ReadToolSpec, ...] = ()
     mutation_tools: tuple[str, ...] = ()
-    # How much of the conversation it needs. None is all of it; a number is that many of
-    # the newest messages, which is enough to be told what to change about its own work.
-    history_messages: int | None = None
     # Whether the board's current state belongs in its context at all.
     planning_state: bool = False
     # The volatile line that goes after the dialogue, never into the cached prefix.

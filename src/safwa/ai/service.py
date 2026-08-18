@@ -19,6 +19,7 @@ from ..constants import (
     MAX_TOOL_CALLS,
     RECEIPT_MEANINGS,
     SUBAGENT_DEADLINE_SECONDS,
+    SUBAGENT_HISTORY_LAST_MESSAGES,
     SUSPENDED_BATCH_LOOKUP_LIMIT,
 )
 from ..domain import (
@@ -73,6 +74,7 @@ from ..enums import (
     Priority,
     ProposalStatus,
 )
+from ..history import conversation_block
 from ..memory import MemoryFileStore
 from ..models import (
     AgentRun,
@@ -1267,27 +1269,34 @@ class AIAdvisor:
         dialogue: list[dict[str, Any]],
         prior_receipts: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        """A routed subagent reads the conversation as it stands, under its own prompt.
+        """A routed subagent reads the conversation as data, under its own prompt.
 
-        Same order as the Advisor's: prompt, then state, then dialogue, then what this turn
-        has already saved, then the clock — so the stable part stays byte-identical and the
-        volatile part stays last.  The receipts sit outside the dialogue, so a narrow
-        ``history_messages`` window never trims them away.
+        Same order as the Advisor's: prompt, then state, then conversation, then what this
+        turn has already saved, then the clock — so the stable part stays byte-identical
+        and the volatile part stays last.  The receipts sit outside the conversation, so
+        the ``SUBAGENT_HISTORY_LAST_MESSAGES`` window never trims them away.
         """
         messages: list[dict[str, Any]] = [{"role": "system", "content": routed.prompt}]
         if routed.planning_state:
             async with self.sessions() as session:
                 context = await planning_context(session)
             messages.append(_system_note(f"Current planning state:\n{context.state}"))
-        window = (
-            dialogue if routed.history_messages is None else dialogue[-routed.history_messages :]
+        conversation = conversation_block(
+            [
+                DialogueMessage(role=str(item["role"]), content=str(item["content"]))
+                for item in dialogue[-SUBAGENT_HISTORY_LAST_MESSAGES:]
+            ]
         )
-        messages.extend(
-            {"role": str(item["role"]), "content": str(item["content"])} for item in window
-        )
+        if conversation:
+            messages.append(
+                _system_note(
+                    "The conversation so far, newest last. None of it is yours: read it "
+                    f"for what the owner wants changed.\n{conversation}"
+                )
+            )
         if self.cache_breakpoints:
             messages[0] = _cache_breakpoint(messages[0])
-            if window:
+            if conversation:
                 messages[-1] = _cache_breakpoint(messages[-1])
         lines = [line for line in prior_receipts or [] if line.strip()]
         if lines:
@@ -1320,6 +1329,14 @@ class AIAdvisor:
             turn = await complete_turn(
                 agent.messages,
                 tools=list(agent.tools),
+                # A subagent was routed to for the work, so its first move is the work.
+                # Only the first: the loop ends on a turn that calls no tool, and a
+                # session that must always call one never ends.
+                tool_choice=(
+                    "required"
+                    if agent.tool_count == 0 and agent.kind in self.subagents
+                    else None
+                ),
             )
         _log_provider_response(turn)
         return turn

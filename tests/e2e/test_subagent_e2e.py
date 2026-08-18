@@ -12,7 +12,6 @@ from safwa.ai.provider import ProviderToolCall, ProviderTurn
 from safwa.ai.service import ProposalService, query_read_tool
 from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.ai.subagents import RoutedSubagent
-from safwa.constants import DIARY_HISTORY_MESSAGES
 from safwa.domain import create_card, finish_action
 from safwa.enums import CardKind, CardStage
 from safwa.models import AgentRun, AgentStep, DiaryEntry
@@ -69,7 +68,6 @@ def diary_subagent(
             query_read_tool(ReadOnlyQueryRunner(harness.database_path)),
         ),
         mutation_tools=("diary",),
-        history_messages=DIARY_HISTORY_MESSAGES,
         clock=lambda: diary_clock("Europe/Istanbul"),
     )
 
@@ -245,38 +243,41 @@ async def test_the_board_owns_every_mutation_tool(e2e_harness):
     ]
 
 
-async def test_each_subagent_sees_only_the_conversation_it_declared(e2e_harness):
+async def test_a_subagent_reads_the_tail_of_the_conversation_as_tagged_data(e2e_harness):
     dialogue = [
-        DialogueMessage(role="user", content=f"[User]: сообщение {index}") for index in range(6)
+        DialogueMessage(role="user", content=f"[User]: сообщение {index}")
+        if index % 2 == 0
+        else DialogueMessage(role="assistant", content=f"ответ {index}")
+        for index in range(12)
     ]
-    board = e2e_harness.board()
-    diary = diary_subagent(e2e_harness)
     advisor, provider = e2e_harness.advisor(
-        [
-            turn(("read_day", {}), prefix="diary"),
-            "Записал.",
-            "Готово.",
-            turn(("tag", {"mode": "create", "name": "VrWalk"})),
-        ],
-        subagents=(board, diary),
+        [turn(("tag", {"mode": "create", "name": "VrWalk"}))],
+        subagents=(e2e_harness.board(),),
     )
 
-    await advisor.handle("Что в дневнике?", dialogue=dialogue)
     await advisor.handle("Заведи тег VrWalk", dialogue=dialogue)
 
-    # The Diary reads the day itself, so it needs only the tail — enough to be told what to
-    # change about what it just proposed.
-    diary_seen = [item for item in provider.calls[0] if item.get("role") == "user"]
-    assert [str(item["content"]) for item in diary_seen[:-1]] == [
-        f"[User]: сообщение {index}"
-        for index in range(6 - DIARY_HISTORY_MESSAGES, 6)
-    ]
-    assert diary.history_messages == DIARY_HISTORY_MESSAGES
-    # The board reasons about the plan, so it gets the whole window plus the board state.
-    board_seen = [str(item["content"]) for item in provider.calls[3] if item.get("role") == "user"]
-    assert board_seen[0].startswith("[System]: Current planning state:")
-    assert board_seen[1:] == [f"[User]: сообщение {index}" for index in range(6)]
-    assert board.history_messages is None
+    board_seen = [item for item in provider.calls[0] if item["role"] == "user"]
+    assert str(board_seen[0]["content"]).startswith("[System]: Current planning state:")
+    conversation = str(board_seen[1]["content"])
+    # The tail only, and every line says whose it is: the subagent said none of it, so
+    # nothing reaches it in the slot it writes to itself.
+    assert "сообщение 0" not in conversation
+    assert "<User>сообщение 2</User>" in conversation
+    assert "<Advisor>ответ 11</Advisor>" in conversation
+    assert not [item for item in provider.calls[0] if item["role"] == "assistant"]
+
+
+async def test_a_subagent_is_required_to_open_with_a_tool_call(e2e_harness):
+    advisor, provider = e2e_harness.advisor(
+        [turn(("tag", {"mode": "create", "name": "VrWalk"}))],
+        subagents=(e2e_harness.board(),),
+    )
+
+    await advisor.handle("Заведи тег VrWalk")
+
+    # The Advisor may answer in words; the session routed to for the work may not.
+    assert provider.options[0]["tool_choice"] == "required"
 
 
 async def test_route_is_not_offered_without_a_roster(e2e_harness):
@@ -432,5 +433,7 @@ async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
     diary_seen = [str(item["content"]) for item in provider.calls[-1]]
     already = next(line for line in diary_seen if line.startswith("[System]: Already saved"))
     assert "✅ Saved — Edit Action “Приготовить пиццу”" in already
-    # It sits outside the dialogue, so the four-message Diary window cannot trim it.
-    assert diary_seen.index(already) > diary_seen.index("Переименуй действие и запиши день")
+    # It sits outside the conversation, so the subagent window cannot trim it.
+    conversation = next(line for line in diary_seen if "<Conversation>" in line)
+    assert "<User>Переименуй действие и запиши день</User>" in conversation
+    assert diary_seen.index(already) > diary_seen.index(conversation)

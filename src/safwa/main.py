@@ -19,7 +19,7 @@ from .ai.sql import ReadOnlyQueryRunner, create_ai_views
 from .ai.subagents import RoutedSubagent
 from .asr import build_transcriber
 from .config import Settings
-from .constants import AI_APP_TITLE, AI_APP_URL, DIARY_HISTORY_MESSAGES
+from .constants import AI_APP_TITLE, AI_APP_URL
 from .continuity import PersonaContinuity, run_memory_maintenance
 from .db import Database, upgrade_database
 from .domain import bootstrap_workspace
@@ -92,6 +92,7 @@ async def run(settings: Settings) -> None:
             timeout_seconds=settings.ai_timeout_seconds,
             max_output_tokens=settings.ai_max_output_tokens,
             structured_output=settings.ai_structured_output,
+            tool_choice_required=settings.ai_tool_choice_required,
             max_retries=settings.resolved_ai_max_retries,
             send_temperature=settings.resolved_ai_send_temperature,
             reasoning_effort=settings.ai_reasoning_effort,
@@ -156,7 +157,6 @@ async def run(settings: Settings) -> None:
                 mutation_tools=("diary",),
                 # Enough to be told what to change about the day it just proposed; the day
                 # itself it reads with `read_day`.
-                history_messages=DIARY_HISTORY_MESSAGES,
                 clock=lambda: diary_clock(settings.timezone),
             ),
         ),

@@ -27,6 +27,7 @@ class ProviderConfig:
     max_retries: int = AI_MAX_RETRIES_LOCAL
     # Reasoning models such as openai/gpt-5.6-luna do not accept `temperature`.
     send_temperature: bool = True
+    tool_choice_required: bool = True
     reasoning_effort: str | None = None
     # Tuples keep the dataclass hashable.
     default_headers: tuple[tuple[str, str], ...] = ()
@@ -117,6 +118,7 @@ class OpenAICompatibleProvider:
         messages: list[dict[str, Any]],
         *,
         tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | None = None,
         json_schema: dict[str, Any] | None = None,
         temperature: float = 0.2,
     ) -> ProviderTurn:
@@ -137,7 +139,9 @@ class OpenAICompatibleProvider:
             }
         if tools:
             options["tools"] = tools
-            options["tool_choice"] = "auto"
+            options["tool_choice"] = (
+                tool_choice if tool_choice and self.config.tool_choice_required else "auto"
+            )
         detail = ""
         for attempt in range(1, AI_EMPTY_RESPONSE_ATTEMPTS + 1):
             response = await self.client.chat.completions.create(**options)

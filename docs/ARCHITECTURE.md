@@ -301,15 +301,22 @@ shape the Advisor runs on — its own prompt, its own tools, its own transcript,
   the caller stores the unanswered call in `state_json["awaiting_route"]` and waits, Save resumes the
   subagent, and `_deliver_to_parent` hands the receipt up until a session with no parent answers.
 - Receipts travel down as well: `_routed_context` adds one `[System]: Already saved in this request:`
-  block after the dialogue, carrying the same lines the owner reads. It is outside the dialogue, so a
-  narrow `history_messages` window cannot trim it.
+  block after the conversation, carrying the same lines the owner reads. It is outside the
+  conversation, so the window cannot trim it.
 - A routed subagent has no `route`, so there is no recursion, and it declares its own tool list —
   read tools plus the mutation tools it owns.
 - `PERSONA` is one block composed into every routed prompt: voice, the owner's language, the citation
   format. Three copies would drift into three dialects.
-- Each subagent declares how much context it needs: `history_messages` (all of it, or that many of
-  the newest messages) and `planning_state`. The Diary reads its day with `read_day`, so it takes
-  only `DIARY_HISTORY_MESSAGES` — enough to be told what to change about what it just proposed.
+- A subagent reads the conversation as **data**, never as its own turns: `conversation_block`
+  ([history.py](../src/safwa/history.py)) wraps the newest `SUBAGENT_HISTORY_LAST_MESSAGES` in
+  `<Conversation>`, one tag per author — `<User>`, `<Advisor>`, `<Summary>`, `<ToolResult>`. The
+  Advisor is that conversation's assistant and reads the roles as they are; anyone routed into it is
+  not, and prose in the `assistant` slot would demonstrate answering in prose.
+- A subagent is required to open with a tool call: `_provider_turn` sends `tool_choice="required"`
+  on the first turn of a routed session and `auto` after it, because the loop ends on a turn that
+  calls no tool. `ai_tool_choice_required` turns it off for a server that rejects the value.
+- `planning_state` is the one context knob left per subagent: the board reasons about the plan, the
+  Diary reads its day with `read_day`.
 - The routing rules are prose in `SYSTEM_PROMPT` (`# Routing`) — a static block inside the cacheable
   prefix. There is no discovery tool, so **a subagent missing from that section is never routed to**.
 - `route` resumes that subagent's saved session if it left one, and starts a new one otherwise;

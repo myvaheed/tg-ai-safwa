@@ -183,6 +183,11 @@ subagent has no `route`, so there is no recursion.
 - A session is its `agent_runs` row. `state_json` carries the dialogue, transcript, budget and
   receipts, so a suspended turn resumes from its own record rather than from the screen that
   suspended it, and `claimed_at` is what stops two resumes of the same session.
+- A subagent reads that conversation as **data**: the newest `SUBAGENT_HISTORY_LAST_MESSAGES` come
+  as one `<Conversation>` block, a tag per author, so nothing it did not write reaches it in the
+  `assistant` slot — prose there demonstrates answering in prose. The Advisor is that conversation's
+  assistant and reads the roles as they are. A routed session is also required to open with a tool
+  call; only its first turn, because the loop ends on a turn that calls none.
 - `parent_run_id` is who routed here. A screen suspends the whole chain; Save resumes the subagent,
   and its receipt resumes its caller, up to the session that has no parent.
 - A session runs until it answers in words: a turn that stops with nothing is told so and asked
