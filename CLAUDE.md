@@ -174,22 +174,29 @@ and `ProposalService.apply` calls the *same* `domain.py` functions the manual UI
 ### A session is the unit, and `route` hands one turn to another
 
 The Advisor is a session ([`AgentSession`](src/safwa/ai/service.py)); a subagent is a session of the
-same shape, reading the same conversation under its own prompt and its own tools. `route(name)` hands
-the turn over: the subagent's prose is the chat message and its proposal is the screen, with nothing
-relayed. A routed subagent has no `route`, so there is no recursion.
+same shape, reading the same conversation under its own prompt and its own tools. `route(name)` is a
+call that returns: the subagent runs, its proposal is the screen, and what comes back to the caller
+is a receipt — `did`, `text`, `error`. Only the Advisor writes to the chat, and the turn ends only
+when the Advisor answers, so a request naming two domains is two routes and one message. A routed
+subagent has no `route`, so there is no recursion.
 
 - A session is its `agent_runs` row. `state_json` carries the dialogue, transcript, budget and
   receipts, so a suspended turn resumes from its own record rather than from the screen that
   suspended it, and `claimed_at` is what stops two resumes of the same session.
+- `parent_run_id` is who routed here. A screen suspends the whole chain; Save resumes the subagent,
+  and its receipt resumes its caller, up to the session that has no parent.
+- An empty answer is not an error. The session that writes to the chat is the one that guarantees the
+  owner sees something — the receipts, or one `⚠️` line.
 - Approve and Discard resume that session directly. Words typed over the screen do not: the screen
   freezes, the session is saved, and the Advisor takes the words — so a correction reaches the session
   that wrote the refused proposal. It is saved for **one Advisor turn**: a `route` back on that turn
-  restores it, and anything else the Advisor does abandons it.
+  restores it, and anything else the Advisor does abandons it. The grace is the subagent's alone — a
+  caller interrupted mid-route is cancelled with the words that interrupted it.
 - The routing rules are prose in `SYSTEM_PROMPT`. A new subagent must be added *both* to the roster
   in [main.py](src/safwa/main.py) *and* to that section, or it is never routed to.
-- A subagent may **own** a feature outright: the Diary is read and written only by its subagent, and
-  the Advisor has neither its view nor its tool. What the Advisor must not be able to edit never
-  passes through it.
+- A subagent **owns the writes** of its feature, never the reads. The Advisor reads every `ai_*`
+  view, `ai_diary` included, and cites a day as `[16.08.2026](diary:12)`; the `diary` tool belongs to
+  its subagent, and the Advisor holds no mutation tool at all.
 
 ### Read-only SQL is triple-guarded
 

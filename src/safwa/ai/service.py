@@ -70,6 +70,7 @@ from ..enums import (
     CardStage,
     Category,
     EnergyType,
+    Priority,
     ProposalStatus,
 )
 from ..memory import MemoryFileStore
@@ -354,9 +355,13 @@ class AgentSession:
     prefix_len: int = 0
     tool_count: int = 0
     repair_rounds: int = 0
-    allow_silence: bool = False
     result_summaries: list[str] = field(default_factory=list)
     display_result_summaries: list[str] = field(default_factory=list)
+    # The session this one routed to, and the `route` call still waiting for its receipt.
+    parent_run_id: int | None = None
+    awaiting_route: dict[str, Any] | None = None
+    # What this turn had already saved when the caller routed here.
+    prior_receipts: list[str] = field(default_factory=list)
 
     @property
     def immediate(self) -> frozenset[str]:
@@ -382,6 +387,8 @@ class AgentSession:
             "repair_rounds": self.repair_rounds,
             "result_summaries": self.result_summaries,
             "display_result_summaries": self.display_result_summaries,
+            "awaiting_route": self.awaiting_route,
+            "prior_receipts": self.prior_receipts,
         }
 
     @classmethod
@@ -406,22 +413,24 @@ class AgentSession:
             dialogue=[dict(item) for item in state.get("dialogue") or []],
             tool_count=int(state.get("tool_count", 0)),
             repair_rounds=int(state.get("repair_rounds", 0)),
-            allow_silence=True,
             result_summaries=list(state.get("result_summaries") or []),
             display_result_summaries=list(state.get("display_result_summaries") or []),
+            parent_run_id=run.parent_run_id,
+            awaiting_route=state.get("awaiting_route") or None,
+            prior_receipts=list(state.get("prior_receipts") or []),
         )
         return session, [dict(item) for item in state.get("transcript") or []]
 
 
 @dataclass
 class AgentLoopResult:
-    """What one turn of a session produced: its words, its changes, or a hand-over."""
+    """What one turn of a session produced: its words, its changes, or a suspension."""
 
     message: str
     pending_tools: list[PendingTool] = field(default_factory=list)
-    # Set when the turn ended in `route`: this session wrote nothing and the named
-    # subagent owns everything the owner sees next.
-    routed_to: str | None = None
+    # Set when a subagent this session routed to opened a screen: the whole chain waits
+    # for the owner, and this is what they see meanwhile.
+    suspended: AIOutcome | None = None
 
 
 def failure_reason(error: Exception, limit: int = 160) -> str:
@@ -722,6 +731,27 @@ def _safe_approval_results_summary(
         return ""
 
 
+def _route_receipt(
+    name: str, message: str, summaries: list[str], *, error: str | None = None
+) -> dict[str, Any]:
+    """What a finished subagent hands back to whoever routed to it.
+
+    `did` is the same Saved/Discarded/Failed lines the owner reads, so there is one shape
+    of receipt in the system.  `text` is the subagent's own words with its own citations —
+    real ids the caller can reuse — and never the body of what it proposed.
+    """
+    receipt: dict[str, Any] = {
+        "subagent": name,
+        "outcome": "error" if error else "done",
+        "did": [line for summary in summaries for line in summary.splitlines() if line.strip()],
+    }
+    if message.strip():
+        receipt["text"] = message.strip()
+    if error:
+        receipt["error"] = error
+    return receipt
+
+
 def _compose_display_outcome(message: str, summaries: list[str]) -> str:
     """Attach each application-owned result receipt exactly once.
 
@@ -952,28 +982,129 @@ class AIAdvisor:
                 prefix_len=len(messages),
             )
             result = await self._run_agent_loop(agent)
-            if result.routed_to is not None:
-                # The turn belongs to the subagent from here: this session is done, and
-                # whatever the owner sees next is written by the one it handed over to.
-                await self._finish_run(run.id, "completed", started)
-                return await self._run_routed(result.routed_to, agent)
+            if result.suspended is not None:
+                # A subagent opened a screen, so this session waits for its receipt.
+                await self._suspend_for_child(agent)
+                await self._finish_run(run.id, "awaiting_approval", started)
+                return result.suspended
             outcome = await self._materialize(agent, result)
             status = "awaiting_approval" if outcome.kind == "proposal" else "completed"
             await self._finish_run(run.id, status, started)
-            # This turn answered the owner itself, so it routed nothing back: any saved
-            # subagent session was about something else and is over.
-            await self._close_lapsed_sessions(keep_run_id=None)
+            # The turn is over, so a saved subagent session it never routed back into has
+            # missed its one chance.
+            await self._close_lapsed_sessions()
             return outcome
         except Exception as error:
             logger.exception("AI advisor run failed")
             await self._finish_run(run.id, "failed", started, type(error).__name__)
             raise
 
-    async def _run_routed(self, name: str, parent: AgentSession) -> AIOutcome:
-        """Continue this turn as the named subagent, resuming its session if it has one.
+    @staticmethod
+    def _answer(agent: AgentSession, message: str) -> AIOutcome:
+        """One session's words, and — for the session the owner reads — its receipts.
+
+        A subagent's words go to whoever routed to it, so they are handed over untouched.
+        The root is the only participant that writes to the chat, which makes it the one
+        place that has to guarantee the owner is never left with nothing.
+        """
+        if agent.parent_run_id is not None:
+            return AIOutcome("answer", message)
+        composed = _compose_display_outcome(message, agent.display_result_summaries)
+        return AIOutcome(
+            "answer",
+            composed or "⚠️ Safwa had nothing to say about that. You can ask again.",
+        )
+
+    async def _suspend_for_child(self, agent: AgentSession) -> None:
+        """Store a session that is waiting on a subagent it routed to."""
+        async with self.sessions() as session:
+            run = await session.get(AgentRun, agent.run_id)
+            if run is not None:
+                run.state_json = agent.state()
+            await session.commit()
+
+    async def _answer_or_deliver(self, agent: AgentSession, outcome: AIOutcome) -> AIOutcome:
+        """End a resumed session: hand its receipt to its caller, or answer the owner."""
+        if agent.parent_run_id is None:
+            return outcome
+        receipt = _route_receipt(agent.kind, outcome.message, agent.display_result_summaries)
+        delivered = await self._deliver_to_parent(agent, receipt)
+        if delivered is not None:
+            return delivered
+        # The caller is already resuming elsewhere; the owner still gets the receipts.
+        return AIOutcome(
+            "answer",
+            _compose_display_outcome(outcome.message, agent.display_result_summaries)
+            or "✅ Done.",
+        )
+
+    async def _deliver_to_parent(
+        self, child: AgentSession, receipt: dict[str, Any]
+    ) -> AIOutcome | None:
+        """Answer the `route` call that started this session, and run its caller on.
+
+        Returns ``None`` when there is no caller — the session was the root of its turn.
+        The loop walks the whole chain, so the turn ends only when a session with no
+        parent answers.
+        """
+        agent = child
+        while agent.parent_run_id is not None:
+            started = time.monotonic()
+            async with self.sessions() as session:
+                run = await self._claim_session(session, agent.parent_run_id, held_run_id=None)
+                if run is None:
+                    logger.warning("Session #%s is already resuming", agent.parent_run_id)
+                    return None
+                parent, transcript = AgentSession.restore(
+                    run, self._tools_for(run.kind), self._read_specs_for(run.kind)
+                )
+                await session.commit()
+            waiting = dict(parent.awaiting_route or {})
+            parent.awaiting_route = None
+            parent.display_result_summaries.extend(
+                str(line) for line in receipt.get("did") or []
+            )
+            messages = await self._session_messages(parent)
+            parent.prefix_len = len(messages)
+            messages.extend(transcript)
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": str(waiting.get("call_id", "")),
+                    "name": "route",
+                    "content": json.dumps(receipt, ensure_ascii=False, default=str),
+                }
+            )
+            parent.messages = messages
+            result = await self._run_agent_loop(parent)
+            if result.suspended is not None:
+                await self._suspend_for_child(parent)
+                await self._finish_run(parent.run_id, "awaiting_approval", started)
+                return result.suspended
+            outcome = await self._materialize(parent, result)
+            if outcome.kind == "proposal":
+                await self._finish_run(parent.run_id, "awaiting_approval", started)
+                return outcome
+            await self._finish_run(parent.run_id, "completed", started)
+            if parent.parent_run_id is None:
+                await self._close_lapsed_sessions()
+                return outcome
+            receipt = _route_receipt(
+                parent.kind, outcome.message, parent.display_result_summaries
+            )
+            agent = parent
+        return None
+
+    async def _run_child(
+        self, name: str, parent: AgentSession
+    ) -> tuple[AIOutcome, dict[str, Any] | None]:
+        """Run the named subagent to its own end, resuming its session if it has one.
 
         A saved session is picked up as it stands, so a correction to a proposal the owner
         just refused is answered by the session that wrote it, not by a rewrite.
+
+        The receipt is ``None`` when the subagent opened a screen: it has not finished, and
+        the outcome is what the owner sees while the whole chain waits for them.
         """
         routed = self.subagents[name]
         started = time.monotonic()
@@ -986,6 +1117,7 @@ class AIAdvisor:
                     model=self.model_name,
                     status="running",
                     claimed_at=utcnow(),
+                    parent_run_id=parent.run_id,
                 )
                 session.add(run)
                 await session.commit()
@@ -994,20 +1126,20 @@ class AIAdvisor:
                     tools=self._tools_for(name),
                     kind=name,
                     read_specs=self._read_specs_for(name),
+                    parent_run_id=parent.run_id,
                 )
                 transcript: list[dict[str, Any]] = []
             else:
+                run.parent_run_id = parent.run_id
                 agent, transcript = AgentSession.restore(
                     run, self._tools_for(name), self._read_specs_for(name)
                 )
             await session.commit()
         run_id = agent.run_id
         agent.dialogue = parent.dialogue
-        agent.allow_silence = False
-        # The turn went here, so every other saved session missed its one chance.
-        await self._close_lapsed_sessions(keep_run_id=run_id)
+        agent.prior_receipts = list(parent.display_result_summaries)
         try:
-            messages = await self._routed_context(routed, agent.dialogue)
+            messages = await self._routed_context(routed, agent.dialogue, agent.prior_receipts)
             agent.prefix_len = len(messages)
             messages.extend(transcript)
             agent.messages = messages
@@ -1017,33 +1149,38 @@ class AIAdvisor:
                 self._run_agent_loop(agent), timeout=SUBAGENT_DEADLINE_SECONDS
             )
             outcome = await self._materialize(agent, result)
-            status = "awaiting_approval" if outcome.kind == "proposal" else "completed"
-            await self._finish_run(run_id, status, started)
-            return outcome
+            if outcome.kind == "proposal":
+                await self._finish_run(run_id, "awaiting_approval", started)
+                return outcome, None
+            await self._finish_run(run_id, "completed", started)
+            # The materialized outcome, not the raw loop result: a repair round answers again.
+            return outcome, _route_receipt(
+                name, outcome.message, agent.display_result_summaries
+            )
         except TimeoutError:
             logger.warning("SUBAGENT %s timed out after %.0fs", name, SUBAGENT_DEADLINE_SECONDS)
             await self._finish_run(run_id, "failed", started, "timeout")
-            return AIOutcome(
-                "answer",
-                f"⚠️ Safwa could not finish that within {SUBAGENT_DEADLINE_SECONDS:.0f} seconds. "
-                "You can ask again.",
+            return AIOutcome("answer", ""), _route_receipt(
+                name,
+                "",
+                [],
+                error=f"{name} did not finish within {SUBAGENT_DEADLINE_SECONDS:.0f} seconds.",
             )
         except Exception as error:
             logger.exception("Routed subagent %s failed", name)
             await self._finish_run(run_id, "failed", started, type(error).__name__)
-            return AIOutcome(
-                "answer",
-                f"⚠️ Safwa could not finish that ({failure_reason(error)}). "
-                "You can continue with a new message.",
+            return AIOutcome("answer", ""), _route_receipt(
+                name, "", [], error=failure_reason(error)
             )
 
-    async def _close_lapsed_sessions(self, *, keep_run_id: int | None) -> None:
+    async def _close_lapsed_sessions(self) -> None:
         """End every saved subagent session this Advisor turn did not route back into.
 
-        A saved session is restorable for exactly one Advisor turn.  The owner's words
-        either come straight back to it — the correction case — or they were about
-        something else, and then its draft is over rather than waiting for a later `route`
-        that would answer the wrong question.
+        Called once, when a turn ends without suspending.  A session this turn did route
+        into is `completed` by then, so what is left is exactly the drafts from earlier
+        turns: the owner's words either came straight back to one — the correction case —
+        or they were about something else, and then it is over rather than waiting for a
+        later `route` that would answer the wrong question.
 
         A session whose screen is still live is left alone: the owner can still press Save,
         and that resumes it without the Advisor being involved at all.
@@ -1060,7 +1197,7 @@ class AIAdvisor:
             )
             closed = 0
             for run in saved:
-                if run.id == keep_run_id or await self._live_batch(session, run.id):
+                if await self._live_batch(session, run.id):
                     continue
                 run.status = "abandoned"
                 closed += 1
@@ -1125,12 +1262,17 @@ class AIAdvisor:
         return messages
 
     async def _routed_context(
-        self, routed: RoutedSubagent, dialogue: list[dict[str, Any]]
+        self,
+        routed: RoutedSubagent,
+        dialogue: list[dict[str, Any]],
+        prior_receipts: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """A routed subagent reads the conversation as it stands, under its own prompt.
 
-        Same order as the Advisor's: prompt, then state, then dialogue, then the clock —
-        so the stable part stays byte-identical and the volatile part stays last.
+        Same order as the Advisor's: prompt, then state, then dialogue, then what this turn
+        has already saved, then the clock — so the stable part stays byte-identical and the
+        volatile part stays last.  The receipts sit outside the dialogue, so a narrow
+        ``history_messages`` window never trims them away.
         """
         messages: list[dict[str, Any]] = [{"role": "system", "content": routed.prompt}]
         if routed.planning_state:
@@ -1147,6 +1289,11 @@ class AIAdvisor:
             messages[0] = _cache_breakpoint(messages[0])
             if window:
                 messages[-1] = _cache_breakpoint(messages[-1])
+        lines = [line for line in prior_receipts or [] if line.strip()]
+        if lines:
+            messages.append(
+                _system_note("Already saved in this request:\n" + "\n".join(lines))
+            )
         if routed.clock is not None:
             messages.append(_system_note(routed.clock()))
         return messages
@@ -1155,7 +1302,7 @@ class AIAdvisor:
         """Rebuild the context prefix a session reads, from live state, by its kind."""
         routed = self.subagents.get(agent.kind)
         if routed is not None:
-            return await self._routed_context(routed, agent.dialogue)
+            return await self._routed_context(routed, agent.dialogue, agent.prior_receipts)
         return await self._context_messages(
             [
                 DialogueMessage(role=str(item["role"]), content=str(item["content"]))
@@ -1178,11 +1325,10 @@ class AIAdvisor:
         return turn
 
     async def _run_agent_loop(self, agent: AgentSession) -> AgentLoopResult:
-        """Run the model until it answers.
+        """Run the model until it stops calling tools.
 
-        ``agent.allow_silence`` accepts an empty final answer, which is only meaningful
-        when the owner has already been shown the request's results: after an approval
-        queue the model may have nothing left to add, and that is not a failure.
+        An empty final answer is returned as it stands: a model with nothing left to add
+        says nothing, and what the owner ends up seeing is `_materialize`'s to guarantee.
         """
         messages = agent.messages
         while True:
@@ -1203,6 +1349,30 @@ class AIAdvisor:
                         "tool_calls": assistant_tool_calls,
                     }
                 )
+                if len(turn.tool_calls) > 1 and any(
+                    call.name == "route" for call in turn.tool_calls
+                ):
+                    # A route can suspend the whole chain, and a suspended response cannot
+                    # carry results for its siblings: the transcript would resume malformed.
+                    for call in turn.tool_calls:
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": call.id,
+                                "name": call.name,
+                                "content": json.dumps(
+                                    {
+                                        "status": "error",
+                                        "code": "route_is_not_shared",
+                                        "error": "route must be the only tool call in a response.",
+                                        "next": "Send route alone, then use what it hands back.",
+                                        "retryable": True,
+                                    },
+                                    ensure_ascii=False,
+                                ),
+                            }
+                        )
+                    continue
                 pending_tools: list[PendingTool] = []
                 immediate = agent.immediate
                 has_reads = any(call.name in immediate for call in turn.tool_calls)
@@ -1213,9 +1383,9 @@ class AIAdvisor:
                         raise DomainError("The advisor exceeded the tool-call limit")
                     change = None
                     if call.name == "route":
-                        routed_to, result = await self._execute_route_tool(agent, call)
-                        if routed_to is not None:
-                            return AgentLoopResult(message="", routed_to=routed_to)
+                        result, suspended = await self._execute_route_tool(agent, call)
+                        if suspended is not None:
+                            return AgentLoopResult(message="", suspended=suspended)
                     elif call.name == "query_safwa":
                         result = await self._execute_query_tool(agent, call)
                     elif call.name in agent.read_specs:
@@ -1276,18 +1446,20 @@ class AIAdvisor:
                     agent.repair_rounds += 1
                 continue
 
-            if not turn.content and not agent.allow_silence:
-                raise DomainError("The advisor finished without a response")
             return AgentLoopResult(turn.content)
 
     async def _execute_route_tool(
         self, agent: AgentSession, call: ProviderToolCall
-    ) -> tuple[str | None, dict[str, Any]]:
-        """Name the subagent this turn goes to, or say why it cannot go anywhere."""
+    ) -> tuple[dict[str, Any], AIOutcome | None]:
+        """Run the named subagent and hand back its receipt.
+
+        The second value is set only when the subagent opened a screen: it has not
+        finished, so this session suspends with it and the owner sees that screen.
+        """
         try:
             name = RouteInput.model_validate(json.loads(call.arguments or "{}")).name.strip()
         except (ValidationError, json.JSONDecodeError, TypeError, ValueError) as error:
-            return None, {
+            return {
                 "status": "error",
                 "code": "invalid_arguments",
                 "error": (
@@ -1297,15 +1469,18 @@ class AIAdvisor:
                 ),
                 "hint": f'Send {{"name": "<subagent>"}}. One of: {", ".join(self.subagents)}.',
                 "retryable": True,
-            }
+            }, None
         if name not in self.subagents:
-            return None, {
+            return {
                 "status": "error",
                 "code": "unknown_subagent",
                 "error": f"There is no subagent named {name!r}.",
                 "hint": f"Route to one of: {', '.join(self.subagents) or 'none'}.",
                 "retryable": True,
-            }
+            }, None
+        # Saved before the subagent runs, because the subagent may suspend and this
+        # session then has to come back to a call it has not answered yet.
+        agent.awaiting_route = {"call_id": call.id, "subagent": name}
         async with self.sessions() as session:
             session.add(
                 AgentStep(
@@ -1315,9 +1490,19 @@ class AIAdvisor:
                     metadata_json={"tool_call_id": call.id, "subagent": name},
                 )
             )
+            run = await session.get(AgentRun, agent.run_id)
+            if run is not None:
+                run.state_json = agent.state()
             await session.commit()
         logger.info("ROUTE -> %s", name)
-        return name, {"status": "routed", "subagent": name}
+        outcome, receipt = await self._run_child(name, agent)
+        if receipt is None:
+            return {}, outcome
+        agent.awaiting_route = None
+        # The interface owns the Saved/Discarded/Failed lines, so they travel with the
+        # session that will write to the chat rather than being left for the model to echo.
+        agent.display_result_summaries.extend(str(line) for line in receipt.get("did") or [])
+        return receipt, None
 
     async def _execute_read_tool(
         self, agent: AgentSession, call: ProviderToolCall
@@ -1641,9 +1826,25 @@ class AIAdvisor:
                 return f"{verb} {joined} {preposition} {head}" if joined else f"{verb} {head}"
             parts: list[str] = []
             if action == "create":
-                parts.append(str(values.get("stage") or CardStage.BACKLOG.value).title())
+                # Only what was actually chosen: the defaults a new Card lands on say
+                # nothing, and a receipt naming them buries the fields that do.
+                stage = str(values.get("stage") or CardStage.BACKLOG.value)
+                if stage != CardStage.BACKLOG.value:
+                    parts.append(stage.title())
+                priority = str(values.get("priority") or Priority.MEDIUM.value)
+                if priority != Priority.MEDIUM.value:
+                    parts.append(priority.title())
                 if values.get("effort_points"):
                     parts.append(f"{values['effort_points']} EP")
+                for field_name in ("categories", "energy_types"):
+                    if chosen := values.get(field_name):
+                        parts.append(_detail_value(chosen))
+                if values.get("hard_time"):
+                    parts.append("Hard time")
+                if values.get("repeatable"):
+                    parts.append("Repeatable")
+                if values.get("blocked"):
+                    parts.append("Blocked")
                 parts.extend(await self._reference_groups(session, values))
             elif action in {"move", "reopen"} and values.get("stage"):
                 parts.append(str(values["stage"]).title())
@@ -1831,7 +2032,7 @@ class AIAdvisor:
         result: AgentLoopResult,
     ) -> AIOutcome:
         if not result.pending_tools:
-            return AIOutcome("answer", result.message)
+            return self._answer(agent, result.message)
         mutation_tools = [tool for tool in result.pending_tools if tool.change is not None]
         targets: list[tuple[int, dict[str, Any], list[PendingTool]]] = []
         preparation_results = {tool.call.id: _json_safe(tool.result) for tool in result.pending_tools}
@@ -1976,12 +2177,8 @@ class AIAdvisor:
                 agent.messages = messages
                 agent.repair_rounds += 1
                 repaired = await self._run_agent_loop(agent)
-                if agent.display_result_summaries:
-                    repaired.message = _compose_display_outcome(
-                        repaired.message, agent.display_result_summaries
-                    )
                 return await self._materialize(agent, repaired)
-            return AIOutcome("answer", result.message)
+            return self._answer(agent, result.message)
         return await self._advance_autoapprovals(
             self._target_outcome(result.message, targets[0][1]),
             held_run_id=agent.run_id,
@@ -2218,31 +2415,28 @@ class AIAdvisor:
             )
             if display_summary:
                 agent.display_result_summaries.append(display_summary)
+            exhausted = (
+                "I could not prepare the remaining requested changes after five repair "
+                "attempts. No unfinished operation was applied."
+            )
             if repair_exhausted:
-                message = _compose_display_outcome(
-                    "I could not prepare the remaining requested changes after five repair "
-                    "attempts. No unfinished operation was applied.",
-                    agent.display_result_summaries,
-                )
                 await self._finish_run(run_id, "completed", started)
-                return AIOutcome("answer", message)
+                return await self._answer_or_deliver(agent, self._answer(agent, exhausted))
             messages = await self._session_messages(agent)
             agent.prefix_len = len(messages)
             messages.extend(_resumed_transcript(stored_transcript, tools))
             agent.messages = messages
             loop_result = await self._run_agent_loop(agent)
-            if agent.display_result_summaries:
-                loop_result.message = _compose_display_outcome(
-                    loop_result.message, agent.display_result_summaries
-                )
-            elif not loop_result.message:
-                # The model added nothing and there is no receipt to stand in for it, so
-                # the resolved screen still has to say that the request is finished.
-                loop_result.message = "✅ Done."
+            if loop_result.suspended is not None:
+                await self._suspend_for_child(agent)
+                await self._finish_run(run_id, "awaiting_approval", started)
+                return loop_result.suspended
             outcome = await self._materialize(agent, loop_result)
-            run_status = "awaiting_approval" if outcome.kind == "proposal" else "completed"
-            await self._finish_run(run_id, run_status, started)
-            return outcome
+            if outcome.kind == "proposal":
+                await self._finish_run(run_id, "awaiting_approval", started)
+                return outcome
+            await self._finish_run(run_id, "completed", started)
+            return await self._answer_or_deliver(agent, outcome)
         except Exception as error:
             logger.exception("AI continuation failed after the approval queue was resolved")
             await self._finish_run(run_id, "failed", started, type(error).__name__)
@@ -2311,6 +2505,16 @@ class AIAdvisor:
                         [dict(item) for item in state.get("transcript") or []], tools
                     )
                     run.state_json = state
+                # The subagent's draft is kept for one Advisor turn; the callers waiting on
+                # it are not.  Their plan was made before these words arrived, and the turn
+                # those words start is what decides what happens now.
+                caller_id = run.parent_run_id
+                while caller_id is not None:
+                    caller = await session.get(AgentRun, caller_id)
+                    if caller is None or caller.status != "awaiting_approval":
+                        break
+                    caller.status = "cancelled"
+                    caller_id = caller.parent_run_id
             await session.commit()
         summaries = [
             *prior_summaries,

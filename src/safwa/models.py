@@ -322,12 +322,18 @@ class AgentRun(Base, TimestampMixin):
 
     A session that stops on an approval screen keeps everything it needs to continue in
     `state_json`, so it resumes from its own row.  `claimed_at` is taken before resuming
-    and released afterwards: it is what stops two resumes of the same session.
+    and released afterwards: it is what stops two resumes of the same session.  A session
+    suspended on a child it routed to keeps the unanswered call in `state_json` too.
     """
 
     __tablename__ = "agent_runs"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     kind: Mapped[str] = mapped_column(String(30), default="advisor")
+    # The session that routed here.  A finished session hands its receipt back up this
+    # link, so a turn ends only when the root session answers.
+    parent_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="SET NULL")
+    )
     provider: Mapped[str] = mapped_column(String(100))
     model: Mapped[str] = mapped_column(String(200))
     status: Mapped[str] = mapped_column(String(30), index=True)

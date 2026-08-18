@@ -262,9 +262,10 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
 - An empty provider turn is read by kind ([ai/provider.py](../src/safwa/ai/provider.py) `_read_turn`).
   No `choices` at all, or a choice cut off (`finish_reason` other than `stop`), is an upstream
   failure: retried once (`AI_EMPTY_RESPONSE_ATTEMPTS`), then raised carrying the provider's own
-  reason. A `stop` with no content is the model deliberately adding nothing and is a valid turn —
-  `_run_agent_loop(allow_silence=True)` accepts it after an approval queue, where the receipts are
-  the answer; elsewhere it still raises `The advisor finished without a response`.
+  reason. A `stop` with no content is the model deliberately adding nothing and is a valid turn
+  everywhere. `_materialize` is what guarantees the owner is not left with nothing: it composes the
+  receipts into the answer, and falls back to one `⚠️` line when there are none. A subagent's empty
+  answer is handed to its caller untouched.
 - Failed preparations return structured `ToolPreparationError` results and are retried for at most
   `MAX_REPAIR_ROUNDS = 5`; `MAX_TOOL_CALLS = 64`.
 - A resolved queue item comes back as its own tool result carrying `status`, `entity`, `action`,
@@ -287,10 +288,21 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
 shape the Advisor runs on — its own prompt, its own tools, its own transcript, its own row in
 `agent_runs` — reading the same conversation.
 
-- `route(name)` **hands the turn over**. The Advisor writes nothing after it: the subagent's prose is
-  the chat message and its proposal is the review screen, with nothing relayed in between. It takes
-  no request, because the subagent reads the conversation as it stands and treats the last owner
-  message as addressed to it; a read the Advisor did first is not carried over.
+- `route(name)` is **a call that returns**. The subagent runs, and what comes back to the caller is a
+  receipt — `{"subagent", "outcome", "did", "text", "error"}` — as the `route` tool result. `did` is
+  the Saved/Discarded/Failed lines the owner reads; `text` is the subagent's own words with its own
+  ids; `error` is set when it failed or ran past `SUBAGENT_DEADLINE_SECONDS`. Only the Advisor writes
+  to the chat, and the turn ends only when the Advisor answers, so a request naming two domains is
+  two routes and one message. `route` takes no request, because the subagent reads the conversation
+  as it stands and treats the last owner message as addressed to it.
+- `route` must be the **only** tool call in its response: a suspended response cannot carry results
+  for its siblings, and a mixed one comes back as a retryable `route_is_not_shared`.
+- `agent_runs.parent_run_id` is the caller. A subagent that opens a screen suspends its whole chain:
+  the caller stores the unanswered call in `state_json["awaiting_route"]` and waits, Save resumes the
+  subagent, and `_deliver_to_parent` hands the receipt up until a session with no parent answers.
+- Receipts travel down as well: `_routed_context` adds one `[System]: Already saved in this request:`
+  block after the dialogue, carrying the same lines the owner reads. It is outside the dialogue, so a
+  narrow `history_messages` window cannot trim it.
 - A routed subagent has no `route`, so there is no recursion, and it declares its own tool list —
   read tools plus the mutation tools it owns.
 - `PERSONA` is one block composed into every routed prompt: voice, the owner's language, the citation
@@ -317,10 +329,11 @@ shape the Advisor runs on — its own prompt, its own tools, its own transcript,
   `planning_state=True`, so the board's current state is in its context, and takes the whole
   dialogue window. `_guard_pending_checks` therefore fires inside board, which cites the Checks
   itself.
-- **Diary** ([ai/diary.py](../src/safwa/ai/diary.py)): owns the Diary outright. `ai_diary` is absent
-  from the Advisor's `SYSTEM_PROMPT` and the `diary` mutation tool is absent from its tool list, so
-  reading a day, writing one, rewriting one and removing one all arrive here. It works the date out
-  from the owner's words, so the Advisor never has to. It reads that day's conversation
+- **Diary** ([ai/diary.py](../src/safwa/ai/diary.py)): owns the Diary's **writes**. The `diary` tool
+  is absent from the Advisor's tool list, so writing a day, rewriting one and removing one all arrive
+  here; reading one does not — `ai_diary` is in the Advisor's `SYSTEM_PROMPT` and it cites a day as
+  `[16.08.2026](diary:12)`. It works the date out from the owner's words, so the Advisor never has
+  to. It reads that day's conversation
   (`read_day` → `TelegramHistorySource.day_transcript`) *and* `ai_diary`, `ai_card_events`,
   `ai_checks`, because work done from the buttons never reaches the conversation and what the day
   felt like never reaches the database. It has `query_safwa`, so its own prompt lists those views —
@@ -330,8 +343,9 @@ shape the Advisor runs on — its own prompt, its own tools, its own transcript,
   it; the review screen is exactly those two. `update` is the only way to write a day: whether that
   day already exists is a fact about the data, so preparation reads it and settles the action on
   create or update — and refuses a `delete` of a day that was never written, retryably.
-- Reading the Diary or asking about it is prose, not a tool: the subagent answers the owner itself,
-  citing each day as `[dd.mm.yyyy](diary:<id>)`.
+- Reading the Diary never routes: the Advisor queries `ai_diary` itself and cites each day as
+  `[dd.mm.yyyy](diary:<id>)`, which opens the whole entry. The subagent's `read_day` is a different
+  source — that day's conversation, which only writing a day needs.
 - `feeling_score` is 0–10 and nullable, stored on `diary_entries`. `FEELING_SCORE_EMOJI`
   ([constants.py](../src/safwa/constants.py)) is the whole scale; the `# Feeling score` block of
   `DIARY_PROMPT` is the whole rubric. 5 is an ordinary day, and **0 is never the model's choice** —

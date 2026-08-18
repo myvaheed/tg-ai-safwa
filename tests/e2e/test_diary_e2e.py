@@ -196,6 +196,24 @@ async def test_a_correction_reaches_the_session_that_wrote_the_refused_day(e2e_h
     assert "Ахмета" not in json.dumps(provider.calls[0], ensure_ascii=False)
 
 
+async def test_words_over_a_screen_end_the_caller_but_not_the_draft(e2e_harness):
+    """The draft keeps its one turn of grace; the session waiting on it does not."""
+    advisor, _ = e2e_harness.advisor(
+        [turn(("route", {"name": "diary"})), write(TODAY, "встретил ахмета.")],
+        subagents=(diary_subagent(e2e_harness),),
+    )
+    first = await advisor.handle("Запиши день")
+
+    await advisor.cancel_approval_for_target("proposal", first.proposal_id)
+
+    async with e2e_harness.sessions() as session:
+        runs = list(await session.scalars(select(AgentRun).order_by(AgentRun.id)))
+    assert [(run.kind, run.status) for run in runs] == [
+        ("advisor", "cancelled"),
+        ("diary", "awaiting_approval"),
+    ]
+
+
 async def test_a_refused_day_is_over_once_the_advisor_answers_something_else(e2e_harness):
     """A saved session is restorable for one Advisor turn, and for no turn after it."""
     subagent = diary_subagent(e2e_harness)
@@ -262,6 +280,33 @@ async def test_a_screen_still_open_keeps_its_session_restorable(e2e_harness):
     async with e2e_harness.sessions() as session:
         entries = list(await session.scalars(select(DiaryEntry)))
     assert affected == [entries[0].id]
+
+
+async def test_the_advisor_reads_a_day_itself_and_cites_it(e2e_harness):
+    """Reading is not a change, so it never routes: the Advisor owns every ai_* view."""
+    yesterday = date.today() - timedelta(days=1)
+    async with e2e_harness.sessions() as session:
+        entry = await create_diary_entry(session, entry_date=yesterday, body="Дошёл до рынка.")
+        await session.commit()
+        entry_id = entry.id
+
+    advisor, provider = e2e_harness.advisor(
+        [
+            turn(("query_safwa", {"sql": "SELECT id, entry_date, body FROM ai_diary"})),
+            f"Вчера — [{yesterday.strftime('%d.%m.%Y')}](diary:{entry_id}).",
+        ],
+        subagents=(e2e_harness.board(), diary_subagent(e2e_harness)),
+    )
+
+    outcome = await advisor.handle("Что я писал вчера?")
+
+    assert outcome.kind == "answer"
+    assert f"(diary:{entry_id})" in outcome.message
+    # The turn stayed with the Advisor: no hand-over, and the day came back through the view.
+    async with e2e_harness.sessions() as session:
+        runs = list(await session.scalars(select(AgentRun)))
+    assert [(run.kind, run.status) for run in runs] == [("advisor", "completed")]
+    assert "Дошёл до рынка." in json.dumps(provider.calls[1], ensure_ascii=False)
 
 
 async def test_a_resolved_diary_change_hands_back_the_day_shape_and_not_its_text(e2e_harness):

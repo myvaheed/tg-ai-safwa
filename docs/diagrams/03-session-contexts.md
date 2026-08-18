@@ -41,7 +41,7 @@ flowchart TD
     MAIN --> MC["SYSTEM_PROMPT + planning + memory<br/>+ bounded Telegram dialogue + clock<br/>+ все Safwa tools"]
     SETUP --> SC["SETUP_PROMPT + when + instruction<br/>+ local time/timezone<br/>+ только terminal tools"]
     AUTO --> AC["AUTOAPPROVAL_PROMPT + final owner request<br/>+ normalized proposal + fresh diff + operation rule;<br/>только autoapprove / require_review"]
-    SUB --> SBC["PERSONA + DIARY_PROMPT + тот же bounded dialogue + clock;<br/>нужный день subagent определяет сам и читает<br/>через read_day(date) и query_safwa (ai_diary и др.;<br/>advisor его не видит) + mutation tool diary"]
+    SUB --> SBC["PERSONA + DIARY_PROMPT + тот же bounded dialogue<br/>+ уже сохранённое в этом запросе + clock;<br/>нужный день subagent определяет сам и читает<br/>через read_day(date) и query_safwa + mutation tool diary"]
     SUM --> SUC["SUMMARY_PROMPT + предыдущий Summary<br/>+ unsummarized canonical dialogue"]
     RETELL --> MEC["RETELL_PROMPT + chunk;<br/>затем MEMORY_PROMPT + facts + retelling"]
 ```
@@ -58,8 +58,10 @@ Mini-sessions не создают proposals и approval queue. Они обяза
 call; проза, неизвестный tool и невалидные аргументы возвращаются модели как retryable ошибка.
 Autoapproval reviewer также ничего не пишет сам: `autoapprove` лишь разрешает caller применить уже
 persisted proposal через `ProposalService` и разрешить текущий queue item в одной транзакции.
-Reminder setup не пишет `AgentRun`; routed subagent — это своя `AgentRun`-сессия, и её активный отрезок ограничен wall-clock deadline
-вместо cap на число вызовов.
+Reminder setup не пишет `AgentRun`; routed subagent — это своя `AgentRun`-сессия со ссылкой
+`parent_run_id` на вызвавшую, и её активный отрезок ограничен wall-clock deadline вместо cap на
+число вызовов. Закончив, она возвращает вызвавшей receipt, и ход кончается ответом сессии без
+родителя.
 
 Код: [context.py](../../src/safwa/ai/context.py),
 [service.py](../../src/safwa/ai/service.py),

@@ -199,12 +199,12 @@ mutations получают retryable error и повторяются следу�
 flowchart LR
     ROUTE["route(name)"] --> SESSION["Своя AgentRun-сессия: PERSONA + промпт сабагента,<br/>свой бюджет истории и planning state по объявлению"]
     SESSION --> READ["read_day(date) + query_safwa над ai_diary/ai_card_events/ai_checks"]
-    SESSION --> PROSE["Проза: ответ или вопрос — прямо в чат, со своими цитатами"]
+    SESSION --> PROSE["Проза: возвращается вызвавшему в receipt.text, не в чат"]
     SESSION --> WRITE["diary(mode, date, pov, ai_comment, feeling_score)"]
     WRITE --> PREPARE["prepare: create или update по ai_diary; delete проверяет, что день есть"]
     PREPARE --> SCREEN["Save/Discard screen: pov + ai_comment → DiaryEntry (одна на дату)"]
-    SCREEN --> RESUME["Approve/Discard восстанавливают ту же сессию"]
-    SCREEN --> INTERRUPT["Слова поверх экрана: экран заморожен, сессия ждёт, слова к Advisor"]
+    SCREEN --> RESUME["Approve/Discard восстанавливают ту же сессию, её receipt — вызвавшего"]
+    SCREEN --> INTERRUPT["Слова поверх экрана: экран заморожен, черновик ждёт один ход Advisor,<br/>вызвавшая сессия отменена"]
     RECEIPT["Receipt: дата, score и длина — без текста дня"]
     SCREEN --> RECEIPT
 ```

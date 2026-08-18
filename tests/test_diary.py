@@ -45,12 +45,13 @@ async def prepared(sessions, tool_arguments: dict[str, Any]) -> Any:
     return change, result
 
 
-def test_only_the_subagent_is_told_about_the_diary_view() -> None:
+def test_both_readers_are_told_about_the_diary_view() -> None:
     """A view missing from a prompt is a view that reader can never use."""
     assert "ai_diary" in ALLOWED_VIEWS
     assert "`ai_diary(id, entry_date, body, feeling_score" in DIARY_PROMPT
-    # The advisor reaches the Diary only by routing to it, so the view is not named to it.
-    assert "ai_diary" not in SYSTEM_PROMPT
+    # The advisor reads days for itself; only writing one goes through the subagent.
+    assert "ai_diary(id, entry_date, body, feeling_score" in SYSTEM_PROMPT
+    assert "(diary:12)" in SYSTEM_PROMPT
 
 
 def test_a_written_day_carries_its_text_and_a_removal_carries_none() -> None:

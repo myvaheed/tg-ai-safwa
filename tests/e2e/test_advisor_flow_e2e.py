@@ -15,6 +15,7 @@ from safwa.domain import (
     StaleStateError,
     create_card,
     create_saved_request,
+    create_tag,
     finish_action,
     finish_sprint,
     move_card,
@@ -2078,11 +2079,58 @@ async def test_single_tag_callback_never_leaves_dead_buttons_when_follow_up_fail
     assert len(provider.calls) == 2
 
 
+async def test_a_new_card_receipt_names_every_field_that_was_chosen(e2e_harness):
+    """The receipt is what the owner checks the proposal by, so a default says nothing."""
+    async with e2e_harness.sessions() as session:
+        await create_tag(session, name="спорт")
+        await session.commit()
+
+    advisor, _ = e2e_harness.advisor(
+        [
+            mutation_turn(
+                (
+                    "card",
+                    {
+                        "mode": "create",
+                        "kind": "action",
+                        "title": "Тренировка бега",
+                        "effort_points": 5,
+                        "priority": "critical",
+                        "categories": ["self"],
+                        "energy_types": ["physical"],
+                        "hard_time": True,
+                        "tag_query": "спорт",
+                    },
+                )
+            )
+        ]
+    )
+    outcome = await advisor.handle("Заведи тренировку")
+
+    async with e2e_harness.sessions() as session:
+        description = await advisor.describe_proposal(session, outcome.proposal_id)
+    assert description.summary == (
+        "New Action “Тренировка бега” "
+        "(Critical · 5 EP · self · physical · Hard time · Tag “спорт”)"
+    )
+
+
+async def test_a_backlog_card_receipt_says_nothing_about_its_stage(e2e_harness):
+    advisor, _ = e2e_harness.advisor(
+        [mutation_turn(("card", {"mode": "create", "kind": "goal", "title": "Быть здоровым"}))]
+    )
+    outcome = await advisor.handle("Заведи цель")
+
+    async with e2e_harness.sessions() as session:
+        description = await advisor.describe_proposal(session, outcome.proposal_id)
+    assert description.summary == "New Goal “Быть здоровым”"
+
+
 async def test_application_owned_saved_receipt_is_rendered_once_when_model_echoes_it(
     e2e_harness,
 ) -> None:
     title = "Вес 65 кг к концу 2026 года"
-    receipt = f"✅ Saved — New Goal “{title}” (Backlog)"
+    receipt = f"✅ Saved — New Goal “{title}”"
     advisor, provider = e2e_harness.advisor(
         [
             mutation_turn(("card", {"mode": "create", "kind": "goal", "title": title})),

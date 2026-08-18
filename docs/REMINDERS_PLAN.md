@@ -332,9 +332,9 @@ stay due and the next tick retries.
 2. Take the guard, marked **background** (see below), read the same canonical
    `history.dialogue(owner_id)` used by an ordinary advisor request, and append the formatted
    escalation as the final synthetic user turn, inside the same token-bounded window.
-3. Do **not** pass `allow_silence`. An escalation is a real request; an empty turn is an upstream
-   failure, retried by `AI_EMPTY_RESPONSE_ATTEMPTS` and then raised. That flag exists for resuming
-   after an approval queue, where the receipts are already the answer.
+3. An escalation is an ordinary request and takes the ordinary path: a cut-off provider turn is an
+   upstream failure retried by `AI_EMPTY_RESPONSE_ATTEMPTS`, and a deliberate empty answer is
+   answered by `_materialize` with the receipts, or with one `⚠️` line when there are none.
 4. Register the reply as **`MessageKind.REMINDER`**, not `DIALOGUE_ASSISTANT`. That kind already means
    "proactive bot message" and is already included in dialogue, so the model later reads it as
    something it volunteered rather than an answer to a message that is not there.

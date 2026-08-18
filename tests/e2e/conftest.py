@@ -47,12 +47,37 @@ class ScriptedProvider:
         handover = self._handover(self.responses[0], offered) if self.responses else None
         if handover is not None:
             return handover
+        if not self.responses:
+            closing = self._closing_answer(messages, offered)
+            if closing is not None:
+                return closing
         self.calls.append([dict(message) for message in messages])
         self.options.append(dict(kwargs))
         if not self.responses:
             raise AssertionError("The advisor made an unexpected provider call")
         response = self.responses.popleft()
         return response if isinstance(response, ProviderTurn) else ProviderTurn(content=response)
+
+    @staticmethod
+    def _closing_answer(
+        messages: list[dict[str, object]], offered: set[str]
+    ) -> ProviderTurn | None:
+        """The Advisor's last word when a script covers only the subagent's work.
+
+        `route` returns to its caller, so every routed script would otherwise end with one
+        more response repeating what the subagent already said.  The harness says it
+        instead, in the subagent's own words, and stays out of ``calls`` and ``options``.
+        """
+        if "route" not in offered or not messages:
+            return None
+        last = messages[-1]
+        if last.get("role") != "tool" or last.get("name") != "route":
+            return None
+        try:
+            payload = json.loads(str(last.get("content") or "{}"))
+        except json.JSONDecodeError:
+            return None
+        return ProviderTurn(content=str(payload.get("text") or ""))
 
     @staticmethod
     def _handover(response: str | ProviderTurn, offered: set[str]) -> ProviderTurn | None:

@@ -4,10 +4,11 @@ LLM никогда не применяет mutation напрямую. `query_saf
 `card`, `check`, `value`, `tag`, `request`, `reminder`, `remove` и `diary` создают
 reviewable proposals с явным Save/Discard.
 
-`route(name)` передаёт ход сабагенту: дальше его проза становится сообщением в чате, а его change —
-экраном. `diary` доступен только Diary subagent и несёт `mode`, `date`, `pov`, `ai_comment` и
-`feeling_score`. Существует ли уже запись за этот день, решает preparation по `ai_diary`, а не
-модель: `write` становится create или update, а `remove` над пустым днём отклоняется retryable-ошибкой.
+`route(name)` отдаёт работу сабагенту и возвращает вызвавшему receipt `{subagent, outcome, did,
+text, error}`; экран строит сам сабагент, а в чат пишет только Advisor. `diary` доступен только Diary
+subagent и несёт `mode`, `date`, `pov`, `ai_comment` и `feeling_score`. Существует ли уже запись за
+этот день, решает preparation по `ai_diary`, а не модель: `update` становится create или update, а
+`delete` над пустым днём отклоняется retryable-ошибкой.
 
 Текст дня остаётся на review screen: receipt Diary-change несёт дату, score и длину, но не сам день —
 receipt живёт в переписке и перечитывался бы каждый следующий turn. Черновик держит сама сессия
