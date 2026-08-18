@@ -169,8 +169,9 @@ ROUTE_TOOL: dict[str, Any] = {
     "function": {
         "name": "route",
         "description": (
-            "Hand this turn to a subagent. It reads this same conversation and answers the "
-            "user itself, so you write nothing more. Your instructions name each one."
+            "Hand this turn to a subagent. It reads this same conversation, does the work, "
+            "and comes back with a receipt of what it did. You write the message the user "
+            "sees. You just pass the name of the subagent."
         ),
         "parameters": tool_json_schema(RouteInput),
     },
