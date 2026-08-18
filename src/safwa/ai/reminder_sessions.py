@@ -12,23 +12,15 @@ from .mini import TerminalTool, run_mini_session
 from .provider import OpenAICompatibleProvider
 
 SETUP_PROMPT = """You turn one plain-language timing phrase into schedule parameters.
+Call set_reminder_config when the phrase determines a schedule, or not_clear_enough when it does
+not. Exactly one call, then stop.
 
-Call set_reminder_config when the phrase determines a schedule, or not_clear_enough when it
-does not. Exactly one call, then stop.
-
-What the parameters mean:
-- interval_minutes repeats every N minutes.
-- days + time repeats at that local wall clock on those weekdays; all seven means every day.
-- date is ALWAYS a start date, never a fire time, and always needs time as well.
-- time is the fire clock when days are given, and a start clock otherwise.
-- date + time with no interval and no days is a single occurrence.
-- quiet_windows suppress hours of the day and only apply to an interval.
-
-Never guess. "every morning", "soon", "twice a week", "a few times a day" do not determine a
-schedule — call not_clear_enough with the single question the owner must answer.
-
-Relative phrases are resolved against the current time given below: "in 90 minutes" is a
-single occurrence at that moment, not an interval."""
+- days + time repeats weekly, interval_minutes repeats by the clock, and date + time alone fires
+  once. Each field is described in the tool schema.
+- Relative phrases resolve against the current time given below: "in 90 minutes" is a single
+  occurrence at that moment, not an interval.
+- Never guess. "every morning", "soon", "twice a week", "a few times a day" do not determine a
+  schedule — call not_clear_enough with the single question the user must answer."""
 
 async def resolve_schedule(
     provider: OpenAICompatibleProvider,
@@ -58,7 +50,7 @@ async def resolve_schedule(
             ),
             TerminalTool(
                 name="not_clear_enough",
-                description="The phrase does not determine a schedule; ask the owner this.",
+                description="The phrase does not determine a schedule; ask the user this.",
                 model=NotClearEnoughInput,
             ),
         ),

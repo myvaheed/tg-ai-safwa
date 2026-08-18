@@ -137,9 +137,8 @@ def format_escalation(firings: list[Firing], *, tz: ZoneInfo, now: datetime) -> 
     blocks = [
         header,
         (
-            "If a Reminder mentions Safwa items, first use query_safwa to verify their "
-            "current state and whether the Reminder still applies. Then handle the Reminder "
-            "normally with the full Safwa tools."
+            "If a Reminder mentions Safwa items, check their current state with query_safwa "
+            "first: it may no longer apply. Then answer it as you would answer the user."
         ),
         "",
     ]

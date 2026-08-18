@@ -70,9 +70,9 @@ async def test_an_exact_allowlisted_edit_is_autoapproved(e2e_harness):
 
     reviewer_messages = provider.calls[1]
     assert [message["role"] for message in reviewer_messages] == ["system", "user"]
-    assert "One proposal may implement only one part" in str(reviewer_messages[0]["content"])
+    assert "may be one part of a longer request" in str(reviewer_messages[0]["content"])
     reviewer_context = json.loads(str(reviewer_messages[1]["content"]))
-    assert reviewer_context["owner_request"] == request
+    assert reviewer_context["user_request"] == request
     assert reviewer_context["operation"] == {
         "entity": "card",
         "action": "update",
@@ -240,7 +240,7 @@ async def test_multi_step_request_can_be_autoapproved_one_proposal_at_a_time(e2e
     assert len(provider.calls) == 5
     for call_index in (1, 3):
         context = json.loads(str(provider.calls[call_index][1]["content"]))
-        assert context["owner_request"] == request
+        assert context["user_request"] == request
     async with e2e_harness.sessions() as session:
         assert (await session.get(Card, card.id)).title == "Enrol"
         assert await session.get(CardTag, (card.id, tag.id)) is not None

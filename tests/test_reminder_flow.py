@@ -304,9 +304,8 @@ def test_a_batch_is_numbered():
 
 def test_the_main_advisor_is_told_to_verify_named_items_first():
     text = format_escalation([_firing(instruction="Review Card #88.")], tz=TZ, now=NOW)
-    assert "first use query_safwa" in text
-    assert "current state" in text
-    assert "whether the Reminder still applies" in text
+    assert "check their current state with query_safwa" in text
+    assert "it may no longer apply" in text
 
 
 def test_a_late_firing_says_how_late():

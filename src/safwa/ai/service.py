@@ -120,49 +120,32 @@ QUERY_SAFWA_TOOL: dict[str, Any] = {
     "function": {
         "name": "query_safwa",
         "description": (
-            "Explore Safwa's current planning data with one safe, read-only SQLite SELECT. "
-            "Use it to find Cards, Tags, Values, Requests, Sprint state, metrics, or events "
-            "before answering or preparing a change proposal."
+            "Read Safwa's current data with one read-only SELECT over the ai_* views listed "
+            "in your instructions. Use it before you answer or propose anything."
         ),
         "parameters": tool_json_schema(QueryToolInput),
     },
 }
+# One line each: what this tool owns, because seven of them compete.  Mode semantics live in
+# the schema, field rules in the field descriptions, and policy in the subagent's prompt.
 MUTATION_TOOL_DESCRIPTIONS = {
     "card": (
-        "Open the Card review UI. create proposes a new Card; update proposes exact "
-        "field/set replacements; link and unlink add or remove one relationship type — Values, "
-        "Tags, or Checks, since a Card owns all three links; move, complete, cancel, and reopen "
-        "propose only that lifecycle action. Omit unused properties or send null; never invent "
-        "placeholder IDs such as 0 or 1. In update, parent_id=null removes the parent. Nothing is "
-        "saved until the "
-        "user presses Save."
+        "Propose one Card — a Goal, an Idea or an Action. Also the only tool that attaches a "
+        "Value, a Tag or a Check to a Card."
     ),
     "check": (
-        "Open the Check review UI. create proposes a new Pending Check; update proposes a new title "
-        "or repeatable flag; complete answers it Passed and cancel answers it Missed. Propose an "
-        "answer only when the user already stated it — otherwise cite it so they answer it "
-        "themselves. A Check is attached to a Card from the card tool (link/unlink with "
-        "check_query or check_ids), never from here. Nothing is saved until the user presses Save."
+        "Propose one Check — a state observation on a Card. Answer one only when the user "
+        "already said how it went; otherwise cite it and let them."
     ),
-    "value": "Open the Value editor with a create or update proposal;",
-    "tag": "Open the Tag editor with a create or update proposal;",
-    "request": "Prepare a saved Request create or update proposal.",
+    "value": "Propose one Value — a focus the user names and links Cards to.",
+    "tag": "Propose one Tag — a free label for finding Cards.",
+    "request": "Propose one Request — a saved query over ai_cards the user reruns.",
     "reminder": (
-        "Propose a Reminder: instruction text plus timing in plain words. The text is handed "
-        "to you as a request when the time comes, so it must stand on its own and must name "
-        "every Safwa item it concerns by #id — look the id up with query_safwa first. "
-        "Pass the timing through verbatim in when; never invent a date or an hour. Omit when "
-        "in update mode to change only the text and leave the schedule alone."
+        "Propose one Reminder — instruction text plus timing. The text comes back as a request "
+        "when it fires."
     ),
-    "remove": (
-        "Take one item off the board: archive keeps its history, delete erases it and only a "
-        "Card allows it. Name the entity and its id."
-    ),
-    "diary": (
-        "Open the Diary review UI for one day. update proposes that day in the owner's voice, "
-        "replacing whatever is saved; delete removes it. Nothing is saved until the user "
-        "presses Save."
-    ),
+    "remove": "Archive or delete one item of any kind. No other tool removes anything.",
+    "diary": "Propose one day of the Diary, written in the user's voice, or remove it.",
 }
 ROUTE_TOOL: dict[str, Any] = {
     "type": "function",
@@ -2251,7 +2234,7 @@ class AIAdvisor:
                 "",
             ) if run is not None else ""
             return batch.id, AutoApprovalCandidate(
-                owner_request=request,
+                user_request=request,
                 entity=change.entity,
                 action=change.action,
                 entity_id=change.entity_id,

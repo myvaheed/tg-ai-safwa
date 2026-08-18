@@ -115,7 +115,8 @@ class ChangePreparer:
             raise ToolPreparationError(
                 "target_not_found",
                 f"{change.entity.title()} #{change.id} does not exist or is archived.",
-                "Use query_safwa to find the current numeric ID, then retry only this unfinished operation.",
+                "Find the current numeric ID with query_safwa and retry. If nothing matches, say so "
+                "instead of proposing again.",
             )
         values = dict(change.values)
         proposed_kind = (
@@ -167,8 +168,8 @@ class ChangePreparer:
     ) -> None:
         """Reject a relationship the owner could not act on, with a retryable hint."""
         reference_hint = (
-            "The referenced item may have been proposed but is not saved yet. Wait for the "
-            "earlier proposal result, then retry only this unfinished operation using the returned ID."
+            "Find the item with query_safwa and retry this call with its numeric ID. If you "
+            "proposed it earlier in this same turn, wait for that result and use the ID it returns."
         )
         resolved = await resolve_references(session, spec, values)
         if resolved.blank:
@@ -203,8 +204,8 @@ class ChangePreparer:
         child_kind: str | None,
     ) -> None:
         reference_hint = (
-            "The parent may have been proposed but is not saved yet. Wait for the earlier proposal "
-            "result, then retry only this unfinished Card operation using the returned parent ID."
+            "Find the parent with query_safwa and retry with its numeric parent_id, or drop the "
+            "parent. If you proposed it earlier in this same turn, wait for that result first."
         )
         raw_parent_query = values.pop("parent_query", None)
         if raw_parent_query is not None:
@@ -230,7 +231,7 @@ class ChangePreparer:
                     raise ToolPreparationError(
                         "invalid_arguments",
                         f"Parent query failed: {error}",
-                        "Correct the SELECT and retry only this unfinished Card operation.",
+                        "Fix the SELECT, or give parent_id or an exact Card title instead.",
                     ) from error
                 if not rows:
                     raise ToolPreparationError(
@@ -288,7 +289,7 @@ class ChangePreparer:
             raise ToolPreparationError(
                 "invalid_parent_kind",
                 f"A {child_kind or 'Card'} cannot have a {parent.kind} parent.",
-                "Goal is root-only; Idea may be under Goal; Action may be under Goal or Idea.",
+                "Choose a parent this Card may hang under, or drop the parent and leave it root-level.",
             )
 
     async def _guard_pending_checks(
@@ -326,7 +327,7 @@ class ChangePreparer:
             raise ToolPreparationError(
                 "invalid_arguments",
                 "date must be a calendar date written as YYYY-MM-DD.",
-                "Retry the diary call with the day you meant.",
+                "Retry the diary call with the day you meant, written as YYYY-MM-DD.",
             ) from error
         saved = await diary_entry_for(session, entry_date)
         if change.action == "delete":
@@ -334,7 +335,7 @@ class ChangePreparer:
                 raise ToolPreparationError(
                     "target_not_found",
                     f"There is no Diary entry for {entry_date.isoformat()}.",
-                    "Tell the owner that day has nothing written. Propose nothing.",
+                    "Tell the user that day has nothing written. Propose nothing.",
                 )
             change.id = saved.id
             change.values = {"entry_date": entry_date.isoformat()}
@@ -375,7 +376,7 @@ class ChangePreparer:
             raise ToolPreparationError(
                 "schedule_unclear",
                 str(error),
-                "Ask the owner this exact question, then call reminder again with their "
+                "Ask the user this exact question, then call reminder again with their "
                 "answer in when. Never invent a time.",
             ) from error
         prepared["schedule"] = schedule_payload(schedule)

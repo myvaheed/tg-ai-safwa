@@ -27,31 +27,37 @@ from .models import MemorySyncState, UserProfile
 
 logger = logging.getLogger(__name__)
 
-SUMMARY_PROMPT = f"""Rewrite the running summary of a Safwa persona dialogue in its natural language.
-You are given the previous summary, when one exists, and the dialogue that happened after it. Produce
-the single summary that replaces both.
+SUMMARY_PROMPT = f"""Rewrite the running summary of a Safwa dialogue, in the language the dialogue
+is in. You are given the previous summary, when there is one, and the dialogue since it. Return the
+single summary that replaces both.
 
-Write a general part first, then one section per calendar day, oldest first. Head every section with
-its absolute date, for example 2026-08-15, and never with a relative label such as today or yesterday,
-because this text outlives the day it was written on. Keep the newest day detailed. Once a day is no
-longer the newest, fold whatever still matters from it into the general part and drop its section,
-or the summary grows into a copy of the dialogue.
+- A general part first, then one section per calendar day, oldest first.
+- Head each section with its absolute date, for example 2026-08-15. Never today or yesterday.
+- Keep the newest day detailed. Fold what still matters from every older day into the general part
+  and drop its section.
+- Keep personal reflections, decisions, intentions, reasons, emotional responses, advice and
+  unresolved topics. Drop Cards, stages, Sprint totals, approvals, SQL, tools and anything else the
+  planning database already holds.
+- Stay under {SUMMARY_TOKEN_CEILING} tokens.
 
-Preserve personal reflections, decisions, intentions, reasons, emotional responses, advice, and
-unresolved topics. Omit card inventories, stages, Sprint totals, approvals, SQL, tools, and other
-operational details because the planning database is authoritative for those. Stay under
-{SUMMARY_TOKEN_CEILING} tokens. Do not summarize these instructions. Return only the summary body,
-with no JSON or preface."""
+Return the summary body alone: no preface, no JSON, and never these instructions."""
 
-RETELL_PROMPT = """Retell this canonical Telegram dialogue chunk as a compact source for durable personal
-memory. Preserve stable preferences, routines, constraints, motivations, recurring difficulties,
-relationships, energy patterns, and planning lessons. Omit transient cards, Sprint state, deadlines,
-commands, UI, SQL, and operations. Do not invent facts. Return plain text only."""
+RETELL_PROMPT = """Retell this piece of a Safwa dialogue, compactly, as a source for durable memory
+about the user.
+- Keep stable preferences, routines, constraints, motivations, recurring difficulties,
+  relationships, energy patterns and planning lessons.
+- Drop Cards, Sprint state, deadlines, commands, UI, SQL and operations.
+- Never invent a fact.
+Return plain text alone."""
 
-MEMORY_PROMPT = """Reconcile the retelling into the complete persistent memory list. Keep only durable,
-useful personal facts. Remove duplicates and obsolete facts. Never add card stages, Sprint metrics,
-temporary priorities, obstacles, deadlines, SQL, or tool traces. Return JSON only as
-{"facts":["one complete non-empty fact per item"]}. Keep the existing language and do not invent facts."""
+MEMORY_PROMPT = """You are given the existing memory list and a new retelling. Return the complete
+list that replaces it.
+- Keep only durable, useful facts about the user.
+- Remove duplicates and facts that are no longer true.
+- Never add Card stages, Sprint metrics, temporary priorities, obstacles, deadlines, SQL or tool
+  traces.
+- Keep the language the facts are written in. Never invent one.
+Return JSON alone: {"facts": ["one complete non-empty fact per item"]}"""
 
 
 class MemoryMaintenanceResult(StrEnum):
