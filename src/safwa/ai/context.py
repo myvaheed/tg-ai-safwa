@@ -242,5 +242,5 @@ async def planning_context(session: AsyncSession) -> PlanningContext:
         )
     return PlanningContext(
         state="\n".join(lines),
-        clock=f"Current local time: {datetime.now(timezone).isoformat()}",
+        clock=f"Current local time: {datetime.now(timezone):%Y-%m-%d %H:%M} ({timezone})",
     )

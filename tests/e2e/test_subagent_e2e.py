@@ -14,7 +14,7 @@ from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.ai.subagents import RoutedSubagent
 from safwa.domain import create_card, finish_action
 from safwa.enums import CardKind, CardStage
-from safwa.models import AgentRun, AgentStep, DiaryEntry
+from safwa.models import AgentRun, AgentStep, Card, DiaryEntry
 
 TODAY = date.today().isoformat()
 
@@ -37,6 +37,19 @@ def turn(*calls: tuple[str, dict[str, object]], prefix: str = "call") -> Provide
                 id=f"{prefix}-{index}", name=name, arguments=json.dumps(arguments)
             )
             for index, (name, arguments) in enumerate(calls, start=1)
+        ),
+    )
+
+
+def review_turn(reason: str) -> ProviderTurn:
+    return ProviderTurn(
+        content="",
+        tool_calls=(
+            ProviderToolCall(
+                id="review-autoapprove",
+                name="autoapprove",
+                arguments=json.dumps({"reason": reason}),
+            ),
         ),
     )
 
@@ -111,6 +124,42 @@ async def test_a_routed_subagent_hands_its_words_back_and_the_advisor_speaks(e2e
         ("diary", "completed", 1),
     ]
     assert kinds == ["route", "read"]
+
+
+async def test_an_autoapproved_board_route_hands_back_its_receipt(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        card = await create_card(
+            session, kind=CardKind.ACTION, title="Купить молоко", effort_points=1
+        )
+        await session.commit()
+
+    advisor, provider = e2e_harness.advisor(
+        [
+            turn(("route", {"name": "board"})),
+            turn(
+                ("card", {"mode": "update", "id": card.id, "title": "Купить овсяное молоко"}),
+                prefix="board",
+            ),
+            review_turn("The operation and every non-default value are explicit."),
+            "Переименовал чек.",
+            "Готово.",
+        ],
+        autoapprove=True,
+    )
+
+    outcome = await advisor.handle("Переименуй Купить молоко в Купить овсяное молоко")
+
+    assert outcome.kind == "answer"
+    assert [message["role"] for message in provider.calls[1]] == ["system", "user"]
+    receipt = next(receipt for receipt in route_receipts(provider) if receipt["subagent"] == "board")
+    assert receipt["did"] == [
+        "⚡ Auto-saved — Edit Action “Купить овсяное молоко” "
+        "(Title: Купить молоко → Купить овсяное молоко)"
+    ]
+    assert receipt["text"] == "Переименовал чек."
+    async with e2e_harness.sessions() as session:
+        stored = await session.get(Card, card.id)
+    assert stored is not None and stored.title == "Купить овсяное молоко"
 
 
 async def test_a_routed_subagent_proposes_for_itself(e2e_harness):
@@ -258,8 +307,9 @@ async def test_a_subagent_reads_the_tail_of_the_conversation_as_tagged_data(e2e_
     await advisor.handle("Заведи тег VrWalk", dialogue=dialogue)
 
     board_seen = [item for item in provider.calls[0] if item["role"] == "user"]
-    assert str(board_seen[0]["content"]).startswith("[System]: Current planning state:")
-    conversation = str(board_seen[1]["content"])
+    assert len(board_seen) == 1
+    conversation = str(board_seen[0]["content"])
+    assert conversation.startswith("[System]: Current planning state:")
     # The tail only, and every line says whose it is: the subagent said none of it, so
     # nothing reaches it in the slot it writes to itself.
     assert "сообщение 0" not in conversation
@@ -430,10 +480,10 @@ async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
     )
 
     # The Diary's own context names what the board already saved, in the owner's words.
-    diary_seen = [str(item["content"]) for item in provider.calls[-1]]
-    already = next(line for line in diary_seen if line.startswith("[System]: Already saved"))
-    assert "✅ Saved — Edit Action “Приготовить пиццу”" in already
+    diary_seen = next(item for item in provider.calls[-1] if item["role"] == "user")
+    context = str(diary_seen["content"])
+    assert "✅ Saved — Edit Action “Приготовить пиццу”" in context
     # It sits outside the conversation, so the subagent window cannot trim it.
-    conversation = next(line for line in diary_seen if "<Conversation>" in line)
+    conversation = context[context.index("<Conversation>") :]
     assert "<User>Переименуй действие и запиши день</User>" in conversation
-    assert diary_seen.index(already) > diary_seen.index(conversation)
+    assert context.index("[System]: Already saved") > context.index(conversation)

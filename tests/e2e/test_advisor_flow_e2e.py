@@ -1243,9 +1243,9 @@ async def test_cacheable_prefix_is_byte_stable_across_turns(e2e_harness):
     await advisor.handle("What is next?", dialogue=dialogue)
 
     first, second = provider.calls
-    # Only the trailing clock may differ; everything before it must be reusable.
+    # Only the trailing clock inside the final owner turn may differ.
     assert first[:-1] == second[:-1]
-    assert str(first[-1]["content"]).startswith("[System]: Current local time:")
+    assert "[System]: Current local time:" in str(first[-1]["content"])
 
 
 async def test_cache_breakpoints_mark_exactly_the_stable_prefix(e2e_harness):
@@ -1260,7 +1260,7 @@ async def test_cache_breakpoints_mark_exactly_the_stable_prefix(e2e_harness):
 
     messages = provider.calls[0]
     marked = [index for index, message in enumerate(messages) if isinstance(message["content"], list)]
-    assert marked == [0, 1, len(messages) - 2]
+    assert marked == [0, len(messages) - 2]
     assert messages[0]["content"] == [
         {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}
     ]
@@ -1273,6 +1273,18 @@ async def test_cache_breakpoints_are_absent_by_default(e2e_harness):
     await advisor.handle("Hi", dialogue=[DialogueMessage(role="user", content="[User]: Hi")])
 
     assert all(isinstance(message["content"], str) for message in provider.calls[0])
+
+
+async def test_advisor_combines_context_when_history_is_absent(e2e_harness):
+    advisor, provider = e2e_harness.advisor(["Noted."])
+
+    await advisor.handle("Hi")
+
+    messages = provider.calls[0]
+    assert [message["role"] for message in messages] == ["system", "user"]
+    assert "Persistent memory:" in messages[-1]["content"]
+    assert "Hi" in messages[-1]["content"]
+    assert "[System]: Current local time:" in messages[-1]["content"]
 
 
 async def test_advisor_sends_layered_system_blocks_and_canonical_dialogue(e2e_harness):
@@ -1295,14 +1307,13 @@ async def test_advisor_sends_layered_system_blocks_and_canonical_dialogue(e2e_ha
     assert [message["role"] for message in messages] == [
         "system",
         "user",
-        "user",
         "assistant",
         "user",
-        "user",
     ]
-    assert messages[-2]["content"] == dialogue[-1].content
-    # The volatile clock is the last block so the prefix before it stays cacheable.
-    assert messages[-1]["content"].startswith("[System]: Current local time:")
+    assert messages[-1]["content"].startswith(dialogue[-1].content)
+    assert "[System]: Current local time:" in messages[-1]["content"]
+    timestamp = messages[-1]["content"].split("Current local time: ", 1)[1]
+    assert "T" not in timestamp and timestamp.count(":") == 1
     system = str(messages[0]["content"])
     assert system == SYSTEM_PROMPT
     assert "query_safwa" in system
@@ -2259,7 +2270,6 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
     assert [message["role"] for message in last] == [
         "system",
         "user",
-        "user",
         "assistant",
         "tool",
         "assistant",
@@ -2268,19 +2278,19 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
         "tool",
     ]
     # The request that started the turn is still the user message the model reads.
-    assert "Сделай цель Быть здоровым и задачу подтянуться" in str(last[2]["content"])
+    assert "Сделай цель Быть здоровым и задачу подтянуться" in str(last[1]["content"])
     # Step 1: the saved Goal, described rather than reduced to an ID list.
-    assert '"status": "approved"' in str(last[4]["content"])
-    assert "Create Card “Быть здоровым”" in str(last[4]["content"])
-    assert f'"affected_ids": {json.dumps(goal_ids)}' in str(last[4]["content"])
-    assert "Do not propose it again" in str(last[4]["content"])
+    assert '"status": "approved"' in str(last[3]["content"])
+    assert "Create Card “Быть здоровым”" in str(last[3]["content"])
+    assert f'"affected_ids": {json.dumps(goal_ids)}' in str(last[3]["content"])
+    assert "Do not propose it again" in str(last[3]["content"])
     # Step 2: the failed read is still visible, with a bounded instruction.
-    assert last[5]["tool_calls"][0]["function"]["name"] == "query_safwa"
-    assert '"code": "unsafe_query"' in str(last[6]["content"])
-    assert "do not restart the request" in str(last[6]["content"])
+    assert last[4]["tool_calls"][0]["function"]["name"] == "query_safwa"
+    assert '"code": "unsafe_query"' in str(last[5]["content"])
+    assert "do not restart the request" in str(last[5]["content"])
     # Step 3: the steps speak for themselves, so no progress digest is restated on top.
     assert all("[Current request progress" not in str(message.get("content")) for message in last)
-    assert "Create Card “Подтянуться 20 раз”" in str(last[8]["content"])
+    assert "Create Card “Подтянуться 20 раз”" in str(last[7]["content"])
 
 
 async def test_suspended_batch_persists_the_request_dialogue_and_transcript(e2e_harness):

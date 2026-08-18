@@ -307,6 +307,7 @@ class AIOutcome:
     kind: str
     message: str
     proposal_id: int | None = None
+    did: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -442,6 +443,14 @@ def _system_note(content: str) -> dict[str, Any]:
     """
 
     return {"role": "user", "content": f"[System]: {content}"}
+
+
+def _append_user_message(messages: list[dict[str, Any]], content: str) -> None:
+    """Append user-side context without creating adjacent user turns."""
+    if messages and messages[-1].get("role") == "user":
+        messages[-1]["content"] += "\n" + content
+        return
+    messages.append({"role": "user", "content": content})
 
 
 def _cache_breakpoint(message: dict[str, Any]) -> dict[str, Any]:
@@ -718,7 +727,12 @@ def _safe_approval_results_summary(
 
 
 def _route_receipt(
-    name: str, message: str, summaries: list[str], *, error: str | None = None
+    name: str,
+    message: str,
+    summaries: list[str],
+    *,
+    did: list[str] | None = None,
+    error: str | None = None,
 ) -> dict[str, Any]:
     """What a finished subagent hands back to whoever routed to it.
 
@@ -726,11 +740,17 @@ def _route_receipt(
     of receipt in the system.  `text` is the subagent's own words with its own citations —
     real ids the caller can reuse — and never the body of what it proposed.
     """
+    receipt_lines = [line for summary in summaries for line in summary.splitlines() if line.strip()]
+    receipt_lines.extend(line for line in did or [] if line.strip())
     receipt: dict[str, Any] = {
         "subagent": name,
         "outcome": "error" if error else "done",
-        "did": [line for summary in summaries for line in summary.splitlines() if line.strip()],
+        "did": list(dict.fromkeys(receipt_lines)),
     }
+    if receipt["did"]:
+        message = "\n".join(
+            line for line in message.splitlines() if not line.strip().startswith(tuple(RECEIPT_MEANINGS))
+        )
     if message.strip():
         receipt["text"] = message.strip()
     if error:
@@ -952,13 +972,13 @@ class AIAdvisor:
             await session.commit()
 
         try:
-            messages = await self._context_messages(dialogue or [])
-            if not dialogue:
-                messages.append({"role": "user", "content": text})
             turn_dialogue = (
                 [{"role": item.role, "content": item.content} for item in dialogue]
                 if dialogue
                 else [{"role": "user", "content": text}]
+            )
+            messages = await self._context_messages(
+                dialogue or [DialogueMessage(role="user", content=text)]
             )
             agent = AgentSession(
                 run_id=run.id,
@@ -1141,7 +1161,10 @@ class AIAdvisor:
             await self._finish_run(run_id, "completed", started)
             # The materialized outcome, not the raw loop result: a repair round answers again.
             return outcome, _route_receipt(
-                name, outcome.message, agent.display_result_summaries
+                name,
+                outcome.message,
+                agent.display_result_summaries,
+                did=outcome.did,
             )
         except TimeoutError:
             logger.warning("SUBAGENT %s timed out after %.0fs", name, SUBAGENT_DEADLINE_SECONDS)
@@ -1238,13 +1261,16 @@ class AIAdvisor:
             ),
         ]
         # The history source has already bounded the window by its token budget.
-        messages.extend({"role": item.role, "content": item.content} for item in dialogue)
+        for item in dialogue:
+            if item.role == "user":
+                _append_user_message(messages, item.content)
+            else:
+                messages.append({"role": item.role, "content": item.content})
+        _append_user_message(messages, f"[System]: {context.clock}")
         if self.cache_breakpoints:
             messages[0] = _cache_breakpoint(messages[0])
-            messages[1] = _cache_breakpoint(messages[1])
-            if dialogue:
-                messages[-1] = _cache_breakpoint(messages[-1])
-        messages.append(_system_note(context.clock))
+            if len(messages) > 2:
+                messages[-2] = _cache_breakpoint(messages[-2])
         return messages
 
     async def _routed_context(
@@ -1264,7 +1290,7 @@ class AIAdvisor:
         if routed.planning_state:
             async with self.sessions() as session:
                 context = await planning_context(session)
-            messages.append(_system_note(f"Current planning state:\n{context.state}"))
+            _append_user_message(messages, f"[System]: Current planning state:\n{context.state}")
         conversation = conversation_block(
             [
                 DialogueMessage(role=str(item["role"]), content=str(item["content"]))
@@ -1272,23 +1298,20 @@ class AIAdvisor:
             ]
         )
         if conversation:
-            messages.append(
-                _system_note(
-                    "The conversation so far, newest last. None of it is yours: read it "
-                    f"for what the owner wants changed.\n{conversation}"
-                )
+            _append_user_message(
+                messages,
+                "[System]: The conversation so far, newest last. None of it is yours: read it "
+                f"for what the owner wants changed.\n{conversation}",
             )
         if self.cache_breakpoints:
             messages[0] = _cache_breakpoint(messages[0])
-            if conversation:
-                messages[-1] = _cache_breakpoint(messages[-1])
         lines = [line for line in prior_receipts or [] if line.strip()]
         if lines:
-            messages.append(
-                _system_note("Already saved in this request:\n" + "\n".join(lines))
+            _append_user_message(
+                messages, "[System]: Already saved in this request:\n" + "\n".join(lines)
             )
         if routed.clock is not None:
-            messages.append(_system_note(routed.clock()))
+            _append_user_message(messages, f"[System]: {routed.clock()}")
         return messages
 
     async def _session_messages(self, agent: AgentSession) -> list[dict[str, Any]]:
@@ -2436,7 +2459,9 @@ class AIAdvisor:
             )
             if repair_exhausted:
                 await self._finish_run(run_id, "completed", started)
-                return await self._answer_or_deliver(agent, self._answer(agent, exhausted))
+                outcome = await self._answer_or_deliver(agent, self._answer(agent, exhausted))
+                outcome.did.extend(display_summary.splitlines())
+                return outcome
             messages = await self._session_messages(agent)
             agent.prefix_len = len(messages)
             messages.extend(_resumed_transcript(stored_transcript, tools))
@@ -2451,7 +2476,9 @@ class AIAdvisor:
                 await self._finish_run(run_id, "awaiting_approval", started)
                 return outcome
             await self._finish_run(run_id, "completed", started)
-            return await self._answer_or_deliver(agent, outcome)
+            outcome = await self._answer_or_deliver(agent, outcome)
+            outcome.did.extend(display_summary.splitlines())
+            return outcome
         except Exception as error:
             logger.exception("AI continuation failed after the approval queue was resolved")
             await self._finish_run(run_id, "failed", started, type(error).__name__)
