@@ -171,8 +171,8 @@ def _read_turn(response: Any) -> tuple[ProviderTurn | None, str]:
     content = (message.content or "").strip()
     reason = getattr(response.choices[0], "finish_reason", None)
     if not content and not tool_calls and reason != "stop":
-        # `stop` with no content is the model ending its turn with nothing to add, which
-        # is a real answer after a tool result.  Any other reason means it was cut off.
+        # `stop` with no content is a turn, not an answer: the session asks the model
+        # again for words.  Any other reason means it was cut off mid-turn.
         return None, f"no content and no tool calls, finish_reason={reason}"
     return (
         ProviderTurn(

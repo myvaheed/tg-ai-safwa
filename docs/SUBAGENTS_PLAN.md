@@ -73,10 +73,10 @@ These are the contract. Everything below follows from them.
     left with the one case rule 10 never sees — a screen the owner neither answered nor talked past.
 14. **Preparation runs where the change was authored,** so the session that filled the fields is the
     session that repairs them.
-15. **The owner never gets emptiness.** An empty final answer is not a failure and not a session's
-    business — a model with nothing to add says nothing. The one participant that writes to the chat
-    is what guarantees a message: the receipts when there are receipts, one `⚠️` line when there is
-    nothing at all.
+15. **The owner never gets emptiness.** A session ends in words: a turn that stops with no content
+    is told so and run again, bounded by the repair rounds. Behind that, the one participant that
+    writes to the chat still guarantees a message — the receipts when there are receipts, one `⚠️`
+    line when there is nothing at all.
 16. **The Advisor reads everything and writes nothing.** Every `ai_*` view is its own, `ai_diary`
     included: it cites `[16.08.2026](diary:12)` and the whole day opens behind the link. Owning a
     feature is owning its *writes*, so a mutation tool belongs to its subagent and the Advisor holds
@@ -224,9 +224,10 @@ conversation it declares, and its clock. `PERSONA` is the block composed into ev
 - `_close_lapsed_sessions` runs once at the end of a turn that did not suspend, and abandons every
   saved subagent session that turn never routed into — the one-turn window of rule 10. A session
   whose batch is still `pending` is left alone: its screen is live and Save resumes it.
-- No session decides what an empty answer means. `_materialize` composes the receipts into the root's
-  message and falls back to one `⚠️` line when there is nothing; a subagent's empty answer is handed
-  to its caller untouched.
+- `_run_agent_loop` asks again for words rather than returning silence, and no session decides what
+  an answer that stays empty means: `_materialize` composes the receipts into the root's message and
+  falls back to one `⚠️` line when there is nothing; a subagent's empty answer is handed to its
+  caller untouched.
 - The `# Routing` section of `SYSTEM_PROMPT` is the whole roster: one line per subagent, plus the
   loop — route, read the receipt, route again for a domain still unaddressed, answer once. There is
   no discovery tool, so a subagent missing from that section is never routed to.

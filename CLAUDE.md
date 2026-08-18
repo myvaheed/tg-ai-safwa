@@ -185,7 +185,8 @@ subagent has no `route`, so there is no recursion.
   suspended it, and `claimed_at` is what stops two resumes of the same session.
 - `parent_run_id` is who routed here. A screen suspends the whole chain; Save resumes the subagent,
   and its receipt resumes its caller, up to the session that has no parent.
-- An empty answer is not an error. The session that writes to the chat is the one that guarantees the
+- A session runs until it answers in words: a turn that stops with nothing is told so and asked
+  again, bounded by the repair rounds. The session that writes to the chat is what guarantees the
   owner sees something — the receipts, or one `⚠️` line.
 - Approve and Discard resume that session directly. Words typed over the screen do not: the screen
   freezes, the session is saved, and the Advisor takes the words — so a correction reaches the session

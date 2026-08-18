@@ -1325,10 +1325,11 @@ class AIAdvisor:
         return turn
 
     async def _run_agent_loop(self, agent: AgentSession) -> AgentLoopResult:
-        """Run the model until it stops calling tools.
+        """Run the model until it answers in words.
 
-        An empty final answer is returned as it stands: a model with nothing left to add
-        says nothing, and what the owner ends up seeing is `_materialize`'s to guarantee.
+        Stopping with no content is not an answer, so the session says what it is waiting
+        for and runs on.  Repair rounds bound that, and an empty result after them is
+        `_materialize`'s to turn into something the owner can read.
         """
         messages = agent.messages
         while True:
@@ -1446,7 +1447,20 @@ class AIAdvisor:
                     agent.repair_rounds += 1
                 continue
 
-            return AgentLoopResult(turn.content)
+            if turn.content:
+                return AgentLoopResult(turn.content)
+            if agent.repair_rounds >= MAX_REPAIR_ROUNDS:
+                return AgentLoopResult("")
+            agent.repair_rounds += 1
+            # A turn that stops with nothing leaves the owner with nothing.  The empty
+            # assistant message is dropped rather than kept: it carries no information and
+            # some chat templates reject it.
+            messages.append(
+                _system_note(
+                    "You stopped without answering. Write the answer to the owner now, "
+                    "in their language, using what the tool results already gave you."
+                )
+            )
 
     async def _execute_route_tool(
         self, agent: AgentSession, call: ProviderToolCall

@@ -522,6 +522,39 @@ async def test_ai_read_query_round_trip_uses_safe_view(e2e_harness):
         assert set(step.metadata_json["columns"]) == {"committed", "completed"}
 
 
+async def test_a_turn_that_stops_without_words_is_asked_again(e2e_harness):
+    query_response = ProviderTurn(
+        content="",
+        tool_calls=(
+            ProviderToolCall(
+                id="read-1",
+                name="query_safwa",
+                arguments=json.dumps({"sql": "SELECT id FROM ai_cards"}),
+            ),
+        ),
+    )
+    advisor, provider = e2e_harness.advisor(
+        [query_response, "", "Isha is the night prayer."]
+    )
+    outcome = await advisor.handle("What is isha?")
+
+    assert outcome.kind == "answer"
+    assert outcome.message == "Isha is the night prayer."
+    assert len(provider.calls) == 3
+    nudge = str(provider.calls[2][-1]["content"])
+    assert nudge.startswith("[System]: You stopped without answering.")
+    assert provider.calls[2][-2]["role"] == "tool"
+
+
+async def test_a_turn_that_never_finds_words_still_reaches_the_owner(e2e_harness):
+    advisor, provider = e2e_harness.advisor([""] * 6)
+    outcome = await advisor.handle("What is isha?")
+
+    assert outcome.kind == "answer"
+    assert outcome.message == "⚠️ Safwa had nothing to say about that. You can ask again."
+    assert len(provider.calls) == 6
+
+
 async def test_read_and_mutation_in_one_turn_rejects_only_the_mutation(e2e_harness):
     mixed = ProviderTurn(
         content="",
