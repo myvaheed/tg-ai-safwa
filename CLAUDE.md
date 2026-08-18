@@ -16,6 +16,11 @@ Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-s
 
 Tradeoff: These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
+**Simple is the test of correct.** A right solution is simple. When it is not simple, something is
+wrong — go back and find it instead of building around it. A hard problem's right solution is a
+composition of simple modular ones, never one complex whole: a monolithic complex solution is a
+wrong solution. Several mechanisms that all compensate for one missing property are the signal.
+
 1. Think Before Coding
 Don't assume. Don't hide confusion. Surface tradeoffs.
 
@@ -148,9 +153,11 @@ turn; `telegram_messages` stores event metadata, never persona text.
 ### AI mutations are always proposals
 
 The model never mutates and never writes mutation SQL. A mutation tool call becomes a Pydantic
-contract, then proposal rows, then a review screen, and `ProposalService.apply` calls the *same*
-`domain.py` functions the manual UI calls.
+contract, then `ChangePreparer.prepare` against live data, then proposal rows, then a review screen,
+and `ProposalService.apply` calls the *same* `domain.py` functions the manual UI calls.
 
+- **Every mutation tool belongs to a subagent, never to the Advisor.** `board` owns the planning
+  data, `diary` owns the Diary. Preparation runs where the change was authored.
 - **Every proposal screen is exactly Save/Discard.** A screen that needs a field control is the wrong
   screen.
 - Autoapproval decides only whether a screen is shown; it never bypasses proposal persistence, and
@@ -164,17 +171,25 @@ contract, then proposal rows, then a review screen, and `ProposalService.apply` 
   mutations and the model retries them after it has seen the read data.
 - Anything the model must know across an approval belongs in a tool result, not in a receipt.
 
-### A subagent reads and reports; it never mutates
+### A session is the unit, and `route` hands one turn to another
 
-`call_subagent(name, request)` runs a named specialist inside the advisor's turn and hands its report
-back as the tool result. A subagent has read tools and one terminal report — no mutation tool and no
-`call_subagent`, so there is no recursion — and a deadline instead of a call cap.
+The Advisor is a session ([`AgentSession`](src/safwa/ai/service.py)); a subagent is a session of the
+same shape, reading the same conversation under its own prompt and its own tools. `route(name)` hands
+the turn over: the subagent's prose is the chat message and its proposal is the screen, with nothing
+relayed. A routed subagent has no `route`, so there is no recursion.
 
-- The roster is prose in `SYSTEM_PROMPT`. A new subagent must be added *both* to the runner in
-  [main.py](src/safwa/main.py) *and* to that section, or it cannot be called.
-- A subagent may **own** a feature outright: the Diary is read and settled only by its subagent, and
-  the advisor merely relays the words and proposes the result. What the model must not be able to
-  edit does not travel through it.
+- A session is its `agent_runs` row. `state_json` carries the dialogue, transcript, budget and
+  receipts, so a suspended turn resumes from its own record rather than from the screen that
+  suspended it, and `claimed_at` is what stops two resumes of the same session.
+- Approve and Discard resume that session directly. Words typed over the screen do not: the screen
+  freezes, the session is saved, and the Advisor takes the words — so a correction reaches the session
+  that wrote the refused proposal. It is saved for **one Advisor turn**: a `route` back on that turn
+  restores it, and anything else the Advisor does abandons it.
+- The routing rules are prose in `SYSTEM_PROMPT`. A new subagent must be added *both* to the roster
+  in [main.py](src/safwa/main.py) *and* to that section, or it is never routed to.
+- A subagent may **own** a feature outright: the Diary is read and written only by its subagent, and
+  the Advisor has neither its view nor its tool. What the Advisor must not be able to edit never
+  passes through it.
 
 ### Read-only SQL is triple-guarded
 

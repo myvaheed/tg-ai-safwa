@@ -1,19 +1,17 @@
 # Proposals и tool calls
 
-LLM никогда не применяет mutation напрямую. `query_safwa` и `call_subagent` — immediate tools;
-`card`, `check`, `value`, `tag`, `request`, `reminder`, `remove` и `propose_diary_update` создают
+LLM никогда не применяет mutation напрямую. `query_safwa` и `route` — immediate tools;
+`card`, `check`, `value`, `tag`, `request`, `reminder`, `remove` и `diary` создают
 reviewable proposals с явным Save/Discard.
 
-`propose_diary_update` принимает только stamp. Дату, целевую запись, action (create/update/delete),
-body, feeling_score и remark решил Diary subagent, и preparation восстанавливает из `DiaryStamp` весь
-change целиком. Discard не расходует stamp, поэтому отклонённый change предлагается снова из того же
-stamp до конца дня, в который он был выдан. Save расходует его вместе со всеми остальными stamp той
-же даты: старый черновик описывает день таким, каким он был, и его повторное предложение откатило бы
-только что сохранённое.
+`route(name)` передаёт ход сабагенту: дальше его проза становится сообщением в чате, а его change —
+экраном. `diary` доступен только Diary subagent и несёт `mode`, `date`, `pov`, `ai_comment` и
+`feeling_score`. Существует ли уже запись за этот день, решает preparation по `ai_diary`, а не
+модель: `write` становится create или update, а `remove` над пустым днём отклоняется retryable-ошибкой.
 
-Текст дня остаётся на review screen: receipt Diary-change несёт дату, score, длину и `Draft: <stamp>`,
-но не сам день — receipt живёт в переписке и перечитывался бы каждый следующий turn. Черновик
-возвращает `observe_stamp`, сохранённый день — `ai_diary`; оба доступны только Diary subagent.
+Текст дня остаётся на review screen: receipt Diary-change несёт дату, score и длину, но не сам день —
+receipt живёт в переписке и перечитывался бы каждый следующий turn. Черновик держит сама сессия
+сабагента, поэтому Approve, Discard и слова поверх экрана возвращаются именно в неё.
 
 ## Read перед mutation
 

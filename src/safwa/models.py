@@ -317,16 +317,25 @@ class ProposalChange(Base):
     values: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
 
-class AgentRun(Base):
+class AgentRun(Base, TimestampMixin):
+    """One model session, from its first turn to whichever turn ends it.
+
+    A session that stops on an approval screen keeps everything it needs to continue in
+    `state_json`, so it resumes from its own row.  `claimed_at` is taken before resuming
+    and released afterwards: it is what stops two resumes of the same session.
+    """
+
     __tablename__ = "agent_runs"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(30), default="advisor")
     provider: Mapped[str] = mapped_column(String(100))
     model: Mapped[str] = mapped_column(String(200))
-    status: Mapped[str] = mapped_column(String(30))
+    status: Mapped[str] = mapped_column(String(30), index=True)
+    state_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     source_message_id: Mapped[int | None] = mapped_column(Integer)
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     error_code: Mapped[str | None] = mapped_column(String(100))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class AgentStep(Base):
@@ -467,26 +476,3 @@ class DiaryEntry(Base, TimestampMixin):
     body: Mapped[str] = mapped_column(Text)
     feeling_score: Mapped[int | None] = mapped_column(Integer)
     version: Mapped[int] = mapped_column(Integer, default=1)
-
-
-class DiaryStamp(Base):
-    """The whole Diary change the subagent decided on, waiting for the owner's Save.
-
-    The advisor holds the stamp and never the text, so it cannot rewrite an entry it is
-    not meant to author; the row therefore carries everything the proposal needs.  Save
-    clears it, Discard leaves it, and unspent it expires at the end of the local day it
-    was issued on — the day it *describes* may be older.
-    """
-
-    __tablename__ = "diary_stamps"
-    stamp: Mapped[str] = mapped_column(String(24), primary_key=True)
-    entry_date: Mapped[date] = mapped_column(Date, index=True)
-    entry_id: Mapped[int | None] = mapped_column(
-        ForeignKey("diary_entries.id", ondelete="SET NULL")
-    )
-    action: Mapped[str] = mapped_column(String(20))
-    body: Mapped[str] = mapped_column(Text, default="")
-    feeling_score: Mapped[int | None] = mapped_column(Integer)
-    remark: Mapped[str] = mapped_column(Text, default="")
-    expires_at: Mapped[datetime] = mapped_column(UtcDateTime, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

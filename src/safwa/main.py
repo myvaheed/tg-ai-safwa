@@ -11,14 +11,15 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from .ai.autoapproval import AutoApprovalReviewer
-from .ai.diary import DiarySubagent
+from .ai.board import BOARD_PROMPT, BOARD_TOOLS
+from .ai.diary import DIARY_PROMPT, day_read_tool, diary_clock
 from .ai.provider import OpenAICompatibleProvider, ProviderConfig
 from .ai.service import AIAdvisor, query_read_tool
 from .ai.sql import ReadOnlyQueryRunner, create_ai_views
-from .ai.subagents import SubagentRunner
+from .ai.subagents import RoutedSubagent
 from .asr import build_transcriber
 from .config import Settings
-from .constants import AI_APP_TITLE, AI_APP_URL
+from .constants import AI_APP_TITLE, AI_APP_URL, DIARY_HISTORY_MESSAGES
 from .continuity import PersonaContinuity, run_memory_maintenance
 from .db import Database, upgrade_database
 from .domain import bootstrap_workspace
@@ -129,20 +130,35 @@ async def run(settings: Settings) -> None:
         provider_name=settings.ai_provider.value,
         cache_breakpoints=settings.resolved_ai_cache_breakpoints,
         autoapproval=AutoApprovalReviewer(provider),
-        subagents=SubagentRunner(
-            database.sessions,
-            (
-                DiarySubagent(
-                    database.sessions,
-                    provider,
-                    history,
-                    query_read_tool(query_runner),
-                    chat_id=settings.telegram_owner_id,
-                    timezone=settings.timezone,
-                ),
+        subagents=(
+            RoutedSubagent(
+                name="board",
+                purpose="every change to a Card, Check, Value, Tag, Request or Reminder",
+                instructions=BOARD_PROMPT,
+                read_tools=(query_read_tool(query_runner),),
+                mutation_tools=BOARD_TOOLS,
+                planning_state=True,
             ),
-            provider_name=settings.ai_provider.value,
-            model_name=settings.ai_model,
+            RoutedSubagent(
+                name="diary",
+                purpose=(
+                    "the Diary — reading a day, writing one, rewriting one, removing one"
+                ),
+                instructions=DIARY_PROMPT,
+                read_tools=(
+                    day_read_tool(
+                        history,
+                        chat_id=settings.telegram_owner_id,
+                        timezone=settings.timezone,
+                    ),
+                    query_read_tool(query_runner),
+                ),
+                mutation_tools=("diary",),
+                # Enough to be told what to change about the day it just proposed; the day
+                # itself it reads with `read_day`.
+                history_messages=DIARY_HISTORY_MESSAGES,
+                clock=lambda: diary_clock(settings.timezone),
+            ),
         ),
     )
     continuity = PersonaContinuity(

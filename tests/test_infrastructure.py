@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import create_engine, inspect, select
+from sqlalchemy import create_engine, inspect, select, update
 
 from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
+from safwa.constants import SESSION_IDLE_DAYS
 from safwa.db import upgrade_database
-from safwa.models import AgentRun, AgentStep, Base, Card, CardTag, DiaryStamp, Tag
+from safwa.models import AgentRun, AgentStep, Base, Card, CardTag, Tag
 from safwa.recovery import recover_startup
 
 
@@ -22,70 +23,56 @@ def test_startup_bootstraps_a_new_database_from_the_models(tmp_path, monkeypatch
     engine.dispose()
 
 
-async def test_startup_releases_an_interrupted_agent_continuation(sessions):
+async def test_startup_releases_the_claim_of_an_interrupted_session(sessions):
     async with sessions() as session:
-        run = AgentRun(provider="test", model="test", status="running")
+        run = AgentRun(
+            provider="test",
+            model="test",
+            status="running",
+            claimed_at=datetime.now(UTC),
+        )
         session.add(run)
-        await session.flush()
-        session.add_all(
-            [
-                AgentStep(
-                    run_id=run.id,
-                    position=1,
-                    kind="approval_batch",
-                    metadata_json={"status": "resuming", "queue": []},
-                ),
-                AgentStep(
-                    run_id=run.id,
-                    position=2,
-                    kind="approval_batch",
-                    metadata_json={"status": "pending", "queue": []},
-                ),
-            ]
-        )
         await session.commit()
 
         await recover_startup(session)
         await session.commit()
 
-        steps = list(
-            await session.scalars(select(AgentStep).order_by(AgentStep.position))
-        )
-    # A resuming batch already had its whole queue resolved, so it is closed rather
-    # than left claiming its proposal forever.  A pending batch still owns live UI.
-    assert steps[0].metadata_json["status"] == "completed"
-    assert steps[0].metadata_json["continuation_error"] == "InterruptedAtStartup"
-    assert steps[1].metadata_json["status"] == "pending"
+        restored = await session.get(AgentRun, run.id)
+    # A crash mid-resume leaves the claim behind; releasing it is what makes one more
+    # press enough, instead of a session nobody can ever take again.
+    assert restored.status == "interrupted"
+    assert restored.claimed_at is None
 
 
-async def test_startup_sweeps_diary_stamps_whose_day_is_over(sessions):
-    today = date(2026, 8, 15)
+async def test_startup_closes_a_session_left_waiting_past_its_screens(sessions):
+    stale = datetime.now(UTC) - timedelta(days=SESSION_IDLE_DAYS + 1)
     async with sessions() as session:
-        session.add_all(
-            [
-                DiaryStamp(
-                    stamp="yesterday",
-                    entry_date=today - timedelta(days=1),
-                    action="create",
-                    body="Old.",
-                    expires_at=datetime.now(UTC) - timedelta(hours=1),
-                ),
-                DiaryStamp(
-                    stamp="today",
-                    entry_date=today,
-                    action="create",
-                    body="Current.",
-                    expires_at=datetime.now(UTC) + timedelta(hours=1),
-                ),
-            ]
+        abandoned = AgentRun(provider="test", model="test", status="awaiting_approval")
+        waiting = AgentRun(provider="test", model="test", status="awaiting_approval")
+        session.add_all([abandoned, waiting])
+        await session.flush()
+        session.add(
+            AgentStep(
+                run_id=abandoned.id,
+                position=1,
+                kind="approval_batch",
+                metadata_json={"status": "pending", "queue": []},
+            )
+        )
+        await session.commit()
+        await session.execute(
+            update(AgentRun).where(AgentRun.id == abandoned.id).values(updated_at=stale)
         )
         await session.commit()
 
         await recover_startup(session)
         await session.commit()
 
-        remaining = list(await session.scalars(select(DiaryStamp.stamp)))
-    assert remaining == ["today"]
+        step = await session.scalar(select(AgentStep))
+        assert (await session.get(AgentRun, abandoned.id)).status == "abandoned"
+        assert (await session.get(AgentRun, waiting.id)).status == "awaiting_approval"
+    # The batch goes with the session: it is what a stray press would resolve into.
+    assert step.metadata_json["status"] == "cancelled"
 
 
 async def test_read_only_query_runner_reads_only_ai_views(tmp_path):

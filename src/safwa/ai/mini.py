@@ -2,8 +2,8 @@
 
 A session gets its own system prompt, its own context, its own read tools, and a set of
 terminal tools of which exactly one must be called — the call *is* the answer, so prose is
-never accepted.  It touches no proposal and no approval queue.  A mini-session runs on a
-tool-call budget; a subagent runs on a wall clock and passes ``max_tool_calls=None``.
+never accepted.  It touches no proposal and no approval queue, and it cannot continue after
+its one answer: anything that has to suspend and resume is a session in `service.py`.
 """
 
 from __future__ import annotations
@@ -23,8 +23,6 @@ from .provider import OpenAICompatibleProvider, ProviderToolCall
 logger = logging.getLogger(__name__)
 
 ReadTool = Callable[[ProviderToolCall], Awaitable[Any]]
-# Called once per resolved tool call so a caller that keeps a trace can persist it.
-Trace = Callable[[str, dict[str, Any]], Awaitable[None]]
 
 
 class MiniSessionError(RuntimeError):
@@ -77,7 +75,6 @@ async def run_mini_session(
     read_tools: tuple[ReadToolSpec, ...] = (),
     max_tool_calls: int | None,
     max_repairs: int = MINI_SESSION_REPAIR_ROUNDS,
-    trace: Trace | None = None,
 ) -> MiniSessionResult:
     """Run until one terminal tool validates, or give up and say why.
 
@@ -138,8 +135,6 @@ async def run_mini_session(
             reader = readers.get(call.name)
             if reader is not None:
                 rows = await reader.run(call)
-                if trace is not None:
-                    await trace("read", {"tool": call.name, "arguments": call.arguments})
                 _reply(messages, call, rows)
                 continue
             terminal = by_name.get(call.name)
@@ -174,8 +169,6 @@ async def run_mini_session(
                 )
                 continue
             logger.info("MINI SESSION -> %s %s", call.name, payload)
-            if trace is not None:
-                await trace("terminal", {"tool": call.name, "arguments": call.arguments})
             return MiniSessionResult(name=call.name, payload=payload)
         if repairs > max_repairs:
             raise MiniSessionError(

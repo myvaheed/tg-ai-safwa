@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import sqlite3
@@ -10,13 +11,14 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
-from sqlalchemy import delete, select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..constants import (
     MAX_REPAIR_ROUNDS,
     MAX_TOOL_CALLS,
     RECEIPT_MEANINGS,
+    SUBAGENT_DEADLINE_SECONDS,
     SUSPENDED_BATCH_LOOKUP_LIMIT,
 )
 from ..domain import (
@@ -44,7 +46,6 @@ from ..domain import (
     delete_subtree,
     finish_action,
     move_card,
-    pending_checks,
     reschedule_reminder,
     resolve_check,
     resolve_references,
@@ -83,7 +84,6 @@ from ..models import (
     ChangeProposal,
     Check,
     DiaryEntry,
-    DiaryStamp,
     ProposalChange,
     Reminder,
     SavedRequest,
@@ -92,36 +92,25 @@ from ..models import (
     Workspace,
 )
 from ..reminders import (
-    ScheduleError,
-    describe,
     schedule_from_payload,
-    schedule_payload,
 )
-from ..saved_requests import RequestQueryError, normalize_request_sql
 from .autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
 from .context import SYSTEM_PROMPT, DialogueMessage, planning_context
 from .contracts import (
     MUTATION_TOOL_MODELS,
     AgentChange,
-    CallSubagentInput,
     QueryToolInput,
+    RouteInput,
     mutation_change_from_tool,
     tool_json_schema,
 )
 from .mini import ReadToolSpec
+from .prepare import ENTITY_MODELS, ChangePreparer, ToolPreparationError
 from .provider import OpenAICompatibleProvider, ProviderToolCall, ProviderTurn
-from .reminder_sessions import resolve_schedule
 from .sql import ReadOnlyQueryRunner, UnsafeQueryError
-from .subagents import SubagentRunner
+from .subagents import RoutedSubagent
 
 logger = logging.getLogger(__name__)
-
-def _allows_parent(child_kind: str | None, parent_kind: str | None) -> bool:
-    if child_kind == CardKind.IDEA.value:
-        return parent_kind == CardKind.GOAL.value
-    if child_kind == CardKind.ACTION.value:
-        return parent_kind in {CardKind.GOAL.value, CardKind.IDEA.value}
-    return False
 
 QUERY_SAFWA_TOOL: dict[str, Any] = {
     "type": "function",
@@ -137,46 +126,54 @@ QUERY_SAFWA_TOOL: dict[str, Any] = {
 }
 MUTATION_TOOL_DESCRIPTIONS = {
     "card": (
-        "Open the Card review UI. create proposes a new Card; edit proposes exact "
+        "Open the Card review UI. create proposes a new Card; update proposes exact "
         "field/set replacements; link and unlink add or remove one relationship type — Values, "
         "Tags, or Checks, since a Card owns all three links; move, complete, cancel, and reopen "
         "propose only that lifecycle action. Omit unused properties or send null; never invent "
-        "placeholder IDs such as 0 or 1. In edit, parent_id=null removes the parent. Nothing is "
+        "placeholder IDs such as 0 or 1. In update, parent_id=null removes the parent. Nothing is "
         "saved until the "
         "user presses Save."
     ),
     "check": (
-        "Open the Check review UI. create proposes a new Pending Check; edit proposes a new title "
+        "Open the Check review UI. create proposes a new Pending Check; update proposes a new title "
         "or repeatable flag; complete answers it Passed and cancel answers it Missed. Propose an "
         "answer only when the user already stated it — otherwise cite it so they answer it "
         "themselves. A Check is attached to a Card from the card tool (link/unlink with "
         "check_query or check_ids), never from here. Nothing is saved until the user presses Save."
     ),
-    "value": "Open the Value editor with a creation or edit proposal;",
-    "tag": "Open the Tag editor with a creation or edit proposal;",
-    "request": "Prepare a saved Request creation or edit proposal.",
+    "value": "Open the Value editor with a create or update proposal;",
+    "tag": "Open the Tag editor with a create or update proposal;",
+    "request": "Prepare a saved Request create or update proposal.",
     "reminder": (
         "Propose a Reminder: instruction text plus timing in plain words. The text is handed "
         "to you as a request when the time comes, so it must stand on its own and must name "
         "every Safwa item it concerns by #id — look the id up with query_safwa first. "
         "Pass the timing through verbatim in when; never invent a date or an hour. Omit when "
-        "in edit mode to change only the text and leave the schedule alone."
+        "in update mode to change only the text and leave the schedule alone."
     ),
-    "remove": "Prepare an archive or permanent Card-deletion confirmation.",
+    "remove": (
+        "Take one item off the board: archive keeps its history, delete erases it and only a "
+        "Card allows it. Name the entity and its id."
+    ),
+    "diary": (
+        "Open the Diary review UI for one day. update proposes that day in the owner's voice, "
+        "replacing whatever is saved; delete removes it. Nothing is saved until the user "
+        "presses Save."
+    ),
 }
-CALL_SUBAGENT_TOOL: dict[str, Any] = {
+ROUTE_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
-        "name": "call_subagent",
+        "name": "route",
         "description": (
-            "Hand one job to a subagent that reads the data itself and answers in this "
-            "turn. Your instructions name every subagent and when to call it."
+            "Hand this turn to a subagent. It reads this same conversation and answers the "
+            "user itself, so you write nothing more. Your instructions name each one."
         ),
-        "parameters": tool_json_schema(CallSubagentInput),
+        "parameters": tool_json_schema(RouteInput),
     },
 }
-MUTATION_TOOLS: tuple[dict[str, Any], ...] = tuple(
-    {
+MUTATION_TOOLS: dict[str, dict[str, Any]] = {
+    name: {
         "type": "function",
         "function": {
             "name": name,
@@ -185,23 +182,19 @@ MUTATION_TOOLS: tuple[dict[str, Any], ...] = tuple(
         },
     }
     for name, model in MUTATION_TOOL_MODELS.items()
-    # A described tool is an offered tool: `propose_diary_update` stays a contract the
-    # runtime fills from a stamp, and the model is never asked for a stamp it cannot read.
-    if name in MUTATION_TOOL_DESCRIPTIONS
-)
-SAFWA_TOOLS = (QUERY_SAFWA_TOOL, *MUTATION_TOOLS)
+}
+# The Advisor reads and routes. Every mutation tool belongs to the subagent that owns that
+# feature, so judging *which* change to propose happens where the change is authored.
+SAFWA_TOOLS = (QUERY_SAFWA_TOOL,)
 # Tools that run during the turn instead of becoming a proposal the owner approves.
-IMMEDIATE_TOOLS = frozenset({"query_safwa", "call_subagent"})
-# A subagent that settles a feature itself reports a stamp instead of the change, and one
-# mutation tool turns that stamp back into a proposal.  The mapping is what lets the runtime
-# make that call, so a feature never depends on the model remembering to.
-SUBAGENT_PROPOSAL_TOOLS = {"diary": "propose_diary_update"}
+IMMEDIATE_TOOLS = frozenset({"query_safwa", "route"})
 
 
 def query_read_tool(query_runner: ReadOnlyQueryRunner) -> ReadToolSpec:
-    """`query_safwa` for a session with no `AgentRun` to record steps into.
+    """`query_safwa` as a plain read tool, for a session that declares its own tools.
 
-    The runner and its caps are shared; only the advisor's step bookkeeping is left out.
+    The runner and its caps are shared; the session executes it through the same path
+    the Advisor uses, so its steps are recorded the same way.
     """
 
     async def read(call: ProviderToolCall) -> list[dict[str, Any]]:
@@ -322,24 +315,6 @@ def _validation_error_summary(error: ValidationError) -> str:
     return "; ".join(messages) or "Invalid tool arguments"
 
 
-class ToolPreparationError(DomainError):
-    """A model-visible error for one mutation call, not for the whole agent turn."""
-
-    def __init__(self, code: str, message: str, hint: str) -> None:
-        super().__init__(message)
-        self.code = code
-        self.hint = hint
-
-    def as_tool_result(self) -> dict[str, Any]:
-        return {
-            "status": "error",
-            "code": self.code,
-            "error": str(self),
-            "hint": self.hint,
-            "retryable": True,
-        }
-
-
 @dataclass
 class AIOutcome:
     kind: str
@@ -363,16 +338,30 @@ class PendingTool:
 
 
 @dataclass
-class AgentLoopResult:
-    message: str
-    pending_tools: list[PendingTool] = field(default_factory=list)
-    assistant_content: str | None = None
-    tool_count: int = 0
-    repair_rounds: int = 0
+class AgentSession:
+    """One model session: what it may call, what it has said, and what it has spent.
+
+    The budget and the transcript belong to the session rather than to a single turn,
+    because both survive an approval: the same session resumes once the owner decides.
+    """
+
+    run_id: int
+    tools: tuple[dict[str, Any], ...]
+    kind: str = "advisor"
+    read_specs: dict[str, ReadToolSpec] = field(default_factory=dict)
+    dialogue: list[dict[str, Any]] = field(default_factory=list)
     messages: list[dict[str, Any]] = field(default_factory=list)
     prefix_len: int = 0
+    tool_count: int = 0
+    repair_rounds: int = 0
+    allow_silence: bool = False
     result_summaries: list[str] = field(default_factory=list)
     display_result_summaries: list[str] = field(default_factory=list)
+
+    @property
+    def immediate(self) -> frozenset[str]:
+        """Tool names that run inside the turn instead of becoming a proposal."""
+        return frozenset({*IMMEDIATE_TOOLS, *self.read_specs})
 
     @property
     def transcript(self) -> list[dict[str, Any]]:
@@ -383,6 +372,56 @@ class AgentLoopResult:
         steps instead of re-planning the request from the last tool call alone.
         """
         return self.messages[self.prefix_len :]
+
+    def state(self) -> dict[str, Any]:
+        """Everything the session needs to continue once the owner has decided."""
+        return {
+            "dialogue": self.dialogue,
+            "transcript": _json_safe(self.transcript),
+            "tool_count": self.tool_count,
+            "repair_rounds": self.repair_rounds,
+            "result_summaries": self.result_summaries,
+            "display_result_summaries": self.display_result_summaries,
+        }
+
+    @classmethod
+    def restore(
+        cls,
+        run: AgentRun,
+        tools: tuple[dict[str, Any], ...],
+        read_specs: dict[str, ReadToolSpec] | None = None,
+    ) -> tuple[AgentSession, list[dict[str, Any]]]:
+        """Rebuild a suspended session from its row, with the transcript it left behind.
+
+        The context prefix is not restored — it is rebuilt from live state, so the owner's
+        planning data and clock are current while the session's own steps are not replayed
+        from anything but its own record.
+        """
+        state = dict(run.state_json or {})
+        session = cls(
+            run_id=run.id,
+            tools=tools,
+            kind=run.kind,
+            read_specs=dict(read_specs or {}),
+            dialogue=[dict(item) for item in state.get("dialogue") or []],
+            tool_count=int(state.get("tool_count", 0)),
+            repair_rounds=int(state.get("repair_rounds", 0)),
+            allow_silence=True,
+            result_summaries=list(state.get("result_summaries") or []),
+            display_result_summaries=list(state.get("display_result_summaries") or []),
+        )
+        return session, [dict(item) for item in state.get("transcript") or []]
+
+
+@dataclass
+class AgentLoopResult:
+    """What one turn of a session produced: its words, its changes, or a hand-over."""
+
+    message: str
+    pending_tools: list[PendingTool] = field(default_factory=list)
+    # Set when the turn ended in `route`: this session wrote nothing and the named
+    # subagent owns everything the owner sees next.
+    routed_to: str | None = None
 
 
 def failure_reason(error: Exception, limit: int = 160) -> str:
@@ -537,11 +576,11 @@ def _value_details(entity: str, values: dict[str, Any], *, creating: bool) -> li
 
 
 def _diary_detail_lines(change: ProposalChange) -> list[str]:
-    """The stamp, never the entry: a receipt stays in the conversation for good.
+    """The day's shape, never its text: a receipt stays in the conversation for good.
 
-    A day's text printed here would be re-read on every later turn and would spend the
-    history budget it costs.  The diary subagent reads a draft back through `observe_stamp`
-    and a saved day through `ai_diary`, so neither needs the body to travel.
+    A day printed here would be re-read on every later turn and would spend the history
+    budget it costs.  The Diary session holds its own draft, and a saved day is in
+    `ai_diary`, so the body never has to travel.
     """
     values = dict(change.values)
     lines = [f"Date: {values.get('entry_date', '')}"]
@@ -551,7 +590,6 @@ def _diary_detail_lines(change: ProposalChange) -> list[str]:
         lines.append(f"Entry: {len(str(values.get('body') or ''))} characters")
         if values.get("feeling_score") is not None:
             lines.append(f"Feeling: {values['feeling_score']}")
-    lines.append(f"Draft: {values.get('stamp', '')}")
     return lines
 
 
@@ -604,17 +642,6 @@ _ACTION_VERBS = {
     "unlink": "Unlink",
 }
 
-_ENTITY_MODELS: dict[str, Any] = {
-    "card": Card,
-    "check": Check,
-    "tag": Tag,
-    "value": Value,
-    "request": SavedRequest,
-    "reminder": Reminder,
-    "diary": DiaryEntry,
-}
-
-
 def _approval_results_summary(
     tools: list[dict[str, Any]],
     *,
@@ -654,20 +681,6 @@ def _approval_results_summary(
             line = f"{prefix} — " + (
                 str(tool.get("display") or "") or _approval_change_label(tool)
             )
-            if status != "approved":
-                # A change that was not written can be asked for again, and a Diary draft
-                # is readable only through its stamp.  Saving spends that stamp, so the
-                # reference belongs on the outcomes that left the draft standing.
-                draft = next(
-                    (
-                        str(detail)
-                        for detail in tool.get("details") or []
-                        if str(detail).startswith("Draft: ")
-                    ),
-                    "",
-                )
-                if draft:
-                    line += f" · {draft}"
         else:
             line = f"{prefix} — {_approval_change_label(tool)}"
             affected_ids = result.get("affected_ids") or []
@@ -736,14 +749,6 @@ def _compose_display_outcome(message: str, summaries: list[str]) -> str:
     return f"{receipt}\n\n{body}" if body else receipt
 
 
-def _stamp_debt(result: Any) -> tuple[str, str] | None:
-    """The mutation tool a subagent's stamp owes its call to, if it issued one."""
-    if not isinstance(result, dict) or not result.get("stamp"):
-        return None
-    tool_name = SUBAGENT_PROPOSAL_TOOLS.get(str(result.get("subagent", "")))
-    return (tool_name, str(result["stamp"])) if tool_name else None
-
-
 def _with_queued_siblings(result: Any, queued: int) -> Any:
     """Tell a failed call that the request's valid calls are still queued for review.
 
@@ -759,21 +764,6 @@ def _with_queued_siblings(result: Any, queued: int) -> Any:
             "they were not cancelled. Wait for their results, then retry only this call."
         ),
     }
-
-
-def _assistant_content_with_request_progress(
-    content: str | None, result_summaries: list[str]
-) -> str | None:
-    parts: list[str] = []
-    if result_summaries:
-        parts.append(
-            "[Current request progress — temporary]\n"
-            "Do not repeat Saved or Discarded operations. Retry only unfinished Failed operations.\n"
-            + "\n\n".join(result_summaries)
-        )
-    if content and content.strip():
-        parts.append(content.strip())
-    return "\n\n".join(parts) or None
 
 
 _DECISION_NEXT_STEPS = {
@@ -811,10 +801,6 @@ def _resolved_tool_result(
     except Exception:  # a label defect must never break an already-committed change
         logger.exception("Could not label a resolved approval queue item")
     details = list(tool.get("details") or [])
-    if decision == "approved":
-        # Saving spends the draft behind a stamp, so naming it here only invites the model
-        # to quote a token that no longer opens anything.
-        details = [detail for detail in details if not str(detail).startswith("Draft: ")]
     if details:
         payload["fields"] = details
     payload["next"] = _DECISION_NEXT_STEPS.get(
@@ -899,7 +885,7 @@ class AIAdvisor:
         model_name: str,
         provider_name: str = "openai-compatible",
         cache_breakpoints: bool = False,
-        subagents: SubagentRunner | None = None,
+        subagents: tuple[RoutedSubagent, ...] = (),
         autoapproval: AutoApprovalReviewer | None = None,
     ) -> None:
         self.sessions = sessions
@@ -909,10 +895,26 @@ class AIAdvisor:
         self.model_name = model_name
         self.provider_name = provider_name
         self.cache_breakpoints = cache_breakpoints
-        self.subagents = subagents
+        self.subagents = {routed.name: routed for routed in subagents}
         self.autoapproval = autoapproval
-        # No runner means no roster, so the tool is not offered at all.
-        self.tools = (*SAFWA_TOOLS, CALL_SUBAGENT_TOOL) if subagents else SAFWA_TOOLS
+        self.preparer = ChangePreparer(provider, query_runner)
+        # An empty roster means there is nothing to route to, so the tool is not offered.
+        self.tools = (*SAFWA_TOOLS, ROUTE_TOOL) if subagents else SAFWA_TOOLS
+
+    def _tools_for(self, kind: str) -> tuple[dict[str, Any], ...]:
+        routed = self.subagents.get(kind)
+        if routed is None:
+            return self.tools
+        return (
+            *(spec.schema for spec in routed.read_tools),
+            *(MUTATION_TOOLS[name] for name in routed.mutation_tools),
+        )
+
+    def _read_specs_for(self, kind: str) -> dict[str, ReadToolSpec]:
+        routed = self.subagents.get(kind)
+        if routed is None:
+            return {}
+        return {spec.name: spec for spec in routed.read_tools}
 
     async def handle(
         self,
@@ -923,6 +925,7 @@ class AIAdvisor:
     ) -> AIOutcome:
         started = time.monotonic()
         run = AgentRun(
+            kind="advisor",
             provider=self.provider_name,
             model=self.model_name,
             status="running",
@@ -941,15 +944,158 @@ class AIAdvisor:
                 if dialogue
                 else [{"role": "user", "content": text}]
             )
-            result = await self._run_agent_loop(messages, run.id, prefix_len=len(messages))
-            outcome = await self._materialize(result, run.id, dialogue=turn_dialogue)
+            agent = AgentSession(
+                run_id=run.id,
+                tools=self.tools,
+                dialogue=turn_dialogue,
+                messages=messages,
+                prefix_len=len(messages),
+            )
+            result = await self._run_agent_loop(agent)
+            if result.routed_to is not None:
+                # The turn belongs to the subagent from here: this session is done, and
+                # whatever the owner sees next is written by the one it handed over to.
+                await self._finish_run(run.id, "completed", started)
+                return await self._run_routed(result.routed_to, agent)
+            outcome = await self._materialize(agent, result)
             status = "awaiting_approval" if outcome.kind == "proposal" else "completed"
             await self._finish_run(run.id, status, started)
+            # This turn answered the owner itself, so it routed nothing back: any saved
+            # subagent session was about something else and is over.
+            await self._close_lapsed_sessions(keep_run_id=None)
             return outcome
         except Exception as error:
             logger.exception("AI advisor run failed")
             await self._finish_run(run.id, "failed", started, type(error).__name__)
             raise
+
+    async def _run_routed(self, name: str, parent: AgentSession) -> AIOutcome:
+        """Continue this turn as the named subagent, resuming its session if it has one.
+
+        A saved session is picked up as it stands, so a correction to a proposal the owner
+        just refused is answered by the session that wrote it, not by a rewrite.
+        """
+        routed = self.subagents[name]
+        started = time.monotonic()
+        async with self.sessions() as session:
+            run = await self._resume_suspended(session, name)
+            if run is None:
+                run = AgentRun(
+                    kind=name,
+                    provider=self.provider_name,
+                    model=self.model_name,
+                    status="running",
+                    claimed_at=utcnow(),
+                )
+                session.add(run)
+                await session.commit()
+                agent = AgentSession(
+                    run_id=run.id,
+                    tools=self._tools_for(name),
+                    kind=name,
+                    read_specs=self._read_specs_for(name),
+                )
+                transcript: list[dict[str, Any]] = []
+            else:
+                agent, transcript = AgentSession.restore(
+                    run, self._tools_for(name), self._read_specs_for(name)
+                )
+            await session.commit()
+        run_id = agent.run_id
+        agent.dialogue = parent.dialogue
+        agent.allow_silence = False
+        # The turn went here, so every other saved session missed its one chance.
+        await self._close_lapsed_sessions(keep_run_id=run_id)
+        try:
+            messages = await self._routed_context(routed, agent.dialogue)
+            agent.prefix_len = len(messages)
+            messages.extend(transcript)
+            agent.messages = messages
+            # The deadline bounds one active stretch of the session, never a suspension:
+            # a session waiting on the owner is not a session that is taking too long.
+            result = await asyncio.wait_for(
+                self._run_agent_loop(agent), timeout=SUBAGENT_DEADLINE_SECONDS
+            )
+            outcome = await self._materialize(agent, result)
+            status = "awaiting_approval" if outcome.kind == "proposal" else "completed"
+            await self._finish_run(run_id, status, started)
+            return outcome
+        except TimeoutError:
+            logger.warning("SUBAGENT %s timed out after %.0fs", name, SUBAGENT_DEADLINE_SECONDS)
+            await self._finish_run(run_id, "failed", started, "timeout")
+            return AIOutcome(
+                "answer",
+                f"⚠️ Safwa could not finish that within {SUBAGENT_DEADLINE_SECONDS:.0f} seconds. "
+                "You can ask again.",
+            )
+        except Exception as error:
+            logger.exception("Routed subagent %s failed", name)
+            await self._finish_run(run_id, "failed", started, type(error).__name__)
+            return AIOutcome(
+                "answer",
+                f"⚠️ Safwa could not finish that ({failure_reason(error)}). "
+                "You can continue with a new message.",
+            )
+
+    async def _close_lapsed_sessions(self, *, keep_run_id: int | None) -> None:
+        """End every saved subagent session this Advisor turn did not route back into.
+
+        A saved session is restorable for exactly one Advisor turn.  The owner's words
+        either come straight back to it — the correction case — or they were about
+        something else, and then its draft is over rather than waiting for a later `route`
+        that would answer the wrong question.
+
+        A session whose screen is still live is left alone: the owner can still press Save,
+        and that resumes it without the Advisor being involved at all.
+        """
+        async with self.sessions() as session:
+            saved = list(
+                await session.scalars(
+                    select(AgentRun).where(
+                        AgentRun.kind != "advisor",
+                        AgentRun.status == "awaiting_approval",
+                        AgentRun.claimed_at.is_(None),
+                    )
+                )
+            )
+            closed = 0
+            for run in saved:
+                if run.id == keep_run_id or await self._live_batch(session, run.id):
+                    continue
+                run.status = "abandoned"
+                closed += 1
+            if closed:
+                await session.commit()
+                logger.info("Closed %d subagent session(s) the turn did not resume", closed)
+
+    @staticmethod
+    async def _live_batch(session: AsyncSession, run_id: int) -> bool:
+        """Whether this session still has a screen the owner could answer."""
+        return (
+            await session.scalar(
+                select(AgentStep.id).where(
+                    AgentStep.run_id == run_id,
+                    AgentStep.kind == "approval_batch",
+                    AgentStep.metadata_json["status"].as_string() == "pending",
+                )
+            )
+        ) is not None
+
+    async def _resume_suspended(self, session: AsyncSession, name: str) -> AgentRun | None:
+        """Claim this subagent's newest saved session, if it left one behind."""
+        run_id = await session.scalar(
+            select(AgentRun.id)
+            .where(
+                AgentRun.kind == name,
+                AgentRun.status == "awaiting_approval",
+                AgentRun.claimed_at.is_(None),
+            )
+            .order_by(AgentRun.id.desc())
+            .limit(1)
+        )
+        if run_id is None:
+            return None
+        return await self._claim_session(session, int(run_id), held_run_id=None)
 
     async def _context_messages(
         self,
@@ -978,39 +1124,69 @@ class AIAdvisor:
         messages.append(_system_note(context.clock))
         return messages
 
-    async def _provider_turn(self, messages: list[dict[str, Any]]) -> ProviderTurn:
-        _log_provider_request(messages)
+    async def _routed_context(
+        self, routed: RoutedSubagent, dialogue: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """A routed subagent reads the conversation as it stands, under its own prompt.
+
+        Same order as the Advisor's: prompt, then state, then dialogue, then the clock —
+        so the stable part stays byte-identical and the volatile part stays last.
+        """
+        messages: list[dict[str, Any]] = [{"role": "system", "content": routed.prompt}]
+        if routed.planning_state:
+            async with self.sessions() as session:
+                context = await planning_context(session)
+            messages.append(_system_note(f"Current planning state:\n{context.state}"))
+        window = (
+            dialogue if routed.history_messages is None else dialogue[-routed.history_messages :]
+        )
+        messages.extend(
+            {"role": str(item["role"]), "content": str(item["content"])} for item in window
+        )
+        if self.cache_breakpoints:
+            messages[0] = _cache_breakpoint(messages[0])
+            if window:
+                messages[-1] = _cache_breakpoint(messages[-1])
+        if routed.clock is not None:
+            messages.append(_system_note(routed.clock()))
+        return messages
+
+    async def _session_messages(self, agent: AgentSession) -> list[dict[str, Any]]:
+        """Rebuild the context prefix a session reads, from live state, by its kind."""
+        routed = self.subagents.get(agent.kind)
+        if routed is not None:
+            return await self._routed_context(routed, agent.dialogue)
+        return await self._context_messages(
+            [
+                DialogueMessage(role=str(item["role"]), content=str(item["content"]))
+                for item in agent.dialogue
+            ]
+        )
+
+    async def _provider_turn(self, agent: AgentSession) -> ProviderTurn:
+        _log_provider_request(agent.messages)
         complete_turn = getattr(self.provider, "complete_turn", None)
         if complete_turn is None:
-            raw = await self.provider.complete(messages)
+            raw = await self.provider.complete(agent.messages)
             turn = ProviderTurn(content=raw)
         else:
             turn = await complete_turn(
-                messages,
-                tools=list(self.tools),
+                agent.messages,
+                tools=list(agent.tools),
             )
         _log_provider_response(turn)
         return turn
 
-    async def _run_agent_loop(
-        self,
-        messages: list[dict[str, Any]],
-        run_id: int,
-        *,
-        prefix_len: int,
-        tool_count: int = 0,
-        repair_rounds: int = 0,
-        allow_silence: bool = False,
-    ) -> AgentLoopResult:
+    async def _run_agent_loop(self, agent: AgentSession) -> AgentLoopResult:
         """Run the model until it answers.
 
-        ``allow_silence`` accepts an empty final answer, which is only meaningful when
-        the owner has already been shown the request's results: after an approval queue
-        the model may have nothing left to add, and that is not a failure.
+        ``agent.allow_silence`` accepts an empty final answer, which is only meaningful
+        when the owner has already been shown the request's results: after an approval
+        queue the model may have nothing left to add, and that is not a failure.
         """
-        unspent_stamp: tuple[str, str] | None = None
+        messages = agent.messages
         while True:
-            turn = await self._provider_turn(messages)
+            turn = await self._provider_turn(agent)
             if turn.tool_calls:
                 assistant_tool_calls = [
                     {
@@ -1028,25 +1204,28 @@ class AIAdvisor:
                     }
                 )
                 pending_tools: list[PendingTool] = []
-                has_reads = any(call.name in IMMEDIATE_TOOLS for call in turn.tool_calls)
-                has_mutations = any(call.name not in IMMEDIATE_TOOLS for call in turn.tool_calls)
+                immediate = agent.immediate
+                has_reads = any(call.name in immediate for call in turn.tool_calls)
+                has_mutations = any(call.name not in immediate for call in turn.tool_calls)
                 for call in turn.tool_calls:
-                    tool_count += 1
-                    if tool_count > MAX_TOOL_CALLS:
+                    agent.tool_count += 1
+                    if agent.tool_count > MAX_TOOL_CALLS:
                         raise DomainError("The advisor exceeded the tool-call limit")
                     change = None
-                    if call.name == "query_safwa":
-                        result = await self._execute_query_tool(call, run_id, tool_count)
-                    elif call.name == "call_subagent":
-                        result = await self._execute_subagent_tool(call, run_id, tool_count)
-                        unspent_stamp = _stamp_debt(result) or unspent_stamp
+                    if call.name == "route":
+                        routed_to, result = await self._execute_route_tool(agent, call)
+                        if routed_to is not None:
+                            return AgentLoopResult(message="", routed_to=routed_to)
+                    elif call.name == "query_safwa":
+                        result = await self._execute_query_tool(agent, call)
+                    elif call.name in agent.read_specs:
+                        result = await self._execute_read_tool(agent, call)
                     elif has_reads and has_mutations:
                         result = {
                             "status": "error",
                             "code": "mixed_read_and_mutation_tools",
                             "error": (
-                                "Mutation tools cannot share a response with query_safwa or "
-                                "call_subagent."
+                                "Mutation tools cannot share a response with a read tool or route."
                             ),
                             "next": (
                                 "Use the read result, then retry this mutation in the next response."
@@ -1054,7 +1233,7 @@ class AIAdvisor:
                             "retryable": True,
                         }
                     else:
-                        change, result = await self._execute_mutation_tool(call, run_id, tool_count)
+                        change, result = await self._execute_mutation_tool(agent, call)
                     pending_tools.append(PendingTool(call=call, result=result, change=change))
                     messages.append(
                         {
@@ -1080,96 +1259,35 @@ class AIAdvisor:
                     return AgentLoopResult(
                         message=message,
                         pending_tools=pending_tools,
-                        assistant_content=turn.content or None,
-                        tool_count=tool_count,
-                        repair_rounds=repair_rounds,
-                        messages=_json_safe(messages),
-                        prefix_len=prefix_len,
                     )
                 invalid_mutations = [
                     tool
                     for tool in pending_tools
-                    if tool.call.name not in IMMEDIATE_TOOLS and tool.change is None
+                    if tool.call.name not in immediate and tool.change is None
                 ]
                 if invalid_mutations:
-                    if repair_rounds >= MAX_REPAIR_ROUNDS:
+                    if agent.repair_rounds >= MAX_REPAIR_ROUNDS:
                         return AgentLoopResult(
                             message=(
                                 "I could not prepare the requested change after five repair attempts. "
                                 "No unfinished operation was applied."
                             ),
-                            tool_count=tool_count,
-                            repair_rounds=repair_rounds,
-                            messages=_json_safe(messages),
-                            prefix_len=prefix_len,
                         )
-                    repair_rounds += 1
+                    agent.repair_rounds += 1
                 continue
 
-            if unspent_stamp:
-                # The stamp is the subagent's finished work; the advisor only relays its
-                # words.  Sending it is arithmetic, so the runtime does it rather than
-                # asking the model again for a call it already skipped once.
-                tool_count += 1
-                call = ProviderToolCall(
-                    id=f"stamp_{unspent_stamp[1]}",
-                    name=unspent_stamp[0],
-                    arguments=json.dumps({"stamp": unspent_stamp[1]}),
-                )
-                unspent_stamp = None
-                change, result = await self._execute_mutation_tool(call, run_id, tool_count)
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": turn.content or None,
-                        "tool_calls": [
-                            {
-                                "id": call.id,
-                                "type": "function",
-                                "function": {"name": call.name, "arguments": call.arguments},
-                            }
-                        ],
-                    }
-                )
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": call.id,
-                        "name": call.name,
-                        "content": json.dumps(result, ensure_ascii=False, default=str),
-                    }
-                )
-                if change is None:
-                    # A stale or spent stamp is nothing the model can fix; let it answer.
-                    logger.info("Runtime stamp call rejected: %s", result.get("error"))
-                else:
-                    return AgentLoopResult(
-                        message=turn.content or "I prepared the proposed change for your review.",
-                        pending_tools=[PendingTool(call=call, result=result, change=change)],
-                        assistant_content=turn.content or None,
-                        tool_count=tool_count,
-                        repair_rounds=repair_rounds,
-                        messages=_json_safe(messages),
-                        prefix_len=prefix_len,
-                    )
-            if not turn.content and not allow_silence:
+            if not turn.content and not agent.allow_silence:
                 raise DomainError("The advisor finished without a response")
-            return AgentLoopResult(
-                turn.content,
-                tool_count=tool_count,
-                repair_rounds=repair_rounds,
-                messages=_json_safe(messages),
-                prefix_len=prefix_len,
-            )
+            return AgentLoopResult(turn.content)
 
-    async def _execute_subagent_tool(
-        self, call: ProviderToolCall, run_id: int, position: int
-    ) -> dict[str, Any]:
-        """Run one subagent to its report inside this turn, and record the hand-off."""
+    async def _execute_route_tool(
+        self, agent: AgentSession, call: ProviderToolCall
+    ) -> tuple[str | None, dict[str, Any]]:
+        """Name the subagent this turn goes to, or say why it cannot go anywhere."""
         try:
-            arguments = CallSubagentInput.model_validate(json.loads(call.arguments or "{}"))
+            name = RouteInput.model_validate(json.loads(call.arguments or "{}")).name.strip()
         except (ValidationError, json.JSONDecodeError, TypeError, ValueError) as error:
-            return {
+            return None, {
                 "status": "error",
                 "code": "invalid_arguments",
                 "error": (
@@ -1177,40 +1295,54 @@ class AIAdvisor:
                     if isinstance(error, ValidationError)
                     else str(error)
                 ),
-                "hint": 'Send {"name": "<subagent>", "request": "<what it must do>"}.',
+                "hint": f'Send {{"name": "<subagent>"}}. One of: {", ".join(self.subagents)}.',
                 "retryable": True,
             }
-        if self.subagents is None:
-            return {
+        if name not in self.subagents:
+            return None, {
                 "status": "error",
-                "code": "no_subagents",
-                "error": "No subagent is available in this deployment.",
-                "retryable": False,
-                "next": "Answer without one.",
+                "code": "unknown_subagent",
+                "error": f"There is no subagent named {name!r}.",
+                "hint": f"Route to one of: {', '.join(self.subagents) or 'none'}.",
+                "retryable": True,
             }
-        outcome = await self.subagents.run(arguments.name, arguments.request)
         async with self.sessions() as session:
             session.add(
                 AgentStep(
-                    run_id=run_id,
-                    position=position,
-                    kind="subagent_call",
+                    run_id=agent.run_id,
+                    position=agent.tool_count,
+                    kind="route",
+                    metadata_json={"tool_call_id": call.id, "subagent": name},
+                )
+            )
+            await session.commit()
+        logger.info("ROUTE -> %s", name)
+        return name, {"status": "routed", "subagent": name}
+
+    async def _execute_read_tool(
+        self, agent: AgentSession, call: ProviderToolCall
+    ) -> Any:
+        """Run one of this session's own read tools and record that it ran."""
+        result = await agent.read_specs[call.name].run(call)
+        async with self.sessions() as session:
+            session.add(
+                AgentStep(
+                    run_id=agent.run_id,
+                    position=agent.tool_count,
+                    kind="read",
                     metadata_json={
                         "tool_call_id": call.id,
-                        "subagent": arguments.name,
-                        "request": arguments.request,
-                        # The subagent keeps its own AgentRun; this is the link to it.
-                        "subagent_run_id": outcome.run_id,
-                        "status": outcome.result.get("status"),
+                        "tool": call.name,
+                        "arguments": call.arguments,
                     },
                 )
             )
             await session.commit()
-        # Which specialist answered, so an unspent stamp finds its mutation tool.
-        return {**outcome.result, "subagent": arguments.name}
+        logger.info("AI TOOL %s(%s)", call.name, _log_preview(call.arguments, 200))
+        return result
 
     async def _execute_query_tool(
-        self, call: ProviderToolCall, run_id: int, position: int
+        self, agent: AgentSession, call: ProviderToolCall
     ) -> list[dict[str, Any]]:
         if call.name != "query_safwa":
             rows: list[dict[str, Any]] = [
@@ -1283,8 +1415,8 @@ class AIAdvisor:
         async with self.sessions() as session:
             session.add(
                 AgentStep(
-                    run_id=run_id,
-                    position=position,
+                    run_id=agent.run_id,
+                    position=agent.tool_count,
                     kind="read_query",
                     metadata_json={
                         "tool_call_id": call.id,
@@ -1301,7 +1433,7 @@ class AIAdvisor:
         return rows
 
     async def _execute_mutation_tool(
-        self, call: ProviderToolCall, run_id: int, position: int
+        self, agent: AgentSession, call: ProviderToolCall
     ) -> tuple[AgentChange | None, dict[str, Any]]:
         arguments: Any = None
         try:
@@ -1333,8 +1465,8 @@ class AIAdvisor:
         async with self.sessions() as session:
             session.add(
                 AgentStep(
-                    run_id=run_id,
-                    position=position,
+                    run_id=agent.run_id,
+                    position=agent.tool_count,
                     kind="mutation_intent",
                     metadata_json={
                         "tool_call_id": call.id,
@@ -1355,145 +1487,13 @@ class AIAdvisor:
             "next": "Wait for the user's review or approval; do not say it is complete.",
         }
 
-    async def _validate_named_references(
-        self,
-        session: AsyncSession,
-        values: dict[str, Any],
-        spec: ReferenceSpec,
-    ) -> None:
-        """Reject a relationship the owner could not act on, with a retryable hint."""
-        reference_hint = (
-            "The referenced item may have been proposed but is not saved yet. Wait for the "
-            "earlier proposal result, then retry only this unfinished operation using the returned ID."
-        )
-        resolved = await resolve_references(session, spec, values)
-        if resolved.blank:
-            raise ToolPreparationError(
-                "invalid_arguments",
-                f"{spec.label} name must not be empty.",
-                f"Provide one exact {spec.label} name or its numeric ID.",
-            )
-        if resolved.unknown_ids:
-            raise ToolPreparationError(
-                "reference_not_found",
-                f"{spec.label} #{resolved.unknown_ids[0]} does not exist or is archived.",
-                reference_hint,
-            )
-        if resolved.missing:
-            raise ToolPreparationError(
-                "reference_not_found",
-                f"{spec.label} '{resolved.missing[0]}' was not found.",
-                reference_hint,
-            )
-        if resolved.ambiguous:
-            raise ToolPreparationError(
-                "reference_ambiguous",
-                f"{spec.label} '{resolved.ambiguous[0]}' matched more than one item.",
-                f"Use query_safwa to choose one {spec.label} and retry with its numeric ID.",
-            )
-
-    async def _resolve_parent_reference(
-        self,
-        session: AsyncSession,
-        values: dict[str, Any],
-        child_kind: str | None,
-    ) -> None:
-        reference_hint = (
-            "The parent may have been proposed but is not saved yet. Wait for the earlier proposal "
-            "result, then retry only this unfinished Card operation using the returned parent ID."
-        )
-        raw_parent_query = values.pop("parent_query", None)
-        if raw_parent_query is not None:
-            parent_query = str(raw_parent_query).strip()
-            if not parent_query:
-                raise ToolPreparationError(
-                    "invalid_arguments",
-                    "Parent query must not be empty.",
-                    "Provide one exact Card title, one numeric parent_id, or a safe SELECT returning id.",
-                )
-            if parent_query.casefold().startswith(("select", "with")):
-                try:
-                    # Only the rows matter here; a parent query must match exactly one Card,
-                    # so a capped result is reported as ambiguous rather than silently used.
-                    rows = (await self.query_runner.run(normalize_request_sql(parent_query))).rows
-                except (RequestQueryError, UnsafeQueryError) as error:
-                    raise ToolPreparationError(
-                        "unsafe_query",
-                        f"Invalid parent query: {error}",
-                        "Use one read-only SELECT over ai_cards that returns only the id column.",
-                    ) from error
-                except (sqlite3.Error, TimeoutError) as error:
-                    raise ToolPreparationError(
-                        "invalid_arguments",
-                        f"Parent query failed: {error}",
-                        "Correct the SELECT and retry only this unfinished Card operation.",
-                    ) from error
-                if not rows:
-                    raise ToolPreparationError(
-                        "reference_not_found",
-                        "The parent query returned no Cards.",
-                        reference_hint,
-                    )
-                if len(rows) > 1:
-                    raise ToolPreparationError(
-                        "reference_ambiguous",
-                        "The parent query returned more than one Card.",
-                        "Narrow the query to one Card and retry with its numeric ID.",
-                    )
-                if set(rows[0]) != {"id"} or not isinstance(rows[0]["id"], int):
-                    raise ToolPreparationError(
-                        "invalid_arguments",
-                        "The parent query must return exactly one integer id column.",
-                        "Use SELECT id FROM ai_cards ... and make it match one Card.",
-                    )
-                values["parent_id"] = rows[0]["id"]
-            else:
-                matches = list(
-                    await session.scalars(
-                        select(Card).where(
-                            Card.title.collate("NOCASE") == parent_query,
-                            Card.archived_at.is_(None),
-                        )
-                    )
-                )
-                if not matches:
-                    raise ToolPreparationError(
-                        "reference_not_found",
-                        f"Parent Card '{parent_query}' was not found.",
-                        reference_hint,
-                    )
-                if len(matches) > 1:
-                    raise ToolPreparationError(
-                        "reference_ambiguous",
-                        f"Parent Card '{parent_query}' matched more than one Card.",
-                        "Use query_safwa to choose one parent and retry with its numeric ID.",
-                    )
-                values["parent_id"] = matches[0].id
-
-        parent_id = values.get("parent_id")
-        if parent_id is None:
-            return
-        parent = await session.get(Card, int(parent_id))
-        if parent is None or parent.archived_at is not None:
-            raise ToolPreparationError(
-                "reference_not_found",
-                f"Parent Card #{parent_id} does not exist or is archived.",
-                reference_hint,
-            )
-        if not _allows_parent(child_kind, parent.kind):
-            raise ToolPreparationError(
-                "invalid_parent_kind",
-                f"A {child_kind or 'Card'} cannot have a {parent.kind} parent.",
-                "Goal is root-only; Idea may be under Goal; Action may be under Goal or Idea.",
-            )
-
     async def _create_proposal(
         self,
         session: AsyncSession,
         message: str,
         tool: PendingTool,
     ) -> ChangeProposal:
-        """Persist one validated mutation tool call as its own reviewable proposal.
+        """Persist one prepared mutation tool call as its own reviewable proposal.
 
         Every mutation call gets its own proposal screen, so a proposal always holds
         exactly one change.  Cross-proposal references resolve by name against
@@ -1505,62 +1505,7 @@ class AIAdvisor:
         change = tool.change
         if change is None:
             raise DomainError("The proposal has no validated change to review")
-        if change.entity == "diary":
-            await self._resolve_diary_change(session, change)
-        entity: Card | Check | DiaryEntry | Reminder | Tag | Value | SavedRequest | None = None
-        expected_version = None
-        if change.id and change.entity in _ENTITY_MODELS:
-            entity = await session.get(_ENTITY_MODELS[change.entity], change.id)
-            expected_version = entity.version if entity else None
-        if change.id is not None and (
-            entity is None or getattr(entity, "archived_at", None) is not None
-        ):
-            raise ToolPreparationError(
-                "target_not_found",
-                f"{change.entity.title()} #{change.id} does not exist or is archived.",
-                "Use query_safwa to find the current numeric ID, then retry only this unfinished operation.",
-            )
-        values = dict(change.values)
-        proposed_kind = (
-            values.get("kind")
-            if change.entity == "card" and change.action == "create"
-            else getattr(entity, "kind", None)
-        )
-        if change.entity == "card" and proposed_kind != CardKind.ACTION.value:
-            for action_only_field in {
-                "effort_points",
-                "repeatable",
-                "categories",
-                "energy_types",
-            }:
-                values.pop(action_only_field, None)
-            if proposed_kind == CardKind.GOAL.value and (
-                values.get("parent_id") is not None or values.get("parent_query") is not None
-            ):
-                raise ToolPreparationError(
-                    "invalid_parent_kind",
-                    "A Goal is always root-level and cannot take a parent.",
-                    "Drop the parent from this call, or propose an Idea or Action instead.",
-                )
-            if change.action == "update" and not values:
-                raise DomainError("The Card proposal contains no applicable fields")
-        if change.entity == "card":
-            await self._resolve_parent_reference(session, values, str(proposed_kind))
-            for spec in CARD_REFERENCE_SPECS:
-                await self._validate_named_references(session, values, spec)
-            await self._guard_pending_checks(session, change, values)
-        if change.entity == "reminder":
-            values = await self._prepare_reminder_values(session, workspace, values)
-        if change.entity == "request" and "sql" in values:
-            try:
-                values["query_sql"] = normalize_request_sql(values.pop("sql"))
-            except RequestQueryError as error:
-                raise ToolPreparationError(
-                    "unsafe_query",
-                    f"Invalid Request SQL: {error}",
-                    "Use one read-only SELECT over ai_cards that returns an id column.",
-                ) from error
-
+        prepared = await self.preparer.prepare(session, change)
         proposal = ChangeProposal(
             message=message,
             workspace_revision=workspace.revision,
@@ -1575,100 +1520,11 @@ class AIAdvisor:
                 entity=change.entity,
                 action=change.action,
                 entity_id=change.id,
-                expected_version=expected_version,
-                values=values,
+                expected_version=prepared.expected_version,
+                values=prepared.values,
             )
         )
         return proposal
-
-    async def _guard_pending_checks(
-        self, session: AsyncSession, change: AgentChange, values: dict[str, Any]
-    ) -> None:
-        """Refuse to prepare a completion while the Card still has Pending Checks.
-
-        The error is model-visible and retryable, and it carries the titles so the model
-        does not have to spend a `query_safwa` round discovering them.
-        """
-        completing = change.action == "complete" or (
-            change.action in {"move", "update"} and values.get("stage") == CardStage.DONE.value
-        )
-        if not completing or change.id is None:
-            return
-        pending = await pending_checks(session, int(change.id))
-        if not pending:
-            return
-        listed_checks = ", ".join(f"#{check.id} “{check.title}”" for check in pending)
-        raise ToolPreparationError(
-            "pending_checks",
-            f"Card #{change.id} still has Pending Checks: {listed_checks}.",
-            "Answer each one first: check(mode='complete'|'cancel', id=…) when the user already "
-            "said how it went, otherwise cite them as [title](check:<id>) so they answer them "
-            "themselves. Then retry only this unfinished completion.",
-        )
-
-    async def _resolve_diary_change(
-        self, session: AsyncSession, change: AgentChange
-    ) -> None:
-        """Fill the change in from the stamp, since the tool call carries only that.
-
-        Discard leaves the stamp alone so the change can be offered again; Save clears it.
-        """
-        stamp = await session.get(DiaryStamp, str(change.values.get("stamp") or ""))
-        call_first = "Call the diary subagent, then propose the stamp it reports back."
-        if stamp is None:
-            raise ToolPreparationError(
-                "diary_stamp_not_found",
-                "There is no Diary draft under that stamp.",
-                call_first,
-            )
-        if stamp.expires_at <= utcnow():
-            raise ToolPreparationError(
-                "diary_stamp_expired",
-                f"The draft for {stamp.entry_date.isoformat()} has expired.",
-                call_first,
-            )
-        change.action = stamp.action
-        change.id = stamp.entry_id
-        change.values = {
-            "stamp": stamp.stamp,
-            "entry_date": stamp.entry_date.isoformat(),
-            "body": stamp.body,
-            "feeling_score": stamp.feeling_score,
-            "remark": stamp.remark,
-        }
-
-    async def _prepare_reminder_values(
-        self, session: AsyncSession, workspace: Workspace, values: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Resolve the free-text timing before the proposal row exists, so the review screen
-        shows a real schedule and Save applies exactly what the owner approved.
-
-        An unresolvable phrase becomes a retryable tool error carrying the question to ask.
-        """
-        prepared = dict(values)
-        when = str(prepared.pop("when", "") or "").strip()
-        if not when:
-            return prepared  # an edit with no timing leaves the schedule alone
-        tz = ZoneInfo(workspace.timezone)
-        now = utcnow()
-        try:
-            schedule = await resolve_schedule(
-                self.provider,
-                when=when,
-                instruction=str(prepared.get("instruction", "")),
-                now=now,
-                tz=tz,
-            )
-        except ScheduleError as error:
-            raise ToolPreparationError(
-                "schedule_unclear",
-                str(error),
-                "Ask the owner this exact question, then call reminder again with their "
-                "answer in when. Never invent a time.",
-            ) from error
-        prepared["schedule"] = schedule_payload(schedule)
-        prepared["schedule_text"] = describe(schedule, tz=tz, now=now)
-        return prepared
 
     async def _card_detail_snapshot(
         self, session: AsyncSession, card: Card
@@ -1822,7 +1678,7 @@ class AIAdvisor:
             head = f"Reminder “{_result_value(text)}”" if text else f"Reminder #{change.entity_id}"
             schedule = values.get("schedule_text")
             return f"{verb} {head}" + (f" ({schedule})" if schedule else "")
-        model = _ENTITY_MODELS.get(change.entity)
+        model = ENTITY_MODELS.get(change.entity)
         entity = (
             await session.get(model, change.entity_id)
             if model is not None and change.entity_id is not None
@@ -1971,10 +1827,8 @@ class AIAdvisor:
 
     async def _materialize(
         self,
+        agent: AgentSession,
         result: AgentLoopResult,
-        run_id: int,
-        *,
-        dialogue: list[dict[str, Any]],
     ) -> AIOutcome:
         if not result.pending_tools:
             return AIOutcome("answer", result.message)
@@ -2068,59 +1922,48 @@ class AIAdvisor:
                     }
                 )
             if targets:
+                repair_exhausted = bool(
+                    failed_call_ids and agent.repair_rounds >= MAX_REPAIR_ROUNDS
+                )
+                if failed_call_ids:
+                    agent.repair_rounds += 1
                 session.add(
                     AgentStep(
-                        run_id=run_id,
+                        run_id=agent.run_id,
                         position=max(
                             (
                                 step.position
                                 for step in await session.scalars(
-                                    select(AgentStep).where(AgentStep.run_id == run_id)
+                                    select(AgentStep).where(AgentStep.run_id == agent.run_id)
                                 )
                             ),
                             default=0,
                         )
                         + 1,
                         kind="approval_batch",
+                        # The batch is the screens this suspension opened, nothing more:
+                        # what the session must remember to continue lives on its own row.
                         metadata_json={
                             "status": "pending",
-                            "assistant_content": result.assistant_content,
-                            "tool_count": result.tool_count,
-                            "repair_rounds": result.repair_rounds
-                            + (1 if failed_call_ids else 0),
-                            "repair_exhausted": bool(
-                                failed_call_ids and result.repair_rounds >= MAX_REPAIR_ROUNDS
-                            ),
-                            "result_summaries": result.result_summaries,
-                            "display_result_summaries": result.display_result_summaries,
+                            "repair_exhausted": repair_exhausted,
                             "tool_calls": tool_results,
                             "queue": queue,
-                            "request": next(
-                                (
-                                    str(item.get("content", ""))
-                                    for item in reversed(dialogue)
-                                    if item.get("role") == "user"
-                                ),
-                                "",
-                            ),
-                            # The suspended turn resumes from these, not from a fresh read:
-                            # the request the owner actually made and everything the model
-                            # already did for it inside this run.
-                            "dialogue": dialogue,
-                            "transcript": result.transcript,
                         },
                     )
                 )
+                run = await session.get(AgentRun, agent.run_id)
+                if run is not None:
+                    run.state_json = agent.state()
             await session.commit()
         if not targets:
             if failed_call_ids:
-                if result.repair_rounds >= MAX_REPAIR_ROUNDS:
+                if agent.repair_rounds >= MAX_REPAIR_ROUNDS:
                     return AIOutcome(
                         "answer",
                         "I could not prepare the requested change after five repair attempts. "
                         "No unfinished operation was applied.",
                     )
-                messages = _json_safe(result.messages)
+                messages = _json_safe(agent.messages)
                 results_by_id = {tool["id"]: tool["result"] for tool in tool_results}
                 for message in messages:
                     if message.get("role") != "tool":
@@ -2130,23 +1973,18 @@ class AIAdvisor:
                         message["content"] = json.dumps(
                             results_by_id[tool_call_id], ensure_ascii=False, default=str
                         )
-                repaired = await self._run_agent_loop(
-                    messages,
-                    run_id,
-                    prefix_len=result.prefix_len,
-                    tool_count=result.tool_count,
-                    repair_rounds=result.repair_rounds + 1,
-                )
-                repaired.result_summaries = list(result.result_summaries)
-                repaired.display_result_summaries = list(result.display_result_summaries)
-                if repaired.display_result_summaries:
+                agent.messages = messages
+                agent.repair_rounds += 1
+                repaired = await self._run_agent_loop(agent)
+                if agent.display_result_summaries:
                     repaired.message = _compose_display_outcome(
-                        repaired.message, repaired.display_result_summaries
+                        repaired.message, agent.display_result_summaries
                     )
-                return await self._materialize(repaired, run_id, dialogue=dialogue)
+                return await self._materialize(agent, repaired)
             return AIOutcome("answer", result.message)
         return await self._advance_autoapprovals(
-            self._target_outcome(result.message, targets[0][1])
+            self._target_outcome(result.message, targets[0][1]),
+            held_run_id=agent.run_id,
         )
 
     async def _autoapproval_candidate(
@@ -2174,16 +2012,15 @@ class AIAdvisor:
             if change is None:
                 return None
             description = await self.describe_proposal(session, proposal_id)
-            request = str(metadata.get("request") or "")
-            if not request:
-                request = next(
-                    (
-                        str(item.get("content", ""))
-                        for item in reversed(metadata.get("dialogue") or [])
-                        if item.get("role") == "user"
-                    ),
-                    "",
-                )
+            run = await session.get(AgentRun, batch.run_id)
+            request = next(
+                (
+                    str(item.get("content", ""))
+                    for item in reversed((run.state_json or {}).get("dialogue") or [])
+                    if item.get("role") == "user"
+                ),
+                "",
+            ) if run is not None else ""
             return batch.id, AutoApprovalCandidate(
                 owner_request=request,
                 entity=change.entity,
@@ -2194,7 +2031,9 @@ class AIAdvisor:
                 fields=tuple(description.fields),
             )
 
-    async def _advance_autoapprovals(self, outcome: AIOutcome) -> AIOutcome:
+    async def _advance_autoapprovals(
+        self, outcome: AIOutcome, *, held_run_id: int | None = None
+    ) -> AIOutcome:
         """Auto-save one eligible head; resolving it advances and checks the next head."""
         if self.autoapproval is None or outcome.kind != "proposal" or outcome.proposal_id is None:
             return outcome
@@ -2215,6 +2054,7 @@ class AIAdvisor:
                     "autoapproval_reason": verdict.reason,
                 },
                 apply_proposal=True,
+                held_run_id=held_run_id,
             )
         except Exception as error:
             # `apply_proposal` and the batch decision share one transaction. A failure
@@ -2233,15 +2073,15 @@ class AIAdvisor:
         target_type: str,
         target_id: int,
     ) -> AgentStep | None:
-        # Suspended batches are always recent: new dialogue cancels them and startup
-        # recovery closes interrupted ones.  Filtering and bounding this in SQL keeps
-        # the lookup off the full agent-step history.
+        # Suspended batches are always recent: new dialogue cancels them, and a batch is
+        # closed the moment its last item resolves.  Filtering and bounding this in SQL
+        # keeps the lookup off the full agent-step history.
         steps = list(
             await session.scalars(
                 select(AgentStep)
                 .where(
                     AgentStep.kind == "approval_batch",
-                    AgentStep.metadata_json["status"].as_string().in_(["pending", "resuming"]),
+                    AgentStep.metadata_json["status"].as_string() == "pending",
                 )
                 .order_by(AgentStep.id.desc())
                 .limit(SUSPENDED_BATCH_LOOKUP_LIMIT)
@@ -2294,6 +2134,7 @@ class AIAdvisor:
         result: dict[str, Any],
         dialogue: list[DialogueMessage] | None = None,
         apply_proposal: bool = False,
+        held_run_id: int | None = None,
     ) -> AIOutcome | None:
         """Resolve one queued UI target and resume the suspended tool turn once complete."""
         started = time.monotonic()
@@ -2341,131 +2182,69 @@ class AIAdvisor:
                     next_target,
                 )
             else:
-                metadata["status"] = "resuming"
+                # The queue is empty, so the batch has done its whole job.  Closing it and
+                # claiming the session in the same commit is what makes a crash here cost
+                # nothing: no half-open batch is left to route a later press into, and the
+                # session is left plainly interrupted.
+                metadata["status"] = "completed"
                 batch.metadata_json = metadata
-                run_id = batch.run_id
-                prior_tool_count = int(metadata.get("tool_count", 0))
-                prior_repair_rounds = int(metadata.get("repair_rounds", 0))
-                repair_exhausted = bool(metadata.get("repair_exhausted", False))
-                prior_result_summaries = list(metadata.get("result_summaries", []))
-                prior_display_result_summaries = list(
-                    metadata.get("display_result_summaries", [])
+                run = await self._claim_session(
+                    session, batch.run_id, held_run_id=held_run_id
                 )
-                stored_transcript = [dict(item) for item in metadata.get("transcript") or []]
-                turn_dialogue = [dict(item) for item in metadata.get("dialogue") or []] or [
-                    {"role": item.role, "content": item.content} for item in dialogue or []
-                ]
+                if run is None:
+                    logger.warning("Session #%s is already resuming", batch.run_id)
+                    await session.commit()
+                    return None
+                run_id = run.id
+                repair_exhausted = bool(metadata.get("repair_exhausted", False))
+                agent, stored_transcript = AgentSession.restore(
+                    run, self._tools_for(run.kind), self._read_specs_for(run.kind)
+                )
+                if not agent.dialogue:
+                    agent.dialogue = [
+                        {"role": item.role, "content": item.content} for item in dialogue or []
+                    ]
                 await session.commit()
 
         if next_outcome is not None:
-            return await self._advance_autoapprovals(next_outcome)
+            return await self._advance_autoapprovals(next_outcome, held_run_id=held_run_id)
 
         try:
             result_summary = _safe_approval_results_summary(tools)
-            current_result_summaries = [*prior_result_summaries]
             if result_summary:
-                current_result_summaries.append(result_summary)
+                agent.result_summaries.append(result_summary)
             display_summary = _safe_approval_results_summary(
                 tools, include_preparation_errors=False, for_display=True
             )
-            current_display_result_summaries = [*prior_display_result_summaries]
             if display_summary:
-                current_display_result_summaries.append(display_summary)
+                agent.display_result_summaries.append(display_summary)
             if repair_exhausted:
                 message = _compose_display_outcome(
                     "I could not prepare the remaining requested changes after five repair "
                     "attempts. No unfinished operation was applied.",
-                    current_display_result_summaries,
+                    agent.display_result_summaries,
                 )
-                async with self.sessions() as session:
-                    stored_batch = await session.get(AgentStep, batch.id)
-                    if stored_batch is not None:
-                        final_metadata = dict(stored_batch.metadata_json or {})
-                        final_metadata["status"] = "completed"
-                        stored_batch.metadata_json = final_metadata
-                        await session.commit()
                 await self._finish_run(run_id, "completed", started)
                 return AIOutcome("answer", message)
-            messages = await self._context_messages(
-                [
-                    DialogueMessage(role=str(item["role"]), content=str(item["content"]))
-                    for item in turn_dialogue
-                ]
-            )
-            prefix_len = len(messages)
-            if stored_transcript:
-                messages.extend(_resumed_transcript(stored_transcript, tools))
-            else:
-                # A batch suspended before transcripts were persisted still has to resume.
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": _assistant_content_with_request_progress(
-                            metadata.get("assistant_content"), current_result_summaries
-                        ),
-                        "tool_calls": [
-                            {
-                                "id": tool["id"],
-                                "type": "function",
-                                "function": {
-                                    "name": tool["name"],
-                                    "arguments": tool["arguments"],
-                                },
-                            }
-                            for tool in tools
-                        ],
-                    }
-                )
-                for tool in tools:
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool["id"],
-                            "name": tool["name"],
-                            "content": json.dumps(
-                                tool.get("result"), ensure_ascii=False, default=str
-                            ),
-                        }
-                    )
-            loop_result = await self._run_agent_loop(
-                messages,
-                run_id,
-                prefix_len=prefix_len,
-                tool_count=prior_tool_count,
-                repair_rounds=prior_repair_rounds,
-                allow_silence=True,
-            )
-            loop_result.result_summaries = current_result_summaries
-            loop_result.display_result_summaries = current_display_result_summaries
-            if loop_result.display_result_summaries:
+            messages = await self._session_messages(agent)
+            agent.prefix_len = len(messages)
+            messages.extend(_resumed_transcript(stored_transcript, tools))
+            agent.messages = messages
+            loop_result = await self._run_agent_loop(agent)
+            if agent.display_result_summaries:
                 loop_result.message = _compose_display_outcome(
-                    loop_result.message, loop_result.display_result_summaries
+                    loop_result.message, agent.display_result_summaries
                 )
             elif not loop_result.message:
                 # The model added nothing and there is no receipt to stand in for it, so
                 # the resolved screen still has to say that the request is finished.
                 loop_result.message = "✅ Done."
-            outcome = await self._materialize(loop_result, run_id, dialogue=turn_dialogue)
-            async with self.sessions() as session:
-                stored_batch = await session.get(AgentStep, batch.id)
-                if stored_batch is not None:
-                    final_metadata = dict(stored_batch.metadata_json or {})
-                    final_metadata["status"] = "completed"
-                    stored_batch.metadata_json = final_metadata
-                    await session.commit()
+            outcome = await self._materialize(agent, loop_result)
             run_status = "awaiting_approval" if outcome.kind == "proposal" else "completed"
             await self._finish_run(run_id, run_status, started)
             return outcome
         except Exception as error:
             logger.exception("AI continuation failed after the approval queue was resolved")
-            async with self.sessions() as session:
-                stored_batch = await session.get(AgentStep, batch.id)
-                if stored_batch is not None:
-                    final_metadata = dict(stored_batch.metadata_json or {})
-                    final_metadata["status"] = "completed"
-                    final_metadata["continuation_error"] = type(error).__name__
-                    stored_batch.metadata_json = final_metadata
-                    await session.commit()
             await self._finish_run(run_id, "failed", started, type(error).__name__)
             result_summary = _safe_approval_results_summary(tools, for_display=True)
             if result_summary:
@@ -2480,12 +2259,17 @@ class AIAdvisor:
             raise
 
     async def cancel_approval_for_target(self, target_type: str, target_id: int) -> str | None:
-        """Cancel a whole suspended batch when new dialogue supersedes its active UI.
+        """Freeze a suspended batch when new dialogue supersedes its active UI.
 
         Returns the consolidated result of the interrupted request, or ``None`` when the
         target does not belong to a suspended batch.  The caller needs that text because
         earlier items in the queue may already be saved: freezing the screen as a plain
         "discarded" notice would tell both the owner and the model something untrue.
+
+        The Advisor's session is superseded by the message that arrived, but a subagent's
+        stays waiting: the owner's words go to the Advisor, and "the same, but capitalise
+        the name" has to reach the session that wrote the refused proposal.  Its own
+        results are folded into its transcript first, so it resumes on a settled record.
         """
         async with self.sessions() as session:
             batch = await self._pending_batch_for_target(session, target_type, target_id)
@@ -2516,16 +2300,45 @@ class AIAdvisor:
             metadata.update({"status": "cancelled", "queue": queue, "tool_calls": tools})
             batch.metadata_json = metadata
             run = await session.get(AgentRun, batch.run_id)
+            prior_summaries: list[str] = []
             if run is not None:
-                run.status = "cancelled"
+                state = dict(run.state_json or {})
+                prior_summaries = list(state.get("display_result_summaries") or [])
+                if run.kind == "advisor":
+                    run.status = "cancelled"
+                else:
+                    state["transcript"] = _resumed_transcript(
+                        [dict(item) for item in state.get("transcript") or []], tools
+                    )
+                    run.state_json = state
             await session.commit()
         summaries = [
-            *metadata.get("display_result_summaries", []),
+            *prior_summaries,
             _safe_approval_results_summary(
                 tools, include_preparation_errors=False, for_display=True
             ),
         ]
         return _compose_display_outcome("", [summary for summary in summaries if summary])
+
+    async def _claim_session(
+        self, session: AsyncSession, run_id: int, *, held_run_id: int | None
+    ) -> AgentRun | None:
+        """Take a suspended session for this resume, or report that it is already taken.
+
+        The claim is the whole guard: two resumes of one session would replay the same
+        transcript twice, and only one of them could own the answer.  ``held_run_id`` is
+        the session the caller is already running inside — an autoapproval resolves the
+        screen its own turn just opened, which is that turn continuing, not a second one.
+        """
+        if held_run_id == run_id:
+            return await session.get(AgentRun, run_id)
+        claimed = await session.scalar(
+            update(AgentRun)
+            .where(AgentRun.id == run_id, AgentRun.claimed_at.is_(None))
+            .values(claimed_at=utcnow(), status="running")
+            .returning(AgentRun.id)
+        )
+        return None if claimed is None else await session.get(AgentRun, run_id)
 
     async def _finish_run(
         self, run_id: int, status: str, started: float, error_code: str | None = None
@@ -2536,6 +2349,8 @@ class AIAdvisor:
                 run.status = status
                 run.duration_ms = int((time.monotonic() - started) * 1000)
                 run.error_code = error_code
+                # The turn is over either way, so the session is free for the next resume.
+                run.claimed_at = None
                 await session.commit()
 
 
@@ -2726,11 +2541,6 @@ class ProposalService:
             affected.append(entry_id)
         else:
             raise DomainError(f"Unsupported approved Diary action: {change.action}")
-        # Every draft of the day, not just the saved one: an older stamp describes the day
-        # as it was, so re-proposing one would revert this save.
-        await self.session.execute(
-            delete(DiaryStamp).where(DiaryStamp.entry_date == entry_date)
-        )
 
     async def apply(self, proposal_id: int, *, allow_destructive: bool = False) -> list[int]:
         proposal = await self.session.get(ChangeProposal, proposal_id)

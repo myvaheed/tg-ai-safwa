@@ -1645,11 +1645,10 @@ async def test_diary_proposal_shows_the_entry_itself_and_only_save_or_discard(
                 entity_id=7,
                 expected_version=1,
                 values={
-                    "stamp": "abc123",
                     "entry_date": "2026-08-15",
                     "body": "Сходил на рынок, вечером стало легче.",
                     "feeling_score": 6,
-                    "remark": "A day that ended better than it began.",
+                    "ai_comment": "A day that ended better than it began.",
                 },
             )
         )
@@ -1666,10 +1665,9 @@ async def test_diary_proposal_shows_the_entry_itself_and_only_save_or_discard(
     assert "This replaces the entry already saved for that day." in text
     assert "Сходил на рынок, вечером стало легче." in text
     assert "<i>A day that ended better than it began.</i>" in text
-    # The screen is the entry; a field diff would only repeat it, and the stamp is
-    # bookkeeping the owner never has to read.
+    # The screen is the day in the owner's voice plus Safwa's one line about it; a field
+    # diff would only repeat the entry back at them.
     assert "<b>Proposed changes</b>" not in text
-    assert "abc123" not in text
     assert button_texts(markup) == ["✅ Save", "🗑 Discard"]
 
 

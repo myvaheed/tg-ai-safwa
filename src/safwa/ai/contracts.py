@@ -54,7 +54,7 @@ def _normalized_tool_payload(model: type[BaseModel], value: Any) -> Any:
             payload.pop(name)
             continue
 
-        if name in semantic_null_fields and mode == "edit" and (
+        if name in semantic_null_fields and mode == "update" and (
             raw_value is None or _is_nullish_string(raw_value)
         ):
             payload[name] = None
@@ -129,6 +129,8 @@ class QueryToolInput(ToolInput):
 
 
 class AgentChange(BaseModel):
+    """One command intent. Every mutation tool's `mode` is one of these actions, spelled the same."""
+
     entity: Literal["card", "check", "tag", "value", "request", "reminder", "diary"]
     action: Literal[
         "create",
@@ -149,7 +151,7 @@ class AgentChange(BaseModel):
 class CardToolInput(ToolInput):
     semantic_null_fields = frozenset({"parent_id"})
 
-    mode: Literal["create", "edit", "move", "complete", "cancel", "reopen", "link", "unlink"]
+    mode: Literal["create", "update", "move", "complete", "cancel", "reopen", "link", "unlink"]
     id: PositiveInt | None = None
     kind: Literal["goal", "idea", "action"] | None = None
     title: str | None = None
@@ -181,7 +183,7 @@ class CardToolInput(ToolInput):
     parent_id: PositiveInt | None = Field(
         default=None,
         description=(
-            "Parent Card ID. On create, omit this when there is no parent. On edit, send null "
+            "Parent Card ID. On create, omit this when there is no parent. On update, send null "
             "to remove the current parent and make the Card root-level."
         ),
     )
@@ -233,11 +235,11 @@ class CardToolInput(ToolInput):
             "parent_id",
             "parent_query",
         }
-        if self.mode == "edit":
+        if self.mode == "update":
             if not supplied:
-                raise ValueError("an edited Card needs at least one proposed field")
+                raise ValueError("an updated Card needs at least one proposed field")
             if unsupported := supplied - editable:
-                raise ValueError("Card edit does not accept: " + ", ".join(sorted(unsupported)))
+                raise ValueError("Card update does not accept: " + ", ".join(sorted(unsupported)))
             if self.stage in {"done", "cancelled"}:
                 raise ValueError("use complete or cancel mode for a terminal Card stage")
             if self.blocked and not (self.blocked_description or "").strip():
@@ -275,7 +277,7 @@ class CardToolInput(ToolInput):
 
 
 class CheckToolInput(ToolInput):
-    mode: Literal["create", "edit", "complete", "cancel"]
+    mode: Literal["create", "update", "complete", "cancel"]
     id: PositiveInt | None = None
     title: str | None = None
     repeatable: bool | None = None
@@ -291,55 +293,58 @@ class CheckToolInput(ToolInput):
             return self
         if self.id is None:
             raise ValueError(f"check mode '{self.mode}' needs an id")
-        if self.mode == "edit":
+        if self.mode == "update":
             editable = {"title", "repeatable"}
             if not supplied:
-                raise ValueError("an edited Check needs at least one proposed field")
+                raise ValueError("an updated Check needs at least one proposed field")
             if unsupported := supplied - editable:
-                raise ValueError("Check edit does not accept: " + ", ".join(sorted(unsupported)))
+                raise ValueError("Check update does not accept: " + ", ".join(sorted(unsupported)))
         elif supplied:
             raise ValueError(f"Check {self.mode} does not accept fields")
         return self
 
 
-class ValueToolInput(ToolInput):
-    mode: Literal["create", "edit"]
+class RecordToolInput(ToolInput):
+    """A record with no lifecycle: create it, or update the fields named in the call."""
+
+    create_requires: ClassVar[tuple[str, ...]] = ()
+
+    mode: Literal["create", "update"]
     id: PositiveInt | None = None
+
+    @model_validator(mode="after")
+    def validate_target(self) -> RecordToolInput:
+        label = type(self).__name__.removesuffix("ToolInput")
+        if self.mode == "create":
+            if missing := [
+                name for name in self.create_requires if not str(getattr(self, name) or "").strip()
+            ]:
+                raise ValueError(f"a new {label} needs " + " and ".join(missing))
+        elif self.id is None:
+            raise ValueError(f"an updated {label} needs an id")
+        elif not (self.model_fields_set - {"mode", "id"}):
+            raise ValueError(f"an updated {label} needs at least one proposed field")
+        return self
+
+
+class ValueToolInput(RecordToolInput):
+    create_requires = ("name",)
+
     name: str | None = None
     description: str | None = None
     active: bool | None = None
 
-    @model_validator(mode="after")
-    def validate_target(self) -> ValueToolInput:
-        if self.mode == "create" and not (self.name or "").strip():
-            raise ValueError("a new Value needs a name")
-        if self.mode == "edit" and self.id is None:
-            raise ValueError("an edited Value needs an id")
-        if self.mode == "edit" and not (self.model_fields_set - {"mode", "id"}):
-            raise ValueError("an edited Value needs at least one proposed field")
-        return self
 
+class TagToolInput(RecordToolInput):
+    create_requires = ("name",)
 
-class TagToolInput(ToolInput):
-    mode: Literal["create", "edit"]
-    id: PositiveInt | None = None
     name: str | None = None
     description: str | None = None
 
-    @model_validator(mode="after")
-    def validate_target(self) -> TagToolInput:
-        if self.mode == "create" and not (self.name or "").strip():
-            raise ValueError("a new Tag needs a name")
-        if self.mode == "edit" and self.id is None:
-            raise ValueError("an edited Tag needs an id")
-        if self.mode == "edit" and not (self.model_fields_set - {"mode", "id"}):
-            raise ValueError("an edited Tag needs at least one proposed field")
-        return self
 
+class RequestToolInput(RecordToolInput):
+    create_requires = ("name", "sql")
 
-class RequestToolInput(ToolInput):
-    mode: Literal["create", "edit"]
-    id: PositiveInt | None = None
     name: str | None = None
     description: str | None = None
     sql: str | None = Field(
@@ -350,34 +355,10 @@ class RequestToolInput(ToolInput):
         ),
     )
 
-    @model_validator(mode="after")
-    def validate_target(self) -> RequestToolInput:
-        if self.mode == "create" and (
-            not (self.name or "").strip() or not (self.sql or "").strip()
-        ):
-            raise ValueError("a new Request needs name and sql")
-        if self.mode == "edit" and self.id is None:
-            raise ValueError("an edited Request needs an id")
-        if self.mode == "edit" and not (self.model_fields_set - {"mode", "id"}):
-            raise ValueError("an edited Request needs at least one proposed field")
-        return self
 
+class ReminderToolInput(RecordToolInput):
+    create_requires = ("when",)
 
-class RemoveToolInput(ToolInput):
-    type: Literal["card", "check", "tag", "value", "request", "reminder"]
-    id: PositiveInt
-    permanent: bool = False
-
-    @model_validator(mode="after")
-    def validate_permanent(self) -> RemoveToolInput:
-        if self.permanent and self.type != "card":
-            raise ValueError("only Cards support permanent deletion")
-        return self
-
-
-class ReminderToolInput(ToolInput):
-    mode: Literal["create", "edit"]
-    id: PositiveInt | None = None
     instruction: str = Field(
         description=(
             "What Safwa should do when the time comes, handed to the advisor as a request. "
@@ -389,16 +370,23 @@ class ReminderToolInput(ToolInput):
         default=None,
         description=(
             "The timing in plain words, e.g. 'every weekday at 8am' or 'in 90 minutes'. "
-            "Required to create. Omit it when editing to leave the schedule untouched."
+            "Required to create. Omit it on update to leave the schedule untouched."
         ),
     )
 
+
+class RemoveToolInput(ToolInput):
+    mode: Literal["archive", "delete"] = Field(
+        default="archive",
+        description="archive hides it and keeps its history; delete erases it, and only a Card allows it.",
+    )
+    entity: Literal["card", "check", "tag", "value", "request", "reminder"]
+    id: PositiveInt
+
     @model_validator(mode="after")
-    def validate_mode(self) -> ReminderToolInput:
-        if self.mode == "create" and not (self.when or "").strip():
-            raise ValueError("when is required to create a Reminder")
-        if self.mode == "edit" and self.id is None:
-            raise ValueError("id is required to edit a Reminder")
+    def validate_target(self) -> RemoveToolInput:
+        if self.mode == "delete" and self.entity != "card":
+            raise ValueError(f"a {self.entity} is archived, never deleted")
         return self
 
 
@@ -444,80 +432,46 @@ class NotClearEnoughInput(ToolInput):
     )
 
 
-class CallSubagentInput(ToolInput):
-    name: str = Field(description="The subagent to run, spelled as your instructions spell it.")
-    request: str = Field(
-        description=(
-            "What it must do, plus anything the user just said that it needs. It cannot "
-            "see this conversation."
-        )
+class RouteInput(ToolInput):
+    name: str = Field(description="The subagent to hand the turn to, spelled as listed.")
+
+
+class DiaryToolInput(ToolInput):
+    """One day of the Diary: written in the owner's voice, or removed."""
+
+    mode: Literal["update", "delete"] = Field(
+        description="update writes that day, replacing what is saved; delete removes it."
     )
-
-
-class DiaryProposalInput(ToolInput):
-    """The advisor's half of a Diary change: the stamp, and nothing else.
-
-    The date, the target entry, and the action come from the stamp row.
-    """
-
-    stamp: str = Field(description="The stamp from the diary subagent, copied exactly.")
-
-
-class DiaryReportInput(ToolInput):
-    """The Diary subagent's one ending: a day written, a day removed, an answer, or a question."""
-
-    date: str | None = Field(
+    date: str = Field(description="The day this settles, as YYYY-MM-DD.")
+    pov: str | None = Field(
         default=None,
-        description="The day this report settles, as YYYY-MM-DD. Required with entry or remove.",
+        description="With update: that whole day in the owner's voice. It replaces the saved entry.",
     )
-    entry: str | None = Field(
+    ai_comment: str | None = Field(
         default=None,
-        description="That whole day in the owner's voice. It replaces the saved entry.",
+        description="With update: one sentence of your own about the day, addressed to the owner.",
     )
     feeling_score: int | None = Field(
         default=None,
         ge=0,
         le=10,
-        description="How the day felt, 0-10. Send it with entry. Omit it when the day is silent.",
-    )
-    remark: str | None = Field(
-        default=None,
-        description="One sentence in Safwa's voice about the day. Shown beside it, not stored.",
-    )
-    remove: bool = Field(
-        default=False, description="True instead of entry, to delete that day's entry."
-    )
-    answer: str | None = Field(
-        default=None,
-        description=(
-            "Instead of entry, when the owner only asked to read the Diary. Cite every day "
-            "as [dd.mm.yyyy](diary:<id>)."
-        ),
-    )
-    question: str | None = Field(
-        default=None, description="Instead of entry, when the day holds nothing to write yet."
+        description="With update: how the day felt, 0-10. Omit it when the day is silent.",
     )
 
     @field_validator("date")
     @classmethod
-    def validate_calendar_date(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
+    def validate_calendar_date(cls, value: str) -> str:
         try:
             return calendar_date.fromisoformat(value.strip()).isoformat()
         except ValueError as error:
             raise ValueError("date must be a calendar date written as YYYY-MM-DD") from error
 
     @model_validator(mode="after")
-    def exactly_one_shape(self) -> DiaryReportInput:
-        if sum([bool(self.entry), self.remove, bool(self.answer), bool(self.question)]) != 1:
-            raise ValueError(
-                "Send exactly one of entry (the day's text), remove, answer, or question"
-            )
-        if (self.entry or self.remove) and not self.date:
-            raise ValueError("date is required for an entry or a removal")
-        if self.feeling_score is not None and not self.entry:
-            raise ValueError("feeling_score belongs to an entry")
+    def entry_needs_its_text(self) -> DiaryToolInput:
+        if self.mode == "update" and not (self.pov or "").strip():
+            raise ValueError("pov is the day itself and is required to write one")
+        if self.mode == "delete" and (self.pov or self.feeling_score is not None):
+            raise ValueError("A deletion carries only mode and date")
         return self
 
 
@@ -529,28 +483,26 @@ MUTATION_TOOL_MODELS: dict[str, type[BaseModel]] = {
     "request": RequestToolInput,
     "reminder": ReminderToolInput,
     "remove": RemoveToolInput,
-    "propose_diary_update": DiaryProposalInput,
+    "diary": DiaryToolInput,
 }
 
 
 def mutation_change_from_tool(name: str, arguments: dict[str, Any]) -> AgentChange:
-    """Validate a model tool call and convert it into an application command intent."""
+    """Validate a model tool call and convert it into an application command intent.
+
+    `mode` is the action under its own name, and the tool names the entity — except
+    `remove`, which archives or deletes whichever entity it is given.
+    """
     model = MUTATION_TOOL_MODELS.get(name)
     if model is None:
         raise ValueError(f"Unknown mutation tool: {name}")
-    payload = model.model_validate(arguments).model_dump(exclude_unset=True)
-    if name == "propose_diary_update":
-        # The date, the target, and the action all come from the stamp; preparation
-        # fills them in, so the call itself carries nothing to get wrong.
-        return AgentChange(entity="diary", action="update", values={"stamp": payload["stamp"]})
+    call = model.model_validate(arguments)
     if name == "remove":
-        return AgentChange(
-            entity=payload["type"],
-            action="delete" if payload.get("permanent", False) else "archive",
-            id=payload["id"],
-        )
-    mode = payload.pop("mode")
-    entity = name
-    action = "update" if mode == "edit" else mode
-    identifier = payload.pop("id", None)
-    return AgentChange(entity=entity, action=action, id=identifier, values=payload)
+        return AgentChange(entity=call.entity, action=call.mode, id=call.id)
+    values = call.model_dump(exclude_unset=True)
+    values.pop("mode", None)
+    # A Diary day carries no id: it targets its date, and preparation reads whether
+    # that day exists yet, settling `update` on create or update.
+    return AgentChange(
+        entity=name, action=call.mode, id=values.pop("id", None), values=values
+    )

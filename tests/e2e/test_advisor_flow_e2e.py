@@ -10,6 +10,7 @@ from safwa.ai.context import SYSTEM_PROMPT, DialogueMessage
 from safwa.ai.provider import ProviderToolCall, ProviderTurn
 from safwa.ai.service import AIOutcome, ProposalService
 from safwa.analytics import render_retrospective_png, retrospective_data
+from safwa.constants import MAX_TOOL_CALLS
 from safwa.domain import (
     StaleStateError,
     create_card,
@@ -293,7 +294,7 @@ async def test_ai_stage_update_to_done_keeps_completion_accounting(e2e_harness):
     advisor, _provider = e2e_harness.advisor(
         [
             mutation_turn(
-                ("card", {"mode": "edit", "id": action_id, "title": "Ship it", "note": "Done"})
+                ("card", {"mode": "update", "id": action_id, "title": "Ship it", "note": "Done"})
             ),
             "Saved.",
         ]
@@ -702,7 +703,7 @@ async def test_current_request_progress_includes_current_card_update_diffs(e2e_h
         (
             "card",
             {
-                "mode": "edit",
+                "mode": "update",
                 "id": card.id,
                 "note": "After dinner",
                 "categories": ["rest"],
@@ -1068,7 +1069,7 @@ async def test_ai_request_update_is_rejected_when_the_request_becomes_stale(e2e_
     response = mutation_turn(
         (
             "request",
-            {"mode": "edit", "id": request.id, "description": "Every active Goal."},
+            {"mode": "update", "id": request.id, "description": "Every active Goal."},
         )
     )
     advisor, _provider = e2e_harness.advisor([response])
@@ -1280,15 +1281,10 @@ async def test_advisor_sends_layered_system_blocks_and_canonical_dialogue(e2e_ha
     assert "Recent cards" not in system
     assert "Lexical card candidates" not in system
     tools = provider.options[0]["tools"]
+    # The Advisor reads and routes; every mutation tool belongs to the subagent that owns it.
     assert isinstance(tools, list) and [tool["function"]["name"] for tool in tools] == [
         "query_safwa",
-        "card",
-        "check",
-        "value",
-        "tag",
-        "request",
-        "reminder",
-        "remove",
+        "route",
     ]
 
 
@@ -1486,8 +1482,10 @@ async def test_new_dialogue_cancels_every_unresolved_item_in_suspended_batch(e2e
             )
         )
         assert [proposal.status for proposal in proposals] == ["rejected", "rejected"]
-        assert run.status == "cancelled"
         assert batch.metadata_json["status"] == "cancelled"
+        # The screen is frozen, but the session that wrote it stays resumable: the owner's
+        # next words may well be a correction to exactly these two changes.
+        assert (run.kind, run.status) == ("board", "awaiting_approval")
 
 
 async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_harness):
@@ -2175,9 +2173,10 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
     assert final is not None and "Цель и задача готовы." in final.message
     assert len(provider.calls) == 4
     last = provider.calls[3]
+    # The board session's context: its prompt, the board state, the conversation, then
+    # every step it already took for this request.
     assert [message["role"] for message in last] == [
         "system",
-        "user",
         "user",
         "user",
         "assistant",
@@ -2190,17 +2189,17 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
     # The request that started the turn is still the user message the model reads.
     assert "Сделай цель Быть здоровым и задачу подтянуться" in str(last[2]["content"])
     # Step 1: the saved Goal, described rather than reduced to an ID list.
-    assert '"status": "approved"' in str(last[5]["content"])
-    assert "Create Card “Быть здоровым”" in str(last[5]["content"])
-    assert f'"affected_ids": {json.dumps(goal_ids)}' in str(last[5]["content"])
-    assert "Do not propose it again" in str(last[5]["content"])
+    assert '"status": "approved"' in str(last[4]["content"])
+    assert "Create Card “Быть здоровым”" in str(last[4]["content"])
+    assert f'"affected_ids": {json.dumps(goal_ids)}' in str(last[4]["content"])
+    assert "Do not propose it again" in str(last[4]["content"])
     # Step 2: the failed read is still visible, with a bounded instruction.
-    assert last[6]["tool_calls"][0]["function"]["name"] == "query_safwa"
-    assert '"code": "unsafe_query"' in str(last[7]["content"])
-    assert "do not restart the request" in str(last[7]["content"])
+    assert last[5]["tool_calls"][0]["function"]["name"] == "query_safwa"
+    assert '"code": "unsafe_query"' in str(last[6]["content"])
+    assert "do not restart the request" in str(last[6]["content"])
     # Step 3: the steps speak for themselves, so no progress digest is restated on top.
     assert all("[Current request progress" not in str(message.get("content")) for message in last)
-    assert "Create Card “Подтянуться 20 раз”" in str(last[9]["content"])
+    assert "Create Card “Подтянуться 20 раз”" in str(last[8]["content"])
 
 
 async def test_suspended_batch_persists_the_request_dialogue_and_transcript(e2e_harness):
@@ -2219,12 +2218,59 @@ async def test_suspended_batch_persists_the_request_dialogue_and_transcript(e2e_
             .where(AgentStep.kind == "approval_batch")
             .order_by(AgentStep.id.desc())
         )
-    metadata = batch.metadata_json
-    assert metadata["dialogue"] == [
-        {"role": "user", "content": "[User]: Create a VrWalk tag"}
-    ]
-    assert [message["role"] for message in metadata["transcript"]] == ["assistant", "tool"]
-    assert metadata["transcript"][0]["tool_calls"][0]["function"]["name"] == "tag"
+        run = await session.get(AgentRun, batch.run_id)
+        state = run.state_json
+    # The batch holds the screens; the session holds what it needs to continue.
+    assert batch.metadata_json["status"] == "pending"
+    assert state["dialogue"] == [{"role": "user", "content": "[User]: Create a VrWalk tag"}]
+    assert [message["role"] for message in state["transcript"]] == ["assistant", "tool"]
+    assert state["transcript"][0]["tool_calls"][0]["function"]["name"] == "tag"
+
+
+async def test_the_tool_call_budget_is_carried_across_an_approval(e2e_harness):
+    advisor, _provider = e2e_harness.advisor(
+        [
+            mutation_turn(("tag", {"mode": "create", "name": "Budget"})),
+            mutation_turn(("tag", {"mode": "create", "name": "Overrun"})),
+        ]
+    )
+    outcome = await advisor.handle("Create a Budget tag")
+    assert outcome.proposal_id is not None
+
+    # The session has spent its whole budget; the approval must not hand it a fresh one.
+    async with e2e_harness.sessions() as session:
+        run = await session.scalar(select(AgentRun).order_by(AgentRun.id.desc()))
+        run.state_json = {**run.state_json, "tool_count": MAX_TOOL_CALLS}
+        await session.commit()
+
+    resumed = await advisor.resolve_approval(
+        "proposal",
+        outcome.proposal_id,
+        decision="discarded",
+        result={},
+    )
+
+    assert resumed is not None
+    assert "could not generate its follow-up" in resumed.message
+    async with e2e_harness.sessions() as session:
+        run = await session.scalar(select(AgentRun).order_by(AgentRun.id.desc()))
+        assert run.status == "failed"
+        # The claim is released whichever way the turn ends, or the session is stuck.
+        assert run.claimed_at is None
+
+
+async def test_a_session_can_only_be_claimed_once(e2e_harness):
+    advisor, _provider = e2e_harness.advisor(
+        [mutation_turn(("tag", {"mode": "create", "name": "Claimed"}))]
+    )
+    assert (await advisor.handle("Create a Claimed tag")).proposal_id is not None
+
+    async with e2e_harness.sessions() as session:
+        run = await session.scalar(select(AgentRun).order_by(AgentRun.id.desc()))
+        assert await advisor._claim_session(session, run.id, held_run_id=None) is not None
+        assert await advisor._claim_session(session, run.id, held_run_id=None) is None
+        # The turn that already holds the session continues inside its own claim.
+        assert await advisor._claim_session(session, run.id, held_run_id=run.id) is not None
 
 
 async def _standalone_tag_proposal(e2e_harness, advisor, name: str) -> int:

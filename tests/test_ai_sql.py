@@ -17,26 +17,26 @@ def test_native_mutation_tools_become_typed_change_intents():
         mode="create", kind="action", title="Read one page", effort_points=1
     )
     assert creation.kind == "action"
-    change = mutation_change_from_tool("card", {"mode": "edit", "id": 42, "priority": "critical"})
+    change = mutation_change_from_tool("card", {"mode": "update", "id": 42, "priority": "critical"})
     assert (change.entity, change.action, change.id, change.values) == (
         "card",
         "update",
         42,
         {"priority": "critical"},
     )
-    remove = mutation_change_from_tool("remove", {"type": "card", "id": 42, "permanent": True})
+    remove = mutation_change_from_tool("remove", {"mode": "delete", "entity": "card", "id": 42})
     assert (remove.entity, remove.action, remove.id) == ("card", "delete", 42)
     with pytest.raises(ValueError):
         CardToolInput(mode="create", kind="action")
-    with pytest.raises(ValueError):
-        mutation_change_from_tool("remove", {"type": "tag", "id": 42, "permanent": True})
+    with pytest.raises(ValueError, match="archived, never deleted"):
+        mutation_change_from_tool("remove", {"mode": "delete", "entity": "tag", "id": 42})
 
 
 def test_card_tool_modes_reject_ambiguous_mutations():
     change = mutation_change_from_tool(
         "card",
         {
-            "mode": "edit",
+            "mode": "update",
             "id": 42,
             "categories": ["contribution", "rest"],
             "energy_types": ["physical", "social"],
@@ -46,7 +46,7 @@ def test_card_tool_modes_reject_ambiguous_mutations():
         "categories": ["contribution", "rest"],
         "energy_types": ["physical", "social"],
     }
-    root = mutation_change_from_tool("card", {"mode": "edit", "id": 42, "parent_id": None})
+    root = mutation_change_from_tool("card", {"mode": "update", "id": 42, "parent_id": None})
     assert root.values == {"parent_id": None}
     with pytest.raises(ValueError):
         CardToolInput(mode="move", id=42, stage="today", categories=["work"])
@@ -138,7 +138,7 @@ def test_zero_id_placeholders_are_ignored_but_real_ids_must_be_positive():
     }
 
     with pytest.raises(ValueError):
-        mutation_change_from_tool("remove", {"type": "card", "id": 0})
+        mutation_change_from_tool("remove", {"entity": "card", "id": 0})
 
 
 @pytest.mark.parametrize(
@@ -181,9 +181,7 @@ def test_null_placeholders_are_ignored_across_mutation_tools(
     change = mutation_change_from_tool(tool_name, arguments)
     assert change.values == expected_values
 
-    remove = mutation_change_from_tool(
-        "remove", {"type": "card", "id": 42, "permanent": None}
-    )
+    remove = mutation_change_from_tool("remove", {"entity": "card", "id": 42, "mode": None})
     assert remove.action == "archive"
 
 
@@ -208,7 +206,7 @@ def test_collection_arguments_recover_scalars_and_double_encoded_arrays():
     change = mutation_change_from_tool(
         "card",
         {
-            "mode": "edit",
+            "mode": "update",
             "id": 42,
             "categories": "self",
             "energy_types": '["physical", null, "none"]',
@@ -224,7 +222,7 @@ def test_collection_arguments_recover_scalars_and_double_encoded_arrays():
 
 def test_parent_changes_are_explicit_and_unambiguous():
     remove_parent = mutation_change_from_tool(
-        "card", {"mode": "edit", "id": 42, "title": "Renamed", "parent_id": None}
+        "card", {"mode": "update", "id": 42, "title": "Renamed", "parent_id": None}
     )
     assert remove_parent.values == {"title": "Renamed", "parent_id": None}
 
@@ -232,7 +230,7 @@ def test_parent_changes_are_explicit_and_unambiguous():
         mutation_change_from_tool(
             "card",
             {
-                "mode": "edit",
+                "mode": "update",
                 "id": 42,
                 "parent_id": 7,
                 "parent_query": "Fitness",
@@ -242,9 +240,9 @@ def test_parent_changes_are_explicit_and_unambiguous():
 
 
 @pytest.mark.parametrize("placeholder", [None, "null", "None", "NIL", "undefined"])
-def test_edit_parent_null_variants_remove_the_parent(placeholder):
+def test_update_parent_null_variants_remove_the_parent(placeholder):
     change = mutation_change_from_tool(
-        "card", {"mode": "edit", "id": 42, "parent_id": placeholder}
+        "card", {"mode": "update", "id": 42, "parent_id": placeholder}
     )
     assert change.values == {"parent_id": None}
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,17 +9,25 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from safwa.ai.autoapproval import AutoApprovalReviewer
-from safwa.ai.provider import ProviderTurn
-from safwa.ai.service import AIAdvisor
+from safwa.ai.board import BOARD_PROMPT, BOARD_TOOLS
+from safwa.ai.provider import ProviderToolCall, ProviderTurn
+from safwa.ai.service import AIAdvisor, query_read_tool
 from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
-from safwa.ai.subagents import SubagentRunner
+from safwa.ai.subagents import RoutedSubagent
 from safwa.db import Database, upgrade_database
 from safwa.domain import bootstrap_workspace
 from safwa.memory import MemoryFileStore
 
 
 class ScriptedProvider:
-    """Deterministic OpenAI-compatible boundary used by isolated E2E tests."""
+    """Deterministic OpenAI-compatible boundary used by isolated E2E tests.
+
+    A scripted response names the tools it calls, so the session it belongs to is known:
+    when the next response asks for a tool this session was not offered, the model would
+    have to `route` first, and so does this — with the scripted response left in place for
+    the session that *can* run it.  Those synthetic hand-offs stay out of ``calls`` and
+    ``options``, which record what the script itself saw.
+    """
 
     def __init__(self, responses: list[str | ProviderTurn]) -> None:
         self.responses = deque(responses)
@@ -34,12 +43,33 @@ class ScriptedProvider:
         return response.content if isinstance(response, ProviderTurn) else response
 
     async def complete_turn(self, messages: list[dict[str, object]], **kwargs) -> ProviderTurn:
+        offered = {tool["function"]["name"] for tool in kwargs.get("tools") or []}
+        handover = self._handover(self.responses[0], offered) if self.responses else None
+        if handover is not None:
+            return handover
         self.calls.append([dict(message) for message in messages])
         self.options.append(dict(kwargs))
         if not self.responses:
             raise AssertionError("The advisor made an unexpected provider call")
         response = self.responses.popleft()
         return response if isinstance(response, ProviderTurn) else ProviderTurn(content=response)
+
+    @staticmethod
+    def _handover(response: str | ProviderTurn, offered: set[str]) -> ProviderTurn | None:
+        if "route" not in offered or not isinstance(response, ProviderTurn):
+            return None
+        wanted = {call.name for call in response.tool_calls}
+        if not wanted or wanted <= offered:
+            return None
+        target = "diary" if wanted & {"read_day", "diary"} else "board"
+        return ProviderTurn(
+            content="",
+            tool_calls=(
+                ProviderToolCall(
+                    id=f"route-{target}", name="route", arguments=json.dumps({"name": target})
+                ),
+            ),
+        )
 
 
 @dataclass
@@ -49,14 +79,26 @@ class E2EHarness:
     database_path: Path
     memory: MemoryFileStore
 
+    def board(self) -> RoutedSubagent:
+        """The real board subagent: every mutation tool lives behind `route("board")`."""
+        return RoutedSubagent(
+            name="board",
+            purpose="every change to the planning data",
+            instructions=BOARD_PROMPT,
+            read_tools=(query_read_tool(ReadOnlyQueryRunner(self.database_path)),),
+            mutation_tools=BOARD_TOOLS,
+            planning_state=True,
+        )
+
     def advisor(
         self,
         responses: list[str | ProviderTurn],
         *,
         cache_breakpoints: bool = False,
-        subagents: tuple[object, ...] = (),
+        subagents: tuple[RoutedSubagent, ...] | None = None,
         autoapprove: bool = False,
     ) -> tuple[AIAdvisor, ScriptedProvider]:
+        subagents = (self.board(),) if subagents is None else subagents
         provider = ScriptedProvider(responses)
         advisor = AIAdvisor(
             self.sessions,
@@ -66,16 +108,7 @@ class E2EHarness:
             model_name="e2e-scripted-model",
             cache_breakpoints=cache_breakpoints,
             autoapproval=AutoApprovalReviewer(provider) if autoapprove else None,
-            subagents=(
-                SubagentRunner(
-                    self.sessions,
-                    subagents,  # type: ignore[arg-type]
-                    provider_name="e2e",
-                    model_name="e2e-scripted-model",
-                )
-                if subagents
-                else None
-            ),
+            subagents=subagents,
         )
         return advisor, provider
 

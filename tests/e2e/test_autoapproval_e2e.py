@@ -54,7 +54,7 @@ async def test_an_exact_allowlisted_edit_is_autoapproved(e2e_harness):
     request = "Rename Buy milk to Buy oat milk"
     advisor, provider = e2e_harness.advisor(
         [
-            mutation_turn(("card", {"mode": "edit", "id": card.id, "title": "Buy oat milk"})),
+            mutation_turn(("card", {"mode": "update", "id": card.id, "title": "Buy oat milk"})),
             review_turn("autoapprove", "The operation and every non-default value are explicit."),
             "Renamed it.",
         ],
@@ -127,7 +127,7 @@ async def test_reviewer_doubt_leaves_the_original_proposal_pending(e2e_harness):
         await session.commit()
     advisor, provider = e2e_harness.advisor(
         [
-            mutation_turn(("tag", {"mode": "edit", "id": tag.id, "name": "Maybe work"})),
+            mutation_turn(("tag", {"mode": "update", "id": tag.id, "name": "Maybe work"})),
             review_turn("require_review", "The requested name is not exact enough."),
         ],
         autoapprove=True,
@@ -152,8 +152,8 @@ async def test_batch_is_reviewed_head_first_without_a_bulk_block(e2e_harness):
     advisor, provider = e2e_harness.advisor(
         [
             mutation_turn(
-                ("tag", {"mode": "edit", "id": tag.id, "name": "Career"}),
-                ("value", {"mode": "edit", "id": value.id, "name": "Autonomy"}),
+                ("tag", {"mode": "update", "id": tag.id, "name": "Career"}),
+                ("value", {"mode": "update", "id": value.id, "name": "Autonomy"}),
             ),
             review_turn("autoapprove", "The requested Tag name is exact."),
             review_turn("require_review", "The requested Value needs manual review."),
@@ -186,8 +186,8 @@ async def test_next_head_is_autoapproved_after_a_manual_save(e2e_harness):
     advisor, provider = e2e_harness.advisor(
         [
             mutation_turn(
-                ("tag", {"mode": "edit", "id": tag.id, "name": "Career"}),
-                ("value", {"mode": "edit", "id": value.id, "name": "Autonomy"}),
+                ("tag", {"mode": "update", "id": tag.id, "name": "Career"}),
+                ("value", {"mode": "update", "id": value.id, "name": "Autonomy"}),
             ),
             review_turn("require_review", "Keep the first item manual."),
             review_turn("autoapprove", "The second item is an exact request match."),
@@ -225,7 +225,7 @@ async def test_multi_step_request_can_be_autoapproved_one_proposal_at_a_time(e2e
     request = "Rename Enter university to Enrol, then link the Study tag to it"
     advisor, provider = e2e_harness.advisor(
         [
-            mutation_turn(("card", {"mode": "edit", "id": card.id, "title": "Enrol"})),
+            mutation_turn(("card", {"mode": "update", "id": card.id, "title": "Enrol"})),
             review_turn("autoapprove", "The rename is one correct requested part."),
             mutation_turn(("card", {"mode": "link", "id": card.id, "tag_id": tag.id})),
             review_turn("autoapprove", "The requested Tag is linked to the requested Card."),

@@ -21,7 +21,7 @@ Python `>=3.12,<3.13`. No server, no multi-user, no Mini App.
 3. one boot session: `bootstrap_workspace` → `recover_startup` → `create_ai_views`
 4. `OpenAICompatibleProvider` → `MemoryFileStore.sync()` → `ReadOnlyQueryRunner`
 5. `Bot` (`parse_mode=HTML`) → `TelegramHistorySource.from_settings(..., bot_user_id=me.id)` → `.start()`
-6. `AIAdvisor` with a `SubagentRunner` over `DiarySubagent` — after the history source, which a
+6. `AIAdvisor` with its routed subagents (`board`, `diary`) — after the history source, which a
    subagent reads through
 7. `PersonaContinuity` → `GenerationGuard` → `build_transcriber` (`None` unless
    `SAFWA_ASR_PROVIDER` is set) → `Services` dataclass → `dispatcher["services"]`
@@ -48,7 +48,7 @@ not one package per layer:
 | application | [domain.py](../src/safwa/domain.py) (mutations), [ai/service.py](../src/safwa/ai/service.py) (`ProposalService`), [continuity.py](../src/safwa/continuity.py), [scheduler.py](../src/safwa/scheduler.py), [analytics.py](../src/safwa/analytics.py) |
 | infrastructure | [db.py](../src/safwa/db.py), [history.py](../src/safwa/history.py), [memory.py](../src/safwa/memory.py), [ai/provider.py](../src/safwa/ai/provider.py), [ai/sql.py](../src/safwa/ai/sql.py), [backup.py](../src/safwa/backup.py) |
 | telegram | [telegram/](../src/safwa/telegram) (16 modules, ~5.5k lines) |
-| ai | [ai/](../src/safwa/ai) (context, contracts, diary, mini, provider, reminder_sessions, service, sql, subagents) |
+| ai | [ai/](../src/safwa/ai) (board, context, contracts, diary, mini, prepare, provider, reminder_sessions, service, sql, subagents) |
 | bootstrap | [main.py](../src/safwa/main.py), [config.py](../src/safwa/config.py), [constants.py](../src/safwa/constants.py), [recovery.py](../src/safwa/recovery.py), [qa.py](../src/safwa/qa.py) |
 
 [constants.py](../src/safwa/constants.py) holds every limit, budget, cap, interval, and the effort
@@ -198,11 +198,10 @@ message, which misfires on short notes.
 Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `history.dialogue()` →
 `AIAdvisor.handle` → agent loop → proposals or a final message.
 
-- Tools: two that run immediately (`IMMEDIATE_TOOLS`) — `query_safwa(sql)` and
-  `call_subagent(name, request)` — plus the mutation tools `card`, `check`, `value`, `tag`, `request`,
-  `reminder`, `remove` (`SAFWA_TOOLS`, [ai/service.py](../src/safwa/ai/service.py)).
-  `propose_diary_update` is a contract without a description, so only the runtime sends it.
-  `call_subagent` is offered only when a `SubagentRunner` is wired.
+- The Advisor's tools are `query_safwa(sql)` and `route(name)`, both immediate
+  (`IMMEDIATE_TOOLS`, [ai/service.py](../src/safwa/ai/service.py)). It has **no mutation tool at
+  all**: every one belongs to the subagent that owns that feature, so a change it describes instead
+  of routing is a change that never happens. `route` is offered only when a roster is wired.
 - Offering an item is not a tool. The model cites it in its own prose as `[Milk](check:14)`. The six
   openable types are Card, Check, Tag, Value, Saved Request and Diary day; `render_citations`
   ([telegram/screens.py](../src/safwa/telegram/screens.py)) rewrites each citation of the escaped
@@ -223,18 +222,28 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
   `link`/`unlink` call. The `check` tool only creates, edits and answers a Check; it never attaches one.
   Since the UI cannot create, rename or (un)link a Check, those paths exist only here.
   `check_query` resolves an exact Check title, so a Check can be attached without knowing its id.
-- `_guard_pending_checks` refuses to *prepare* a completion while Pending Checks exist, returning a
+- `_guard_pending_checks` ([ai/prepare.py](../src/safwa/ai/prepare.py)) refuses to *prepare* a
+  completion while Pending Checks exist, returning a
   retryable `ToolPreparationError` that carries their ids **and titles** so the model does not spend a
   `query_safwa` round finding them. The model then proposes `check(mode="complete"|"cancel")` for an
   answer the owner already gave, or cites the Check so they answer it themselves.
+- Every mutation tool takes a `mode`, and a `mode` **is** an `AgentChange.action` spelled the same:
+  `create`, `update`, `move`, `complete`, `cancel`, `reopen`, `link`, `unlink`, `archive`, `delete`.
+  `mutation_change_from_tool` therefore translates no names; `remove` is the one tool that names its
+  entity, because it archives or deletes any of them.
 - **The model never mutates and never writes mutation SQL.** Tool call → Pydantic model in
-  [ai/contracts.py](../src/safwa/ai/contracts.py) → `AgentChange` → `ChangeProposal` + `ProposalChange`
+  [ai/contracts.py](../src/safwa/ai/contracts.py) → `AgentChange` → `ChangePreparer.prepare` against
+  live data ([ai/prepare.py](../src/safwa/ai/prepare.py)) → `ChangeProposal` + `ProposalChange`
   rows → request-only autoapproval for an allowlisted operation, or a read-only review screen with
   only **Save**/**Discard** → `ProposalService.apply` calls the *same* `domain.py` functions the manual
   UI calls. The reviewer never mutates; its terminal decision is applied by the ordinary service.
 - Multiple mutation calls in one turn become independent queued proposal screens in call order; the
   queue lives in an `AgentStep` row with `kind="approval_batch"`. The model resumes only after the last
   item resolves (`resolve_approval` → `continue_agent_approval`) and receives all mutation and read results.
+- The session itself is the `agent_runs` row: `state_json` holds the dialogue, the transcript, the
+  tool-call budget and the receipts already shown, so a suspended turn resumes from its own record
+  rather than from the screen that suspended it. Resuming takes `claimed_at` first, and the batch is
+  closed in the same commit, so a crash costs one repeated press and nothing else.
 - [ai/autoapproval.py](../src/safwa/ai/autoapproval.py) reviews only the active queue head. Its
   declarative `(entity, action)` registry optionally restricts changed fields and is the single place
   to enable another operation; creation is not in it, so every new item takes the review screen. An
@@ -274,57 +283,65 @@ Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `histor
 
 ### Subagents
 
-[ai/subagents.py](../src/safwa/ai/subagents.py) runs one named specialist inside the advisor's turn.
-A subagent is a mini-session ([ai/mini.py](../src/safwa/ai/mini.py)) with several read tools and one
-terminal report; the terminal call *is* the answer, and prose is fed back as a retryable tool result.
+[ai/subagents.py](../src/safwa/ai/subagents.py) defines a routed subagent: a session of the same
+shape the Advisor runs on — its own prompt, its own tools, its own transcript, its own row in
+`agent_runs` — reading the same conversation.
 
-- It **reads and never mutates**. Its tool set holds no mutation tool and no `call_subagent`, so
-  there is no recursion.
-- `SubagentRunner` gives each run its own `AgentRun` and `subagent_read`/`subagent_terminal`
-  `AgentStep` rows, and bounds it with `asyncio.wait_for(SUBAGENT_DEADLINE_SECONDS = 300)`. The
-  clock replaces a provider-call cap, which cannot interrupt a call already in flight. A timeout or
-  an exhausted repair budget comes back as a non-retryable tool result, never an exception.
-- The advisor's own run records the hand-off as a `subagent_call` step carrying the subagent's
-  `AgentRun` id.
-- The roster is prose in `SYSTEM_PROMPT` (`# Subagents`) — a static block inside the cacheable
-  prefix. There is no discovery tool, so **a subagent missing from that section cannot be called**.
+- `route(name)` **hands the turn over**. The Advisor writes nothing after it: the subagent's prose is
+  the chat message and its proposal is the review screen, with nothing relayed in between. It takes
+  no request, because the subagent reads the conversation as it stands and treats the last owner
+  message as addressed to it; a read the Advisor did first is not carried over.
+- A routed subagent has no `route`, so there is no recursion, and it declares its own tool list —
+  read tools plus the mutation tools it owns.
+- `PERSONA` is one block composed into every routed prompt: voice, the owner's language, the citation
+  format. Three copies would drift into three dialects.
+- Each subagent declares how much context it needs: `history_messages` (all of it, or that many of
+  the newest messages) and `planning_state`. The Diary reads its day with `read_day`, so it takes
+  only `DIARY_HISTORY_MESSAGES` — enough to be told what to change about what it just proposed.
+- The routing rules are prose in `SYSTEM_PROMPT` (`# Routing`) — a static block inside the cacheable
+  prefix. There is no discovery tool, so **a subagent missing from that section is never routed to**.
+- `route` resumes that subagent's saved session if it left one, and starts a new one otherwise;
+  the model never chooses between the two. `asyncio.wait_for(SUBAGENT_DEADLINE_SECONDS = 300)` bounds
+  one **active stretch**, never a suspension — a saved session is not a slow session.
+- Approve and Discard resume the session directly. Words typed over an open screen do not: the screen
+  freezes, the subagent's session is saved as `awaiting_approval` with its own results folded into its
+  transcript, and the words go to the Advisor, which answers them or routes back. That is what lets
+  "the same, but capitalise the name" reach the session that wrote the refused proposal.
+- **A saved session is restorable for exactly one Advisor turn.** `_close_lapsed_sessions` runs at the
+  end of every Advisor turn and abandons each saved subagent session that turn did not route into, so
+  words about something else end the draft instead of leaving it to be revived by a later `route`. A
+  session whose batch is still `pending` is left alone: its screen is live and Save resumes it.
+- **board** ([ai/board.py](../src/safwa/ai/board.py)): owns `card`, `check`, `value`, `tag`,
+  `request`, `reminder` and `remove`, plus the prompt sections that only serve them — the full
+  Planning structure, Checks, the Reminder timing rules, and how to fill a proposal in. It declares
+  `planning_state=True`, so the board's current state is in its context, and takes the whole
+  dialogue window. `_guard_pending_checks` therefore fires inside board, which cites the Checks
+  itself.
 - **Diary** ([ai/diary.py](../src/safwa/ai/diary.py)): owns the Diary outright. `ai_diary` is absent
-  from the advisor's `SYSTEM_PROMPT`, so reading a day, writing one, rewriting one and removing one
-  all arrive here. It settles the whole change — which day, which entry, and whether that day is
-  written or removed — and works the date out from the owner's words, so the advisor never has to. It
-  reads that day's conversation (`TelegramHistorySource.day_transcript`), `observe_stamp` for a draft
-  already offered, *and* `ai_diary`, `ai_card_events`, `ai_checks`, because work done from the buttons
-  never reaches the conversation and what the day felt like never reaches the database. It has
-  `query_safwa`, so its own prompt lists those views — one it is not told about is one it cannot use.
-  Its prompt also fixes the entry's language rather than inheriting the advisor's.
-- `diary_report` carries exactly one of `entry` (with `date`, a remark and a `feeling_score`),
-  `remove` (with `date`), `answer`, or `question`. `answer` is the read-only ending: it cites each day
-  as `[dd.mm.yyyy](diary:<id>)` for the advisor to relay word for word, and issues no stamp.
-- `feeling_score` is 0–10 and nullable, stored on `diary_entries` and carried by the stamp.
-  `FEELING_SCORE_EMOJI` ([constants.py](../src/safwa/constants.py)) is the whole scale; the
-  `# Feeling score` block of `DIARY_PROMPT` is the whole rubric. 5 is an ordinary day, and **0 is
-  never the model's choice** — only the owner's own word.
-- The report becomes a `diary_stamps` row carrying the whole change — date, host-resolved `entry_id`,
-  `action`, body, score, remark — and the advisor receives only the stamp, the date, the action, the
-  character count, the score, and the remark. The body never travels through the advisor, which is
-  what stops it being silently edited.
-- `propose_diary_update(stamp)` takes nothing else: preparation reads the row back and fills in the
-  change's action, target, and values. A missing or expired stamp is a retryable
-  `ToolPreparationError`.
-- Sending the stamp is arithmetic, so the runtime does it: when the advisor answers without that
-  call, `_run_agent_loop` makes it (`SUBAGENT_PROPOSAL_TOOLS`) and the answer becomes the proposal.
-- Discard leaves the stamp alone, so the same change is re-offered from it. Save clears every stamp
-  for that date — an older draft describes the day as it was, so re-proposing one would revert the
-  save. Unspent, a stamp expires at the end of the local day it was *issued* on, so a back-dated
-  entry gets the same working life as today's.
-- A `diary_entries` row is one local date — `entry_date` is UNIQUE, so a second draft for a day
-  updates it. The remark is screen-only and is not stored.
-- **No receipt carries the day.** `_diary_detail_lines` gives the date, the score, a character count
-  and `Draft: <stamp>`; the entry itself appears only on the review screen and on `render_diary`. A
-  receipt stays in the conversation and would be re-read on every later turn, so `observe_stamp`
-  replaces it: the subagent reads a refused draft back from its stamp and a saved day from `ai_diary`.
-  Because only the conversation carries a stamp into the next turn, a resolved Diary change that was
-  not approved tells the advisor to end its reply with that `Draft:` line.
+  from the Advisor's `SYSTEM_PROMPT` and the `diary` mutation tool is absent from its tool list, so
+  reading a day, writing one, rewriting one and removing one all arrive here. It works the date out
+  from the owner's words, so the Advisor never has to. It reads that day's conversation
+  (`read_day` → `TelegramHistorySource.day_transcript`) *and* `ai_diary`, `ai_card_events`,
+  `ai_checks`, because work done from the buttons never reaches the conversation and what the day
+  felt like never reaches the database. It has `query_safwa`, so its own prompt lists those views —
+  one it is not told about is one it cannot use.
+- The `diary` tool carries `mode` (`update`/`delete`), `date`, `pov`, `ai_comment` and
+  `feeling_score`. `pov` is the day in the owner's voice and `ai_comment` is Safwa's one line about
+  it; the review screen is exactly those two. `update` is the only way to write a day: whether that
+  day already exists is a fact about the data, so preparation reads it and settles the action on
+  create or update — and refuses a `delete` of a day that was never written, retryably.
+- Reading the Diary or asking about it is prose, not a tool: the subagent answers the owner itself,
+  citing each day as `[dd.mm.yyyy](diary:<id>)`.
+- `feeling_score` is 0–10 and nullable, stored on `diary_entries`. `FEELING_SCORE_EMOJI`
+  ([constants.py](../src/safwa/constants.py)) is the whole scale; the `# Feeling score` block of
+  `DIARY_PROMPT` is the whole rubric. 5 is an ordinary day, and **0 is never the model's choice** —
+  only the owner's own word.
+- A `diary_entries` row is one local date — `entry_date` is UNIQUE, so a second write for a day
+  updates it. `ai_comment` is screen-only and is not stored.
+- **No receipt carries the day.** `_diary_detail_lines` gives the date, the score and a character
+  count; the entry itself appears only on the review screen and on `render_diary`. A receipt stays in
+  the conversation and would be re-read on every later turn, while the draft is already held by the
+  session that wrote it.
 - The nightly ask is an ordinary Reminder marked `system`, derived from Settings by
   `sync_diary_reminder` and rebuilt at startup: the Settings screen's Diary time moves it or, on
   `off`, deletes it, and the Diary instruction is appended to its text. It is hidden from `/reminders`
@@ -458,7 +475,8 @@ a schedule — see [REMINDERS_PLAN.md](REMINDERS_PLAN.md) for the full contract.
   changed. Only the owner bumps it, through `cancel`; the workspace revision does not gate the answer,
   because an autoapproved change bumps it from inside the very turn being rendered.
 - `OwnerAndWritingMiddleware` drops anything that is not the owner in a private chat.
-- `recover_startup` reconciles interrupted `agent_runs`, `resuming` approval batches, expired proposals,
+- `recover_startup` reconciles interrupted `agent_runs` and their claims, sessions abandoned for
+  `SESSION_IDLE_DAYS` together with their open batch, expired proposals,
   callback tokens, UI sessions, and Reminder schedules on every boot. `reconcile_reminders` rolls a
   repeat forward only past `REMINDER_CATCHUP_GRACE_MINUTES` — an in-grace overdue row is left alone
   because the first poll firing it *is* the catch-up — and rebuilds wall clocks after a timezone move.
@@ -473,12 +491,12 @@ means editing `models.py` and rebuilding the database (`uv run safwa-backup` fir
 **Do not add Alembic or write migrations before the first release.** The owner recreates the
 pre-release database. Migration support begins after v1.
 
-29 tables: `workspace`, `user_profile`, `values`, `cards`, `card_values`, `tags`, `card_tags`,
+28 tables: `workspace`, `user_profile`, `values`, `cards`, `card_values`, `tags`, `card_tags`,
 `checks`, `card_checks`,
 `saved_requests`, `card_categories`, `card_energy_types`, `sprints`, `sprint_commitments`, `card_events`,
 `change_proposals`, `proposal_changes`, `agent_runs`, `agent_steps`, `telegram_messages`,
 `feedback_queue`, `summary_state`, `memory_fact_cache`, `memory_sync_state`, `reminders`,
-`ui_sessions`, `callback_tokens`, `diary_entries`, `diary_stamps`.
+`ui_sessions`, `callback_tokens`, `diary_entries`.
 
 Enums are `StrEnum` but columns store plain strings — always compare/assign `.value`.
 

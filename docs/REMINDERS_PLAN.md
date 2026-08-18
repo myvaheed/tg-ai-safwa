@@ -360,7 +360,7 @@ never advanced, so the row is still due and the next tick rereads current histor
 | a one-shot fired | same transaction, after the turn succeeds | none |
 | advisor finds that it no longer applies | advisor may propose `remove` | Save |
 | the owner decides | `/reminders` → 🗑 | one confirm |
-| the model notices in an ordinary turn | `remove(type="reminder")` | Save |
+| the model notices in an ordinary turn | `remove(mode="archive", entity="reminder")` | Save |
 
 Safwa never silently removes a repeating Reminder because a referenced item changed. The advisor may
 propose removal, and the owner decides whether to approve it.

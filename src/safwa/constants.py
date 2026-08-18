@@ -31,12 +31,18 @@ CONTEXT_CRITICAL_CARD_LIMIT = 10
 MAX_TOOL_CALLS = 64
 MAX_REPAIR_ROUNDS = 5
 SUSPENDED_BATCH_LOOKUP_LIMIT = 50
+# A session waiting on a screen is abandoned once its proposal can no longer be acted on;
+# the proposal expires in a day, so two is past every screen the owner could still answer.
+SESSION_IDLE_DAYS = 2
 
 # --- Subagents ------------------------------------------------------------
 # A subagent blocks the advisor's turn, so the clock bounds it instead of a call count.
 SUBAGENT_DEADLINE_SECONDS = 300.0
 # How much of a day's conversation the Diary reader may hand back in one call.
 DIARY_DAY_TOKEN_BUDGET = 12_000
+# How much of the conversation a routed Diary session sees. It reads the day itself with
+# `read_day`; this is only enough to be told what to change about what it just proposed.
+DIARY_HISTORY_MESSAGES = 4
 # Local clock the Diary's system Reminder fires on out of the box; Settings moves it,
 # and `off` there removes the row.
 DIARY_TIME_DEFAULT = "22:00"

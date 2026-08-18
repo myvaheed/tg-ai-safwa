@@ -158,7 +158,7 @@ async def test_editing_a_reminder_without_when_never_touches_the_schedule(e2e_ha
                 (
                     "reminder",
                     {
-                        "mode": "edit",
+                        "mode": "update",
                         "id": reminder_id,
                         "instruction": "Check my posture properly — Check #5.",
                     },

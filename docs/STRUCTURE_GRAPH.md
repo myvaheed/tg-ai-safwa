@@ -81,7 +81,7 @@ flowchart LR
 | Persona dialogue | Приватный Telegram chat | `TelegramHistorySource` через Telethon | Owner и зарегистрированные bot sends |
 | Классификация bot messages | Invisible kind + event UUID marker | `history.py` | `send_registered`, `mark_message`, `register_message` |
 | Долговременная persona memory | `data/memory.md` | AI context, `/memory`, maintenance | File edits, `/mem`, `PersonaContinuity` |
-| Proposal/agent progress | `AgentRun`, `AgentStep`, `ChangeProposal` | AI continuation, proposal UI, recovery | `AIAdvisor`, `ProposalService`, approval handlers |
+| Proposal/agent progress | `AgentRun` (сессия и её `state_json`), `AgentStep`, `ChangeProposal` | AI continuation, proposal UI, recovery | `AIAdvisor`, `ProposalService`, approval handlers |
 | Reminder schedule и delivery state | `Reminder` | Scheduler, UI, AI views | Domain operations и `scheduler.settle` |
 | Diary clock и instruction | `UserProfile` | `sync_diary_reminder` → системный `Reminder` | Кнопки `/settings` через `update_profile` |
 | Transient Telegram UI | `UiSession`, `CallbackToken` | Telegram handlers | `_messaging.py`, renderers, recovery |
@@ -151,12 +151,13 @@ flowchart TD
     CONTRACTS["ai/contracts.py"] --> SERVICE
     PROVIDER["ai/provider.py"] --> SERVICE
     SQL["ai/sql.py"] --> SERVICE
+    PREPARE["ai/prepare.py"] --> SERVICE
+    SQL --> PREPARE
     MINI["ai/mini.py"] --> RS["ai/reminder_sessions.py"]
-    MINI --> DIARY["ai/diary.py"]
-    MINI --> SUB["ai/subagents.py"]
     MINI --> AUTO["ai/autoapproval.py"]
-    DIARY --> SUB
-    RS --> SERVICE
+    DIARY["ai/diary.py"] --> SUB["ai/subagents.py"]
+    BOARD["ai/board.py"] --> SUB
+    RS --> PREPARE
     SUB --> SERVICE
     AUTO --> SERVICE
     SERVICE --> PROPOSALS["ChangeProposal + AgentStep"]
@@ -172,9 +173,11 @@ flowchart TD
 | [`ai/mini.py`](../src/safwa/ai/mini.py) | Узкая tool-only LLM-сессия | `run_mini_session`, `ReadToolSpec`, `TerminalTool`, terminal/retry protocol |
 | [`ai/autoapproval.py`](../src/safwa/ai/autoapproval.py) | Request-only semantic review для allowlisted proposal operations | `AutoApprovalReviewer`, `AutoApprovalRule`, `DEFAULT_AUTOAPPROVAL_RULES` |
 | [`ai/reminder_sessions.py`](../src/safwa/ai/reminder_sessions.py) | Setup mini-session для расписаний Reminder | `resolve_schedule` |
-| [`ai/subagents.py`](../src/safwa/ai/subagents.py) | Запуск named subagent под собственным `AgentRun` и deadline | `SubagentRunner`, `Subagent`, `SubagentOutcome` |
-| [`ai/diary.py`](../src/safwa/ai/diary.py) | Diary subagent: единственный читатель Diary — определяет день, действие и feeling_score, отдаёт change под stamp или answer с цитатами | `DiarySubagent`, `DIARY_PROMPT`, `DIARY_REPORT`, `OBSERVE_STAMP_TOOL` |
-| [`ai/service.py`](../src/safwa/ai/service.py) | Main agent loop, read tools, proposals, continuation и apply | `AIAdvisor`, `AIOutcome`, `ProposalService`, `_run_agent_loop`, `_materialize` |
+| [`ai/subagents.py`](../src/safwa/ai/subagents.py) | Определение routed subagent: его промпт, tools и общий блок персоны | `RoutedSubagent`, `PERSONA` |
+| [`ai/board.py`](../src/safwa/ai/board.py) | Board subagent: промпт и список mutation tools, которыми он владеет | `BOARD_PROMPT`, `BOARD_TOOLS` |
+| [`ai/diary.py`](../src/safwa/ai/diary.py) | Diary subagent: единственный читатель и автор Diary — промпт, `read_day` и часы дня | `DIARY_PROMPT`, `day_read_tool`, `diary_clock`, `READ_DAY_TOOL` |
+| [`ai/prepare.py`](../src/safwa/ai/prepare.py) | Проверка одного mutation change против живых данных до записи proposal | `ChangePreparer`, `PreparedChange`, `ToolPreparationError`, `ENTITY_MODELS` |
+| [`ai/service.py`](../src/safwa/ai/service.py) | Main agent loop, read tools, proposals, continuation и apply | `AIAdvisor`, `AgentSession`, `AIOutcome`, `ProposalService`, `_run_agent_loop`, `_materialize` |
 
 ### Main advisor context
 
@@ -186,24 +189,24 @@ flowchart LR
     CLOCK --> PROVIDER["Provider turn"]
 ```
 
-`query_safwa` и `call_subagent` выполняются немедленно. Mutation tools создают отдельные proposal
+`query_safwa` и `route` выполняются немедленно. Mutation tools создают отдельные proposal
 screens. Если provider смешал immediate tools и mutations в одном response, reads выполняются, а
 mutations получают retryable error и повторяются следующим response после появления read results.
 
-### Subagent run
+### Routed subagent
 
 ```mermaid
 flowchart LR
-    CALL["call_subagent(name, request)"] --> RUNNER["SubagentRunner: AgentRun + deadline"]
-    RUNNER --> MINI["run_mini_session: read tools + один terminal"]
-    MINI --> READ["read_day(date) + observe_stamp(stamp) + query_safwa над ai_diary/ai_card_events/ai_checks"]
-    MINI --> REPORT["diary_report: entry+date+remark+feeling_score, remove, answer или question"]
-    REPORT --> ANSWER["answer: цитаты [dd.mm.yyyy](diary:id) для advisor, без stamp"]
-    REPORT --> STAMP["DiaryStamp хранит дату, entry_id, action, body и score host-side"]
-    STAMP --> RESULT["Advisor получает только stamp, не текст и не цель"]
-    RESULT --> PROPOSE["propose_diary_update(stamp) восстанавливает change из stamp"]
-    PROPOSE --> SCREEN["Save/Discard screen → DiaryEntry (одна на дату)"]
-    SCREEN --> RECEIPT["Receipt: дата, score, длина и Draft: stamp — без текста дня"]
+    ROUTE["route(name)"] --> SESSION["Своя AgentRun-сессия: PERSONA + промпт сабагента,<br/>свой бюджет истории и planning state по объявлению"]
+    SESSION --> READ["read_day(date) + query_safwa над ai_diary/ai_card_events/ai_checks"]
+    SESSION --> PROSE["Проза: ответ или вопрос — прямо в чат, со своими цитатами"]
+    SESSION --> WRITE["diary(mode, date, pov, ai_comment, feeling_score)"]
+    WRITE --> PREPARE["prepare: create или update по ai_diary; delete проверяет, что день есть"]
+    PREPARE --> SCREEN["Save/Discard screen: pov + ai_comment → DiaryEntry (одна на дату)"]
+    SCREEN --> RESUME["Approve/Discard восстанавливают ту же сессию"]
+    SCREEN --> INTERRUPT["Слова поверх экрана: экран заморожен, сессия ждёт, слова к Advisor"]
+    RECEIPT["Receipt: дата, score и длина — без текста дня"]
+    SCREEN --> RECEIPT
 ```
 
 ## Telegram package
@@ -297,7 +300,7 @@ flowchart LR
 ```mermaid
 flowchart LR
     CALLS["Mutation tool calls"] --> MATERIALIZE["AIAdvisor._materialize"]
-    MATERIALIZE --> ROWS["ChangeProposal + ProposalChange + approval_batch"]
+    MATERIALIZE --> ROWS["ChangeProposal + ProposalChange + approval_batch + AgentRun.state_json"]
     ROWS --> UI["Один Save/Discard screen"]
     UI --> APPLY["ProposalService.apply"]
     APPLY --> DOMAIN["domain.py"]

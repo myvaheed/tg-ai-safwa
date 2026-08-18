@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .constants import REMINDER_CATCHUP_GRACE_MINUTES
+from .constants import REMINDER_CATCHUP_GRACE_MINUTES, SESSION_IDLE_DAYS
 from .domain import sync_diary_reminder
 from .enums import ProposalStatus
 from .models import (
@@ -14,7 +14,6 @@ from .models import (
     AgentStep,
     CallbackToken,
     ChangeProposal,
-    DiaryStamp,
     Reminder,
     UiSession,
     Workspace,
@@ -28,9 +27,11 @@ async def recover_startup(session: AsyncSession) -> None:
     await sync_diary_reminder(session)
     await reconcile_reminders(session, now=now)
     await session.execute(
-        update(AgentRun).where(AgentRun.status == "running").values(status="interrupted")
+        update(AgentRun)
+        .where(AgentRun.status == "running")
+        .values(status="interrupted", claimed_at=None)
     )
-    await _close_interrupted_approval_batches(session)
+    await _close_abandoned_sessions(session, now=now)
     await session.execute(
         update(ChangeProposal)
         .where(
@@ -42,7 +43,6 @@ async def recover_startup(session: AsyncSession) -> None:
     )
     await session.execute(delete(CallbackToken).where(CallbackToken.expires_at < now))
     await session.execute(delete(UiSession).where(UiSession.expires_at < now))
-    await session.execute(delete(DiaryStamp).where(DiaryStamp.expires_at < now))
 
 
 async def reconcile_reminders(session: AsyncSession, *, now: datetime) -> None:
@@ -73,24 +73,35 @@ async def reconcile_reminders(session: AsyncSession, *, now: datetime) -> None:
             )
 
 
-async def _close_interrupted_approval_batches(session: AsyncSession) -> None:
-    """Release approval batches whose model continuation never returned.
+async def _close_abandoned_sessions(session: AsyncSession, *, now: datetime) -> None:
+    """Close sessions still waiting on a screen the owner can no longer answer.
 
-    ``resolve_approval`` marks a batch ``resuming`` before calling the provider.  A crash in
-    between leaves it claiming the proposal forever, so every later Save or Discard is routed
-    into a continuation that cannot finish.  The queue was already fully resolved at that
-    point, so the batch is simply closed and the owner continues with a new message.
+    A session waits as long as its proposal is actionable, and a proposal expires within a
+    day, so anything untouched for two is waiting on nothing.  Its open batch is cancelled
+    with it, since that batch is what a stray press would otherwise still resolve into.
     """
+    cutoff = now - timedelta(days=SESSION_IDLE_DAYS)
+    abandoned = list(
+        await session.scalars(
+            select(AgentRun).where(
+                AgentRun.status == "awaiting_approval",
+                AgentRun.updated_at < cutoff,
+            )
+        )
+    )
+    for run in abandoned:
+        run.status = "abandoned"
+        run.claimed_at = None
+    if not abandoned:
+        return
     steps = list(
         await session.scalars(
             select(AgentStep).where(
                 AgentStep.kind == "approval_batch",
-                AgentStep.metadata_json["status"].as_string() == "resuming",
+                AgentStep.run_id.in_([run.id for run in abandoned]),
+                AgentStep.metadata_json["status"].as_string() == "pending",
             )
         )
     )
     for step in steps:
-        metadata = dict(step.metadata_json or {})
-        metadata["status"] = "completed"
-        metadata["continuation_error"] = "InterruptedAtStartup"
-        step.metadata_json = metadata
+        step.metadata_json = {**dict(step.metadata_json or {}), "status": "cancelled"}

@@ -310,8 +310,8 @@ async def render_proposal(
                     text_parts.append(html.escape(str(current.get("body") or "")))
                 else:
                     text_parts.append(html.escape(str(proposed.get("body") or "")))
-                    if proposed.get("remark"):
-                        text_parts.append(f"<i>{html.escape(str(proposed['remark']))}</i>")
+                    if proposed.get("ai_comment"):
+                        text_parts.append(f"<i>{html.escape(str(proposed['ai_comment']))}</i>")
             elif change.entity == "card":
                 display = await _proposal_card_display_state(session, proposed)
                 text_parts.append(card_overview_text(display, heading="Card overview"))

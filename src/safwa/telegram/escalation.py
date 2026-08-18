@@ -19,7 +19,7 @@ from sqlalchemy import func, select
 
 from ..ai.context import DialogueMessage
 from ..enums import MessageKind, ProposalStatus
-from ..models import AgentStep, ChangeProposal
+from ..models import AgentRun, AgentStep, ChangeProposal
 from ..scheduler import Firing
 from ._core import BACKGROUND_SOURCE_ID, Services
 from .proposals import render_ai_outcome
@@ -56,13 +56,17 @@ class ReminderRuntime:
             if pending:
                 return False
             # "Resolved completely" includes the model's continuation after the last queue
-            # item, which is what the `resuming` status marks.
+            # item: that runs with the batch already closed and the session claimed.
             suspended = await session.scalar(
                 select(func.count(AgentStep.id)).where(
                     AgentStep.kind == "approval_batch",
-                    AgentStep.metadata_json["status"].as_string().in_(["pending", "resuming"]),
+                    AgentStep.metadata_json["status"].as_string() == "pending",
                 )
             )
+            if not suspended:
+                suspended = await session.scalar(
+                    select(func.count(AgentRun.id)).where(AgentRun.claimed_at.is_not(None))
+                )
             if suspended:
                 return False
         if not self.services.guard.reserve_background():
