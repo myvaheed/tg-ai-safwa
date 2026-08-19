@@ -22,6 +22,8 @@ from ..domain import (
     DomainError,
     ReferenceSpec,
     diary_entry_for,
+    is_closed_repeat,
+    live_repeat_instance_id,
     pending_checks,
     resolve_references,
     utcnow,
@@ -53,6 +55,13 @@ ENTITY_MODELS: dict[str, Any] = {
     "reminder": Reminder,
     "diary": DiaryEntry,
 }
+
+
+async def _live_instance_hint(session: AsyncSession, entity: Card | Check) -> str:
+    live_id = await live_repeat_instance_id(session, entity)
+    if live_id is None:
+        return "The series has ended. Tell the owner instead of proposing again."
+    return f"Retry this call with #{live_id}, the open one in its series."
 
 
 def allows_parent(child_kind: str | None, parent_kind: str | None) -> bool:
@@ -117,6 +126,12 @@ class ChangePreparer:
                 f"{change.entity.title()} #{change.id} does not exist or is archived.",
                 "Find the current numeric ID with query_safwa and retry. If nothing matches, say so "
                 "instead of proposing again.",
+            )
+        if isinstance(entity, Card | Check) and is_closed_repeat(entity):
+            raise ToolPreparationError(
+                "closed_repeat",
+                f"{change.entity.title()} #{change.id} is a closed repeat and cannot be changed.",
+                await _live_instance_hint(session, entity),
             )
         values = dict(change.values)
         proposed_kind = (
@@ -196,6 +211,16 @@ class ChangePreparer:
                 f"{spec.label} '{resolved.ambiguous[0]}' matched more than one item.",
                 f"Use query_safwa to choose one {spec.label} and retry with its numeric ID.",
             )
+        if spec.model is not Check:
+            return
+        for check_id in sorted(resolved.ids):
+            check = await session.get(Check, check_id)
+            if check is not None and is_closed_repeat(check):
+                raise ToolPreparationError(
+                    "closed_repeat",
+                    f"Check #{check_id} is a closed repeat and cannot be linked.",
+                    await _live_instance_hint(session, check),
+                )
 
     async def _resolve_parent_reference(
         self,

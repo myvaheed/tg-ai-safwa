@@ -109,6 +109,11 @@ no underscore (the whole package is private behind `__init__.__all__`).
   copy per Check series (grouping matters — an in-cycle spawn leaves two rows of one series on the Card).
 - **Repeatable Actions**: `finish_action` → `_copy_repeat_successor` clones parent, text, priority,
   hard_time, blocked, effort, and all four link sets into a successor at the prior live stage.
+- **Closed repeats**: `is_closed_repeat` is a repeatable Card at a terminal stage or a repeatable
+  answered Check. `move_card` refuses to reopen one for anybody; `ChangePreparer.prepare` refuses every
+  proposal that targets one or names one in `check_ids`, and its hint carries
+  `live_repeat_instance_id` — the newest open row of the series, since only the newest can be open.
+  Manual field edits stay open, because the owner is looking at the row they picked.
 - **Sprints**: `start_sprint` (Planning only) needs Success criteria, snapshots every non-archived
   Action in Sprint/Today as `scope_kind="initial"` commitments, and schedules two one-shot Reminders
   at the start clock — the day before the end date and on it. Planned length is

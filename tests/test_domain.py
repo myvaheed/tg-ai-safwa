@@ -13,6 +13,7 @@ from safwa.domain import (
     effective_value_ids,
     finish_action,
     finish_sprint,
+    live_repeat_instance_id,
     move_card,
     set_card_parent,
     set_value_focus,
@@ -83,6 +84,36 @@ async def test_repeat_completion_clones_and_queues_feedback(sessions):
             select(FeedbackQueue).where(FeedbackQueue.card_id == card.id)
         )
         assert feedback is not None
+
+
+async def test_a_closed_repeat_cannot_be_reopened_and_points_at_the_open_one(sessions):
+    async with sessions() as session:
+        first = await create_card(session, title="Run", repeatable=True, stage="today")
+        result = await finish_action(session, first.id, CardStage.DONE)
+        second = await session.get(Card, result.successor_ids[0])
+        result = await finish_action(session, second.id, CardStage.DONE)
+        third = await session.get(Card, result.successor_ids[0])
+        await session.commit()
+
+        with pytest.raises(DomainError, match="closed repeating Action"):
+            await move_card(session, first.id, CardStage.TODAY)
+
+        # Across three generations the answer is the newest open row, not the direct
+        # successor: only the last one created can still be open.
+        assert await live_repeat_instance_id(session, first) == third.id
+        assert await live_repeat_instance_id(session, second) == third.id
+
+        # Cancelling continues the series too, so the answer follows to the new row.
+        result = await finish_action(session, third.id, CardStage.CANCELLED)
+        await session.commit()
+        assert await live_repeat_instance_id(session, first) == result.successor_ids[0]
+
+        # A non-repeating Card is not a series, so reopening it stays ordinary.
+        plain = await create_card(session, title="Once", stage="today")
+        await finish_action(session, plain.id, CardStage.DONE)
+        await move_card(session, plain.id, CardStage.TODAY)
+        await session.commit()
+        assert (await session.get(Card, plain.id)).effective_stage == CardStage.TODAY.value
 
 
 async def test_sprint_snapshots_and_carryover(sessions):

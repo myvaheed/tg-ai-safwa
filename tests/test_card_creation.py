@@ -4,10 +4,28 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import DateTime, func, select
 
-from safwa.ai.contracts import CardToolInput
-from safwa.domain import DomainError, create_card, update_card_fields
-from safwa.enums import CardKind, CardStage, Priority
-from safwa.models import Card, CardCategory, CardEnergyType, SavedRequest, Sprint, Tag, Value
+from safwa.ai.contracts import CardToolInput, mutation_change_from_tool
+from safwa.ai.prepare import ChangePreparer, ToolPreparationError
+from safwa.domain import (
+    DomainError,
+    create_card,
+    create_check,
+    finish_action,
+    live_repeat_instance_id,
+    toggle_card_check,
+    update_card_fields,
+)
+from safwa.enums import CardKind, CardStage, CheckOutcome, Priority
+from safwa.models import (
+    Card,
+    CardCategory,
+    CardEnergyType,
+    Check,
+    SavedRequest,
+    Sprint,
+    Tag,
+    Value,
+)
 
 
 @pytest.mark.parametrize("stage", ["done", "cancelled"])
@@ -127,3 +145,44 @@ async def test_user_items_have_typed_timestamps(sessions):
 
         assert card.created_at is not None
         assert card.updated_at is not None
+
+
+async def test_no_proposal_may_touch_a_closed_repeat(sessions):
+    """The proposal path is the only one that guesses which instance it meant."""
+    async with sessions() as session:
+        card = await create_card(
+            session, kind="action", title="Run", stage="today", effort_points=3, repeatable=True
+        )
+        check = await create_check(session, title="Posture straight?", repeatable=True)
+        await toggle_card_check(session, card.id, check.id)
+        result = await finish_action(
+            session, card.id, CardStage.DONE, check_outcomes={check.id: CheckOutcome.PASSED}
+        )
+        await session.commit()
+        live_card_id = result.successor_ids[0]
+        live_check_id = await live_repeat_instance_id(session, check)
+        assert live_check_id is not None
+
+    refusals = [
+        ("card", {"mode": "update", "id": card.id, "title": "Run far"}, live_card_id),
+        ("card", {"mode": "move", "id": card.id, "stage": "today"}, live_card_id),
+        ("remove", {"mode": "archive", "entity": "card", "id": card.id}, live_card_id),
+        ("check", {"mode": "update", "id": check.id, "title": "Posture?"}, live_check_id),
+        # Targeting the live Card does not excuse linking the dead Check onto it.
+        ("card", {"mode": "link", "id": live_card_id, "check_ids": [check.id]}, live_check_id),
+    ]
+    for tool, arguments, live_id in refusals:
+        change = mutation_change_from_tool(tool, arguments)
+        async with sessions() as session:
+            with pytest.raises(ToolPreparationError) as refused:
+                await ChangePreparer(None, None).prepare(session, change)  # type: ignore[arg-type]
+        assert refused.value.code == "closed_repeat", arguments
+        assert f"#{live_id}" in refused.value.hint, arguments
+
+    async with sessions() as session:
+        change = mutation_change_from_tool(
+            "card", {"mode": "update", "id": live_card_id, "check_ids": [live_check_id]}
+        )
+        prepared = await ChangePreparer(None, None).prepare(session, change)  # type: ignore[arg-type]
+        assert prepared.values["check_ids"] == [live_check_id]
+        assert await session.get(Check, live_check_id) is not None

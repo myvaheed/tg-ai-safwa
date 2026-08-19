@@ -1391,6 +1391,45 @@ async def _sync_commitment_for_stage(
         commitment.removed_at = None
 
 
+def is_closed_repeat(entity: Card | Check) -> bool:
+    """A repeat instance that already ended, so its series continues on a newer row.
+
+    Editing one is almost always aimed at the live instance instead, and the edit
+    would not reach it: the successor was copied at close time.
+    """
+    if isinstance(entity, Check):
+        return entity.repeatable and entity.outcome is not None
+    return entity.repeatable and CardStage(entity.effective_stage) in TERMINAL_STAGES
+
+
+async def live_repeat_instance_id(session: AsyncSession, entity: Card | Check) -> int | None:
+    """The one open row of a repeat series, or None when the series has ended.
+
+    Only the newest instance can be open, because closing one is what creates the next.
+    """
+    if isinstance(entity, Check):
+        statement = (
+            select(Check.id)
+            .where(
+                Check.series_id == (entity.series_id or entity.id),
+                Check.outcome.is_(None),
+                Check.archived_at.is_(None),
+            )
+            .order_by(Check.id.desc())
+        )
+    else:
+        statement = (
+            select(Card.id)
+            .where(
+                Card.repeat_series_id == (entity.repeat_series_id or entity.id),
+                Card.effective_stage.notin_([stage.value for stage in TERMINAL_STAGES]),
+                Card.archived_at.is_(None),
+            )
+            .order_by(Card.id.desc())
+        )
+    return await session.scalar(statement.limit(1))
+
+
 async def move_card(
     session: AsyncSession,
     card_id: int,
@@ -1401,6 +1440,11 @@ async def move_card(
     card = await session.get(Card, card_id)
     if card is None or card.archived_at is not None:
         raise DomainError("Card does not exist")
+    if is_closed_repeat(card):
+        # Reopening it would run two instances of one series at once.  Only the
+        # explicitly targeted Card is guarded: a Goal reopened above such an Action
+        # still cascades, because that is a different act with its own accounting.
+        raise DomainError("A closed repeating Action cannot be reopened")
     if stage in TERMINAL_STAGES and card.kind == CardKind.ACTION.value:
         # finish_action owns completion timestamps, feedback, Sprint results and
         # repeat successors.  Moving an Action to a terminal stage here would set

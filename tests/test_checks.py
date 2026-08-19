@@ -11,6 +11,8 @@ from safwa.domain import (
     create_check,
     delete_subtree,
     finish_action,
+    is_closed_repeat,
+    live_repeat_instance_id,
     pending_checks,
     resolve_check,
     toggle_card_check,
@@ -128,6 +130,28 @@ async def test_repeatable_check_spawns_one_successor_and_re_answer_does_not(sess
         assert refreshed.outcome == CheckOutcome.PASSED.value
         assert refreshed.resolved_at == first_resolved_at
         assert len(await pending_checks(session, card.id)) == 1
+
+
+async def test_a_resolved_repeatable_check_names_the_newest_open_one(sessions):
+    async with sessions() as session:
+        card = await create_action(session, title="Posture")
+        first = await linked_check(session, card.id, title="Posture straight?", repeatable=True)
+        await session.commit()
+
+        _, second = await resolve_check(session, first.id, CheckOutcome.PASSED)
+        _, third = await resolve_check(session, second.id, CheckOutcome.MISSED)
+        await session.commit()
+
+        assert is_closed_repeat(first) is True
+        assert is_closed_repeat(third) is False
+        assert await live_repeat_instance_id(session, first) == third.id
+        assert await live_repeat_instance_id(session, second) == third.id
+
+        # A one-off Check is not a series, so nothing about it is closed-repeat.
+        once = await linked_check(session, card.id, title="Buy milk")
+        await resolve_check(session, once.id, CheckOutcome.PASSED)
+        await session.commit()
+        assert is_closed_repeat(once) is False
 
 
 async def test_only_one_pending_check_per_series(sessions):

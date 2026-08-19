@@ -109,6 +109,18 @@ resolving through the gate cannot put a new Pending row on the Card it just unbl
 `_spawn_check_successor` independently refuses to spawn onto a terminal or archived Card. A Check only
 spawns on its Pending → resolved transition, so an already-answered row cannot spawn later.
 
+### The closed instance is off-limits to the model
+
+An answered repeatable Check is a spent instance: its series lives on the newer row, and an edit to
+the closed one never reaches it. `ChangePreparer.prepare` therefore refuses every proposal that
+targets one or names one in a Card's `check_ids`, with `live_repeat_instance_id` in the hint so the
+retry lands on the open row. Only the newest instance can be open, so that lookup is one query.
+
+The owner keeps the manual screen: they navigated to the row they are editing, and correcting a past
+answer is what `resolved_at` already accounts for. The same rule covers repeatable Cards, where it
+additionally forbids reopening a closed one from either side — two live instances of one series is
+what the series exists to prevent.
+
 ## Done-gate
 
 `finish_action` raises `DomainError` when the Card has Pending Checks and `terminal_stage` is Done.
