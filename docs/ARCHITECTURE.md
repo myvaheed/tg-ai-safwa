@@ -114,6 +114,10 @@ no underscore (the whole package is private behind `__init__.__all__`).
   proposal that targets one or names one in `check_ids`, and its hint carries
   `live_repeat_instance_id` — the newest open row of the series, since only the newest can be open.
   Manual field edits stay open, because the owner is looking at the row they picked.
+  `repeat_marker` names one ` [🔄3]` by its place in the series, and `ai_cards`/`ai_checks`
+  render the same marker in SQL (`REPEAT_MARKER`, one wording for both readers). Nothing is stored
+  renamed: the title stays what the owner typed, and the Card and Check screens link the closed row
+  to the live one instead.
 - **Sprints**: `start_sprint` (Planning only) needs Success criteria, snapshots every non-archived
   Action in Sprint/Today as `scope_kind="initial"` commitments, and schedules two one-shot Reminders
   at the start clock — the day before the end date and on it. Planned length is
@@ -203,11 +207,13 @@ message, which misfires on short notes.
 Path: ordinary text → `dialogue.ordinary_text` → `guard.acquire` → `history.dialogue()` →
 `AIAdvisor.handle` → agent loop → proposals or a final message.
 
-- The Advisor's tools are `query_safwa(sql)` and `route(name)`, both immediate
+- The Advisor's tools are `query_safwa(sql)`, `open(item_type, id)` and `route(name)`, all immediate
   (`IMMEDIATE_TOOLS`, [ai/service.py](../src/safwa/ai/service.py)). It has **no mutation tool at
   all**: every one belongs to the subagent that owns that feature, so a change it describes instead
   of routing is a change that never happens. `route` is offered only when a roster is wired.
-- Offering an item is not a tool. The model cites it in its own prose as `[Milk](check:14)`. The six
+- Offering an item is not a tool. The model cites it in its own prose as `[Milk](check:14)`.
+  `open` is the one exception: it shows exactly the item the owner asked to see, as the same screen
+  the citation link opens. The six
   openable types are Card, Check, Tag, Value, Saved Request and Diary day; `render_citations`
   ([telegram/screens.py](../src/safwa/telegram/screens.py)) rewrites each citation of the escaped
   reply into `<a href="https://t.me/<bot>?start=check-14">`. The href is built from a validated id and

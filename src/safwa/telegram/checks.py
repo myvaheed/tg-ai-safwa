@@ -8,7 +8,14 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import delete, select
 
 from ..constants import CHECK_LIST_LIMIT
-from ..domain import DomainError, card_checks, check_card_ids, pending_checks
+from ..domain import (
+    DomainError,
+    card_checks,
+    check_card_ids,
+    is_closed_repeat,
+    live_repeat_instance_id,
+    pending_checks,
+)
 from ..enums import CHECK_OUTCOME_LABELS, CheckOutcome, MessageKind
 from ..models import Card, Check, UiSession
 from ._core import Services
@@ -153,6 +160,22 @@ async def render_check(
                 for outcome in SETTABLE_OUTCOMES
             ],
         ]
+        live_id = (
+            await live_repeat_instance_id(session, check) if is_closed_repeat(check) else None
+        )
+        live_check = await session.get(Check, live_id) if live_id is not None else None
+        if live_check is not None:
+            rows.append(
+                [
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        f"🔄 Current: {live_check.title}"[:60],
+                        "check_view",
+                        {"id": live_check.id, "card_id": card_id, "back": back},
+                    )
+                ]
+            )
         rows.append(
             [
                 await token_button(

@@ -272,7 +272,7 @@ async def test_the_board_owns_every_mutation_tool(e2e_harness):
     assert outcome.kind == "proposal"
     # The Advisor has no way to describe a change instead of routing it: it has no tool.
     advisor_tools = {tool["function"]["name"] for tool in provider.options[0]["tools"]}
-    assert advisor_tools == {"query_safwa", "route"}
+    assert advisor_tools == {"query_safwa", "open", "route"}
     board_tools = {tool["function"]["name"] for tool in provider.options[1]["tools"]}
     assert board_tools == {
         "query_safwa",

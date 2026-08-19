@@ -35,9 +35,8 @@ propose against them.
 A Check is a state observation ("did this hold?"), never work: a title and `repeatable`, no effort, never in a Sprint. A Card with Pending Checks cannot complete.
 
 # Repeats
-A closed `repeatable` Card or Check was already copied to a new open row, and no tool may touch the closed one — not even to reopen or link it.
-- Cards: use the one whose `stage` is not `done` or `cancelled`.
-- Checks: use the one whose `status` is `pending` in the same `series_id`.
+A title ending in ` [🔄id]` is a closed repeat: it was already copied to a new open row, and no tool may touch it — not even to reopen or link it.
+- Use the one whose title carries no marker: `stage` not `done` or `cancelled` for a Card, `status` `pending` in the same `series_id` for a Check.
 
 # Reminders
 Pass the user's own words through in `when` and never invent a date or an hour.

@@ -116,8 +116,14 @@ the closed one never reaches it. `ChangePreparer.prepare` therefore refuses ever
 targets one or names one in a Card's `check_ids`, with `live_repeat_instance_id` in the hint so the
 retry lands on the open row. Only the newest instance can be open, so that lookup is one query.
 
+The model is told which row is spent before it proposes anything: `ai_checks.title` (and `ai_cards.title`)
+names a closed instance ` Posture straight? [🔄1]`, numbered by its place in the series. The marker is
+rendered, never stored — the owner's title is untouched, and `render_citations` puts the same marker on
+a citation link so a closed instance cannot pass for the open one in the chat either.
+
 The owner keeps the manual screen: they navigated to the row they are editing, and correcting a past
-answer is what `resolved_at` already accounts for. The same rule covers repeatable Cards, where it
+answer is what `resolved_at` already accounts for. A closed screen carries a `🔄 Current` button to the
+live instance when the series still has one. The same rule covers repeatable Cards, where it
 additionally forbids reopening a closed one from either side — two live instances of one series is
 what the series exists to prevent.
 

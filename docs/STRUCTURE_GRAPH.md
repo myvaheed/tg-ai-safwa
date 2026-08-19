@@ -189,7 +189,7 @@ flowchart LR
     CLOCK --> PROVIDER["Provider turn"]
 ```
 
-`query_safwa` и `route` выполняются немедленно. Mutation tools создают отдельные proposal
+`query_safwa`, `open` и `route` выполняются немедленно. Mutation tools создают отдельные proposal
 screens. Если provider смешал immediate tools и mutations в одном response, reads выполняются, а
 mutations получают retryable error и повторяются следующим response после появления read results.
 

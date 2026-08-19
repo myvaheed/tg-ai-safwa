@@ -14,7 +14,14 @@ from ..constants import (
     DEFAULT_COLUMN_LIMIT,
     DEFAULT_ROW_LIMIT,
     QUERY_TIMEOUT_SECONDS,
+    REPEAT_MARKER,
 )
+from ..enums import TERMINAL_STAGES
+
+# The marker `domain.repeat_marker` renders, as a SQLite format string: one wording, so a
+# closed repeat reads the same whether the model queried it or the owner tapped a citation.
+_MARKER_FORMAT = REPEAT_MARKER.replace("{index}", "%d")
+_TERMINAL_STAGE_SQL = ", ".join(f"'{stage.value}'" for stage in TERMINAL_STAGES)
 
 
 class UnsafeQueryError(ValueError):
@@ -109,8 +116,14 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
         FROM "values" WHERE archived_at IS NULL"""
     )
     connection.exec_driver_sql(
-        """CREATE VIEW IF NOT EXISTS ai_cards AS
-        SELECT c.id, c.title, c.note, c.kind, c.effective_stage AS stage, c.priority,
+        f"""CREATE VIEW IF NOT EXISTS ai_cards AS
+        SELECT c.id,
+               CASE WHEN c.repeatable AND c.effective_stage IN ({_TERMINAL_STAGE_SQL})
+                    THEN c.title || printf('{_MARKER_FORMAT}',
+                         (SELECT count(*) FROM cards p
+                          WHERE p.repeat_series_id = c.repeat_series_id AND p.id <= c.id))
+                    ELSE c.title END AS title,
+               c.note, c.kind, c.effective_stage AS stage, c.priority,
                c.hard_time, c.blocked, c.blocked_description,
                c.effort_points, c.repeatable, c.parent_id,
                (SELECT group_concat(cc.category, ',') FROM card_categories cc
@@ -135,8 +148,14 @@ def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
     # `status` exposes the derived Pending state so a query never has to know that
     # Pending is stored as a null outcome.
     connection.exec_driver_sql(
-        """CREATE VIEW IF NOT EXISTS ai_checks AS
-        SELECT k.id, k.title, k.repeatable,
+        f"""CREATE VIEW IF NOT EXISTS ai_checks AS
+        SELECT k.id,
+               CASE WHEN k.repeatable AND k.outcome IS NOT NULL
+                    THEN k.title || printf('{_MARKER_FORMAT}',
+                         (SELECT count(*) FROM checks p
+                          WHERE p.series_id = k.series_id AND p.id <= k.id))
+                    ELSE k.title END AS title,
+               k.repeatable,
                COALESCE(k.outcome, 'pending') AS status,
                k.resolved_at, k.series_id,
                (SELECT group_concat(cc.card_id, ',') FROM card_checks cc

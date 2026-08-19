@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .constants import (
     EFFORT_POINTS,
     FEELING_SCORE_EMOJI,
+    REPEAT_MARKER,
     SPRINT_LENGTH_DAYS,
     SPRINT_LENGTH_MAX_DAYS,
     SPRINT_LENGTH_MIN_DAYS,
@@ -1400,6 +1401,33 @@ def is_closed_repeat(entity: Card | Check) -> bool:
     if isinstance(entity, Check):
         return entity.repeatable and entity.outcome is not None
     return entity.repeatable and CardStage(entity.effective_stage) in TERMINAL_STAGES
+
+
+async def repeat_marker(session: AsyncSession, entity: Card | Check) -> str:
+    """`` [🔄3]`` for a closed repeat instance, empty for anything else.
+
+    The number is the instance's place in its series, counted over every row the series
+    has ever had: archiving one must not renumber the others.  Nothing is stored renamed —
+    `ai_cards` and `ai_checks` render the same marker in SQL.
+    """
+    if not is_closed_repeat(entity):
+        return ""
+    if isinstance(entity, Check):
+        statement = (
+            select(func.count())
+            .select_from(Check)
+            .where(Check.series_id == (entity.series_id or entity.id), Check.id <= entity.id)
+        )
+    else:
+        statement = (
+            select(func.count())
+            .select_from(Card)
+            .where(
+                Card.repeat_series_id == (entity.repeat_series_id or entity.id),
+                Card.id <= entity.id,
+            )
+        )
+    return REPEAT_MARKER.format(index=await session.scalar(statement))
 
 
 async def live_repeat_instance_id(session: AsyncSession, entity: Card | Check) -> int | None:

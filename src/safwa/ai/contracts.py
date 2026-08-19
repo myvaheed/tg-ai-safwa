@@ -449,6 +449,15 @@ class RouteInput(ToolInput):
     name: str = Field(description="The subagent to hand the turn to, spelled as listed.")
 
 
+class OpenInput(ToolInput):
+    """The one item to put on the screen."""
+
+    item_type: Literal["card", "check", "tag", "value", "request", "diary"] = Field(
+        description="What kind of item it is."
+    )
+    id: int = Field(description="Its numeric id.")
+
+
 class DiaryToolInput(ToolInput):
     """One day of the Diary: written in the user's voice, or removed."""
 

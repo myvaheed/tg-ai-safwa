@@ -1083,6 +1083,43 @@ async def test_card_text_field_prompt_replaces_creation_message(sessions) -> Non
         assert (await session.scalar(select(UiSession))).kind == "text_input"
 
 
+async def test_a_closed_card_shows_when_it_closed_and_where_its_series_went(sessions) -> None:
+    async with sessions() as session:
+        card = await create_card(
+            session, kind="action", title="Run", stage="today", effort_points=1, repeatable=True
+        )
+        result = await finish_action(session, card.id, CardStage.DONE)
+        await session.commit()
+        card_id, live_id = card.id, result.successor_ids[0]
+
+    services = services_for(sessions)
+    message = FakeMessage(48, bot_message=True)
+    await render_card(message, services, card_id)
+
+    text, markup = message.edits[-1]
+    # The title is what the owner typed: the marker belongs to what the model reads.
+    assert "Title: <b>Run</b>" in text
+    assert "Completed at: " in text
+    current = next(button for button in button_texts(markup) if button.startswith("🔄 Current"))
+    assert current == "🔄 Current: Run"
+
+    await callback_token_handler(
+        FakeCallback(
+            next(
+                button
+                for row in markup.inline_keyboard
+                for button in row
+                if button.text == current
+            ).callback_data.split(":", 1)[1],
+            message,
+        ),
+        services,
+    )
+    assert "Stage: Today" in message.edits[-1][0]
+    async with sessions() as session:
+        assert (await session.scalar(select(UiSession))).state["card_id"] == live_id
+
+
 async def test_card_text_and_blocked_reason_stay_on_one_validated_editor(sessions) -> None:
     async with sessions() as session:
         card = await create_card(session, kind="idea", title="Original")

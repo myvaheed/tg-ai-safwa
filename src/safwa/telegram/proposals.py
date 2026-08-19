@@ -45,7 +45,7 @@ from ._presentation import (
     markdown_to_telegram_html,
     proposal_change_summary,
 )
-from .screens import render_citations
+from .screens import open_citation, render_citations
 
 logger = logging.getLogger(__name__)
 
@@ -394,6 +394,8 @@ async def render_ai_outcome(
         text,
         kind=kind,
     )
+    if outcome.open_item:
+        await open_citation(message, services, outcome.open_item)
 
 
 async def continue_agent_approval(

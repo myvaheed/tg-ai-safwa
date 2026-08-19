@@ -19,6 +19,9 @@ EFFORT_POINTS = {1, 2, 3, 5, 8, 13}
 SPRINT_LENGTH_DAYS = 14
 SPRINT_LENGTH_MIN_DAYS = 2
 SPRINT_LENGTH_MAX_DAYS = 60
+# How a closed instance of a repeat series is named wherever its title is read: the model
+# sees it in `ai_cards`/`ai_checks`, the owner sees it in a citation link. 
+REPEAT_MARKER = " [🔄{index}]"
 # Weekday tokens as stored in `reminders.weekdays`, indexed by `date.weekday()`.
 # Mirrored by the Literal in ai/contracts.py.
 WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")

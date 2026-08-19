@@ -5,6 +5,7 @@ import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import delete, func, select
@@ -15,6 +16,8 @@ from ..domain import (
     DomainError,
     ReferenceSpec,
     card_progress,
+    is_closed_repeat,
+    live_repeat_instance_id,
     validate_action_fields,
     validate_blocked_fields,
 )
@@ -37,6 +40,7 @@ from ..models import (
     Tag,
     UiSession,
     Value,
+    Workspace,
 )
 from ._core import (
     CARD_CHOICE_FIELDS,
@@ -761,6 +765,23 @@ async def render_card(
                     )
                 ]
             )
+        live_id = await live_repeat_instance_id(session, card) if is_closed_repeat(card) else None
+        live_card = await session.get(Card, live_id) if live_id is not None else None
+        if live_card is not None:
+            relationship_rows.append(
+                [
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        f"🔄 Current: {live_card.title}"[:60],
+                        "card_view",
+                        {
+                            "id": live_card.id,
+                            "back": {"kind": "card", "id": card.id, "back": back},
+                        },
+                    )
+                ]
+            )
         if card.kind in {CardKind.GOAL.value, CardKind.IDEA.value}:
             relationship_rows.append(
                 [
@@ -865,6 +886,13 @@ async def render_card(
             if card.kind in {CardKind.GOAL.value, CardKind.IDEA.value}
             else {}
         )
+        workspace = await session.get(Workspace, 1)
+        tz = ZoneInfo(workspace.timezone if workspace else "UTC")
+        closed_at = (
+            card.cancelled_at
+            if card.effective_stage == CardStage.CANCELLED.value
+            else card.completed_at
+        )
         await session.commit()
     text = with_notice(
         card_overview_text(
@@ -873,6 +901,7 @@ async def render_card(
                 "title": card.title,
                 "parent_name": parent.title if parent else None,
                 "stage": card.effective_stage,
+                "closed_at": f"{closed_at.astimezone(tz):%Y-%m-%d %H:%M}" if closed_at else None,
                 "note": card.note,
                 "priority": card.priority,
                 "hard_time": card.hard_time,

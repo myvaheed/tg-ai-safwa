@@ -9,7 +9,7 @@ from aiogram.types import InlineKeyboardButton, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..domain import DomainError, card_progress
+from ..domain import DomainError, card_progress, repeat_marker
 from ..enums import CardKind, MessageKind
 from ..history import (
     CITATION_MARKUP,
@@ -67,7 +67,8 @@ def _with_citation_fields(leading: str, fields: list[str]) -> str:
 
 
 async def _card_citation_label(session: AsyncSession, card: Card) -> str:
-    leading = f"{kind_emoji(card.kind)} {_short_citation_title(card.title)}"
+    marker = await repeat_marker(session, card)
+    leading = f"{kind_emoji(card.kind)} {_short_citation_title(card.title)}{marker}"
     if card.kind in {CardKind.GOAL.value, CardKind.IDEA.value}:
         progress = await card_progress(session, card.id)
         return _with_citation_fields(
@@ -98,10 +99,22 @@ async def _card_citation_label(session: AsyncSession, card: Card) -> str:
     return _with_citation_fields(leading, fields)
 
 
+async def _check_citation_label(session: AsyncSession, check: Check) -> str | None:
+    """A live Check keeps the model's own words.
+
+    A closed repeat has to carry its marker, or the link looks exactly like the open one it
+    was superseded by.
+    """
+    marker = await repeat_marker(session, check)
+    return f"{_short_citation_title(check.title)}{marker}" if marker else None
+
+
 async def _citation_label(session: AsyncSession, item_type: str, item: Any) -> str | None:
     """Build the fixed, compact label for item types that own their presentation."""
     if item_type == "card":
         return await _card_citation_label(session, item)
+    if item_type == "check":
+        return await _check_citation_label(session, item)
     if item_type == "tag":
         return f"🏷 {_short_citation_title(item.name)}"
     if item_type == "value":

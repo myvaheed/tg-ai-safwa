@@ -74,7 +74,7 @@ from ..enums import (
     Priority,
     ProposalStatus,
 )
-from ..history import conversation_block
+from ..history import citation_payload, conversation_block
 from ..memory import MemoryFileStore
 from ..models import (
     AgentRun,
@@ -102,6 +102,7 @@ from .context import SYSTEM_PROMPT, DialogueMessage, planning_context
 from .contracts import (
     MUTATION_TOOL_MODELS,
     AgentChange,
+    OpenInput,
     QueryToolInput,
     RouteInput,
     mutation_change_from_tool,
@@ -147,6 +148,18 @@ MUTATION_TOOL_DESCRIPTIONS = {
     "remove": "Archive or delete one item of any kind. No other tool removes anything.",
     "diary": "Propose one day of the Diary, written in the user's voice, or remove it.",
 }
+OPEN_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "open",
+        "description": (
+            "Put one item on the screen, exactly as the user opening it by hand. Call it only "
+            "when the user asked to see or open one single item. Otherwise cite the item in "
+            "your answer instead."
+        ),
+        "parameters": tool_json_schema(OpenInput),
+    },
+}
 ROUTE_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -172,9 +185,9 @@ MUTATION_TOOLS: dict[str, dict[str, Any]] = {
 }
 # The Advisor reads and routes. Every mutation tool belongs to the subagent that owns that
 # feature, so judging *which* change to propose happens where the change is authored.
-SAFWA_TOOLS = (QUERY_SAFWA_TOOL,)
+SAFWA_TOOLS = (QUERY_SAFWA_TOOL, OPEN_TOOL)
 # Tools that run during the turn instead of becoming a proposal the owner approves.
-IMMEDIATE_TOOLS = frozenset({"query_safwa", "route"})
+IMMEDIATE_TOOLS = frozenset({"query_safwa", "route", "open"})
 
 
 def query_read_tool(query_runner: ReadOnlyQueryRunner) -> ReadToolSpec:
@@ -308,6 +321,9 @@ class AIOutcome:
     message: str
     proposal_id: int | None = None
     did: list[str] = field(default_factory=list)
+    # The item `open` resolved, as a deep-link payload: the chat shows its screen after
+    # the answer.
+    open_item: str | None = None
 
 
 @dataclass(frozen=True)
@@ -349,6 +365,8 @@ class AgentSession:
     awaiting_route: dict[str, Any] | None = None
     # What this turn had already saved when the caller routed here.
     prior_receipts: list[str] = field(default_factory=list)
+    # The item `open` resolved, kept until the session answers the owner.
+    open_item: str | None = None
 
     @property
     def immediate(self) -> frozenset[str]:
@@ -376,6 +394,7 @@ class AgentSession:
             "display_result_summaries": self.display_result_summaries,
             "awaiting_route": self.awaiting_route,
             "prior_receipts": self.prior_receipts,
+            "open_item": self.open_item,
         }
 
     @classmethod
@@ -405,6 +424,7 @@ class AgentSession:
             parent_run_id=run.parent_run_id,
             awaiting_route=state.get("awaiting_route") or None,
             prior_receipts=list(state.get("prior_receipts") or []),
+            open_item=state.get("open_item") or None,
         )
         return session, [dict(item) for item in state.get("transcript") or []]
 
@@ -1019,6 +1039,7 @@ class AIAdvisor:
         return AIOutcome(
             "answer",
             composed or "⚠️ Safwa had nothing to say about that. You can ask again.",
+            open_item=agent.open_item,
         )
 
     async def _suspend_for_child(self, agent: AgentSession) -> None:
@@ -1413,6 +1434,8 @@ class AIAdvisor:
                             return AgentLoopResult(message="", suspended=suspended)
                     elif call.name == "query_safwa":
                         result = await self._execute_query_tool(agent, call)
+                    elif call.name == "open":
+                        result = await self._execute_open_tool(agent, call)
                     elif call.name in agent.read_specs:
                         result = await self._execute_read_tool(agent, call)
                     elif has_reads and has_mutations:
@@ -1654,6 +1677,43 @@ class AIAdvisor:
             )
             await session.commit()
         return rows
+
+    async def _execute_open_tool(
+        self, agent: AgentSession, call: ProviderToolCall
+    ) -> dict[str, Any]:
+        """Resolve the item to show and hand it to the session that writes to the chat."""
+        try:
+            request = OpenInput.model_validate(json.loads(call.arguments or "{}"))
+        except (ValidationError, json.JSONDecodeError, TypeError, ValueError) as error:
+            return {
+                "status": "error",
+                "code": "invalid_arguments",
+                "error": (
+                    _validation_error_summary(error)
+                    if isinstance(error, ValidationError)
+                    else str(error)
+                ),
+                "hint": 'Send {"item_type": "card", "id": 12}.',
+                "retryable": True,
+            }
+        async with self.sessions() as session:
+            item = await session.get(ENTITY_MODELS[request.item_type], request.id)
+            if item is None or getattr(item, "archived_at", None) is not None:
+                return {
+                    "status": "error",
+                    "code": "not_found",
+                    "error": f"There is no {request.item_type} #{request.id}.",
+                    "hint": "Find the id with query_safwa, then call open again.",
+                    "retryable": True,
+                }
+            item_id = item.id
+        agent.open_item = citation_payload(request.item_type, item_id)
+        logger.info("AI TOOL open -> %s", agent.open_item)
+        return {
+            "status": "ok",
+            "opened": {"item_type": request.item_type, "id": item_id},
+            "next": "The screen follows your message. Answer in one short line.",
+        }
 
     async def _execute_mutation_tool(
         self, agent: AgentSession, call: ProviderToolCall

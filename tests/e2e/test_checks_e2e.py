@@ -8,11 +8,14 @@ from sqlalchemy import select
 
 from safwa.ai.context import DialogueMessage
 from safwa.ai.provider import ProviderToolCall, ProviderTurn
+from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.domain import (
     check_card_ids,
     create_card,
     create_check,
+    finish_action,
     pending_checks,
+    resolve_check,
     toggle_card_check,
 )
 from safwa.enums import CardStage, CheckOutcome, MessageKind
@@ -257,6 +260,59 @@ async def test_a_cited_item_opens_its_manual_screen(e2e_harness):
         assert answered.outcome == CheckOutcome.PASSED.value
         assert answered.resolved_by == "user_ui"
         assert [item.id for item in await pending_checks(session, card_id)] == [check_ids[1]]
+
+
+async def test_a_closed_repeat_is_marked_everywhere_it_is_read(e2e_harness):
+    async with e2e_harness.sessions() as session:
+        card = await create_card(session, title="Posture", kind="action", effort_points=1)
+        first = await create_check(session, title="Posture straight?", repeatable=True)
+        await toggle_card_check(session, card.id, first.id)
+        await session.commit()
+        _, second = await resolve_check(session, first.id, CheckOutcome.PASSED)
+        run = await create_card(
+            session, title="Run", kind="action", stage="today", effort_points=1, repeatable=True
+        )
+        closed_run = await finish_action(session, run.id, CardStage.DONE)
+        await session.commit()
+        first_id, second_id = first.id, second.id
+        run_id, live_run_id = run.id, closed_run.successor_ids[0]
+
+    # The model reads the marker: a closed instance names itself, the open one does not.
+    runner = ReadOnlyQueryRunner(e2e_harness.database_path)
+    titles = {
+        row["id"]: row["title"]
+        for row in (await runner.run("SELECT id, title FROM ai_checks")).rows
+    }
+    assert titles[first_id] == "Posture straight? [🔄1]"
+    assert titles[second_id] == "Posture straight?"
+    cards = {
+        row["id"]: row["title"]
+        for row in (await runner.run("SELECT id, title FROM ai_cards")).rows
+    }
+    assert cards[run_id] == "Run [🔄1]"
+    assert cards[live_run_id] == "Run"
+
+    # `open` shows exactly the id it was given: the marker is what says which one that is.
+    advisor, _provider = e2e_harness.advisor(
+        [mutation_turn(("open", {"item_type": "check", "id": first_id})), "Here it is."]
+    )
+    outcome = await advisor.handle("Show me the Check I already answered")
+    assert outcome.open_item == f"check-{first_id}"
+
+    message = _TestMessage()
+    services = _services(e2e_harness, advisor)
+    await render_ai_outcome(message, services, outcome)
+    assert "<b>Check</b>: Posture straight?" in message.sent[-1]
+    # The closed screen offers the live instance the series moved to.
+    await _claim(e2e_harness, "check_view", message, services, id=second_id)
+    assert "Status: ⬜ Pending" in message.rendered[-1]
+
+    # A citation of the closed instance carries the marker too, so the link cannot pass for
+    # the open one.
+    advisor, _provider = e2e_harness.advisor([f"Yesterday's [x](check:{first_id}) passed."])
+    cited = await advisor.handle("How did it go yesterday?")
+    await render_ai_outcome(message, _services(e2e_harness, advisor), cited)
+    assert f'?start=check-{first_id}">Posture straight? [🔄1]</a>' in message.rendered[-1]
 
 
 async def test_citations_link_live_items_and_drop_missing_ones(e2e_harness):

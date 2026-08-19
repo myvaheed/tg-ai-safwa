@@ -1326,9 +1326,10 @@ async def test_advisor_sends_layered_system_blocks_and_canonical_dialogue(e2e_ha
     assert "Recent cards" not in system
     assert "Lexical card candidates" not in system
     tools = provider.options[0]["tools"]
-    # The Advisor reads and routes; every mutation tool belongs to the subagent that owns it.
+    # The Advisor reads, shows and routes; every mutation tool belongs to the subagent that owns it.
     assert isinstance(tools, list) and [tool["function"]["name"] for tool in tools] == [
         "query_safwa",
+        "open",
         "route",
     ]
 

@@ -17,7 +17,7 @@ from ..constants import (
     PROPOSAL_OUTCOME_DETAIL_LIMIT,
     TELEGRAM_TEXT_LIMIT,
 )
-from ..enums import CardKind, Category, EnergyType, Priority
+from ..enums import CardKind, CardStage, Category, EnergyType, Priority
 from ..models import Card, ProposalChange
 
 _KIND_EMOJIS = {
@@ -230,9 +230,16 @@ def card_overview_text(state: dict[str, Any], *, heading: str = "Card") -> str:
     ]
     if state.get("parent_name"):
         lines.append(f"Parent: {html.escape(str(state['parent_name']))}")
+    lines.append(f"Stage: {html.escape(str(state.get('stage') or 'backlog').title())}")
+    if state.get("closed_at"):
+        closed = (
+            "Cancelled at"
+            if state.get("stage") == CardStage.CANCELLED.value
+            else "Completed at"
+        )
+        lines.append(f"{closed}: {html.escape(str(state['closed_at']))}")
     lines.extend(
         [
-            f"Stage: {html.escape(str(state.get('stage') or 'backlog').title())}",
             f"Note: {html.escape(str(state.get('note') or '—'))}",
             f"Priority: {html.escape(str(state.get('priority') or 'medium').title())} · "
             f"Hard Time: {'Yes' if state.get('hard_time') else 'No'}",
