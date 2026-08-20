@@ -134,7 +134,7 @@ Invalid Action-only fields supplied for Goal or Idea are removed at the AI bound
 
 ### Sprint accounting
 
-- Starting a Sprint is Success criteria, then the plan it will commit, then `Confirm plan: Start`. The plan lists the Sprint and Today Actions as tappable items, and an empty one cannot be started.
+- Planning carries the Success criteria and what the plan already is, and offers `Start` only once it has both. `Plan` opens the plan itself: the Sprint as a table of tappable Actions, the Backlog as the keyboard, narrowed by the saved Requests picked as filters.
 - Starting a Sprint snapshots all non-archived Actions in Sprint or Today.
 - Starting a Sprint also sets two Reminders at its start clock: the day before its end date, and on it. Finishing the Sprint deletes them.
 - A Sprint that was not closed manually closes itself at the local midnight after its end date. Unfinished Actions keep their stage.

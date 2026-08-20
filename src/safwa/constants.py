@@ -146,6 +146,12 @@ SELECTOR_PAGE_SIZE = 10
 SPRINT_PLAN_PAGE_SIZE = 10
 SPRINT_PLAN_TITLE_LIMIT = 24
 REQUEST_RESULT_LIMIT = 25
+# How long a Toast stays on screen before it removes itself.
+TOAST_SECONDS = 5
+# A tap on a link starts the bot through the owner's own account, and Telegram rate limits
+# that per account for hours at a time. This many taps inside the window earns a warning.
+PLAN_LINK_BURST_TAPS = 8
+PLAN_LINK_BURST_SECONDS = 10
 CHECK_LIST_LIMIT = 25
 TELEGRAM_TEXT_LIMIT = 3_900
 # A queue notice is transient and deleted on drain, so it previews the turn rather than

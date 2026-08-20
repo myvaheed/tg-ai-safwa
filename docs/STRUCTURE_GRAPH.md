@@ -216,7 +216,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    HANDLERS["commands.py / callbacks.py / dialogue.py"] --> FEATURES["cards.py / checks.py / items.py / diary.py / reminders.py / sprint.py / proposals.py / screens.py"]
+    HANDLERS["commands.py / callbacks.py / dialogue.py"] --> FEATURES["cards.py / checks.py / items.py / diary.py / reminders.py / sprint.py / plan.py / proposals.py / screens.py"]
     HANDLERS --> TEXT_INPUT["text_input.py"]
     FEATURES --> TEXT_INPUT
     TEXT_INPUT --> IO
@@ -237,7 +237,8 @@ flowchart TD
 | [`telegram/_messaging.py`](../src/safwa/telegram/_messaging.py) | Все send/edit/delete operations и semantic registration | `send_registered`, `edit_registered_message`, `dismiss_prior_ui`, `send_owner_turn`, `owner_display_name`, queue materialization |
 | [`telegram/text_input.py`](../src/safwa/telegram/text_input.py) | Общий редактор обычного текста: Current value, Back, повторный рендер ошибки и custom validation | `TextInputScreen`, `render_text_input`, `validate_text_input`, `reject_text_input` |
 | [`telegram/cards.py`](../src/safwa/telegram/cards.py) | Card overview, creation editor, selectors и общий список Cards | `card_list_rows`, `render_dashboard`, Card render/start/sanitize functions |
-| [`telegram/sprint.py`](../src/safwa/telegram/sprint.py) | Today, Sprint dashboard и старт Sprint | `render_today`, `render_sprint`, `render_sprint_criteria_prompt`, `render_sprint_confirm` |
+| [`telegram/sprint.py`](../src/safwa/telegram/sprint.py) | Today, Sprint dashboard, Planning и старт Sprint | `render_today`, `render_sprint`, `render_sprint_criteria_prompt`, `stage_actions` |
+| [`telegram/plan.py`](../src/safwa/telegram/plan.py) | Экран планирования Sprint: Rich-таблица, Backlog-клавиатура, Request-фильтры | `render_plan`, `render_plan_filters`, `handle_plan_start`, `is_plan_link` |
 | [`telegram/checks.py`](../src/safwa/telegram/checks.py) | Check screens и answer UI | Check renderer и pending-check gate screens |
 | [`telegram/items.py`](../src/safwa/telegram/items.py) | Shared Tag/Value editors и Saved Request screens | item renderer, list screens, text prompts |
 | [`telegram/reminders.py`](../src/safwa/telegram/reminders.py) | Manual Reminder list/detail/text screens | Reminder renderers и schedule presentation |

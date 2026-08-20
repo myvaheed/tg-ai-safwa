@@ -1,18 +1,19 @@
-"""The Sprint screens: Today, the Sprint dashboard, and the start flow.
+"""The Sprint screens: Today, the running Sprint, and Planning.
 
 Today exists only while a Sprint runs, so both dashboards are here rather than beside the
-generic Backlog list.  Starting a Sprint is three screens — Success criteria, then the plan
-itself, then Start — because a Sprint that begins without either is a Sprint nobody can
-close against anything.
+generic Backlog list.  Planning is what stands in for the Sprint before one starts: it
+carries the Success criteria and the shape of the plan, and it offers Start only once it
+has both, because a Sprint that begins without either is a Sprint nobody can close against
+anything.  The plan itself is built one screen further in, in `plan.py`.
 """
 
 from __future__ import annotations
 
 import html
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from aiogram.types import InlineKeyboardMarkup, Message
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from ..domain import DomainError, sprint_length_days, sprint_metrics
 from ..enums import CardKind, CardStage, MessageKind
@@ -21,7 +22,7 @@ from ._core import Services
 from ._messaging import edit_registered_message, paging_row, send_registered, token_button
 from ._presentation import menu_row, with_notice
 from .cards import card_list_rows, card_list_text
-from .text_input import TextInputAction, TextInputScreen, render_text_input
+from .text_input import TextInputScreen, render_text_input
 
 _PROMPT_TTL = timedelta(minutes=30)
 
@@ -48,7 +49,7 @@ async def render_today(
                 markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
             )
             return
-        cards = await _stage_actions(session, CardStage.TODAY)
+        cards = await stage_actions(session, CardStage.TODAY)
         current, descriptions, rows = await card_list_rows(
             session,
             services,
@@ -98,7 +99,7 @@ async def render_sprint(
     async with services.sessions() as session:
         sprint = await session.get(Sprint, active_sprint_id)
         metrics = await sprint_metrics(session, sprint.id)
-        cards = await _stage_actions(session, CardStage.SPRINT)
+        cards = await stage_actions(session, CardStage.SPRINT)
         current, descriptions, rows = await card_list_rows(
             session,
             services,
@@ -158,78 +159,9 @@ async def render_sprint_criteria_prompt(
             instruction="Send what this Sprint must achieve. It is what the Sprint is judged against.",
             back_action="sprint_back",
             back_payload={},
-            extra_actions=(
-                (TextInputAction("✅ Continue to plan", "sprint_confirm", {}),) if current else ()
-            ),
         ),
         state={"flow": "sprint"},
         notice=notice,
-    )
-
-
-async def render_sprint_confirm(
-    message: Message, services: Services, *, page: int = 0, notice: str | None = None
-) -> None:
-    """The plan exactly as it will be committed, plus the one button that commits it."""
-    async with services.sessions() as session:
-        workspace = await session.get(Workspace, 1)
-        if workspace is None or workspace.active_sprint_id:
-            raise DomainError("A Sprint is already running")
-        criteria = workspace.sprint_success_criteria.strip()
-    if not criteria:
-        await render_sprint_criteria_prompt(
-            message, services, notice="Set the Success criteria before starting."
-        )
-        return
-    async with services.sessions() as session:
-        length = await sprint_length_days(session)
-        profile = await session.get(UserProfile, 1)
-        cards = await _stage_actions(session, CardStage.SPRINT, CardStage.TODAY)
-        back = {**SPRINT_BACK, "mode": "sprint_confirm"}
-        current, descriptions, rows = await card_list_rows(
-            session,
-            services,
-            cards,
-            page=page,
-            back=back,
-            prefix=lambda card: (
-                "☀️ " if card.effective_stage == CardStage.TODAY.value else ""
-            ),
-        )
-        rows.extend(await paging_row(session, services.owner_id, current, "dashboard_page", back))
-        if cards:
-            rows.append(
-                [
-                    await token_button(
-                        session, services.owner_id, "✅ Confirm plan: Start", "sprint_start"
-                    )
-                ]
-            )
-        rows.append([await token_button(session, services.owner_id, "↩️ Back", "sprint_back")])
-        selected_effort = sum(card.effort_points or 0 for card in cards)
-        capacity = profile.capacity_effort_points if profile else None
-        start_date = datetime.now(UTC).date()
-        header = (
-            f"{start_date} – {start_date + timedelta(days=length - 1)} · {length} days\n"
-            f"Success criteria: {html.escape(criteria)}\n"
-            f"Selected effort: {selected_effort} EP"
-            + (
-                f"\n⚠️ Above configured capacity ({capacity} EP)."
-                if capacity and selected_effort > capacity
-                else ""
-            )
-        )
-        await session.commit()
-    if not cards:
-        header += (
-            "\nNothing is planned yet. Move Actions to the Sprint stage first, then start it."
-        )
-    await send_registered(
-        message,
-        services,
-        with_notice(card_list_text("Sprint plan", current, descriptions, header=header), notice),
-        kind=MessageKind.APPROVAL,
-        markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )
 
 
@@ -240,27 +172,38 @@ async def _render_planning(
     notice: str | None = None,
     replace_message_id: int | None = None,
 ) -> None:
+    """What the next Sprint would be, and the three things that can change it."""
     async with services.sessions() as session:
         workspace = await session.get(Workspace, 1)
         profile = await session.get(UserProfile, 1)
         length = await sprint_length_days(session)
-        selected_effort = (
-            await session.scalar(
-                select(func.coalesce(func.sum(Card.effort_points), 0)).where(
-                    Card.kind == CardKind.ACTION.value,
-                    Card.archived_at.is_(None),
-                    Card.effective_stage.in_(
-                        [CardStage.SPRINT.value, CardStage.TODAY.value]
-                    ),
+        planned = await stage_actions(session, CardStage.SPRINT, CardStage.TODAY)
+        criteria = (workspace.sprint_success_criteria or "").strip() if workspace else ""
+        rows = [
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "✏️ Edit Success criteria" if criteria else "🎯 Set Success criteria",
+                    "sprint_criteria_prompt",
                 )
+            ],
+            [await token_button(session, services.owner_id, "🗓 Plan", "plan_open")],
+        ]
+        if planned and criteria:
+            rows.append(
+                [
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        f"▶️ Start {length}-day Sprint",
+                        "sprint_start",
+                    )
+                ]
             )
-            or 0
-        )
-        start = await token_button(
-            session, services.owner_id, f"▶️ Start {length}-day Sprint", "sprint_criteria_prompt"
-        )
+        rows.append(menu_row())
         await session.commit()
-    criteria = (workspace.sprint_success_criteria or "").strip() if workspace else ""
+    selected_effort = sum(card.effort_points or 0 for card in planned)
     capacity = profile.capacity_effort_points if profile else None
     warning = (
         f"\n⚠️ Above configured capacity ({capacity} EP)."
@@ -268,12 +211,13 @@ async def _render_planning(
         else ""
     )
     text = with_notice(
-        "<b>Planning</b>\nActions in Sprint and Today are preselected for the next Sprint.\n"
+        "<b>Planning</b>\n"
         f"Success criteria: {html.escape(criteria) if criteria else 'not set yet'}\n"
-        f"Selected effort: {selected_effort} EP{warning}",
+        f"Planned: {len(planned)} Actions · {selected_effort} EP · "
+        f"capacity {capacity if capacity is not None else '—'} EP{warning}",
         notice,
     )
-    markup = InlineKeyboardMarkup(inline_keyboard=[[start], menu_row()])
+    markup = InlineKeyboardMarkup(inline_keyboard=rows)
     if replace_message_id is not None:
         await edit_registered_message(
             message,
@@ -287,7 +231,7 @@ async def _render_planning(
         await send_registered(message, services, text, kind=MessageKind.DASHBOARD, markup=markup)
 
 
-async def _stage_actions(session, *stages: CardStage) -> list[Card]:  # type: ignore[no-untyped-def]
+async def stage_actions(session, *stages: CardStage) -> list[Card]:  # type: ignore[no-untyped-def]
     return list(
         await session.scalars(
             select(Card).where(

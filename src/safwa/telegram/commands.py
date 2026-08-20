@@ -56,9 +56,9 @@ from ._presentation import (
     with_notice,
 )
 from .cards import render_dashboard, start_manual_card_creation
+from .plan import handle_plan_start, is_plan_link
 from .reminders import render_reminders
 from .screens import open_citation
-from .spike import handle_spike_start, is_spike_link, run_spike
 from .sprint import render_sprint, render_today
 from .text_input import TextInputScreen, render_text_input
 
@@ -98,7 +98,7 @@ async def dismiss_screens_before_a_command(
     from `dialogue.ordinary_text` instead, because typed field input must reach its live
     editor untouched.
     """
-    if (event.text or "").lstrip().startswith("/") and not is_spike_link(event.text):
+    if (event.text or "").lstrip().startswith("/") and not is_plan_link(event.text):
         await dismiss_prior_ui(event, data["services"])
     return await handler(event, data)
 
@@ -107,7 +107,7 @@ async def dismiss_screens_before_a_command(
 async def command_start(message: Message, services: Services) -> None:
     payload = start_payload(message.text)
     if payload is not None:
-        if not await handle_spike_start(message, services, payload):
+        if not await handle_plan_start(message, services, payload):
             await open_citation(message, services, payload)
         return
     async with services.sessions() as session:
@@ -167,12 +167,6 @@ async def command_backlog(message: Message, services: Services) -> None:
 @router.message(Command("sprint"))
 async def command_sprint(message: Message, services: Services) -> None:
     await render_sprint(message, services)
-
-
-@router.message(Command("spike"))
-async def command_spike(message: Message, services: Services) -> None:
-    """Throwaway: the Rich-message planning table. Remove with `spike.py`."""
-    await run_spike(message, services)
 
 
 async def command_add(message: Message, services: Services) -> None:

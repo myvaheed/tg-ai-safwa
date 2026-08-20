@@ -82,6 +82,16 @@ from .commands import (
     sync_bot_commands,
 )
 from .items import render_item_editor, render_item_text_prompt, render_saved_request
+from .plan import (
+    PLAN_UI_KIND,
+    on_plan_card,
+    on_plan_filter_toggle,
+    on_plan_filters,
+    on_plan_move,
+    on_plan_open,
+    on_plan_page,
+    render_plan,
+)
 from .proposals import continue_agent_approval, render_proposal
 from .reminders import (
     render_reminder,
@@ -89,13 +99,7 @@ from .reminders import (
     render_reminder_text_prompt,
     render_reminders,
 )
-from .spike import on_spike_clean, on_spike_move, on_spike_open, on_spike_page
-from .sprint import (
-    render_sprint,
-    render_sprint_confirm,
-    render_sprint_criteria_prompt,
-    render_today,
-)
+from .sprint import render_sprint, render_sprint_criteria_prompt, render_today
 from .text_input import TextInputScreen, render_text_input
 
 logger = logging.getLogger(__name__)
@@ -395,8 +399,6 @@ async def _render_dashboard_state(
         await render_today(context.message, context.services, page=page, notice=notice)
     elif mode == "sprint":
         await render_sprint(context.message, context.services, page=page, notice=notice)
-    elif mode == "sprint_confirm":
-        await render_sprint_confirm(context.message, context.services, page=page, notice=notice)
     else:
         await render_dashboard(
             context.message,
@@ -450,6 +452,13 @@ async def _on_card_back(context: CallbackContext) -> None:
         await _render_dashboard_state(context, back)
     elif back["kind"] == "request":
         await render_saved_request(context.message, context.services, int(back["id"]))
+    elif back["kind"] == PLAN_UI_KIND:
+        await render_plan(
+            context.message,
+            context.services,
+            page=int(back.get("page", 0)),
+            filters=list(back.get("filters", [])),
+        )
     elif back["kind"] == "card":
         await render_card(
             context.message,
@@ -821,13 +830,6 @@ async def _on_sprint_criteria_prompt(context: CallbackContext) -> None:
     await render_sprint_criteria_prompt(context.message, context.services)
 
 
-async def _on_sprint_confirm(context: CallbackContext) -> None:
-    async with context.sessions() as session:
-        await _clear_ui_sessions(session, context.owner_id)
-        await session.commit()
-    await render_sprint_confirm(context.message, context.services)
-
-
 async def _on_sprint_back(context: CallbackContext) -> None:
     async with context.sessions() as session:
         await _clear_ui_sessions(session, context.owner_id)
@@ -1058,14 +1060,15 @@ CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "feedback": _on_feedback,
     "card_quick_move": _on_card_quick_move,
     "sprint_criteria_prompt": _on_sprint_criteria_prompt,
-    "sprint_confirm": _on_sprint_confirm,
     "sprint_back": _on_sprint_back,
     "sprint_start": _on_sprint_start,
     "sprint_finish": _on_sprint_finish,
-    "spike_page": on_spike_page,
-    "spike_move": on_spike_move,
-    "spike_open": on_spike_open,
-    "spike_clean": on_spike_clean,
+    "plan_open": on_plan_open,
+    "plan_page": on_plan_page,
+    "plan_move": on_plan_move,
+    "plan_card": on_plan_card,
+    "plan_filters": on_plan_filters,
+    "plan_filter_toggle": on_plan_filter_toggle,
     "settings_edit": _on_settings_edit,
     "settings_back": _on_settings_back,
     "reminders_page": _on_reminders_page,

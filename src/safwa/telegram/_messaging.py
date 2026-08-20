@@ -6,9 +6,11 @@ import asyncio
 import html
 import logging
 import secrets
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from aiogram import Bot
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import (
@@ -20,7 +22,7 @@ from aiogram.types import (
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..constants import CALLBACK_TOKEN_TTL_HOURS
+from ..constants import CALLBACK_TOKEN_TTL_HOURS, TOAST_SECONDS
 from ..enums import MessageKind, ProposalStatus
 from ..history import mark_kind, mark_message, register_message
 from ..memory import estimate_tokens
@@ -465,6 +467,69 @@ async def delete_screen(message: Message, services: Services, message_id: int) -
         if stored is not None:
             await session.delete(stored)
             await session.commit()
+
+
+# One Toast at a time per chat: a burst of them would otherwise stack above the screen and
+# push it out of sight, which is the one thing a Toast must not do.
+_toasts: dict[int, tuple[int, asyncio.Task[None]]] = {}
+
+
+async def send_toast(message: Message, services: Services, text: str) -> None:
+    """Say one thing beside the screen and take it back after `TOAST_SECONDS`.
+
+    A redraw carries its own notice through `with_notice`; a Toast is for what has to be
+    said when the screen must stay exactly as it is.  It is `STATUS`, so it never becomes
+    dialogue, and it leaves the screen the last message again once it expires.
+    """
+    await discard_toast(message, services)
+    sent = await send_registered(
+        message, services, text, kind=MessageKind.STATUS, replace=False
+    )
+    _toasts[message.chat.id] = (
+        sent.message_id,
+        asyncio.create_task(
+            _expire_toast(message, services, sent.message_id), name="toast-expiry"
+        ),
+    )
+
+
+async def discard_toast(message: Message, services: Services) -> None:
+    """Remove the live Toast now. Its timer is cancelled, so it is deleted exactly once."""
+    live = _toasts.pop(message.chat.id, None)
+    if live is None:
+        return
+    message_id, task = live
+    task.cancel()
+    await delete_screen(message, services, message_id)
+
+
+async def discard_stale_status(bot: Bot, services: Services, chat_id: int) -> None:
+    """Take back the Toasts and progress lines the process died under.
+
+    Startup is the one moment that can tell a stale one from a live one, because none is
+    live yet.
+    """
+    async with services.sessions() as session:
+        stale = list(
+            await session.scalars(
+                select(TelegramMessage).where(
+                    TelegramMessage.chat_id == chat_id,
+                    TelegramMessage.direction == "out",
+                    TelegramMessage.kind == MessageKind.STATUS.value,
+                )
+            )
+        )
+        for stored in stale:
+            with suppress(TelegramAPIError):
+                await bot.delete_message(chat_id, stored.message_id)
+            await session.delete(stored)
+        await session.commit()
+
+
+async def _expire_toast(message: Message, services: Services, message_id: int) -> None:
+    await asyncio.sleep(TOAST_SECONDS)
+    _toasts.pop(message.chat.id, None)
+    await delete_screen(message, services, message_id)
 
 
 async def send_summary(

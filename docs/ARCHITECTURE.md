@@ -138,9 +138,10 @@ no underscore (the whole package is private behind `__init__.__all__`).
 - Today belongs to a running Sprint ([telegram/sprint.py](../src/safwa/telegram/sprint.py)): in
   Planning the menu drops its button, `sync_bot_commands` drops the command, and `/today` answers that
   a Sprint has to be planned first. Each row of those two dashboards carries a one-tap stage move —
-  `🏃` leading on Today, `☀️` trailing on Sprint. Starting a Sprint is Success criteria → the plan
-  (Sprint **and** Today Actions, the Today ones marked) → `✅ Confirm plan: Start`, and an empty plan
-  offers no Start button.
+  `🏃` leading on Today, `☀️` trailing on Sprint. Planning holds the Success criteria, what the plan
+  already is, and `🗓 Plan`; `▶️ Start` appears only with both. The plan itself
+  ([telegram/plan.py](../src/safwa/telegram/plan.py)) is a Rich-message table of the Sprint over a
+  Backlog keyboard, and its title and `↩️ Return` cells are deep links back into the bot.
 - Checks are item-shaped, not Card-shaped ([telegram/checks.py](../src/safwa/telegram/checks.py)) and
   are reached from the Card screen, which shows `☑️ Checks (pending/total)` **only when at least one
   Check hangs on the Card**. `render_check` also stands alone — an advisor link reaches a Check that

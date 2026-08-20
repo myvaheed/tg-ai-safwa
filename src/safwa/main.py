@@ -35,6 +35,7 @@ from .telegram import (
     OwnerAndWritingMiddleware,
     ReminderRuntime,
     Services,
+    discard_stale_status,
     router,
     sync_bot_commands,
 )
@@ -203,6 +204,7 @@ async def run(settings: Settings) -> None:
         workspace = await session.get(Workspace, 1)
         sprint_active = bool(workspace and workspace.active_sprint_id)
     await sync_bot_commands(bot, sprint_active=sprint_active)
+    await discard_stale_status(bot, services, settings.telegram_owner_id)
 
     async def memory_error(text: str) -> None:
         marked_text, event_id = mark_message(f"⚠️ memory.md: {text}", MessageKind.ERROR)

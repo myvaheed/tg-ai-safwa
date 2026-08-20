@@ -17,7 +17,7 @@ from ._core import (
     Services,
     router,
 )
-from ._messaging import dismiss_prior_ui
+from ._messaging import discard_stale_status, dismiss_prior_ui, send_toast
 from .callbacks import CALLBACK_ACTIONS, callback_token_handler
 from .cards import (
     handle_card_creation_chooser,
@@ -45,6 +45,7 @@ __all__ = [
     "ReminderRuntime",
     "Services",
     "callback_token_handler",
+    "discard_stale_status",
     "dismiss_prior_ui",
     "format_escalation",
     "handle_card_creation_chooser",
@@ -63,6 +64,7 @@ __all__ = [
     "render_proposal",
     "render_sprint",
     "render_today",
+    "send_toast",
     "router",
     "sync_bot_commands",
     "voice_message",
