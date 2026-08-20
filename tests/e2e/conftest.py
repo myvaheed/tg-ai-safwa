@@ -14,8 +14,8 @@ from safwa.ai.provider import ProviderToolCall, ProviderTurn
 from safwa.ai.service import AIAdvisor, query_read_tool
 from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from safwa.ai.subagents import RoutedSubagent
-from safwa.db import Database, upgrade_database
 from safwa.domain import bootstrap_workspace
+from safwa.foundation.database import Database, upgrade_database
 from safwa.memory import MemoryFileStore
 
 

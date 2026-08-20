@@ -9,7 +9,7 @@ import pytest
 
 from safwa import main as safwa_main
 from safwa.config import Settings
-from safwa.db import upgrade_database
+from safwa.foundation.database import upgrade_database
 
 pytestmark = pytest.mark.e2e
 

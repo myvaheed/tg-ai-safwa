@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
 from sqlalchemy import create_engine, inspect, select, update
 
 from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from safwa.constants import SESSION_IDLE_DAYS
-from safwa.db import upgrade_database
+from safwa.foundation.database import Database, upgrade_database
 from safwa.models import AgentRun, AgentStep, Base, Card, CardTag, Tag
 from safwa.recovery import recover_startup
 
@@ -121,3 +122,34 @@ async def test_durable_entities_use_incrementing_integer_ids(sessions):
     assert second.id == first.id + 1
     assert isinstance(first_tag.id, int)
     assert second_tag.id == first_tag.id + 1
+
+
+async def test_transaction_commits_the_whole_block(tmp_path):
+    url = f"sqlite+aiosqlite:///{(tmp_path / 'tx.db').as_posix()}"
+    upgrade_database(url.replace("sqlite+aiosqlite:", "sqlite:"))
+    database = Database(url)
+    try:
+        async with database.transaction() as session:
+            session.add(Tag(name="Family"))
+
+        async with database.sessions() as session:
+            assert await session.scalar(select(Tag.name)) == "Family"
+    finally:
+        await database.dispose()
+
+
+async def test_transaction_discards_the_whole_block_when_the_body_raises(tmp_path):
+    url = f"sqlite+aiosqlite:///{(tmp_path / 'tx.db').as_posix()}"
+    upgrade_database(url.replace("sqlite+aiosqlite:", "sqlite:"))
+    database = Database(url)
+    try:
+        with pytest.raises(RuntimeError):
+            async with database.transaction() as session:
+                session.add(Tag(name="Family"))
+                await session.flush()
+                raise RuntimeError("half a use case is not a use case")
+
+        async with database.sessions() as session:
+            assert await session.scalar(select(Tag.name)) is None
+    finally:
+        await database.dispose()

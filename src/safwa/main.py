@@ -21,9 +21,9 @@ from .asr import build_transcriber
 from .config import Settings
 from .constants import AI_APP_TITLE, AI_APP_URL
 from .continuity import PersonaContinuity, run_memory_maintenance
-from .db import Database, upgrade_database
 from .domain import bootstrap_workspace
 from .enums import AIProvider, MessageKind
+from .foundation.database import Database, upgrade_database
 from .history import TelegramHistorySource, mark_message, register_message
 from .memory import MemoryFileStore
 from .models import Workspace

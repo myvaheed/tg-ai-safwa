@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from sqlalchemy import create_engine, event
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
-from .models import Base
+from ..models import Base
 
 
 def upgrade_database(database_url: str) -> None:
@@ -44,3 +51,14 @@ class Database:
 
     async def dispose(self) -> None:
         await self.engine.dispose()
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[AsyncSession]:
+        """One business transaction: the block commits on success and discards on failure.
+
+        `sessions()` stays for reads and for callers that commit in steps; this is the
+        boundary a use case opens when its whole body has to land or not land at all.
+        """
+        async with self.sessions() as session:
+            yield session
+            await session.commit()

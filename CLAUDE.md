@@ -6,8 +6,8 @@ It carries the principles only. Every mechanism has a document that owns it, lis
 
 ## Read first
 
-Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/STRUCTURE_GRAPH.md](docs/STRUCTURE_GRAPH.md)
-and [docs/MEMORY_HISTORY_USAGE.md](docs/MEMORY_HISTORY_USAGE.md) at the start of a session — they are
+Read [archived_docs/ARCHITECTURE.md](archived_docs/ARCHITECTURE.md), [archived_docs/STRUCTURE_GRAPH.md](archived_docs/STRUCTURE_GRAPH.md)
+and [archived_docs/MEMORY_HISTORY_USAGE.md](archived_docs/MEMORY_HISTORY_USAGE.md) at the start of a session — they are
 the fastest path to full context.
 
 ## Designing and Coding principles
@@ -85,7 +85,12 @@ uv run safwa-auth            # one-time Telethon user-session login (history rea
 uv run pytest -q
 uv run pytest tests\e2e -q
 uv run ruff check .
+uv run python scripts/architecture_metrics.py   # migration rules and Definition of Done metrics
 ```
+
+`tests/test_architecture.py` fails on a rule violation that is not in
+`tests/architecture_allowlist.json`, and on a change to the prompt-prefix or schema snapshot under
+`tests/snapshots/`. See [docs/MIGRATION.md](docs/MIGRATION.md).
 
 Single test / single file:
 
@@ -113,15 +118,17 @@ Layer responsibilities are flat files: [domain.py](src/safwa/domain.py) (invaria
 [telegram/](src/safwa/telegram) (all UI), [ai/service.py](src/safwa/ai/service.py) (agent loop +
 proposals). Neither the UI nor the AI touches an ORM entity directly — both go through `domain.py`.
 
-`docs/INITIAL_PLAN.md` and `docs/MEMORY_HISTORY_USAGE.md` are the authoritative product spec —
+`archived_docs/INITIAL_PLAN.md` and `archived_docs/MEMORY_HISTORY_USAGE.md` are the authoritative product spec —
 read them before changing history, memory, proposal, or UI behavior. When sources drift: the product
 spec says what should happen, code and tests say what happens now, and descriptive docs explain the
 current design. Do not present an unimplemented spec item as current behavior.
 
-Every limit, budget, cap, interval, and the effort scale live in
+Cross-feature tuning — token budgets, poll intervals, shared timeouts — lives in
 [constants.py](src/safwa/constants.py), which imports nothing from Safwa;
-[config.py](src/safwa/config.py) takes its defaults from there. Put a new tuning number there, not
-next to its use site.
+[config.py](src/safwa/config.py) takes its defaults from there. A limit that belongs to one feature
+is a constant at the top of that feature's module, next to where it is used. The same split applies
+to [enums.py](src/safwa/enums.py): `MessageKind` and `AIProvider` are shared, while `CardStage`,
+`CardKind` and `CheckOutcome` belong to Planning.
 
 The `telegram` package is layered and imports run one way only: `_core.py` ← `_presentation.py` ←
 `_messaging.py` ← `text_input.py` ← the feature renderers ← `screens.py` / `proposals.py` ← the
@@ -266,7 +273,7 @@ system message.
 ## Schema gotcha
 
 There are no migrations and no Alembic. `models.py` is the only schema source: startup calls
-`upgrade_database` ([db.py](src/safwa/db.py)), which is `Base.metadata.create_all`.
+`upgrade_database` ([foundation/database.py](src/safwa/foundation/database.py)), which is `Base.metadata.create_all`.
 
 `create_all` adds missing tables and indexes and **never alters an existing one**, so a **fresh**
 database always matches `models.py`, while adding or changing a column will **not** touch an existing
@@ -303,11 +310,18 @@ at that point.
 
 | Subsystem | Document |
 |---|---|
-| Feature → file orientation | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
-| Module and entity index | [docs/STRUCTURE_GRAPH.md](docs/STRUCTURE_GRAPH.md) |
-| Product spec | [docs/INITIAL_PLAN.md](docs/INITIAL_PLAN.md) |
-| History, memory, summaries | [docs/MEMORY_HISTORY_USAGE.md](docs/MEMORY_HISTORY_USAGE.md) |
-| Checks | [docs/CHECKS_PLAN.md](docs/CHECKS_PLAN.md) |
-| Diary | [docs/DIARY_PLAN.md](docs/DIARY_PLAN.md) |
-| Reminders | [docs/REMINDERS_PLAN.md](docs/REMINDERS_PLAN.md) |
-| Voice input | [docs/ASR_PLAN.md](docs/ASR_PLAN.md) |
+| Feature → file orientation | [archived_docs/ARCHITECTURE.md](archived_docs/ARCHITECTURE.md) |
+| Module and entity index | [archived_docs/STRUCTURE_GRAPH.md](archived_docs/STRUCTURE_GRAPH.md) |
+| Product spec | [archived_docs/INITIAL_PLAN.md](archived_docs/INITIAL_PLAN.md) |
+| History, memory, summaries | [archived_docs/MEMORY_HISTORY_USAGE.md](archived_docs/MEMORY_HISTORY_USAGE.md) |
+| Checks | [archived_docs/CHECKS_PLAN.md](archived_docs/CHECKS_PLAN.md) |
+| Diary | [archived_docs/DIARY_PLAN.md](archived_docs/DIARY_PLAN.md) |
+| Reminders | [archived_docs/REMINDERS_PLAN.md](archived_docs/REMINDERS_PLAN.md) |
+| Subagents and routing | [archived_docs/SUBAGENTS_PLAN.md](archived_docs/SUBAGENTS_PLAN.md) |
+| Voice input | [archived_docs/ASR_PLAN.md](archived_docs/ASR_PLAN.md) |
+| Clean-architecture migration | [REFACTORING_CLEAN_ARCH_FINAL.md](REFACTORING_CLEAN_ARCH_FINAL.md) |
+| Migration status and gates | [docs/MIGRATION.md](docs/MIGRATION.md) |
+| BRD scenarios and test audit | [docs/brd/README.md](docs/brd/README.md) |
+
+`archived_docs/` is descriptive: it records the design as it was before the migration. `docs/` is
+where anything written from now on goes.
