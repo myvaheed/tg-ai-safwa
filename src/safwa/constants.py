@@ -142,6 +142,9 @@ MINI_SESSION_MAX_TOOL_CALLS = 6
 # --- Telegram UI ----------------------------------------------------------
 PAGE_SIZE = 5
 SELECTOR_PAGE_SIZE = 10
+# The Sprint plan puts both columns in one table, so a row is one Card on each side.
+SPRINT_PLAN_PAGE_SIZE = 10
+SPRINT_PLAN_TITLE_LIMIT = 24
 REQUEST_RESULT_LIMIT = 25
 CHECK_LIST_LIMIT = 25
 TELEGRAM_TEXT_LIMIT = 3_900

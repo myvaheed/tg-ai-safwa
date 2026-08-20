@@ -440,9 +440,14 @@ async def run_dialogue_turn(
             kind=MessageKind.ERROR,
         )
     finally:
-        if services.guard.active_source_id == message.message_id:
-            try:
+        # The lease is released under its own `finally`: restoring the queue awaits, and an
+        # await in a cancelled task raises `CancelledError` straight past `except Exception`.
+        # Losing the release there would leave the guard held by a task that no longer runs,
+        # and from then on every command is silently dropped by the middleware.
+        try:
+            if services.guard.active_source_id == message.message_id:
                 await materialize_queued_dialogue(message, services)
-            except Exception:
-                logger.exception("Could not restore queued messages after generation stopped")
-        services.guard.release(message.message_id)
+        except Exception:
+            logger.exception("Could not restore queued messages after generation stopped")
+        finally:
+            services.guard.release(message.message_id)

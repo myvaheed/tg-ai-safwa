@@ -45,6 +45,11 @@ _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
 
 def configure_logging(level_name: str) -> None:
     level = getattr(logging, level_name.upper(), logging.INFO)
+    # A Windows console is cp1251 here, and every stage name, receipt and prompt Safwa logs
+    # carries emoji.  Without this the handler raises UnicodeEncodeError per line and prints
+    # a logging traceback instead of the record.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
     logging.basicConfig(level=level, format=_LOG_FORMAT, force=True)
 
     # Keep Safwa's own request/response and error logs visible even if a

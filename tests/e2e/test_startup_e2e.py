@@ -114,7 +114,7 @@ async def wait_until_cancelled(*_args, **_kwargs) -> None:
     await asyncio.Event().wait()
 
 
-async def test_full_startup_reaches_polling_and_cleans_up(tmp_path: Path, monkeypatch):
+def _prepared_startup(tmp_path: Path, monkeypatch) -> tuple[Path, Settings]:
     repository_root = Path(__file__).parents[2]
     monkeypatch.chdir(repository_root)
     database_path = tmp_path / "startup-e2e.db"
@@ -132,7 +132,7 @@ async def test_full_startup_reaches_polling_and_cleans_up(tmp_path: Path, monkey
     monkeypatch.setattr(safwa_main, "router", FakeRouter())
     monkeypatch.setattr(safwa_main, "run_memory_maintenance", wait_until_cancelled)
 
-    settings = Settings(
+    return database_path, Settings(
         _env_file=None,
         telegram_bot_token="123456:test-token",
         telegram_bot_username="configured_safwa_bot",
@@ -148,6 +148,10 @@ async def test_full_startup_reaches_polling_and_cleans_up(tmp_path: Path, monkey
         ai_model="test-model",
         timezone="Europe/Istanbul",
     )
+
+
+async def test_full_startup_reaches_polling_and_cleans_up(tmp_path: Path, monkeypatch):
+    database_path, settings = _prepared_startup(tmp_path, monkeypatch)
     await safwa_main.run(settings)
 
     assert FakeDispatcher.instances[0].polling_started is True

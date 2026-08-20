@@ -89,6 +89,7 @@ from .reminders import (
     render_reminder_text_prompt,
     render_reminders,
 )
+from .spike import on_spike_clean, on_spike_move, on_spike_open, on_spike_page
 from .sprint import (
     render_sprint,
     render_sprint_confirm,
@@ -1061,6 +1062,10 @@ CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "sprint_back": _on_sprint_back,
     "sprint_start": _on_sprint_start,
     "sprint_finish": _on_sprint_finish,
+    "spike_page": on_spike_page,
+    "spike_move": on_spike_move,
+    "spike_open": on_spike_open,
+    "spike_clean": on_spike_clean,
     "settings_edit": _on_settings_edit,
     "settings_back": _on_settings_back,
     "reminders_page": _on_reminders_page,

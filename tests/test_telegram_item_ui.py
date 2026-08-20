@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import html
 import importlib
 import inspect
@@ -10,6 +11,7 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
+from aiogram.exceptions import TelegramAPIError
 from sqlalchemy import select
 
 import safwa.telegram as telegram_source
@@ -84,7 +86,7 @@ from safwa.telegram import (
     render_today,
     voice_message,
 )
-from safwa.telegram._messaging import materialize_queued_dialogue
+from safwa.telegram._messaging import edit_registered_message, materialize_queued_dialogue
 from safwa.telegram._presentation import start_payload
 from safwa.telegram.commands import command_settings, command_start
 from safwa.telegram.dialogue import run_dialogue_turn
@@ -2303,3 +2305,69 @@ async def test_a_turn_with_no_owner_message_is_headed_by_the_bare_role(sessions)
     _sent, dialogue_text = await materialize_queued_dialogue(anchor, services)
 
     assert dialogue_text.startswith("User:")
+
+
+async def test_a_screen_deleted_outside_the_bot_is_redrawn_instead_of_failing(sessions) -> None:
+    """Clearing the chat leaves the registration behind, and every later render aims at it."""
+    async with sessions() as session:
+        session.add(
+            TelegramMessage(
+                chat_id=700,
+                message_id=500,
+                direction="out",
+                kind=MessageKind.DASHBOARD.value,
+            )
+        )
+        await session.commit()
+
+    bot = FakeBot()
+
+    async def gone(*_args, **_kwargs):
+        raise TelegramAPIError(method=SimpleNamespace(), message="message to edit not found")
+
+    bot.edit_message_text = gone
+    message = FakeMessage(1, text="/start card-1", bot_message=False, bot=bot, answer_as_new=True)
+    services = services_for(sessions)
+
+    await edit_registered_message(
+        message, services, 500, "Sprint plan", kind=MessageKind.DASHBOARD
+    )
+
+    assert message.answers, "the screen was not drawn again"
+    async with sessions() as session:
+        registered = list(
+            await session.scalars(
+                select(TelegramMessage.message_id).where(TelegramMessage.chat_id == 700)
+            )
+        )
+    assert 500 not in registered, "the dead registration outlived the message"
+    assert registered == [message.sent_messages[0].message_id]
+
+
+async def test_a_cancelled_generation_still_gives_up_its_lease(sessions, monkeypatch) -> None:
+    """Restoring the queue awaits, and a cancelled await must not carry the lease away.
+
+    A lease left behind is invisible: the middleware silently deletes every command after
+    it, so the bot looks alive while `/start` and every deep link do nothing.
+    """
+    import safwa.telegram.dialogue as dialogue_module
+
+    async def cancelled(*_args, **_kwargs):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(dialogue_module, "materialize_queued_dialogue", cancelled)
+    services = services_for(sessions)
+    message = FakeMessage(1, text="Plan my week", bot_message=False, answer_as_new=True)
+    source = HistoryEntry(
+        message_id=message.message_id,
+        sender_id=42,
+        role="user",
+        text="Plan my week",
+        created_at=message.date,
+        kind=MessageKind.DIALOGUE_USER.value,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await dialogue_module.run_dialogue_turn(message, services, "Plan my week", source)
+
+    assert services.guard.active is False, "the lease outlived the generation that held it"

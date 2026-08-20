@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 import secrets
@@ -10,7 +11,12 @@ from typing import Any
 
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputRichMessage,
+    Message,
+)
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +35,11 @@ from ._core import QueuedMessage, Services
 from ._presentation import Page, proposal_outcome_text, split_telegram_text
 
 logger = logging.getLogger(__name__)
+
+# Two taps arriving together would otherwise edit the same message at once, and Telegram
+# answers the loser with "canceled by new edit message request" instead of drawing it.  Only
+# edits contend: a new message cannot be cancelled by another, so sending never waits here.
+_edit_lock = asyncio.Lock()
 
 
 async def token_button(
@@ -60,6 +71,7 @@ async def send_registered(
     markup: InlineKeyboardMarkup | None = None,
     related_id: int | None = None,
     replace: bool | None = None,
+    rich: bool = False,
 ) -> Message:
     """Render a UI state, replacing an inline-action screen when possible.
 
@@ -67,6 +79,9 @@ async def send_registered(
     remains a new bot message. Callback handlers receive the bot's previous
     message and therefore update that message in place. Callers only opt out for
     intentionally additive history messages.
+
+    `rich` reads `text` as Rich HTML — a block dialect with tables, sent as a rich message
+    instead of a parse-mode one. Marking and registration stay the same for both.
     """
     should_replace = (
         bool(message.from_user and message.from_user.is_bot) if replace is None else replace
@@ -83,9 +98,26 @@ async def send_registered(
             )
             event_id = stored.event_id if stored is not None else None
     text, event_id = mark_message(visible_text, kind, event_id=event_id)
+
+    async def deliver_edit(body: str) -> None:
+        if rich:
+            await message.edit_text(
+                rich_message=InputRichMessage(html=body), reply_markup=markup
+            )
+        else:
+            await message.edit_text(body, reply_markup=markup, parse_mode=ParseMode.HTML)
+
+    async def deliver_new(body: str) -> Message:
+        if rich:
+            return await message.answer_rich(
+                rich_message=InputRichMessage(html=body), reply_markup=markup
+            )
+        return await message.answer(body, reply_markup=markup, parse_mode=ParseMode.HTML)
+
     if should_replace:
         try:
-            await message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+            async with _edit_lock:
+                await deliver_edit(text)
             sent = message
         except TelegramAPIError as error:
             # Telegram rejects a no-op edit.  It is still the same rendered state.
@@ -98,9 +130,9 @@ async def send_registered(
                     error,
                 )
                 text, event_id = mark_message(visible_text, kind)
-                sent = await message.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+                sent = await deliver_new(text)
     else:
-        sent = await message.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+        sent = await deliver_new(text)
     async with services.sessions() as session:
         await register_message(
             session,
@@ -124,6 +156,7 @@ async def edit_registered_message(
     kind: MessageKind,
     markup: InlineKeyboardMarkup | None = None,
     related_id: int | None = None,
+    rich: bool = False,
 ) -> None:
     """Replace a known bot UI message after consuming a separate user text message."""
     async with services.sessions() as session:
@@ -136,15 +169,47 @@ async def edit_registered_message(
         event_id = stored.event_id if stored is not None else None
     marked_text, event_id = mark_message(text, kind, event_id=event_id)
     try:
-        await message.bot.edit_message_text(
-            marked_text,
-            chat_id=message.chat.id,
-            message_id=message_id,
-            reply_markup=markup,
-            parse_mode=ParseMode.HTML,
-        )
+        async with _edit_lock:
+            if rich:
+                await message.bot.edit_message_text(
+                    rich_message=InputRichMessage(html=marked_text),
+                    chat_id=message.chat.id,
+                    message_id=message_id,
+                    reply_markup=markup,
+                )
+            else:
+                await message.bot.edit_message_text(
+                    marked_text,
+                    chat_id=message.chat.id,
+                    message_id=message_id,
+                    reply_markup=markup,
+                    parse_mode=ParseMode.HTML,
+                )
     except TelegramAPIError as error:
-        if "message is not modified" not in str(error).casefold():
+        reason = str(error).casefold()
+        if "message to edit not found" in reason:
+            # The screen went away without the bot removing it — clearing the chat leaves
+            # its row behind — so the row goes too and the state is drawn as a new screen.
+            async with services.sessions() as session:
+                await session.execute(
+                    delete(TelegramMessage).where(
+                        TelegramMessage.chat_id == message.chat.id,
+                        TelegramMessage.message_id == message_id,
+                    )
+                )
+                await session.commit()
+            await send_registered(
+                message,
+                services,
+                text,
+                kind=kind,
+                markup=markup,
+                related_id=related_id,
+                replace=False,
+                rich=rich,
+            )
+            return
+        if "message is not modified" not in reason:
             raise
     async with services.sessions() as session:
         await register_message(
