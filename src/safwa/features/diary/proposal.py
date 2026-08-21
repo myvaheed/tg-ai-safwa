@@ -9,21 +9,21 @@ from __future__ import annotations
 from datetime import date as calendar_date
 from typing import Any
 
-from ...domain import (
-    DomainError,
-    StaleStateError,
-    create_diary_entry,
-    delete_diary_entry,
-    diary_entry_for,
-    update_diary_entry,
-)
-from ...models import DiaryEntry, ProposalChange
+from ...foundation.errors import DomainError, StaleStateError
+from ...models import ProposalChange
 from ..proposals.api import (
     ApplyContext,
     PreparationContext,
     PreparedChange,
     ToolPreparationError,
     require_target,
+)
+from .model import DiaryEntry
+from .use_cases import (
+    create_diary_entry,
+    delete_diary_entry,
+    diary_entry_for,
+    update_diary_entry,
 )
 
 

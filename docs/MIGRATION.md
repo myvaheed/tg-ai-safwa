@@ -12,6 +12,9 @@ uv run python scripts/architecture_metrics.py
 ```
 
 `tests/test_architecture.py` enforces rules A–K against `tests/architecture_allowlist.json`.
+
+`tests/brd/*.feature` are approved traceability contracts, not a Behave suite. The unit and E2E
+pytest tests cite their `DI-*` scenario and feature file in their docstrings.
 Counts in that file may only fall. A rule that starts passing means the allowlist is stale and
 its own test says so — regenerate it in the batch that fixed it.
 
@@ -51,7 +54,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 0 | Foundation and rules of the game | technical | **done** |
 | 1 | `llm_gateway` | technical | **done** |
 | 2 | `FeatureModule` and proposal capabilities | technical | **done** |
-| 3 | Pilot: Diary | business | not started |
+| 3 | Pilot: Diary | business | **done** |
 | 4 | Leaf business batches | business | not started |
 | 5 | Planning core | business | not started |
 | 6 | Proposals and the first reactive process | business | not started |
@@ -164,3 +167,38 @@ had nowhere better to go this phase. Its old key, which was larger, is gone.
 is preserved exactly, as `ProposalHandler.version_model = None` on the other three handlers. Whether
 a requeued Check, Diary day or Reminder should be re-snapshotted is a product question for the
 Phase 6 proposal scenarios, not a technical batch's call.
+
+## What Phase 3 delivered
+
+The first vertical business feature is complete. Its approved behaviour and test audit live in
+[brd/diary.md](brd/diary.md): one entry per local date, whole-entry replacement, optional 0–10
+feeling score, deletion, Advisor-owned reads and citations, proposal-only AI writes, compact
+Save/Discard receipts, and direct opening by date without routing.
+
+- `features/diary/model.py` owns `DiaryEntry`; `use_cases.py` owns the create, read, replace and
+  delete operations. Agent and presentation constants stay in their adapters. Proposal application
+  and direct UI/test callers use the same operations.
+- `features/diary/agent.py` owns `DiaryToolInput`, the Diary mutation tool, its prompt and day reader.
+  The day reader and Diary clock are the first production consumers of `foundation/clock.py`, so
+  their local-date behaviour is tested with an injected clock rather than the process wall clock.
+- `features/diary/telegram.py` owns both proposal presentation and the complete read-only Diary
+  screen. The old `telegram/diary.py` path is gone.
+- Shared ORM base types, workspace revision operations and domain errors moved to `foundation/` so
+  the feature does not depend on the flat `models.py` or `domain.py`. `safwa.models` keeps explicit
+  compatibility imports while the remaining features migrate; it also makes the full metadata
+  visible to startup. The declared database schema is unchanged.
+- The owner selected the current read model: the Advisor queries `ai_diary`, cites entries and may
+  call `open(item_type="diary", id=...)` directly. Only create, replace and delete route to the Diary
+  subagent.
+
+Phase boundaries were kept intact: Diary Reminder/profile behaviour remains in Phase 4, generic
+Save/Discard resumption remains in Phase 7, and the central open/screen registries remain for Phase 8.
+
+The approved Diary scenario contract is [`tests/brd/diary.feature`](../tests/brd/diary.feature).
+It is intentionally not run by Behave: the unit and E2E pytest tests trace each `DI-*` scenario
+back to that file. `docs/brd/diary.md` was the approval artifact for this migration batch.
+
+Verification: `ruff check .` clean; `pytest -q` 513 passed / 3 skipped; prompt and schema snapshots
+unchanged; 0 import cycles (408 edges). The move
+introduced no new central dispatch and no use-case base abstraction: DoD #1 remains 28 and DoD #2
+remains 0. `domain.py` fell from 1908 to 1838 lines.

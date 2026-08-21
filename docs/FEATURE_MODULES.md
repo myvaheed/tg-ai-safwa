@@ -29,7 +29,7 @@ manifest yet: they join it in the phase that moves the Telegram handlers into th
 One registration, three layers, bound only in the feature's `module.py`:
 
 - **`ProposalHandler`** (`features/<f>/proposal.py`) — `prepare` checks the change against live
-  data and writes nothing; `apply` calls the same domain operations the manual UI calls. Loading the
+  data and writes nothing; `apply` calls the same feature operations the manual UI calls. Loading the
   entity, `archived_at`, the closed repeat and `target_not_found` live here, not in generic code.
 - **`MutationToolSpec`** (`features/<f>/agent.py`) — the Pydantic input model, the one-line
   description, and the conversion into a neutral `AgentChange`.
@@ -61,6 +61,8 @@ entity, tool or view:
 safwa/features/<feature>/
   __init__.py   # empty: importing one leaf must not drag in the manifest
   module.py     # MODULE = FeatureModule(...)
+  model.py      # feature-owned ORM entities and value constants
+  use_cases.py  # business operations shared by every adapter
   views.py      # SqlView per ai_* view
   agent.py      # MutationToolSpec, and an AgentSpec if it owns a subagent
   proposal.py   # ProposalHandler
@@ -70,6 +72,11 @@ safwa/features/<feature>/
 Then one line in `MODULES`. That is the whole edit in central code: the mutation tool and its
 schema, the review screen, the view and its allowlist entry, the routing line, the recovery hook and
 the background task all follow from the declaration.
+
+The Diary is the pilot for the complete shape. Its proposal handler and Telegram adapter both call
+`features/diary/use_cases.py`; its agent input model and presentation constants stay inside the
+feature. Reads are deliberately asymmetric: the Advisor reads and opens `ai_diary` directly, while
+writes route to the Diary subagent and remain proposals until Save.
 
 ## Why `__init__.py` is empty
 

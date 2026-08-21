@@ -5,17 +5,62 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from zoneinfo import ZoneInfo
+
+from pydantic import Field, field_validator, model_validator
 
 from llm_gateway import ToolCall
 
-from ...ai.contracts import DiaryToolInput
+from ...ai.contracts import ToolInput
 from ...ai.mini import ReadToolSpec
 from ...ai.service import query_read_tool
 from ...bootstrap.module_manifest import AgentContext, AgentSpec
-from ...constants import DIARY_DAY_TOKEN_BUDGET, WEEKDAY_NAMES
+from ...constants import WEEKDAY_NAMES
+from ...foundation.clock import Clock, SystemClock
 from ..proposals.api import MutationToolSpec, entity_change
+
+DIARY_DAY_TOKEN_BUDGET = 12_000
+
+
+class DiaryToolInput(ToolInput):
+    """One day of the Diary: written in the user's voice, or removed."""
+
+    mode: Literal["update", "delete"] = Field(
+        description="update writes that day, replacing what is saved; delete removes it."
+    )
+    date: str = Field(description="The day this settles, as YYYY-MM-DD.")
+    pov: str | None = Field(
+        default=None,
+        description="With update: that whole day in the user's voice. It replaces the saved entry.",
+    )
+    ai_comment: str | None = Field(
+        default=None,
+        description="With update: one sentence of your own about the day, addressed to the user.",
+    )
+    feeling_score: int | None = Field(
+        default=None,
+        ge=0,
+        le=10,
+        description="With update: how the day felt, 0-10. Omit it when the day is silent.",
+    )
+
+    @field_validator("date")
+    @classmethod
+    def validate_calendar_date(cls, value: str) -> str:
+        try:
+            return date.fromisoformat(value.strip()).isoformat()
+        except ValueError as error:
+            raise ValueError("date must be a calendar date written as YYYY-MM-DD") from error
+
+    @model_validator(mode="after")
+    def entry_needs_its_text(self) -> DiaryToolInput:
+        if self.mode == "update" and not (self.pov or "").strip():
+            raise ValueError("pov is the day itself and is required to write one")
+        if self.mode == "delete" and (self.pov or self.feeling_score is not None):
+            raise ValueError("A deletion carries only mode and date")
+        return self
+
 
 DIARY_PROMPT = """You keep the user's Diary. One day, one entry, in their own voice.
 
@@ -90,15 +135,17 @@ def day_read_tool(
     chat_id: int,
     timezone: str = "UTC",
     day_token_budget: int = DIARY_DAY_TOKEN_BUDGET,
+    clock: Clock | None = None,
 ) -> ReadToolSpec:
     """`read_day` bound to one chat: the day as the owner and Safwa actually spoke it."""
     tz = ZoneInfo(timezone)
+    current_clock = clock or SystemClock()
 
     async def read_day(call: ToolCall) -> dict[str, Any]:
         arguments = json.loads(call.arguments_json or "{}")
         raw = str(arguments.get("date") or "").strip()
         try:
-            day = date.fromisoformat(raw) if raw else datetime.now(tz).date()
+            day = date.fromisoformat(raw) if raw else current_clock.now().astimezone(tz).date()
         except ValueError:
             return {
                 "status": "error",
@@ -122,9 +169,9 @@ def day_read_tool(
     return ReadToolSpec(READ_DAY_TOOL, read_day)
 
 
-def diary_clock(timezone: str) -> str:
+def diary_clock(timezone: str, clock: Clock | None = None) -> str:
     """The one volatile line a Diary session needs: which day 'today' is."""
-    now = datetime.now(ZoneInfo(timezone))
+    now = (clock or SystemClock()).now().astimezone(ZoneInfo(timezone))
     return (
         f"Today is {now.date().isoformat()} ({WEEKDAY_NAMES[now.weekday()]}), "
         f"local time now {now:%H:%M}, timezone {timezone}"

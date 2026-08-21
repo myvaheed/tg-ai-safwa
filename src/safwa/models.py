@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import UTC, date, datetime, time
+from datetime import date, datetime, time
 from typing import Any
 
 from sqlalchemy import (
@@ -9,7 +9,6 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
-    Dialect,
     Float,
     ForeignKey,
     Index,
@@ -17,10 +16,9 @@ from sqlalchemy import (
     String,
     Text,
     Time,
-    TypeDecorator,
     UniqueConstraint,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from .constants import DIARY_TIME_DEFAULT, SPRINT_LENGTH_DAYS
@@ -30,60 +28,15 @@ from .enums import (
     MessageKind,
     Priority,
     ProposalStatus,
-    WorkspaceMode,
 )
+from .features.diary.model import DiaryEntry as DiaryEntry
+from .foundation.models import Base, TimestampMixin, UtcDateTime
+from .foundation.models import Workspace as Workspace
 
 
 def new_correlation_id() -> str:
     """Return a short internal audit correlation key, not an entity identifier."""
     return secrets.token_hex(8)
-
-
-class Base(DeclarativeBase):
-    pass
-
-
-class UtcDateTime(TypeDecorator[datetime]):
-    """A ``DateTime`` that always reads back as tz-aware UTC.
-
-    SQLite has no time zone type, so ``DateTime(timezone=True)`` accepts an aware value and
-    hands back a naive one; subtracting it from ``datetime.now(UTC)`` then raises.
-
-    The emitted DDL is unchanged, so switching a column to this type needs no rebuild.
-    """
-
-    impl = DateTime(timezone=True)
-    cache_ok = True
-
-    def process_bind_param(self, value: datetime | None, dialect: Dialect) -> datetime | None:
-        if value is None:
-            return None
-        return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
-
-    def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
-        if value is None:
-            return None
-        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-
-
-class TimestampMixin:
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-
-
-class Workspace(Base, TimestampMixin):
-    __tablename__ = "workspace"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
-    owner_telegram_id: Mapped[int] = mapped_column(Integer, unique=True)
-    mode: Mapped[str] = mapped_column(String(20), default=WorkspaceMode.PLANNING.value)
-    active_sprint_id: Mapped[int | None] = mapped_column(ForeignKey("sprints.id"))
-    timezone: Mapped[str] = mapped_column(String(64), default="Europe/Istanbul")
-    # What the next Sprint is meant to achieve, edited during Planning and copied into the
-    # Sprint at start.  It outlives a Sprint so the next one can start from the last wording.
-    sprint_success_criteria: Mapped[str] = mapped_column(Text, default="")
-    revision: Mapped[int] = mapped_column(Integer, default=1)
 
 
 class UserProfile(Base, TimestampMixin):
@@ -468,17 +421,3 @@ class CallbackToken(Base):
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-class DiaryEntry(Base, TimestampMixin):
-    """One local day in the owner's own words.
-
-    ``entry_date`` is unique, so a later draft replaces the day rather than joining it.
-    Safwa's remark is screen-only and not stored, so the entry keeps one voice.
-    ``feeling_score`` is 0-10 and stays NULL for a day that did not say how it felt.
-    """
-
-    __tablename__ = "diary_entries"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    entry_date: Mapped[date] = mapped_column(Date, unique=True)
-    body: Mapped[str] = mapped_column(Text)
-    feeling_score: Mapped[int | None] = mapped_column(Integer)
-    version: Mapped[int] = mapped_column(Integer, default=1)

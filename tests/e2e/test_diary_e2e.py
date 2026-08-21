@@ -9,10 +9,11 @@ from test_subagent_e2e import diary_subagent
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.ai.service import ProposalService, _resolved_tool_result
+from safwa.ai.service import ProposalService
 from safwa.bootstrap.modules import PROPOSALS
-from safwa.domain import create_diary_entry
-from safwa.models import AgentRun, DiaryEntry
+from safwa.features.diary.model import DiaryEntry
+from safwa.features.diary.use_cases import create_diary_entry
+from safwa.models import AgentRun
 
 pytestmark = pytest.mark.e2e
 
@@ -41,7 +42,8 @@ async def _save(harness, advisor, proposal_id: int) -> tuple[list[int], object]:
     return affected, description
 
 
-async def test_a_routed_day_travels_from_the_subagent_to_a_saved_entry(e2e_harness):
+async def test_di_write_008_routed_write_is_saved_through_proposal(e2e_harness):
+    """DI-WRITE-008 — tests/brd/diary.feature"""
     advisor, _ = e2e_harness.advisor(
         [
             turn(("route", {"name": "diary"})),
@@ -68,7 +70,8 @@ async def test_a_routed_day_travels_from_the_subagent_to_a_saved_entry(e2e_harne
     assert description.summary == f"New Diary entry for {TODAY} with feeling score 7"
 
 
-async def test_a_second_day_written_the_same_day_overwrites_rather_than_adding(e2e_harness):
+async def test_di_day_002_second_write_replaces_the_day(e2e_harness):
+    """DI-DAY-002 — tests/brd/diary.feature"""
     subagent = diary_subagent(e2e_harness)
     advisor, _ = e2e_harness.advisor(
         [turn(("route", {"name": "diary"})), write(TODAY, "Утро прошло спокойно.")],
@@ -93,7 +96,8 @@ async def test_a_second_day_written_the_same_day_overwrites_rather_than_adding(e
     assert description.summary == f"Edit Diary entry for {TODAY}"
 
 
-async def test_a_back_dated_day_lands_on_the_day_the_subagent_chose(e2e_harness):
+async def test_di_date_003_named_day_is_used(e2e_harness):
+    """DI-DATE-003 — tests/brd/diary.feature"""
     yesterday = (date.today() - timedelta(days=1)).isoformat()
     advisor, _ = e2e_harness.advisor(
         [
@@ -113,7 +117,8 @@ async def test_a_back_dated_day_lands_on_the_day_the_subagent_chose(e2e_harness)
     assert description.summary == f"New Diary entry for {yesterday}"
 
 
-async def test_a_removal_deletes_the_day(e2e_harness):
+async def test_di_delete_005_existing_day_is_deleted(e2e_harness):
+    """DI-DELETE-005 — tests/brd/diary.feature"""
     async with e2e_harness.sessions() as session:
         await create_diary_entry(session, entry_date=date.today(), body="Запись на удаление.")
         await session.commit()
@@ -129,7 +134,8 @@ async def test_a_removal_deletes_the_day(e2e_harness):
         assert await session.scalar(select(DiaryEntry)) is None
 
 
-async def test_removing_a_day_that_was_never_written_is_refused_and_retryable(e2e_harness):
+async def test_di_delete_005_missing_day_is_retryable(e2e_harness):
+    """DI-DELETE-005 — tests/brd/diary.feature"""
     advisor, provider = e2e_harness.advisor(
         [
             turn(("route", {"name": "diary"})),
@@ -284,8 +290,8 @@ async def test_a_screen_still_open_keeps_its_session_restorable(e2e_harness):
     assert affected == [entries[0].id]
 
 
-async def test_the_advisor_reads_a_day_itself_and_cites_it(e2e_harness):
-    """Reading is not a change, so it never routes: the Advisor owns every ai_* view."""
+async def test_di_read_006_advisor_reads_and_cites_day(e2e_harness):
+    """DI-READ-006 — tests/brd/diary.feature"""
     yesterday = date.today() - timedelta(days=1)
     async with e2e_harness.sessions() as session:
         entry = await create_diary_entry(session, entry_date=yesterday, body="Дошёл до рынка.")
@@ -311,16 +317,64 @@ async def test_the_advisor_reads_a_day_itself_and_cites_it(e2e_harness):
     assert "Дошёл до рынка." in json.dumps(provider.calls[1], ensure_ascii=False)
 
 
-async def test_a_resolved_diary_change_hands_back_the_day_shape_and_not_its_text(e2e_harness):
-    tool = {
-        "id": "call-1",
-        "name": "diary",
-        "arguments": json.dumps({"mode": "update", "date": TODAY, "pov": "Долгий день."}),
-        "change": {"entity": "diary", "action": "create", "id": None, "values": {}},
-        "details": [f"Date: {TODAY}", "Entry: 12 characters", "Feeling: 6"],
-    }
+async def test_di_open_010_advisor_opens_day_without_routing(e2e_harness):
+    """DI-OPEN-010 — tests/brd/diary.feature"""
+    requested_date = date.today() - timedelta(days=4)
+    async with e2e_harness.sessions() as session:
+        entry = await create_diary_entry(
+            session, entry_date=requested_date, body="День, который нужно открыть."
+        )
+        await session.commit()
+        entry_id = entry.id
 
-    payload = _resolved_tool_result(tool, "approved", {"affected_ids": [4]})
+    advisor, _ = e2e_harness.advisor(
+        [
+            turn(
+                (
+                    "query_safwa",
+                    {
+                        "sql": (
+                            "SELECT id FROM ai_diary "
+                            f"WHERE entry_date = '{requested_date.isoformat()}'"
+                        )
+                    },
+                )
+            ),
+            turn(("open", {"item_type": "diary", "id": entry_id})),
+            "Вот запись за нужную дату.",
+        ],
+        subagents=(e2e_harness.board(), diary_subagent(e2e_harness)),
+    )
 
-    assert payload["fields"] == [f"Date: {TODAY}", "Entry: 12 characters", "Feeling: 6"]
-    assert "Долгий день" not in json.dumps(payload, ensure_ascii=False)
+    outcome = await advisor.handle(
+        f"Открой запись дневника за {requested_date.strftime('%d.%m.%Y')}"
+    )
+
+    assert outcome.open_item == f"diary-{entry_id}"
+    async with e2e_harness.sessions() as session:
+        runs = list(await session.scalars(select(AgentRun)))
+    assert [(run.kind, run.status) for run in runs] == [("advisor", "completed")]
+
+
+async def test_di_open_010_missing_day_is_reported_without_routing(e2e_harness):
+    """DI-OPEN-010 — tests/brd/diary.feature"""
+    advisor, _ = e2e_harness.advisor(
+        [
+            turn(
+                (
+                    "query_safwa",
+                    {"sql": f"SELECT id FROM ai_diary WHERE entry_date = '{TODAY}'"},
+                )
+            ),
+            "За сегодня записи в дневнике нет.",
+        ],
+        subagents=(e2e_harness.board(), diary_subagent(e2e_harness)),
+    )
+
+    outcome = await advisor.handle("Открой запись дневника за сегодня")
+
+    assert outcome.open_item is None
+    assert outcome.message == "За сегодня записи в дневнике нет."
+    async with e2e_harness.sessions() as session:
+        runs = list(await session.scalars(select(AgentRun)))
+    assert [(run.kind, run.status) for run in runs] == [("advisor", "completed")]

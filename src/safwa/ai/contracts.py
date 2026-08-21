@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from datetime import date as calendar_date
 from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
@@ -458,42 +457,3 @@ class OpenInput(ToolInput):
         description="What kind of item it is."
     )
     id: int = Field(description="Its numeric id.")
-
-
-class DiaryToolInput(ToolInput):
-    """One day of the Diary: written in the user's voice, or removed."""
-
-    mode: Literal["update", "delete"] = Field(
-        description="update writes that day, replacing what is saved; delete removes it."
-    )
-    date: str = Field(description="The day this settles, as YYYY-MM-DD.")
-    pov: str | None = Field(
-        default=None,
-        description="With update: that whole day in the user's voice. It replaces the saved entry.",
-    )
-    ai_comment: str | None = Field(
-        default=None,
-        description="With update: one sentence of your own about the day, addressed to the user.",
-    )
-    feeling_score: int | None = Field(
-        default=None,
-        ge=0,
-        le=10,
-        description="With update: how the day felt, 0-10. Omit it when the day is silent.",
-    )
-
-    @field_validator("date")
-    @classmethod
-    def validate_calendar_date(cls, value: str) -> str:
-        try:
-            return calendar_date.fromisoformat(value.strip()).isoformat()
-        except ValueError as error:
-            raise ValueError("date must be a calendar date written as YYYY-MM-DD") from error
-
-    @model_validator(mode="after")
-    def entry_needs_its_text(self) -> DiaryToolInput:
-        if self.mode == "update" and not (self.pov or "").strip():
-            raise ValueError("pov is the day itself and is required to write one")
-        if self.mode == "delete" and (self.pov or self.feeling_score is not None):
-            raise ValueError("A deletion carries only mode and date")
-        return self

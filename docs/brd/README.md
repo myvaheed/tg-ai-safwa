@@ -19,6 +19,19 @@ docs/brd/
 
 A file is created by the batch that needs it, not up front.
 
+## Migration workflow
+
+`docs/brd/*.md` exists only while a feature is being migrated or refactored. It is the approval
+packet, not a permanent BDD suite or a replacement for product documentation.
+
+1. Write the feature BRD in `docs/brd/<feature>.md` and obtain approval.
+2. After approval, preserve the accepted scenarios in `tests/brd/<feature>.feature`.
+3. Write or rename the relevant unit and E2E pytest tests. Their docstrings cite the scenario ID
+   and the `.feature` file, so a failure leads back to the approved rule.
+
+No BDD runner is used. The `.feature` file is a readable traceability contract; pytest executes
+the real unit, integration, and E2E checks.
+
 ## Identifier
 
 `<AREA>-<TOPIC>-<NNN>`, zero-padded, never reused and never renumbered.

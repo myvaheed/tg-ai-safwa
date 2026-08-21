@@ -1,36 +1,42 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time
+from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import select
 
-from safwa.ai.contracts import DiaryToolInput
 from safwa.ai.prepare import ChangePreparer
-from safwa.ai.service import _approval_results_summary
 from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS, SYSTEM_PROMPT
-from safwa.constants import DIARY_TIME_DEFAULT, FEELING_SCORE_EMOJI
+from safwa.constants import DIARY_TIME_DEFAULT
 from safwa.domain import (
     DIARY_REMINDER_INSTRUCTION,
-    DomainError,
-    create_diary_entry,
-    delete_diary_entry,
     delete_reminder,
-    diary_entry_for,
     reschedule_reminder,
     sync_diary_reminder,
-    update_diary_entry,
     update_profile,
     update_reminder_text,
 )
 from safwa.enums import ScheduleKind
-from safwa.features.diary.agent import DIARY_PROMPT
+from safwa.features.diary.agent import DIARY_PROMPT, DiaryToolInput
+from safwa.features.diary.model import DiaryEntry
+from safwa.features.diary.telegram import (
+    FEELING_SCORE_EMOJI,
+    DiaryProposalPresenter,
+    diary_label,
+)
+from safwa.features.diary.use_cases import (
+    create_diary_entry,
+    delete_diary_entry,
+    diary_entry_for,
+    update_diary_entry,
+)
 from safwa.features.proposals.api import ToolPreparationError
-from safwa.models import DiaryEntry, Reminder
+from safwa.foundation.errors import DomainError
+from safwa.models import Reminder
 from safwa.reminders import resolve, schedule_of
-from safwa.telegram._presentation import diary_label
 
 
 def preparer() -> ChangePreparer:
@@ -45,16 +51,16 @@ async def prepared(sessions, tool_arguments: dict[str, Any]) -> Any:
     return change, result
 
 
-def test_both_readers_are_told_about_the_diary_view() -> None:
-    """A view missing from a prompt is a view that reader can never use."""
+def test_di_read_006_both_readers_know_the_diary_view() -> None:
+    """DI-READ-006 — tests/brd/diary.feature"""
     assert "ai_diary" in ALLOWED_VIEWS
     assert "`ai_diary(id, entry_date, body, feeling_score" in DIARY_PROMPT
-    # The advisor reads days for itself; only writing one goes through the subagent.
     assert "ai_diary(id, entry_date, body, feeling_score" in SYSTEM_PROMPT
     assert "(diary:12)" in SYSTEM_PROMPT
 
 
-def test_a_written_day_carries_its_text_and_a_removal_carries_none() -> None:
+def test_di_write_008_write_and_delete_inputs_are_distinct() -> None:
+    """DI-WRITE-008 — tests/brd/diary.feature"""
     with pytest.raises(ValueError):
         DiaryToolInput.model_validate({"mode": "update", "date": "2026-08-15"})
     with pytest.raises(ValueError):
@@ -64,7 +70,8 @@ def test_a_written_day_carries_its_text_and_a_removal_carries_none() -> None:
     assert DiaryToolInput.model_validate({"mode": "delete", "date": "2026-08-15"}).pov is None
 
 
-def test_a_feeling_score_runs_from_zero_to_ten() -> None:
+def test_di_mood_004_score_is_optional_and_bounded() -> None:
+    """DI-MOOD-004 — tests/brd/diary.feature"""
     written = DiaryToolInput.model_validate(
         {"mode": "update", "date": "2026-08-15", "pov": "День.", "feeling_score": 0}
     )
@@ -83,25 +90,30 @@ def test_a_feeling_score_runs_from_zero_to_ten() -> None:
         DiaryToolInput.model_validate({"mode": "delete", "date": "2026-08-15", "feeling_score": 7})
 
 
-def test_the_scale_is_stated_once_and_the_model_never_reaches_for_zero() -> None:
+def test_di_mood_004_zero_requires_owner_words() -> None:
+    """DI-MOOD-004 — tests/brd/diary.feature"""
     assert set(FEELING_SCORE_EMOJI) == set(range(11))
     assert "Never choose 0 yourself." in DIARY_PROMPT
+
+
+def test_di_link_007_heading_shows_optional_mood() -> None:
+    """DI-LINK-007 — tests/brd/diary.feature"""
     assert diary_label(date(2026, 3, 4), 6) == "4 марта · 🙂6"
-    # A day that said nothing about how it felt is named by its date alone.
     assert diary_label(date(2026, 3, 4), None) == "4 марта"
 
 
-def test_the_call_says_what_was_asked_for_and_nothing_about_the_data() -> None:
+def test_di_write_008_update_action_is_resolved_from_live_day() -> None:
+    """DI-WRITE-008 — tests/brd/diary.feature"""
     change = PROPOSALS.change_from_tool(
         "diary",
         {"mode": "update", "date": "2026-08-15", "pov": "День.", "ai_comment": "Held."},
     )
-    # Whether that day exists is not the model's to know; preparation settles it.
     assert (change.entity, change.action, change.id) == ("diary", "update", None)
     assert "mode" not in change.values
 
 
-async def test_preparation_settles_a_written_day_on_create_or_update(sessions) -> None:
+async def test_di_day_001_missing_day_is_created(sessions) -> None:
+    """DI-DAY-001 — tests/brd/diary.feature"""
     today = date.today()
     change, result = await prepared(
         sessions,
@@ -115,6 +127,10 @@ async def test_preparation_settles_a_written_day_on_create_or_update(sessions) -
         "ai_comment": "",
     }
 
+
+async def test_di_day_002_existing_day_is_replaced(sessions) -> None:
+    """DI-DAY-002 — tests/brd/diary.feature"""
+    today = date.today()
     async with sessions() as session:
         entry = await create_diary_entry(session, entry_date=today, body="Уже записано.")
         await session.commit()
@@ -126,12 +142,17 @@ async def test_preparation_settles_a_written_day_on_create_or_update(sessions) -
     assert result.expected_version == entry.version
 
 
-async def test_removing_a_day_that_was_never_written_is_refused(sessions) -> None:
+async def test_di_delete_005_missing_day_is_refused(sessions) -> None:
+    """DI-DELETE-005 — tests/brd/diary.feature"""
     today = date.today()
     with pytest.raises(ToolPreparationError) as refused:
         await prepared(sessions, {"mode": "delete", "date": today.isoformat()})
     assert refused.value.code == "target_not_found"
 
+
+async def test_di_delete_005_existing_day_is_targeted(sessions) -> None:
+    """DI-DELETE-005 — tests/brd/diary.feature"""
+    today = date.today()
     async with sessions() as session:
         entry = await create_diary_entry(session, entry_date=today, body="Есть что удалять.")
         await session.commit()
@@ -141,26 +162,27 @@ async def test_removing_a_day_that_was_never_written_is_refused(sessions) -> Non
     assert result.values == {"entry_date": today.isoformat()}
 
 
-def test_a_diary_receipt_names_the_day_and_never_repeats_it() -> None:
-    tool: dict[str, Any] = {
-        "change": {"entity": "diary", "action": "create", "values": {}},
-        "display": "New Diary entry for 2026-08-16",
-        "details": ["Date: 2026-08-16", "Entry: 5 characters"],
-        "target": {"type": "proposal", "id": 1},
-    }
-    discarded = _approval_results_summary(
-        [{**tool, "result": {"status": "discarded"}}], for_display=True
+async def test_di_receipt_009_result_omits_day_text(sessions) -> None:
+    """DI-RECEIPT-009 — tests/brd/diary.feature"""
+    change = SimpleNamespace(
+        action="create",
+        values={
+            "entry_date": "2026-08-16",
+            "body": "День.",
+            "feeling_score": 7,
+        },
     )
-    saved = _approval_results_summary(
-        [{**tool, "result": {"status": "approved"}}], for_display=True
-    )
+    presenter = DiaryProposalPresenter()
+    async with sessions() as session:
+        details = await presenter.details(session, change, None)  # type: ignore[arg-type]
+        summary = await presenter.summary(session, change, details)  # type: ignore[arg-type]
+    assert details == ["Date: 2026-08-16", "Entry: 5 characters", "Feeling: 7"]
+    assert summary == "New Diary entry for 2026-08-16 with feeling score 7"
+    assert "День" not in repr((details, summary))
 
-    # A refused day is still held by its own session, so nothing has to be handed back.
-    assert discarded == "🗑 Discarded — New Diary entry for 2026-08-16"
-    assert saved == "✅ Saved — New Diary entry for 2026-08-16"
 
-
-async def test_a_day_holds_one_entry_and_a_later_write_replaces_it(sessions) -> None:
+async def test_di_day_002_later_write_replaces_the_single_entry(sessions) -> None:
+    """DI-DAY-002 — tests/brd/diary.feature"""
     async with sessions() as session:
         entry = await create_diary_entry(
             session, entry_date=date(2026, 8, 15), body="Долгий день."
@@ -182,7 +204,14 @@ async def test_a_day_holds_one_entry_and_a_later_write_replaces_it(sessions) -> 
     assert same_day.body == "Долгий день, но закончился хорошо."
     assert same_day.version == 2
 
+
+async def test_di_delete_005_delete_removes_the_existing_entry(sessions) -> None:
+    """DI-DELETE-005 — tests/brd/diary.feature"""
     async with sessions() as session:
+        entry = await create_diary_entry(
+            session, entry_date=date(2026, 8, 15), body="Запись на удаление."
+        )
+        await session.commit()
         await delete_diary_entry(session, entry.id)
         await session.commit()
         assert await diary_entry_for(session, date(2026, 8, 15)) is None

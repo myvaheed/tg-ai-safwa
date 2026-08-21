@@ -31,6 +31,7 @@ from ..domain import (
 from ..enums import (
     ProposalStatus,
 )
+from ..features.diary.model import DiaryEntry
 from ..features.proposals.api import (
     ApplyContext,
     MutationToolSpec,
@@ -48,7 +49,6 @@ from ..models import (
     Card,
     ChangeProposal,
     Check,
-    DiaryEntry,
     ProposalChange,
     SavedRequest,
     Tag,

@@ -33,7 +33,6 @@ from safwa.domain import (
     archive_tag,
     create_card,
     create_check,
-    create_diary_entry,
     create_reminder,
     create_saved_request,
     create_tag,
@@ -45,6 +44,7 @@ from safwa.domain import (
     update_profile,
 )
 from safwa.enums import CardStage, MessageKind
+from safwa.features.diary.use_cases import create_diary_entry
 from safwa.history import (
     CITATION_TYPES,
     HistoryEntry,

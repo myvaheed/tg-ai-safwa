@@ -118,9 +118,11 @@ What each feature plugs into the application is declared once, in
 [bootstrap/modules.py](src/safwa/bootstrap/modules.py) — see
 [docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md).
 
-Layer responsibilities are flat files: [domain.py](src/safwa/domain.py) (invariants + all mutations),
-[telegram/](src/safwa/telegram) (all UI), [ai/service.py](src/safwa/ai/service.py) (agent loop +
-proposals). Neither the UI nor the AI touches an ORM entity directly — both go through `domain.py`.
+The codebase is moving from flat layers to vertical features. The Diary pilot owns its model, use
+cases, agent contract and Telegram adapter under [features/diary](src/safwa/features/diary); its AI
+and UI mutation paths call the same feature operations. Other business areas remain in
+[domain.py](src/safwa/domain.py), [telegram/](src/safwa/telegram) and
+[ai/service.py](src/safwa/ai/service.py) until their declared phases.
 
 `archived_docs/INITIAL_PLAN.md` and `archived_docs/MEMORY_HISTORY_USAGE.md` are the authoritative product spec —
 read them before changing history, memory, proposal, or UI behavior. When sources drift: the product
@@ -277,17 +279,19 @@ system message.
 
 ## Schema gotcha
 
-There are no migrations and no Alembic. `models.py` is the only schema source: startup calls
-`upgrade_database` ([foundation/database.py](src/safwa/foundation/database.py)), which is `Base.metadata.create_all`.
+There are no migrations and no Alembic. The ORM model modules are the schema source: startup calls
+`upgrade_database` ([foundation/database.py](src/safwa/foundation/database.py)), which is
+`Base.metadata.create_all`. During the vertical migration, [models.py](src/safwa/models.py) imports
+feature-owned models so the metadata is complete before startup creates tables.
 
 `create_all` adds missing tables and indexes and **never alters an existing one**, so a **fresh**
-database always matches `models.py`, while adding or changing a column will **not** touch an existing
-`data/safwa.db`. A schema change therefore means editing `models.py` and rebuilding the database
-(back it up first with `uv run safwa-backup`).
+database always matches the declared models, while adding or changing a column will **not** touch an
+existing `data/safwa.db`. A schema change therefore means editing the owning model and rebuilding the
+database (back it up first with `uv run safwa-backup`).
 
 **Do not add Alembic or write migrations before the first release.** The owner recreates the
-pre-release database. Migration support starts after v1; its baseline is generated from `models.py`
-at that point.
+pre-release database. Migration support starts after v1; its baseline is generated from the complete
+ORM metadata at that point.
 
 ## Conventions
 

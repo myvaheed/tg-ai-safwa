@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -22,6 +22,14 @@ class StubDayReader:
     async def day_transcript(self, chat_id: int, *, start, end, token_budget) -> str:
         self.reads.append({"chat_id": chat_id, "start": start, "end": end})
         return self.transcript
+
+
+class FixedClock:
+    def __init__(self, current: datetime) -> None:
+        self.current = current
+
+    def now(self) -> datetime:
+        return self.current
 
 
 def diary_routed(history: StubDayReader, timezone: str = "Europe/Istanbul") -> RoutedSubagent:
@@ -60,7 +68,10 @@ def test_the_diary_is_written_only_by_its_subagent() -> None:
 @pytest.mark.parametrize("timezone", ["Europe/Istanbul", "Pacific/Kiritimati"])
 async def test_a_day_is_read_between_its_own_local_midnights(timezone: str) -> None:
     history = StubDayReader("[10:00] [User]: Morning.")
-    read_day = day_read_tool(history, chat_id=42, timezone=timezone)
+    current = datetime(2026, 8, 21, 12, tzinfo=UTC)
+    read_day = day_read_tool(
+        history, chat_id=42, timezone=timezone, clock=FixedClock(current)
+    )
     tz = ZoneInfo(timezone)
 
     await read_day.run(ProviderToolCall(id="call-1", name="read_day", arguments_json="{}"))
@@ -71,7 +82,7 @@ async def test_a_day_is_read_between_its_own_local_midnights(timezone: str) -> N
     assert (local_start.hour, local_start.minute) == (0, 0)
     assert (end - start).days == 1
     # No date argument means the subagent's own local day, not the host's.
-    assert local_start.date() == datetime.now(tz).date()
+    assert local_start.date() == current.astimezone(tz).date()
 
 
 async def test_an_unreadable_date_is_repaired_rather_than_read() -> None:
@@ -90,7 +101,8 @@ async def test_an_unreadable_date_is_repaired_rather_than_read() -> None:
 
 
 def test_the_clock_is_the_only_volatile_line_a_diary_session_gets() -> None:
-    clock = diary_clock("Europe/Istanbul")
-    today = datetime.now(ZoneInfo("Europe/Istanbul")).date().isoformat()
+    current = datetime(2026, 8, 21, 12, tzinfo=UTC)
+    clock = diary_clock("Europe/Istanbul", FixedClock(current))
+    today = current.astimezone(ZoneInfo("Europe/Istanbul")).date().isoformat()
     assert clock.startswith(f"Today is {today}")
     assert today not in DIARY_PROMPT

@@ -5,14 +5,12 @@ from __future__ import annotations
 import html
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from ..constants import (
-    DIARY_MONTH_NAMES,
-    FEELING_SCORE_EMOJI,
     PAGE_SIZE,
     PROPOSAL_OUTCOME_DETAIL_LIMIT,
     TELEGRAM_TEXT_LIMIT,
@@ -98,13 +96,6 @@ def markdown_to_telegram_html(text: str) -> str:
     for index, fragment in reversed(list(enumerate(protected))):
         rendered = rendered.replace(f"{token_prefix}{index}\ue001", fragment)
     return rendered
-
-
-def diary_label(entry_date: date, feeling_score: int | None) -> str:
-    """How a Diary day is named everywhere: on its screen, and on the link that opens it."""
-    written = f"{entry_date.day} {DIARY_MONTH_NAMES[entry_date.month - 1]}"
-    emoji = FEELING_SCORE_EMOJI.get(feeling_score) if feeling_score is not None else None
-    return f"{written} · {emoji}{feeling_score}" if emoji else written
 
 
 def typed_label(value: Any, emojis: dict[str, str]) -> str:

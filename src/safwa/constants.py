@@ -43,40 +43,9 @@ SESSION_IDLE_DAYS = 2
 SUBAGENT_DEADLINE_SECONDS = 300.0
 
 SUBAGENT_HISTORY_LAST_MESSAGES = 10
-# How much of a day's conversation the Diary reader may hand back in one call.
-DIARY_DAY_TOKEN_BUDGET = 12_000
 # Local clock the Diary's system Reminder fires on out of the box; Settings moves it,
 # and `off` there removes the row.
 DIARY_TIME_DEFAULT = "22:00"
-# Genitive month names keep compact Diary labels natural in the Russian UI, e.g. "16 августа".
-DIARY_MONTH_NAMES = (
-    "января",
-    "февраля",
-    "марта",
-    "апреля",
-    "мая",
-    "июня",
-    "июля",
-    "августа",
-    "сентября",
-    "октября",
-    "ноября",
-    "декабря",
-)
-# How the day felt, 0-10. 5 is an ordinary day; 0 is the owner's own word, never the model's.
-FEELING_SCORE_EMOJI = {
-    0: "⚫",
-    1: "😨",
-    2: "😞",
-    3: "🙁",
-    4: "😕",
-    5: "😐",
-    6: "🙂",
-    7: "😊",
-    8: "😃",
-    9: "🤩",
-    10: "🌟",
-}
 
 # --- query_safwa result caps ----------------------------------------------
 # Sized for a local model: one result should inform a turn, not consume its context.

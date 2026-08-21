@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .constants import (
     EFFORT_POINTS,
-    FEELING_SCORE_EMOJI,
     REPEAT_MARKER,
     SPRINT_LENGTH_DAYS,
     SPRINT_LENGTH_MAX_DAYS,
@@ -31,6 +30,10 @@ from .enums import (
     ScheduleKind,
     WorkspaceMode,
 )
+from .foundation.errors import DomainError
+from .foundation.errors import StaleStateError as StaleStateError
+from .foundation.workspace import bump_workspace as _bump_workspace
+from .foundation.workspace import require_workspace as _workspace
 from .models import (
     Card,
     CardCategory,
@@ -40,7 +43,6 @@ from .models import (
     CardTag,
     CardValue,
     Check,
-    DiaryEntry,
     FeedbackQueue,
     Reminder,
     SavedRequest,
@@ -54,14 +56,6 @@ from .models import (
 )
 from .reminders import Schedule, next_fire, schedule_columns
 from .saved_requests import RequestQueryError, normalize_request_sql
-
-
-class DomainError(ValueError):
-    pass
-
-
-class StaleStateError(DomainError):
-    pass
 
 
 @dataclass
@@ -451,60 +445,6 @@ async def archive_saved_request(session: AsyncSession, request_id: int) -> Saved
     request.version += 1
     await _bump_workspace(session)
     return request
-
-
-async def diary_entry_for(session: AsyncSession, entry_date: date) -> DiaryEntry | None:
-    return await session.scalar(select(DiaryEntry).where(DiaryEntry.entry_date == entry_date))
-
-
-def _validated_feeling_score(score: int | None) -> int | None:
-    if score is not None and score not in FEELING_SCORE_EMOJI:
-        raise DomainError("A feeling score runs from 0 to 10")
-    return score
-
-
-async def create_diary_entry(
-    session: AsyncSession, *, entry_date: date, body: str, feeling_score: int | None = None
-) -> DiaryEntry:
-    """Write a day's first entry; a second one for the same date is an update."""
-    text = body.strip()
-    if not text:
-        raise DomainError("A Diary entry cannot be empty")
-    if await diary_entry_for(session, entry_date) is not None:
-        raise DomainError("This day already has a Diary entry")
-    entry = DiaryEntry(
-        entry_date=entry_date, body=text, feeling_score=_validated_feeling_score(feeling_score)
-    )
-    session.add(entry)
-    await session.flush()
-    await _bump_workspace(session)
-    return entry
-
-
-async def update_diary_entry(
-    session: AsyncSession, entry_id: int, body: str, feeling_score: int | None = None
-) -> DiaryEntry:
-    """Replace a day's entry. The Diary is rewritten whole, never patched — the score with it."""
-    entry = await session.get(DiaryEntry, entry_id)
-    if entry is None:
-        raise DomainError("Diary entry does not exist")
-    text = body.strip()
-    if not text:
-        raise DomainError("A Diary entry cannot be empty")
-    entry.body = text
-    entry.feeling_score = _validated_feeling_score(feeling_score)
-    entry.version += 1
-    await _bump_workspace(session)
-    return entry
-
-
-async def delete_diary_entry(session: AsyncSession, entry_id: int) -> None:
-    """Remove a day's entry outright; the Diary has no archive."""
-    entry = await session.get(DiaryEntry, entry_id)
-    if entry is None:
-        raise DomainError("Diary entry does not exist")
-    await session.delete(entry)
-    await _bump_workspace(session)
 
 
 async def create_value(
@@ -1192,19 +1132,6 @@ async def _clone_checks_for_successor(
         latest[check.series_id or check.id] = check
     for series_id, check in sorted(latest.items()):
         await _copy_check(session, check, series_id, [successor_id])
-
-
-async def _workspace(session: AsyncSession) -> Workspace:
-    workspace = await session.get(Workspace, 1)
-    if workspace is None:
-        raise DomainError("Workspace is not initialized")
-    return workspace
-
-
-async def _bump_workspace(session: AsyncSession) -> Workspace:
-    workspace = await _workspace(session)
-    workspace.revision += 1
-    return workspace
 
 
 async def validate_parent(

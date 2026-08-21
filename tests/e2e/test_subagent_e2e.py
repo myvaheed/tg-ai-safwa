@@ -16,7 +16,8 @@ from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS
 from safwa.domain import create_card, finish_action
 from safwa.enums import CardKind, CardStage
 from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
-from safwa.models import AgentRun, AgentStep, Card, DiaryEntry
+from safwa.features.diary.model import DiaryEntry
+from safwa.models import AgentRun, AgentStep, Card
 
 TODAY = date.today().isoformat()
 

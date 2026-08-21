@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain import DomainError, card_progress, repeat_marker
 from ..enums import CardKind, MessageKind
+from ..features.diary.model import DiaryEntry
+from ..features.diary.telegram import diary_label, render_diary
 from ..history import (
     CITATION_MARKUP,
     CITATION_PATTERN,
@@ -22,7 +24,6 @@ from ..models import (
     CardCategory,
     CardEnergyType,
     Check,
-    DiaryEntry,
     SavedRequest,
     Tag,
     Value,
@@ -30,10 +31,9 @@ from ..models import (
 from ..saved_requests import request_cards
 from ._core import Services
 from ._messaging import send_registered
-from ._presentation import CATEGORY_EMOJIS, ENERGY_EMOJIS, diary_label, kind_emoji
+from ._presentation import CATEGORY_EMOJIS, ENERGY_EMOJIS, kind_emoji
 from .cards import render_card
 from .checks import render_check
-from .diary import render_diary
 from .items import render_item_editor, render_saved_request
 
 logger = logging.getLogger(__name__)
