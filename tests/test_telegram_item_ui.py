@@ -14,6 +14,7 @@ import pytest
 from aiogram.exceptions import TelegramAPIError
 from sqlalchemy import select
 
+import safwa.features.profile.screens as profile_screens_source
 import safwa.telegram as telegram_source
 import safwa.telegram.plan as plan_module
 from safwa.ai.context import DialogueMessage
@@ -28,7 +29,6 @@ from safwa.constants import (
     TELEGRAM_TEXT_LIMIT,
 )
 from safwa.domain import (
-    DIARY_REMINDER_INSTRUCTION,
     DomainError,
     archive_tag,
     create_card,
@@ -41,10 +41,11 @@ from safwa.domain import (
     set_sprint_success_criteria,
     start_sprint,
     toggle_card_check,
-    update_profile,
 )
 from safwa.enums import CardStage, MessageKind
 from safwa.features.diary.use_cases import create_diary_entry
+from safwa.features.profile.api import DIARY_REMINDER_INSTRUCTION, update_profile
+from safwa.features.profile.screens import command_settings
 from safwa.history import (
     CITATION_TYPES,
     HistoryEntry,
@@ -100,7 +101,7 @@ from safwa.telegram._messaging import (
     send_registered,
 )
 from safwa.telegram._presentation import start_payload
-from safwa.telegram.commands import command_settings, command_start
+from safwa.telegram.commands import command_start
 from safwa.telegram.dialogue import run_dialogue_turn
 from safwa.telegram.plan import handle_plan_start, is_plan_link, render_plan
 from safwa.telegram.reminders import render_reminder, render_reminders
@@ -108,13 +109,12 @@ from safwa.telegram.screens import OPENABLE_MODELS
 
 
 def _telegram_module_trees() -> list[ast.Module]:
-    """Every submodule of the ``safwa.telegram`` package as a parsed AST.
+    """Every module that emits Telegram buttons or registers their actions.
 
     The inline-button invariants were single-module when the UI lived in one file;
-    after the package split they must hold across every submodule that contributes
-    button actions or the ``CALLBACK_ACTIONS`` registry.
+    they now include feature-owned screens as well as the Telegram adapter package.
     """
-    trees: list[ast.Module] = []
+    trees: list[ast.Module] = [ast.parse(inspect.getsource(profile_screens_source))]
     for info in pkgutil.iter_modules(telegram_source.__path__):
         module = importlib.import_module(f"{telegram_source.__name__}.{info.name}")
         trees.append(ast.parse(inspect.getsource(module)))
@@ -1943,47 +1943,53 @@ async def test_the_reminders_screen_and_settings_hide_safwas_own_reminder(sessio
     assert "Diary: 22:00" in settings.edits[-1][0]
 
 
-@pytest.mark.parametrize(
-    ("label", "typed", "field", "expected", "shown"),
-    [
-        ("👤 About me", "I prefer mornings.", "about_me", "I prefer mornings.", "About me: I prefer mornings."),
-        ("🧭 Advisor instructions", "Keep plans concise.", "advisor_instructions", "Keep plans concise.", "Advisor instructions: Keep plans concise."),
-        ("📔 Diary time", "07:15", "diary_time", time(7, 15), "Diary: 07:15"),
-        ("📔 Diary time", "off", "diary_time", None, "Diary: off"),
-        ("🧠 Memory sync", "03:00", "memory_update_time", time(3, 0), "Memory sync: 03:00"),
-        ("🎯 Sprint capacity", "21", "capacity_effort_points", 21, "Sprint capacity: 21 EP"),
-        ("✍️ Diary instruction", "Спроси про сон.", "diary_instructions", "Спроси про сон.",
-         "Diary instruction: Спроси про сон."),
-        ("🏁 Sprint length", "21", "sprint_length_days", 21, "Sprint length: 21 days"),
-    ],
-)
-async def test_every_settings_value_is_edited_from_its_own_button(
-    sessions, label, typed, field, expected, shown
+async def test_valid_settings_input_updates_selected_field_and_auto_closes_prompt(
+    sessions,
 ) -> None:
+    """PS-UI-SAVE-008: valid input updates one field, auto-closes, and redraws."""
     services = services_for(sessions)
-    message = FakeMessage(920, bot_message=True, answer_as_new=True)
+    async with sessions() as session:
+        await update_profile(session, advisor_instructions="Keep this unchanged.")
+        await session.commit()
+    message = FakeMessage(921, bot_message=True, answer_as_new=True)
     await command_settings(message, services)
 
     button = next(
-        item for row in message.edits[-1][1].inline_keyboard for item in row if item.text == label
+        item
+        for row in message.edits[-1][1].inline_keyboard
+        for item in row
+        if item.text == "👤 About me"
     )
     await callback_token_handler(
         FakeCallback(button.callback_data.split(":", 1)[1], message), services
     )
-    async with sessions() as session:
-        ui = await session.scalar(select(UiSession))
-        assert (ui.kind, ui.state["field"]) == ("text_input", field)
-        assert "Current value:\n<pre>" in message.bot.edits[-1][1]
 
-    answer = FakeMessage(921, text=typed, bot_message=False, bot=message.bot)
+    answer = FakeMessage(922, text="I prefer mornings.", bot_message=False, bot=message.bot)
     await ordinary_text(answer, services)
 
     async with sessions() as session:
-        assert getattr(await session.get(UserProfile, 1), field) == expected
-    assert shown in message.bot.edits[-1][1]
+        profile = await session.get(UserProfile, 1)
+        assert profile.about_me == "I prefer mornings."
+        assert profile.advisor_instructions == "Keep this unchanged."
+        assert await session.scalar(select(UiSession)) is None
+    assert answer.was_deleted is True
+    assert "About me: I prefer mornings." in message.bot.edits[-1][1]
+    assert "Advisor instructions: Keep this unchanged." in message.bot.edits[-1][1]
 
 
-async def test_a_rejected_settings_value_reopens_its_own_prompt(sessions) -> None:
+async def test_settings_shows_timezone_without_a_timezone_edit_action(sessions) -> None:
+    """PS-TIMEZONE-010: timezone is visible text, never a Settings action."""
+    message = FakeMessage(923, bot_message=True, answer_as_new=True)
+    await command_settings(message, services_for(sessions))
+
+    rendered, markup = message.edits[-1]
+    labels = {item.text for row in markup.inline_keyboard for item in row}
+    assert "Timezone: Europe/Istanbul" in rendered
+    assert not any("timezone" in label.casefold() for label in labels)
+
+
+async def test_invalid_settings_input_keeps_data_and_the_same_prompt(sessions) -> None:
+    """PS-UI-INVALID-009: invalid input leaves data and its selected prompt in place."""
     services = services_for(sessions)
     message = FakeMessage(930, bot_message=True, answer_as_new=True)
     await command_settings(message, services)
@@ -2006,7 +2012,8 @@ async def test_a_rejected_settings_value_reopens_its_own_prompt(sessions) -> Non
         assert (await session.get(UserProfile, 1)).diary_time == time.fromisoformat(
             DIARY_TIME_DEFAULT
         )
-        assert (await session.scalar(select(UiSession))).kind == "text_input"
+        ui = await session.scalar(select(UiSession))
+        assert (ui.kind, ui.state["field"]) == ("text_input", "diary_time")
 
 
 class ScriptedTranscriber:

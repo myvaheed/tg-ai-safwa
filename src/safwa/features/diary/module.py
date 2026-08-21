@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from ...bootstrap.module_manifest import FeatureModule, ProposalContribution
-from ...domain import sync_diary_reminder
 from . import agent, proposal, telegram, views
 
 MODULE = FeatureModule(
@@ -17,5 +16,4 @@ MODULE = FeatureModule(
         ),
     ),
     views=views.VIEWS,
-    recover=sync_diary_reminder,
 )

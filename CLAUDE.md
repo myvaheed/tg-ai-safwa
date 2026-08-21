@@ -230,10 +230,11 @@ list in a prompt is still prose: it is what scopes a reader.
 
 ### `data/memory.md` is authoritative
 
-[memory.py](src/safwa/memory.py): UTF-8, one non-empty fact per line. The `memory_fact_cache` table
-is a disposable mirror — never treat it as the source. AI writes are atomic and re-check the file
-hash, so a concurrent local edit is preserved rather than overwritten. An invalid or oversized file
-disables memory injection instead of failing the turn.
+[features/continuity/memory.py](src/safwa/features/continuity/memory.py): ordinary UTF-8 text. Each
+trimmed non-empty line is a fact, blank lines are ignored, and a missing file means empty memory. The
+`memory_fact_cache` table is a rebuildable derived cache — never treat it as the source. AI replacements
+respect the configured token budget, write atomically, and re-check the file hash so a concurrent
+local edit is preserved rather than overwritten.
 
 ### The prompt prefix must stay byte-stable
 

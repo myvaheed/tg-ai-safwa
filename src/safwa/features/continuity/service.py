@@ -6,14 +6,14 @@ import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from llm_gateway import CompletionRequest, LlmProvider
 
-from .constants import (
-    MEMORY_MAINTENANCE_INTERVAL_SECONDS,
+from ...constants import (
     MEMORY_READ_TOKEN_BUDGET,
     MEMORY_RETELL_CHUNK_TOKENS,
     MEMORY_RETELL_OVERLAP_TOKENS,
@@ -21,10 +21,14 @@ from .constants import (
     SUMMARY_TRIGGER_TOKENS,
     TOKEN_CHARS_ESTIMATE,
 )
-from .enums import MessageKind
-from .history import TelegramHistorySource
+from ...enums import MessageKind
+from ..profile.api import UserProfile
 from .memory import MemoryFileError, MemoryFileStore, estimate_tokens
-from .models import MemorySyncState, UserProfile
+from .storage import MemorySyncState
+
+
+class ContinuityHistory(Protocol):
+    async def recent(self, chat_id: int, **kwargs: Any) -> list[Any]: ...
 
 logger = logging.getLogger(__name__)
 
@@ -68,11 +72,19 @@ class MemoryMaintenanceResult(StrEnum):
     INVALID = "invalid"
 
 
+BackgroundMemoryOperation = Callable[
+    [Callable[[], bool]], Awaitable[MemoryMaintenanceResult]
+]
+BackgroundMemoryRunner = Callable[
+    [BackgroundMemoryOperation], Awaitable[MemoryMaintenanceResult | None]
+]
+
+
 class PersonaContinuity:
     def __init__(
         self,
         sessions: async_sessionmaker[AsyncSession],
-        history: TelegramHistorySource,
+        history: ContinuityHistory,
         provider: LlmProvider,
         memory: MemoryFileStore,
         *,
@@ -153,8 +165,6 @@ class PersonaContinuity:
             snapshot = await self.memory.sync()
             if still_current is not None and not still_current():
                 return MemoryMaintenanceResult.BUSY
-            if not snapshot.valid:
-                return MemoryMaintenanceResult.INVALID
             async with self.sessions() as session:
                 state = await session.get(MemorySyncState, 1)
                 cursor = state.processed_until if state else None
@@ -254,48 +264,14 @@ class PersonaContinuity:
                 break
             start = max(start + 1, end - overlap_chars)
         return chunks
-
-
-async def run_memory_maintenance(
-    continuity: PersonaContinuity,
-    sessions: async_sessionmaker[AsyncSession],
-    chat_id: int,
-    is_foreground_busy: Callable[[], bool],
-    timezone: str,
-    *,
-    interval_seconds: float = MEMORY_MAINTENANCE_INTERVAL_SECONDS,
-    reserve_background: Callable[[], bool] | None = None,
-    dialogue_revision: Callable[[], int] | None = None,
-    release_background: Callable[[], None] | None = None,
-) -> None:
-    while True:
-        try:
-            await run_due_memory_maintenance(
-                continuity,
-                sessions,
-                chat_id,
-                is_foreground_busy,
-                timezone,
-                reserve_background=reserve_background,
-                dialogue_revision=dialogue_revision,
-                release_background=release_background,
-            )
-        except Exception:
-            logger.exception("Scheduled memory synchronization failed")
-        await asyncio.sleep(interval_seconds)
-
-
 async def run_due_memory_maintenance(
     continuity: PersonaContinuity,
     sessions: async_sessionmaker[AsyncSession],
     chat_id: int,
-    is_foreground_busy: Callable[[], bool],
     timezone: str,
     *,
+    run_background: BackgroundMemoryRunner,
     now: datetime | None = None,
-    reserve_background: Callable[[], bool] | None = None,
-    dialogue_revision: Callable[[], int] | None = None,
-    release_background: Callable[[], None] | None = None,
 ) -> bool:
     """Run the configured once-daily memory sync if it is due."""
     zone = ZoneInfo(timezone)
@@ -313,25 +289,16 @@ async def run_due_memory_maintenance(
             if last_run.astimezone(zone).date() >= local_now.date():
                 return False
 
-    reserve = reserve_background or (lambda: not is_foreground_busy())
-    revision_of = dialogue_revision or (lambda: 0)
-    release = release_background or (lambda: None)
-    if not reserve():
-        return False
-    revision = revision_of()
-    try:
-        result = await continuity.maintain_memory(
+    result = await run_background(
+        lambda still_current: continuity.maintain_memory(
             chat_id,
-            still_current=lambda: revision_of() == revision,
+            still_current=still_current,
         )
-        if result not in {MemoryMaintenanceResult.UPDATED, MemoryMaintenanceResult.CURRENT}:
-            return False
-        if revision_of() != revision:
-            return False
-        await record_memory_run(sessions, local_now.astimezone(UTC))
-        return True
-    finally:
-        release()
+    )
+    if result not in {MemoryMaintenanceResult.UPDATED, MemoryMaintenanceResult.CURRENT}:
+        return False
+    await record_memory_run(sessions, local_now.astimezone(UTC))
+    return True
 
 
 async def record_memory_run(

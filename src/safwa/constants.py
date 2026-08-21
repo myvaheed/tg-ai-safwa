@@ -60,7 +60,7 @@ QUERY_TIMEOUT_SECONDS = 2.0
 # SUMMARY_TOKEN_CEILING plus the messages SUMMARY_TRIGGER_TOKENS pays for.  The trigger is
 # the message budget itself, so a Summary is written exactly when the window is full.
 SUMMARY_TOKEN_CEILING = 2_000
-SUMMARY_TRIGGER_TOKENS = 8_000
+SUMMARY_TRIGGER_TOKENS = 6_000
 HISTORY_TOKEN_BUDGET = SUMMARY_TRIGGER_TOKENS + SUMMARY_TOKEN_CEILING
 SUMMARY_CONTEXT_MESSAGE_LIMIT = 20
 # A ceiling on how many Telegram messages one backwards scan may walk.  The budget, a

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -10,16 +10,11 @@ from sqlalchemy import select
 
 from safwa.ai.prepare import ChangePreparer
 from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS, SYSTEM_PROMPT
-from safwa.constants import DIARY_TIME_DEFAULT
 from safwa.domain import (
-    DIARY_REMINDER_INSTRUCTION,
     delete_reminder,
     reschedule_reminder,
-    sync_diary_reminder,
-    update_profile,
     update_reminder_text,
 )
-from safwa.enums import ScheduleKind
 from safwa.features.diary.agent import DIARY_PROMPT, DiaryToolInput
 from safwa.features.diary.model import DiaryEntry
 from safwa.features.diary.telegram import (
@@ -33,10 +28,11 @@ from safwa.features.diary.use_cases import (
     diary_entry_for,
     update_diary_entry,
 )
+from safwa.features.profile.api import sync_diary_reminder
 from safwa.features.proposals.api import ToolPreparationError
 from safwa.foundation.errors import DomainError
 from safwa.models import Reminder
-from safwa.reminders import resolve, schedule_of
+from safwa.reminders import resolve
 
 
 def preparer() -> ChangePreparer:
@@ -223,49 +219,6 @@ async def test_di_delete_005_delete_removes_the_existing_entry(sessions) -> None
 async def system_reminder(sessions) -> Reminder | None:
     async with sessions() as session:
         return await session.scalar(select(Reminder).where(Reminder.system.is_(True)))
-
-
-async def test_settings_is_the_only_source_of_the_diary_reminder(sessions) -> None:
-    async with sessions() as session:
-        await sync_diary_reminder(session)
-        await session.commit()
-    reminder = await system_reminder(sessions)
-    assert reminder is not None
-    assert reminder.at_time == time.fromisoformat(DIARY_TIME_DEFAULT)
-    assert schedule_of(reminder).kind is ScheduleKind.DAILY
-    first_fire = reminder.next_fire_at
-
-    # A restart re-runs the projection; an unchanged clock must not push the fire away.
-    async with sessions() as session:
-        await sync_diary_reminder(session)
-        await session.commit()
-    assert (await system_reminder(sessions)).next_fire_at == first_fire
-
-    async with sessions() as session:
-        await update_profile(session, diary_time=time(7, 30))
-        await session.commit()
-    moved = await system_reminder(sessions)
-    assert moved.at_time == time(7, 30)
-    assert moved.next_fire_at != first_fire
-
-    async with sessions() as session:
-        await update_profile(session, diary_time=None)
-        await session.commit()
-    assert await system_reminder(sessions) is None
-
-
-async def test_the_extra_instruction_reaches_the_reminder_text(sessions) -> None:
-    async with sessions() as session:
-        await update_profile(session, diary_instructions="Спроси про сон.")
-        await session.commit()
-    reminder = await system_reminder(sessions)
-    assert reminder.instruction.startswith(DIARY_REMINDER_INSTRUCTION)
-    assert reminder.instruction.endswith("Спроси про сон.")
-
-    async with sessions() as session:
-        await update_profile(session, diary_instructions="")
-        await session.commit()
-    assert (await system_reminder(sessions)).instruction == DIARY_REMINDER_INSTRUCTION
 
 
 async def test_the_diary_reminder_is_not_the_owners_to_edit(sessions) -> None:

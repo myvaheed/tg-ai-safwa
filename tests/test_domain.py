@@ -23,11 +23,11 @@ from safwa.domain import (
     toggle_card_tag,
     toggle_card_value,
     update_card_fields,
-    update_profile,
     utcnow,
 )
 from safwa.domain import create_card as create_domain_card
 from safwa.enums import CardStage
+from safwa.features.profile.api import update_profile
 from safwa.models import (
     Card,
     CardEvent,

@@ -16,9 +16,9 @@ from safwa.domain import (
     set_sprint_success_criteria,
     start_sprint,
     toggle_card_value,
-    update_profile,
 )
 from safwa.domain import create_card as create_domain_card
+from safwa.features.profile.api import update_profile
 from safwa.models import Reminder, Workspace
 
 

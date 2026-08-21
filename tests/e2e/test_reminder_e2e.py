@@ -10,8 +10,8 @@ from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.service import ProposalService
 from safwa.bootstrap.modules import PROPOSALS
-from safwa.domain import update_profile
 from safwa.enums import ProposalStatus
+from safwa.features.profile.api import update_profile
 from safwa.models import ChangeProposal, ProposalChange, Reminder
 from safwa.reminders import schedule_of
 

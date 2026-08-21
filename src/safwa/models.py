@@ -9,7 +9,6 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
-    Float,
     ForeignKey,
     Index,
     Integer,
@@ -21,7 +20,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
-from .constants import DIARY_TIME_DEFAULT, SPRINT_LENGTH_DAYS
 from .enums import (
     ActorType,
     CardStage,
@@ -29,7 +27,11 @@ from .enums import (
     Priority,
     ProposalStatus,
 )
+from .features.continuity.storage import MemoryFactCache as MemoryFactCache
+from .features.continuity.storage import MemorySyncState as MemorySyncState
+from .features.continuity.storage import SummaryState as SummaryState
 from .features.diary.model import DiaryEntry as DiaryEntry
+from .features.profile.model import UserProfile as UserProfile
 from .foundation.models import Base, TimestampMixin, UtcDateTime
 from .foundation.models import Workspace as Workspace
 
@@ -37,22 +39,6 @@ from .foundation.models import Workspace as Workspace
 def new_correlation_id() -> str:
     """Return a short internal audit correlation key, not an entity identifier."""
     return secrets.token_hex(8)
-
-
-class UserProfile(Base, TimestampMixin):
-    __tablename__ = "user_profile"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
-    about_me: Mapped[str] = mapped_column(Text, default="")
-    advisor_instructions: Mapped[str] = mapped_column(Text, default="")
-    capacity_effort_points: Mapped[int | None] = mapped_column(Integer)
-    sprint_length_days: Mapped[int] = mapped_column(Integer, default=SPRINT_LENGTH_DAYS)
-    memory_update_time: Mapped[time | None] = mapped_column(Time)
-    # NULL is the Diary's off switch: `sync_diary_reminder` deletes the system Reminder
-    # rather than keeping a second flag that could disagree with it.
-    diary_time: Mapped[time | None] = mapped_column(
-        Time, default=time.fromisoformat(DIARY_TIME_DEFAULT)
-    )
-    diary_instructions: Mapped[str] = mapped_column(Text, default="")
 
 
 class Value(Base, TimestampMixin):
@@ -326,41 +312,6 @@ class FeedbackQueue(Base, TimestampMixin):
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     answer: Mapped[bool | None] = mapped_column(Boolean)
-
-
-class SummaryState(Base):
-    __tablename__ = "summary_state"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
-    summary_message_id: Mapped[int | None] = mapped_column(Integer)
-    covered_message_id: Mapped[int | None] = mapped_column(Integer)
-    estimated_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-
-
-class MemoryFactCache(Base):
-    __tablename__ = "memory_fact_cache"
-    line_number: Mapped[int] = mapped_column(Integer, primary_key=True)
-    fact: Mapped[str] = mapped_column(Text)
-    provenance: Mapped[str] = mapped_column(String(20), default="manual")
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-
-
-class MemorySyncState(Base):
-    __tablename__ = "memory_sync_state"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
-    file_hash: Mapped[str | None] = mapped_column(String(64))
-    file_mtime: Mapped[float | None] = mapped_column(Float)
-    error: Mapped[str | None] = mapped_column(Text)
-    warning_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    processed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    memory_last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
 
 
 class Reminder(Base, TimestampMixin):

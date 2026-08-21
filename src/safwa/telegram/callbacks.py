@@ -34,6 +34,7 @@ from ..domain import (
     update_check_fields,
 )
 from ..enums import CardStage, CheckOutcome, MessageKind, ProposalStatus
+from ..features.profile.screens import command_settings, render_settings_field_prompt
 from ..models import (
     CallbackToken,
     Card,
@@ -73,12 +74,10 @@ from .cards import (
 )
 from .checks import render_check, render_check_resolution, render_checks
 from .commands import (
-    command_settings,
     command_start,
     command_tags,
     command_values,
     render_feedback,
-    render_settings_field_prompt,
     sync_bot_commands,
 )
 from .items import render_item_editor, render_item_text_prompt, render_saved_request

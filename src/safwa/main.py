@@ -28,12 +28,11 @@ from .bootstrap.modules import (
 )
 from .config import Settings
 from .constants import AI_APP_TITLE, AI_APP_URL
-from .continuity import PersonaContinuity
 from .domain import bootstrap_workspace
 from .enums import AIProvider
+from .features.continuity.api import MemoryFileStore, PersonaContinuity
 from .foundation.database import Database, upgrade_database
 from .history import TelegramHistorySource
-from .memory import MemoryFileStore
 from .models import Workspace
 from .recovery import recover_startup
 from .telegram import (

@@ -18,6 +18,7 @@ from ..ai.subagents import RoutedSubagent
 from ..features.continuity.module import MODULE as CONTINUITY
 from ..features.diary.module import MODULE as DIARY
 from ..features.planning.module import MODULE as PLANNING
+from ..features.profile.module import MODULE as PROFILE
 from ..features.proposals.api import (
     MutationToolSpec,
     ProposalHandler,
@@ -34,6 +35,7 @@ from .module_manifest import AgentContext, BackgroundTask, FeatureModule
 MODULES: tuple[FeatureModule, ...] = (
     PLANNING,
     DIARY,
+    PROFILE,
     REMINDERS,
     SAVED_REQUESTS,
     PROPOSALS_FEATURE,

@@ -27,7 +27,7 @@ from .constants import (
     SUMMARY_TRIGGER_TOKENS,
 )
 from .enums import MessageKind
-from .memory import estimate_tokens
+from .features.continuity.api import estimate_tokens
 from .models import TelegramMessage
 
 _SUMMARY_RE = re.compile(r"^📜\s*Summary\s*\n(?P<body>[\s\S]*\S)\s*$", re.IGNORECASE)

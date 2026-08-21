@@ -31,6 +31,7 @@ from ..domain import (
 from ..enums import (
     ProposalStatus,
 )
+from ..features.continuity.api import MemoryFileStore
 from ..features.diary.model import DiaryEntry
 from ..features.proposals.api import (
     ApplyContext,
@@ -42,7 +43,6 @@ from ..features.proposals.api import (
     result_value,
 )
 from ..history import citation_payload, conversation_block
-from ..memory import MemoryFileStore
 from ..models import (
     AgentRun,
     AgentStep,
@@ -56,7 +56,7 @@ from ..models import (
     Workspace,
 )
 from .autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
-from .context import DialogueMessage, planning_context
+from .context import DialogueMessage, ordered_owner_context, planning_context
 from .contracts import (
     AgentChange,
     OpenInput,
@@ -1000,10 +1000,7 @@ class AIAdvisor:
         # Anything volatile goes after the dialogue, never into a system block.
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": self.system_prompt},
-            _system_note(
-                f"Current planning state:\n{context.state}"
-                f"\n\nPersistent memory:\n{memory.text}"
-            ),
+            _system_note(ordered_owner_context(memory.text, context.state)),
         ]
         # The history source has already bounded the window by its token budget.
         for item in dialogue:

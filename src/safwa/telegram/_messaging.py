@@ -24,12 +24,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..constants import CALLBACK_TOKEN_TTL_HOURS, TOAST_SECONDS
 from ..enums import MessageKind, ProposalStatus
+from ..features.continuity.api import SummaryState, estimate_tokens
 from ..history import mark_kind, mark_message, register_message
-from ..memory import estimate_tokens
 from ..models import (
     CallbackToken,
     ChangeProposal,
-    SummaryState,
     TelegramMessage,
     UiSession,
 )

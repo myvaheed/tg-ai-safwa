@@ -6,16 +6,18 @@ from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 from llm_gateway import CompletionRequest, CompletionTurn
-from safwa.constants import MEMORY_READ_TOKEN_BUDGET
-from safwa.continuity import (
+from safwa.constants import MEMORY_READ_TOKEN_BUDGET, SUMMARY_TRIGGER_TOKENS
+from safwa.enums import MessageKind
+from safwa.features.continuity.api import (
+    MemoryFileStore,
     MemoryMaintenanceResult,
+    MemorySyncState,
     PersonaContinuity,
     run_due_memory_maintenance,
 )
-from safwa.enums import MessageKind
+from safwa.features.profile.api import UserProfile
 from safwa.history import HistoryEntry
-from safwa.memory import MemoryFileStore
-from safwa.models import MemorySyncState, UserProfile
+from safwa.telegram._core import GenerationGuard
 
 
 class StubContinuity:
@@ -54,6 +56,24 @@ class RecordingProvider:
         return None
 
 
+class FileEditingProvider:
+    """Simulate an owner file edit while the external provider is generating."""
+
+    def __init__(self, memory_path: Path) -> None:
+        self.memory_path = memory_path
+        self.calls = 0
+
+    async def complete(self, _request: CompletionRequest) -> CompletionTurn:
+        self.calls += 1
+        if self.calls == 1:
+            return CompletionTurn("Retold fact")
+        self.memory_path.write_text("Owner edit during generation.\n", encoding="utf-8")
+        return CompletionTurn('{"facts":["AI replacement"]}')
+
+    async def aclose(self) -> None:
+        return None
+
+
 class SequenceHistory:
     def __init__(self, *snapshots: list[HistoryEntry]) -> None:
         self.snapshots = list(snapshots)
@@ -66,19 +86,31 @@ class SequenceHistory:
         return list(self.snapshots.pop(0))
 
 
-async def test_daily_memory_sync_runs_once_after_configured_time(sessions) -> None:
+async def test_due_memory_maintenance_runs_once_per_local_day(sessions) -> None:
+    """CO-SCHEDULE-009: one due run is allowed per local calendar day."""
     async with sessions() as session:
         profile = await session.get(UserProfile, 1)
         profile.memory_update_time = time(3, 0)
         await session.commit()
 
     continuity = StubContinuity()
+    guard = GenerationGuard()
     now = datetime(2026, 8, 8, 3, 1, tzinfo=ZoneInfo("Europe/Istanbul"))
     first = await run_due_memory_maintenance(
-        cast(Any, continuity), sessions, 42, lambda: False, "Europe/Istanbul", now=now
+        cast(Any, continuity),
+        sessions,
+        42,
+        "Europe/Istanbul",
+        run_background=guard.run_background,
+        now=now,
     )
     second = await run_due_memory_maintenance(
-        cast(Any, continuity), sessions, 42, lambda: False, "Europe/Istanbul", now=now
+        cast(Any, continuity),
+        sessions,
+        42,
+        "Europe/Istanbul",
+        run_background=guard.run_background,
+        now=now,
     )
 
     assert first is True
@@ -89,14 +121,15 @@ async def test_daily_memory_sync_runs_once_after_configured_time(sessions) -> No
         assert state.memory_last_run_at is not None
 
 
-async def test_daily_memory_sync_is_off_until_configured(sessions) -> None:
+async def test_memory_maintenance_off_never_runs(sessions) -> None:
+    """CO-SCHEDULE-010: disabled memory time schedules no maintenance."""
     continuity = StubContinuity()
     ran = await run_due_memory_maintenance(
         cast(Any, continuity),
         sessions,
         42,
-        lambda: False,
         "Europe/Istanbul",
+        run_background=GenerationGuard().run_background,
         now=datetime(2026, 8, 8, 23, 0, tzinfo=ZoneInfo("Europe/Istanbul")),
     )
 
@@ -104,29 +137,65 @@ async def test_daily_memory_sync_is_off_until_configured(sessions) -> None:
     assert continuity.calls == []
 
 
-async def test_daily_memory_sync_waits_for_foreground_generation(sessions) -> None:
+async def test_background_gate_does_not_start_work_while_foreground_is_active() -> None:
+    """CO-GENERATION-011: a held foreground lease prevents invocation."""
+    guard = GenerationGuard()
+    await guard.acquire(101)
+    called = False
+
+    async def background(_still_current) -> bool:
+        nonlocal called
+        called = True
+        return True
+
+    assert await guard.run_background(background) is None
+    assert called is False
+
+
+async def test_background_gate_invalidates_currentness_after_dialogue_revision_changes() -> None:
+    """CO-GENERATION-011: cancellation invalidates the captured background lease."""
+    guard = GenerationGuard()
+
+    async def background(still_current) -> bool:
+        assert still_current() is True
+        guard.cancel()
+        return still_current()
+
+    assert await guard.run_background(background) is False
+
+
+async def test_due_memory_maintenance_waits_while_foreground_generation_is_active(
+    sessions,
+) -> None:
+    """CO-GENERATION-011: scheduled Memory uses the shared foreground gate."""
     async with sessions() as session:
         profile = await session.get(UserProfile, 1)
         profile.memory_update_time = time(3, 0)
         await session.commit()
 
     continuity = StubContinuity()
+    guard = GenerationGuard()
+    await guard.acquire(101)
     ran = await run_due_memory_maintenance(
         cast(Any, continuity),
         sessions,
         42,
-        lambda: True,
         "Europe/Istanbul",
+        run_background=guard.run_background,
         now=datetime(2026, 8, 8, 3, 1, tzinfo=ZoneInfo("Europe/Istanbul")),
     )
 
     assert ran is False
     assert continuity.calls == []
+    async with sessions() as session:
+        state = await session.get(MemorySyncState, 1)
+        assert state is None or state.memory_last_run_at is None
 
 
-async def test_invalid_memory_response_keeps_file_and_cursor_unchanged(
+async def test_stale_memory_write_keeps_local_file_and_cursor_unchanged(
     sessions, tmp_path: Path
 ) -> None:
+    """CO-SYNC-008: a lost file-hash race advances neither file nor cursor."""
     memory_path = tmp_path / "memory.md"
     memory_path.write_text("Existing fact", encoding="utf-8")
     entry = HistoryEntry(
@@ -141,20 +210,21 @@ async def test_invalid_memory_response_keeps_file_and_cursor_unchanged(
     continuity = PersonaContinuity(
         sessions,
         SequenceHistory([entry]),  # type: ignore[arg-type]
-        SequenceProvider("Retold fact", "not-json"),  # type: ignore[arg-type]
+        FileEditingProvider(memory_path),  # type: ignore[arg-type]
         memory,
     )
 
     result = await continuity.maintain_memory(42)
 
     assert result is MemoryMaintenanceResult.INVALID
-    assert memory_path.read_text(encoding="utf-8") == "Existing fact"
+    assert memory_path.read_text(encoding="utf-8") == "Owner edit during generation.\n"
     async with sessions() as session:
         state = await session.get(MemorySyncState, 1)
     assert state is None or state.processed_until is None
 
 
-async def test_summary_is_discarded_when_history_changes_during_generation(sessions) -> None:
+async def test_owner_message_wins_race_with_in_flight_summary(sessions) -> None:
+    """CO-SUMMARY-003: a concurrent owner message invalidates that Summary run."""
     first = HistoryEntry(
         message_id=10,
         sender_id=42,
@@ -188,8 +258,8 @@ async def test_summary_is_discarded_when_history_changes_during_generation(sessi
     assert sent == []
 
 
-async def test_a_new_summary_rewrites_the_previous_one(sessions) -> None:
-    """The window keeps only the newest Summary, so the older one must be folded in."""
+async def test_new_summary_request_includes_previous_summary(sessions) -> None:
+    """CO-SUMMARY-002: the older Summary must be folded into the newest one."""
     previous = HistoryEntry(
         message_id=9,
         sender_id=99,
@@ -227,7 +297,8 @@ async def test_a_new_summary_rewrites_the_previous_one(sessions) -> None:
     assert sent == [("📜 Summary\nThe rewritten summary", 10)]
 
 
-async def test_summarize_below_the_trigger_only_happens_when_forced(sessions) -> None:
+async def test_summary_below_configured_trigger_requires_force(sessions) -> None:
+    """CO-SUMMARY-001: below-threshold summarization requires an explicit force."""
     entry = HistoryEntry(
         message_id=10,
         sender_id=42,
@@ -242,7 +313,7 @@ async def test_summarize_below_the_trigger_only_happens_when_forced(sessions) ->
         SequenceHistory([entry]),  # type: ignore[arg-type]
         cast(Any, provider),
         cast(Any, None),
-        summary_trigger_tokens=10_000,
+        summary_trigger_tokens=SUMMARY_TRIGGER_TOKENS,
     )
     sent: list[tuple[str, int]] = []
 
@@ -254,7 +325,8 @@ async def test_summarize_below_the_trigger_only_happens_when_forced(sessions) ->
     assert sent == [("📜 Summary\nForced summary", 10)]
 
 
-async def test_memory_reads_back_to_its_own_cursor(sessions, tmp_path: Path) -> None:
+async def test_memory_maintenance_reads_after_its_own_cursor(sessions, tmp_path: Path) -> None:
+    """CO-SYNC-007: memory maintenance reads from its independent cursor."""
     memory_path = tmp_path / "memory.md"
     memory_path.write_text("Existing fact", encoding="utf-8")
     cursor = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)

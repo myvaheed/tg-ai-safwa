@@ -26,6 +26,14 @@ class PlanningContext:
     clock: str
 
 
+def ordered_owner_context(memory_text: str, planning_state: str) -> str:
+    """Put explicit profile/planning state after the durable memory it can override."""
+    return (
+        f"Persistent memory:\n{memory_text}"
+        f"\n\nCurrent planning state:\n{planning_state}"
+    )
+
+
 # The routing rules are filled in from `MODULES`, once, at import time: a subagent that
 # is not in the roster is never named here, and so is never routed to.
 SYSTEM_PROMPT_TEMPLATE = """# Safwa

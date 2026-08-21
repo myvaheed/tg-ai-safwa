@@ -117,6 +117,22 @@ the scenario, get approval.
 
 A scenario has one main test plus lower-level tests for its edges. BRD does not mean E2E.
 
+Use the lowest level that crosses every boundary named by the scenario:
+
+- use a unit test for pure policy and state transitions;
+- use an integration test when the rule names persistence, transactions, a real file, or relations;
+- require E2E when the outcome depends on application wiring across adapters, serialization, a
+  process restart, Telegram message lifecycle, or a provider/tool round trip that a direct use-case
+  call cannot observe;
+- mock only boundaries outside the rule under test, such as the LLM or Telegram network. Do not mock
+  a file, database, scheduler lease, or adapter when that boundary is part of the scenario;
+- do not duplicate every BRD scenario as E2E. Add E2E for a critical cross-boundary path, then keep
+  boundary conditions at the lower deterministic level.
+
+For example, CO-MEMORY-004 is an integration test rather than E2E: it reads a real temporary
+`memory.md` and synchronizes real SQLite state, but it does not claim anything about startup,
+watcher scheduling, or Telegram. Those claims would require their own adapter or E2E scenario.
+
 ## Audit table
 
 Every batch carries one:

@@ -9,8 +9,8 @@ from pathlib import Path
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from .constants import MEMORY_POLL_SECONDS, MEMORY_TOKEN_BUDGET, TOKEN_CHARS_ESTIMATE
-from .models import MemoryFactCache, MemorySyncState
+from ...constants import MEMORY_POLL_SECONDS, MEMORY_TOKEN_BUDGET, TOKEN_CHARS_ESTIMATE
+from .storage import MemoryFactCache, MemorySyncState
 
 
 class MemoryFileError(ValueError):
@@ -22,12 +22,10 @@ class MemorySnapshot:
     facts: tuple[str, ...]
     file_hash: str
     estimated_tokens: int
-    valid: bool = True
-    error: str | None = None
 
     @property
     def text(self) -> str:
-        return "\n".join(self.facts) if self.valid else ""
+        return "\n".join(self.facts)
 
 
 def estimate_tokens(text: str, chars_per_token: float = TOKEN_CHARS_ESTIMATE) -> int:
@@ -35,12 +33,7 @@ def estimate_tokens(text: str, chars_per_token: float = TOKEN_CHARS_ESTIMATE) ->
 
 
 def parse_memory(content: str) -> tuple[str, ...]:
-    if not content:
-        return ()
-    raw_lines = content.splitlines()
-    if any(not line.strip() for line in raw_lines):
-        raise MemoryFileError("memory.md must contain one non-empty fact per line")
-    return tuple(line.strip() for line in raw_lines)
+    return tuple(line.strip() for line in content.splitlines() if line.strip())
 
 
 def memory_hash(content: bytes) -> str:
@@ -48,7 +41,7 @@ def memory_hash(content: bytes) -> str:
 
 
 class MemoryFileStore:
-    """Authoritative file-backed memory with a disposable SQLite mirror."""
+    """Authoritative file-backed memory with a rebuildable SQLite read cache."""
 
     def __init__(
         self,
@@ -78,25 +71,8 @@ class MemoryFileStore:
     async def _sync_locked(self) -> MemorySnapshot:
         raw, mtime = self._read()
         digest = memory_hash(raw)
-        try:
-            content = raw.decode("utf-8")
-            facts = parse_memory(content)
-            tokens = estimate_tokens(content, self.chars_per_token)
-            if tokens > self.token_budget:
-                raise MemoryFileError(
-                    f"memory.md is about {tokens} tokens; configured limit is {self.token_budget}"
-                )
-        except (UnicodeDecodeError, MemoryFileError) as error:
-            async with self.sessions() as session:
-                state = await session.get(MemorySyncState, 1)
-                if state is None:
-                    state = MemorySyncState(id=1)
-                    session.add(state)
-                state.error = str(error)
-                state.file_hash = digest
-                state.file_mtime = mtime
-                await session.commit()
-            return MemorySnapshot((), digest, 0, valid=False, error=str(error))
+        content = raw.decode("utf-8")
+        facts = parse_memory(content)
 
         async with self.sessions() as session:
             state = await session.get(MemorySyncState, 1)
@@ -169,17 +145,11 @@ class MemoryFileStore:
 
     async def append_manual(self, fact: str) -> MemorySnapshot:
         snapshot = await self.sync()
-        if not snapshot.valid:
-            raise MemoryFileError(snapshot.error or "memory.md is invalid")
         return await self.replace_facts(
             [*snapshot.facts, fact.strip()], expected_hash=snapshot.file_hash, provenance="manual"
         )
 
-    async def poll(self, on_error=None) -> None:  # type: ignore[no-untyped-def]
-        last_hash: str | None = None
+    async def poll(self) -> None:
         while True:
-            snapshot = await self.sync()
-            if snapshot.file_hash != last_hash and not snapshot.valid and on_error:
-                await on_error(snapshot.error or "Invalid memory.md")
-            last_hash = snapshot.file_hash
+            await self.sync()
             await asyncio.sleep(self.poll_seconds)

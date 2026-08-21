@@ -19,14 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..ai.mini import ReadToolSpec
 from ..ai.sql import ReadOnlyQueryRunner, SqlView
 from ..config import Settings
-from ..continuity import PersonaContinuity
+from ..features.continuity.api import MemoryFileStore, PersonaContinuity
 from ..features.proposals.api import (
     MutationToolSpec,
     ProposalHandler,
     ProposalPresenter,
 )
 from ..history import TelegramHistorySource
-from ..memory import MemoryFileStore
 from ..telegram import Services
 
 

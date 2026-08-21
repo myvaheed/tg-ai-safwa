@@ -20,9 +20,9 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
 )
 from safwa.domain import bootstrap_workspace
+from safwa.features.continuity.api import MemoryFileStore
 from safwa.features.planning.agent import BOARD_PROMPT, BOARD_TOOLS
 from safwa.foundation.database import Database, upgrade_database
-from safwa.memory import MemoryFileStore
 
 
 class ScriptedProvider:

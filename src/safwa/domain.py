@@ -15,7 +15,6 @@ from .constants import (
     SPRINT_LENGTH_DAYS,
     SPRINT_LENGTH_MAX_DAYS,
     SPRINT_LENGTH_MIN_DAYS,
-    WEEKDAY_NAMES,
 )
 from .enums import (
     LIVE_STAGE_PRECEDENCE,
@@ -541,88 +540,6 @@ async def set_value_focus(
     return await update_value_fields(
         session, value_id, active=(not value.active) if active is None else active
     )
-
-
-async def update_profile(session: AsyncSession, **fields: Any) -> UserProfile:
-    allowed = {
-        "about_me",
-        "advisor_instructions",
-        "capacity_effort_points",
-        "sprint_length_days",
-        "memory_update_time",
-        "diary_time",
-        "diary_instructions",
-    }
-    length = fields.get("sprint_length_days")
-    if length is not None and not SPRINT_LENGTH_MIN_DAYS <= length <= SPRINT_LENGTH_MAX_DAYS:
-        raise DomainError(
-            f"Sprint length must be between {SPRINT_LENGTH_MIN_DAYS} and "
-            f"{SPRINT_LENGTH_MAX_DAYS} days"
-        )
-    unknown = set(fields).difference(allowed)
-    if unknown:
-        raise DomainError("Unsupported profile field: " + ", ".join(sorted(unknown)))
-    profile = await session.get(UserProfile, 1)
-    if profile is None:
-        raise DomainError("User profile is not initialized")
-    for field_name, value in fields.items():
-        setattr(profile, field_name, value)
-    if {"diary_time", "diary_instructions"} & set(fields):
-        await sync_diary_reminder(session)
-    await _bump_workspace(session)
-    return profile
-
-
-DIARY_REMINDER_INSTRUCTION = (
-    "End of day. Call the diary subagent for today, then propose what it reports."
-)
-
-
-async def sync_diary_reminder(session: AsyncSession) -> Reminder | None:
-    """Rebuild the hidden Diary Reminder from Settings, which is its only source.
-
-    Called on every write to those fields and again at startup, so it must be idempotent:
-    an unchanged clock keeps `next_fire_at` rather than pushing a due fire away.
-    """
-    profile = await session.get(UserProfile, 1)
-    if profile is None:
-        raise DomainError("User profile is not initialized")
-    existing = await session.scalar(select(Reminder).where(Reminder.system.is_(True)))
-    if profile.diary_time is None:
-        if existing is not None:
-            await session.delete(existing)
-        return None
-
-    workspace = await session.get(Workspace, 1)
-    tz = ZoneInfo(workspace.timezone if workspace else "UTC")
-    schedule = Schedule(
-        kind=ScheduleKind.DAILY, weekdays=WEEKDAY_NAMES, at_time=profile.diary_time
-    )
-    extra = profile.diary_instructions.strip()
-    instruction = f"{DIARY_REMINDER_INSTRUCTION} {extra}" if extra else DIARY_REMINDER_INSTRUCTION
-    first = next_fire(schedule, previous=None, now=utcnow(), tz=tz)
-    if first is None:
-        raise DomainError("That schedule has no future occurrence")
-
-    if existing is None:
-        existing = Reminder(
-            instruction=instruction,
-            system=True,
-            next_fire_at=first,
-            **schedule_columns(schedule),
-        )
-        session.add(existing)
-        await session.flush()
-        return existing
-    if existing.instruction == instruction and existing.at_time == profile.diary_time:
-        return existing
-    existing.instruction = instruction
-    if existing.at_time != profile.diary_time:
-        for column, value in schedule_columns(schedule).items():
-            setattr(existing, column, value)
-        existing.next_fire_at = first
-    existing.version += 1
-    return existing
 
 
 async def create_reminder(

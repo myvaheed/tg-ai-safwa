@@ -3,12 +3,9 @@ from __future__ import annotations
 import html
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
-from datetime import time
 from typing import Any
 
 from aiogram import Bot, F
-from aiogram.enums import ChatAction
 from aiogram.filters import Command
 from aiogram.types import (
     BotCommand,
@@ -20,12 +17,9 @@ from aiogram.types import (
 from sqlalchemy import delete, func, select
 
 from ..analytics import render_retrospective_png, retrospective_data, retrospective_recommendations
-from ..constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
-from ..continuity import MemoryMaintenanceResult, record_memory_run
-from ..domain import (
-    DomainError,
-)
 from ..enums import CardStage, MessageKind
+from ..features.continuity.api import MemoryMaintenanceResult, record_memory_run
+from ..features.profile.screens import command_settings
 from ..history import mark_message, register_message
 from ..models import (
     Card,
@@ -34,15 +28,12 @@ from ..models import (
     Sprint,
     Tag,
     UiSession,
-    UserProfile,
     Value,
     Workspace,
 )
-from ..reminders import parse_clock_or_off
-from ._core import BACKGROUND_SOURCE_ID, Services, router, sprint_is_active
+from ._core import Services, router, sprint_is_active
 from ._messaging import (
     dismiss_prior_ui,
-    edit_registered_message,
     materialize_queued_dialogue,
     send_registered,
     send_summary,
@@ -60,7 +51,6 @@ from .plan import handle_plan_start, is_plan_link
 from .reminders import render_reminders
 from .screens import open_citation
 from .sprint import render_sprint, render_today
-from .text_input import TextInputScreen, render_text_input
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +114,15 @@ async def command_start(message: Message, services: Services) -> None:
 @router.message(Command("summarize"))
 async def command_summarize(message: Message, services: Services) -> None:
     """Cut the context deliberately: post a Summary now instead of waiting for the budget."""
-    if not services.guard.reserve_background():
+    written = await services.guard.run_background(
+        lambda still_current: services.continuity.maybe_summarize(
+            message.chat.id,
+            lambda text, covered_id: send_summary(message, services, text, covered_id),
+            force=True,
+            still_current=still_current,
+        )
+    )
+    if written is None:
         await send_registered(
             message,
             services,
@@ -132,19 +130,6 @@ async def command_summarize(message: Message, services: Services) -> None:
             kind=MessageKind.ERROR,
         )
         return
-    revision = services.guard.dialogue_revision
-    try:
-        await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-        written = await services.continuity.maybe_summarize(
-            message.chat.id,
-            lambda text, covered_id: send_summary(message, services, text, covered_id),
-            force=True,
-            still_current=lambda: (
-                services.guard.background and services.guard.dialogue_revision == revision
-            ),
-        )
-    finally:
-        services.guard.release(BACKGROUND_SOURCE_ID)
     if not written:
         await send_registered(
             message,
@@ -277,13 +262,10 @@ async def command_requests(message: Message, services: Services) -> None:
 @router.message(Command("memory"))
 async def command_memory(message: Message, services: Services) -> None:
     snapshot = await services.memory.sync()
-    if not snapshot.valid:
-        text = "<b>memory.md needs attention</b>\n" + html.escape(snapshot.error or "Invalid file")
-    else:
-        text = f"<b>Persistent memory</b> · {snapshot.estimated_tokens}/4000 tokens\n" + (
-            "\n".join(f"{i}. {html.escape(fact)}" for i, fact in enumerate(snapshot.facts, 1))
-            or "Empty"
-        )
+    text = f"<b>Persistent memory</b> · {snapshot.estimated_tokens}/4000 tokens\n" + (
+        "\n".join(f"{i}. {html.escape(fact)}" for i, fact in enumerate(snapshot.facts, 1))
+        or "Empty"
+    )
     await send_registered(message, services, text, kind=MessageKind.DASHBOARD)
 
 
@@ -292,28 +274,19 @@ async def command_syncmem(message: Message, services: Services) -> None:
     if (message.text or "").partition(" ")[2].strip():
         await send_registered(message, services, "Usage: /syncmem", kind=MessageKind.ERROR)
         return
-    if not services.guard.reserve_background():
+    result = await services.guard.run_background(
+        lambda still_current: services.continuity.maintain_memory(
+            message.chat.id,
+            still_current=still_current,
+        )
+    )
+    if result is None:
         await send_registered(
             message,
             services,
             "Wait for the current advisor response, then retry /syncmem.",
             kind=MessageKind.ERROR,
         )
-        return
-    revision = services.guard.dialogue_revision
-    lease_current = False
-    try:
-        await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-        result = await services.continuity.maintain_memory(
-            message.chat.id,
-            still_current=lambda: (
-                services.guard.background and services.guard.dialogue_revision == revision
-            ),
-        )
-        lease_current = services.guard.background and services.guard.dialogue_revision == revision
-    finally:
-        services.guard.release(BACKGROUND_SOURCE_ID)
-    if not lease_current:
         return
     if result == MemoryMaintenanceResult.UPDATED:
         await record_memory_run(services.sessions)
@@ -434,183 +407,6 @@ async def command_reminders(message: Message, services: Services) -> None:
     await render_reminders(message, services)
 
 
-@dataclass(frozen=True, slots=True)
-class SettingsField:
-    """One `user_profile` value the Settings screen edits through a button and a prompt.
-
-    `parse` raises `ValueError` carrying the sentence the retry prompt shows, so a bad
-    answer is answered by the same screen rather than an error message somewhere else.
-    """
-
-    title: str
-    label: str
-    instruction: str
-    parse: Callable[[str], Any]
-    show: Callable[[Any], str]
-
-
-def _parse_sprint_length(raw: str) -> int:
-    if not raw.isdigit() or not SPRINT_LENGTH_MIN_DAYS <= int(raw) <= SPRINT_LENGTH_MAX_DAYS:
-        raise ValueError(
-            f"Send a whole number between {SPRINT_LENGTH_MIN_DAYS} and {SPRINT_LENGTH_MAX_DAYS}."
-        )
-    return int(raw)
-
-
-def _parse_capacity(raw: str) -> int | None:
-    if raw.lower() == "off":
-        return None
-    if not raw.isdigit() or int(raw) <= 0:
-        raise ValueError("Send a positive number of effort points, or off.")
-    return int(raw)
-
-
-def _parse_daily_time(raw: str) -> time | None:
-    try:
-        return parse_clock_or_off(raw)
-    except ValueError:
-        raise ValueError("Send a time as HH:MM, for example 22:00, or off.") from None
-
-
-def _clock(value: time | None) -> str:
-    return value.strftime("%H:%M") if value else "off"
-
-
-# Rendered in this order, both as lines on the Settings screen and as its buttons.
-SETTINGS_FIELDS: dict[str, SettingsField] = {
-    "about_me": SettingsField(
-        title="About me",
-        label="👤 About me",
-        instruction="Send what Safwa should know about you. Send off to clear it.",
-        parse=lambda raw: "" if raw.lower() == "off" else raw,
-        show=lambda value: value or "off",
-    ),
-    "advisor_instructions": SettingsField(
-        title="Advisor instructions",
-        label="🧭 Advisor instructions",
-        instruction="Send standing instructions for Safwa. Send off to clear them.",
-        parse=lambda raw: "" if raw.lower() == "off" else raw,
-        show=lambda value: value or "off",
-    ),
-    "sprint_length_days": SettingsField(
-        title="Sprint length",
-        label="🏁 Sprint length",
-        instruction=(
-            f"Send a number of days between {SPRINT_LENGTH_MIN_DAYS} and "
-            f"{SPRINT_LENGTH_MAX_DAYS}. It applies to the next Sprint you start."
-        ),
-        parse=_parse_sprint_length,
-        show=lambda value: f"{value} days",
-    ),
-    "capacity_effort_points": SettingsField(
-        title="Sprint capacity",
-        label="🎯 Sprint capacity",
-        instruction="Send the effort points one Sprint holds, or off to stop tracking it.",
-        parse=_parse_capacity,
-        show=lambda value: f"{value} EP" if value else "off",
-    ),
-    "memory_update_time": SettingsField(
-        title="Memory sync",
-        label="🧠 Memory sync",
-        instruction=(
-            "Send the local time the dialogue is folded into memory.md, as HH:MM, or off."
-        ),
-        parse=_parse_daily_time,
-        show=_clock,
-    ),
-    "diary_time": SettingsField(
-        title="Diary",
-        label="📔 Diary time",
-        instruction=(
-            "Send the local time Safwa writes up your day, as HH:MM, or off to stop asking."
-        ),
-        parse=_parse_daily_time,
-        show=_clock,
-    ),
-    "diary_instructions": SettingsField(
-        title="Diary instruction",
-        label="✍️ Diary instruction",
-        instruction=(
-            "Send a standing instruction for the Diary — what to always notice, or how to "
-            "write it. Send off to drop it."
-        ),
-        parse=lambda raw: "" if raw.lower() == "off" else raw,
-        show=lambda value: value or "off",
-    ),
-}
-
-
-@router.message(Command("settings"))
-async def command_settings(
-    message: Message,
-    services: Services,
-    *,
-    notice: str | None = None,
-    replace_message_id: int | None = None,
-) -> None:
-    async with services.sessions() as session:
-        profile = await session.get(UserProfile, 1)
-        workspace = await session.get(Workspace, 1)
-        if profile is None or workspace is None:
-            raise DomainError("Workspace is not initialized")
-        lines = [
-            "<b>Settings</b>",
-            f"About me: {html.escape(profile.about_me or '—')}",
-            f"Advisor instructions: {html.escape(profile.advisor_instructions or '—')}",
-        ]
-        buttons = []
-        for name, field in SETTINGS_FIELDS.items():
-            lines.append(
-                f"{field.title}: {html.escape(field.show(getattr(profile, name)))}"
-            )
-            buttons.append(
-                await token_button(
-                    session, services.owner_id, field.label, "settings_edit", {"field": name}
-                )
-            )
-        lines.append(f"Timezone: {html.escape(workspace.timezone)}")
-        lines.append("Tap a setting to change it.")
-        await session.commit()
-    rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
-    text = with_notice("\n".join(lines), notice)
-    markup = InlineKeyboardMarkup(inline_keyboard=[*rows, menu_row()])
-    if replace_message_id is not None:
-        await edit_registered_message(
-            message,
-            services,
-            replace_message_id,
-            text,
-            kind=MessageKind.DASHBOARD,
-            markup=markup,
-        )
-    else:
-        await send_registered(message, services, text, kind=MessageKind.DASHBOARD, markup=markup)
-
-
-async def render_settings_field_prompt(
-    message: Message, services: Services, field_name: str, *, notice: str | None = None
-) -> None:
-    field = SETTINGS_FIELDS[field_name]
-    async with services.sessions() as session:
-        profile = await session.get(UserProfile, 1)
-        if profile is None:
-            raise DomainError("Workspace is not initialized")
-        current = field.show(getattr(profile, field_name))
-    await render_text_input(
-        message,
-        services,
-        screen=TextInputScreen(
-            title=field.title,
-            current_value=current,
-            instruction=field.instruction,
-            back_action="settings_back",
-            back_payload={},
-        ),
-        state={"flow": "settings", "field": field_name},
-        notice=notice,
-    )
-
-
 async def sync_bot_commands(bot: Bot, *, sprint_active: bool) -> None:
     """Publish the command list. Today is dropped while the workspace is in Planning."""
     commands = [
@@ -623,7 +419,7 @@ async def sync_bot_commands(bot: Bot, *, sprint_active: bool) -> None:
 
 @router.message(Command("status"))
 async def command_status(message: Message, services: Services) -> None:
-    memory = await services.memory.sync()
+    await services.memory.sync()
     async with services.sessions() as session:
         workspace = await session.get(Workspace, 1)
         feedback = (
@@ -636,7 +432,7 @@ async def command_status(message: Message, services: Services) -> None:
         message,
         services,
         f"<b>Status</b>\nMode: {workspace.mode}\nRevision: {workspace.revision}\n"
-        f"Feedback: {feedback}\nMemory: {'OK' if memory.valid else 'ERROR'}",
+        f"Feedback: {feedback}\nMemory: OK",
         kind=MessageKind.DASHBOARD,
     )
 

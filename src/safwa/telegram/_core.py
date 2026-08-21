@@ -5,7 +5,7 @@ import html
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeVar
 
 from aiogram import BaseMiddleware, Router
 from aiogram.enums import ParseMode
@@ -16,7 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..ai.service import AIAdvisor
 from ..asr import Transcriber
 from ..constants import QUEUE_PREVIEW_CHARS
-from ..continuity import PersonaContinuity
 from ..domain import (
     TAG_REFERENCE,
     VALUE_REFERENCE,
@@ -26,8 +25,8 @@ from ..domain import (
     toggle_card_value,
 )
 from ..enums import Category, EnergyType, MessageKind
+from ..features.continuity.api import MemoryFileStore, PersonaContinuity
 from ..history import TelegramHistorySource, mark_message, register_message
-from ..memory import MemoryFileStore
 from ..models import CardCategory, CardEnergyType, CardTag, CardValue, Workspace
 
 logger = logging.getLogger(__name__)
@@ -65,6 +64,7 @@ class Services:
 # The source id of a generation nobody asked for. Telegram message ids are positive, so a
 # negative one cannot collide with a real message.
 BACKGROUND_SOURCE_ID = -1
+BackgroundResult = TypeVar("BackgroundResult")
 
 
 def _current_task() -> asyncio.Task[Any] | None:
@@ -137,6 +137,27 @@ class GenerationGuard:
         self.queue_messages = False
         self._task = None
         return True
+
+    async def run_background(
+        self,
+        operation: Callable[[Callable[[], bool]], Awaitable[BackgroundResult]],
+    ) -> BackgroundResult | None:
+        """Run one background generation while its lease remains current.
+
+        Foreground work always wins: a held guard postpones this operation. The callback
+        receives the single staleness predicate used by Summary and Memory.
+        """
+        if not self.reserve_background():
+            return None
+        revision = self.dialogue_revision
+
+        def still_current() -> bool:
+            return self.background and self.dialogue_revision == revision
+
+        try:
+            return await operation(still_current)
+        finally:
+            self.release(BACKGROUND_SOURCE_ID)
 
     def release(self, source_id: int | None = None) -> None:
         if source_id is not None and self.active_source_id != source_id:

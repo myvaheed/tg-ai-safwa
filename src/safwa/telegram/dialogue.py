@@ -18,15 +18,16 @@ from ..domain import (
     edit_card_text,
     set_sprint_success_criteria,
     update_card_fields,
-    update_profile,
     update_reminder_text,
     update_tag_fields,
     update_value_fields,
 )
 from ..enums import MessageKind
+from ..features.profile.api import update_profile
+from ..features.profile.screens import SETTINGS_FIELDS, command_settings
 from ..history import HistoryEntry, register_message
 from ..models import UiSession
-from ._core import BACKGROUND_SOURCE_ID, Services, audio_payload, queue_owner_text, router
+from ._core import Services, audio_payload, queue_owner_text, router
 from ._messaging import (
     delete_screen,
     delete_text_input,
@@ -38,7 +39,6 @@ from ._messaging import (
     send_summary,
 )
 from .cards import render_card, render_card_creation, sanitize_card_creation_state
-from .commands import SETTINGS_FIELDS, command_settings
 from .items import render_item_editor
 from .proposals import render_ai_outcome
 from .reminders import render_reminder
@@ -415,21 +415,13 @@ async def run_dialogue_turn(
 
         services.guard.release(message.message_id)
 
-        if services.guard.reserve_background():
-            summary_revision = services.guard.dialogue_revision
-            try:
-                await services.continuity.maybe_summarize(
-                    message.chat.id,
-                    lambda text, covered_id: send_summary(
-                        message, services, text, covered_id
-                    ),
-                    still_current=lambda: (
-                        services.guard.background
-                        and services.guard.dialogue_revision == summary_revision
-                    ),
-                )
-            finally:
-                services.guard.release(BACKGROUND_SOURCE_ID)
+        await services.guard.run_background(
+            lambda still_current: services.continuity.maybe_summarize(
+                message.chat.id,
+                lambda text, covered_id: send_summary(message, services, text, covered_id),
+                still_current=still_current,
+            )
+        )
     except Exception as error:
         logger.exception("Could not complete an advisor turn")
         await send_registered(
