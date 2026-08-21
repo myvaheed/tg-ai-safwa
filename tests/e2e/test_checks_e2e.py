@@ -6,8 +6,9 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select
 
+from llm_gateway import CompletionTurn as ProviderTurn
+from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.context import DialogueMessage
-from safwa.ai.provider import ProviderToolCall, ProviderTurn
 from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.domain import (
     check_card_ids,
@@ -35,7 +36,7 @@ def mutation_turn(*calls: tuple[str, dict[str, object]]) -> ProviderTurn:
     return ProviderTurn(
         content="",
         tool_calls=tuple(
-            ProviderToolCall(id=f"mutation-{index}", name=name, arguments=json.dumps(arguments))
+            ProviderToolCall(id=f"mutation-{index}", name=name, arguments_json=json.dumps(arguments))
             for index, (name, arguments) in enumerate(calls, start=1)
         ),
     )

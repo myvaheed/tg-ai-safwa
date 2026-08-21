@@ -19,7 +19,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Protocol
 
-from openai import AsyncOpenAI, OpenAIError
+from llm_gateway.openai_compatible import OpenAICompatibleError, create_openai_client
 
 from .config import Settings
 from .constants import (
@@ -121,7 +121,7 @@ class OpenAITranscriber:
         self.model = model
         self.language = language
         self.log_timing = log_timing
-        self.client = AsyncOpenAI(
+        self.client = create_openai_client(
             base_url=base_url,
             api_key=api_key or "none",
             max_retries=ASR_MAX_RETRIES,
@@ -142,7 +142,7 @@ class OpenAITranscriber:
                 timeout=clip_timeout(clip),
                 **({"language": self.language} if self.language else {}),
             )
-        except OpenAIError as error:
+        except OpenAICompatibleError as error:
             raise TranscriptionError(str(error)) from error
         elapsed = time.monotonic() - started
         text = (response if isinstance(response, str) else getattr(response, "text", "")).strip()

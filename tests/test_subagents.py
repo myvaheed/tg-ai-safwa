@@ -7,9 +7,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.context import SYSTEM_PROMPT
 from safwa.ai.diary import DIARY_PROMPT, day_read_tool, diary_clock
-from safwa.ai.provider import ProviderToolCall
 from safwa.ai.service import MUTATION_TOOLS, SAFWA_TOOLS
 from safwa.ai.subagents import PERSONA, RoutedSubagent
 
@@ -63,7 +63,7 @@ async def test_a_day_is_read_between_its_own_local_midnights(timezone: str) -> N
     read_day = day_read_tool(history, chat_id=42, timezone=timezone)
     tz = ZoneInfo(timezone)
 
-    await read_day.run(ProviderToolCall(id="call-1", name="read_day", arguments="{}"))
+    await read_day.run(ProviderToolCall(id="call-1", name="read_day", arguments_json="{}"))
 
     start: datetime = history.reads[0]["start"]
     end: datetime = history.reads[0]["end"]
@@ -79,7 +79,9 @@ async def test_an_unreadable_date_is_repaired_rather_than_read() -> None:
     read_day = day_read_tool(history, chat_id=42)
 
     result = await read_day.run(
-        ProviderToolCall(id="call-1", name="read_day", arguments=json.dumps({"date": "yesterday"}))
+        ProviderToolCall(
+            id="call-1", name="read_day", arguments_json=json.dumps({"date": "yesterday"})
+        )
     )
 
     assert result["code"] == "invalid_arguments"

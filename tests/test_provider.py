@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import ast
 import json
+from pathlib import Path
 
 import httpx
 import pytest
 import respx
 
-from safwa.ai.provider import OpenAICompatibleProvider, ProviderConfig
+from llm_gateway import (
+    CompletionRequest,
+    CompletionTurn,
+    OpenAICompatibleConfig,
+    OpenAICompatibleProvider,
+    ScriptedProvider,
+    ToolCall,
+)
 
 BASE_URL = "https://openrouter.test/api/v1"
 COMPLETIONS = f"{BASE_URL}/chat/completions"
@@ -31,7 +40,7 @@ def _response(usage: dict | None = None) -> httpx.Response:
     return httpx.Response(200, json=payload)
 
 
-def _config(**overrides) -> ProviderConfig:
+def _config(**overrides) -> OpenAICompatibleConfig:
     values = {
         "base_url": BASE_URL,
         "api_key": "test-key",
@@ -39,18 +48,24 @@ def _config(**overrides) -> ProviderConfig:
         "max_output_tokens": 512,
     }
     values.update(overrides)
-    return ProviderConfig(**values)
+    return OpenAICompatibleConfig(**values)
 
 
-async def _run(config: ProviderConfig, route) -> tuple[dict, httpx.Request]:
+def _request(**overrides) -> CompletionRequest:
+    values = {
+        "messages": ({"role": "system", "content": "hi"},),
+        "tools": ({"type": "function", "function": {"name": "query_safwa", "parameters": {}}},),
+    }
+    values.update(overrides)
+    return CompletionRequest(**values)
+
+
+async def _run(config: OpenAICompatibleConfig, route) -> tuple[dict, httpx.Request]:
     provider = OpenAICompatibleProvider(config)
     try:
-        turn = await provider.complete_turn(
-            [{"role": "system", "content": "hi"}],
-            tools=[{"type": "function", "function": {"name": "query_safwa", "parameters": {}}}],
-        )
+        turn = await provider.complete(_request())
     finally:
-        await provider.close()
+        await provider.aclose()
     request = route.calls[0].request
     return {"turn": turn, "body": json.loads(request.content)}, request
 
@@ -78,6 +93,18 @@ async def test_temperature_and_reasoning_effort_sent_when_configured():
 
 
 @respx.mock
+async def test_request_reasoning_effort_overrides_the_adapter_default():
+    route = respx.post(COMPLETIONS).mock(return_value=_response())
+    provider = OpenAICompatibleProvider(_config(reasoning_effort="low"))
+    try:
+        await provider.complete(_request(reasoning_effort="high"))
+    finally:
+        await provider.aclose()
+
+    assert json.loads(route.calls[0].request.content)["reasoning_effort"] == "high"
+
+
+@respx.mock
 async def test_attribution_headers_are_sent():
     route = respx.post(COMPLETIONS).mock(return_value=_response())
 
@@ -88,6 +115,41 @@ async def test_attribution_headers_are_sent():
 
     assert request.headers["HTTP-Referer"] == "https://safwa.test"
     assert request.headers["X-Title"] == "Safwa"
+
+
+@respx.mock
+async def test_structured_output_uses_the_neutral_response_schema():
+    route = respx.post(COMPLETIONS).mock(return_value=_response())
+    provider = OpenAICompatibleProvider(_config(structured_output=True))
+    schema = {"type": "object", "properties": {"answer": {"type": "string"}}}
+    try:
+        await provider.complete(_request(response_schema=schema))
+    finally:
+        await provider.aclose()
+
+    response_format = json.loads(route.calls[0].request.content)["response_format"]
+    assert response_format["json_schema"]["strict"] is True
+    assert response_format["json_schema"]["schema"] == schema
+
+
+@respx.mock
+async def test_tool_call_keeps_invalid_arguments_json_raw():
+    response = _response().json()
+    response["choices"][0]["message"]["tool_calls"] = [
+        {
+            "id": "call-1",
+            "type": "function",
+            "function": {"name": "query_safwa", "arguments": "{invalid json"},
+        }
+    ]
+    respx.post(COMPLETIONS).mock(return_value=httpx.Response(200, json=response))
+    provider = OpenAICompatibleProvider(_config())
+    try:
+        turn = await provider.complete(_request())
+    finally:
+        await provider.aclose()
+
+    assert turn.tool_calls == (ToolCall("call-1", "query_safwa", "{invalid json"),)
 
 
 @respx.mock
@@ -166,9 +228,9 @@ async def test_an_empty_response_is_retried_once():
 
     provider = OpenAICompatibleProvider(_config())
     try:
-        turn = await provider.complete_turn([{"role": "system", "content": "hi"}])
+        turn = await provider.complete(_request())
     finally:
-        await provider.close()
+        await provider.aclose()
 
     assert turn.content == "Done."
     assert len(route.calls) == 2
@@ -183,9 +245,9 @@ async def test_a_persistently_empty_response_reports_the_provider_reason():
     provider = OpenAICompatibleProvider(_config())
     try:
         with pytest.raises(RuntimeError, match="upstream stalled"):
-            await provider.complete_turn([{"role": "system", "content": "hi"}])
+            await provider.complete(_request())
     finally:
-        await provider.close()
+        await provider.aclose()
 
     assert len(route.calls) == 2
 
@@ -197,9 +259,9 @@ async def test_a_choice_without_content_reports_its_finish_reason():
     provider = OpenAICompatibleProvider(_config())
     try:
         with pytest.raises(RuntimeError, match="finish_reason=length"):
-            await provider.complete_turn([{"role": "system", "content": "hi"}])
+            await provider.complete(_request())
     finally:
-        await provider.close()
+        await provider.aclose()
 
 
 @respx.mock
@@ -208,10 +270,33 @@ async def test_a_deliberate_silent_stop_is_an_answer_not_a_failure():
 
     provider = OpenAICompatibleProvider(_config())
     try:
-        turn = await provider.complete_turn([{"role": "system", "content": "hi"}])
+        turn = await provider.complete(_request())
     finally:
-        await provider.close()
+        await provider.aclose()
 
     assert turn.content == ""
     assert turn.tool_calls == ()
     assert len(route.calls) == 1
+
+
+async def test_scripted_provider_needs_no_monkeypatching():
+    expected = CompletionTurn("Done.")
+    provider = ScriptedProvider((expected,))
+    request = _request()
+
+    assert await provider.complete(request) is expected
+    assert provider.requests == [request]
+    await provider.aclose()
+
+
+def test_openai_sdk_is_imported_only_by_the_gateway_adapter():
+    source_root = Path(__file__).parents[1] / "src"
+    importers = []
+    for path in source_root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        if any(
+            isinstance(node, ast.ImportFrom) and node.module == "openai" for node in ast.walk(tree)
+        ):
+            importers.append(path.relative_to(source_root).as_posix())
+
+    assert importers == ["llm_gateway/openai_compatible.py"]

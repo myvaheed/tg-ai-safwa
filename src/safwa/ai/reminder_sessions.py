@@ -5,11 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from llm_gateway import LlmProvider
+
 from ..constants import MINI_SESSION_MAX_TOOL_CALLS, WEEKDAY_NAMES
 from ..reminders import Schedule, ScheduleError, resolve
 from .contracts import NotClearEnoughInput, ReminderConfigInput
 from .mini import TerminalTool, run_mini_session
-from .provider import OpenAICompatibleProvider
 
 SETUP_PROMPT = """You turn one plain-language timing phrase into schedule parameters.
 Call set_reminder_config when the phrase determines a schedule, or not_clear_enough when it does
@@ -23,7 +24,7 @@ not. Exactly one call, then stop.
   schedule — call not_clear_enough with the single question the user must answer."""
 
 async def resolve_schedule(
-    provider: OpenAICompatibleProvider,
+    provider: LlmProvider,
     *,
     when: str,
     instruction: str,

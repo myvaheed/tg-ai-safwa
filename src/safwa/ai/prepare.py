@@ -17,6 +17,8 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from llm_gateway import LlmProvider
+
 from ..domain import (
     CARD_REFERENCE_SPECS,
     DomainError,
@@ -42,7 +44,6 @@ from ..models import (
 from ..reminders import ScheduleError, describe, schedule_payload
 from ..saved_requests import RequestQueryError, normalize_request_sql
 from .contracts import AgentChange
-from .provider import OpenAICompatibleProvider
 from .reminder_sessions import resolve_schedule
 from .sql import ReadOnlyQueryRunner, UnsafeQueryError
 
@@ -101,7 +102,7 @@ class PreparedChange:
 class ChangePreparer:
     def __init__(
         self,
-        provider: OpenAICompatibleProvider,
+        provider: LlmProvider,
         query_runner: ReadOnlyQueryRunner,
     ) -> None:
         self.provider = provider

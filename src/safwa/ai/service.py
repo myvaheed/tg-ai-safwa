@@ -14,6 +14,8 @@ from pydantic import ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from llm_gateway import CompletionRequest, CompletionTurn, LlmProvider, ToolCall
+
 from ..constants import (
     MAX_REPAIR_ROUNDS,
     MAX_TOOL_CALLS,
@@ -110,7 +112,6 @@ from .contracts import (
 )
 from .mini import ReadToolSpec
 from .prepare import ENTITY_MODELS, ChangePreparer, ToolPreparationError
-from .provider import OpenAICompatibleProvider, ProviderToolCall, ProviderTurn
 from .sql import ReadOnlyQueryRunner, UnsafeQueryError
 from .subagents import RoutedSubagent
 
@@ -197,9 +198,9 @@ def query_read_tool(query_runner: ReadOnlyQueryRunner) -> ReadToolSpec:
     the Advisor uses, so its steps are recorded the same way.
     """
 
-    async def read(call: ProviderToolCall) -> list[dict[str, Any]]:
+    async def read(call: ToolCall) -> list[dict[str, Any]]:
         try:
-            query = QueryToolInput.model_validate(json.loads(call.arguments or "{}"))
+            query = QueryToolInput.model_validate(json.loads(call.arguments_json or "{}"))
             outcome = await query_runner.run(query.sql)
             return outcome.as_tool_result()
         except (
@@ -336,7 +337,7 @@ class ProposalDescription:
 
 @dataclass
 class PendingTool:
-    call: ProviderToolCall
+    call: ToolCall
     result: Any
     change: AgentChange | None = None
 
@@ -913,10 +914,11 @@ def _log_provider_request(messages: list[dict[str, Any]]) -> None:
     logger.info("AI REQUEST ->\n%s\n%s", "\n".join(lines), "-" * 72)
 
 
-def _log_provider_response(turn: ProviderTurn) -> None:
+def _log_provider_response(turn: CompletionTurn) -> None:
     if turn.tool_calls:
         details = "\n".join(
-            f"  tool {call.name}({_log_preview(call.arguments, 700)})" for call in turn.tool_calls
+            f"  tool {call.name}({_log_preview(call.arguments_json, 700)})"
+            for call in turn.tool_calls
         )
     else:
         details = "  " + _log_preview(turn.content, 1_000)
@@ -934,7 +936,7 @@ class AIAdvisor:
     def __init__(
         self,
         sessions: async_sessionmaker[AsyncSession],
-        provider: OpenAICompatibleProvider,
+        provider: LlmProvider,
         memory: MemoryFileStore,
         query_runner: ReadOnlyQueryRunner,
         *,
@@ -1347,25 +1349,20 @@ class AIAdvisor:
             ]
         )
 
-    async def _provider_turn(self, agent: AgentSession) -> ProviderTurn:
+    async def _provider_turn(self, agent: AgentSession) -> CompletionTurn:
         _log_provider_request(agent.messages)
-        complete_turn = getattr(self.provider, "complete_turn", None)
-        if complete_turn is None:
-            raw = await self.provider.complete(agent.messages)
-            turn = ProviderTurn(content=raw)
-        else:
-            turn = await complete_turn(
-                agent.messages,
-                tools=list(agent.tools),
+        turn = await self.provider.complete(
+            CompletionRequest(
+                messages=tuple(agent.messages),
+                tools=tuple(agent.tools),
                 # A subagent was routed to for the work, so its first move is the work.
                 # Only the first: the loop ends on a turn that calls no tool, and a
                 # session that must always call one never ends.
                 tool_choice=(
-                    "required"
-                    if agent.tool_count == 0 and agent.kind in self.subagents
-                    else None
+                    "required" if agent.tool_count == 0 and agent.kind in self.subagents else None
                 ),
             )
+        )
         _log_provider_response(turn)
         return turn
 
@@ -1384,7 +1381,7 @@ class AIAdvisor:
                     {
                         "id": call.id,
                         "type": "function",
-                        "function": {"name": call.name, "arguments": call.arguments},
+                        "function": {"name": call.name, "arguments": call.arguments_json},
                     }
                     for call in turn.tool_calls
                 ]
@@ -1510,7 +1507,7 @@ class AIAdvisor:
             )
 
     async def _execute_route_tool(
-        self, agent: AgentSession, call: ProviderToolCall
+        self, agent: AgentSession, call: ToolCall
     ) -> tuple[dict[str, Any], AIOutcome | None]:
         """Run the named subagent and hand back its receipt.
 
@@ -1518,7 +1515,7 @@ class AIAdvisor:
         finished, so this session suspends with it and the owner sees that screen.
         """
         try:
-            name = RouteInput.model_validate(json.loads(call.arguments or "{}")).name.strip()
+            name = RouteInput.model_validate(json.loads(call.arguments_json or "{}")).name.strip()
         except (ValidationError, json.JSONDecodeError, TypeError, ValueError) as error:
             return {
                 "status": "error",
@@ -1566,7 +1563,7 @@ class AIAdvisor:
         return receipt, None
 
     async def _execute_read_tool(
-        self, agent: AgentSession, call: ProviderToolCall
+        self, agent: AgentSession, call: ToolCall
     ) -> Any:
         """Run one of this session's own read tools and record that it ran."""
         result = await agent.read_specs[call.name].run(call)
@@ -1579,16 +1576,16 @@ class AIAdvisor:
                     metadata_json={
                         "tool_call_id": call.id,
                         "tool": call.name,
-                        "arguments": call.arguments,
+                        "arguments": call.arguments_json,
                     },
                 )
             )
             await session.commit()
-        logger.info("AI TOOL %s(%s)", call.name, _log_preview(call.arguments, 200))
+        logger.info("AI TOOL %s(%s)", call.name, _log_preview(call.arguments_json, 200))
         return result
 
     async def _execute_query_tool(
-        self, agent: AgentSession, call: ProviderToolCall
+        self, agent: AgentSession, call: ToolCall
     ) -> list[dict[str, Any]]:
         if call.name != "query_safwa":
             rows: list[dict[str, Any]] = [
@@ -1606,7 +1603,7 @@ class AIAdvisor:
             sql = ""
         else:
             try:
-                arguments = json.loads(call.arguments)
+                arguments = json.loads(call.arguments_json)
                 query = QueryToolInput.model_validate(arguments)
                 sql = query.sql
                 outcome = await self.query_runner.run(sql)
@@ -1667,7 +1664,7 @@ class AIAdvisor:
                     metadata_json={
                         "tool_call_id": call.id,
                         "tool": call.name,
-                        "arguments": call.arguments,
+                        "arguments": call.arguments_json,
                         "sql": sql,
                         "row_count": len(rows),
                         "columns": list(rows[0]) if rows else [],
@@ -1679,11 +1676,11 @@ class AIAdvisor:
         return rows
 
     async def _execute_open_tool(
-        self, agent: AgentSession, call: ProviderToolCall
+        self, agent: AgentSession, call: ToolCall
     ) -> dict[str, Any]:
         """Resolve the item to show and hand it to the session that writes to the chat."""
         try:
-            request = OpenInput.model_validate(json.loads(call.arguments or "{}"))
+            request = OpenInput.model_validate(json.loads(call.arguments_json or "{}"))
         except (ValidationError, json.JSONDecodeError, TypeError, ValueError) as error:
             return {
                 "status": "error",
@@ -1716,11 +1713,11 @@ class AIAdvisor:
         }
 
     async def _execute_mutation_tool(
-        self, agent: AgentSession, call: ProviderToolCall
+        self, agent: AgentSession, call: ToolCall
     ) -> tuple[AgentChange | None, dict[str, Any]]:
         arguments: Any = None
         try:
-            arguments = json.loads(call.arguments)
+            arguments = json.loads(call.arguments_json)
             if not isinstance(arguments, dict):
                 raise ValueError("Tool arguments must be an object")
             change = mutation_change_from_tool(call.name, arguments)
@@ -1753,7 +1750,7 @@ class AIAdvisor:
                     kind="mutation_intent",
                     metadata_json={
                         "tool_call_id": call.id,
-                        "arguments": call.arguments,
+                        "arguments": call.arguments_json,
                         "tool": call.name,
                         "entity": change.entity,
                         "action": change.action,
@@ -2197,7 +2194,7 @@ class AIAdvisor:
                     {
                         "id": tool.call.id,
                         "name": tool.call.name,
-                        "arguments": tool.call.arguments,
+                        "arguments": tool.call.arguments_json,
                         "status": "pending" if target else "resolved",
                         "result": None
                         if target

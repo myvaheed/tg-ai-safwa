@@ -6,7 +6,8 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
-from safwa.ai.provider import ProviderToolCall, ProviderTurn
+from llm_gateway import CompletionTurn as ProviderTurn
+from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.service import ProposalService
 from safwa.domain import update_profile
 from safwa.enums import ProposalStatus
@@ -20,7 +21,7 @@ def turn(*calls: tuple[str, dict[str, object]], prefix: str = "t") -> ProviderTu
     return ProviderTurn(
         content="",
         tool_calls=tuple(
-            ProviderToolCall(id=f"{prefix}-{index}", name=name, arguments=json.dumps(arguments))
+            ProviderToolCall(id=f"{prefix}-{index}", name=name, arguments_json=json.dumps(arguments))
             for index, (name, arguments) in enumerate(calls, start=1)
         ),
     )

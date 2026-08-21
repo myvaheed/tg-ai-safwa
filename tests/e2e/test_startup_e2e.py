@@ -66,7 +66,7 @@ class FakeProvider:
         self.closed = False
         self.__class__.instances.append(self)
 
-    async def close(self) -> None:
+    async def aclose(self) -> None:
         self.closed = True
 
 

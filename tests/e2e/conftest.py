@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.ai.autoapproval import AutoApprovalReviewer
 from safwa.ai.board import BOARD_PROMPT, BOARD_TOOLS
-from safwa.ai.provider import ProviderToolCall, ProviderTurn
 from safwa.ai.service import AIAdvisor, query_read_tool
 from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from safwa.ai.subagents import RoutedSubagent
@@ -29,21 +29,14 @@ class ScriptedProvider:
     ``options``, which record what the script itself saw.
     """
 
-    def __init__(self, responses: list[str | ProviderTurn]) -> None:
+    def __init__(self, responses: list[str | CompletionTurn]) -> None:
         self.responses = deque(responses)
         self.calls: list[list[dict[str, object]]] = []
         self.options: list[dict[str, object]] = []
 
-    async def complete(self, messages: list[dict[str, object]], **kwargs) -> str:
-        self.calls.append([dict(message) for message in messages])
-        self.options.append(dict(kwargs))
-        if not self.responses:
-            raise AssertionError("The advisor made an unexpected provider call")
-        response = self.responses.popleft()
-        return response.content if isinstance(response, ProviderTurn) else response
-
-    async def complete_turn(self, messages: list[dict[str, object]], **kwargs) -> ProviderTurn:
-        offered = {tool["function"]["name"] for tool in kwargs.get("tools") or []}
+    async def complete(self, request: CompletionRequest) -> CompletionTurn:
+        messages = request.messages
+        offered = {tool["function"]["name"] for tool in request.tools}
         handover = self._handover(self.responses[0], offered) if self.responses else None
         if handover is not None:
             return handover
@@ -52,16 +45,19 @@ class ScriptedProvider:
             if closing is not None:
                 return closing
         self.calls.append([dict(message) for message in messages])
-        self.options.append(dict(kwargs))
+        self.options.append({"tools": list(request.tools), "tool_choice": request.tool_choice})
         if not self.responses:
             raise AssertionError("The advisor made an unexpected provider call")
         response = self.responses.popleft()
-        return response if isinstance(response, ProviderTurn) else ProviderTurn(content=response)
+        return response if isinstance(response, CompletionTurn) else CompletionTurn(content=response)
+
+    async def aclose(self) -> None:
+        return None
 
     @staticmethod
     def _closing_answer(
         messages: list[dict[str, object]], offered: set[str]
-    ) -> ProviderTurn | None:
+    ) -> CompletionTurn | None:
         """The Advisor's last word when a script covers only the subagent's work.
 
         `route` returns to its caller, so every routed script would otherwise end with one
@@ -77,21 +73,23 @@ class ScriptedProvider:
             payload = json.loads(str(last.get("content") or "{}"))
         except json.JSONDecodeError:
             return None
-        return ProviderTurn(content=str(payload.get("text") or ""))
+        return CompletionTurn(content=str(payload.get("text") or ""))
 
     @staticmethod
-    def _handover(response: str | ProviderTurn, offered: set[str]) -> ProviderTurn | None:
-        if "route" not in offered or not isinstance(response, ProviderTurn):
+    def _handover(response: str | CompletionTurn, offered: set[str]) -> CompletionTurn | None:
+        if "route" not in offered or not isinstance(response, CompletionTurn):
             return None
         wanted = {call.name for call in response.tool_calls}
         if not wanted or wanted <= offered:
             return None
         target = "diary" if wanted & {"read_day", "diary"} else "board"
-        return ProviderTurn(
+        return CompletionTurn(
             content="",
             tool_calls=(
-                ProviderToolCall(
-                    id=f"route-{target}", name="route", arguments=json.dumps({"name": target})
+                ToolCall(
+                    id=f"route-{target}",
+                    name="route",
+                    arguments_json=json.dumps({"name": target}),
                 ),
             ),
         )
@@ -117,7 +115,7 @@ class E2EHarness:
 
     def advisor(
         self,
-        responses: list[str | ProviderTurn],
+        responses: list[str | CompletionTurn],
         *,
         cache_breakpoints: bool = False,
         subagents: tuple[RoutedSubagent, ...] | None = None,
@@ -127,7 +125,7 @@ class E2EHarness:
         provider = ScriptedProvider(responses)
         advisor = AIAdvisor(
             self.sessions,
-            provider,  # type: ignore[arg-type]
+            provider,
             self.memory,
             ReadOnlyQueryRunner(self.database_path),
             model_name="e2e-scripted-model",

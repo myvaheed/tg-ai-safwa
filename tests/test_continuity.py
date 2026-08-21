@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
+from llm_gateway import CompletionRequest, CompletionTurn
 from safwa.constants import MEMORY_READ_TOKEN_BUDGET
 from safwa.continuity import (
     MemoryMaintenanceResult,
@@ -33,18 +34,24 @@ class SequenceProvider:
     def __init__(self, *responses: str) -> None:
         self.responses = list(responses)
 
-    async def complete(self, *_args, **_kwargs) -> str:
-        return self.responses.pop(0)
+    async def complete(self, _request: CompletionRequest) -> CompletionTurn:
+        return CompletionTurn(self.responses.pop(0))
+
+    async def aclose(self) -> None:
+        return None
 
 
 class RecordingProvider:
     def __init__(self, *responses: str) -> None:
         self.responses = list(responses)
-        self.requests: list[list[dict[str, str]]] = []
+        self.requests: list[CompletionRequest] = []
 
-    async def complete(self, messages, **_kwargs) -> str:
-        self.requests.append(messages)
-        return self.responses.pop(0)
+    async def complete(self, request: CompletionRequest) -> CompletionTurn:
+        self.requests.append(request)
+        return CompletionTurn(self.responses.pop(0))
+
+    async def aclose(self) -> None:
+        return None
 
 
 class SequenceHistory:
@@ -214,7 +221,7 @@ async def test_a_new_summary_rewrites_the_previous_one(sessions) -> None:
         sent.append((text, covered_id))
 
     assert await continuity.maybe_summarize(42, send_summary) is True
-    request = provider.requests[0][-1]["content"]
+    request = provider.requests[0].messages[-1]["content"]
     assert request.startswith("Previous summary:\nEverything before today.")
     assert "A long enough request" in request
     assert sent == [("📜 Summary\nThe rewritten summary", 10)]

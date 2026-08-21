@@ -6,8 +6,9 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import delete, func, select
 
+from llm_gateway import CompletionTurn as ProviderTurn
+from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.context import SYSTEM_PROMPT, DialogueMessage
-from safwa.ai.provider import ProviderToolCall, ProviderTurn
 from safwa.ai.service import AIOutcome, ProposalService
 from safwa.analytics import render_retrospective_png, retrospective_data
 from safwa.constants import MAX_TOOL_CALLS
@@ -72,7 +73,7 @@ def mutation_turn(
         content="",
         tool_calls=tuple(
             ProviderToolCall(
-                id=f"{prefix}-{index}", name=name, arguments=json.dumps(arguments)
+                id=f"{prefix}-{index}", name=name, arguments_json=json.dumps(arguments)
             )
             for index, (name, arguments) in enumerate(calls, start=1)
         ),
@@ -490,7 +491,7 @@ async def test_ai_read_query_round_trip_uses_safe_view(e2e_harness):
             ProviderToolCall(
                 id="read-1",
                 name="query_safwa",
-                arguments=json.dumps(
+                arguments_json=json.dumps(
                     {"sql": "SELECT committed, completed FROM ai_current_sprint_metrics"}
                 ),
             ),
@@ -529,7 +530,7 @@ async def test_a_turn_that_stops_without_words_is_asked_again(e2e_harness):
             ProviderToolCall(
                 id="read-1",
                 name="query_safwa",
-                arguments=json.dumps({"sql": "SELECT id FROM ai_cards"}),
+                arguments_json=json.dumps({"sql": "SELECT id FROM ai_cards"}),
             ),
         ),
     )
@@ -562,12 +563,12 @@ async def test_read_and_mutation_in_one_turn_rejects_only_the_mutation(e2e_harne
             ProviderToolCall(
                 id="mixed-read",
                 name="query_safwa",
-                arguments=json.dumps({"sql": "SELECT id FROM ai_cards LIMIT 1"}),
+                arguments_json=json.dumps({"sql": "SELECT id FROM ai_cards LIMIT 1"}),
             ),
             ProviderToolCall(
                 id="mixed-write",
                 name="card",
-                arguments=json.dumps(
+                arguments_json=json.dumps(
                     {"mode": "create", "kind": "goal", "title": "Be healthy"}
                 ),
             ),
@@ -981,7 +982,7 @@ async def test_ai_create_tag_and_links_are_reviewed_as_separate_proposals(e2e_ha
             ProviderToolCall(
                 id="recent-cards",
                 name="query_safwa",
-                arguments=json.dumps(
+                arguments_json=json.dumps(
                     {
                         "sql": "SELECT id, title, created_at FROM ai_cards "
                         "ORDER BY created_at DESC LIMIT 10"
@@ -1140,7 +1141,7 @@ async def test_ai_can_query_saved_requests_through_the_safe_view(e2e_harness):
                 ProviderToolCall(
                     id="read-requests",
                     name="query_safwa",
-                    arguments=json.dumps({"sql": "SELECT name FROM ai_requests"}),
+                    arguments_json=json.dumps({"sql": "SELECT name FROM ai_requests"}),
                 ),
             ),
         ),
@@ -1345,12 +1346,12 @@ async def test_mixed_query_and_mutation_resumes_only_after_approval(e2e_harness)
             ProviderToolCall(
                 id="create-tag",
                 name="tag",
-                arguments=json.dumps({"mode": "create", "name": "VrWalk"}),
+                arguments_json=json.dumps({"mode": "create", "name": "VrWalk"}),
             ),
             ProviderToolCall(
                 id="recent-cards",
                 name="query_safwa",
-                arguments=json.dumps(
+                arguments_json=json.dumps(
                     {"sql": "SELECT id, title FROM ai_cards ORDER BY created_at DESC LIMIT 10"}
                 ),
             ),
@@ -1548,12 +1549,12 @@ async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_h
             ProviderToolCall(
                 id="tag-create",
                 name="tag",
-                arguments=json.dumps({"mode": "create", "name": "VrWalk"}),
+                arguments_json=json.dumps({"mode": "create", "name": "VrWalk"}),
             ),
             ProviderToolCall(
                 id="find-recent",
                 name="query_safwa",
-                arguments=json.dumps(
+                arguments_json=json.dumps(
                     {"sql": "SELECT id, title FROM ai_cards ORDER BY created_at DESC LIMIT 10"}
                 ),
             ),
@@ -2214,7 +2215,7 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
                     ProviderToolCall(
                         id="broken-read",
                         name="query_safwa",
-                        arguments=json.dumps({"sql": "DELETE FROM cards"}),
+                        arguments_json=json.dumps({"sql": "DELETE FROM cards"}),
                     ),
                 ),
             ),

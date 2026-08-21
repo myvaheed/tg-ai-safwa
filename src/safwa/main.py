@@ -10,10 +10,11 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
+from llm_gateway import OpenAICompatibleConfig, OpenAICompatibleProvider
+
 from .ai.autoapproval import AutoApprovalReviewer
 from .ai.board import BOARD_PROMPT, BOARD_TOOLS
 from .ai.diary import DIARY_PROMPT, day_read_tool, diary_clock
-from .ai.provider import OpenAICompatibleProvider, ProviderConfig
 from .ai.service import AIAdvisor, query_read_tool
 from .ai.sql import ReadOnlyQueryRunner, create_ai_views
 from .ai.subagents import RoutedSubagent
@@ -91,7 +92,7 @@ async def run(settings: Settings) -> None:
     if settings.ai_provider is AIProvider.OPENROUTER:
         headers = (("HTTP-Referer", AI_APP_URL), ("X-Title", AI_APP_TITLE))
     provider = OpenAICompatibleProvider(
-        ProviderConfig(
+        OpenAICompatibleConfig(
             base_url=settings.resolved_ai_base_url,
             api_key=settings.ai_api_key.get_secret_value(),
             model=settings.ai_model,
@@ -289,7 +290,7 @@ async def run(settings: Settings) -> None:
         await history.close()
         if transcriber is not None:
             await transcriber.close()
-        await provider.close()
+        await provider.aclose()
         await bot.session.close()
         await database.dispose()
 

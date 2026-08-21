@@ -5,8 +5,9 @@ import json
 import pytest
 from sqlalchemy import func, select
 
+from llm_gateway import CompletionTurn as ProviderTurn
+from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.context import DialogueMessage
-from safwa.ai.provider import ProviderToolCall, ProviderTurn
 from safwa.ai.service import ProposalService
 from safwa.domain import create_card, create_tag, create_value
 from safwa.enums import ProposalStatus
@@ -20,7 +21,7 @@ def mutation_turn(*calls: tuple[str, dict[str, object]]) -> ProviderTurn:
         content="",
         tool_calls=tuple(
             ProviderToolCall(
-                id=f"mutation-{index}", name=name, arguments=json.dumps(arguments)
+                id=f"mutation-{index}", name=name, arguments_json=json.dumps(arguments)
             )
             for index, (name, arguments) in enumerate(calls, start=1)
         ),
@@ -34,7 +35,7 @@ def review_turn(name: str, reason: str) -> ProviderTurn:
             ProviderToolCall(
                 id=f"review-{name}",
                 name=name,
-                arguments=json.dumps({"reason": reason}),
+                arguments_json=json.dumps({"reason": reason}),
             ),
         ),
     )

@@ -16,13 +16,14 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from llm_gateway import CompletionRequest, LlmProvider, ToolCall
+
 from ..constants import MINI_SESSION_REPAIR_ROUNDS
 from .contracts import tool_json_schema
-from .provider import OpenAICompatibleProvider, ProviderToolCall
 
 logger = logging.getLogger(__name__)
 
-ReadTool = Callable[[ProviderToolCall], Awaitable[Any]]
+ReadTool = Callable[[ToolCall], Awaitable[Any]]
 
 
 class MiniSessionError(RuntimeError):
@@ -67,7 +68,7 @@ class MiniSessionResult:
 
 
 async def run_mini_session(
-    provider: OpenAICompatibleProvider,
+    provider: LlmProvider,
     *,
     system_prompt: str,
     context: str,
@@ -94,7 +95,9 @@ async def run_mini_session(
     calls = 0
     repairs = 0
     while True:
-        turn = await provider.complete_turn(messages, tools=tools)
+        turn = await provider.complete(
+            CompletionRequest(messages=tuple(messages), tools=tuple(tools))
+        )
         if not turn.tool_calls:
             repairs += 1
             if repairs > max_repairs:
@@ -122,7 +125,7 @@ async def run_mini_session(
                     {
                         "id": call.id,
                         "type": "function",
-                        "function": {"name": call.name, "arguments": call.arguments},
+                        "function": {"name": call.name, "arguments": call.arguments_json},
                     }
                     for call in turn.tool_calls
                 ],
@@ -153,7 +156,7 @@ async def run_mini_session(
                 )
                 continue
             try:
-                payload = terminal.model.model_validate(json.loads(call.arguments or "{}"))
+                payload = terminal.model.model_validate(json.loads(call.arguments_json or "{}"))
             except (ValidationError, json.JSONDecodeError, TypeError) as error:
                 repairs += 1
                 _reply(
@@ -176,7 +179,7 @@ async def run_mini_session(
             )
 
 
-def _reply(messages: list[dict[str, Any]], call: ProviderToolCall, content: Any) -> None:
+def _reply(messages: list[dict[str, Any]], call: ToolCall, content: Any) -> None:
     messages.append(
         {
             "role": "tool",

@@ -36,7 +36,7 @@ class NoAIProvider:
         self.__class__.calls += 1
         raise AssertionError("The live Telegram UI test attempted an unexpected AI request")
 
-    async def close(self) -> None:
+    async def aclose(self) -> None:
         self.closed = True
 
 

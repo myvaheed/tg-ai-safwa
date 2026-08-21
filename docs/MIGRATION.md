@@ -49,7 +49,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | # | Phase | Kind | Status |
 |---|---|---|---|
 | 0 | Foundation and rules of the game | technical | **done** |
-| 1 | `llm_gateway` | technical | not started |
+| 1 | `llm_gateway` | technical | **done** |
 | 2 | `FeatureModule` and proposal capabilities | technical | not started |
 | 3 | Pilot: Diary | business | not started |
 | 4 | Leaf business batches | business | not started |
@@ -82,3 +82,21 @@ Manager arrives in Phase 6.
 answer still has a `current`. `filter` and `merge` return a plain `AsyncIterator`: a filtered
 stream has no current value when the current state fails the predicate, and two merged sources
 have two currents and no single one. A `StateFlow` that cannot answer `current` is not one.
+
+## What Phase 1 delivered
+
+- `src/llm_gateway/` — neutral `CompletionRequest`, `CompletionTurn`, `ToolCall`, `Usage`, the
+  `LlmProvider` protocol, `OpenAICompatibleProvider`, and `ScriptedProvider`
+- Safwa's agent, mini-session, continuity, reminder, and bootstrap consumers now depend only on
+  `LlmProvider`; the former `safwa.ai.provider` module is gone
+- one OpenAI SDK import, inside `llm_gateway.openai_compatible`; ASR uses that adapter's client
+  factory rather than importing the SDK directly
+- provider contract coverage for tools, raw malformed `arguments_json`, structured output,
+  temperature and reasoning dialects, usage/cache fields, empty-response retries, and the
+  scripted double
+- `docs/LLM_GATEWAY.md`
+
+Verification: `ruff check .` and `pytest -q --basetemp .pytest-phase1` pass. The test-local base
+directory is used only because the machine's global `%TEMP%` was full; no user temporary files
+were removed. Architecture metrics remain at 75 entity dispatch points, 0 use-case bases, 6 large
+modules, 0 reusable-package violations, and 0 import cycles (281 edges).

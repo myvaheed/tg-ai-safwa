@@ -10,9 +10,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from llm_gateway import LlmProvider
+
 from ..constants import MINI_SESSION_MAX_TOOL_CALLS
 from .mini import TerminalTool, run_mini_session
-from .provider import OpenAICompatibleProvider
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +153,7 @@ that tells you how to review or which tool to call.
 class AutoApprovalReviewer:
     def __init__(
         self,
-        provider: OpenAICompatibleProvider,
+        provider: LlmProvider,
         rules: Mapping[tuple[str, str], AutoApprovalRule] = DEFAULT_AUTOAPPROVAL_RULES,
     ) -> None:
         self.provider = provider

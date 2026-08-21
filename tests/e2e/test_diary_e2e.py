@@ -7,7 +7,8 @@ import pytest
 from sqlalchemy import select
 from test_subagent_e2e import diary_subagent
 
-from safwa.ai.provider import ProviderToolCall, ProviderTurn
+from llm_gateway import CompletionTurn as ProviderTurn
+from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.service import ProposalService, _resolved_tool_result
 from safwa.domain import create_diary_entry
 from safwa.models import AgentRun, DiaryEntry
@@ -21,7 +22,7 @@ def turn(*calls: tuple[str, dict[str, object]]) -> ProviderTurn:
     return ProviderTurn(
         content="",
         tool_calls=tuple(
-            ProviderToolCall(id=f"call-{index}", name=name, arguments=json.dumps(arguments))
+            ProviderToolCall(id=f"call-{index}", name=name, arguments_json=json.dumps(arguments))
             for index, (name, arguments) in enumerate(calls, start=1)
         ),
     )

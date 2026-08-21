@@ -6,9 +6,10 @@ from datetime import date
 import pytest
 from sqlalchemy import select
 
+from llm_gateway import CompletionTurn as ProviderTurn
+from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.context import DialogueMessage
 from safwa.ai.diary import DIARY_PROMPT, day_read_tool, diary_clock
-from safwa.ai.provider import ProviderToolCall, ProviderTurn
 from safwa.ai.service import ProposalService, query_read_tool
 from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.ai.subagents import RoutedSubagent
@@ -34,7 +35,7 @@ def turn(*calls: tuple[str, dict[str, object]], prefix: str = "call") -> Provide
         content="",
         tool_calls=tuple(
             ProviderToolCall(
-                id=f"{prefix}-{index}", name=name, arguments=json.dumps(arguments)
+                id=f"{prefix}-{index}", name=name, arguments_json=json.dumps(arguments)
             )
             for index, (name, arguments) in enumerate(calls, start=1)
         ),
@@ -48,7 +49,7 @@ def review_turn(reason: str) -> ProviderTurn:
             ProviderToolCall(
                 id="review-autoapprove",
                 name="autoapprove",
-                arguments=json.dumps({"reason": reason}),
+                arguments_json=json.dumps({"reason": reason}),
             ),
         ),
     )

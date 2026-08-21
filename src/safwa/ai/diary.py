@@ -7,9 +7,10 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
+from llm_gateway import ToolCall
+
 from ..constants import DIARY_DAY_TOKEN_BUDGET, WEEKDAY_NAMES
 from .mini import ReadToolSpec
-from .provider import ProviderToolCall
 
 DIARY_PROMPT = """You keep the user's Diary. One day, one entry, in their own voice.
 
@@ -88,8 +89,8 @@ def day_read_tool(
     """`read_day` bound to one chat: the day as the owner and Safwa actually spoke it."""
     tz = ZoneInfo(timezone)
 
-    async def read_day(call: ProviderToolCall) -> dict[str, Any]:
-        arguments = json.loads(call.arguments or "{}")
+    async def read_day(call: ToolCall) -> dict[str, Any]:
+        arguments = json.loads(call.arguments_json or "{}")
         raw = str(arguments.get("date") or "").strip()
         try:
             day = date.fromisoformat(raw) if raw else datetime.now(tz).date()

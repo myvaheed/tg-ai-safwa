@@ -10,7 +10,8 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from .ai.provider import OpenAICompatibleProvider
+from llm_gateway import CompletionRequest, LlmProvider
+
 from .constants import (
     MEMORY_MAINTENANCE_INTERVAL_SECONDS,
     MEMORY_READ_TOKEN_BUDGET,
@@ -72,7 +73,7 @@ class PersonaContinuity:
         self,
         sessions: async_sessionmaker[AsyncSession],
         history: TelegramHistorySource,
-        provider: OpenAICompatibleProvider,
+        provider: LlmProvider,
         memory: MemoryFileStore,
         *,
         summary_trigger_tokens: int = SUMMARY_TRIGGER_TOKENS,
@@ -117,13 +118,17 @@ class PersonaContinuity:
                 if previous
                 else dialogue
             )
-            summary = await self.provider.complete(
-                [
-                    {"role": "system", "content": SUMMARY_PROMPT},
-                    {"role": "user", "content": request},
-                ],
-                temperature=0.1,
-            )
+            summary = (
+                await self.provider.complete(
+                    CompletionRequest(
+                        messages=(
+                            {"role": "system", "content": SUMMARY_PROMPT},
+                            {"role": "user", "content": request},
+                        ),
+                        temperature=0.1,
+                    )
+                )
+            ).content
             if still_current is not None and not still_current():
                 return False
             current_entries = await self.history.recent(chat_id)
@@ -171,28 +176,36 @@ class PersonaContinuity:
             facts = list(snapshot.facts)
             expected_hash = snapshot.file_hash
             for chunk in chunks:
-                retelling = await self.provider.complete(
-                    [
-                        {"role": "system", "content": RETELL_PROMPT},
-                        {"role": "user", "content": chunk},
-                    ],
-                    temperature=0.1,
-                )
+                retelling = (
+                    await self.provider.complete(
+                        CompletionRequest(
+                            messages=(
+                                {"role": "system", "content": RETELL_PROMPT},
+                                {"role": "user", "content": chunk},
+                            ),
+                            temperature=0.1,
+                        )
+                    )
+                ).content
                 if still_current is not None and not still_current():
                     return MemoryMaintenanceResult.BUSY
-                raw_result = await self.provider.complete(
-                    [
-                        {"role": "system", "content": MEMORY_PROMPT},
-                        {
-                            "role": "user",
-                            "content": "Existing memory:\n"
-                            + "\n".join(facts)
-                            + "\n\nNew retelling:\n"
-                            + retelling,
-                        },
-                    ],
-                    temperature=0,
-                )
+                raw_result = (
+                    await self.provider.complete(
+                        CompletionRequest(
+                            messages=(
+                                {"role": "system", "content": MEMORY_PROMPT},
+                                {
+                                    "role": "user",
+                                    "content": "Existing memory:\n"
+                                    + "\n".join(facts)
+                                    + "\n\nNew retelling:\n"
+                                    + retelling,
+                                },
+                            ),
+                            temperature=0,
+                        )
+                    )
+                ).content
                 if still_current is not None and not still_current():
                     return MemoryMaintenanceResult.BUSY
                 try:
