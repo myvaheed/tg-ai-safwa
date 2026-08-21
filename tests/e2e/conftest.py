@@ -10,11 +10,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.ai.autoapproval import AutoApprovalReviewer
-from safwa.ai.board import BOARD_PROMPT, BOARD_TOOLS
 from safwa.ai.service import AIAdvisor, query_read_tool
 from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from safwa.ai.subagents import RoutedSubagent
+from safwa.bootstrap.modules import (
+    AI_VIEWS,
+    ALLOWED_VIEWS,
+    PROPOSALS,
+    SYSTEM_PROMPT,
+)
 from safwa.domain import bootstrap_workspace
+from safwa.features.planning.agent import BOARD_PROMPT, BOARD_TOOLS
 from safwa.foundation.database import Database, upgrade_database
 from safwa.memory import MemoryFileStore
 
@@ -108,7 +114,9 @@ class E2EHarness:
             name="board",
             purpose="every change to the planning data",
             instructions=BOARD_PROMPT,
-            read_tools=(query_read_tool(ReadOnlyQueryRunner(self.database_path)),),
+            read_tools=(
+                query_read_tool(ReadOnlyQueryRunner(self.database_path, ALLOWED_VIEWS)),
+            ),
             mutation_tools=BOARD_TOOLS,
             planning_state=True,
         )
@@ -127,7 +135,9 @@ class E2EHarness:
             self.sessions,
             provider,
             self.memory,
-            ReadOnlyQueryRunner(self.database_path),
+            ReadOnlyQueryRunner(self.database_path, ALLOWED_VIEWS),
+            PROPOSALS,
+            system_prompt=SYSTEM_PROMPT,
             model_name="e2e-scripted-model",
             cache_breakpoints=cache_breakpoints,
             autoapproval=AutoApprovalReviewer(provider) if autoapprove else None,
@@ -147,7 +157,9 @@ async def e2e_harness(tmp_path: Path, monkeypatch) -> E2EHarness:
     database = Database(f"sqlite+aiosqlite:///{database_path.as_posix()}")
     async with database.sessions() as session:
         await bootstrap_workspace(session, 42, "Europe/Istanbul")
-        await session.run_sync(lambda sync_session: create_ai_views(sync_session.connection()))
+        await session.run_sync(
+            lambda sync_session: create_ai_views(sync_session.connection(), AI_VIEWS)
+        )
         await session.commit()
 
     memory_path = tmp_path / "memory.md"

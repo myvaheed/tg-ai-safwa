@@ -9,12 +9,13 @@ from sqlalchemy import select
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.context import DialogueMessage
-from safwa.ai.diary import DIARY_PROMPT, day_read_tool, diary_clock
 from safwa.ai.service import ProposalService, query_read_tool
 from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.ai.subagents import RoutedSubagent
+from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS
 from safwa.domain import create_card, finish_action
 from safwa.enums import CardKind, CardStage
+from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
 from safwa.models import AgentRun, AgentStep, Card, DiaryEntry
 
 TODAY = date.today().isoformat()
@@ -79,7 +80,7 @@ def diary_subagent(
             day_read_tool(
                 StubDayReader(transcript), chat_id=42, timezone="Europe/Istanbul"
             ),
-            query_read_tool(ReadOnlyQueryRunner(harness.database_path)),
+            query_read_tool(ReadOnlyQueryRunner(harness.database_path, ALLOWED_VIEWS)),
         ),
         mutation_tools=("diary",),
         clock=lambda: diary_clock("Europe/Istanbul"),
@@ -370,7 +371,7 @@ async def test_two_domains_in_one_request_are_both_finished(e2e_harness):
 
     # Saving resumes the board, whose receipt resumes the Advisor, which routes on.
     async with e2e_harness.sessions() as session:
-        affected = await ProposalService(session).apply(first.proposal_id)
+        affected = await ProposalService(session, PROPOSALS).apply(first.proposal_id)
         await session.commit()
     provider.responses.extend(
         [
@@ -463,7 +464,7 @@ async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
     )
     first = await advisor.handle("Переименуй действие и запиши день")
     async with e2e_harness.sessions() as session:
-        affected = await ProposalService(session).apply(first.proposal_id)
+        affected = await ProposalService(session, PROPOSALS).apply(first.proposal_id)
         await session.commit()
     provider.responses.extend(
         [

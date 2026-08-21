@@ -7,12 +7,10 @@ from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy import select
 
-from safwa.ai.context import SYSTEM_PROMPT
-from safwa.ai.contracts import DiaryToolInput, mutation_change_from_tool
-from safwa.ai.diary import DIARY_PROMPT
-from safwa.ai.prepare import ChangePreparer, ToolPreparationError
+from safwa.ai.contracts import DiaryToolInput
+from safwa.ai.prepare import ChangePreparer
 from safwa.ai.service import _approval_results_summary
-from safwa.ai.sql import ALLOWED_VIEWS
+from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS, SYSTEM_PROMPT
 from safwa.constants import DIARY_TIME_DEFAULT, FEELING_SCORE_EMOJI
 from safwa.domain import (
     DIARY_REMINDER_INSTRUCTION,
@@ -28,6 +26,8 @@ from safwa.domain import (
     update_reminder_text,
 )
 from safwa.enums import ScheduleKind
+from safwa.features.diary.agent import DIARY_PROMPT
+from safwa.features.proposals.api import ToolPreparationError
 from safwa.models import DiaryEntry, Reminder
 from safwa.reminders import resolve, schedule_of
 from safwa.telegram._presentation import diary_label
@@ -35,11 +35,11 @@ from safwa.telegram._presentation import diary_label
 
 def preparer() -> ChangePreparer:
     """A Diary change needs neither the provider nor a query runner to prepare."""
-    return ChangePreparer(None, None)  # type: ignore[arg-type]
+    return ChangePreparer(None, None, PROPOSALS)  # type: ignore[arg-type]
 
 
 async def prepared(sessions, tool_arguments: dict[str, Any]) -> Any:
-    change = mutation_change_from_tool("diary", tool_arguments)
+    change = PROPOSALS.change_from_tool("diary", tool_arguments)
     async with sessions() as session:
         result = await preparer().prepare(session, change)
     return change, result
@@ -92,7 +92,7 @@ def test_the_scale_is_stated_once_and_the_model_never_reaches_for_zero() -> None
 
 
 def test_the_call_says_what_was_asked_for_and_nothing_about_the_data() -> None:
-    change = mutation_change_from_tool(
+    change = PROPOSALS.change_from_tool(
         "diary",
         {"mode": "update", "date": "2026-08-15", "pov": "День.", "ai_comment": "Held."},
     )

@@ -20,6 +20,7 @@ from safwa.ai.context import DialogueMessage
 from safwa.ai.service import AIOutcome, ProposalDescription, ProposalService
 from safwa.ai.sql import create_ai_views
 from safwa.asr import TranscriptionError, TranscriptionResult
+from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS
 from safwa.constants import (
     ASR_MAX_DURATION_SECONDS,
     DIARY_TIME_DEFAULT,
@@ -305,7 +306,9 @@ class FakeCallback:
 
 
 class StubAdvisor:
-    """Only the two hooks a dismissed proposal screen reaches for."""
+    """Only the hooks a dismissed proposal screen reaches for, plus the real registry."""
+
+    proposals = PROPOSALS
 
     async def describe_proposal(self, _session, _proposal_id) -> ProposalDescription:
         return ProposalDescription(summary="Rename Tag “Family”", fields=["Name: Home → Family"])
@@ -319,8 +322,9 @@ def services_for(sessions, *, advisor=None, transcriber=None):
         sessions=sessions,
         owner_id=42,
         guard=GenerationGuard(),
+        views=ALLOWED_VIEWS,
         bot_username="safwa_ai_bot",
-        advisor=advisor,
+        advisor=advisor if advisor is not None else SimpleNamespace(proposals=PROPOSALS),
         transcriber=transcriber,
     )
 
@@ -415,6 +419,8 @@ async def test_proposal_ui_releases_generation_guard_before_continuity_work(sess
         proposal_id = proposal.id
 
     class Advisor:
+        proposals = PROPOSALS
+
         async def handle(self, *_args, **_kwargs):
             return AIOutcome(
                 "proposal",
@@ -853,13 +859,16 @@ async def test_checks_button_is_on_the_card_only(sessions) -> None:
 
 async def test_open_item_screen_renders_the_manual_screen_of_every_item(sessions) -> None:
     async with sessions() as session:
-        await (await session.connection()).run_sync(create_ai_views)
+        await (await session.connection()).run_sync(
+            lambda connection: create_ai_views(connection, AI_VIEWS)
+        )
         card = await create_card(session, kind="action", title="Pull-ups", effort_points=1)
         value = await create_value(session, "Health")
         tag = await create_tag(session, "Training")
         check = await create_check(session, title="Form is safe")
         request = await create_saved_request(
-            session, "Open actions", "SELECT id FROM ai_cards WHERE kind = 'action'"
+            session, "Open actions", "SELECT id FROM ai_cards WHERE kind = 'action'",
+            views=ALLOWED_VIEWS,
         )
         await session.commit()
         targets = [
@@ -930,7 +939,9 @@ async def test_a_citation_aimed_at_something_that_is_not_an_id_keeps_only_its_wo
 
 async def test_citations_use_compact_labels_from_saved_items(sessions) -> None:
     async with sessions() as session:
-        await (await session.connection()).run_sync(create_ai_views)
+        await (await session.connection()).run_sync(
+            lambda connection: create_ai_views(connection, AI_VIEWS)
+        )
         goal = await create_card(session, kind="goal", title="Быть здоровым")
         action = await create_card(
             session,
@@ -945,7 +956,8 @@ async def test_citations_use_compact_labels_from_saved_items(sessions) -> None:
         tag = await create_tag(session, "Здоровье")
         long_tag = await create_tag(session, "x" * 26)
         request = await create_saved_request(
-            session, "План на неделю", "SELECT id FROM ai_cards WHERE kind = 'action'"
+            session, "План на неделю", "SELECT id FROM ai_cards WHERE kind = 'action'",
+            views=ALLOWED_VIEWS,
         )
         diary = await create_diary_entry(
             session, entry_date=date(2026, 8, 16), body="Хороший день.", feeling_score=6
@@ -1869,7 +1881,7 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
         card_id = card.id
 
     async with sessions() as session:
-        affected = await ProposalService(session).apply(proposal_id)
+        affected = await ProposalService(session, PROPOSALS).apply(proposal_id)
         await session.commit()
 
     assert affected == [card_id]
@@ -2429,7 +2441,9 @@ async def _seed_plan(sessions) -> dict[str, int]:
     # The link-tap counter is per process, so one test's taps would otherwise count in the next.
     plan_module._link_taps.clear()
     async with sessions() as session:
-        await (await session.connection()).run_sync(create_ai_views)
+        await (await session.connection()).run_sync(
+            lambda connection: create_ai_views(connection, AI_VIEWS)
+        )
         ids = {
             "sprint": (
                 await create_card(
@@ -2494,7 +2508,8 @@ async def test_opening_a_card_from_the_plan_comes_back_to_the_same_page_and_filt
     ids = await _seed_plan(sessions)
     async with sessions() as session:
         request = await create_saved_request(
-            session, "Only Pick me", "SELECT id FROM ai_cards WHERE title = 'Pick me'"
+            session, "Only Pick me", "SELECT id FROM ai_cards WHERE title = 'Pick me'",
+            views=ALLOWED_VIEWS,
         )
         await session.commit()
         request_id = request.id
@@ -2528,7 +2543,8 @@ async def test_a_filter_that_matches_nothing_says_so_instead_of_an_empty_keyboar
     await _seed_plan(sessions)
     async with sessions() as session:
         request = await create_saved_request(
-            session, "Nothing", "SELECT id FROM ai_cards WHERE title = 'No such Card'"
+            session, "Nothing", "SELECT id FROM ai_cards WHERE title = 'No such Card'",
+            views=ALLOWED_VIEWS,
         )
         await session.commit()
         request_id = request.id
@@ -2546,7 +2562,8 @@ async def test_the_filter_screen_toggles_a_request_on_and_off(sessions) -> None:
     await _seed_plan(sessions)
     async with sessions() as session:
         request = await create_saved_request(
-            session, "Only Pick me", "SELECT id FROM ai_cards WHERE title = 'Pick me'"
+            session, "Only Pick me", "SELECT id FROM ai_cards WHERE title = 'Pick me'",
+            views=ALLOWED_VIEWS,
         )
         await session.commit()
         request_id = request.id

@@ -26,7 +26,9 @@ class PlanningContext:
     clock: str
 
 
-SYSTEM_PROMPT = """# Safwa
+# The routing rules are filled in from `MODULES`, once, at import time: a subagent that
+# is not in the roster is never named here, and so is never routed to.
+SYSTEM_PROMPT_TEMPLATE = """# Safwa
 You are Safwa Advisor: a concise, warm personal agile assistant. Use the user's profile, active Values, memory, and current planning state.
 
 # Agile structure. Safwa-items
@@ -122,8 +124,7 @@ IDs are small integers. Never ask the user for one you can find yourself.
 
 You read; you never write. You hold no tool that changes anything. 
 `route(name)` - only way to change, it gives one subagent the work and hands back what it did. Send `route` alone in a response.
-- `route("board")` — any change(create, update, archive, delete) to a Card, Check, Value, Tag, Request or Reminder.
-- `route("diary")` — write, rewrite or delete a day.
+{routes}
 - The result carries `did` (already saved), `text` (its own words, with real ids) and `error`. Read the output and check with the initial request, if something is missing, route it again.
 - If the user answers a proposal with words instead of a button, those words come to you. If they are about that proposal, route back to the same subagent on this response.
 

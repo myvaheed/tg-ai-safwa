@@ -19,16 +19,11 @@ from pathlib import Path
 import pytest
 from sqlalchemy import inspect
 
-from safwa.ai.board import BOARD_PROMPT
-from safwa.ai.diary import DIARY_PROMPT
-from safwa.ai.service import (
-    MUTATION_TOOLS,
-    OPEN_TOOL,
-    QUERY_SAFWA_TOOL,
-    ROUTE_TOOL,
-    SYSTEM_PROMPT,
-)
+from safwa.ai.service import OPEN_TOOL, QUERY_SAFWA_TOOL, ROUTE_TOOL
 from safwa.ai.subagents import PERSONA
+from safwa.bootstrap.modules import PROPOSALS, SYSTEM_PROMPT
+from safwa.features.diary.agent import DIARY_PROMPT
+from safwa.features.planning.agent import BOARD_PROMPT
 from safwa.models import Base
 from scripts.architecture_metrics import RULES, allowlist, cycles, violations
 
@@ -117,8 +112,8 @@ def test_rule_i_prompt_prefix_is_byte_stable(request):
         "tool:route": _digest(json.dumps(ROUTE_TOOL, sort_keys=True)),
         "tool:query_safwa": _digest(json.dumps(QUERY_SAFWA_TOOL, sort_keys=True)),
     }
-    for name, schema in MUTATION_TOOLS.items():
-        produced[f"tool:{name}"] = _digest(json.dumps(schema, sort_keys=True))
+    for name, tool in PROPOSALS.tools.items():
+        produced[f"tool:{name}"] = _digest(json.dumps(tool.schema(), sort_keys=True))
 
     _snapshot("prompt_prefix", produced, request.config.getoption("--snapshot-update"))
 

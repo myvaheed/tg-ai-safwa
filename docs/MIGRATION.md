@@ -50,7 +50,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 |---|---|---|---|
 | 0 | Foundation and rules of the game | technical | **done** |
 | 1 | `llm_gateway` | technical | **done** |
-| 2 | `FeatureModule` and proposal capabilities | technical | not started |
+| 2 | `FeatureModule` and proposal capabilities | technical | **done** |
 | 3 | Pilot: Diary | business | not started |
 | 4 | Leaf business batches | business | not started |
 | 5 | Planning core | business | not started |
@@ -100,3 +100,67 @@ Verification: `ruff check .` and `pytest -q --basetemp .pytest-phase1` pass. The
 directory is used only because the machine's global `%TEMP%` was full; no user temporary files
 were removed. Architecture metrics remain at 75 entity dispatch points, 0 use-case bases, 6 large
 modules, 0 reusable-package violations, and 0 import cycles (281 edges).
+
+## What Phase 2 delivered
+
+The seam every business batch after this one is isolated behind. Features are still thin wrappers:
+only who lists whom changed, and `domain.py`, `telegram/cards.py` and the rest stayed where they are.
+
+- `src/safwa/bootstrap/` — `module_manifest.py` (the wiring DTOs) and `modules.py`, the one place
+  that names the features. See [FEATURE_MODULES.md](FEATURE_MODULES.md).
+- `src/safwa/features/{planning,diary,reminders,saved_requests,proposals,continuity}/` — each with
+  its own `module.py`, and the `views.py`, `agent.py`, `proposal.py`, `telegram.py`,
+  `background.py` it actually needs. `features/proposals/api.py` holds the three contracts.
+- `ChangePreparer.prepare` is orchestration plus `ProposalHandler.prepare`; `ProposalService`'s
+  `_apply_*` methods are `ProposalHandler.apply`; the review screen and the receipt lines are
+  `ProposalPresenter`. `ai/service.py` fell from 3062 lines to 2197.
+- `ALLOWED_VIEWS` and `create_ai_views` come from `m.views`. The catalogue is passed as data —
+  `ReadOnlyQueryRunner(path, views)`, `validate_read_sql(sql, views)`,
+  `normalize_request_sql(raw, views)`, `Services.views` — so `ai/sql.py` stays a leaf and the
+  import graph stays acyclic.
+- The subagent roster and the `# Routing` section of `SYSTEM_PROMPT` are built from `m.agents`; an
+  `AgentSpec.purpose` **is** its prompt line. `ai/board.py` and `ai/diary.py` moved into their
+  features and are gone.
+- `recover_startup(session, hooks)`, and every background task, come from `MODULES`.
+- `scripts/architecture_metrics.py` takes its entity names from the registry, which is what makes
+  Rule H self-maintaining.
+- `tests/test_feature_modules.py` — the registry's own promises: three responsibilities per entity,
+  unique tool names, the allowlist is the catalogue the database gets, and the routing rules name
+  every agent.
+
+Verification: `ruff check .` clean, `pytest -q` 508 passed / 3 skipped (439 test functions). Rule I
+passed without a snapshot rewrite — the assembled prompt and every tool schema are byte-identical to
+the Phase 0 baseline — and so did Rule J.
+
+| | before | after |
+|---|---:|---:|
+| Entity dispatch points outside `features/` (DoD #1) | 75 | 28 |
+| Modules under `src/` | 57 | 92 |
+| Largest module | `ai/service.py` 3062 | `ai/service.py` 2197 |
+| Modules over 600 lines (DoD #3) | 6 | 6 |
+| Import cycles | 0 (281 edges) | 0 (394 edges) |
+
+### The 28 that remain, and who owns them
+
+Every dispatch point in the proposal seam is gone. What is left is one other registry, split across
+two layers, plus the tool-input models:
+
+- `telegram/screens.py` (12), `telegram/callbacks.py` (6), `telegram/dialogue.py` (2),
+  `telegram/items.py` (1), `telegram/_core.py` (1), `history.py` (1) — which item kinds can be
+  cited, opened and edited by hand. That is the Telegram screen registry, and it moves with the
+  handlers in Phases 5 and 8.
+- `ai/service.py` (2) — `OPENABLE_MODELS`, the AI half of that same registry, and the wording that
+  names a Card when a whole batch is Card creations.
+- `ai/contracts.py` (3) — `RemoveToolInput` and `OpenInput`. Each `ToolInput` moves to its feature's
+  `agent.py` when `ai/contracts.py` is split.
+
+The allowlist gained exactly one key, `Rule H|safwa/ai/service.py|dict over card, check, diary,
+request, tag, value`: `prepare.py`'s `ENTITY_MODELS` served two callers, and the `open` half of it
+had nowhere better to go this phase. Its old key, which was larger, is gone.
+
+### Known behaviour left as it was
+
+`_refresh_queued_proposal` re-reads the expected version only for Card, Tag, Value and Request. That
+is preserved exactly, as `ProposalHandler.version_model = None` on the other three handlers. Whether
+a requeued Check, Diary day or Reminder should be re-snapshotted is a product question for the
+Phase 6 proposal scenarios, not a technical batch's call.

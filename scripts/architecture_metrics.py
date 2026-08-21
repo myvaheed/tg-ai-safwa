@@ -16,14 +16,21 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
+from safwa.bootstrap.modules import MODULES
+
 REPO = Path(__file__).resolve().parents[1]
 SRC = REPO / "src"
 SAFWA = SRC / "safwa"
 FEATURES = SAFWA / "features"
 
-# Until Phase 2 builds `bootstrap/modules.py`, the entity names are listed here.  That file
-# becomes the source of this tuple as soon as it exists, which is the point of Rule H.
-ENTITIES = ("card", "check", "value", "tag", "request", "reminder", "remove", "diary")
+# The registry is the source of these names, which is the point of Rule H: a feature that
+# is not in `bootstrap/modules.py` does not exist, and no other module may spell it out.
+ENTITIES = tuple(
+    sorted(
+        {contribution.handler.entity for module in MODULES for contribution in module.proposals}
+        | {tool.name for module in MODULES for tool in module.mutation_tools}
+    )
+)
 
 # Rule A: what a business rule may never know about.
 DELIVERY_PACKAGES = ("aiogram", "openai", "telethon", "telegram_llm", "llm_gateway")

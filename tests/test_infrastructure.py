@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import create_engine, inspect, select, update
 
 from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
+from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
 from safwa.constants import SESSION_IDLE_DAYS
 from safwa.foundation.database import Database, upgrade_database
 from safwa.models import AgentRun, AgentStep, Base, Card, CardTag, Tag
@@ -81,7 +82,7 @@ async def test_read_only_query_runner_reads_only_ai_views(tmp_path):
     engine = create_engine(f"sqlite:///{path.as_posix()}")
     Base.metadata.create_all(engine)
     with engine.begin() as connection:
-        create_ai_views(connection)
+        create_ai_views(connection, AI_VIEWS)
         connection.exec_driver_sql(
             "INSERT INTO tags(id,name,description,version,created_at,updated_at) "
             "VALUES (1,'Family','',1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
@@ -97,7 +98,7 @@ async def test_read_only_query_runner_reads_only_ai_views(tmp_path):
             "INSERT INTO saved_requests(id,name,description,query_sql,version,created_at,updated_at) "
             "VALUES (3,'Family actions','','SELECT id FROM ai_cards',1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
         )
-    runner = ReadOnlyQueryRunner(path)
+    runner = ReadOnlyQueryRunner(path, ALLOWED_VIEWS)
     cards = await runner.run("SELECT title FROM ai_cards")
     assert cards.rows == [{"title": "Read"}]
     assert cards.notice is None

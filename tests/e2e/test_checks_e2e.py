@@ -10,6 +10,7 @@ from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.context import DialogueMessage
 from safwa.ai.sql import ReadOnlyQueryRunner
+from safwa.bootstrap.modules import ALLOWED_VIEWS
 from safwa.domain import (
     check_card_ids,
     create_card,
@@ -279,7 +280,7 @@ async def test_a_closed_repeat_is_marked_everywhere_it_is_read(e2e_harness):
         run_id, live_run_id = run.id, closed_run.successor_ids[0]
 
     # The model reads the marker: a closed instance names itself, the open one does not.
-    runner = ReadOnlyQueryRunner(e2e_harness.database_path)
+    runner = ReadOnlyQueryRunner(e2e_harness.database_path, ALLOWED_VIEWS)
     titles = {
         row["id"]: row["title"]
         for row in (await runner.run("SELECT id, title FROM ai_checks")).rows

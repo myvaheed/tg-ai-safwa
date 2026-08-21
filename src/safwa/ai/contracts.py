@@ -131,7 +131,9 @@ class QueryToolInput(ToolInput):
 class AgentChange(BaseModel):
     """One command intent. Every mutation tool's `mode` is one of these actions, spelled the same."""
 
-    entity: Literal["card", "check", "tag", "value", "request", "reminder", "diary"]
+    # The entity name is whatever feature owns it; the registry is what rejects an
+    # unknown one, so this stays a plain string.
+    entity: str
     action: Literal[
         "create",
         "update",
@@ -495,36 +497,3 @@ class DiaryToolInput(ToolInput):
         if self.mode == "delete" and (self.pov or self.feeling_score is not None):
             raise ValueError("A deletion carries only mode and date")
         return self
-
-
-MUTATION_TOOL_MODELS: dict[str, type[BaseModel]] = {
-    "card": CardToolInput,
-    "check": CheckToolInput,
-    "value": ValueToolInput,
-    "tag": TagToolInput,
-    "request": RequestToolInput,
-    "reminder": ReminderToolInput,
-    "remove": RemoveToolInput,
-    "diary": DiaryToolInput,
-}
-
-
-def mutation_change_from_tool(name: str, arguments: dict[str, Any]) -> AgentChange:
-    """Validate a model tool call and convert it into an application command intent.
-
-    `mode` is the action under its own name, and the tool names the entity — except
-    `remove`, which archives or deletes whichever entity it is given.
-    """
-    model = MUTATION_TOOL_MODELS.get(name)
-    if model is None:
-        raise ValueError(f"Unknown mutation tool: {name}")
-    call = model.model_validate(arguments)
-    if name == "remove":
-        return AgentChange(entity=call.entity, action=call.mode, id=call.id)
-    values = call.model_dump(exclude_unset=True)
-    values.pop("mode", None)
-    # A Diary day carries no id: it targets its date, and preparation reads whether
-    # that day exists yet, settling `update` on create or update.
-    return AgentChange(
-        entity=name, action=call.mode, id=values.pop("id", None), values=values
-    )

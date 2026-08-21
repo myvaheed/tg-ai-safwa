@@ -131,7 +131,7 @@ async def _screen_id(session: AsyncSession, chat_id: int, state: dict[str, Any])
 
 
 async def _resolve_filters(
-    session: AsyncSession, filters: list[int]
+    session: AsyncSession, filters: list[int], views: frozenset[str]
 ) -> tuple[list[int], set[int] | None]:
     """The picked Requests that still exist, and the Card ids all of them return.
 
@@ -144,7 +144,9 @@ async def _resolve_filters(
         if request is None or request.archived_at is not None:
             continue
         live.append(request_id)
-        ids = {card.id for card in await request_cards(session, request.query_sql)}
+        ids = {
+            card.id for card in await request_cards(session, request.query_sql, views)
+        }
         matched = ids if matched is None else matched & ids
     return live, matched
 
@@ -266,7 +268,7 @@ async def render_plan(
     async with services.sessions() as session:
         stored = await load_plan_state(session, services.owner_id)
         picked = list(stored.get("filters", [])) if filters is None else list(filters)
-        live, matched = await _resolve_filters(session, picked)
+        live, matched = await _resolve_filters(session, picked, services.views)
         planned = await stage_actions(session, CardStage.SPRINT, CardStage.TODAY)
         backlog = await stage_actions(session, CardStage.BACKLOG)
         planned.sort(key=lambda card: card.id)

@@ -54,6 +54,8 @@ class Services:
     continuity: PersonaContinuity
     owner_id: int
     guard: GenerationGuard
+    # The `ai_*` views the features publish; a saved Request's SQL is validated against them.
+    views: frozenset[str] = frozenset()
     # Loaded from Settings; item citations stay plain text when the username is omitted.
     bot_username: str = ""
     # None when SAFWA_ASR_PROVIDER is off, which is what makes the bot text-only.

@@ -18,6 +18,7 @@ from ._core import (
     router,
 )
 from ._messaging import discard_stale_status, dismiss_prior_ui, send_toast
+from ._presentation import card_overview_text, category_expression, energy_expression
 from .callbacks import CALLBACK_ACTIONS, callback_token_handler
 from .cards import (
     handle_card_creation_chooser,
@@ -45,8 +46,11 @@ __all__ = [
     "ReminderRuntime",
     "Services",
     "callback_token_handler",
+    "card_overview_text",
+    "category_expression",
     "discard_stale_status",
     "dismiss_prior_ui",
+    "energy_expression",
     "format_escalation",
     "handle_card_creation_chooser",
     "open_citation",

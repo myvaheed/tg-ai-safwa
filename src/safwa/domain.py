@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Collection, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
@@ -372,12 +372,14 @@ async def create_saved_request(
     name: str,
     query_sql: str,
     description: str | None = None,
+    *,
+    views: Collection[str],
 ) -> SavedRequest:
     normalized_name = name.strip()
     if not normalized_name:
         raise DomainError("Request name cannot be empty")
     try:
-        normalized_query = normalize_request_sql(query_sql)
+        normalized_query = normalize_request_sql(query_sql, views)
     except RequestQueryError as error:
         raise DomainError(str(error)) from error
     existing = await session.scalar(
@@ -411,6 +413,7 @@ async def update_saved_request(
     name: str | None = None,
     description: str | None = None,
     query_sql: str | None = None,
+    views: Collection[str],
 ) -> SavedRequest:
     request = await session.get(SavedRequest, request_id)
     if request is None or request.archived_at is not None:
@@ -432,7 +435,7 @@ async def update_saved_request(
         request.description = description.strip()
     if query_sql is not None:
         try:
-            request.query_sql = normalize_request_sql(query_sql)
+            request.query_sql = normalize_request_sql(query_sql, views)
         except RequestQueryError as error:
             raise DomainError(str(error)) from error
     request.version += 1

@@ -33,10 +33,11 @@ a technical contract; `given-when-then` — the body already carries the comment
 | `test_continuity.py` | 8 | 8 | 0 | 0 | — |
 | `test_diary.py` | 12 | 11 | 0 | 1 | private-import |
 | `test_domain.py` | 13 | 13 | 0 | 0 | — |
+| `test_feature_modules.py` | 7 | 7 | 0 | 0 | — |
 | `test_history.py` | 18 | 18 | 0 | 0 | — |
 | `test_infrastructure.py` | 7 | 0 | 7 | 0 | contract-file, fakes |
 | `test_memory.py` | 3 | 3 | 0 | 0 | — |
-| `test_provider.py` | 9 | 0 | 9 | 0 | contract-file |
+| `test_provider.py` | 14 | 0 | 14 | 0 | contract-file, fakes |
 | `test_qa.py` | 2 | 0 | 2 | 0 | contract-file |
 | `test_reminder_flow.py` | 28 | 28 | 0 | 0 | fakes |
 | `test_reminders.py` | 33 | 33 | 0 | 0 | — |
@@ -46,4 +47,4 @@ a technical contract; `given-when-then` — the body already carries the comment
 | `test_state_flow.py` | 22 | 0 | 22 | 0 | contract-file |
 | `test_subagents.py` | 6 | 6 | 0 | 0 | — |
 | `test_telegram_item_ui.py` | 70 | 38 | 0 | 32 | fakes, ui-layout |
-| **total** | **427** | **308** | **84** | **35** | |
+| **total** | **439** | **315** | **89** | **35** | |

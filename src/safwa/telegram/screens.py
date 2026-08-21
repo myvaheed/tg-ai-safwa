@@ -109,7 +109,9 @@ async def _check_citation_label(session: AsyncSession, check: Check) -> str | No
     return f"{_short_citation_title(check.title)}{marker}" if marker else None
 
 
-async def _citation_label(session: AsyncSession, item_type: str, item: Any) -> str | None:
+async def _citation_label(
+    session: AsyncSession, services: Services, item_type: str, item: Any
+) -> str | None:
     """Build the fixed, compact label for item types that own their presentation."""
     if item_type == "card":
         return await _card_citation_label(session, item)
@@ -120,7 +122,7 @@ async def _citation_label(session: AsyncSession, item_type: str, item: Any) -> s
     if item_type == "value":
         return f"💎 {_short_citation_title(item.name)}"
     if item_type == "request":
-        matches = await request_cards(session, item.query_sql)
+        matches = await request_cards(session, item.query_sql, services.views)
         return _with_citation_fields(f"💬 {_short_citation_title(item.name)}", [str(len(matches))])
     if item_type == "diary":
         return diary_label(item.entry_date, item.feeling_score)
@@ -193,7 +195,9 @@ async def render_citations(session: AsyncSession, services: Services, text: str)
             item = await session.get(OPENABLE_MODELS[item_type], item_id)
             if item is None or getattr(item, "archived_at", None) is not None:
                 continue
-            live[(item_type, item_id)] = await _citation_label(session, item_type, item)
+            live[(item_type, item_id)] = await _citation_label(
+                session, services, item_type, item
+            )
 
     def build(match: re.Match[str]) -> str:
         label, item_type, item_id = match[1], match[2], int(match[3])

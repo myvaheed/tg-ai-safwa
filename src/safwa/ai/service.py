@@ -6,9 +6,8 @@ import logging
 import sqlite3
 import time
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 from sqlalchemy import select, update
@@ -25,56 +24,21 @@ from ..constants import (
     SUSPENDED_BATCH_LOOKUP_LIMIT,
 )
 from ..domain import (
-    CARD_REFERENCE_SPECS,
-    CHECK_REFERENCE,
-    TAG_REFERENCE,
-    VALUE_REFERENCE,
     DomainError,
-    ReferenceSpec,
     StaleStateError,
-    archive_check,
-    archive_saved_request,
-    archive_subtree,
-    archive_tag,
-    archive_value,
-    create_card,
-    create_check,
-    create_diary_entry,
-    create_reminder,
-    create_saved_request,
-    create_tag,
-    create_value,
-    delete_diary_entry,
-    delete_reminder,
-    delete_subtree,
-    finish_action,
-    move_card,
-    reschedule_reminder,
-    resolve_check,
-    resolve_references,
-    set_card_parent,
-    toggle_card_category,
-    toggle_card_energy_type,
-    update_card_fields,
-    update_check_fields,
-    update_diary_entry,
-    update_reminder_text,
-    update_saved_request,
-    update_tag_fields,
-    update_value_fields,
     utcnow,
 )
 from ..enums import (
-    CHECK_ANSWER_ACTIONS,
-    CHECK_OUTCOME_LABELS,
-    TERMINAL_STAGES,
-    ActorType,
-    CardKind,
-    CardStage,
-    Category,
-    EnergyType,
-    Priority,
     ProposalStatus,
+)
+from ..features.proposals.api import (
+    ApplyContext,
+    MutationToolSpec,
+    ProposalDescription,
+    ProposalRegistry,
+    ToolPreparationError,
+    detail_lines,
+    result_value,
 )
 from ..history import citation_payload, conversation_block
 from ..memory import MemoryFileStore
@@ -82,40 +46,42 @@ from ..models import (
     AgentRun,
     AgentStep,
     Card,
-    CardCategory,
-    CardEnergyType,
-    CardTag,
-    CardValue,
     ChangeProposal,
     Check,
     DiaryEntry,
     ProposalChange,
-    Reminder,
     SavedRequest,
     Tag,
     Value,
     Workspace,
 )
-from ..reminders import (
-    schedule_from_payload,
-)
 from .autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
-from .context import SYSTEM_PROMPT, DialogueMessage, planning_context
+from .context import DialogueMessage, planning_context
 from .contracts import (
-    MUTATION_TOOL_MODELS,
     AgentChange,
     OpenInput,
     QueryToolInput,
     RouteInput,
-    mutation_change_from_tool,
     tool_json_schema,
 )
 from .mini import ReadToolSpec
-from .prepare import ENTITY_MODELS, ChangePreparer, ToolPreparationError
+from .prepare import ChangePreparer
 from .sql import ReadOnlyQueryRunner, UnsafeQueryError
 from .subagents import RoutedSubagent
 
 logger = logging.getLogger(__name__)
+
+# The `open` tool's targets.  This is the last central item-kind table left in the AI layer;
+# `telegram/screens.py` holds the other half of it, and the two fold into one screen
+# registry when the Telegram adapters move into their features.
+OPENABLE_MODELS: dict[str, Any] = {
+    "card": Card,
+    "check": Check,
+    "tag": Tag,
+    "value": Value,
+    "request": SavedRequest,
+    "diary": DiaryEntry,
+}
 
 QUERY_SAFWA_TOOL: dict[str, Any] = {
     "type": "function",
@@ -127,27 +93,6 @@ QUERY_SAFWA_TOOL: dict[str, Any] = {
         ),
         "parameters": tool_json_schema(QueryToolInput),
     },
-}
-# One line each: what this tool owns, because seven of them compete.  Mode semantics live in
-# the schema, field rules in the field descriptions, and policy in the subagent's prompt.
-MUTATION_TOOL_DESCRIPTIONS = {
-    "card": (
-        "Propose one Card — a Goal, an Idea or an Action. Also the only tool that attaches a "
-        "Value, a Tag or a Check to a Card."
-    ),
-    "check": (
-        "Propose one Check — a state observation on a Card. Answer one only when the user "
-        "already said how it went; otherwise cite it and let them."
-    ),
-    "value": "Propose one Value — a focus the user names and links Cards to.",
-    "tag": "Propose one Tag — a free label for finding Cards.",
-    "request": "Propose one Request — a saved query over ai_cards the user reruns.",
-    "reminder": (
-        "Propose one Reminder — instruction text plus timing. The text comes back as a request "
-        "when it fires."
-    ),
-    "remove": "Archive or delete one item of any kind. No other tool removes anything.",
-    "diary": "Propose one day of the Diary, written in the user's voice, or remove it.",
 }
 OPEN_TOOL: dict[str, Any] = {
     "type": "function",
@@ -172,17 +117,6 @@ ROUTE_TOOL: dict[str, Any] = {
         ),
         "parameters": tool_json_schema(RouteInput),
     },
-}
-MUTATION_TOOLS: dict[str, dict[str, Any]] = {
-    name: {
-        "type": "function",
-        "function": {
-            "name": name,
-            "description": MUTATION_TOOL_DESCRIPTIONS[name],
-            "parameters": tool_json_schema(model),
-        },
-    }
-    for name, model in MUTATION_TOOL_MODELS.items()
 }
 # The Advisor reads and routes. Every mutation tool belongs to the subagent that owns that
 # feature, so judging *which* change to propose happens where the change is authored.
@@ -229,81 +163,21 @@ def query_read_tool(query_runner: ReadOnlyQueryRunner) -> ReadToolSpec:
     return ReadToolSpec(QUERY_SAFWA_TOOL, read)
 
 
-def _has_explicit_tool_value(value: Any) -> bool:
-    if value is None:
-        return False
-    if isinstance(value, str):
-        return bool(value.strip()) and value.strip().casefold() not in {
-            "null",
-            "none",
-            "nil",
-            "undefined",
-        }
-    if isinstance(value, list):
-        return bool(value)
-    return True
-
-
-def _mutation_repair_details(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+def _mutation_repair_details(
+    tool: MutationToolSpec | None, arguments: dict[str, Any]
+) -> dict[str, Any]:
     """Give the model a compact valid shape instead of a raw validator traceback."""
-    model = MUTATION_TOOL_MODELS.get(name)
-    if model is None:
+    if tool is None:
         return {}
-
-    schema = tool_json_schema(model)
+    schema = tool_json_schema(tool.input_model)
     details: dict[str, Any] = {
         "expected_schema": {
             "required": schema.get("required", []),
             "allowed_properties": list(schema.get("properties", {})),
         }
     }
-    if name != "card" or arguments.get("mode") != "create":
-        return details
-
-    expected: dict[str, Any] = {"mode": "create"}
-    core_fields = (
-        "kind",
-        "title",
-        "note",
-        "stage",
-        "priority",
-        "hard_time",
-        "blocked",
-        "blocked_description",
-        "effort_points",
-        "repeatable",
-        "categories",
-        "energy_types",
-    )
-    for field_name in core_fields:
-        if field_name in arguments and _has_explicit_tool_value(arguments[field_name]):
-            expected[field_name] = arguments[field_name]
-
-    # Keep intentional, non-placeholder relationship forms. Singular IDs are omitted from the
-    # repair example because constrained decoders commonly invent the minimum allowed integer.
-    for field_name in (
-        "value_ids",
-        "value_query",
-        "tag_ids",
-        "tag_query",
-        "check_ids",
-        "check_query",
-        "parent_id",
-        "parent_query",
-    ):
-        if field_name in arguments and _has_explicit_tool_value(arguments[field_name]):
-            expected[field_name] = arguments[field_name]
-
-    details.update(
-        {
-            "expected_arguments": expected,
-            "argument_rules": [
-                "For mode='create', omit id; it is assigned after Save.",
-                "Omit unused relationship properties; never fill *_id with placeholder 0 or 1.",
-                "Send only relationships that the user actually requested or that were resolved from data.",
-            ],
-        }
-    )
+    if tool.repair is not None:
+        details.update(tool.repair(arguments))
     return details
 
 
@@ -325,14 +199,6 @@ class AIOutcome:
     # The item `open` resolved, as a deep-link payload: the chat shows its screen after
     # the answer.
     open_item: str | None = None
-
-
-@dataclass(frozen=True)
-class ProposalDescription:
-    """One proposal in owner-facing words: a headline plus its `Label: value` lines."""
-
-    summary: str
-    fields: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -498,139 +364,6 @@ def _flatten_content(content: Any) -> str:
     return str(content or "")
 
 
-def _result_value(value: Any) -> str:
-    return " ".join(str(value).split())[:100]
-
-
-_DETAIL_LABELS = {
-    "kind": "Kind",
-    "title": "Title",
-    "name": "Name",
-    "description": "Description",
-    "note": "Note",
-    "stage": "Stage",
-    "priority": "Priority",
-    "hard_time": "Hard Time",
-    "blocked": "Blocked",
-    "blocked_description": "Blocked Description",
-    "effort_points": "Effort",
-    "repeatable": "Repeatable",
-    "categories": "Categories",
-    "energy_types": "Energy",
-    "parent_id": "Parent ID",
-    "card_id": "Card ID",
-    "outcome": "Status",
-    "values": "Values",
-    "tags": "Tags",
-    "checks": "Checks",
-    "check_ids": "Checks",
-    "active": "Active",
-    "query_sql": "SQL",
-}
-
-
-def _detail_value(value: Any) -> str:
-    if isinstance(value, bool):
-        return "Yes" if value else "No"
-    if value is None or value == "" or value == []:
-        return "—"
-    if isinstance(value, list):
-        return ", ".join(_result_value(item) for item in value) or "—"
-    return _result_value(value)
-
-
-def _reference_details(values: dict[str, Any], prefix: str) -> list[str]:
-    result: list[str] = []
-    singular = values.get(f"{prefix}_id")
-    if singular is not None:
-        result.append(f"#{singular}")
-    result.extend(f"#{item}" for item in values.get(f"{prefix}_ids") or [])
-    query = values.get(f"{prefix}_query")
-    if query is not None:
-        result.extend(str(item) for item in (query if isinstance(query, list) else [query]))
-    return result
-
-
-def _normalized_card_details(values: dict[str, Any], *, creating: bool) -> dict[str, Any]:
-    fields = {
-        name: values[name]
-        for name in (
-            "kind",
-            "title",
-            "note",
-            "stage",
-            "priority",
-            "hard_time",
-            "blocked",
-            "blocked_description",
-            "effort_points",
-            "repeatable",
-            "categories",
-            "energy_types",
-            "parent_id",
-        )
-        if name in values
-    }
-    if creating:
-        fields.setdefault("stage", CardStage.BACKLOG.value)
-        fields.setdefault("note", "")
-        fields.setdefault("priority", "medium")
-        fields.setdefault("hard_time", False)
-        fields.setdefault("blocked", False)
-        if fields.get("kind") == CardKind.ACTION.value:
-            fields.setdefault("repeatable", False)
-            fields.setdefault("categories", [])
-            fields.setdefault("energy_types", [])
-    if referenced_values := _reference_details(values, "value"):
-        fields["values"] = referenced_values
-    if referenced_tags := _reference_details(values, "tag"):
-        fields["tags"] = referenced_tags
-    if referenced_checks := _reference_details(values, "check"):
-        fields["checks"] = referenced_checks
-    return fields
-
-
-def _value_details(entity: str, values: dict[str, Any], *, creating: bool) -> list[str]:
-    fields = (
-        _normalized_card_details(values, creating=creating) if entity == "card" else dict(values)
-    )
-    return [
-        f"{_DETAIL_LABELS.get(field, field.replace('_', ' ').title())}: {_detail_value(value)}"
-        for field, value in fields.items()
-    ]
-
-
-def _diary_detail_lines(change: ProposalChange) -> list[str]:
-    """The day's shape, never its text: a receipt stays in the conversation for good.
-
-    A day printed here would be re-read on every later turn and would spend the history
-    budget it costs.  The Diary session holds its own draft, and a saved day is in
-    `ai_diary`, so the body never has to travel.
-    """
-    values = dict(change.values)
-    lines = [f"Date: {values.get('entry_date', '')}"]
-    if change.action == "delete":
-        lines.append("Entry: removed")
-    else:
-        lines.append(f"Entry: {len(str(values.get('body') or ''))} characters")
-        if values.get("feeling_score") is not None:
-            lines.append(f"Feeling: {values['feeling_score']}")
-    return lines
-
-
-def _raw_change_details(change: AgentChange | None) -> list[str]:
-    if change is None:
-        return []
-    return _value_details(change.entity, change.values, creating=change.action == "create")
-
-
-def _stored_change_details(change: ProposalChange) -> list[str]:
-    """The same lines taken from the persisted row, for a caller with no `AgentChange`."""
-    return _value_details(
-        change.entity, dict(change.values), creating=change.action == "create"
-    )
-
-
 def _approval_change_label(tool: dict[str, Any]) -> str:
     change = dict(tool.get("change") or {})
     entity = str(change.get("entity", tool.get("name", "item"))).title()
@@ -642,30 +375,15 @@ def _approval_change_label(tool: dict[str, Any]) -> str:
         label += f" #{entity_id}"
     name = values.get("name") or values.get("title")
     if name:
-        label += f" “{_result_value(name)}”"
+        label += f" “{result_value(name)}”"
     if values.get("tag_query"):
-        label += f" → Tag “{_result_value(values['tag_query'])}”"
+        label += f" → Tag “{result_value(values['tag_query'])}”"
     elif values.get("value_query"):
-        label += f" → Value “{_result_value(values['value_query'])}”"
+        label += f" → Value “{result_value(values['value_query'])}”"
     elif values.get("stage"):
-        label += f" → {_result_value(values['stage']).title()}"
+        label += f" → {result_value(values['stage']).title()}"
     return label
 
-
-# The receipt renders one line under any outcome, so the verb stays imperative:
-# "🗑 Discarded — New Tag “X”" cannot be misread as a Tag that now exists.
-_ACTION_VERBS = {
-    "create": "New",
-    "update": "Edit",
-    "move": "Move",
-    "complete": "Complete",
-    "cancel": "Cancel",
-    "reopen": "Reopen",
-    "archive": "Archive",
-    "delete": "Delete",
-    "link": "Link",
-    "unlink": "Unlink",
-}
 
 def _approval_results_summary(
     tools: list[dict[str, Any]],
@@ -714,7 +432,7 @@ def _approval_results_summary(
                 line += ", ".join(f"#{item}" for item in affected_ids) + "]"
         error = result.get("error")
         if error:
-            line += f": {_result_value(error)}"
+            line += f": {result_value(error)}"
         lines.append(line)
         if not for_display:
             # The detail lines carry what Safwa resolved rather than what the model sent:
@@ -939,7 +657,9 @@ class AIAdvisor:
         provider: LlmProvider,
         memory: MemoryFileStore,
         query_runner: ReadOnlyQueryRunner,
+        proposals: ProposalRegistry,
         *,
+        system_prompt: str,
         model_name: str,
         provider_name: str = "openai-compatible",
         cache_breakpoints: bool = False,
@@ -950,12 +670,14 @@ class AIAdvisor:
         self.provider = provider
         self.memory = memory
         self.query_runner = query_runner
+        self.proposals = proposals
+        self.system_prompt = system_prompt
         self.model_name = model_name
         self.provider_name = provider_name
         self.cache_breakpoints = cache_breakpoints
         self.subagents = {routed.name: routed for routed in subagents}
         self.autoapproval = autoapproval
-        self.preparer = ChangePreparer(provider, query_runner)
+        self.preparer = ChangePreparer(provider, query_runner, proposals)
         # An empty roster means there is nothing to route to, so the tool is not offered.
         self.tools = (*SAFWA_TOOLS, ROUTE_TOOL) if subagents else SAFWA_TOOLS
 
@@ -965,7 +687,7 @@ class AIAdvisor:
             return self.tools
         return (
             *(spec.schema for spec in routed.read_tools),
-            *(MUTATION_TOOLS[name] for name in routed.mutation_tools),
+            *(self.proposals.tools[name].schema() for name in routed.mutation_tools),
         )
 
     def _read_specs_for(self, kind: str) -> dict[str, ReadToolSpec]:
@@ -1277,7 +999,7 @@ class AIAdvisor:
         # byte-identical across turns and remote prompt caching can hit it.
         # Anything volatile goes after the dialogue, never into a system block.
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": self.system_prompt},
             _system_note(
                 f"Current planning state:\n{context.state}"
                 f"\n\nPersistent memory:\n{memory.text}"
@@ -1694,7 +1416,7 @@ class AIAdvisor:
                 "retryable": True,
             }
         async with self.sessions() as session:
-            item = await session.get(ENTITY_MODELS[request.item_type], request.id)
+            item = await session.get(OPENABLE_MODELS[request.item_type], request.id)
             if item is None or getattr(item, "archived_at", None) is not None:
                 return {
                     "status": "error",
@@ -1720,7 +1442,7 @@ class AIAdvisor:
             arguments = json.loads(call.arguments_json)
             if not isinstance(arguments, dict):
                 raise ValueError("Tool arguments must be an object")
-            change = mutation_change_from_tool(call.name, arguments)
+            change = self.proposals.change_from_tool(call.name, arguments)
         except (ValueError, ValidationError, json.JSONDecodeError) as error:
             logger.info("AI TOOL %s rejected: %s", call.name, error)
             error_text = (
@@ -1739,7 +1461,9 @@ class AIAdvisor:
                 "retryable": True,
             }
             if isinstance(arguments, dict):
-                result.update(_mutation_repair_details(call.name, arguments))
+                result.update(
+                    _mutation_repair_details(self.proposals.tools.get(call.name), arguments)
+                )
             return None, result
         logger.info("AI TOOL %s prepared %s.%s", call.name, change.entity, change.action)
         async with self.sessions() as session:
@@ -1806,69 +1530,14 @@ class AIAdvisor:
         )
         return proposal
 
-    async def _card_detail_snapshot(
-        self, session: AsyncSession, card: Card
-    ) -> dict[str, Any]:
-        return {
-            "kind": card.kind,
-            "title": card.title,
-            "note": card.note,
-            "stage": card.effective_stage,
-            "priority": card.priority,
-            "hard_time": card.hard_time,
-            "blocked": card.blocked,
-            "blocked_description": card.blocked_description,
-            "effort_points": card.effort_points,
-            "repeatable": card.repeatable,
-            "categories": sorted(
-                await session.scalars(
-                    select(CardCategory.category).where(CardCategory.card_id == card.id)
-                )
-            ),
-            "energy_types": sorted(
-                await session.scalars(
-                    select(CardEnergyType.energy_type).where(CardEnergyType.card_id == card.id)
-                )
-            ),
-            "parent_id": card.parent_id,
-            "values": [
-                f"#{item}"
-                for item in sorted(
-                    await session.scalars(
-                        select(CardValue.value_id).where(CardValue.card_id == card.id)
-                    )
-                )
-            ],
-            "tags": [
-                f"#{item}"
-                for item in sorted(
-                    await session.scalars(
-                        select(CardTag.tag_id).where(CardTag.card_id == card.id)
-                    )
-                )
-            ],
-        }
-
-    async def _reference_groups(
-        self, session: AsyncSession, values: dict[str, Any]
-    ) -> list[str]:
-        """Name the Values, Tags and Checks a Card payload points at, for the owner."""
-        groups: list[str] = []
-        for spec in CARD_REFERENCE_SPECS:
-            if not spec.mentioned_in(values):
-                continue
-            resolved = await resolve_references(session, spec, values)
-            names: list[str] = []
-            for entity_id in sorted(resolved.ids):
-                entity = await session.get(spec.model, entity_id)
-                if entity is not None:
-                    names.append(_result_value(getattr(entity, spec.name_attr)))
-            names.extend(_result_value(name) for name in resolved.unresolved)
-            if len(names) == 1:
-                groups.append(f"{spec.label} “{names[0]}”")
-            elif names:
-                groups.append(f"{spec.label}s {', '.join(f'“{name}”' for name in names)}")
-        return groups
+    def _raw_details(self, change: AgentChange | None) -> list[str]:
+        """Field lines for a change that never reached a proposal row."""
+        if change is None:
+            return []
+        presenter = self.proposals.presenter(change.entity)
+        if presenter is None:
+            return detail_lines(dict(change.values))
+        return presenter.raw_details(change)
 
     async def _proposal_display_line(
         self,
@@ -1898,98 +1567,19 @@ class AIAdvisor:
                     else None
                 }
             )
-        values = dict(change.values)
-        action = change.action
-        verb = _ACTION_VERBS.get(action, action.title())
-        if change.entity == "card":
-            card = (
-                await session.get(Card, change.entity_id)
-                if change.entity_id is not None
-                else None
+        presenter = self.proposals.presenter(change.entity)
+        if presenter is None:
+            return _approval_change_label(
+                {
+                    "change": {
+                        "entity": change.entity,
+                        "action": change.action,
+                        "id": change.entity_id,
+                        "values": dict(change.values),
+                    }
+                }
             )
-            title = _result_value(values.get("title") or (card.title if card else ""))
-            kind = str(values.get("kind") or (card.kind if card else "") or "card")
-            head = f"{kind.title()} “{title}”" if title else f"Card #{change.entity_id}"
-            parent = (
-                await session.get(Card, int(values["parent_id"]))
-                if values.get("parent_id")
-                else None
-            )
-            if action in {"link", "unlink"}:
-                joined = " · ".join(await self._reference_groups(session, values))
-                preposition = "to" if action == "link" else "from"
-                return f"{verb} {joined} {preposition} {head}" if joined else f"{verb} {head}"
-            parts: list[str] = []
-            if action == "create":
-                # Only what was actually chosen: the defaults a new Card lands on say
-                # nothing, and a receipt naming them buries the fields that do.
-                stage = str(values.get("stage") or CardStage.BACKLOG.value)
-                if stage != CardStage.BACKLOG.value:
-                    parts.append(stage.title())
-                priority = str(values.get("priority") or Priority.MEDIUM.value)
-                if priority != Priority.MEDIUM.value:
-                    parts.append(priority.title())
-                if values.get("effort_points"):
-                    parts.append(f"{values['effort_points']} EP")
-                for field_name in ("categories", "energy_types"):
-                    if chosen := values.get(field_name):
-                        parts.append(_detail_value(chosen))
-                if values.get("hard_time"):
-                    parts.append("Hard time")
-                if values.get("repeatable"):
-                    parts.append("Repeatable")
-                if values.get("blocked"):
-                    parts.append("Blocked")
-                parts.extend(await self._reference_groups(session, values))
-            elif action in {"move", "reopen"} and values.get("stage"):
-                parts.append(str(values["stage"]).title())
-            elif action == "update":
-                parts.extend(
-                    detail for detail in details if not detail.startswith("Parent ID:")
-                )
-            if parent is not None:
-                head += f" under {parent.kind.title()} “{_result_value(parent.title)}”"
-            return f"{verb} {head}" + (f" ({' · '.join(parts)})" if parts else "")
-
-        if change.entity == "check" and action in {"complete", "cancel"}:
-            check = (
-                await session.get(Check, change.entity_id)
-                if change.entity_id is not None
-                else None
-            )
-            outcome = CHECK_ANSWER_ACTIONS[action]
-            head = f"“{_result_value(check.title)}”" if check else f"#{change.entity_id}"
-            return f"Answer Check {head} ({CHECK_OUTCOME_LABELS[outcome]})"
-        if change.entity == "diary":
-            label = f"{verb} Diary entry for {values.get('entry_date', '')}".strip()
-            score = values.get("feeling_score")
-            return label if score is None else f"{label} with feeling score {score}"
-        if change.entity == "reminder":
-            reminder = (
-                await session.get(Reminder, change.entity_id)
-                if change.entity_id is not None
-                else None
-            )
-            text = str(values.get("instruction") or (reminder.instruction if reminder else ""))
-            head = f"Reminder “{_result_value(text)}”" if text else f"Reminder #{change.entity_id}"
-            schedule = values.get("schedule_text")
-            return f"{verb} {head}" + (f" ({schedule})" if schedule else "")
-        model = ENTITY_MODELS.get(change.entity)
-        entity = (
-            await session.get(model, change.entity_id)
-            if model is not None and change.entity_id is not None
-            else None
-        )
-        name = (
-            values.get("name")
-            or values.get("title")
-            or getattr(entity, "name", None)
-            or getattr(entity, "title", None)
-        )
-        label = change.entity.title()
-        head = f"{label} “{_result_value(name)}”" if name else f"{label} #{change.entity_id}"
-        tail = [] if action == "create" else list(details)
-        return f"{verb} {head}" + (f" ({' · '.join(tail)})" if tail else "")
+        return await presenter.summary(session, change, details)
 
     async def describe_proposal(
         self, session: AsyncSession, proposal_id: int
@@ -2009,113 +1599,15 @@ class AIAdvisor:
         proposal_id: int,
         fallback: AgentChange | None,
     ) -> list[str]:
-        proposed_change = await session.scalar(
+        change = await session.scalar(
             select(ProposalChange).where(ProposalChange.proposal_id == proposal_id)
         )
-        if proposed_change is None:
-            return _raw_change_details(fallback)
-        values = dict(proposed_change.values)
-        if proposed_change.entity == "card":
-            if proposed_change.action == "create":
-                proposed = _normalized_card_details(values, creating=True)
-                return [
-                    f"{_DETAIL_LABELS.get(field, field.replace('_', ' ').title())}: "
-                    f"{_detail_value(value)}"
-                    for field, value in proposed.items()
-                ]
-            card = (
-                await session.get(Card, proposed_change.entity_id)
-                if proposed_change.entity_id is not None
-                else None
-            )
-            if card is None:
-                return _raw_change_details(fallback) or _stored_change_details(proposed_change)
-            before = await self._card_detail_snapshot(session, card)
-            if proposed_change.action in {"link", "unlink"}:
-                relationship = _normalized_card_details(values, creating=False)
-                verb = "Link" if proposed_change.action == "link" else "Unlink"
-                return [
-                    f"{verb} {_DETAIL_LABELS.get(field, field.title())}: {_detail_value(value)}"
-                    for field, value in relationship.items()
-                ]
-            proposed = _normalized_card_details(values, creating=False)
-            if proposed_change.action == "move":
-                proposed = {"stage": values.get("stage")}
-            elif proposed_change.action == "complete":
-                proposed = {"stage": CardStage.DONE.value}
-            elif proposed_change.action == "cancel":
-                proposed = {"stage": CardStage.CANCELLED.value}
-            elif proposed_change.action == "reopen":
-                proposed = {"stage": values.get("stage", CardStage.BACKLOG.value)}
-            elif proposed_change.action in {"archive", "delete"}:
-                return [f"Card: {card.kind.title()} #{card.id} “{card.title}”"]
-            return [
-                f"{_DETAIL_LABELS.get(field, field.replace('_', ' ').title())}: "
-                f"{_detail_value(before.get(field))} → {_detail_value(value)}"
-                for field, value in proposed.items()
-                if before.get(field) != value
-            ]
-
-        if proposed_change.entity == "check":
-            return await self._check_detail_lines(session, proposed_change)
-        if proposed_change.entity == "diary":
-            return _diary_detail_lines(proposed_change)
-
-        model = {
-            "tag": Tag,
-            "value": Value,
-            "request": SavedRequest,
-        }.get(proposed_change.entity)
-        if proposed_change.action == "create" or model is None:
-            return _raw_change_details(fallback) or _stored_change_details(proposed_change)
-        entity = (
-            await session.get(model, proposed_change.entity_id)
-            if proposed_change.entity_id is not None
-            else None
-        )
-        if entity is None:
-            return _raw_change_details(fallback) or _stored_change_details(proposed_change)
-        if proposed_change.action in {"archive", "delete"}:
-            label = getattr(entity, "name", f"#{entity.id}")
-            return [f"Item: {_result_value(label)}"]
-        return [
-            f"{_DETAIL_LABELS.get(field, field.replace('_', ' ').title())}: "
-            f"{_detail_value(getattr(entity, field, None))} → {_detail_value(value)}"
-            for field, value in values.items()
-            if getattr(entity, field, None) != value
-        ]
-
-    async def _check_detail_lines(
-        self, session: AsyncSession, proposed_change: ProposalChange
-    ) -> list[str]:
-        values = dict(proposed_change.values)
-        proposed = {name: values[name] for name in ("title", "repeatable") if name in values}
-        if proposed_change.action in {"complete", "cancel"}:
-            proposed["outcome"] = CHECK_ANSWER_ACTIONS[proposed_change.action]
-        check = (
-            await session.get(Check, proposed_change.entity_id)
-            if proposed_change.entity_id is not None
-            else None
-        )
-        if proposed_change.action == "create" or check is None:
-            return [
-                f"{_DETAIL_LABELS.get(field, field.replace('_', ' ').title())}: "
-                f"{_detail_value(value)}"
-                for field, value in proposed.items()
-            ]
-        if proposed_change.action == "archive":
-            return [f"Check: #{check.id} “{_result_value(check.title)}”"]
-        before = {
-            "title": check.title,
-            "repeatable": check.repeatable,
-            "outcome": check.outcome or "pending",
-        }
-        return [
-            f"{_DETAIL_LABELS.get(field, field.replace('_', ' ').title())}: "
-            f"{_detail_value(before.get(field))} → {_detail_value(value)}"
-            for field, value in proposed.items()
-            if before.get(field) != value
-        ]
+        if change is None:
+            return self._raw_details(fallback)
+        presenter = self.proposals.presenter(change.entity)
+        if presenter is None:
+            return self._raw_details(fallback) or detail_lines(dict(change.values))
+        return await presenter.details(session, change, fallback)
 
     @staticmethod
     def _target_outcome(message: str, target: dict[str, Any]) -> AIOutcome:
@@ -2202,7 +1694,7 @@ class AIAdvisor:
                             preparation_results[tool.call.id], len(targets)
                         ),
                         "details": proposal_details.get(tool.call.id)
-                        or _raw_change_details(tool.change),
+                        or self._raw_details(tool.change),
                         "display": proposal_displays.get(tool.call.id),
                         "target": target,
                         "change": (
@@ -2409,9 +1901,9 @@ class AIAdvisor:
                 select(ProposalChange).where(ProposalChange.proposal_id == proposal_id)
             )
         )
-        models = {"card": Card, "tag": Tag, "value": Value, "request": SavedRequest}
         for change in changes:
-            model = models.get(change.entity)
+            handler = self.proposals.handlers.get(change.entity)
+            model = handler.version_model if handler is not None else None
             if model is None or change.entity_id is None:
                 continue
             entity = await session.get(model, change.entity_id)
@@ -2438,7 +1930,7 @@ class AIAdvisor:
             if apply_proposal:
                 if target_type != "proposal" or decision != "approved":
                     raise DomainError("Only an approved proposal can be applied while resolving")
-                affected = await ProposalService(session).apply(target_id)
+                affected = await ProposalService(session, self.proposals).apply(target_id)
                 result = {**result, "affected_ids": affected}
             if decision == "failed" and target_type == "proposal":
                 proposal = await session.get(ChangeProposal, target_id)
@@ -2658,192 +2150,16 @@ class AIAdvisor:
 
 
 class ProposalService:
-    def __init__(self, session: AsyncSession) -> None:
+    """The orchestration a proposal needs whatever it changes.
+
+    The workspace and its revision, the optimistic lock and the ordered walk over the
+    stored changes are the same for every entity.  What each change means belongs to the
+    feature that owns it, and `apply` calls the same domain operations the manual UI calls.
+    """
+
+    def __init__(self, session: AsyncSession, proposals: ProposalRegistry) -> None:
         self.session = session
-
-    async def _parent_id(self, values: dict[str, Any]) -> int | None:
-        return int(values["parent_id"]) if values.get("parent_id") is not None else None
-
-    async def _apply_reminder_change(self, change: ProposalChange, affected: list[int]) -> None:
-        """Save an approved Reminder through the same domain calls the UI uses.
-
-        The schedule travels in the values blob, already resolved, so Save writes what the
-        review screen showed.
-        """
-        workspace = await self.session.get(Workspace, 1)
-        tz = ZoneInfo(workspace.timezone if workspace else "UTC")
-        values = dict(change.values)
-        payload = values.get("schedule")
-        if change.action == "create":
-            if payload is None:
-                raise DomainError("A new Reminder needs a schedule")
-            reminder = await create_reminder(
-                self.session,
-                instruction=str(values.get("instruction", "")),
-                schedule=schedule_from_payload(payload),
-                tz=tz,
-            )
-            affected.append(reminder.id)
-            return
-        if change.entity_id is None:
-            raise DomainError("This Reminder change has no target")
-        if change.action == "delete":
-            await delete_reminder(self.session, change.entity_id)
-            affected.append(change.entity_id)
-            return
-        if change.action != "update":
-            raise DomainError(f"Unsupported approved Reminder action: {change.action}")
-        reminder = await self.session.get(Reminder, change.entity_id)
-        if reminder is None or reminder.version != change.expected_version:
-            raise StaleStateError("A Reminder changed; refresh this proposal")
-        if values.get("instruction"):
-            await update_reminder_text(self.session, reminder.id, str(values["instruction"]))
-        if payload is not None:
-            await reschedule_reminder(
-                self.session, reminder.id, schedule=schedule_from_payload(payload), tz=tz
-            )
-        affected.append(reminder.id)
-
-    async def _named_ids(self, values: dict[str, Any], spec: ReferenceSpec) -> set[int]:
-        """Resolve one relationship at approval time against committed data.
-
-        A proposal holds one change, so a name referenced here always belongs to an
-        item an earlier proposal already saved.
-        """
-        resolved = await resolve_references(self.session, spec, values)
-        if resolved.unresolved:
-            raise DomainError(
-                f"{spec.label} '{resolved.unresolved[0]}' is not available for this approved link"
-            )
-        # Unknown numeric IDs stay for the domain command to reject with its own message.
-        return resolved.ids | set(resolved.unknown_ids)
-
-    async def _apply_stage_change(self, card: Card, stage: CardStage) -> None:
-        """Route one approved stage change so terminal stages keep their accounting.
-
-        ``finish_action`` owns completion timestamps, feedback, Sprint results and repeat
-        successors; ``move_card`` owns live stages and subtree propagation.  Every approved
-        stage change goes through here so no path can reach Done or Cancelled without the
-        completion bookkeeping.
-        """
-        if stage in TERMINAL_STAGES:
-            await finish_action(self.session, card.id, stage, actor=ActorType.AI)
-            return
-        await move_card(self.session, card.id, stage, actor=ActorType.AI)
-
-    async def _replace_card_sets(self, card: Card, values: dict[str, Any]) -> None:
-        if "categories" in values:
-            current = set(
-                await self.session.scalars(
-                    select(CardCategory.category).where(CardCategory.card_id == card.id)
-                )
-            )
-            target = set(values["categories"] or [])
-            for category in sorted(current ^ target):
-                await toggle_card_category(
-                    self.session, card.id, Category(category), actor=ActorType.AI
-                )
-        if "energy_types" in values:
-            current = set(
-                await self.session.scalars(
-                    select(CardEnergyType.energy_type).where(CardEnergyType.card_id == card.id)
-                )
-            )
-            target = set(values["energy_types"] or [])
-            for energy_type in sorted(current ^ target):
-                await toggle_card_energy_type(
-                    self.session, card.id, EnergyType(energy_type), actor=ActorType.AI
-                )
-
-        for spec in CARD_REFERENCE_SPECS:
-            if not spec.mentioned_in(values):
-                continue
-            current = set(
-                await self.session.scalars(
-                    select(spec.link_column).where(spec.link_model.card_id == card.id)
-                )
-            )
-            target = await self._named_ids(values, spec)
-            for entity_id in sorted(current ^ target):
-                await spec.toggle(self.session, card.id, entity_id, actor=ActorType.AI)
-
-    async def _apply_card_links(
-        self,
-        card: Card,
-        values: dict[str, Any],
-        *,
-        linked: bool,
-    ) -> None:
-        """Add or remove exactly one relationship type, leaving the others untouched."""
-        for spec in CARD_REFERENCE_SPECS:
-            if not spec.mentioned_in(values):
-                continue
-            for entity_id in sorted(await self._named_ids(values, spec)):
-                exists = await self.session.get(spec.link_model, spec.link_key(card.id, entity_id))
-                if linked != (exists is not None):
-                    await spec.toggle(self.session, card.id, entity_id, actor=ActorType.AI)
-            return
-        raise DomainError("A Card link proposal needs one relationship type")
-
-    async def _apply_check_change(self, change: ProposalChange, affected: list[int]) -> None:
-        values = dict(change.values)
-        if change.action == "create":
-            created = await create_check(
-                self.session,
-                title=str(values["title"]),
-                repeatable=bool(values.get("repeatable", False)),
-            )
-            affected.append(created.id)
-            return
-        check = await self.session.get(Check, change.entity_id) if change.entity_id else None
-        if check is None or check.version != change.expected_version:
-            raise StaleStateError("A Check changed; refresh this proposal")
-        if change.action == "update":
-            scalar_fields = {
-                name: value for name, value in values.items() if name in {"title", "repeatable"}
-            }
-            if scalar_fields:
-                await update_check_fields(self.session, check.id, scalar_fields)
-        elif change.action in CHECK_ANSWER_ACTIONS:
-            await resolve_check(
-                self.session, check.id, CHECK_ANSWER_ACTIONS[change.action], actor=ActorType.AI
-            )
-        elif change.action == "archive":
-            await archive_check(self.session, check.id)
-        else:
-            raise DomainError(f"Unsupported Check action: {change.action}")
-        affected.append(check.id)
-
-    async def _apply_diary_change(self, change: ProposalChange, affected: list[int]) -> None:
-        values = dict(change.values)
-        entry_date = date.fromisoformat(str(values["entry_date"]))
-        feeling_score = values.get("feeling_score")
-        if change.action == "create":
-            entry = await create_diary_entry(
-                self.session,
-                entry_date=entry_date,
-                body=str(values.get("body", "")),
-                feeling_score=feeling_score,
-            )
-            affected.append(entry.id)
-        elif change.action in {"update", "delete"}:
-            entry = (
-                await self.session.get(DiaryEntry, change.entity_id)
-                if change.entity_id
-                else None
-            )
-            if entry is None or entry.version != change.expected_version:
-                raise StaleStateError("The Diary entry changed; refresh this proposal")
-            entry_id = entry.id
-            if change.action == "delete":
-                await delete_diary_entry(self.session, entry_id)
-            else:
-                await update_diary_entry(
-                    self.session, entry_id, str(values.get("body", "")), feeling_score
-                )
-            affected.append(entry_id)
-        else:
-            raise DomainError(f"Unsupported approved Diary action: {change.action}")
+        self.proposals = proposals
 
     async def apply(self, proposal_id: int, *, allow_destructive: bool = False) -> list[int]:
         proposal = await self.session.get(ChangeProposal, proposal_id)
@@ -2860,196 +2176,18 @@ class ProposalService:
                 .order_by(ProposalChange.position)
             )
         )
+        context = ApplyContext(
+            session=self.session,
+            views=self.proposals.views,
+            allow_destructive=allow_destructive,
+        )
         affected: list[int] = []
         for change in changes:
-            if change.entity == "card":
-                if change.action == "create":
-                    values = dict(change.values)
-                    value_ids = await self._named_ids(values, VALUE_REFERENCE)
-                    tag_ids = await self._named_ids(values, TAG_REFERENCE)
-                    check_ids = await self._named_ids(values, CHECK_REFERENCE)
-                    card = await create_card(
-                        self.session,
-                        kind=values["kind"],
-                        title=values["title"],
-                        note=values.get("note", ""),
-                        stage=values.get("stage", CardStage.BACKLOG.value),
-                        priority=values.get("priority", "medium"),
-                        hard_time=bool(values.get("hard_time", False)),
-                        blocked=bool(values.get("blocked", False)),
-                        blocked_description=values.get("blocked_description", ""),
-                        effort_points=values.get("effort_points"),
-                        repeatable=bool(values.get("repeatable", False)),
-                        parent_id=await self._parent_id(values),
-                        categories=set(values.get("categories") or []),
-                        energy_types=set(values.get("energy_types") or []),
-                        value_ids=value_ids,
-                        tag_ids=tag_ids,
-                        check_ids=check_ids,
-                        actor=ActorType.AI,
-                    )
-                    affected.append(card.id)
-                    continue
-                card = await self.session.get(Card, change.entity_id) if change.entity_id else None
-                if card is None or card.version != change.expected_version:
-                    proposal.status = ProposalStatus.STALE.value
-                    raise StaleStateError("A Card changed; refresh this proposal")
-                if change.action == "move":
-                    await self._apply_stage_change(card, CardStage(change.values["stage"]))
-                elif change.action == "complete":
-                    await finish_action(self.session, card.id, CardStage.DONE, actor=ActorType.AI)
-                elif change.action == "cancel":
-                    await finish_action(
-                        self.session, card.id, CardStage.CANCELLED, actor=ActorType.AI
-                    )
-                elif change.action == "reopen":
-                    await self._apply_stage_change(
-                        card,
-                        CardStage(change.values.get("stage", CardStage.BACKLOG.value)),
-                    )
-                elif change.action == "update":
-                    scalar_fields = {
-                        name: value
-                        for name, value in change.values.items()
-                        if name
-                        in {
-                            "title",
-                            "note",
-                            "priority",
-                            "hard_time",
-                            "blocked",
-                            "blocked_description",
-                            "effort_points",
-                            "repeatable",
-                        }
-                    }
-                    if scalar_fields:
-                        await update_card_fields(
-                            self.session, card.id, scalar_fields, actor=ActorType.AI
-                        )
-                    if "parent_id" in change.values:
-                        await set_card_parent(
-                            self.session,
-                            card.id,
-                            change.values["parent_id"],
-                            actor=ActorType.AI,
-                        )
-                    if "stage" in change.values:
-                        await self._apply_stage_change(card, CardStage(change.values["stage"]))
-                    await self._replace_card_sets(card, change.values)
-                elif change.action == "archive":
-                    await archive_subtree(self.session, card.id)
-                elif change.action == "delete":
-                    if not allow_destructive:
-                        raise DomainError("Permanent deletion needs a second confirmation")
-                    await delete_subtree(self.session, card.id)
-                elif change.action in {"link", "unlink"}:
-                    await self._apply_card_links(
-                        card,
-                        change.values,
-                        linked=change.action == "link",
-                    )
-                else:
-                    raise DomainError(f"Unsupported approved Card action: {change.action}")
-                affected.append(card.id)
-            elif change.entity == "check":
-                await self._apply_check_change(change, affected)
-            elif change.entity == "diary":
-                await self._apply_diary_change(change, affected)
-            elif change.entity == "reminder":
-                await self._apply_reminder_change(change, affected)
-            elif change.entity == "tag":
-                tag = await self.session.get(Tag, change.entity_id) if change.entity_id else None
-                if change.action == "create":
-                    name = str(change.values.get("name", change.values.get("title", ""))).strip()
-                    if not name:
-                        raise DomainError("A new Tag needs a name")
-                    tag = await create_tag(
-                        self.session,
-                        name,
-                        change.values.get("description"),
-                    )
-                    await self.session.flush()
-                else:
-                    if tag is None or tag.version != change.expected_version:
-                        raise StaleStateError("A Tag changed; refresh this proposal")
-                    if change.action == "update":
-                        tag = await update_tag_fields(
-                            self.session,
-                            tag.id,
-                            name=change.values.get("name"),
-                            description=change.values.get("description"),
-                        )
-                    elif change.action == "archive":
-                        tag, _unlinked_count = await archive_tag(self.session, tag.id)
-                    else:
-                        raise DomainError(f"Unsupported Tag action: {change.action}")
-                affected.append(tag.id)
-            elif change.entity == "value":
-                value = (
-                    await self.session.get(Value, change.entity_id) if change.entity_id else None
-                )
-                if change.action == "create":
-                    name = str(change.values["name"]).strip()
-                    if not name:
-                        raise DomainError("A new Value needs a name")
-                    value = await create_value(
-                        self.session,
-                        name,
-                        change.values.get("description"),
-                        active=change.values.get("active"),
-                    )
-                    await self.session.flush()
-                else:
-                    if value is None or value.version != change.expected_version:
-                        raise StaleStateError("A Value changed; refresh this proposal")
-                    if change.action == "update":
-                        value = await update_value_fields(
-                            self.session,
-                            value.id,
-                            name=change.values.get("name"),
-                            description=change.values.get("description"),
-                            active=change.values.get("active"),
-                        )
-                    elif change.action == "archive":
-                        value, _unlinked_count = await archive_value(self.session, value.id)
-                    else:
-                        raise DomainError(f"Unsupported Value action: {change.action}")
-                affected.append(value.id)
-            elif change.entity == "request":
-                request = (
-                    await self.session.get(SavedRequest, change.entity_id)
-                    if change.entity_id
-                    else None
-                )
-                if change.action == "create":
-                    request = await create_saved_request(
-                        self.session,
-                        str(change.values["name"]),
-                        change.values["query_sql"],
-                        change.values.get("description"),
-                    )
-                elif request is None or request.version != change.expected_version:
-                    raise StaleStateError("A Request changed; refresh this proposal")
-                elif change.action == "update":
-                    request = await update_saved_request(
-                        self.session,
-                        request.id,
-                        name=(str(change.values["name"]) if "name" in change.values else None),
-                        description=(
-                            str(change.values["description"])
-                            if "description" in change.values
-                            else None
-                        ),
-                        query_sql=change.values.get("query_sql"),
-                    )
-                elif change.action == "archive":
-                    request = await archive_saved_request(self.session, request.id)
-                else:
-                    raise DomainError(f"Unsupported Request action: {change.action}")
-                affected.append(request.id)
-            else:
-                raise DomainError(f"Unsupported approved change: {change.entity}.{change.action}")
+            try:
+                affected.extend(await self.proposals.handler(change.entity).apply(context, change))
+            except StaleStateError:
+                proposal.status = ProposalStatus.STALE.value
+                raise
         proposal.status = ProposalStatus.APPROVED.value
         return affected
 

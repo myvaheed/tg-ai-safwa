@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
 from llm_gateway import ToolCall
 
-from ..constants import DIARY_DAY_TOKEN_BUDGET, WEEKDAY_NAMES
-from .mini import ReadToolSpec
+from ...ai.contracts import DiaryToolInput
+from ...ai.mini import ReadToolSpec
+from ...ai.service import query_read_tool
+from ...bootstrap.module_manifest import AgentContext, AgentSpec
+from ...constants import DIARY_DAY_TOKEN_BUDGET, WEEKDAY_NAMES
+from ..proposals.api import MutationToolSpec, entity_change
 
 DIARY_PROMPT = """You keep the user's Diary. One day, one entry, in their own voice.
 
@@ -124,3 +129,37 @@ def diary_clock(timezone: str) -> str:
         f"Today is {now.date().isoformat()} ({WEEKDAY_NAMES[now.weekday()]}), "
         f"local time now {now:%H:%M}, timezone {timezone}"
     )
+
+
+def _diary_read_tools(context: AgentContext) -> tuple[ReadToolSpec, ...]:
+    return (
+        day_read_tool(
+            context.history,
+            chat_id=context.settings.telegram_owner_id,
+            timezone=context.settings.timezone,
+        ),
+        query_read_tool(context.query_runner),
+    )
+
+
+def _diary_clock(context: AgentContext) -> Callable[[], str]:
+    # Enough to be told what to change about the day it just proposed; the day itself it
+    # reads with `read_day`.
+    return lambda: diary_clock(context.settings.timezone)
+
+
+DIARY_AGENT = AgentSpec(
+    name="diary",
+    purpose="write, rewrite or delete a day.",
+    instructions=DIARY_PROMPT,
+    mutation_tools=("diary",),
+    read_tools=_diary_read_tools,
+    clock=_diary_clock,
+)
+
+DIARY_TOOL = MutationToolSpec(
+    name="diary",
+    input_model=DiaryToolInput,
+    description="Propose one day of the Diary, written in the user's voice, or remove it.",
+    to_change=entity_change("diary"),
+)

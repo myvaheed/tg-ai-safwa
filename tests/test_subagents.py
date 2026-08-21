@@ -8,10 +8,10 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.ai.context import SYSTEM_PROMPT
-from safwa.ai.diary import DIARY_PROMPT, day_read_tool, diary_clock
-from safwa.ai.service import MUTATION_TOOLS, SAFWA_TOOLS
+from safwa.ai.service import SAFWA_TOOLS
 from safwa.ai.subagents import PERSONA, RoutedSubagent
+from safwa.bootstrap.modules import PROPOSALS, SYSTEM_PROMPT
+from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
 
 
 class StubDayReader:
@@ -53,7 +53,7 @@ def test_a_routed_prompt_carries_the_one_persona_block() -> None:
 def test_the_diary_is_written_only_by_its_subagent() -> None:
     advisor_tools = {tool["function"]["name"] for tool in SAFWA_TOOLS}
     assert "diary" not in advisor_tools
-    assert "diary" in MUTATION_TOOLS
+    assert "diary" in PROPOSALS.tools
     assert diary_routed(StubDayReader("")).mutation_tools == ("diary",)
 
 

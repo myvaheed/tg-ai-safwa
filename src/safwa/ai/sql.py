@@ -1,9 +1,17 @@
+"""The read surface: one validated SELECT over the views the features publish.
+
+The view catalogue is data, not a constant here. Each feature owns its `SqlView`, the
+composition root collects them, and both the allowlist and `CREATE VIEW` come from that
+one source — so a new view is never registered twice.
+"""
+
 from __future__ import annotations
 
 import asyncio
 import re
 import sqlite3
 import time
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,39 +22,28 @@ from ..constants import (
     DEFAULT_COLUMN_LIMIT,
     DEFAULT_ROW_LIMIT,
     QUERY_TIMEOUT_SECONDS,
-    REPEAT_MARKER,
 )
-from ..enums import TERMINAL_STAGES
-
-# The marker `domain.repeat_marker` renders, as a SQLite format string: one wording, so a
-# closed repeat reads the same whether the model queried it or the owner tapped a citation.
-_MARKER_FORMAT = REPEAT_MARKER.replace("{index}", "%d")
-_TERMINAL_STAGE_SQL = ", ".join(f"'{stage.value}'" for stage in TERMINAL_STAGES)
 
 
 class UnsafeQueryError(ValueError):
     pass
 
 
-ALLOWED_VIEWS = {
-    "ai_cards",
-    "ai_checks",
-    "ai_tags",
-    "ai_requests",
-    "ai_values",
-    "ai_reminders",
-    "ai_current_sprint",
-    "ai_current_sprint_metrics",
-    "ai_card_events",
-    "ai_diary",
-}
+@dataclass(frozen=True, slots=True)
+class SqlView:
+    """One `ai_*` view: the name the model sees, and the SELECT that builds it."""
+
+    name: str
+    sql: str
+
+
 FORBIDDEN = re.compile(
     r"\b(insert|update|delete|replace|alter|drop|create|pragma|attach|detach|vacuum|reindex|analyze)\b",
     re.IGNORECASE,
 )
 
 
-def validate_read_sql(sql: str) -> str:
+def validate_read_sql(sql: str, views: Collection[str]) -> str:
     statement = sql.strip().rstrip(";").strip()
     if ";" in statement:
         raise UnsafeQueryError("Only one SQL statement is allowed")
@@ -73,7 +70,7 @@ def validate_read_sql(sql: str) -> str:
             re.I,
         )
     }
-    disallowed = names - ALLOWED_VIEWS - cte_names
+    disallowed = names - set(views) - cte_names
     if disallowed:
         raise UnsafeQueryError(
             "Query references unavailable views: " + ", ".join(sorted(disallowed))
@@ -81,123 +78,17 @@ def validate_read_sql(sql: str) -> str:
     return statement
 
 
-def create_ai_views(connection) -> None:  # type: ignore[no-untyped-def]
-    # Rebuild disposable read views so upgrades never retain an obsolete shape.
-    for view_name in (
-        "ai_tags",
-        "ai_requests",
-        "ai_cards",
-        "ai_checks",
-        "ai_values",
-        "ai_reminders",
-        "ai_current_sprint",
-        "ai_current_sprint_metrics",
-        "ai_card_events",
-        "ai_diary",
-    ):
-        connection.exec_driver_sql(f"DROP VIEW IF EXISTS {view_name}")
+def create_ai_views(connection, views: Sequence[SqlView]) -> None:  # type: ignore[no-untyped-def]
+    """Rebuild the disposable read views, so an upgrade never keeps an obsolete shape."""
+    for view in views:
+        connection.exec_driver_sql(f"DROP VIEW IF EXISTS {view.name}")
     # Card lookup goes through `ai_cards`, so drop the `card_search` FTS5 table and its
     # write triggers from databases that still carry them.
     for trigger_name in ("cards_search_insert", "cards_search_update", "cards_search_delete"):
         connection.exec_driver_sql(f"DROP TRIGGER IF EXISTS {trigger_name}")
     connection.exec_driver_sql("DROP TABLE IF EXISTS card_search")
-    connection.exec_driver_sql(
-        """CREATE VIEW IF NOT EXISTS ai_tags AS
-        SELECT id, name, description, created_at, updated_at FROM tags WHERE archived_at IS NULL"""
-    )
-    connection.exec_driver_sql(
-        """CREATE VIEW IF NOT EXISTS ai_requests AS
-        SELECT id, name, description, query_sql, created_at, updated_at
-        FROM saved_requests WHERE archived_at IS NULL"""
-    )
-    connection.exec_driver_sql(
-        """CREATE VIEW IF NOT EXISTS ai_values AS
-        SELECT id, name, description, active, created_at, updated_at
-        FROM "values" WHERE archived_at IS NULL"""
-    )
-    connection.exec_driver_sql(
-        f"""CREATE VIEW IF NOT EXISTS ai_cards AS
-        SELECT c.id,
-               CASE WHEN c.repeatable AND c.effective_stage IN ({_TERMINAL_STAGE_SQL})
-                    THEN c.title || printf('{_MARKER_FORMAT}',
-                         (SELECT count(*) FROM cards p
-                          WHERE p.repeat_series_id = c.repeat_series_id AND p.id <= c.id))
-                    ELSE c.title END AS title,
-               c.note, c.kind, c.effective_stage AS stage, c.priority,
-               c.hard_time, c.blocked, c.blocked_description,
-               c.effort_points, c.repeatable, c.parent_id,
-               (SELECT group_concat(cc.category, ',') FROM card_categories cc
-                WHERE cc.card_id=c.id) AS categories,
-               (SELECT group_concat(ce.energy_type, ',') FROM card_energy_types ce
-                WHERE ce.card_id=c.id) AS energy_types,
-               (SELECT group_concat(v.name, ',') FROM card_values cv
-                JOIN "values" v ON v.id=cv.value_id WHERE cv.card_id=c.id) AS direct_values,
-               (SELECT group_concat(t.name, ',') FROM card_tags ct
-                JOIN tags t ON t.id=ct.tag_id WHERE ct.card_id=c.id) AS direct_tags,
-               (SELECT group_concat(k.title, ',') FROM card_checks cc
-                JOIN checks k ON k.id=cc.check_id
-                WHERE cc.card_id=c.id AND k.archived_at IS NULL) AS direct_checks,
-               (SELECT count(*) FROM card_checks cc
-                JOIN checks k ON k.id=cc.check_id
-                WHERE cc.card_id=c.id AND k.archived_at IS NULL
-                  AND k.outcome IS NULL) AS pending_checks,
-               c.created_at, c.updated_at
-        FROM cards c
-        WHERE c.archived_at IS NULL"""
-    )
-    # `status` exposes the derived Pending state so a query never has to know that
-    # Pending is stored as a null outcome.
-    connection.exec_driver_sql(
-        f"""CREATE VIEW IF NOT EXISTS ai_checks AS
-        SELECT k.id,
-               CASE WHEN k.repeatable AND k.outcome IS NOT NULL
-                    THEN k.title || printf('{_MARKER_FORMAT}',
-                         (SELECT count(*) FROM checks p
-                          WHERE p.series_id = k.series_id AND p.id <= k.id))
-                    ELSE k.title END AS title,
-               k.repeatable,
-               COALESCE(k.outcome, 'pending') AS status,
-               k.resolved_at, k.series_id,
-               (SELECT group_concat(cc.card_id, ',') FROM card_checks cc
-                WHERE cc.check_id=k.id) AS card_ids,
-               k.created_at, k.updated_at
-        FROM checks k
-        WHERE k.archived_at IS NULL"""
-    )
-    # The raw schedule columns, not a rendered `schedule`: `describe()` is the one wording,
-    # and duplicating it in SQL would give the model a second one to disagree with.
-    connection.exec_driver_sql(
-        """CREATE VIEW IF NOT EXISTS ai_reminders AS
-        SELECT id, instruction, schedule_kind, weekdays, at_time, interval_minutes,
-               quiet_windows, next_fire_at, last_fired_at, fire_count,
-               created_at, updated_at
-        FROM reminders WHERE system = 0"""
-    )
-    connection.exec_driver_sql(
-        """CREATE VIEW IF NOT EXISTS ai_current_sprint AS
-        SELECT s.id, s.number, s.planned_start_date, s.planned_end_date, s.actual_started_at,
-               s.success_criteria
-        FROM sprints s JOIN workspace w ON w.active_sprint_id = s.id"""
-    )
-    connection.exec_driver_sql(
-        """CREATE VIEW IF NOT EXISTS ai_current_sprint_metrics AS
-        SELECT sc.sprint_id,
-          SUM(CASE WHEN sc.scope_kind='initial' THEN sc.effort_snapshot ELSE 0 END) committed,
-          SUM(CASE WHEN sc.scope_kind='added' THEN sc.effort_snapshot ELSE 0 END) added,
-          SUM(CASE WHEN sc.removed_at IS NOT NULL THEN sc.effort_snapshot ELSE 0 END) removed,
-          SUM(CASE WHEN sc.result='done' THEN sc.effort_snapshot ELSE 0 END) completed,
-          SUM(CASE WHEN sc.result='cancelled' THEN sc.effort_snapshot ELSE 0 END) cancelled
-        FROM sprint_commitments sc JOIN workspace w ON w.active_sprint_id=sc.sprint_id
-        GROUP BY sc.sprint_id"""
-    )
-    connection.exec_driver_sql(
-        """CREATE VIEW IF NOT EXISTS ai_card_events AS
-        SELECT id, card_id, sprint_id, actor, operation, created_at FROM card_events"""
-    )
-    connection.exec_driver_sql(
-        """CREATE VIEW IF NOT EXISTS ai_diary AS
-        SELECT id, entry_date, body, feeling_score, created_at, updated_at FROM diary_entries"""
-    )
+    for view in views:
+        connection.exec_driver_sql(f"CREATE VIEW IF NOT EXISTS {view.name} AS {view.sql}")
 
 
 @dataclass(frozen=True)
@@ -222,6 +113,7 @@ class ReadOnlyQueryRunner:
     def __init__(
         self,
         database_path: Path,
+        views: Collection[str],
         *,
         row_limit: int = DEFAULT_ROW_LIMIT,
         char_budget: int = DEFAULT_CHAR_BUDGET,
@@ -230,6 +122,7 @@ class ReadOnlyQueryRunner:
         timeout: float = QUERY_TIMEOUT_SECONDS,
     ) -> None:
         self.database_path = database_path.resolve()
+        self.views = frozenset(views)
         self.row_limit = row_limit
         self.char_budget = char_budget
         self.column_limit = column_limit
@@ -278,7 +171,7 @@ class ReadOnlyQueryRunner:
         return " ".join(notes)
 
     def _run(self, sql: str) -> QueryOutcome:
-        statement = validate_read_sql(sql)
+        statement = validate_read_sql(sql, self.views)
         connection = sqlite3.connect(f"file:{self.database_path.as_posix()}?mode=ro", uri=True)
 
         def authorizer(action, arg1, _arg2, _db, trigger):  # type: ignore[no-untyped-def]
@@ -295,8 +188,8 @@ class ReadOnlyQueryRunner:
             if (
                 action == sqlite3.SQLITE_READ
                 and arg1
-                and arg1.casefold() not in ALLOWED_VIEWS
-                and (not trigger or trigger.casefold() not in ALLOWED_VIEWS)
+                and arg1.casefold() not in self.views
+                and (not trigger or trigger.casefold() not in self.views)
             ):
                 return sqlite3.SQLITE_DENY
             return sqlite3.SQLITE_OK

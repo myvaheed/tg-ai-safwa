@@ -8,9 +8,10 @@ from sqlalchemy import delete, func, select
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.ai.context import SYSTEM_PROMPT, DialogueMessage
+from safwa.ai.context import DialogueMessage
 from safwa.ai.service import AIOutcome, ProposalService
 from safwa.analytics import render_retrospective_png, retrospective_data
+from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS, SYSTEM_PROMPT
 from safwa.constants import MAX_TOOL_CALLS
 from safwa.domain import (
     StaleStateError,
@@ -314,7 +315,7 @@ async def test_ai_stage_update_to_done_keeps_completion_accounting(e2e_harness):
         await session.commit()
 
     async with e2e_harness.sessions() as session:
-        await ProposalService(session).apply(outcome.proposal_id)
+        await ProposalService(session, PROPOSALS).apply(outcome.proposal_id)
         await session.commit()
 
     async with e2e_harness.sessions() as session:
@@ -399,7 +400,7 @@ async def test_ai_card_proposal_to_repeat_sprint_and_retrospective(e2e_harness):
 
     async with e2e_harness.sessions() as session:
         assert await session.scalar(select(func.count(Card.id))) == 1
-        affected = await ProposalService(session).apply(outcome.proposal_id)
+        affected = await ProposalService(session, PROPOSALS).apply(outcome.proposal_id)
         await session.commit()
         action = await session.get(Card, affected[0])
 
@@ -661,7 +662,7 @@ async def test_multiple_ai_card_creations_are_reviewed_sequentially(e2e_harness)
         assert current.proposal_id is not None
         proposal_ids.append(current.proposal_id)
         async with e2e_harness.sessions() as session:
-            affected = await ProposalService(session).apply(current.proposal_id)
+            affected = await ProposalService(session, PROPOSALS).apply(current.proposal_id)
             await session.commit()
         current = await advisor.resolve_approval(
             "proposal",
@@ -749,7 +750,7 @@ async def test_current_request_progress_includes_current_card_update_diffs(e2e_h
     proposal = await advisor.handle("Move my walk after dinner and make it Rest")
     assert proposal.proposal_id is not None
     async with e2e_harness.sessions() as session:
-        affected = await ProposalService(session).apply(proposal.proposal_id)
+        affected = await ProposalService(session, PROPOSALS).apply(proposal.proposal_id)
         await session.commit()
 
     outcome = await advisor.resolve_approval(
@@ -792,7 +793,7 @@ async def test_child_proposal_fails_cleanly_when_earlier_parent_is_discarded(e2e
     assert first.proposal_id is not None
 
     async with e2e_harness.sessions() as session:
-        await ProposalService(session).reject(first.proposal_id)
+        await ProposalService(session, PROPOSALS).reject(first.proposal_id)
         await session.commit()
     second = await advisor.resolve_approval(
         "proposal",
@@ -836,7 +837,7 @@ async def test_new_tag_and_dependent_card_link_use_one_repair_round(e2e_harness)
     tag_proposal = await advisor.handle("Create VrWalk and link it to Configure environment")
     assert tag_proposal.proposal_id is not None
     async with e2e_harness.sessions() as session:
-        tag_ids = await ProposalService(session).apply(tag_proposal.proposal_id)
+        tag_ids = await ProposalService(session, PROPOSALS).apply(tag_proposal.proposal_id)
         await session.commit()
 
     card_proposal = await advisor.resolve_approval(
@@ -848,7 +849,7 @@ async def test_new_tag_and_dependent_card_link_use_one_repair_round(e2e_harness)
     )
     assert card_proposal is not None and card_proposal.proposal_id is not None
     async with e2e_harness.sessions() as session:
-        affected = await ProposalService(session).apply(card_proposal.proposal_id)
+        affected = await ProposalService(session, PROPOSALS).apply(card_proposal.proposal_id)
         await session.commit()
 
     outcome = await advisor.resolve_approval(
@@ -922,11 +923,11 @@ async def test_ai_creates_an_approved_saved_tag_request(e2e_harness):
 
     assert outcome.proposal_id is not None
     async with e2e_harness.sessions() as session:
-        affected = await ProposalService(session).apply(outcome.proposal_id)
+        affected = await ProposalService(session, PROPOSALS).apply(outcome.proposal_id)
         await session.commit()
         request = await session.get(SavedRequest, affected[0])
         assert request is not None
-        matches = await request_cards(session, request.query_sql)
+        matches = await request_cards(session, request.query_sql, ALLOWED_VIEWS)
         assert [card.id for card in matches] == [action.id]
 
 
@@ -961,7 +962,7 @@ async def test_ai_approved_tag_proposal_creates_a_reusable_tag(e2e_harness):
     outcome = await advisor.handle("Create a Learning tag")
 
     async with e2e_harness.sessions() as session:
-        affected = await ProposalService(session).apply(outcome.proposal_id or 0)
+        affected = await ProposalService(session, PROPOSALS).apply(outcome.proposal_id or 0)
         await session.commit()
         tag = await session.get(Tag, affected[0])
         assert tag is not None
@@ -1015,7 +1016,7 @@ async def test_ai_create_tag_and_links_are_reviewed_as_separate_proposals(e2e_ha
                 )
             )
             assert len(changes) == 1
-            affected = await ProposalService(session).apply(current.proposal_id)
+            affected = await ProposalService(session, PROPOSALS).apply(current.proposal_id)
             await session.commit()
         current = await advisor.resolve_approval(
             "proposal",
@@ -1057,7 +1058,7 @@ async def test_ai_create_value_and_link_are_reviewed_as_separate_proposals(e2e_h
     first = await advisor.handle("Create Health and link it to Morning run")
     assert first.proposal_id is not None
     async with e2e_harness.sessions() as session:
-        first_ids = await ProposalService(session).apply(first.proposal_id)
+        first_ids = await ProposalService(session, PROPOSALS).apply(first.proposal_id)
         await session.commit()
     second = await advisor.resolve_approval(
         "proposal",
@@ -1071,7 +1072,7 @@ async def test_ai_create_value_and_link_are_reviewed_as_separate_proposals(e2e_h
     assert len(provider.calls) == 2
 
     async with e2e_harness.sessions() as session:
-        second_ids = await ProposalService(session).apply(second.proposal_id)
+        second_ids = await ProposalService(session, PROPOSALS).apply(second.proposal_id)
         await session.commit()
     final = await advisor.resolve_approval(
         "proposal",
@@ -1098,6 +1099,7 @@ async def test_ai_request_update_is_rejected_when_the_request_becomes_stale(e2e_
             session,
             "All goals",
             "SELECT id FROM ai_cards WHERE kind = 'goal'",
+            views=ALLOWED_VIEWS,
         )
         await session.commit()
 
@@ -1118,7 +1120,7 @@ async def test_ai_request_update_is_rejected_when_the_request_becomes_stale(e2e_
 
     async with e2e_harness.sessions() as session:
         try:
-            await ProposalService(session).apply(outcome.proposal_id or "")
+            await ProposalService(session, PROPOSALS).apply(outcome.proposal_id or "")
         except StaleStateError:
             pass
         else:
@@ -1131,6 +1133,7 @@ async def test_ai_can_query_saved_requests_through_the_safe_view(e2e_harness):
             session,
             "All goals",
             "SELECT id FROM ai_cards WHERE kind = 'goal'",
+            views=ALLOWED_VIEWS,
         )
         await session.commit()
 
@@ -1187,11 +1190,11 @@ async def test_ai_request_query_values_and_ignores_archived_cards(e2e_harness):
     outcome = await advisor.handle("Create a Request for Family value actions")
 
     async with e2e_harness.sessions() as session:
-        affected = await ProposalService(session).apply(outcome.proposal_id or "")
+        affected = await ProposalService(session, PROPOSALS).apply(outcome.proposal_id or "")
         await session.commit()
         request = await session.get(SavedRequest, affected[0])
         assert request is not None
-        matches = await request_cards(session, request.query_sql)
+        matches = await request_cards(session, request.query_sql, ALLOWED_VIEWS)
         assert [card.id for card in matches] == [live.id]
 
 
@@ -1227,11 +1230,11 @@ async def test_ai_request_query_supports_complex_boolean_logic(e2e_harness):
     outcome = await advisor.handle("Create an urgent actions Request")
 
     async with e2e_harness.sessions() as session:
-        affected = await ProposalService(session).apply(outcome.proposal_id or "")
+        affected = await ProposalService(session, PROPOSALS).apply(outcome.proposal_id or "")
         await session.commit()
         request = await session.get(SavedRequest, affected[0])
         assert request is not None
-        matches = await request_cards(session, request.query_sql)
+        matches = await request_cards(session, request.query_sql, ALLOWED_VIEWS)
         assert {card.id for card in matches} == {today.id, critical.id}
         assert ordinary.id not in {card.id for card in matches}
 
@@ -1370,7 +1373,7 @@ async def test_mixed_query_and_mutation_resumes_only_after_approval(e2e_harness)
     assert outcome.proposal_id is not None
     assert len(provider.calls) == 2
     async with e2e_harness.sessions() as session:
-        affected = await ProposalService(session).apply(outcome.proposal_id)
+        affected = await ProposalService(session, PROPOSALS).apply(outcome.proposal_id)
         await session.commit()
 
     resumed = await advisor.resolve_approval(
@@ -1426,7 +1429,7 @@ async def test_independent_mutations_are_reviewed_in_order_before_one_resume(e2e
     assert first.proposal_id is not None
 
     async with e2e_harness.sessions() as session:
-        first_ids = await ProposalService(session).apply(first.proposal_id)
+        first_ids = await ProposalService(session, PROPOSALS).apply(first.proposal_id)
         await session.commit()
     second = await advisor.resolve_approval(
         "proposal",
@@ -1440,7 +1443,7 @@ async def test_independent_mutations_are_reviewed_in_order_before_one_resume(e2e
     assert second.proposal_id != first.proposal_id
     assert len(provider.calls) == 1
     async with e2e_harness.sessions() as session:
-        second_ids = await ProposalService(session).apply(second.proposal_id)
+        second_ids = await ProposalService(session, PROPOSALS).apply(second.proposal_id)
         await session.commit()
     final = await advisor.resolve_approval(
         "proposal",
@@ -1471,7 +1474,7 @@ async def test_discarded_proposal_result_is_returned_with_later_approval(e2e_har
     first = await advisor.handle("Prepare two independent changes")
     assert first.proposal_id is not None
     async with e2e_harness.sessions() as session:
-        await ProposalService(session).reject(first.proposal_id)
+        await ProposalService(session, PROPOSALS).reject(first.proposal_id)
         await session.commit()
     second = await advisor.resolve_approval(
         "proposal",
@@ -1483,7 +1486,7 @@ async def test_discarded_proposal_result_is_returned_with_later_approval(e2e_har
     assert second is not None and second.proposal_id is not None
 
     async with e2e_harness.sessions() as session:
-        affected = await ProposalService(session).apply(second.proposal_id)
+        affected = await ProposalService(session, PROPOSALS).apply(second.proposal_id)
         await session.commit()
     final = await advisor.resolve_approval(
         "proposal",
@@ -1576,7 +1579,7 @@ async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_h
     assert first.proposal_id is not None
 
     async with e2e_harness.sessions() as session:
-        created_tag_ids = await ProposalService(session).apply(first.proposal_id)
+        created_tag_ids = await ProposalService(session, PROPOSALS).apply(first.proposal_id)
         await session.commit()
     first_link = await advisor.resolve_approval(
         "proposal",
@@ -1589,7 +1592,7 @@ async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_h
     assert len(provider.calls) == 3
 
     async with e2e_harness.sessions() as session:
-        first_link_ids = await ProposalService(session).apply(first_link.proposal_id)
+        first_link_ids = await ProposalService(session, PROPOSALS).apply(first_link.proposal_id)
         await session.commit()
     second_link = await advisor.resolve_approval(
         "proposal",
@@ -1602,7 +1605,7 @@ async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_h
     assert len(provider.calls) == 3
 
     async with e2e_harness.sessions() as session:
-        second_link_ids = await ProposalService(session).apply(second_link.proposal_id)
+        second_link_ids = await ProposalService(session, PROPOSALS).apply(second_link.proposal_id)
         await session.commit()
     final = await advisor.resolve_approval(
         "proposal",
@@ -2187,7 +2190,7 @@ async def test_application_owned_saved_receipt_is_rendered_once_when_model_echoe
     first = await advisor.handle(f"Создай цель {title}")
     assert first.proposal_id is not None
     async with e2e_harness.sessions() as session:
-        affected_ids = await ProposalService(session).apply(first.proposal_id)
+        affected_ids = await ProposalService(session, PROPOSALS).apply(first.proposal_id)
         await session.commit()
 
     final = await advisor.resolve_approval(
@@ -2249,7 +2252,7 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
     )
     assert first.proposal_id is not None
     async with e2e_harness.sessions() as session:
-        goal_ids = await ProposalService(session).apply(first.proposal_id)
+        goal_ids = await ProposalService(session, PROPOSALS).apply(first.proposal_id)
         await session.commit()
 
     # No dialogue argument: the suspended turn resumes from what it persisted itself.
@@ -2258,7 +2261,7 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
     )
     assert second is not None and second.proposal_id is not None
     async with e2e_harness.sessions() as session:
-        action_ids = await ProposalService(session).apply(second.proposal_id)
+        action_ids = await ProposalService(session, PROPOSALS).apply(second.proposal_id)
         await session.commit()
     final = await advisor.resolve_approval(
         "proposal", second.proposal_id, decision="approved", result={"affected_ids": action_ids}

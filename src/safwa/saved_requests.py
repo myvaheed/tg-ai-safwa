@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,12 +16,12 @@ class RequestQueryError(ValueError):
     pass
 
 
-def normalize_request_sql(raw: str) -> str:
+def normalize_request_sql(raw: str, views: Collection[str]) -> str:
     """Validate the stored query is a safe, read-only Card-ID query."""
     if not isinstance(raw, str) or not raw.strip():
         raise RequestQueryError("Request SQL is required")
     try:
-        statement = validate_read_sql(raw)
+        statement = validate_read_sql(raw, views)
     except UnsafeQueryError as error:
         raise RequestQueryError(str(error)) from error
     if "ai_cards" not in statement.casefold():
@@ -34,9 +35,11 @@ def normalize_request_sql(raw: str) -> str:
     return statement
 
 
-async def request_cards(session: AsyncSession, query_sql: str) -> list[Card]:
+async def request_cards(
+    session: AsyncSession, query_sql: str, views: Collection[str]
+) -> list[Card]:
     """Run a saved safe query and load its live Cards in query result order."""
-    statement = normalize_request_sql(query_sql)
+    statement = normalize_request_sql(query_sql, views)
     result = await session.execute(text(statement))
     rows = result.mappings().all()
     if any("id" not in row for row in rows):

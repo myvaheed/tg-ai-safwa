@@ -4,8 +4,9 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import DateTime, func, select
 
-from safwa.ai.contracts import CardToolInput, mutation_change_from_tool
-from safwa.ai.prepare import ChangePreparer, ToolPreparationError
+from safwa.ai.contracts import CardToolInput
+from safwa.ai.prepare import ChangePreparer
+from safwa.bootstrap.modules import PROPOSALS
 from safwa.domain import (
     DomainError,
     create_card,
@@ -16,6 +17,7 @@ from safwa.domain import (
     update_card_fields,
 )
 from safwa.enums import CardKind, CardStage, CheckOutcome, Priority
+from safwa.features.proposals.api import ToolPreparationError
 from safwa.models import (
     Card,
     CardCategory,
@@ -172,17 +174,21 @@ async def test_no_proposal_may_touch_a_closed_repeat(sessions):
         ("card", {"mode": "link", "id": live_card_id, "check_ids": [check.id]}, live_check_id),
     ]
     for tool, arguments, live_id in refusals:
-        change = mutation_change_from_tool(tool, arguments)
+        change = PROPOSALS.change_from_tool(tool, arguments)
         async with sessions() as session:
             with pytest.raises(ToolPreparationError) as refused:
-                await ChangePreparer(None, None).prepare(session, change)  # type: ignore[arg-type]
+                await ChangePreparer(None, None, PROPOSALS).prepare(  # type: ignore[arg-type]
+                    session, change
+                )
         assert refused.value.code == "closed_repeat", arguments
         assert f"#{live_id}" in refused.value.hint, arguments
 
     async with sessions() as session:
-        change = mutation_change_from_tool(
+        change = PROPOSALS.change_from_tool(
             "card", {"mode": "update", "id": live_card_id, "check_ids": [live_check_id]}
         )
-        prepared = await ChangePreparer(None, None).prepare(session, change)  # type: ignore[arg-type]
+        prepared = await ChangePreparer(None, None, PROPOSALS).prepare(  # type: ignore[arg-type]
+            session, change
+        )
         assert prepared.values["check_ids"] == [live_check_id]
         assert await session.get(Check, live_check_id) is not None

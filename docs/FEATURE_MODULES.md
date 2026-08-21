@@ -1,0 +1,78 @@
+# How a feature plugs in
+
+A Safwa feature declares what it contributes once, in its own `module.py`, and
+[`bootstrap/modules.py`](../src/safwa/bootstrap/modules.py) lists it once. Nothing else in the
+codebase names a feature: `tests/test_architecture.py` Rule H fails on any module outside
+`features/` that spells an entity out.
+
+## The manifest
+
+[`bootstrap/module_manifest.py`](../src/safwa/bootstrap/module_manifest.py) holds the wiring DTOs.
+It is the outermost layer, so it may know aiogram and SQLAlchemy; nothing that expresses a business
+rule imports it.
+
+| Field | What it contributes |
+|---|---|
+| `agents` | an `AgentSpec` — the subagent `route(name)` reaches, and the line the Advisor's prompt carries |
+| `proposals` | a `ProposalContribution` per entity: handler, mutation tool, presenter |
+| `mutation_tools` | a mutation tool whose change lands on an entity another feature owns (`remove`) |
+| `views` | the `ai_*` views this feature publishes |
+| `recover` | one hook `recover_startup` runs before the run machinery is reconciled |
+| `background` | tasks the polling loop starts and cancels |
+
+A capability does not get a field here by default. It first gets its own mechanism, and only a
+capability several features plug into earns a contribution. Routers and bot commands are not in the
+manifest yet: they join it in the phase that moves the Telegram handlers into their features.
+
+## The three proposal responsibilities
+
+One registration, three layers, bound only in the feature's `module.py`:
+
+- **`ProposalHandler`** (`features/<f>/proposal.py`) — `prepare` checks the change against live
+  data and writes nothing; `apply` calls the same domain operations the manual UI calls. Loading the
+  entity, `archived_at`, the closed repeat and `target_not_found` live here, not in generic code.
+- **`MutationToolSpec`** (`features/<f>/agent.py`) — the Pydantic input model, the one-line
+  description, and the conversion into a neutral `AgentChange`.
+- **`ProposalPresenter`** (`features/<f>/telegram.py`) — the receipt lines and the review screen.
+  `screen()` may return `None`, which falls back to the generic change list.
+
+Rule K keeps them apart: `proposal.py` carries no user-facing wording and no aiogram, and `agent.py`
+neither commits nor calls the domain.
+
+What stays generic is the orchestration: the workspace and its revision, the batch and proposal
+rows, the optimistic lock, and the ordered walk over the stored changes
+([`ChangePreparer`](../src/safwa/ai/prepare.py), `ProposalService`).
+
+## Derived registries
+
+`bootstrap/modules.py` builds these from `MODULES` at import time, and fails fast on a duplicate
+entity, tool or view:
+
+- `AI_VIEWS` and `ALLOWED_VIEWS` — one catalogue behind both `CREATE VIEW` and the read allowlist.
+  It is passed as data to whoever validates against it, so `ai/sql.py` stays a leaf.
+- `PROPOSALS` — the `ProposalRegistry` the advisor, the proposal service and the review screen read.
+- `SYSTEM_PROMPT` — the template in `ai/context.py` with the routing rules generated from the
+  roster. `MODULES` is a constant of import time, so the cacheable prompt prefix stays byte-stable.
+- `RECOVERY_HOOKS` and `BACKGROUND_TASKS` — in `MODULES` order.
+
+## Adding an entity the model may change
+
+```text
+safwa/features/<feature>/
+  __init__.py   # empty: importing one leaf must not drag in the manifest
+  module.py     # MODULE = FeatureModule(...)
+  views.py      # SqlView per ai_* view
+  agent.py      # MutationToolSpec, and an AgentSpec if it owns a subagent
+  proposal.py   # ProposalHandler
+  telegram.py   # ProposalPresenter
+```
+
+Then one line in `MODULES`. That is the whole edit in central code: the mutation tool and its
+schema, the review screen, the view and its allowlist entry, the routing line, the recovery hook and
+the background task all follow from the declaration.
+
+## Why `__init__.py` is empty
+
+`module.py` reaches aiogram, the domain and the Telegram adapters. `views.py` and `api.py` are
+leaves that low-level modules import. Keeping the package `__init__` empty is what stops importing a
+leaf from executing the manifest, which is how the import graph stays acyclic.

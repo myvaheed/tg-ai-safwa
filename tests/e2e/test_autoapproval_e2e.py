@@ -9,6 +9,7 @@ from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.context import DialogueMessage
 from safwa.ai.service import ProposalService
+from safwa.bootstrap.modules import PROPOSALS
 from safwa.domain import create_card, create_tag, create_value
 from safwa.enums import ProposalStatus
 from safwa.models import AgentStep, Card, CardTag, ChangeProposal, Tag, Value
@@ -199,7 +200,7 @@ async def test_next_head_is_autoapproved_after_a_manual_save(e2e_harness):
     first = await advisor.handle("Rename the Work tag and the Freedom value")
     assert first.proposal_id is not None
     async with e2e_harness.sessions() as session:
-        affected = await ProposalService(session).apply(first.proposal_id)
+        affected = await ProposalService(session, PROPOSALS).apply(first.proposal_id)
         await session.commit()
 
     outcome = await advisor.resolve_approval(

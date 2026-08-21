@@ -10,6 +10,7 @@ from test_subagent_e2e import diary_subagent
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.service import ProposalService, _resolved_tool_result
+from safwa.bootstrap.modules import PROPOSALS
 from safwa.domain import create_diary_entry
 from safwa.models import AgentRun, DiaryEntry
 
@@ -35,7 +36,7 @@ def write(date_value: str, pov: str, **extra: object) -> ProviderTurn:
 async def _save(harness, advisor, proposal_id: int) -> tuple[list[int], object]:
     async with harness.sessions() as session:
         description = await advisor.describe_proposal(session, proposal_id)
-        affected = await ProposalService(session).apply(proposal_id)
+        affected = await ProposalService(session, PROPOSALS).apply(proposal_id)
         await session.commit()
     return affected, description
 

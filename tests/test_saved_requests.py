@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import select
 
 from safwa.ai.sql import create_ai_views
+from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
 from safwa.domain import DomainError, archive_saved_request, create_saved_request
 from safwa.models import Card, CardTag, SavedRequest, Tag
 from safwa.saved_requests import request_cards
@@ -11,7 +12,9 @@ from safwa.saved_requests import request_cards
 
 async def test_saved_request_runs_a_safe_card_query(sessions):
     async with sessions() as session:
-        await (await session.connection()).run_sync(create_ai_views)
+        await (await session.connection()).run_sync(
+            lambda connection: create_ai_views(connection, AI_VIEWS)
+        )
         family = Tag(name="Family")
         work = Tag(name="Work")
         family_today = Card(
@@ -50,13 +53,14 @@ async def test_saved_request_runs_a_safe_card_query(sessions):
             "SELECT id FROM ai_cards WHERE kind = 'action' "
             "AND direct_tags LIKE '%Family%' AND stage IN ('today', 'backlog') ORDER BY title",
             "Family tasks that are live.",
+            views=ALLOWED_VIEWS,
         )
         await session.commit()
 
     async with sessions() as session:
         stored = await session.get(SavedRequest, request.id)
         assert stored is not None
-        cards = await request_cards(session, stored.query_sql)
+        cards = await request_cards(session, stored.query_sql, ALLOWED_VIEWS)
         assert [card.title for card in cards] == ["Call family", "Plan family trip"]
 
 
@@ -72,7 +76,7 @@ async def test_saved_request_runs_a_safe_card_query(sessions):
 async def test_saved_request_rejects_non_read_or_non_card_queries(sessions, query_sql):
     async with sessions() as session:
         with pytest.raises(DomainError):
-            await create_saved_request(session, "Unsafe request", query_sql)
+            await create_saved_request(session, "Unsafe request", query_sql, views=ALLOWED_VIEWS)
         assert list(await session.scalars(select(SavedRequest))) == []
 
 
@@ -83,6 +87,7 @@ async def test_create_request_restores_an_archived_name(sessions):
             "All goals",
             "SELECT id FROM ai_cards WHERE kind = 'goal'",
             "Original description",
+            views=ALLOWED_VIEWS,
         )
         request_id = request.id
         await archive_saved_request(session, request.id)
@@ -92,6 +97,7 @@ async def test_create_request_restores_an_archived_name(sessions):
             session,
             "all GOALS",
             "SELECT id FROM ai_cards WHERE kind = 'goal' AND stage = 'backlog'",
+            views=ALLOWED_VIEWS,
         )
         await session.commit()
 
@@ -105,4 +111,5 @@ async def test_create_request_restores_an_archived_name(sessions):
                 session,
                 "ALL GOALS",
                 "SELECT id FROM ai_cards WHERE kind = 'goal'",
+                views=ALLOWED_VIEWS,
             )

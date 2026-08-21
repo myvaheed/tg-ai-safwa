@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -7,7 +8,6 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .constants import REMINDER_CATCHUP_GRACE_MINUTES, SESSION_IDLE_DAYS
-from .domain import sync_diary_reminder
 from .enums import ProposalStatus
 from .models import (
     AgentRun,
@@ -21,11 +21,17 @@ from .models import (
 from .reminders import next_fire, on_wall_clock, roll_forward, schedule_of
 
 
-async def recover_startup(session: AsyncSession) -> None:
+async def recover_startup(
+    session: AsyncSession, hooks: Iterable[Callable[[AsyncSession], Awaitable[None]]] = ()
+) -> None:
+    """Reconcile interrupted work: each feature's own hook first, then the run machinery.
+
+    The hooks run in `MODULES` order, which is what puts the Diary's own Reminder in
+    place before the Reminder reconcile rolls it forward with the rest.
+    """
     now = datetime.now(UTC)
-    # Before the reconcile, so a Diary Reminder created here is rolled forward with the rest.
-    await sync_diary_reminder(session)
-    await reconcile_reminders(session, now=now)
+    for hook in hooks:
+        await hook(session)
     await session.execute(
         update(AgentRun)
         .where(AgentRun.status == "running")
@@ -45,7 +51,7 @@ async def recover_startup(session: AsyncSession) -> None:
     await session.execute(delete(UiSession).where(UiSession.expires_at < now))
 
 
-async def reconcile_reminders(session: AsyncSession, *, now: datetime) -> None:
+async def reconcile_reminders(session: AsyncSession, now: datetime | None = None) -> None:
     """Fix `next_fire_at` on every repeating Reminder after downtime.
 
     Two things go stale while the process is down. A wall-clock schedule stores a local
@@ -56,6 +62,7 @@ async def reconcile_reminders(session: AsyncSession, *, now: datetime) -> None:
 
     A one-shot is never moved: it always fires, however late.
     """
+    now = now or datetime.now(UTC)
     workspace = await session.get(Workspace, 1)
     tz = ZoneInfo(workspace.timezone if workspace else "UTC")
     grace = timedelta(minutes=REMINDER_CATCHUP_GRACE_MINUTES)

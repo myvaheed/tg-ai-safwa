@@ -114,6 +114,10 @@ default, OpenRouter for `openai/gpt-5.6-luna`) + SQLite/SQLAlchemy 2 async. Flat
 provider/memory/advisor → `Services` dataclass injected as `dispatcher["services"]`, plus background
 `asyncio` tasks cancelled in the polling `finally`.
 
+What each feature plugs into the application is declared once, in
+[bootstrap/modules.py](src/safwa/bootstrap/modules.py) — see
+[docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md).
+
 Layer responsibilities are flat files: [domain.py](src/safwa/domain.py) (invariants + all mutations),
 [telegram/](src/safwa/telegram) (all UI), [ai/service.py](src/safwa/ai/service.py) (agent loop +
 proposals). Neither the UI nor the AI touches an ORM entity directly — both go through `domain.py`.
@@ -205,8 +209,8 @@ subagent has no `route`, so there is no recursion.
   that wrote the refused proposal. It is saved for **one Advisor turn**: a `route` back on that turn
   restores it, and anything else the Advisor does abandons it. The grace is the subagent's alone — a
   caller interrupted mid-route is cancelled with the words that interrupted it.
-- The routing rules are prose in `SYSTEM_PROMPT`. A new subagent must be added *both* to the roster
-  in [main.py](src/safwa/main.py) *and* to that section, or it is never routed to.
+- The routing rules in `SYSTEM_PROMPT` are generated from the roster, so a subagent is routed to
+  exactly when its `AgentSpec` is in `MODULES`; its `purpose` **is** the prompt line.
 - A subagent **owns the writes** of its feature, never the reads. The Advisor reads every `ai_*`
   view, `ai_diary` included, and cites a day as `[16.08.2026](diary:12)`; the `diary` tool belongs to
   its subagent, and the Advisor holds no mutation tool at all.
@@ -217,9 +221,10 @@ subagent has no `route`, so there is no recursion.
 behind regex validation, a separate read-only connection with an authorizer allowlist, and result
 caps ([ai/sql.py](src/safwa/ai/sql.py)).
 
-The views are dropped and rebuilt on **every startup** — change view shape there, never with a
-migration. A new view has to be added to `ALLOWED_VIEWS` *and* to the view list of every prompt that
-should reach it; the prompt is what scopes a reader.
+The views are dropped and rebuilt on **every startup** — change view shape in the owning feature's
+`views.py`, never with a migration. `ALLOWED_VIEWS` and `CREATE VIEW` both come from those `SqlView`
+declarations, and the composition root hands the catalogue to whoever validates against it. The view
+list in a prompt is still prose: it is what scopes a reader.
 
 ### `data/memory.md` is authoritative
 
@@ -319,6 +324,8 @@ at that point.
 | Reminders | [archived_docs/REMINDERS_PLAN.md](archived_docs/REMINDERS_PLAN.md) |
 | Subagents and routing | [archived_docs/SUBAGENTS_PLAN.md](archived_docs/SUBAGENTS_PLAN.md) |
 | Voice input | [archived_docs/ASR_PLAN.md](archived_docs/ASR_PLAN.md) |
+| How a feature plugs in | [docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md) |
+| LLM provider boundary | [docs/LLM_GATEWAY.md](docs/LLM_GATEWAY.md) |
 | Clean-architecture migration | [REFACTORING_CLEAN_ARCH_FINAL.md](REFACTORING_CLEAN_ARCH_FINAL.md) |
 | Migration status and gates | [docs/MIGRATION.md](docs/MIGRATION.md) |
 | BRD scenarios and test audit | [docs/brd/README.md](docs/brd/README.md) |

@@ -947,7 +947,9 @@ async def _on_proposal_approve(context: CallbackContext) -> None:
         # Read the description before applying: its field lines diff against committed
         # state, which the apply is about to become.
         description = await context.services.advisor.describe_proposal(session, proposal_id)
-        affected = await ProposalService(session).apply(proposal_id)
+        affected = await ProposalService(session, context.services.advisor.proposals).apply(
+            proposal_id
+        )
         await session.commit()
     if await continue_agent_approval(
         context.message,
@@ -970,7 +972,9 @@ async def _on_proposal_delete_confirm(context: CallbackContext) -> None:
     proposal_id = context.payload["id"]
     async with context.sessions() as session:
         description = await context.services.advisor.describe_proposal(session, proposal_id)
-        affected = await ProposalService(session).apply(proposal_id, allow_destructive=True)
+        affected = await ProposalService(session, context.services.advisor.proposals).apply(
+            proposal_id, allow_destructive=True
+        )
         await session.commit()
     if await continue_agent_approval(
         context.message,
@@ -998,7 +1002,7 @@ async def _on_proposal_reject(context: CallbackContext) -> None:
     proposal_id = context.payload["id"]
     async with context.sessions() as session:
         description = await context.services.advisor.describe_proposal(session, proposal_id)
-        await ProposalService(session).reject(proposal_id)
+        await ProposalService(session, context.services.advisor.proposals).reject(proposal_id)
         await session.commit()
     if await continue_agent_approval(
         context.message,

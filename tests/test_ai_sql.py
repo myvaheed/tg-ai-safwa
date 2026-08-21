@@ -6,10 +6,10 @@ from safwa.ai.contracts import (
     CardToolInput,
     CheckToolInput,
     QueryToolInput,
-    mutation_change_from_tool,
     tool_json_schema,
 )
 from safwa.ai.sql import ReadOnlyQueryRunner, UnsafeQueryError, validate_read_sql
+from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS
 
 
 def test_native_mutation_tools_become_typed_change_intents():
@@ -17,23 +17,23 @@ def test_native_mutation_tools_become_typed_change_intents():
         mode="create", kind="action", title="Read one page", effort_points=1
     )
     assert creation.kind == "action"
-    change = mutation_change_from_tool("card", {"mode": "update", "id": 42, "priority": "critical"})
+    change = PROPOSALS.change_from_tool("card", {"mode": "update", "id": 42, "priority": "critical"})
     assert (change.entity, change.action, change.id, change.values) == (
         "card",
         "update",
         42,
         {"priority": "critical"},
     )
-    remove = mutation_change_from_tool("remove", {"mode": "delete", "entity": "card", "id": 42})
+    remove = PROPOSALS.change_from_tool("remove", {"mode": "delete", "entity": "card", "id": 42})
     assert (remove.entity, remove.action, remove.id) == ("card", "delete", 42)
     with pytest.raises(ValueError):
         CardToolInput(mode="create", kind="action")
     with pytest.raises(ValueError, match="archived, never deleted"):
-        mutation_change_from_tool("remove", {"mode": "delete", "entity": "tag", "id": 42})
+        PROPOSALS.change_from_tool("remove", {"mode": "delete", "entity": "tag", "id": 42})
 
 
 def test_card_tool_modes_reject_ambiguous_mutations():
-    change = mutation_change_from_tool(
+    change = PROPOSALS.change_from_tool(
         "card",
         {
             "mode": "update",
@@ -46,7 +46,7 @@ def test_card_tool_modes_reject_ambiguous_mutations():
         "categories": ["contribution", "rest"],
         "energy_types": ["physical", "social"],
     }
-    root = mutation_change_from_tool("card", {"mode": "update", "id": 42, "parent_id": None})
+    root = PROPOSALS.change_from_tool("card", {"mode": "update", "id": 42, "parent_id": None})
     assert root.values == {"parent_id": None}
     with pytest.raises(ValueError):
         CardToolInput(mode="move", id=42, stage="today", categories=["work"])
@@ -59,7 +59,7 @@ def test_card_tool_modes_reject_ambiguous_mutations():
 
 
 def test_tool_inputs_drop_incidental_null_placeholders_from_every_mutation():
-    change = mutation_change_from_tool(
+    change = PROPOSALS.change_from_tool(
         "card",
         {
             "mode": "create",
@@ -115,7 +115,7 @@ def test_tool_inputs_drop_incidental_null_placeholders_from_every_mutation():
 
 
 def test_zero_id_placeholders_are_ignored_but_real_ids_must_be_positive():
-    change = mutation_change_from_tool(
+    change = PROPOSALS.change_from_tool(
         "card",
         {
             "mode": "create",
@@ -138,7 +138,7 @@ def test_zero_id_placeholders_are_ignored_but_real_ids_must_be_positive():
     }
 
     with pytest.raises(ValueError):
-        mutation_change_from_tool("remove", {"entity": "card", "id": 0})
+        PROPOSALS.change_from_tool("remove", {"entity": "card", "id": 0})
 
 
 @pytest.mark.parametrize(
@@ -178,16 +178,16 @@ def test_zero_id_placeholders_are_ignored_but_real_ids_must_be_positive():
 def test_null_placeholders_are_ignored_across_mutation_tools(
     tool_name, arguments, expected_values
 ):
-    change = mutation_change_from_tool(tool_name, arguments)
+    change = PROPOSALS.change_from_tool(tool_name, arguments)
     assert change.values == expected_values
 
-    remove = mutation_change_from_tool("remove", {"entity": "card", "id": 42, "mode": None})
+    remove = PROPOSALS.change_from_tool("remove", {"entity": "card", "id": 42, "mode": None})
     assert remove.action == "archive"
 
 
 @pytest.mark.parametrize("placeholder", [None, "", "  ", "null", "None", "NIL", "undefined"])
 def test_optional_reference_placeholders_are_omitted(placeholder):
-    change = mutation_change_from_tool(
+    change = PROPOSALS.change_from_tool(
         "card",
         {
             "mode": "create",
@@ -203,7 +203,7 @@ def test_optional_reference_placeholders_are_omitted(placeholder):
 
 
 def test_collection_arguments_recover_scalars_and_double_encoded_arrays():
-    change = mutation_change_from_tool(
+    change = PROPOSALS.change_from_tool(
         "card",
         {
             "mode": "update",
@@ -221,13 +221,13 @@ def test_collection_arguments_recover_scalars_and_double_encoded_arrays():
 
 
 def test_parent_changes_are_explicit_and_unambiguous():
-    remove_parent = mutation_change_from_tool(
+    remove_parent = PROPOSALS.change_from_tool(
         "card", {"mode": "update", "id": 42, "title": "Renamed", "parent_id": None}
     )
     assert remove_parent.values == {"title": "Renamed", "parent_id": None}
 
     with pytest.raises(ValueError, match="either parent_id or parent_query"):
-        mutation_change_from_tool(
+        PROPOSALS.change_from_tool(
             "card",
             {
                 "mode": "update",
@@ -241,7 +241,7 @@ def test_parent_changes_are_explicit_and_unambiguous():
 
 @pytest.mark.parametrize("placeholder", [None, "null", "None", "NIL", "undefined"])
 def test_update_parent_null_variants_remove_the_parent(placeholder):
-    change = mutation_change_from_tool(
+    change = PROPOSALS.change_from_tool(
         "card", {"mode": "update", "id": 42, "parent_id": placeholder}
     )
     assert change.values == {"parent_id": None}
@@ -294,23 +294,30 @@ def test_query_tool_rejects_null_empty_and_extra_arguments():
 )
 def test_read_sql_rejects_unsafe_queries(sql):
     with pytest.raises(UnsafeQueryError):
-        validate_read_sql(sql)
+        validate_read_sql(sql, ALLOWED_VIEWS)
 
 
 def test_read_sql_accepts_views_and_ctes():
-    assert validate_read_sql("SELECT title FROM ai_cards LIMIT 5")
-    assert validate_read_sql("WITH x AS (SELECT * FROM ai_cards) SELECT count(*) FROM x")
+    assert validate_read_sql("SELECT title FROM ai_cards LIMIT 5", ALLOWED_VIEWS)
+    assert validate_read_sql(
+        "WITH x AS (SELECT * FROM ai_cards) SELECT count(*) FROM x", ALLOWED_VIEWS
+    )
 
 
 def test_read_sql_accepts_recursive_and_column_list_ctes():
     assert validate_read_sql(
         "WITH RECURSIVE tree AS (SELECT id FROM ai_cards WHERE id = 1 "
         "UNION ALL SELECT c.id FROM ai_cards c JOIN tree t ON c.parent_id = t.id) "
-        "SELECT id FROM tree"
+        "SELECT id FROM tree",
+        ALLOWED_VIEWS,
     )
-    assert validate_read_sql("WITH t(card_id) AS (SELECT id FROM ai_cards) SELECT card_id FROM t")
+    assert validate_read_sql(
+        "WITH t(card_id) AS (SELECT id FROM ai_cards) SELECT card_id FROM t", ALLOWED_VIEWS
+    )
     with pytest.raises(UnsafeQueryError):
-        validate_read_sql("WITH RECURSIVE tree AS (SELECT id FROM cards) SELECT id FROM tree")
+        validate_read_sql(
+            "WITH RECURSIVE tree AS (SELECT id FROM cards) SELECT id FROM tree", ALLOWED_VIEWS
+        )
 
 
 def _runner_over_cards(tmp_path, count: int, note: str = "", **caps):
@@ -323,7 +330,7 @@ def _runner_over_cards(tmp_path, count: int, note: str = "", **caps):
     engine = create_engine(f"sqlite:///{path.as_posix()}")
     Base.metadata.create_all(engine)
     with engine.begin() as connection:
-        create_ai_views(connection)
+        create_ai_views(connection, AI_VIEWS)
         for index in range(count):
             connection.exec_driver_sql(
                 "INSERT INTO cards(id,kind,title,note,manual_stage,effective_stage,priority,"
@@ -333,7 +340,7 @@ def _runner_over_cards(tmp_path, count: int, note: str = "", **caps):
                 (index + 1, f"Card {index:03d}", note),
             )
     engine.dispose()
-    return ReadOnlyQueryRunner(path, **caps)
+    return ReadOnlyQueryRunner(path, ALLOWED_VIEWS, **caps)
 
 
 async def test_query_result_reports_the_row_cap_and_asks_to_narrow(tmp_path):

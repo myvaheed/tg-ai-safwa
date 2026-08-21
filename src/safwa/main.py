@@ -13,28 +13,32 @@ from aiogram.enums import ParseMode
 from llm_gateway import OpenAICompatibleConfig, OpenAICompatibleProvider
 
 from .ai.autoapproval import AutoApprovalReviewer
-from .ai.board import BOARD_PROMPT, BOARD_TOOLS
-from .ai.diary import DIARY_PROMPT, day_read_tool, diary_clock
-from .ai.service import AIAdvisor, query_read_tool
+from .ai.service import AIAdvisor
 from .ai.sql import ReadOnlyQueryRunner, create_ai_views
-from .ai.subagents import RoutedSubagent
 from .asr import build_transcriber
+from .bootstrap.module_manifest import AgentContext, BackgroundContext
+from .bootstrap.modules import (
+    AI_VIEWS,
+    ALLOWED_VIEWS,
+    BACKGROUND_TASKS,
+    PROPOSALS,
+    RECOVERY_HOOKS,
+    SYSTEM_PROMPT,
+    routed_subagents,
+)
 from .config import Settings
 from .constants import AI_APP_TITLE, AI_APP_URL
-from .continuity import PersonaContinuity, run_memory_maintenance
+from .continuity import PersonaContinuity
 from .domain import bootstrap_workspace
-from .enums import AIProvider, MessageKind
+from .enums import AIProvider
 from .foundation.database import Database, upgrade_database
-from .history import TelegramHistorySource, mark_message, register_message
+from .history import TelegramHistorySource
 from .memory import MemoryFileStore
 from .models import Workspace
 from .recovery import recover_startup
-from .scheduler import run_scheduler, run_sprint_expiry
 from .telegram import (
-    BACKGROUND_SOURCE_ID,
     GenerationGuard,
     OwnerAndWritingMiddleware,
-    ReminderRuntime,
     Services,
     discard_stale_status,
     router,
@@ -84,8 +88,10 @@ async def run(settings: Settings) -> None:
     database = Database(settings.async_database_url)
     async with database.sessions() as session:
         await bootstrap_workspace(session, settings.telegram_owner_id, settings.timezone)
-        await recover_startup(session)
-        await session.run_sync(lambda sync_session: create_ai_views(sync_session.connection()))
+        await recover_startup(session, RECOVERY_HOOKS)
+        await session.run_sync(
+            lambda sync_session: create_ai_views(sync_session.connection(), AI_VIEWS)
+        )
         await session.commit()
 
     headers: tuple[tuple[str, str], ...] = ()
@@ -116,6 +122,7 @@ async def run(settings: Settings) -> None:
     await memory.sync()
     query_runner = ReadOnlyQueryRunner(
         database_path(settings.database_url),
+        ALLOWED_VIEWS,
         row_limit=settings.ai_query_row_limit,
         char_budget=settings.ai_query_char_budget,
     )
@@ -134,38 +141,14 @@ async def run(settings: Settings) -> None:
         provider,
         memory,
         query_runner,
+        PROPOSALS,
+        system_prompt=SYSTEM_PROMPT,
         model_name=settings.ai_model,
         provider_name=settings.ai_provider.value,
         cache_breakpoints=settings.resolved_ai_cache_breakpoints,
         autoapproval=AutoApprovalReviewer(provider),
-        subagents=(
-            RoutedSubagent(
-                name="board",
-                purpose="every change to a Card, Check, Value, Tag, Request or Reminder",
-                instructions=BOARD_PROMPT,
-                read_tools=(query_read_tool(query_runner),),
-                mutation_tools=BOARD_TOOLS,
-                planning_state=True,
-            ),
-            RoutedSubagent(
-                name="diary",
-                purpose=(
-                    "the Diary — reading a day, writing one, rewriting one, removing one"
-                ),
-                instructions=DIARY_PROMPT,
-                read_tools=(
-                    day_read_tool(
-                        history,
-                        chat_id=settings.telegram_owner_id,
-                        timezone=settings.timezone,
-                    ),
-                    query_read_tool(query_runner),
-                ),
-                mutation_tools=("diary",),
-                # Enough to be told what to change about the day it just proposed; the day
-                # itself it reads with `read_day`.
-                clock=lambda: diary_clock(settings.timezone),
-            ),
+        subagents=routed_subagents(
+            AgentContext(settings=settings, query_runner=query_runner, history=history)
         ),
     )
     continuity = PersonaContinuity(
@@ -193,6 +176,7 @@ async def run(settings: Settings) -> None:
         continuity=continuity,
         owner_id=settings.telegram_owner_id,
         guard=guard,
+        views=ALLOWED_VIEWS,
         bot_username=settings.telegram_bot_username,
         transcriber=transcriber,
     )
@@ -207,83 +191,21 @@ async def run(settings: Settings) -> None:
     await sync_bot_commands(bot, sprint_active=sprint_active)
     await discard_stale_status(bot, services, settings.telegram_owner_id)
 
-    async def memory_error(text: str) -> None:
-        marked_text, event_id = mark_message(f"⚠️ memory.md: {text}", MessageKind.ERROR)
-        sent = await bot.send_message(
-            settings.telegram_owner_id,
-            marked_text,
-        )
-        async with database.sessions() as session:
-            await register_message(
-                session,
-                sent.chat.id,
-                sent.message_id,
-                "out",
-                MessageKind.ERROR,
-                event_id=event_id,
-            )
-            await session.commit()
-
-    memory_task = asyncio.create_task(memory.poll(memory_error), name="memory-file-poll")
-    reminders = ReminderRuntime(
-        services, bot, owner_id=settings.telegram_owner_id, timezone=settings.timezone
+    background = BackgroundContext(
+        settings=settings,
+        sessions=database.sessions,
+        bot=bot,
+        services=services,
+        memory=memory,
+        continuity=continuity,
     )
-    scheduler_task = None
-    if settings.scheduler_enabled:
-        scheduler_task = asyncio.create_task(
-            run_scheduler(
-                database.sessions,
-                timezone=settings.timezone,
-                gate=reminders.can_escalate,
-                still_current=reminders.still_current,
-                release=reminders.release,
-                escalate=reminders.escalate,
-                poll_seconds=settings.scheduler_poll_seconds,
-            ),
-            name="reminder-scheduler",
-        )
-    async def announce_sprint_expiry(number: int) -> None:
-        text = (
-            f"⏹ Sprint {number} reached its planned end date and was closed automatically. "
-            "Whatever was still open kept its stage."
-        )
-        marked_text, event_id = mark_message(text, MessageKind.RECEIPT)
-        sent = await bot.send_message(settings.telegram_owner_id, marked_text)
-        async with database.sessions() as session:
-            await register_message(
-                session,
-                sent.chat.id,
-                sent.message_id,
-                "out",
-                MessageKind.RECEIPT,
-                event_id=event_id,
-            )
-            await session.commit()
-        await sync_bot_commands(bot, sprint_active=False)
-
-    sprint_expiry_task = asyncio.create_task(
-        run_sprint_expiry(database.sessions, announce=announce_sprint_expiry),
-        name="sprint-expiry",
-    )
-    memory_maintenance_task = asyncio.create_task(
-        run_memory_maintenance(
-            continuity,
-            database.sessions,
-            settings.telegram_owner_id,
-            lambda: guard.active,
-            settings.timezone,
-            reserve_background=guard.reserve_background,
-            dialogue_revision=lambda: guard.dialogue_revision,
-            release_background=lambda: guard.release(BACKGROUND_SOURCE_ID),
-        ),
-        name="memory-maintenance",
-    )
+    tasks = [
+        asyncio.create_task(task.run(background), name=task.name) for task in BACKGROUND_TASKS
+    ]
     try:
         await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
     finally:
-        for task in (memory_task, scheduler_task, sprint_expiry_task, memory_maintenance_task):
-            if task is None:
-                continue
+        for task in tasks:
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task

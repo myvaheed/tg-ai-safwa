@@ -171,7 +171,7 @@ async def render_saved_request(
         request = await session.get(SavedRequest, request_id)
         if request is None or request.archived_at is not None:
             raise DomainError("Request no longer exists")
-        matches = await request_cards(session, request.query_sql)
+        matches = await request_cards(session, request.query_sql, services.views)
         cards = matches[:REQUEST_RESULT_LIMIT]
         rows = [
             [
