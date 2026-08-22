@@ -13,6 +13,7 @@ from ..domain import DomainError, card_progress, repeat_marker
 from ..enums import CardKind, MessageKind
 from ..features.diary.model import DiaryEntry
 from ..features.diary.telegram import diary_label, render_diary
+from ..features.saved_requests.use_cases import request_cards
 from ..history import (
     CITATION_MARKUP,
     CITATION_PATTERN,
@@ -28,7 +29,6 @@ from ..models import (
     Tag,
     Value,
 )
-from ..saved_requests import request_cards
 from ._core import Services
 from ._messaging import send_registered
 from ._presentation import CATEGORY_EMOJIS, ENERGY_EMOJIS, kind_emoji

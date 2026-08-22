@@ -8,21 +8,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...domain import (
-    DomainError,
-    StaleStateError,
-    archive_saved_request,
-    create_saved_request,
-    update_saved_request,
-)
-from ...models import ProposalChange, SavedRequest
-from ...saved_requests import RequestQueryError, normalize_request_sql
+from ...ai.sql import RequestQueryError, normalize_request_sql
+from ...foundation.errors import DomainError, StaleStateError
+from ...models import ProposalChange
 from ..proposals.api import (
     ApplyContext,
     PreparationContext,
     PreparedChange,
     ToolPreparationError,
     require_target,
+)
+from .model import SavedRequest
+from .use_cases import (
+    archive_saved_request,
+    create_saved_request,
+    update_saved_request,
 )
 
 

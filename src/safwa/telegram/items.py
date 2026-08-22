@@ -11,8 +11,8 @@ from sqlalchemy import delete, select
 from ..constants import REQUEST_RESULT_LIMIT
 from ..domain import DomainError
 from ..enums import MessageKind
+from ..features.saved_requests.use_cases import request_cards
 from ..models import SavedRequest, Tag, UiSession, Value
-from ..saved_requests import request_cards
 from ._core import ITEM_REFERENCES, Services
 from ._messaging import edit_registered_message, send_registered, token_button
 from ._presentation import kind_label, menu_row

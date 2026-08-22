@@ -32,8 +32,8 @@ from ..constants import (
 )
 from ..domain import move_card
 from ..enums import CardStage, MessageKind
+from ..features.saved_requests.use_cases import request_cards
 from ..models import Card, SavedRequest, TelegramMessage, UiSession
-from ..saved_requests import request_cards
 from ._core import CallbackContext, Services
 from ._messaging import (
     edit_registered_message,

@@ -403,7 +403,9 @@ what keeps the advisor out of the Diary. The same function drops the `card_searc
 triggers from older databases.
 
 Saved Requests reuse the same validator plus two extra rules (`normalize_request_sql`): the query must
-mention `ai_cards` and return a column named `id`.
+mention `ai_cards` and return a column named `id`. The validator is all they share — a Request runs
+on the ordinary session, without the read-only connection, the authorizer or the result caps, because
+what it returns is a list on a screen rather than something a model reads.
 
 ### History — Telegram is the canonical dialogue store
 

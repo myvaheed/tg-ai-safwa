@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Collection, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
@@ -46,7 +46,6 @@ from .models import (
     Check,
     FeedbackQueue,
     Reminder,
-    SavedRequest,
     Sprint,
     SprintCommitment,
     Tag,
@@ -55,7 +54,6 @@ from .models import (
     Workspace,
     new_correlation_id,
 )
-from .saved_requests import RequestQueryError, normalize_request_sql
 
 
 @dataclass
@@ -359,92 +357,6 @@ async def archive_tag(session: AsyncSession, tag_id: int) -> tuple[Tag, int]:
     tag.version += 1
     await _bump_workspace(session)
     return tag, linked_count
-
-
-async def create_saved_request(
-    session: AsyncSession,
-    name: str,
-    query_sql: str,
-    description: str | None = None,
-    *,
-    views: Collection[str],
-) -> SavedRequest:
-    normalized_name = name.strip()
-    if not normalized_name:
-        raise DomainError("Request name cannot be empty")
-    try:
-        normalized_query = normalize_request_sql(query_sql, views)
-    except RequestQueryError as error:
-        raise DomainError(str(error)) from error
-    existing = await session.scalar(
-        select(SavedRequest).where(SavedRequest.name.collate("NOCASE") == normalized_name)
-    )
-    if existing is not None:
-        if existing.archived_at is None:
-            raise DomainError("A Request with this name already exists")
-        existing.archived_at = None
-        existing.query_sql = normalized_query
-        if description is not None:
-            existing.description = description.strip()
-        existing.version += 1
-        await _bump_workspace(session)
-        return existing
-    request = SavedRequest(
-        name=normalized_name,
-        description=(description or "").strip(),
-        query_sql=normalized_query,
-    )
-    session.add(request)
-    await session.flush()
-    await _bump_workspace(session)
-    return request
-
-
-async def update_saved_request(
-    session: AsyncSession,
-    request_id: int,
-    *,
-    name: str | None = None,
-    description: str | None = None,
-    query_sql: str | None = None,
-    views: Collection[str],
-) -> SavedRequest:
-    request = await session.get(SavedRequest, request_id)
-    if request is None or request.archived_at is not None:
-        raise DomainError("Request does not exist or is archived")
-    if name is not None:
-        normalized_name = name.strip()
-        if not normalized_name:
-            raise DomainError("Request name cannot be empty")
-        duplicate = await session.scalar(
-            select(SavedRequest).where(
-                SavedRequest.name.collate("NOCASE") == normalized_name,
-                SavedRequest.id != request.id,
-            )
-        )
-        if duplicate is not None:
-            raise DomainError("A Request with this name already exists")
-        request.name = normalized_name
-    if description is not None:
-        request.description = description.strip()
-    if query_sql is not None:
-        try:
-            request.query_sql = normalize_request_sql(query_sql, views)
-        except RequestQueryError as error:
-            raise DomainError(str(error)) from error
-    request.version += 1
-    await _bump_workspace(session)
-    return request
-
-
-async def archive_saved_request(session: AsyncSession, request_id: int) -> SavedRequest:
-    request = await session.get(SavedRequest, request_id)
-    if request is None or request.archived_at is not None:
-        raise DomainError("Request does not exist or is archived")
-    request.archived_at = utcnow()
-    request.version += 1
-    await _bump_workspace(session)
-    return request
 
 
 async def create_value(

@@ -13,7 +13,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...ai.sql import UnsafeQueryError
+from ...ai.sql import RequestQueryError, UnsafeQueryError, normalize_request_sql
 from ...domain import (
     CARD_REFERENCE_SPECS,
     CHECK_REFERENCE,
@@ -56,7 +56,6 @@ from ...enums import (
     EnergyType,
 )
 from ...models import Card, CardCategory, CardEnergyType, Check, ProposalChange, Tag, Value
-from ...saved_requests import RequestQueryError, normalize_request_sql
 from ..proposals.api import (
     ApplyContext,
     PreparationContext,

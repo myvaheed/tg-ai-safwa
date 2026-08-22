@@ -1,16 +1,24 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
-from safwa.ai.sql import create_ai_views
+from safwa.ai.autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
+from safwa.ai.sql import RequestQueryError, create_ai_views
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
-from safwa.domain import DomainError, archive_saved_request, create_saved_request
-from safwa.models import Card, CardTag, SavedRequest, Tag
-from safwa.saved_requests import request_cards
+from safwa.features.saved_requests.model import SavedRequest
+from safwa.features.saved_requests.use_cases import (
+    archive_saved_request,
+    create_saved_request,
+    request_cards,
+    update_saved_request,
+)
+from safwa.foundation.errors import DomainError
+from safwa.models import Card, CardTag, Tag
 
 
 async def test_saved_request_runs_a_safe_card_query(sessions):
+    """SR-RUN-006 — tests/brd/saved_requests.feature"""
     async with sessions() as session:
         await (await session.connection()).run_sync(
             lambda connection: create_ai_views(connection, AI_VIEWS)
@@ -64,6 +72,40 @@ async def test_saved_request_runs_a_safe_card_query(sessions):
         assert [card.title for card in cards] == ["Call family", "Plan family trip"]
 
 
+async def test_a_request_returns_each_card_once(sessions):
+    """SR-RUN-006 — tests/brd/saved_requests.feature"""
+    async with sessions() as session:
+        await (await session.connection()).run_sync(
+            lambda connection: create_ai_views(connection, AI_VIEWS)
+        )
+        card = Card(
+            kind="action",
+            title="Stretch",
+            manual_stage="today",
+            effective_stage="today",
+            effort_points=1,
+        )
+        session.add(card)
+        await session.flush()
+        # A UNION ALL over the same Card is the shape a model reaches for when it wants two
+        # conditions; the Card is one Card, and the screen must not list it twice.
+        request = await create_saved_request(
+            session,
+            "Either way",
+            "SELECT id FROM ai_cards WHERE kind = 'action' "
+            "UNION ALL SELECT id FROM ai_cards WHERE stage = 'today'",
+            views=ALLOWED_VIEWS,
+        )
+        await session.commit()
+
+    async with sessions() as session:
+        stored = await session.get(SavedRequest, request.id)
+        assert stored is not None
+        assert [item.id for item in await request_cards(session, stored.query_sql, ALLOWED_VIEWS)] == [
+            card.id
+        ]
+
+
 @pytest.mark.parametrize(
     "query_sql",
     [
@@ -74,13 +116,61 @@ async def test_saved_request_runs_a_safe_card_query(sessions):
     ],
 )
 async def test_saved_request_rejects_non_read_or_non_card_queries(sessions, query_sql):
+    """SR-SQL-004 — tests/brd/saved_requests.feature"""
     async with sessions() as session:
         with pytest.raises(DomainError):
             await create_saved_request(session, "Unsafe request", query_sql, views=ALLOWED_VIEWS)
         assert list(await session.scalars(select(SavedRequest))) == []
 
 
+async def test_a_stored_statement_is_checked_again_before_it_runs(sessions):
+    """SR-SQL-005 — tests/brd/saved_requests.feature"""
+    async with sessions() as session:
+        await (await session.connection()).run_sync(
+            lambda connection: create_ai_views(connection, AI_VIEWS)
+        )
+        request = await create_saved_request(
+            session, "All goals", "SELECT id FROM ai_cards WHERE kind = 'goal'", views=ALLOWED_VIEWS
+        )
+        # Straight to the column: the write paths refuse this, and that is the point — what
+        # runs is checked when it runs, not only when it was stored.
+        await session.execute(
+            text("UPDATE saved_requests SET query_sql = :sql WHERE id = :id"),
+            {"sql": "SELECT id FROM cards", "id": request.id},
+        )
+        await session.commit()
+
+    async with sessions() as session:
+        stored = await session.get(SavedRequest, request.id)
+        assert stored is not None
+        with pytest.raises(RequestQueryError):
+            await request_cards(session, stored.query_sql, ALLOWED_VIEWS)
+
+
+async def test_a_request_name_is_taken_whatever_its_case(sessions):
+    """SR-WRITE-002 — tests/brd/saved_requests.feature"""
+    async with sessions() as session:
+        await create_saved_request(
+            session, "All goals", "SELECT id FROM ai_cards WHERE kind = 'goal'", views=ALLOWED_VIEWS
+        )
+        other = await create_saved_request(
+            session, "Open actions", "SELECT id FROM ai_cards WHERE kind = 'action'",
+            views=ALLOWED_VIEWS,
+        )
+        await session.commit()
+
+        with pytest.raises(DomainError, match="already exists"):
+            await update_saved_request(session, other.id, name="ALL GOALS", views=ALLOWED_VIEWS)
+        with pytest.raises(DomainError, match="cannot be empty"):
+            await update_saved_request(session, other.id, name="   ", views=ALLOWED_VIEWS)
+        with pytest.raises(DomainError, match="cannot be empty"):
+            await create_saved_request(
+                session, "  ", "SELECT id FROM ai_cards", views=ALLOWED_VIEWS
+            )
+
+
 async def test_create_request_restores_an_archived_name(sessions):
+    """SR-WRITE-003 — tests/brd/saved_requests.feature"""
     async with sessions() as session:
         request = await create_saved_request(
             session,
@@ -113,3 +203,26 @@ async def test_create_request_restores_an_archived_name(sessions):
                 "SELECT id FROM ai_cards WHERE kind = 'goal'",
                 views=ALLOWED_VIEWS,
             )
+
+
+def test_a_request_query_is_never_allowlisted_for_autoapproval():
+    """SR-AI-010 — tests/brd/saved_requests.feature"""
+    reviewer = AutoApprovalReviewer(provider=None)
+
+    def candidate(action: str, values: dict[str, object]) -> AutoApprovalCandidate:
+        return AutoApprovalCandidate(
+            user_request="Rename that Request",
+            entity="request",
+            action=action,
+            entity_id=7,
+            values=values,
+            summary="Request “All goals”",
+            fields=[],
+        )
+
+    assert reviewer.rule_for(candidate("update", {"name": "Every goal"})) is not None
+    # `prepare` stores the normalized statement as `query_sql`, so re-aiming a Request never
+    # matches the allowlisted field set and never reaches the reviewer at all.
+    assert reviewer.rule_for(candidate("update", {"query_sql": "SELECT id FROM ai_cards"})) is None
+    assert reviewer.rule_for(candidate("update", {"name": "X", "query_sql": "SELECT id"})) is None
+    assert reviewer.rule_for(candidate("create", {"name": "X"})) is None

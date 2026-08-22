@@ -16,7 +16,6 @@ from safwa.constants import MAX_TOOL_CALLS
 from safwa.domain import (
     StaleStateError,
     create_card,
-    create_saved_request,
     create_tag,
     finish_action,
     finish_sprint,
@@ -26,6 +25,7 @@ from safwa.domain import (
     utcnow,
 )
 from safwa.enums import CardStage
+from safwa.features.saved_requests.use_cases import create_saved_request, request_cards
 from safwa.models import (
     AgentRun,
     AgentStep,
@@ -43,7 +43,6 @@ from safwa.models import (
     Value,
     Workspace,
 )
-from safwa.saved_requests import request_cards
 from safwa.telegram import (
     GenerationGuard,
     callback_token_handler,
@@ -899,6 +898,7 @@ async def test_mutation_repair_loop_stops_after_five_rounds(e2e_harness):
 
 
 async def test_ai_creates_an_approved_saved_tag_request(e2e_harness):
+    """SR-AI-007 — tests/brd/saved_requests.feature"""
     async with e2e_harness.sessions() as session:
         family = Tag(name="Family")
         session.add(family)
@@ -1127,7 +1127,35 @@ async def test_ai_request_update_is_rejected_when_the_request_becomes_stale(e2e_
             raise AssertionError("Request proposal must reject a stale version")
 
 
+async def test_ai_request_with_unsafe_sql_never_becomes_a_proposal(e2e_harness):
+    """SR-AI-007 — tests/brd/saved_requests.feature"""
+    response = mutation_turn(
+        (
+            "request",
+            {
+                "mode": "create",
+                "name": "Everything",
+                "sql": "SELECT id FROM cards",
+            },
+        )
+    )
+    advisor, provider = e2e_harness.advisor(
+        [response, "That query is not allowed, so I proposed nothing."]
+    )
+
+    outcome = await advisor.handle("Save a Request over every card")
+
+    assert outcome.kind == "answer"
+    tool_result = json.loads(str(provider.calls[1][-1]["content"]))
+    assert tool_result["code"] == "unsafe_query"
+    assert "read-only SELECT over ai_cards" in tool_result["hint"]
+    async with e2e_harness.sessions() as session:
+        assert list(await session.scalars(select(SavedRequest))) == []
+        assert list(await session.scalars(select(ChangeProposal))) == []
+
+
 async def test_ai_can_query_saved_requests_through_the_safe_view(e2e_harness):
+    """SR-READ-011 — tests/brd/saved_requests.feature"""
     async with e2e_harness.sessions() as session:
         await create_saved_request(
             session,
@@ -1160,6 +1188,7 @@ async def test_ai_can_query_saved_requests_through_the_safe_view(e2e_harness):
 
 
 async def test_ai_request_query_values_and_ignores_archived_cards(e2e_harness):
+    """SR-RUN-006 — tests/brd/saved_requests.feature"""
     async with e2e_harness.sessions() as session:
         value = Value(name="Family")
         session.add(value)
@@ -1199,6 +1228,7 @@ async def test_ai_request_query_values_and_ignores_archived_cards(e2e_harness):
 
 
 async def test_ai_request_query_supports_complex_boolean_logic(e2e_harness):
+    """SR-RUN-006 — tests/brd/saved_requests.feature"""
     async with e2e_harness.sessions() as session:
         today = await create_manual_card(
             session,

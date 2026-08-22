@@ -31,6 +31,10 @@ class UnsafeQueryError(ValueError):
     pass
 
 
+class RequestQueryError(ValueError):
+    pass
+
+
 def local_time(stored: str | None, tz: ZoneInfo) -> str | None:
     """A stored UTC timestamp as the owner's local wall clock.
 
@@ -89,6 +93,30 @@ def validate_read_sql(sql: str, views: Collection[str]) -> str:
         raise UnsafeQueryError(
             "Query references unavailable views: " + ", ".join(sorted(disallowed))
         )
+    return statement
+
+
+def normalize_request_sql(raw: str, views: Collection[str]) -> str:
+    """Validate a read query that has to come back with Card ids.
+
+    Two callers, and neither owns it: a saved Request's SQL, and the `parent_query` a Card
+    proposal may resolve its parent with. Both need the shared read validator plus the two
+    rules that make the result usable as Card ids.
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        raise RequestQueryError("Request SQL is required")
+    try:
+        statement = validate_read_sql(raw, views)
+    except UnsafeQueryError as error:
+        raise RequestQueryError(str(error)) from error
+    if "ai_cards" not in statement.casefold():
+        raise RequestQueryError("Request SQL must query ai_cards and return Card ids")
+    if not re.search(
+        r"\bselect\s+(?:distinct\s+)?(?:[a-z_][a-z0-9_]*\.)?id(?:\s+as\s+id)?\b",
+        statement,
+        re.IGNORECASE,
+    ):
+        raise RequestQueryError("Request SQL must return a column named id")
     return statement
 
 

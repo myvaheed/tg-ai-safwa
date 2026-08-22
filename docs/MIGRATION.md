@@ -55,7 +55,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 1 | `llm_gateway` | technical | **done** |
 | 2 | `FeatureModule` and proposal capabilities | technical | **done** |
 | 3 | Pilot: Diary | business | **done** |
-| 4 | Leaf business batches | business | **in progress** — 4.a Continuity and Profile, 4.b Reminders |
+| 4 | Leaf business batches | business | **in progress** — 4.a Continuity and Profile, 4.b Reminders, 4.c Saved Requests |
 | 5 | Planning core | business | not started |
 | 6 | Proposals and the first reactive process | business | not started |
 | 7 | `agent_runtime` | technical + business | not started |
@@ -397,7 +397,7 @@ Profile and Continuity out of turn because the review of Phase 3 landed on them.
 | Batch | Moves | Already there |
 |---|---|---|
 | ~~4.b Reminders~~ | **done** — 4.b.1 the record, 4.b.2 the firing | — |
-| 4.c Saved Requests | `saved_requests.py` | `features/saved_requests/{agent,proposal,telegram,views}.py` |
+| ~~4.c Saved Requests~~ | **done** | — |
 | 4.d Values and Tags | the Value and Tag half of `domain.py` | nothing; the feature package does not exist |
 
 Each needs its own approved scenario package before its tests are written. None of them creates a
@@ -567,6 +567,76 @@ untouched.
 | Re-export-only modules (DoD #13) | 0 | 0 |
 | Modules under `src/` | 108 | 106 |
 | Import cycles | 0 (457 edges) | 0 (453 edges) |
+
+## What Phase 4.c delivered
+
+Saved Requests is feature-owned. Its approved behaviour, the three decisions the owner made with it,
+and the test audit live in [brd/saved_requests.md](brd/saved_requests.md).
+
+- `features/saved_requests/model.py` owns `SavedRequest`; `safwa.models` keeps the compatibility
+  import so startup still sees the whole metadata. Not one column type changed.
+- `features/saved_requests/use_cases.py` owns create, update, archive and `request_cards`.
+  `domain.py` fell from 1693 to 1608 lines and no longer knows Requests exist.
+- `normalize_request_sql` and `RequestQueryError` moved to `ai/sql.py`, next to `validate_read_sql`.
+  Two callers, and neither owns it: a Request's SQL, and the `parent_query` a Card proposal resolves
+  its parent with. The rule it encodes — a read-only SELECT that comes back with Card ids — is a
+  property of the read surface, and putting it there keeps Planning from importing the Requests
+  feature for something that is not a Request.
+- `src/safwa/saved_requests.py` is gone. The `/requests` screens, the Request detail and the Plan
+  filters stay in the shared `telegram` package, as the Phase 4 rule says, and Phase 8 moves them.
+
+### The three decisions
+
+- **Q1 — a Request runs behind validation, and the docs now say so.** `CLAUDE.md` and
+  `ARCHITECTURE.md` both claimed saved Requests sat behind the full triple guard; `request_cards`
+  runs on the ordinary session, so the regex validator is the whole guard. The first recommendation
+  was to route it through `ReadOnlyQueryRunner` and it was **withdrawn after reading its numbers**:
+  `DEFAULT_ROW_LIMIT = 50` would have silently capped a Request over a 300-Card Backlog, and the
+  Plan filters intersect result sets, so a capped set is a wrong Backlog with no error anywhere. The
+  owner settled it with the reason that makes it obvious — **a Request's result is always a list in
+  the interface and never enters the model's history**, and every cap in that runner exists because a
+  local model pays for what it reads. So the query has to be valid and nothing else. The two
+  documents are corrected instead.
+- **Q2 — the ids stay "mentions `ai_cards` and returns `id`".** Requiring `ai_cards.id` would break
+  legitimate CTE and UNION queries to close a rare wrong answer the owner sees on the review screen.
+- **Q3 — `normalize_request_sql` lives in `ai/sql.py`.** See above.
+
+### Two scenarios were withdrawn during review, and both were right to withdraw
+
+- **The Plan filter rule.** Drafted as a Request scenario, it turned out to be three Plan-screen
+  rules and one Request rule already stated elsewhere. It belongs to the Planning packet in Phase 5.
+- **A proposal applying against state that moved.** It has no reachable trigger for a Request. A
+  screen is never something the owner comes back to — a UI message is only ever the last message in
+  the chat and never moves back up, so anything done below a proposal interrupts it and
+  `cancel_approval_for_target` sets every pending proposal in that batch to `REJECTED`. Inside one
+  batch `_refresh_queued_proposal` re-snapshots the expected version and the workspace revision
+  together; a Reminder cannot escalate over a pending proposal at all; and `ProposalService.apply`
+  checks `workspace.revision` before any handler runs, while every Request write bumps it. The
+  per-entity version check would need a writer that moves a Request's version without moving the
+  workspace revision, and there is none. The generic rule is Phase 6's.
+
+`CLAUDE.md` said "the screen freezes, the session is saved", which reads as a live screen waiting to
+be pressed. Only the subagent's session survives. That sentence is corrected in this batch — it is
+what produced the withdrawn scenario.
+
+Eight scenarios had no test at all and now do: the absence of a hand-written path, the update-side
+name refusal and the empty name, re-validation at run time, a duplicated id returned once, unsafe
+SQL becoming a tool error rather than a proposal, the archive taking a Request off every surface, a
+SQL change never reaching the autoapproval reviewer, and the `/requests` list with its result cap and
+its way back.
+
+Verification: `ruff check .` clean; `pytest -q` 560 passed / 3 skipped; **both snapshots
+byte-identical and not regenerated**, as the batch declared; 0 import cycles (458 edges); Rules A–F
+and K at 0, G at 2, H at 28.
+
+| | Phase 4.b.2 | Phase 4.c |
+|---|---:|---:|
+| Entity dispatch points outside `features/` (DoD #1) | 28 | 28 |
+| Use case base abstractions (DoD #2) | 0 | 0 |
+| Modules over 600 lines (DoD #3) | 5 | 5 |
+| Re-export-only modules (DoD #13) | 0 | 0 |
+| Modules under `src/` | 106 | 107 |
+| `domain.py` | 1693 | 1608 |
 
 ### Done means
 

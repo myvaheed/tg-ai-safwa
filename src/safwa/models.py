@@ -32,6 +32,7 @@ from .features.continuity.model import SummaryState as SummaryState
 from .features.diary.model import DiaryEntry as DiaryEntry
 from .features.profile.model import UserProfile as UserProfile
 from .features.reminders.model import Reminder as Reminder
+from .features.saved_requests.model import SavedRequest as SavedRequest
 from .foundation.models import Base, TimestampMixin
 from .foundation.models import Workspace as Workspace
 
@@ -120,18 +121,6 @@ class CardTag(Base):
         ForeignKey("cards.id", ondelete="CASCADE"), primary_key=True
     )
     tag_id: Mapped[int] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
-
-
-class SavedRequest(Base, TimestampMixin):
-    """A user-visible, AI-authored read-only Card query."""
-
-    __tablename__ = "saved_requests"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(200), unique=True)
-    description: Mapped[str] = mapped_column(Text, default="")
-    query_sql: Mapped[str] = mapped_column(Text)
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    version: Mapped[int] = mapped_column(Integer, default=1)
 
 
 class Check(Base, TimestampMixin):

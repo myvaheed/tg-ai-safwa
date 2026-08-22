@@ -206,9 +206,11 @@ subagent has no `route`, so there is no recursion.
 - A session runs until it answers in words: a turn that stops with nothing is told so and asked
   again, bounded by the repair rounds. The session that writes to the chat is what guarantees the
   owner sees something — the receipts, or one `⚠️` line.
-- Approve and Discard resume that session directly. Words typed over the screen do not: the screen
-  freezes, the session is saved, and the Advisor takes the words — so a correction reaches the session
-  that wrote the refused proposal. It is saved for **one Advisor turn**: a `route` back on that turn
+- Approve and Discard resume that session directly. Words typed over the screen do not: every pending
+  proposal in that batch is rejected, the session is saved, and the Advisor takes the words — so a
+  correction reaches the session that wrote the refused proposal. A screen is never something the
+  owner comes back to: a UI message is only ever the last message in the chat and never moves back
+  up, so anything done below one interrupts it. It is saved for **one Advisor turn**: a `route` back on that turn
   restores it, and anything else the Advisor does abandons it. The grace is the subagent's alone — a
   caller interrupted mid-route is cancelled with the words that interrupted it.
 - The routing rules in `SYSTEM_PROMPT` are generated from the roster, so a subagent is routed to
@@ -219,9 +221,13 @@ subagent has no `route`, so there is no recursion.
 
 ### Read-only SQL is triple-guarded
 
-`query_safwa` and saved Requests accept one `SELECT`/`WITH … SELECT` over the `ai_*` views only,
-behind regex validation, a separate read-only connection with an authorizer allowlist, and result
-caps ([ai/sql.py](src/safwa/ai/sql.py)).
+`query_safwa` accepts one `SELECT`/`WITH … SELECT` over the `ai_*` views only, behind regex
+validation, a separate read-only connection with an authorizer allowlist, and result caps
+([ai/sql.py](src/safwa/ai/sql.py)).
+
+A saved Request shares the validation and nothing else: it runs on the ordinary session, and the
+caps do not apply because its result is always a list in the interface and never enters the model's
+history. Those caps exist because a local model pays for what it reads.
 
 The views are dropped and rebuilt on **every startup** — change view shape in the owning feature's
 `views.py`, never with a migration. `ALLOWED_VIEWS` and `CREATE VIEW` both come from those `SqlView`
