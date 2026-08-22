@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..constants import CALLBACK_TOKEN_TTL_HOURS, TOAST_SECONDS
 from ..enums import MessageKind, ProposalStatus
-from ..features.continuity.api import SummaryState, estimate_tokens
+from ..features.continuity.use_cases import record_summary
 from ..history import mark_kind, mark_message, register_message
 from ..models import (
     CallbackToken,
@@ -546,11 +546,7 @@ async def send_summary(
             MessageKind.SUMMARY,
             event_id=event_id,
         )
-        state = await session.get(SummaryState, 1)
-        if state is None:
-            state = SummaryState(id=1)
-            session.add(state)
-        state.summary_message_id = sent.message_id
-        state.covered_message_id = covered_id
-        state.estimated_tokens = estimate_tokens(text)
+        await record_summary(
+            session, message_id=sent.message_id, covered_id=covered_id, text=text
+        )
         await session.commit()

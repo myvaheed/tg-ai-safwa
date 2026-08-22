@@ -38,7 +38,6 @@ class MemorySyncState(Base):
     file_hash: Mapped[str | None] = mapped_column(String(64))
     file_mtime: Mapped[float | None] = mapped_column(Float)
     error: Mapped[str | None] = mapped_column(Text)
-    warning_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     processed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     memory_last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(

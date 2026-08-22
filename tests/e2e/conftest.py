@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.ai.autoapproval import AutoApprovalReviewer
-from safwa.ai.service import AIAdvisor, query_read_tool
+from safwa.ai.mini import query_read_tool
+from safwa.ai.service import AIAdvisor
 from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from safwa.ai.subagents import RoutedSubagent
 from safwa.bootstrap.modules import (
@@ -20,7 +21,7 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
 )
 from safwa.domain import bootstrap_workspace
-from safwa.features.continuity.api import MemoryFileStore
+from safwa.features.continuity.memory import MemoryFileStore
 from safwa.features.planning.agent import BOARD_PROMPT, BOARD_TOOLS
 from safwa.foundation.database import Database, upgrade_database
 

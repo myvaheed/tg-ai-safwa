@@ -11,7 +11,9 @@ from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.service import ProposalService
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.enums import ProposalStatus
-from safwa.features.profile.api import update_profile
+from safwa.features.profile.model import ProfileField
+from safwa.features.profile.use_cases import set_profile_field
+from safwa.foundation.clock import SystemClock
 from safwa.models import ChangeProposal, ProposalChange, Reminder
 from safwa.reminders import schedule_of
 
@@ -203,7 +205,9 @@ async def test_ai_reminders_view_is_readable(e2e_harness):
 async def test_the_diary_reminder_is_invisible_to_the_model(e2e_harness):
     """Unnameable is unmutatable: the model cannot ask to change an id it never reads."""
     async with e2e_harness.sessions() as session:
-        await update_profile(session, diary_time=time(22, 0))
+        await set_profile_field(
+            session, ProfileField.DIARY_TIME, time(22, 0), clock=SystemClock()
+        )
         await session.commit()
     advisor, _provider = e2e_harness.advisor([])
 

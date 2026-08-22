@@ -19,7 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..ai.mini import ReadToolSpec
 from ..ai.sql import ReadOnlyQueryRunner, SqlView
 from ..config import Settings
-from ..features.continuity.api import MemoryFileStore, PersonaContinuity
 from ..features.proposals.api import (
     MutationToolSpec,
     ProposalHandler,
@@ -54,14 +53,17 @@ class AgentSpec:
 
 @dataclass(frozen=True, slots=True)
 class BackgroundContext:
-    """What a long-running feature task is given once the application is built."""
+    """What a long-running feature task is given once the application is built.
+
+    Nothing here names one feature: a task that needs its feature's own objects takes
+    them off `services`, the container the whole application already shares. A field per
+    feature would rebuild the registry `MODULES` exists to remove.
+    """
 
     settings: Settings
     sessions: async_sessionmaker[AsyncSession]
     bot: Bot
     services: Services
-    memory: MemoryFileStore
-    continuity: PersonaContinuity
 
 
 @dataclass(frozen=True, slots=True)

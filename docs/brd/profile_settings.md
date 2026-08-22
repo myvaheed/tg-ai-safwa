@@ -118,6 +118,30 @@ also synchronizes the Diary internal trigger.
 
 Primary test: `test_profile_update_bumps_workspace_revision_once`.
 
+### PS-DIARY-012 — The Diary Reminder is due at the next local Diary time, never in the past
+
+Status: approved
+Sources: owner decision on 2026-08-22, Phase 4.a review
+
+Reconciling the Diary System Reminder is schedule arithmetic on the moment the operation is given,
+never on the process clock. Setting the Diary time to 07:30 at 23:50 local makes it due at 07:30
+the following local day — the arithmetic takes the first occurrence at or after the moment it is
+told, so no reconciliation can produce a firing that is already overdue.
+
+Primary test: `test_the_diary_trigger_is_scheduled_from_the_clock_it_is_given`.
+
+### PS-DIARY-013 — Startup reconciles the Diary Reminder, so a change made while down still fires
+
+Status: approved
+Sources: owner decision on 2026-08-22, Phase 4.a review
+
+A timezone that changed while Safwa was down leaves every stored wall-clock firing pointing at the
+wrong instant. Startup runs the Profile reconciliation, so the Diary System Reminder exists and is
+due at its local Diary time before the process starts polling. This is a separate rule from
+PS-DIARY-012: the arithmetic being right is not the same claim as something running it.
+
+Primary test: `test_startup_reconciles_the_diary_trigger_before_rebuilding_reminders`.
+
 ## Existing-test audit
 
 The traceability contract is
@@ -131,8 +155,13 @@ with identity, isolation, schedule, and deletion checks.
 
 ## Gate A approval
 
-The owner's 2026-08-22 correction approves the scenarios listed above. The number and purpose of
-Settings buttons is intentionally not contracted as business behaviour.
+The owner's 2026-08-22 correction approves the scenarios listed above. PS-DIARY-012 and
+PS-DIARY-013 were approved on 2026-08-22 in the Phase 4.a review, after the reconciliation was
+found to read the process clock directly and to run only because startup happened to call it,
+with nothing testing either. They shipped as two Scenario blocks under one identifier and were
+split in the same review: the schedule arithmetic and the startup hook that runs it are two
+rules, and one identifier over both hides the second. The number and purpose of Settings buttons
+is intentionally not contracted as business behaviour.
 
 ## Gate B and Gate C result
 

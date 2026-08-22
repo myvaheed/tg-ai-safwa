@@ -34,7 +34,6 @@ from ..domain import (
     update_check_fields,
 )
 from ..enums import CardStage, CheckOutcome, MessageKind, ProposalStatus
-from ..features.profile.screens import command_settings, render_settings_field_prompt
 from ..models import (
     CallbackToken,
     Card,
@@ -871,12 +870,20 @@ async def _on_sprint_finish(context: CallbackContext) -> None:
 
 
 async def _on_settings_edit(context: CallbackContext) -> None:
+    # Imported here, not above: the Settings screen lives in its feature and reaches back
+    # into this package, so a module-level import makes `features.profile.screens` the
+    # start of a cycle whenever it is the first thing imported. The import moves with the
+    # handlers in Phase 8.
+    from ..features.profile.screens import render_settings_field_prompt
+
     await render_settings_field_prompt(
         context.message, context.services, str(context.payload["field"])
     )
 
 
 async def _on_settings_back(context: CallbackContext) -> None:
+    from ..features.profile.screens import command_settings
+
     async with context.sessions() as session:
         await _clear_ui_sessions(session, context.owner_id)
         await session.commit()

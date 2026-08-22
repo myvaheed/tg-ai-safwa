@@ -26,8 +26,8 @@ async def recover_startup(
 ) -> None:
     """Reconcile interrupted work: each feature's own hook first, then the run machinery.
 
-    The hooks run in `MODULES` order, which is what puts the Diary's own Reminder in
-    place before the Reminder reconcile rolls it forward with the rest.
+    The hooks run in `MODULES` order, so Profile settles the Diary's own Reminder before
+    the Reminder rebuild walks the whole table.
     """
     now = datetime.now(UTC)
     for hook in hooks:

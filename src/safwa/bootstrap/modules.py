@@ -30,8 +30,9 @@ from ..features.reminders.module import MODULE as REMINDERS
 from ..features.saved_requests.module import MODULE as SAVED_REQUESTS
 from .module_manifest import AgentContext, BackgroundTask, FeatureModule
 
-# Order matters in two places: the routing rules follow it, and so do the recovery hooks,
-# where the Diary's own Reminder has to exist before the Reminder reconcile rolls it forward.
+# Order is what the routing rules and the recovery hooks follow, so it is fixed rather than
+# incidental: Profile settles the Diary's own Reminder before the Reminder rebuild walks the
+# whole table, and the Advisor's prompt lists the subagents in this order every run.
 MODULES: tuple[FeatureModule, ...] = (
     PLANNING,
     DIARY,

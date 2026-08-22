@@ -27,9 +27,9 @@ from .enums import (
     Priority,
     ProposalStatus,
 )
-from .features.continuity.storage import MemoryFactCache as MemoryFactCache
-from .features.continuity.storage import MemorySyncState as MemorySyncState
-from .features.continuity.storage import SummaryState as SummaryState
+from .features.continuity.model import MemoryFactCache as MemoryFactCache
+from .features.continuity.model import MemorySyncState as MemorySyncState
+from .features.continuity.model import SummaryState as SummaryState
 from .features.diary.model import DiaryEntry as DiaryEntry
 from .features.profile.model import UserProfile as UserProfile
 from .foundation.models import Base, TimestampMixin, UtcDateTime

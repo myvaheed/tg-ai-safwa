@@ -25,7 +25,8 @@ from ..domain import (
     toggle_card_value,
 )
 from ..enums import Category, EnergyType, MessageKind
-from ..features.continuity.api import MemoryFileStore, PersonaContinuity
+from ..features.continuity.memory import MemoryFileStore
+from ..features.continuity.persona import PersonaContinuity
 from ..history import TelegramHistorySource, mark_message, register_message
 from ..models import CardCategory, CardEnergyType, CardTag, CardValue, Workspace
 

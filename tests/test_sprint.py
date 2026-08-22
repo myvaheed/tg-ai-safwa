@@ -18,7 +18,9 @@ from safwa.domain import (
     toggle_card_value,
 )
 from safwa.domain import create_card as create_domain_card
-from safwa.features.profile.api import update_profile
+from safwa.features.profile.model import ProfileField
+from safwa.features.profile.use_cases import set_profile_field
+from safwa.foundation.clock import SystemClock
 from safwa.models import Reminder, Workspace
 
 
@@ -36,15 +38,15 @@ async def test_a_sprint_cannot_start_without_success_criteria(sessions):
 
 async def test_sprint_length_comes_from_settings_and_is_bounded(sessions):
     async with sessions() as session:
-        await update_profile(session, sprint_length_days=7)
+        await set_profile_field(session, ProfileField.SPRINT_LENGTH_DAYS, 7, clock=SystemClock())
         sprint = await start_sprint(session, success_criteria="Ship v2")
         assert (sprint.planned_end_date - sprint.planned_start_date).days == 6
         assert sprint.success_criteria == "Ship v2"
 
         with pytest.raises(DomainError):
-            await update_profile(session, sprint_length_days=1)
+            await set_profile_field(session, ProfileField.SPRINT_LENGTH_DAYS, 1, clock=SystemClock())
         with pytest.raises(DomainError):
-            await update_profile(session, sprint_length_days=61)
+            await set_profile_field(session, ProfileField.SPRINT_LENGTH_DAYS, 61, clock=SystemClock())
 
 
 async def test_default_sprint_length_is_the_constant(sessions):
@@ -76,7 +78,7 @@ async def test_starting_a_sprint_schedules_both_end_reminders(sessions):
 
 async def test_a_two_day_sprint_only_warns_on_its_last_day(sessions):
     async with sessions() as session:
-        await update_profile(session, sprint_length_days=2)
+        await set_profile_field(session, ProfileField.SPRINT_LENGTH_DAYS, 2, clock=SystemClock())
         await start_sprint(session, success_criteria="Ship v2")
         reminders = list(await session.scalars(select(Reminder)))
 

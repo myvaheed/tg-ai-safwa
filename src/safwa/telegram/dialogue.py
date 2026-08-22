@@ -23,8 +23,8 @@ from ..domain import (
     update_value_fields,
 )
 from ..enums import MessageKind
-from ..features.profile.api import update_profile
-from ..features.profile.screens import SETTINGS_FIELDS, command_settings
+from ..features.profile.use_cases import profile_field, set_profile_field
+from ..foundation.clock import SystemClock
 from ..history import HistoryEntry, register_message
 from ..models import UiSession
 from ._core import Services, audio_payload, queue_owner_text, router
@@ -135,6 +135,10 @@ async def ordinary_text(message: Message, services: Services) -> None:
             await render_sprint(message, services, replace_message_id=message_id)
             return
         if flow == "settings":
+            # Imported here, not above: the Settings screen lives in its feature and
+            # reaches back into this package. It moves with the handlers in Phase 8.
+            from ..features.profile.screens import SETTINGS_FIELDS, command_settings
+
             field_name = str(ui_state["field"])
             field = SETTINGS_FIELDS.get(field_name)
             if field is None:
@@ -143,7 +147,9 @@ async def ordinary_text(message: Message, services: Services) -> None:
             try:
                 value = validate_text_input(message.text, field.parse)
                 async with services.sessions() as session:
-                    await update_profile(session, **{field_name: value})
+                    await set_profile_field(
+                        session, profile_field(field_name), value, clock=SystemClock()
+                    )
                     await session.execute(
                         delete(UiSession).where(UiSession.owner_id == services.owner_id)
                     )

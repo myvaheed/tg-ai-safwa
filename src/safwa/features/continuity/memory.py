@@ -10,7 +10,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ...constants import MEMORY_POLL_SECONDS, MEMORY_TOKEN_BUDGET, TOKEN_CHARS_ESTIMATE
-from .storage import MemoryFactCache, MemorySyncState
+from ...foundation.tokens import estimate_tokens
+from .model import MemoryFactCache, MemorySyncState
 
 
 class MemoryFileError(ValueError):
@@ -19,17 +20,22 @@ class MemoryFileError(ValueError):
 
 @dataclass(frozen=True)
 class MemorySnapshot:
+    """What one reading of `memory.md` found, and why it found nothing usable.
+
+    `error` is not a format opinion about the owner's text: it is set only when the file
+    cannot be read as text at all, or when reading it would spend more of the prompt than
+    the configured budget allows.  Either way `text` is empty, so an unreadable file
+    disables memory injection instead of failing the turn that needed it.
+    """
+
     facts: tuple[str, ...]
     file_hash: str
     estimated_tokens: int
+    error: str | None = None
 
     @property
     def text(self) -> str:
-        return "\n".join(self.facts)
-
-
-def estimate_tokens(text: str, chars_per_token: float = TOKEN_CHARS_ESTIMATE) -> int:
-    return int((len(text) / max(chars_per_token, 1.0)) + 0.999)
+        return "\n".join(self.facts) if self.error is None else ""
 
 
 def parse_memory(content: str) -> tuple[str, ...]:
@@ -71,7 +77,20 @@ class MemoryFileStore:
     async def _sync_locked(self) -> MemorySnapshot:
         raw, mtime = self._read()
         digest = memory_hash(raw)
-        content = raw.decode("utf-8")
+        try:
+            content = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return await self._record_unreadable(
+                digest, mtime, "memory.md is not UTF-8 text and was not read."
+            )
+        tokens = estimate_tokens(content, self.chars_per_token)
+        if tokens > self.token_budget:
+            return await self._record_unreadable(
+                digest,
+                mtime,
+                f"memory.md is about {tokens} tokens; the configured limit is "
+                f"{self.token_budget}.",
+            )
         facts = parse_memory(content)
 
         async with self.sessions() as session:
@@ -98,7 +117,22 @@ class MemoryFileStore:
             state.file_mtime = mtime
             state.error = None
             await session.commit()
-        return MemorySnapshot(facts, digest, estimate_tokens(content, self.chars_per_token))
+        return MemorySnapshot(facts, digest, tokens)
+
+    async def _record_unreadable(
+        self, digest: str, mtime: float | None, message: str
+    ) -> MemorySnapshot:
+        """Note why the file could not be read, and leave the last good cache alone."""
+        async with self.sessions() as session:
+            state = await session.get(MemorySyncState, 1)
+            if state is None:
+                state = MemorySyncState(id=1)
+                session.add(state)
+            state.file_hash = digest
+            state.file_mtime = mtime
+            state.error = message
+            await session.commit()
+        return MemorySnapshot((), digest, 0, error=message)
 
     async def replace_facts(
         self,
@@ -145,11 +179,9 @@ class MemoryFileStore:
 
     async def append_manual(self, fact: str) -> MemorySnapshot:
         snapshot = await self.sync()
+        if snapshot.error is not None:
+            # Appending to a file we could not read would write the facts we do not have.
+            raise MemoryFileError(snapshot.error)
         return await self.replace_facts(
             [*snapshot.facts, fact.strip()], expected_hash=snapshot.file_hash, provenance="manual"
         )
-
-    async def poll(self) -> None:
-        while True:
-            await self.sync()
-            await asyncio.sleep(self.poll_seconds)

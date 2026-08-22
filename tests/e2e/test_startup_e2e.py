@@ -131,7 +131,7 @@ def _prepared_startup(tmp_path: Path, monkeypatch) -> tuple[Path, Settings]:
     monkeypatch.setattr(safwa_main, "TelegramHistorySource", FakeHistoryFactory)
     monkeypatch.setattr(safwa_main, "Dispatcher", FakeDispatcher)
     monkeypatch.setattr(safwa_main, "router", FakeRouter())
-    monkeypatch.setattr(continuity_background, "run_memory_maintenance", wait_until_cancelled)
+    monkeypatch.setattr(continuity_background, "run_due_memory_maintenance", wait_until_cancelled)
 
     return database_path, Settings(
         _env_file=None,

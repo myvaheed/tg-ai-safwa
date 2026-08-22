@@ -13,8 +13,7 @@ from pydantic import Field, field_validator, model_validator
 from llm_gateway import ToolCall
 
 from ...ai.contracts import ToolInput
-from ...ai.mini import ReadToolSpec
-from ...ai.service import query_read_tool
+from ...ai.mini import ReadToolSpec, query_read_tool
 from ...bootstrap.module_manifest import AgentContext, AgentSpec
 from ...constants import WEEKDAY_NAMES
 from ...foundation.clock import Clock, SystemClock
@@ -42,7 +41,9 @@ class DiaryToolInput(ToolInput):
         default=None,
         ge=0,
         le=10,
-        description="With update: how the day felt, 0-10. Omit it when the day is silent.",
+        description=(
+            "With update: how the day felt, 0-10. Omit it to keep the score already saved."
+        ),
     )
 
     @field_validator("date")
@@ -75,7 +76,8 @@ DIARY_PROMPT = """You keep the user's Diary. One day, one entry, in their own vo
      `ai_cards(id, title, kind, stage, priority, effort_points, parent_id)` — item names.
 3. Then call the tool once:
    - `diary(mode="update", date=…, pov=…, ai_comment=…, feeling_score=…)` — whether or not that day
-     is written already. Fold in the saved entry: yours replaces it, so what you leave out is lost.
+     is written already. Fold in the saved entry: your `pov` replaces it, so what you leave out of
+     `pov` is lost. `feeling_score` is the one exception — see below.
    - `diary(mode="delete", date=…)` — the user asked for that day to go.
    If your sources do not make the day writable, say in one sentence what is missing instead.
 
@@ -99,7 +101,8 @@ finished. Pick the band first, then the number inside it.
 - 9 excited, proud, or moved. They call the day great.
 - 10 one of the best days of their life. Probably a day they will never forget.
 When two numbers both fit, take the one nearer 5. Omit `feeling_score` when the day left no sign at
-all of how it felt. Send 0 only when the user asks for it in words. Never choose 0 yourself.
+all of how it felt; a score already saved for that day then stays as it is.
+Send 0 only when the user asks for it in words. Never choose 0 yourself.
 """
 
 READ_DAY_TOOL: dict[str, Any] = {

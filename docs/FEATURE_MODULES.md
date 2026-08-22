@@ -61,13 +61,37 @@ entity, tool or view:
 safwa/features/<feature>/
   __init__.py   # empty: importing one leaf must not drag in the manifest
   module.py     # MODULE = FeatureModule(...)
-  model.py      # feature-owned ORM entities and value constants
+  model.py      # feature-owned ORM entities, their field enums and value constants
   use_cases.py  # business operations shared by every adapter
+  api.py        # what another feature may call; Rule E allows no other door
   views.py      # SqlView per ai_* view
   agent.py      # MutationToolSpec, and an AgentSpec if it owns a subagent
   proposal.py   # ProposalHandler
   telegram.py   # ProposalPresenter
 ```
+
+These names are the whole vocabulary. A feature that wants a file outside this list is saying its
+contents belong to a role the list does not have yet, which is a question for the batch, not a new
+word.
+
+`api.py` **defines** what it publishes. It exists only when another feature actually calls in, and
+it hands over the answer rather than the row: `scheduled_memory_time(session)`, not `UserProfile`.
+A module that only re-exports is counted as a leftover path by Definition of Done #13.
+
+## Who owns the transaction
+
+One rule, because the alternative is a reentrancy question with no good answer:
+
+- A **use case takes an `AsyncSession` and never commits.** It is composable, which is what lets
+  `ProposalHandler.apply`, a recovery hook and a Telegram handler all run the same operation.
+- The **caller owns the transaction.** `Database.transaction()` is that boundary, and opening one
+  inside another raises rather than silently joining — a joined block has no savepoint, so a caught
+  inner failure would ride along into the outer commit.
+- A use case that has to know the time **takes a `Clock`.** The composition root binds
+  `SystemClock()`; near midnight and across a timezone change the result is then reproducible.
+
+This amends plan §5, which had the use case open its own transaction. It could not: every write
+path in Safwa already reaches the feature from inside a session someone else opened.
 
 Then one line in `MODULES`. That is the whole edit in central code: the mutation tool and its
 schema, the review screen, the view and its allowlist entry, the routing line, the recovery hook and

@@ -55,7 +55,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 1 | `llm_gateway` | technical | **done** |
 | 2 | `FeatureModule` and proposal capabilities | technical | **done** |
 | 3 | Pilot: Diary | business | **done** |
-| 4 | Leaf business batches | business | not started |
+| 4 | Leaf business batches | business | **in progress** — 4.a Continuity and Profile done |
 | 5 | Planning core | business | not started |
 | 6 | Proposals and the first reactive process | business | not started |
 | 7 | `agent_runtime` | technical + business | not started |
@@ -202,3 +202,274 @@ Verification: `ruff check .` clean; `pytest -q` 513 passed / 3 skipped; prompt a
 unchanged; 0 import cycles (408 edges). The move
 introduced no new central dispatch and no use-case base abstraction: DoD #1 remains 28 and DoD #2
 remains 0. `domain.py` fell from 1908 to 1838 lines.
+
+## What Phase 4.a delivered
+
+Continuity and Profile are feature-owned. Their approved behaviour and test audit live in
+[brd/continuity.md](brd/continuity.md) and [brd/profile_settings.md](brd/profile_settings.md).
+
+- `features/continuity/` owns `memory.py` (the authoritative `memory.md` and its rebuildable
+  cache), `service.py` (Summary and AI memory maintenance), `storage.py` and `background.py`.
+- `features/profile/` owns `model.py` (`UserProfile`, `ProfileField`), `use_cases.py` (the
+  validated write and the Diary trigger it derives), `api.py` and `screens.py`.
+- Profile context follows `memory.md` in the assembled prompt; the Diary Settings reconcile only
+  the system Reminder that belongs to no Sprint.
+
+### What the Phase 4.a review changed
+
+The batch was reviewed after the fact and the following was corrected in the same phase.
+
+Behaviour that had been dropped without a scenario behind it:
+
+- `memory.md` lost its read-side guards. A file that is not UTF-8 raised out of the background
+  poll task, which `asyncio.create_task` then swallowed, so memory stopped syncing for the rest of
+  the process; an oversized file was injected into every prompt, because the token budget bounded
+  only AI writes. Both are back under CO-MEMORY-012. `MemorySyncState.error` is written again, AI
+  maintenance refuses a file it could not read, and `/mem` says so instead of raising.
+- `/status` printed a literal `Memory: OK`. It reports the recorded reason again.
+- Every background task now carries a done callback: a loop that ends before shutdown is logged
+  rather than lost.
+- `/mem` and `append_manual` had no test at any level. CO-MEMORY-014 covers the append.
+
+Structure:
+
+- One file vocabulary. `profile/api.py` held the write and `profile/use_cases.py` held a recovery
+  hook; the write is now `use_cases.py`, `ProfileField` sits with its entity in `model.py`, and
+  `api.py` is what another feature may call — one function, `scheduled_memory_time`, so Continuity
+  no longer imports `UserProfile`. `continuity/api.py` was a pure re-export and is gone.
+- `estimate_tokens` moved to `foundation/tokens.py`: the dialogue window, the Summary trigger and
+  the memory file all spend the same context and were counting it through a feature.
+- `SummaryState` is no longer written from `telegram/_messaging.py`; `record_summary` is the
+  Continuity operation it calls.
+- `BackgroundContext` no longer carries `MemoryFileStore` and `PersonaContinuity`. A field per
+  feature in the shared manifest is the registry `MODULES` exists to remove; a task takes its own
+  objects off `services`.
+- `query_read_tool` and `QUERY_SAFWA_TOOL` moved from `ai/service.py` to `ai/mini.py`, so
+  `features/diary` and `features/planning` no longer import the 2146-line module.
+- `features/profile/screens.py` and `telegram/{callbacks,commands,dialogue}.py` were an import
+  cycle: `tests/test_profile.py` could not be collected on its own and passed only because another
+  module imported `safwa.telegram` first. The three telegram modules now import the Settings screen
+  inside the handlers that use it, until Phase 8 moves them.
+
+Contracts:
+
+- `Database.transaction()` refuses to open inside itself. See
+  [FEATURE_MODULES.md](FEATURE_MODULES.md#who-owns-the-transaction) — this amends plan §5: a use
+  case takes the session and the caller owns the transaction, because every write path already
+  arrives inside someone else's session.
+- `set_profile_field(session, field, value, *, clock)` replaces `update_profile(session, **fields)`.
+  The enum is the allowlist, and the UI edits one field at a time anyway.
+- The Diary trigger reconciliation takes a `Clock` instead of reading the process clock, which is
+  what PS-DIARY-012 needed to be testable.
+
+Verification: `ruff check .` clean; `pytest -q` 537 passed / 3 skipped; prompt and schema snapshots
+unchanged; 0 import cycles (445 edges).
+
+| | Phase 3 | Phase 4.a |
+|---|---:|---:|
+| Entity dispatch points outside `features/` (DoD #1) | 28 | 28 |
+| Use case base abstractions (DoD #2) | 0 | 0 |
+| Modules over 600 lines (DoD #3) | 6 | 5 |
+| Re-export-only modules (DoD #13) | 0 | 0 |
+| Largest module | `ai/service.py` 2197 | `ai/service.py` 2146 |
+| Largest Continuity module | `service.py` 340 | `persona.py` 244 |
+| `domain.py` | 1838 | 1755 |
+
+### The second review pass
+
+- `continuity/service.py` mixed four roles and is gone. `agent.py` holds the three provider
+  prompts, `persona.py` the long-lived `PersonaContinuity`, `use_cases.py` the three operations,
+  `model.py` the rows (renamed from `storage.py`). The largest is now 244 lines.
+- Every feature uses the same file names: `model.py`, `use_cases.py`, `api.py`, `agent.py`,
+  `telegram.py`, `proposal.py`, `views.py`, `background.py`, `module.py`. A public class large
+  enough for its own module is named after it (`memory.py`, `persona.py`) and is not a new role.
+- `features/reminders/api.py` now owns `sync_daily_system_reminder`: Profile says what the Diary
+  trigger should say and when, and Reminders keeps the row, its schedule and its arithmetic. That
+  is the Rule E door the Phase 4 ordering had skipped, and Profile's `use_cases.py` fell from 160
+  lines to 96.
+- Rule C was flagging `SummaryState` and `MemorySyncState` once they moved into `model.py` — a
+  name-suffix heuristic hitting persisted rows. The rule now skips ORM entities: a row is durable
+  state, mutable by definition, not the frozen process-state union the rule is about. That is a
+  narrowed rule, not a lowered allowlist.
+
+### Traceability is checked now
+
+`tests/test_brd_traceability.py` reads the `.feature` files and every test docstring and fails on
+an approved scenario with no test, a citation naming no scenario, a docstring in any other shape,
+an undeclared prefix, or a repeated scenario title. It found the drift the moment it was written:
+eight Continuity and two Settings tests still carried the old docstring form.
+
+The identifier stays written once, in the docstring. `tests/conftest.py` reads it from there and
+attaches the marker, so `pytest -m brd` and `pytest --brd=DI-DAY-001` need nothing kept in step.
+`docs/brd/README.md` had `CT` for Continuity where every scenario says `CO`, and no row for `PS`
+at all; both are fixed, and the table is what the test reads.
+
+The `.feature` files are one format now — `Background` and the em dash after the identifier —
+because Diary had one shape and the Phase 4.a files had another.
+
+### Scenarios the review found missing
+
+Diary gained `DI-DAY-011` (a day with nothing written is never saved), `DI-DATE-012` (today is
+the owner's local day, which past midnight UTC is a different date), `DI-READ-013` (the subagent
+holds both readers, because button work never reaches the conversation and how a day felt never
+reaches the database) and `DI-READ-015` (a day nobody talked about reads as empty rather than
+failing). All four document behaviour the code and the product spec already agreed on and nothing
+covered.
+
+`DI-MOOD-014` was the one open question and the owner settled it on 2026-08-22: **an omitted
+`feeling_score` keeps the saved one**, and only a score the owner asks for changes it. Omitting the
+score is a statement about that day's evidence, not a request to erase a mood the owner already
+gave. `pov` is still replaced whole.
+
+The rule lives in `DiaryProposalHandler._resolve_day`, which has already loaded the saved day, so
+the review screen and the receipt show the score Save will store. `update_diary_entry` stays a
+plain whole replacement and never has to tell an omitted score from a deliberate one — no sentinel,
+no second meaning for `None`. `DIARY_PROMPT` and the `feeling_score` field description say it in
+one line each; `DIARY_PROMPT` and `tool:diary` are the only two prompt-prefix hashes that moved,
+and `SYSTEM_PROMPT` is untouched. There is deliberately no signal that clears a score back to none:
+nothing asked for one.
+
+The Summary window was **not** given a scenario. The dialogue a Summary covers does not leave the
+window; it stays as a bounded `summary_context` tail. That is adapter behaviour, `tests/test_history.py`
+covers it, and `docs/brd/continuity.md` already assigns it there.
+
+### The third review pass
+
+The owner read the scenarios back and found the same fault in three places: two Scenario blocks
+under one identifier, saying two different things.
+
+- `DI-READ-013` was which readers the subagent holds *and* how an empty read behaves. The second
+  is now `DI-READ-015`.
+- `PS-DIARY-012` was the schedule arithmetic *and* the startup hook that runs it. The second is
+  now `PS-DIARY-013`.
+- `CO-MEMORY-012`, `CO-MEMORY-013` and the second `CO-MEMORY-014` block were one rule stated three
+  times, once per door. They are one `CO-MEMORY-012`; `CO-MEMORY-013` is retired and not reused.
+  An unusable resource is not normally worth a scenario — Safwa writes none for an unreachable
+  database — and this one is only because the answer is not the standard one: it is the owner's
+  own file, the hash guard that protects it everywhere else passes on a file that could not be
+  decoded, and the failure is silent.
+- `DI-DAY-011` had one rule and two tests, the feature operation and the tool contract. The
+  contract refusal is the same rule at an earlier door and `DiaryToolInput` is already covered by
+  DI-MOOD-004's validation test, so the duplicate test is gone.
+
+Two blocks under one identifier stay only when they are two observable cases of the same question
+— `DI-DELETE-005` and `DI-OPEN-010` are a rule's two branches, and `DI-DATE-012` is one rule at
+two doors. `docs/brd/README.md` says so now.
+
+The `@tag` lines are gone from every `.feature` file. There is no BDD runner, nothing read them,
+and a `@di_day_011` above `Scenario: DI-DAY-011 — …` is a lowercase second copy of the identifier
+with nothing keeping it in step. `test_brd_traceability.py` fails on a tag, so they cannot return.
+
+Two of the deferred items are also closed:
+
+- `PersonaContinuity` no longer holds a lock. `GenerationGuard.run_background` is the single lease
+  every production caller takes and it already refuses a second background run; the locks were a
+  second mechanism for the property CO-GENERATION-011 assigns to the guard.
+- `MemorySyncState.warning_sent_at` is removed. It had no writer, and the schema snapshot is
+  regenerated for it — the only hash that changed is `memory_sync_state`.
+
+Verification: `ruff check .` clean; `pytest -q` 540 passed / 3 skipped; 0 import cycles
+(445 edges); Rules A–F and K at 0, G at 2 and H at 28 as before; DoD #1 28, #2 0, #3 5, #13 0.
+Both snapshots were regenerated for declared changes and nothing else moved in them:
+`memory_sync_state` for the dropped column, `DIARY_PROMPT` and `tool:diary` for DI-MOOD-014.
+
+### Known and deferred
+
+- The Settings screen still registers on the shared `telegram` router and is dispatched from
+  `CALLBACK_ACTIONS`, and three telegram modules import it inside their handlers to break the
+  cycle. Moving it needs `FeatureModule` to carry commands, callback actions and text-input flows
+  — a mechanism Reminders, Values, Tags and Cards all need too. Building it for Profile alone is
+  the per-feature field `module_manifest.py` exists to refuse. It moves with the Phase 8 handler
+  batch, whole.
+- `features/reminders/api.py` reaches the flat `reminders.py` and `models.Reminder`. That is inside
+  the feature that owns them now, and it resolves when the Reminders batch moves the module.
+
+## Before starting the rest of Phase 4
+
+Read this section first. It is what 4.a cost to learn, written so the next batch does not pay
+again.
+
+### What is left, and in what order
+
+The plan's order is Reminders, Saved Requests, Values and Tags, Profile, Continuity. 4.a took
+Profile and Continuity out of turn because the review of Phase 3 landed on them. What remains:
+
+| Batch | Moves | Already there |
+|---|---|---|
+| 4.b Reminders | `reminders.py` (15.7K), `scheduler.py`, `models.Reminder` | `features/reminders/{api,agent,proposal,telegram,views,background}.py` |
+| 4.c Saved Requests | `saved_requests.py` | `features/saved_requests/{agent,proposal,telegram,views}.py` |
+| 4.d Values and Tags | the Value and Tag half of `domain.py` | nothing; the feature package does not exist |
+
+Each needs its own approved scenario package before its tests are written. None of them creates a
+Manager: none has a long-lived process.
+
+### Do not move the screens
+
+Every one of these features has its Telegram screen in the shared package —
+`telegram/reminders.py`, `telegram/items.py` for Values and Tags. Leave them there.
+
+Moving a screen into its feature is what made `features/profile/screens.py` an import cycle: the
+screen needs `telegram/_core.py` and `telegram/_messaging.py`, and the shared handlers need the
+screen back. 4.a paid for that with three deferred imports inside handler bodies. Doing it again
+per feature adds another three each time.
+
+The real fix is `FeatureModule` carrying commands, callback actions and text-input flows, and it
+belongs to the Phase 8 handler batch, done once for everyone. A per-feature field in
+`module_manifest.py` is exactly what that file's docstring refuses. If a batch feels blocked
+without it, that is the signal to stop and say so — not to build a one-user mechanism.
+
+### The five things 4.a got wrong
+
+Each one shipped green and was found by reading, not by a failing test.
+
+1. **A guard was deleted with no scenario behind it.** `memory.md` lost both read-side guards in a
+   file move. Before deleting a check, find the scenario that owns it; if there is none, that is a
+   missing scenario, not permission.
+2. **A background loop swallowed its own death.** The exception left the loop, `asyncio.create_task`
+   dropped it, and memory silently stopped syncing for the life of the process. Every loop now
+   needs a per-iteration `try/except` with `logger.exception`, and every task a done callback.
+   Check both for any loop a batch touches.
+3. **`/status` printed a hardcoded `Memory: OK`.** A status line that cannot say "broken" is worse
+   than no status line.
+4. **A use case opened its own transaction.** A use case takes an `AsyncSession` and never commits;
+   the caller owns the transaction and `Database.transaction()` refuses to nest. See
+   [FEATURE_MODULES.md](FEATURE_MODULES.md#who-owns-the-transaction).
+5. **`api.py` held the feature's own write.** `api.py` is only what *another* feature calls, and it
+   hands over the answer rather than the row. Everything the feature's own adapters call is
+   `use_cases.py`.
+
+### Writing the scenario package
+
+The third review pass rewrote a third of 4.a's scenarios. These are the rules it produced.
+
+- **One identifier is one rule.** Two `Scenario:` blocks may share an identifier only when they are
+  two branches of the *same* question. Two different rules under one identifier hide the second,
+  and nothing fails to say so.
+- **A standard failure is not a scenario.** Safwa writes none for an unreachable database. Write
+  one when the answer is *not* the standard one, and say in the packet which part is not obvious —
+  CO-MEMORY-012 exists because the hash guard that protects the file everywhere else passes on a
+  file that could not be decoded.
+- **One rule, one test.** A second test for the same rule one layer down is a duplicate, however
+  different the code path looks. DI-DAY-011 had the feature operation and the tool contract; the
+  contract half is gone.
+- **No Gherkin tags.** `test_brd_traceability.py` fails on one. The identifier lives on the
+  `Scenario:` line and in the test docstring, nowhere else.
+- **A product decision ships as `question`, not as a test.** DI-MOOD-014 sat open for a review
+  cycle rather than being settled by whichever test got written first. That was right; do it again.
+
+### Snapshots: which hashes may move
+
+Regenerating a snapshot is routine only when the batch declared the change. Read the diff:
+
+- `memory_sync_state`, `reminders`, any one table in `schema.json` — expected when that batch owns
+  the model.
+- `DIARY_PROMPT`, `tool:diary`, `tool:reminder` — expected when the batch changes that contract.
+- **`SYSTEM_PROMPT` or `PERSONA` moving is a red flag.** That is the Advisor's cache prefix. If a
+  batch moves it without meaning to, something volatile got into `messages[0]`; find it rather than
+  accepting the new hash.
+
+### Done means
+
+`pytest -q`, `ruff check .`, and `scripts/architecture_metrics.py` — plus: allowlist counts and DoD
+numbers may only fall, import cycles stay 0, and any snapshot line that moved is one the batch
+declared. 4.a ended at 540 passed / 3 skipped, DoD #1 28, #2 0, #3 5, #13 0, 445 edges, 0 cycles.

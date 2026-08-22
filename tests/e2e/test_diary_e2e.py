@@ -96,6 +96,41 @@ async def test_di_day_002_second_write_replaces_the_day(e2e_harness):
     assert description.summary == f"Edit Diary entry for {TODAY}"
 
 
+async def test_di_mood_014_an_unnamed_score_keeps_the_saved_one(e2e_harness):
+    """DI-MOOD-014 — tests/brd/diary.feature"""
+    subagent = diary_subagent(e2e_harness)
+    advisor, _ = e2e_harness.advisor(
+        [turn(("route", {"name": "diary"})), write(TODAY, "Утро.", feeling_score=8)],
+        subagents=(subagent,),
+    )
+    first = await advisor.handle("Запиши утро")
+    await _save(e2e_harness, advisor, first.proposal_id)
+
+    advisor, _ = e2e_harness.advisor(
+        [turn(("route", {"name": "diary"})), write(TODAY, "Утро и вечер.")],
+        subagents=(subagent,),
+    )
+    second = await advisor.handle("Допиши вечер")
+    _, description = await _save(e2e_harness, advisor, second.proposal_id)
+
+    async with e2e_harness.sessions() as session:
+        entries = list(await session.scalars(select(DiaryEntry)))
+    assert [(entry.body, entry.feeling_score) for entry in entries] == [("Утро и вечер.", 8)]
+    # The screen the owner approved said 8 too, so Save stored what the screen showed.
+    assert "Feeling: 8" in description.fields
+
+    advisor, _ = e2e_harness.advisor(
+        [turn(("route", {"name": "diary"})), write(TODAY, "Вечер испортился.", feeling_score=3)],
+        subagents=(subagent,),
+    )
+    third = await advisor.handle("Стало хуже")
+    await _save(e2e_harness, advisor, third.proposal_id)
+
+    async with e2e_harness.sessions() as session:
+        entries = list(await session.scalars(select(DiaryEntry)))
+    assert [(entry.body, entry.feeling_score) for entry in entries] == [("Вечер испортился.", 3)]
+
+
 async def test_di_date_003_named_day_is_used(e2e_harness):
     """DI-DATE-003 — tests/brd/diary.feature"""
     yesterday = (date.today() - timedelta(days=1)).isoformat()

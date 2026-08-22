@@ -140,6 +140,44 @@ Primary tests: `test_background_gate_does_not_start_work_while_foreground_is_act
 `test_due_memory_maintenance_waits_while_foreground_generation_is_active`. CO-SUMMARY-003 covers
 the corresponding Summary race outcome.
 
+### CO-MEMORY-012 — A `memory.md` Safwa cannot use is never written over
+
+Status: approved
+Sources: owner decision on 2026-08-22, Phase 4.a review
+
+An unreadable resource is not normally a business scenario, and Safwa writes none for an
+unreachable database. This one earns a scenario because the answer is not the standard one:
+`memory.md` is the **owner's own file**, the guard that protects it everywhere else does not
+protect it here, and the failure is silent.
+
+A file is unusable for two reasons that make no difference to what happens next: it is not UTF-8
+text at all, or it is larger than `SAFWA_MEMORY_TOKEN_BUDGET`. In both cases nothing is read, so
+no fact is injected, the reason is recorded and `/status` reports it, and the turn that wanted
+memory still runs rather than failing.
+
+Nothing writes to such a file either — not scheduled AI maintenance, not `/mem`. That is the
+non-obvious half. The protection against clobbering the owner's edits is the file hash, and the
+hash of a file Safwa could not decode still matches: the bytes were read, only the text was not.
+An AI replacement would therefore pass the usual check and overwrite the owner's file with facts
+built from nothing.
+
+The budget is one number and bounds both directions: what may be read into a prompt, and what an
+AI replacement may write.
+
+Primary tests: `test_unreadable_memory_file_yields_no_facts_and_a_reason`,
+`test_memory_over_the_token_budget_is_not_injected`,
+`test_a_manual_fact_is_refused_when_the_file_could_not_be_read`, and
+`test_memory_maintenance_refuses_to_replace_an_unreadable_file`.
+
+### CO-MEMORY-014 — A fact added by hand is appended to `memory.md`
+
+Status: approved
+Sources: `archived_docs/MEMORY_HISTORY_USAGE.md` `/mem` rule; owner decision on 2026-08-22
+
+`/mem <fact>` appends one line to the file and keeps every earlier fact, in order.
+
+Primary test: `test_a_manual_fact_is_appended_to_the_file`.
+
 ## Existing-test audit
 
 The traceability contract is [`tests/brd/continuity.feature`](../../tests/brd/continuity.feature).
@@ -157,6 +195,8 @@ The traceability contract is [`tests/brd/continuity.feature`](../../tests/brd/co
 | CO-SCHEDULE-009 | Rename and retain the once-per-day test |
 | CO-SCHEDULE-010 | Rename and retain the disabled-schedule test |
 | CO-GENERATION-011 | Add focused tests for the single shared gate |
+| CO-MEMORY-012 | New. The read-side guard was dropped in Phase 4.a with no scenario behind it |
+| CO-MEMORY-014 | New. `/mem` and `append_manual` had no test at any level |
 
 `test_restore_missing_memory_file_intentionally_clears_memory` remains a backup restoration test. It
 is not evidence for a Continuity scenario. The old blank-line-invalid test and scenario are removed.
@@ -165,6 +205,16 @@ is not evidence for a Continuity scenario. The old blank-line-invalid test and s
 
 The owner's 2026-08-22 correction approves CO-SUMMARY-001 through CO-GENERATION-011 as written
 above and explicitly rejects the former invalid-memory scenario.
+
+CO-MEMORY-012 and CO-MEMORY-014 were approved on 2026-08-22 in the Phase 4.a review. The
+rejected scenario was about blank lines in the owner's text; an unreadable or oversized file is a
+different case, and dropping its handling with the blank-line rule was not an approved decision.
+
+They shipped as five Scenario blocks under three identifiers and were consolidated in the same
+review. An oversized file was CO-MEMORY-013, and refusing `/mem` on an unreadable file was a
+second block under CO-MEMORY-014; both are the same rule as CO-MEMORY-012 reached by a different
+door, and stating it three times made three things to keep in step. CO-MEMORY-013 is retired and
+its number is not reused.
 
 ## Gate B and Gate C result
 

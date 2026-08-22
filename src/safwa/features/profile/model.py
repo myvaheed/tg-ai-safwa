@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import time
+from enum import StrEnum
 
 from sqlalchemy import Integer, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column
@@ -23,3 +24,18 @@ class UserProfile(Base, TimestampMixin):
         Time, default=time.fromisoformat(DIARY_TIME_DEFAULT)
     )
     diary_instructions: Mapped[str] = mapped_column(Text, default="")
+
+
+ProfileValue = str | int | time | None
+
+
+class ProfileField(StrEnum):
+    """The profile values the owner may set. The enum is the allowlist."""
+
+    ABOUT_ME = "about_me"
+    ADVISOR_INSTRUCTIONS = "advisor_instructions"
+    CAPACITY_EFFORT_POINTS = "capacity_effort_points"
+    SPRINT_LENGTH_DAYS = "sprint_length_days"
+    MEMORY_UPDATE_TIME = "memory_update_time"
+    DIARY_TIME = "diary_time"
+    DIARY_INSTRUCTIONS = "diary_instructions"

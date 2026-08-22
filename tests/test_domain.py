@@ -27,7 +27,9 @@ from safwa.domain import (
 )
 from safwa.domain import create_card as create_domain_card
 from safwa.enums import CardStage
-from safwa.features.profile.api import update_profile
+from safwa.features.profile.model import ProfileField
+from safwa.features.profile.use_cases import set_profile_field
+from safwa.foundation.clock import SystemClock
 from safwa.models import (
     Card,
     CardEvent,
@@ -179,7 +181,12 @@ async def test_ui_mutations_use_domain_services_and_are_audited(sessions):
         card = await create_card(session, title="Original")
         assert await toggle_card_tag(session, card.id, tag.id) is True
         await edit_card_text(session, card.id, "title", "Renamed")
-        await update_profile(session, about_me="Prefers calm, practical planning")
+        await set_profile_field(
+            session,
+            ProfileField.ABOUT_ME,
+            "Prefers calm, practical planning",
+            clock=SystemClock(),
+        )
         await archive_subtree(session, card.id)
         await session.commit()
 

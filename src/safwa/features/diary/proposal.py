@@ -61,10 +61,17 @@ class DiaryProposalHandler:
         change.action = "update" if saved is not None else "create"
         change.id = saved.id if saved is not None else None
         values = dict(change.values)
+        score = values.get("feeling_score")
+        if score is None and saved is not None:
+            # The day is replaced whole, the score is not: the model omits it whenever the
+            # day left no sign of how it felt, and that is not the user asking to erase the
+            # score they already have.  Resolved here so the review screen shows what Save
+            # will actually store.
+            score = saved.feeling_score
         change.values = {
             "entry_date": entry_date.isoformat(),
             "body": str(values.get("pov") or ""),
-            "feeling_score": values.get("feeling_score"),
+            "feeling_score": score,
             "ai_comment": str(values.get("ai_comment") or ""),
         }
 

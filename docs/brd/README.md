@@ -12,10 +12,15 @@ No BDD framework. Readable pytest is enough.
 docs/brd/
   README.md                                  this file
   test_inventory.md                          generated: scripts/test_inventory.py
+  diary.md  continuity.md  profile_settings.md
   planning/cards.md  planning/checks.md  planning/sprint.md
-  reminders.md  diary.md  saved_requests.md  proposals.md
+  reminders.md  saved_requests.md  proposals.md
   agents.md  telegram_history.md
 ```
+
+The approved scenarios themselves live in `tests/brd/<feature>.feature`, next to the tests that
+cite them. `docs/brd/<feature>.md` is the approval packet around them — `Status`, `Sources`,
+`Supersedes`, the recorded decision, the audit table and the gate results.
 
 A file is created by the batch that needs it, not up front.
 
@@ -41,7 +46,11 @@ the real unit, integration, and E2E checks.
 | Planning | `PL` | Proposals | `PR` |
 | Reminders | `RM` | Agents and routing | `AG` |
 | Diary | `DI` | Telegram history | `TG` |
-| Saved Requests | `SR` | Continuity and memory | `CT` |
+| Saved Requests | `SR` | Continuity and memory | `CO` |
+| Profile and Settings | `PS` | | |
+
+`tests/test_brd_traceability.py` reads this table, so a prefix that is not in it is not a
+scenario identifier.
 
 ## Format
 
@@ -62,16 +71,44 @@ And no repeat successor is created
 The title states the rule, not the mechanism. `Sources` cites the product spec the rule came
 from. `Supersedes` names every existing test the scenario replaces, with its class.
 
-The test carries the identifier in its docstring and nothing else:
+The test's docstring is the identifier and the file that carries it, and nothing else. The
+scenario text lives in the `.feature` file; restating it here would be a second copy to keep
+in step.
 
 ```python
 async def test_pl_check_014_action_with_unanswered_check_cannot_finish(app):
-    """PL-CHECK-014"""
+    """PL-CHECK-014 — tests/brd/planning.feature"""
 ```
 
 `app.given` is a dictionary of business fixtures, not a general DSL. It builds data through
 public operations and never restates a business rule inside the builder — a builder that
 knows the rule makes the test check itself.
+
+## The traceability is checked
+
+`tests/test_brd_traceability.py` reads the `.feature` files and every test docstring, and
+fails on an approved scenario with no test, a test citing a scenario that does not exist, a
+docstring in any other shape, a prefix missing from the table above, and a repeated scenario
+title. Without it a renamed scenario or a deleted test stays green.
+
+A `.feature` file carries **no Gherkin tags**, and the same test fails on one. No BDD runner
+reads these files, so a `@di_day_011` above a scenario is a lowercase second copy of the
+identifier that nothing keeps in step. The `Scenario:` line is where the identifier lives.
+
+Two Scenario blocks may share an identifier only when they are two observable cases of the
+**same** question — a rule's two branches, or one rule at two doors. Two different rules under
+one identifier hide the second one, and no test failure will say so.
+
+The identifier is written in the docstring only. `tests/conftest.py` reads it from there and
+attaches the marker, so both of these work with nothing to keep in step:
+
+```bash
+uv run pytest -m brd -q
+```
+
+```bash
+uv run pytest --brd=DI-DAY-001 -q
+```
 
 ## Statuses
 
@@ -132,6 +169,21 @@ Use the lowest level that crosses every boundary named by the scenario:
 For example, CO-MEMORY-004 is an integration test rather than E2E: it reads a real temporary
 `memory.md` and synchronizes real SQLite state, but it does not claim anything about startup,
 watcher scheduling, or Telegram. Those claims would require their own adapter or E2E scenario.
+
+Three rules keep "use the lowest level" from becoming "use the cheapest level":
+
+- **A background task, a scheduler, or a startup hook is a boundary.** A rule that only holds
+  because a loop runs, a lease is taken, or a recovery hook ran in a particular order needs a test
+  at that level. `PS-DIARY-013` is one, and it is why it is not part of `PS-DIARY-012`: the
+  reconciliation arithmetic is a use case, but that startup runs it at all is a separate claim,
+  and it was untested until it was written down as its own scenario.
+- **A failure that would be silent needs a test where the silence would show.** A dead background
+  task, a cursor that stops advancing, memory that quietly stops syncing — none of these break a
+  unit test, and none of them break the bot loudly either. That is exactly the class that reached
+  production in Phase 4.a.
+- **During the migration an existing E2E is added to, never replaced by a lower-level test.**
+  `tests/e2e/test_advisor_flow_e2e.py` is the insurance for Phases 6–8; a batch that trades it for
+  faster unit tests is spending the safety net it is standing on.
 
 ## Audit table
 

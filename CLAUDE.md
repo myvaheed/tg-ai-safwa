@@ -233,8 +233,9 @@ list in a prompt is still prose: it is what scopes a reader.
 [features/continuity/memory.py](src/safwa/features/continuity/memory.py): ordinary UTF-8 text. Each
 trimmed non-empty line is a fact, blank lines are ignored, and a missing file means empty memory. The
 `memory_fact_cache` table is a rebuildable derived cache — never treat it as the source. AI replacements
-respect the configured token budget, write atomically, and re-check the file hash so a concurrent
-local edit is preserved rather than overwritten.
+write atomically and re-check the file hash so a concurrent local edit is preserved rather than
+overwritten. A file that is not UTF-8, or that is over the token budget, injects no memory and
+records why instead of failing the turn — the budget bounds what is read as well as what is written.
 
 ### The prompt prefix must stay byte-stable
 

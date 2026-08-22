@@ -30,7 +30,8 @@ from .config import Settings
 from .constants import AI_APP_TITLE, AI_APP_URL
 from .domain import bootstrap_workspace
 from .enums import AIProvider
-from .features.continuity.api import MemoryFileStore, PersonaContinuity
+from .features.continuity.memory import MemoryFileStore
+from .features.continuity.persona import PersonaContinuity
 from .foundation.database import Database, upgrade_database
 from .history import TelegramHistorySource
 from .models import Workspace
@@ -73,6 +74,21 @@ def database_path(database_url: str) -> Path:
     if not database_url.startswith("sqlite:///"):
         raise ValueError("Safwa v1 requires a local SQLite database")
     return Path(database_url.removeprefix("sqlite:///"))
+
+
+def _report_background_exit(task: asyncio.Task[None]) -> None:
+    """A background loop that ends before shutdown has stopped its feature for good.
+
+    Nothing awaits these tasks while polling runs, so an exception inside one is
+    swallowed by asyncio and the feature simply stops working until the next restart.
+    """
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is not None:
+        logger.error("Background task %s stopped", task.get_name(), exc_info=error)
+    else:
+        logger.warning("Background task %s returned before shutdown", task.get_name())
 
 
 async def run(settings: Settings) -> None:
@@ -195,12 +211,12 @@ async def run(settings: Settings) -> None:
         sessions=database.sessions,
         bot=bot,
         services=services,
-        memory=memory,
-        continuity=continuity,
     )
     tasks = [
         asyncio.create_task(task.run(background), name=task.name) for task in BACKGROUND_TASKS
     ]
+    for task in tasks:
+        task.add_done_callback(_report_background_exit)
     try:
         await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
     finally:

@@ -31,7 +31,7 @@ from ..domain import (
 from ..enums import (
     ProposalStatus,
 )
-from ..features.continuity.api import MemoryFileStore
+from ..features.continuity.memory import MemoryFileStore
 from ..features.diary.model import DiaryEntry
 from ..features.proposals.api import (
     ApplyContext,
@@ -64,7 +64,7 @@ from .contracts import (
     RouteInput,
     tool_json_schema,
 )
-from .mini import ReadToolSpec
+from .mini import QUERY_SAFWA_TOOL, ReadToolSpec
 from .prepare import ChangePreparer
 from .sql import ReadOnlyQueryRunner, UnsafeQueryError
 from .subagents import RoutedSubagent
@@ -83,17 +83,6 @@ OPENABLE_MODELS: dict[str, Any] = {
     "diary": DiaryEntry,
 }
 
-QUERY_SAFWA_TOOL: dict[str, Any] = {
-    "type": "function",
-    "function": {
-        "name": "query_safwa",
-        "description": (
-            "Read Safwa's current data with one read-only SELECT over the ai_* views listed "
-            "in your instructions. Use it before you answer or propose anything."
-        ),
-        "parameters": tool_json_schema(QueryToolInput),
-    },
-}
 OPEN_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -124,43 +113,6 @@ SAFWA_TOOLS = (QUERY_SAFWA_TOOL, OPEN_TOOL)
 # Tools that run during the turn instead of becoming a proposal the owner approves.
 IMMEDIATE_TOOLS = frozenset({"query_safwa", "route", "open"})
 
-
-def query_read_tool(query_runner: ReadOnlyQueryRunner) -> ReadToolSpec:
-    """`query_safwa` as a plain read tool, for a session that declares its own tools.
-
-    The runner and its caps are shared; the session executes it through the same path
-    the Advisor uses, so its steps are recorded the same way.
-    """
-
-    async def read(call: ToolCall) -> list[dict[str, Any]]:
-        try:
-            query = QueryToolInput.model_validate(json.loads(call.arguments_json or "{}"))
-            outcome = await query_runner.run(query.sql)
-            return outcome.as_tool_result()
-        except (
-            UnsafeQueryError,
-            sqlite3.Error,
-            TimeoutError,
-            OSError,
-            ValidationError,
-            json.JSONDecodeError,
-            TypeError,
-            ValueError,
-        ) as error:
-            return [
-                {
-                    "status": "error",
-                    "code": "query_failed",
-                    "error": str(error),
-                    "hint": (
-                        "Fix only this SELECT and call query_safwa again. One read-only "
-                        "SELECT or WITH … SELECT over the ai_* views."
-                    ),
-                    "retryable": True,
-                }
-            ]
-
-    return ReadToolSpec(QUERY_SAFWA_TOOL, read)
 
 
 def _mutation_repair_details(

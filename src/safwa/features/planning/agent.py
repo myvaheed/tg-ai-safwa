@@ -5,8 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...ai.contracts import CardToolInput, CheckToolInput, TagToolInput, ValueToolInput
-from ...ai.mini import ReadToolSpec
-from ...ai.service import query_read_tool
+from ...ai.mini import ReadToolSpec, query_read_tool
 from ...bootstrap.module_manifest import AgentContext, AgentSpec
 from ..proposals.api import MutationToolSpec, entity_change
 

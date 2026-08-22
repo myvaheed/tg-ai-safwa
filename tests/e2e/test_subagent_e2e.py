@@ -9,7 +9,8 @@ from sqlalchemy import select
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.context import DialogueMessage
-from safwa.ai.service import ProposalService, query_read_tool
+from safwa.ai.mini import query_read_tool
+from safwa.ai.service import ProposalService
 from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.ai.subagents import RoutedSubagent
 from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS

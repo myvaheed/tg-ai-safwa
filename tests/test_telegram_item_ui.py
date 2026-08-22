@@ -44,8 +44,13 @@ from safwa.domain import (
 )
 from safwa.enums import CardStage, MessageKind
 from safwa.features.diary.use_cases import create_diary_entry
-from safwa.features.profile.api import DIARY_REMINDER_INSTRUCTION, update_profile
+from safwa.features.profile.model import ProfileField
 from safwa.features.profile.screens import command_settings
+from safwa.features.profile.use_cases import (
+    DIARY_REMINDER_INSTRUCTION,
+    set_profile_field,
+)
+from safwa.foundation.clock import SystemClock
 from safwa.history import (
     CITATION_TYPES,
     HistoryEntry,
@@ -1923,7 +1928,9 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
 async def test_the_reminders_screen_and_settings_hide_safwas_own_reminder(sessions) -> None:
     """The owner sets the Diary in Settings; the Reminder behind it is not theirs to see."""
     async with sessions() as session:
-        await update_profile(session, diary_time=time(22, 0))
+        await set_profile_field(
+            session, ProfileField.DIARY_TIME, time(22, 0), clock=SystemClock()
+        )
         await create_reminder(
             session,
             instruction="Check my posture.",
@@ -1946,10 +1953,15 @@ async def test_the_reminders_screen_and_settings_hide_safwas_own_reminder(sessio
 async def test_valid_settings_input_updates_selected_field_and_auto_closes_prompt(
     sessions,
 ) -> None:
-    """PS-UI-SAVE-008: valid input updates one field, auto-closes, and redraws."""
+    """PS-UI-SAVE-008 — tests/brd/profile_settings.feature"""
     services = services_for(sessions)
     async with sessions() as session:
-        await update_profile(session, advisor_instructions="Keep this unchanged.")
+        await set_profile_field(
+            session,
+            ProfileField.ADVISOR_INSTRUCTIONS,
+            "Keep this unchanged.",
+            clock=SystemClock(),
+        )
         await session.commit()
     message = FakeMessage(921, bot_message=True, answer_as_new=True)
     await command_settings(message, services)
@@ -1978,7 +1990,7 @@ async def test_valid_settings_input_updates_selected_field_and_auto_closes_promp
 
 
 async def test_settings_shows_timezone_without_a_timezone_edit_action(sessions) -> None:
-    """PS-TIMEZONE-010: timezone is visible text, never a Settings action."""
+    """PS-TIMEZONE-010 — tests/brd/profile_settings.feature"""
     message = FakeMessage(923, bot_message=True, answer_as_new=True)
     await command_settings(message, services_for(sessions))
 
@@ -1989,7 +2001,7 @@ async def test_settings_shows_timezone_without_a_timezone_edit_action(sessions) 
 
 
 async def test_invalid_settings_input_keeps_data_and_the_same_prompt(sessions) -> None:
-    """PS-UI-INVALID-009: invalid input leaves data and its selected prompt in place."""
+    """PS-UI-INVALID-009 — tests/brd/profile_settings.feature"""
     services = services_for(sessions)
     message = FakeMessage(930, bot_message=True, answer_as_new=True)
     await command_settings(message, services)

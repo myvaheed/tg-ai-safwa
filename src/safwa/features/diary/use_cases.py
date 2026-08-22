@@ -43,7 +43,11 @@ async def create_diary_entry(
 async def update_diary_entry(
     session: AsyncSession, entry_id: int, body: str, feeling_score: int | None = None
 ) -> DiaryEntry:
-    """Replace a day's entry. The Diary is rewritten whole, never patched — the score with it."""
+    """Replace a day's entry with the text and the score the caller settled on.
+
+    Whole replacement, never a patch. Which score reaches here is the caller's decision:
+    the proposal handler carries the saved one forward when the model named none.
+    """
     entry = await session.get(DiaryEntry, entry_id)
     if entry is None:
         raise DomainError("Diary entry does not exist")

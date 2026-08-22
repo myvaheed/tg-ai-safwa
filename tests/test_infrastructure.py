@@ -154,3 +154,24 @@ async def test_transaction_discards_the_whole_block_when_the_body_raises(tmp_pat
             assert await session.scalar(select(Tag.name)) is None
     finally:
         await database.dispose()
+
+
+async def test_a_second_transaction_inside_one_is_refused_rather_than_joined(tmp_path):
+    """Joining would commit the inner work with the outer block and leave a caught inner
+    failure in a dirty session. An operation the caller composes takes the session."""
+    url = f"sqlite+aiosqlite:///{(tmp_path / 'tx.db').as_posix()}"
+    upgrade_database(url.replace("sqlite+aiosqlite:", "sqlite:"))
+    database = Database(url)
+    try:
+        with pytest.raises(RuntimeError, match="already open"):
+            async with database.transaction():
+                async with database.transaction():
+                    pass
+
+        # The refusal releases the boundary rather than wedging it shut.
+        async with database.transaction() as session:
+            session.add(Tag(name="Family"))
+        async with database.sessions() as session:
+            assert await session.scalar(select(Tag.name)) == "Family"
+    finally:
+        await database.dispose()

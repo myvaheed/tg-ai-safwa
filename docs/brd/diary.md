@@ -174,6 +174,92 @@ Then the Advisor does not call `open`
 And it does not route to the Diary subagent
 And it tells the owner that there is no Diary entry for that date
 
+### DI-DAY-011 — A day with nothing written is never saved
+
+Status: approved
+Sources: `archived_docs/DIARY_PLAN.md` Rule 1 (`pov` is the day itself)
+Supersedes: none (`missing`)
+
+Given a Diary write whose text is empty or only whitespace
+When that day is created or replaced with it
+Then the write is refused, and a day that was already written keeps the text it had
+
+The tool contract refuses the same write earlier, before a day is resolved. That is the same rule
+at a second door, not a second rule: `DiaryToolInput` is already covered by DI-MOOD-004's
+validation test, and the outcome the business cares about — nothing is saved — is what the
+operation guarantees.
+
+Primary test: `test_di_day_011_a_day_with_no_words_is_never_saved`.
+
+### DI-DATE-012 — Today is the owner's local day, not the process day
+
+Status: approved
+Sources: `archived_docs/DIARY_PLAN.md` Rule 1; owner decision on 2026-08-22
+Supersedes: none (`missing`)
+
+Given the owner names no date
+When the Diary subagent decides which day it is writing, and reads that day's conversation
+Then the day is today in the workspace timezone, which past midnight UTC is not the UTC date
+
+Primary tests: `test_di_date_012_today_is_the_local_day`, and
+`test_di_date_012_read_day_defaults_to_the_local_day`.
+
+### DI-READ-013 — Neither source alone can write a day, so the subagent holds both
+
+Status: approved
+Sources: `archived_docs/DIARY_PLAN.md` Rule 2; `archived_docs/MEMORY_HISTORY_USAGE.md`
+Supersedes: none (`missing`)
+
+Work done with buttons never reaches the conversation, and how a day felt never reaches the
+planning database. A day written from one source alone is therefore missing half of itself, so
+the Diary subagent holds both readers: `read_day` for that day's conversation, and `query_safwa`
+over the views its prompt lists. It holds no third read tool.
+
+Primary test: `test_di_read_013_the_subagent_reads_both_sources`.
+
+### DI-MOOD-014 — A rewrite that names no feeling score keeps the saved one
+
+Status: approved
+Sources: owner decision on 2026-08-22, resolving the conflict between
+`archived_docs/DIARY_PLAN.md` Rule 5 (a score is optional) and the whole-entry replacement of
+DI-DAY-002
+
+Given a Diary entry with a feeling score
+When that day is rewritten and no feeling score is named
+Then the day carries its new text and the score it already had
+And a rewrite that names a score stores that score instead
+
+`pov` is replaced whole; `feeling_score` is the one exception, because omitting it is not the
+owner asking to erase it. The model omits the score whenever the day "left no sign at all of how
+it felt", which is a statement about that day's evidence rather than about the score the owner
+already has. Only the owner asking for a different score changes it.
+
+There is deliberately no signal that clears a score back to none. Nothing asked for one, and a
+Diary day that once had a mood and then has none is not a case the product has.
+
+The rule is resolved in `DiaryProposalHandler._resolve_day`, where the saved day is already
+loaded, so the review screen and the receipt show the score Save will actually store.
+`update_diary_entry` stays a plain whole replacement and never has to tell an omitted score from
+a deliberate one.
+
+Primary test: `test_di_mood_014_an_unnamed_score_keeps_the_saved_one`.
+
+### DI-READ-015 — A day nobody talked about reads as empty, not as a failure
+
+Status: approved
+Sources: owner decision on 2026-08-22, Phase 4.a review
+Supersedes: none (`missing`)
+
+Given the owner said nothing to Safwa on a day
+When `read_day` is called for that day
+Then it returns that day, saying its conversation holds nothing
+
+A silent day is the ordinary case for a Diary written from the database — the owner moved Cards
+and never typed. If the reader failed instead, the subagent would lose the day it could still
+write. This is a separate rule from DI-READ-013, which is about which readers exist at all.
+
+Primary test: `test_di_read_015_a_silent_day_reads_as_empty`.
+
 ## Existing-test audit
 
 The approved traceability contract is [`tests/brd/diary.feature`](../../tests/brd/diary.feature).
@@ -211,6 +297,20 @@ the feature file in their docstrings. The feature file has no Behave runner.
 
 The owner approved `DI-DAY-001` through `DI-OPEN-010` on 2026-08-21 and selected Advisor-owned
 reads for `DI-READ-006`.
+
+`DI-DAY-011`, `DI-DATE-012`, `DI-READ-013` and `DI-READ-015` were approved on 2026-08-22 in the
+Phase 4.a review: each documents behaviour the code and the product spec already agree on and
+that no test covered.
+
+`DI-MOOD-014` was the only product decision in the packet and shipped as a `question` rather than
+being settled by whichever test someone wrote first. The owner approved it on 2026-08-22: an
+omitted score keeps the saved one.
+
+`DI-READ-015` began as a second Scenario block under `DI-READ-013` and was split out in the same
+review. Which readers the subagent holds and how an empty read behaves are two rules, and one
+identifier over both hides the second. Two blocks under one identifier stay only when they are
+two observable cases of the *same* question — `DI-DELETE-005` and `DI-OPEN-010` are that, and
+`DI-DATE-012` is the same rule at two doors.
 
 ## Gate B and Gate C result
 

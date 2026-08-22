@@ -182,12 +182,20 @@ def _is_frozen_dataclass(node: ast.ClassDef) -> bool:
     return False
 
 
+def _is_orm_entity(node: ast.ClassDef) -> bool:
+    return any(ast.unparse(base) == "Base" for base in node.bases)
+
+
 def rule_c() -> list[Violation]:
     """Process state is frozen, and the writer never leaves the Manager."""
     out = []
     for module in feature_modules("manager.py", "model.py"):
         for node in ast.walk(module.tree):
             if isinstance(node, ast.ClassDef) and node.name.endswith(("State", "Action", "Effect")):
+                # A persisted row is durable state, not the process state this rule means:
+                # it is mutable by definition, and its truth is the table, not a union.
+                if _is_orm_entity(node):
+                    continue
                 if not _is_frozen_dataclass(node):
                     out.append(
                         Violation("Rule C", module.rel, node.lineno, f"{node.name} is not frozen")

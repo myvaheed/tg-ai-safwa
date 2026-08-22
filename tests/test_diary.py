@@ -8,14 +8,22 @@ from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy import select
 
+from llm_gateway import ToolCall
 from safwa.ai.prepare import ChangePreparer
+from safwa.bootstrap.module_manifest import AgentContext
 from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS, SYSTEM_PROMPT
 from safwa.domain import (
     delete_reminder,
     reschedule_reminder,
     update_reminder_text,
 )
-from safwa.features.diary.agent import DIARY_PROMPT, DiaryToolInput
+from safwa.features.diary.agent import (
+    DIARY_AGENT,
+    DIARY_PROMPT,
+    DiaryToolInput,
+    day_read_tool,
+    diary_clock,
+)
 from safwa.features.diary.model import DiaryEntry
 from safwa.features.diary.telegram import (
     FEELING_SCORE_EMOJI,
@@ -28,11 +36,34 @@ from safwa.features.diary.use_cases import (
     diary_entry_for,
     update_diary_entry,
 )
-from safwa.features.profile.api import sync_diary_reminder
+from safwa.features.profile.use_cases import sync_diary_reminder
 from safwa.features.proposals.api import ToolPreparationError
+from safwa.foundation.clock import SystemClock
 from safwa.foundation.errors import DomainError
 from safwa.models import Reminder
 from safwa.reminders import resolve
+
+
+class FrozenClock:
+    def __init__(self, moment: datetime) -> None:
+        self.moment = moment
+
+    def now(self) -> datetime:
+        return self.moment.astimezone(UTC)
+
+
+class RecordingDayReader:
+    """The slice of the history source `read_day` uses, and the window it was asked for."""
+
+    def __init__(self, transcript: str = "[user]: Прошёл день.") -> None:
+        self.transcript = transcript
+        self.window: tuple[datetime, datetime] | None = None
+
+    async def day_transcript(
+        self, chat_id: int, *, start: datetime, end: datetime, token_budget: int
+    ) -> str:
+        self.window = (start, end)
+        return self.transcript
 
 
 def preparer() -> ChangePreparer:
@@ -223,7 +254,7 @@ async def system_reminder(sessions) -> Reminder | None:
 
 async def test_the_diary_reminder_is_not_the_owners_to_edit(sessions) -> None:
     async with sessions() as session:
-        await sync_diary_reminder(session)
+        await sync_diary_reminder(session, clock=SystemClock())
         await session.commit()
     reminder_id = (await system_reminder(sessions)).id
     schedule = resolve(clock="09:00", days=["Mon"], now=datetime.now(UTC), tz=ZoneInfo("UTC"))
@@ -235,3 +266,73 @@ async def test_the_diary_reminder_is_not_the_owners_to_edit(sessions) -> None:
             await reschedule_reminder(session, reminder_id, schedule=schedule, tz=ZoneInfo("UTC"))
         with pytest.raises(DomainError):
             await delete_reminder(session, reminder_id)
+
+
+async def test_di_day_011_a_day_with_no_words_is_never_saved(sessions) -> None:
+    """DI-DAY-011 — tests/brd/diary.feature"""
+    day = date(2026, 8, 15)
+    async with sessions() as session:
+        for empty in ("", "   ", "\n\t "):
+            with pytest.raises(DomainError, match="cannot be empty"):
+                await create_diary_entry(session, entry_date=day, body=empty)
+        assert await diary_entry_for(session, day) is None
+
+        saved = await create_diary_entry(session, entry_date=day, body="Настоящий день.")
+        with pytest.raises(DomainError, match="cannot be empty"):
+            await update_diary_entry(session, saved.id, "   ")
+        assert (await diary_entry_for(session, day)).body == "Настоящий день."
+
+
+def test_di_date_012_today_is_the_local_day() -> None:
+    """DI-DATE-012 — tests/brd/diary.feature"""
+    # 01:20 in Istanbul is still the previous day in UTC.
+    just_past_midnight = datetime(2026, 8, 22, 1, 20, tzinfo=ZoneInfo("Europe/Istanbul"))
+    clock = FrozenClock(just_past_midnight)
+
+    line = diary_clock("Europe/Istanbul", clock)
+
+    assert clock.now().date() == date(2026, 8, 21)
+    assert "Today is 2026-08-22" in line
+
+
+async def test_di_date_012_read_day_defaults_to_the_local_day() -> None:
+    """DI-DATE-012 — tests/brd/diary.feature"""
+    zone = ZoneInfo("Europe/Istanbul")
+    history = RecordingDayReader()
+    tool = day_read_tool(
+        history,
+        chat_id=42,
+        timezone="Europe/Istanbul",
+        clock=FrozenClock(datetime(2026, 8, 22, 1, 20, tzinfo=zone)),
+    )
+
+    result = await tool.run(ToolCall(id="1", name="read_day", arguments_json="{}"))
+
+    assert result["date"] == "2026-08-22"
+    assert history.window == (
+        datetime(2026, 8, 22, tzinfo=zone).astimezone(UTC),
+        datetime(2026, 8, 23, tzinfo=zone).astimezone(UTC),
+    )
+
+
+def test_di_read_013_the_subagent_reads_both_sources() -> None:
+    """DI-READ-013 — tests/brd/diary.feature"""
+    context = AgentContext(
+        settings=SimpleNamespace(telegram_owner_id=42, timezone="Europe/Istanbul"),
+        query_runner=SimpleNamespace(),
+        history=RecordingDayReader(),
+    )
+
+    names = {spec.schema["function"]["name"] for spec in DIARY_AGENT.read_tools(context)}
+
+    assert names == {"read_day", "query_safwa"}
+
+
+async def test_di_read_015_a_silent_day_reads_as_empty() -> None:
+    """DI-READ-015 — tests/brd/diary.feature"""
+    tool = day_read_tool(RecordingDayReader(transcript=""), chat_id=42, timezone="UTC")
+
+    result = await tool.run(ToolCall(id="1", name="read_day", arguments_json='{"date":"2026-08-22"}'))
+
+    assert result["date"] == "2026-08-22"
+    assert "nothing" in result["conversation"]

@@ -18,8 +18,9 @@ from sqlalchemy import delete, func, select
 
 from ..analytics import render_retrospective_png, retrospective_data, retrospective_recommendations
 from ..enums import CardStage, MessageKind
-from ..features.continuity.api import MemoryMaintenanceResult, record_memory_run
-from ..features.profile.screens import command_settings
+from ..features.continuity.memory import MemoryFileError
+from ..features.continuity.persona import MemoryMaintenanceResult
+from ..features.continuity.use_cases import record_memory_run
 from ..history import mark_message, register_message
 from ..models import (
     Card,
@@ -309,7 +310,11 @@ async def command_remember(message: Message, services: Services) -> None:
             message, services, "Usage: /mem one durable fact", kind=MessageKind.ERROR
         )
         return
-    await services.memory.append_manual(fact)
+    try:
+        await services.memory.append_manual(fact)
+    except MemoryFileError as error:
+        await send_registered(message, services, str(error), kind=MessageKind.ERROR)
+        return
     await send_registered(message, services, "Remembered in memory.md.", kind=MessageKind.RECEIPT)
 
 
@@ -419,7 +424,7 @@ async def sync_bot_commands(bot: Bot, *, sprint_active: bool) -> None:
 
 @router.message(Command("status"))
 async def command_status(message: Message, services: Services) -> None:
-    await services.memory.sync()
+    memory = await services.memory.sync()
     async with services.sessions() as session:
         workspace = await session.get(Workspace, 1)
         feedback = (
@@ -432,7 +437,7 @@ async def command_status(message: Message, services: Services) -> None:
         message,
         services,
         f"<b>Status</b>\nMode: {workspace.mode}\nRevision: {workspace.revision}\n"
-        f"Feedback: {feedback}\nMemory: OK",
+        f"Feedback: {feedback}\nMemory: {html.escape(memory.error or 'OK')}",
         kind=MessageKind.DASHBOARD,
     )
 
@@ -458,6 +463,10 @@ async def navigation(callback: CallbackQuery, services: Services) -> None:
         # only the media screen rather than sending an unnecessary new message.
         await callback.message.delete()
         return
+    # Imported here, not above: the Settings screen lives in its feature and reaches
+    # back into this package. It moves with the handlers in Phase 8.
+    from ..features.profile.screens import command_settings
+
     # Walking into the menu is an answer too: whatever else was open is refused.
     await dismiss_prior_ui(callback.message, services)
     handlers = {

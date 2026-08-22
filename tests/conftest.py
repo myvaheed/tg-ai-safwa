@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -15,9 +17,39 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="run tests that send messages to the dedicated Safwa-QA Telegram bot",
     )
+    parser.addoption(
+        "--brd",
+        default=None,
+        metavar="SCENARIO_ID",
+        help="run only the tests that cite one BRD scenario, for example DI-DAY-001",
+    )
+
+
+SCENARIO_ID = re.compile(r"^(?P<id>[A-Z]{2}-[A-Z-]+-\d{3})\b")
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers", "brd(scenario_id): the approved BRD scenario this test is evidence for"
+    )
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    # The identifier is written once, in the docstring, and the marker is read off it, so
+    # `pytest -m brd` and `--brd=DI-DAY-001` work without a second place to keep in step.
+    wanted = config.getoption("--brd")
+    selected: list[pytest.Item] = []
+    for item in items:
+        docstring = getattr(item.function, "__doc__", None) if hasattr(item, "function") else None
+        match = SCENARIO_ID.match((docstring or "").strip())
+        if match:
+            item.add_marker(pytest.mark.brd(match.group("id")))
+        if wanted is None or (match and match.group("id") == wanted):
+            selected.append(item)
+    if wanted is not None:
+        config.hook.pytest_deselected(items=[i for i in items if i not in selected])
+        items[:] = selected
+
     if config.getoption("--live-telegram"):
         return
     skip = pytest.mark.skip(reason="requires explicit --live-telegram opt-in")
