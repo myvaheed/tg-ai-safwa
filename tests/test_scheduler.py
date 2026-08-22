@@ -7,8 +7,8 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from safwa.constants import REMINDER_CATCHUP_GRACE_MINUTES, REMINDER_FIRE_BATCH
+from safwa.features.reminders.schedule import resolve, schedule_columns
 from safwa.models import Reminder, UserProfile
-from safwa.reminders import resolve, schedule_columns
 from safwa.scheduler import Firing, prepare, run_scheduler, settle, tick
 
 TZ = ZoneInfo("Europe/Istanbul")

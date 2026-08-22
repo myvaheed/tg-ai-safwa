@@ -17,8 +17,8 @@ from sqlalchemy import select
 
 from ..domain import DomainError
 from ..enums import MessageKind
+from ..features.reminders.schedule import describe, schedule_of
 from ..models import Reminder, Workspace
-from ..reminders import describe, schedule_of
 from ._core import Services
 from ._messaging import edit_registered_message, paging_row, send_registered, token_button
 from ._presentation import menu_row, paginate

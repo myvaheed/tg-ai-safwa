@@ -55,7 +55,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 1 | `llm_gateway` | technical | **done** |
 | 2 | `FeatureModule` and proposal capabilities | technical | **done** |
 | 3 | Pilot: Diary | business | **done** |
-| 4 | Leaf business batches | business | **in progress** — 4.a Continuity and Profile done |
+| 4 | Leaf business batches | business | **in progress** — 4.a Continuity and Profile, 4.b.1 the Reminder record |
 | 5 | Planning core | business | not started |
 | 6 | Proposals and the first reactive process | business | not started |
 | 7 | `agent_runtime` | technical + business | not started |
@@ -396,7 +396,7 @@ Profile and Continuity out of turn because the review of Phase 3 landed on them.
 
 | Batch | Moves | Already there |
 |---|---|---|
-| 4.b Reminders | `reminders.py` (15.7K), `scheduler.py`, `models.Reminder` | `features/reminders/{api,agent,proposal,telegram,views,background}.py` |
+| 4.b Reminders | split into 4.b.1 (the record, **done**) and 4.b.2 (the firing) | see below |
 | 4.c Saved Requests | `saved_requests.py` | `features/saved_requests/{agent,proposal,telegram,views}.py` |
 | 4.d Values and Tags | the Value and Tag half of `domain.py` | nothing; the feature package does not exist |
 
@@ -467,6 +467,62 @@ Regenerating a snapshot is routine only when the batch declared the change. Read
 - **`SYSTEM_PROMPT` or `PERSONA` moving is a red flag.** That is the Advisor's cache prefix. If a
   batch moves it without meaning to, something volatile got into `messages[0]`; find it rather than
   accepting the new hash.
+
+## What Phase 4.b.1 delivered
+
+The Reminder record is feature-owned. Its approved behaviour, the three decisions the owner made
+with it, and the test audit live in [brd/reminders.md](brd/reminders.md).
+
+Reminders was too big for one packet — 24 scenarios against a five-to-fifteen guideline — so it is
+two batches with one approval behind them. 4.b.1 is what a Reminder *is* and how one is written;
+4.b.2 is what happens when one comes due. The scenarios enter `tests/brd/reminders.feature` as
+each batch writes its tests, because an approved scenario with no test fails traceability.
+
+- `features/reminders/schedule.py` owns `Schedule` and the arithmetic — resolution, `next_fire`,
+  `roll_forward`, quiet windows, the column and payload round trips, `describe()`. It is named
+  after its public class, like `memory.py` and `persona.py`.
+- `features/reminders/model.py` owns the `Reminder` row; `safwa.models` keeps the compatibility
+  import so startup still sees the whole metadata. The declared schema is unchanged.
+- `features/reminders/use_cases.py` owns create, edit-text, reschedule and delete. `domain.py`
+  fell from 1755 to 1693 lines and now calls the feature for the Sprint's end warnings.
+- `features/reminders/agent.py` owns the whole model contract: the mutation tool and the setup
+  session that resolves free-text timing. `ai/reminder_sessions.py` is gone.
+- `parse_clock_or_off` moved from the schedule module to `api.py`. Profile's Settings screen is
+  the only caller, and reaching past `api.py` is the Rule E violation the architecture test caught
+  the moment the module moved into the feature.
+
+### The gap the approved scenarios found
+
+RM-WRITE-010 says the model may propose removing a Reminder. It could not. `remove` may only send
+`mode="archive"` for anything that is not a Card, and `ReminderProposalHandler.apply` knew
+`create`, `update` and `delete` — so Save raised and the row survived. A Reminder has no archive,
+so the handler now reads `archive` as the removal it is, and the receipt says `Delete` rather than
+`Archive`. Found by writing the test for an approved rule, not by any existing test failing.
+
+Verification: `ruff check .` clean; `pytest -q` 543 passed / 3 skipped; both snapshots unchanged,
+as the batch declared; 0 import cycles (457 edges); Rules A–F and K at 0, G at 2, H at 28.
+
+| | Phase 4.a | Phase 4.b.1 |
+|---|---:|---:|
+| Entity dispatch points outside `features/` (DoD #1) | 28 | 28 |
+| Use case base abstractions (DoD #2) | 0 | 0 |
+| Modules over 600 lines (DoD #3) | 5 | 5 |
+| Re-export-only modules (DoD #13) | 0 | 0 |
+| `domain.py` | 1755 | 1693 |
+
+### What 4.b.2 still moves
+
+| From | To |
+|---|---|
+| `scheduler.py` — `Firing`, `due_reminders`, `is_stale`, `prepare`, `settle`, `tick`, `run_scheduler` | `features/reminders/background.py` |
+| `recovery.reconcile_reminders` | `features/reminders/use_cases.py` |
+| `telegram/escalation.py` | `features/reminders/telegram.py`, unless the owner prefers Phase 8 |
+| `scheduler.run_sprint_expiry` | `features/planning/background.py`, its only caller; `scheduler.py` is then empty |
+
+Two edits in 4.b.2 are not moves: a Sprint's end warnings become `system=True` (Q2), and
+`ai_reminders` gains `next_fire_at_local` through a `local_time()` function registered on the
+read-only connection (Q3). The second is the only snapshot cost of the whole batch — the view's
+column list is prose inside `SYSTEM_PROMPT` and the board prompt, so both hashes move once.
 
 ### Done means
 

@@ -15,11 +15,11 @@ from ...constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ...enums import MessageKind
 from ...foundation.errors import DomainError
 from ...foundation.models import Workspace
-from ...reminders import parse_clock_or_off
 from ...telegram._core import Services, router
 from ...telegram._messaging import edit_registered_message, send_registered, token_button
 from ...telegram._presentation import menu_row, with_notice
 from ...telegram.text_input import TextInputScreen, render_text_input
+from ..reminders.api import parse_clock_or_off
 from .model import UserProfile
 
 

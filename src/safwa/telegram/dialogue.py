@@ -18,12 +18,12 @@ from ..domain import (
     edit_card_text,
     set_sprint_success_criteria,
     update_card_fields,
-    update_reminder_text,
     update_tag_fields,
     update_value_fields,
 )
 from ..enums import MessageKind
 from ..features.profile.use_cases import profile_field, set_profile_field
+from ..features.reminders.use_cases import update_reminder_text
 from ..foundation.clock import SystemClock
 from ..history import HistoryEntry, register_message
 from ..models import UiSession

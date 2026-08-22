@@ -6,12 +6,12 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from safwa.enums import ScheduleKind
-from safwa.reminders import (
+from safwa.features.reminders.api import parse_clock_or_off
+from safwa.features.reminders.schedule import (
     Schedule,
     ScheduleError,
     describe,
     next_fire,
-    parse_clock_or_off,
     resolve,
     roll_forward,
     schedule_columns,
@@ -38,6 +38,7 @@ class FakeRow:
 
 
 def test_interval_alone_starts_now():
+    """RM-SCHEDULE-003 — tests/brd/reminders.feature"""
     schedule = resolve(interval_minutes=120, now=NOW, tz=TZ)
     assert schedule.kind is ScheduleKind.INTERVAL
     assert schedule.anchor_at == NOW
@@ -45,12 +46,14 @@ def test_interval_alone_starts_now():
 
 
 def test_interval_with_time_starts_at_that_clocks_next_occurrence():
+    """RM-SCHEDULE-003 — tests/brd/reminders.feature"""
     # 09:00 UTC is 12:00 local, so 08:00 local is tomorrow.
     schedule = resolve(interval_minutes=120, clock="08:00", now=NOW, tz=TZ)
     assert schedule.anchor_at == utc(2026, 8, 14, 5, 0)
 
 
 def test_interval_with_date_and_time_starts_at_that_exact_moment():
+    """RM-SCHEDULE-003 — tests/brd/reminders.feature"""
     schedule = resolve(
         interval_minutes=120, clock="09:00", day="01.09.2026", now=NOW, tz=TZ
     )
@@ -58,6 +61,7 @@ def test_interval_with_date_and_time_starts_at_that_exact_moment():
 
 
 def test_days_and_time_is_weekly():
+    """RM-SCHEDULE-003 — tests/brd/reminders.feature"""
     schedule = resolve(days=["Mon", "Wed"], clock="08:30", now=NOW, tz=TZ)
     assert schedule.kind is ScheduleKind.WEEKLY
     assert schedule.weekdays == ("Mon", "Wed")
@@ -66,6 +70,7 @@ def test_days_and_time_is_weekly():
 
 
 def test_all_seven_days_is_daily():
+    """RM-SCHEDULE-003 — tests/brd/reminders.feature"""
     schedule = resolve(
         days=["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], clock="08:30", now=NOW, tz=TZ
     )
@@ -79,6 +84,7 @@ def test_weekday_names_are_normalized_and_deduplicated():
 
 
 def test_date_and_time_is_once():
+    """RM-SCHEDULE-003 — tests/brd/reminders.feature"""
     schedule = resolve(clock="09:00", day="20.08.2026", now=NOW, tz=TZ)
     assert schedule.kind is ScheduleKind.ONCE
     assert not schedule.repeating
@@ -86,6 +92,7 @@ def test_date_and_time_is_once():
 
 
 def test_time_alone_is_once_at_its_next_occurrence():
+    """RM-SCHEDULE-003 — tests/brd/reminders.feature"""
     schedule = resolve(clock="08:00", now=NOW, tz=TZ)
     assert schedule.kind is ScheduleKind.ONCE
     assert schedule.anchor_at == utc(2026, 8, 14, 5, 0)
@@ -100,7 +107,6 @@ def test_time_alone_is_once_at_its_next_occurrence():
         ({"days": ["Mon"], "clock": "08:30", "interval_minutes": 60}, "not both"),
         ({"interval_minutes": 1}, "at least"),
         ({"clock": "08:30", "quiet_windows": ["22:00-09:00"]}, "only apply to an interval"),
-        ({"clock": "09:00", "day": "01.01.2020"}, "already passed"),
         ({"days": ["Funday"], "clock": "08:30"}, "Unknown weekday"),
         ({"clock": "25:00"}, "look like HH:MM"),
         ({"day": "2026-08-20", "clock": "09:00"}, "look like dd.mm.yyyy"),
@@ -111,12 +117,20 @@ def test_time_alone_is_once_at_its_next_occurrence():
     ],
 )
 def test_unresolvable_configurations(kwargs, message):
+    """RM-SCHEDULE-005 — tests/brd/reminders.feature"""
     with pytest.raises(ScheduleError, match=message):
         resolve(now=NOW, tz=TZ, **kwargs)
 
 
+def test_a_one_shot_whose_moment_has_passed_is_refused():
+    """RM-SCHEDULE-004 — tests/brd/reminders.feature"""
+    with pytest.raises(ScheduleError, match="already passed"):
+        resolve(clock="09:00", day="01.01.2020", now=NOW, tz=TZ)
+
+
 def test_past_start_on_a_recurrence_is_allowed():
-    """"Already started" is not an error — only an unsatisfiable one-shot is."""
+    """RM-SCHEDULE-004 — tests/brd/reminders.feature"""
+    # "Already started" is not an error — only an unsatisfiable one-shot is.
     schedule = resolve(days=["Mon"], clock="08:30", day="01.01.2020", now=NOW, tz=TZ)
     assert schedule.anchor_at == utc(2020, 1, 1, 5, 30)
 
@@ -136,6 +150,7 @@ def test_first_fire_of_a_weekly_is_the_next_matching_day():
 
 
 def test_a_future_start_holds_a_weekly_back():
+    """RM-SCHEDULE-003 — tests/brd/reminders.feature"""
     schedule = resolve(days=["Mon"], clock="08:30", day="01.09.2026", now=NOW, tz=TZ)
     # 1 Sep 2026 is a Tuesday, so the first Monday on or after it is 7 Sep.
     assert next_fire(schedule, previous=None, now=NOW, tz=TZ) == utc(2026, 9, 7, 5, 30)
@@ -147,6 +162,7 @@ def test_a_start_landing_exactly_on_a_matching_slot_is_included():
 
 
 def test_a_past_start_on_a_recurrence_does_not_backfill():
+    """RM-SCHEDULE-004 — tests/brd/reminders.feature"""
     schedule = resolve(days=["Mon"], clock="08:30", day="01.01.2020", now=NOW, tz=TZ)
     assert next_fire(schedule, previous=None, now=NOW, tz=TZ) == utc(2026, 8, 17, 5, 30)
 
@@ -162,24 +178,25 @@ def test_a_one_shot_fires_once_and_then_never_again():
 
 
 def test_a_candidate_inside_a_quiet_window_moves_to_its_end():
-    """The worked example from the spec: 21:00 + 2 h lands at 23:00, inside 22:00-09:00."""
+    """RM-QUIET-007 — tests/brd/reminders.feature"""
+    # The worked example from the spec: 21:00 + 2 h lands at 23:00, inside 22:00-09:00.
     schedule = resolve(interval_minutes=120, quiet_windows=["22:00-09:00"], now=NOW, tz=TZ)
     previous = utc(2026, 8, 13, 18, 0)  # 21:00 local
     assert next_fire(schedule, previous=previous, now=NOW, tz=TZ) == utc(2026, 8, 14, 6, 0)
 
 
 def test_a_candidate_outside_every_window_is_untouched():
+    """RM-QUIET-007 — tests/brd/reminders.feature"""
     schedule = resolve(interval_minutes=120, quiet_windows=["22:00-09:00"], now=NOW, tz=TZ)
     previous = utc(2026, 8, 13, 10, 0)  # 13:00 local
     assert next_fire(schedule, previous=previous, now=NOW, tz=TZ) == utc(2026, 8, 13, 12, 0)
 
 
 def test_a_wrapping_window_and_its_split_form_are_the_same_window():
-    """Split at midnight the window must be 22:00-00:00, not 22:00-23:59.
-
-    A window's end is exclusive, so 23:59 leaves the last minute of the day open and the
-    candidate stops there instead of carrying on to 09:00.
-    """
+    """RM-QUIET-007 — tests/brd/reminders.feature"""
+    # Split at midnight the window must be 22:00-00:00, not 22:00-23:59: an end is
+    # exclusive, so 23:59 leaves the last minute of the day open and the candidate stops
+    # inside it instead of carrying on to 09:00.
     wrapping = resolve(interval_minutes=120, quiet_windows=["22:00-09:00"], now=NOW, tz=TZ)
     split = resolve(
         interval_minutes=120, quiet_windows=["22:00-00:00", "00:00-09:00"], now=NOW, tz=TZ
@@ -191,6 +208,7 @@ def test_a_wrapping_window_and_its_split_form_are_the_same_window():
 
 
 def test_chained_windows_push_a_candidate_through_all_of_them():
+    """RM-QUIET-007 — tests/brd/reminders.feature"""
     schedule = resolve(
         interval_minutes=60, quiet_windows=["13:00-14:00", "14:00-16:00"], now=NOW, tz=TZ
     )
@@ -200,6 +218,7 @@ def test_chained_windows_push_a_candidate_through_all_of_them():
 
 
 def test_a_candidate_before_midnight_inside_a_wrapping_window_moves_to_the_next_morning():
+    """RM-QUIET-007 — tests/brd/reminders.feature"""
     schedule = resolve(interval_minutes=60, quiet_windows=["22:00-09:00"], now=NOW, tz=TZ)
     previous = utc(2026, 8, 13, 21, 30)  # 00:30 local on the 14th, inside the window
     assert next_fire(schedule, previous=previous, now=NOW, tz=TZ) == utc(2026, 8, 14, 6, 0)
@@ -209,7 +228,8 @@ def test_a_candidate_before_midnight_inside_a_wrapping_window_moves_to_the_next_
 
 
 def test_a_wall_clock_survives_a_daylight_saving_shift():
-    """Berlin goes UTC+2 -> UTC+1 on 25 Oct 2026, and 08:30 local must stay 08:30."""
+    """RM-CLOCK-006 — tests/brd/reminders.feature"""
+    # Berlin goes UTC+2 -> UTC+1 on 25 Oct 2026, and 08:30 local must stay 08:30.
     schedule = resolve(
         days=["Mon", "Tue", "Wed", "Thu", "Fri"], clock="08:30", now=NOW, tz=BERLIN
     )
@@ -221,6 +241,7 @@ def test_a_wall_clock_survives_a_daylight_saving_shift():
 
 
 def test_a_quiet_window_edge_survives_a_daylight_saving_shift():
+    """RM-CLOCK-006 — tests/brd/reminders.feature"""
     schedule = resolve(interval_minutes=180, quiet_windows=["22:00-09:00"], now=NOW, tz=BERLIN)
     previous = utc(2026, 10, 24, 19, 0)  # 21:00 local, the evening before the shift
     landed = next_fire(schedule, previous=previous, now=NOW, tz=BERLIN)
@@ -269,6 +290,7 @@ def test_roll_forward_respects_quiet_windows():
     ],
 )
 def test_a_schedule_survives_the_column_round_trip(kwargs):
+    """RM-WRITE-008 — tests/brd/reminders.feature"""
     schedule = resolve(now=NOW, tz=TZ, **kwargs)
     assert schedule_of(FakeRow(**schedule_columns(schedule))) == schedule
 

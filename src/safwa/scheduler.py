@@ -29,8 +29,8 @@ from .constants import (
     SPRINT_EXPIRY_POLL_SECONDS,
 )
 from .domain import expire_due_sprint
+from .features.reminders.schedule import describe, roll_forward, schedule_of
 from .models import Reminder
-from .reminders import describe, roll_forward, schedule_of
 
 logger = logging.getLogger(__name__)
 

@@ -17,8 +17,8 @@ from datetime import date as date_type
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from .constants import REMINDER_MIN_INTERVAL_MINUTES, WEEKDAY_NAMES
-from .enums import ScheduleKind
+from ...constants import REMINDER_MIN_INTERVAL_MINUTES, WEEKDAY_NAMES
+from ...enums import ScheduleKind
 
 MINUTES_PER_DAY = 24 * 60
 _WORKWEEK = ("Mon", "Tue", "Wed", "Thu", "Fri")
@@ -52,11 +52,6 @@ def parse_clock(raw: str) -> time:
         return datetime.strptime(raw.strip(), "%H:%M").time()
     except ValueError as error:
         raise ScheduleError(f"A time must look like HH:MM, got {raw!r}") from error
-
-
-def parse_clock_or_off(raw: str) -> time | None:
-    """A daily Settings clock. ``off`` is None, which is how that setting is switched off."""
-    return None if raw.strip().lower() == "off" else parse_clock(raw)
 
 
 def parse_day(raw: str) -> date_type:

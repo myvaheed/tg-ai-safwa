@@ -84,6 +84,19 @@ async def test_pl_check_014_action_with_unanswered_check_cannot_finish(app):
 public operations and never restates a business rule inside the builder — a builder that
 knows the rule makes the test check itself.
 
+## Numbers
+
+A scenario states the number and names the constant next to it. The test reads the constant.
+
+```text
+Then the 3 oldest go to the Advisor as one request (REMINDER_FIRE_BATCH = 3)
+```
+
+Writing `the batch size` in the scenario says nothing a reviewer can check, and hard-coding `3` in
+the test makes the test and the constant two copies that can disagree in silence. Written this way
+the scenario is readable on its own, the test still follows the constant when it is tuned, and a
+constant that moves away from its scenario is visible to whoever reads the two side by side.
+
 ## The traceability is checked
 
 `tests/test_brd_traceability.py` reads the `.feature` files and every test docstring, and

@@ -281,8 +281,10 @@ clock, then convert to UTC — so 08:30 stays 08:30 across a DST shift.
 
 - **One-shot overdue** — always fires, however late. The escalation states how late, then the row is
   deleted. Invariant: a one-shot produces exactly one escalation, ever.
-- **Repeating overdue** — at most **one** catch-up, and only if the most recent missed occurrence is
-  within `REMINDER_CATCHUP_GRACE_MINUTES`; otherwise roll `next_fire_at` forward silently. A weekend
+- **Repeating overdue** — at most **one** catch-up, and only if `next_fire_at` itself is within
+  `REMINDER_CATCHUP_GRACE_MINUTES`; otherwise roll it forward silently. The stored fire time is the
+  *oldest* missed occurrence, so how long the Reminder went unanswered is what decides, not how
+  often it repeats: one every five minutes, offline three hours, escalates nothing. A weekend
   offline must not produce 32 posture escalations.
 
 ## Checking referenced items

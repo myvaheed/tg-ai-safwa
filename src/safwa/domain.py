@@ -29,6 +29,8 @@ from .enums import (
     ScheduleKind,
     WorkspaceMode,
 )
+from .features.reminders.schedule import Schedule
+from .features.reminders.use_cases import create_reminder
 from .foundation.errors import DomainError
 from .foundation.errors import StaleStateError as StaleStateError
 from .foundation.workspace import bump_workspace as _bump_workspace
@@ -53,7 +55,6 @@ from .models import (
     Workspace,
     new_correlation_id,
 )
-from .reminders import Schedule, next_fire, schedule_columns
 from .saved_requests import RequestQueryError, normalize_request_sql
 
 
@@ -540,69 +541,6 @@ async def set_value_focus(
     return await update_value_fields(
         session, value_id, active=(not value.active) if active is None else active
     )
-
-
-async def create_reminder(
-    session: AsyncSession, *, instruction: str, schedule: Schedule, tz: ZoneInfo
-) -> Reminder:
-    """Store a Reminder and compute its first fire. The schedule arrives already resolved."""
-    clean = instruction.strip()
-    if not clean:
-        raise DomainError("Reminder text cannot be empty")
-    now = utcnow()
-    first = next_fire(schedule, previous=None, now=now, tz=tz)
-    if first is None:
-        raise DomainError("That schedule has no future occurrence")
-    reminder = Reminder(instruction=clean, next_fire_at=first, **schedule_columns(schedule))
-    session.add(reminder)
-    await session.flush()
-    await _bump_workspace(session)
-    return reminder
-
-
-async def update_reminder_text(session: AsyncSession, reminder_id: int, instruction: str) -> Reminder:
-    """Edit what a Reminder tells the advisor, and nothing about when it fires."""
-    reminder = await _editable_reminder(session, reminder_id)
-    clean = instruction.strip()
-    if not clean:
-        raise DomainError("Reminder text cannot be empty")
-    reminder.instruction = clean
-    reminder.version += 1
-    await _bump_workspace(session)
-    return reminder
-
-
-async def reschedule_reminder(
-    session: AsyncSession, reminder_id: int, *, schedule: Schedule, tz: ZoneInfo
-) -> Reminder:
-    reminder = await _editable_reminder(session, reminder_id)
-    now = utcnow()
-    first = next_fire(schedule, previous=None, now=now, tz=tz)
-    if first is None:
-        raise DomainError("That schedule has no future occurrence")
-    for column, value in schedule_columns(schedule).items():
-        setattr(reminder, column, value)
-    reminder.next_fire_at = first
-    reminder.version += 1
-    await _bump_workspace(session)
-    return reminder
-
-
-async def delete_reminder(session: AsyncSession, reminder_id: int) -> None:
-    """Remove a Reminder outright; there is no archive."""
-    reminder = await _editable_reminder(session, reminder_id)
-    await session.delete(reminder)
-    await _bump_workspace(session)
-
-
-async def _editable_reminder(session: AsyncSession, reminder_id: int) -> Reminder:
-    """A Reminder the owner and the advisor may touch — never Safwa's own."""
-    reminder = await session.get(Reminder, reminder_id)
-    if reminder is None:
-        raise DomainError("Reminder does not exist")
-    if reminder.system:
-        raise DomainError("That Reminder belongs to Safwa; change it in Settings")
-    return reminder
 
 
 async def edit_card_text(session: AsyncSession, card_id: int, field: str, value: str) -> Card:

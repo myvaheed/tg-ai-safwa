@@ -12,21 +12,23 @@ from safwa.ai.service import AIOutcome
 from safwa.constants import REMINDER_CATCHUP_GRACE_MINUTES
 from safwa.domain import (
     DomainError,
-    create_reminder,
-    delete_reminder,
-    reschedule_reminder,
-    update_reminder_text,
 )
 from safwa.enums import MessageKind, ScheduleKind
-from safwa.models import Reminder, Workspace
-from safwa.recovery import reconcile_reminders
-from safwa.reminders import (
+from safwa.features.reminders.schedule import (
     resolve,
     schedule_columns,
     schedule_from_payload,
     schedule_of,
     schedule_payload,
 )
+from safwa.features.reminders.use_cases import (
+    create_reminder,
+    delete_reminder,
+    reschedule_reminder,
+    update_reminder_text,
+)
+from safwa.models import Reminder, Workspace
+from safwa.recovery import reconcile_reminders
 from safwa.scheduler import Firing
 from safwa.telegram._core import BACKGROUND_SOURCE_ID, GenerationGuard
 from safwa.telegram.escalation import ReminderRuntime, format_escalation
@@ -39,6 +41,7 @@ NOW = datetime(2026, 8, 13, 9, 0, tzinfo=UTC)  # a Thursday
 
 
 async def test_create_reminder_computes_its_first_fire(sessions):
+    """RM-WRITE-008 — tests/brd/reminders.feature"""
     schedule = resolve(days=["Mon"], clock="08:30", now=NOW, tz=TZ)
     async with sessions() as session:
         reminder = await create_reminder(
@@ -50,6 +53,7 @@ async def test_create_reminder_computes_its_first_fire(sessions):
 
 
 async def test_create_reminder_rejects_empty_text(sessions):
+    """RM-WRITE-008 — tests/brd/reminders.feature"""
     schedule = resolve(interval_minutes=120, now=NOW, tz=TZ)
     async with sessions() as session:
         with pytest.raises(DomainError, match="cannot be empty"):
@@ -57,6 +61,7 @@ async def test_create_reminder_rejects_empty_text(sessions):
 
 
 async def test_editing_text_leaves_the_schedule_alone(sessions):
+    """RM-WRITE-009 — tests/brd/reminders.feature"""
     schedule = resolve(interval_minutes=120, now=NOW, tz=TZ)
     async with sessions() as session:
         reminder = await create_reminder(
@@ -75,6 +80,7 @@ async def test_editing_text_leaves_the_schedule_alone(sessions):
 
 
 async def test_rescheduling_replaces_every_schedule_column(sessions):
+    """RM-WRITE-009 — tests/brd/reminders.feature"""
     async with sessions() as session:
         reminder = await create_reminder(
             session,
@@ -95,6 +101,7 @@ async def test_rescheduling_replaces_every_schedule_column(sessions):
 
 
 async def test_deleting_a_reminder_removes_the_row(sessions):
+    """RM-WRITE-010 — tests/brd/reminders.feature"""
     async with sessions() as session:
         reminder = await create_reminder(
             session,
@@ -133,12 +140,14 @@ async def test_reminder_mutations_bump_the_workspace_revision(sessions):
     ],
 )
 def test_a_schedule_survives_the_proposal_json_round_trip(kwargs):
+    """RM-WRITE-008 — tests/brd/reminders.feature"""
     """The resolved schedule travels through the proposal, not the words the model used."""
     schedule = resolve(now=NOW, tz=TZ, **kwargs)
     assert schedule_from_payload(schedule_payload(schedule)) == schedule
 
 
 def test_the_proposal_payload_is_json_serializable():
+    """RM-WRITE-008 — tests/brd/reminders.feature"""
     import json
 
     schedule = resolve(interval_minutes=120, clock="09:00", day="20.08.2026", now=NOW, tz=TZ)

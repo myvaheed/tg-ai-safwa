@@ -33,7 +33,6 @@ from safwa.domain import (
     archive_tag,
     create_card,
     create_check,
-    create_reminder,
     create_saved_request,
     create_tag,
     create_value,
@@ -50,6 +49,8 @@ from safwa.features.profile.use_cases import (
     DIARY_REMINDER_INSTRUCTION,
     set_profile_field,
 )
+from safwa.features.reminders.schedule import resolve
+from safwa.features.reminders.use_cases import create_reminder
 from safwa.foundation.clock import SystemClock
 from safwa.history import (
     CITATION_TYPES,
@@ -75,7 +76,6 @@ from safwa.models import (
     Value,
     Workspace,
 )
-from safwa.reminders import resolve
 from safwa.telegram import (
     CALLBACK_ACTIONS,
     GenerationGuard,
@@ -1211,6 +1211,7 @@ async def test_card_text_and_blocked_reason_stay_on_one_validated_editor(session
 
 
 async def test_reminder_text_requires_a_value_and_restores_its_view(sessions) -> None:
+    """RM-WRITE-009 — tests/brd/reminders.feature"""
     async with sessions() as session:
         reminder = await create_reminder(
             session,

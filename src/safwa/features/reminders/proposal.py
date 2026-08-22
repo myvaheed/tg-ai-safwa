@@ -6,27 +6,28 @@ screen shows a real schedule and Save applies exactly what the owner approved.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from ...ai.reminder_sessions import resolve_schedule
-from ...domain import (
-    DomainError,
-    StaleStateError,
-    create_reminder,
-    delete_reminder,
-    reschedule_reminder,
-    update_reminder_text,
-    utcnow,
-)
-from ...models import ProposalChange, Reminder, Workspace
-from ...reminders import ScheduleError, describe, schedule_from_payload, schedule_payload
+from ...foundation.errors import DomainError, StaleStateError
+from ...foundation.models import Workspace
+from ...models import ProposalChange
 from ..proposals.api import (
     ApplyContext,
     PreparationContext,
     PreparedChange,
     ToolPreparationError,
     require_target,
+)
+from .agent import resolve_schedule
+from .model import Reminder
+from .schedule import ScheduleError, describe, schedule_from_payload, schedule_payload
+from .use_cases import (
+    create_reminder,
+    delete_reminder,
+    reschedule_reminder,
+    update_reminder_text,
 )
 
 
@@ -49,7 +50,7 @@ class ReminderProposalHandler:
         if not when:
             return prepared  # an edit with no timing leaves the schedule alone
         tz = ZoneInfo(context.workspace.timezone)
-        now = utcnow()
+        now = datetime.now(UTC)
         try:
             schedule = await resolve_schedule(
                 context.provider,
@@ -92,7 +93,8 @@ class ReminderProposalHandler:
             return [reminder.id]
         if change.entity_id is None:
             raise DomainError("This Reminder change has no target")
-        if change.action == "delete":
+        # `remove` may only send archive for a Reminder, and a Reminder has no archive.
+        if change.action in {"delete", "archive"}:
             await delete_reminder(session, change.entity_id)
             return [change.entity_id]
         if change.action != "update":

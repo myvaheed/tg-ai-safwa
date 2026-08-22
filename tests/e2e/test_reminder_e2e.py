@@ -2,20 +2,23 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, time
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
+from safwa.ai.context import DialogueMessage
 from safwa.ai.service import ProposalService
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.enums import ProposalStatus
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
+from safwa.features.reminders.schedule import schedule_of
 from safwa.foundation.clock import SystemClock
-from safwa.models import ChangeProposal, ProposalChange, Reminder
-from safwa.reminders import schedule_of
+from safwa.models import CallbackToken, ChangeProposal, ProposalChange, Reminder
+from safwa.telegram import GenerationGuard, callback_token_handler, render_proposal
 
 TZ = ZoneInfo("Europe/Istanbul")
 
@@ -44,6 +47,7 @@ def reminder_script(config: dict[str, object], *, instruction: str, when: str):
 
 
 async def test_a_reminder_reaches_a_proposal_and_save_creates_the_row(e2e_harness):
+    """RM-WRITE-008 — tests/brd/reminders.feature"""
     advisor, _provider = e2e_harness.advisor(
         reminder_script(
             {"days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "time": "08:30"},
@@ -70,6 +74,7 @@ async def test_a_reminder_reaches_a_proposal_and_save_creates_the_row(e2e_harnes
 
 
 async def test_discarding_the_proposal_leaves_no_reminder(e2e_harness):
+    """RM-WRITE-008 — tests/brd/reminders.feature"""
     advisor, _provider = e2e_harness.advisor(
         reminder_script(
             {"interval_minutes": 120},
@@ -88,6 +93,7 @@ async def test_discarding_the_proposal_leaves_no_reminder(e2e_harness):
 
 
 async def test_the_proposal_carries_the_resolved_schedule_not_the_words(e2e_harness):
+    """RM-SCHEDULE-001 — tests/brd/reminders.feature"""
     advisor, _provider = e2e_harness.advisor(
         reminder_script(
             {"interval_minutes": 120, "quiet_windows": ["22:00-09:00"]},
@@ -109,7 +115,8 @@ async def test_the_proposal_carries_the_resolved_schedule_not_the_words(e2e_harn
 
 
 async def test_an_unresolvable_phrase_becomes_a_retryable_tool_error(e2e_harness):
-    """`not_clear_enough` must reach the model as a question, never as a guessed hour."""
+    """RM-SCHEDULE-002 — tests/brd/reminders.feature"""
+    # `not_clear_enough` must reach the model as a question, never as a guessed hour.
     advisor, provider = e2e_harness.advisor(
         [
             turn(
@@ -141,6 +148,7 @@ async def test_an_unresolvable_phrase_becomes_a_retryable_tool_error(e2e_harness
 
 
 async def test_editing_a_reminder_without_when_never_touches_the_schedule(e2e_harness):
+    """RM-WRITE-009 — tests/brd/reminders.feature"""
     setup, _provider = e2e_harness.advisor(
         reminder_script(
             {"interval_minutes": 120},
@@ -200,6 +208,133 @@ async def test_ai_reminders_view_is_readable(e2e_harness):
     result = await reader.run("SELECT id, instruction, schedule_kind FROM ai_reminders")
     rows = result.as_tool_result()
     assert rows and rows[0]["schedule_kind"] == "interval"
+
+
+class _TestMessage:
+    """The Telegram surface a proposal screen renders onto."""
+
+    def __init__(self) -> None:
+        self.message_id = 900
+        self.chat = SimpleNamespace(id=700, type="private")
+        self.from_user = SimpleNamespace(id=42, is_bot=True)
+        self.bot = _TestBot()
+        self.text = ""
+        self.rendered: list[str] = []
+        self.markups: list[object] = []
+
+    async def edit_text(self, text, *, reply_markup=None, parse_mode=None):
+        del parse_mode
+        self.rendered.append(text)
+        self.markups.append(reply_markup)
+        return self
+
+    async def answer(self, text, *, reply_markup=None, parse_mode=None):
+        del parse_mode
+        self.rendered.append(text)
+        self.markups.append(reply_markup)
+        return self
+
+    async def edit_reply_markup(self, *, reply_markup=None):
+        self.markups.append(reply_markup)
+        return self
+
+
+class _TestBot:
+    async def send_chat_action(self, *_args, **_kwargs) -> None:
+        return None
+
+    async def delete_message(self, *_args, **_kwargs) -> None:
+        return None
+
+    async def edit_message_reply_markup(self, *_args, **_kwargs) -> None:
+        return None
+
+
+class _TestCallback:
+    def __init__(self, token: str, message: _TestMessage) -> None:
+        self.data = f"cb:{token}"
+        self.message = message
+
+    async def answer(self, text=None, *, show_alert=False) -> None:
+        del text, show_alert
+
+
+class _TestHistory:
+    async def dialogue(self, _chat_id):
+        return [DialogueMessage(role="user", content="[Initial request]: drop that reminder")]
+
+
+def _services(harness, advisor) -> SimpleNamespace:
+    return SimpleNamespace(
+        sessions=harness.sessions,
+        advisor=advisor,
+        history=_TestHistory(),
+        owner_id=42,
+        guard=GenerationGuard(),
+        bot_username="safwa_ai_bot",
+    )
+
+
+async def _live_actions(harness) -> set[str]:
+    async with harness.sessions() as session:
+        return {
+            token.action
+            for token in await session.scalars(
+                select(CallbackToken).where(CallbackToken.consumed_at.is_(None))
+            )
+        }
+
+
+async def _press(harness, action: str, message: _TestMessage, services) -> None:
+    async with harness.sessions() as session:
+        tokens = list(
+            await session.scalars(
+                select(CallbackToken).where(
+                    CallbackToken.action == action, CallbackToken.consumed_at.is_(None)
+                )
+            )
+        )
+    assert tokens, f"no live {action} button"
+    await callback_token_handler(_TestCallback(tokens[-1].token, message), services)
+
+
+async def test_the_model_removes_a_reminder_with_one_save(e2e_harness):
+    """RM-WRITE-010 — tests/brd/reminders.feature"""
+    setup, _provider = e2e_harness.advisor(
+        reminder_script(
+            {"interval_minutes": 120},
+            instruction="Check my posture — Check #5.",
+            when="every two hours",
+        )
+    )
+    outcome = await setup.handle("nudge me", source_message_id=1)
+    async with e2e_harness.sessions() as session:
+        reminder_id = (await ProposalService(session, PROPOSALS).apply(outcome.proposal_id))[0]
+        await session.commit()
+
+    advisor, _provider = e2e_harness.advisor(
+        [
+            turn(("remove", {"entity": "reminder", "id": reminder_id})),
+            "That one is gone.",
+        ]
+    )
+    outcome = await advisor.handle("drop that reminder", source_message_id=2)
+    assert outcome.proposal_id is not None
+
+    message = _TestMessage()
+    services = _services(e2e_harness, advisor)
+    await render_proposal(message, services, outcome.proposal_id)
+    # Save and Discard, and nothing else: a Reminder is not the Card tree whose deletion
+    # takes its subtree and its historical contribution with it.
+    assert await _live_actions(e2e_harness) == {"proposal_approve", "proposal_reject"}
+
+    await _press(e2e_harness, "proposal_approve", message, services)
+
+    async with e2e_harness.sessions() as session:
+        assert await session.get(Reminder, reminder_id) is None
+    assert not any("destructive" in text.lower() for text in message.rendered)
+    # The receipt says what happened: there is no archive to read "Archive" as.
+    assert any("Delete Reminder" in text for text in message.rendered)
 
 
 async def test_the_diary_reminder_is_invisible_to_the_model(e2e_harness):

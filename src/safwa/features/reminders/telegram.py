@@ -5,13 +5,14 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...ai.contracts import AgentChange
-from ...models import ProposalChange, Reminder
+from ...models import ProposalChange
 from ..proposals.api import (
     ACTION_VERBS,
     ProposalScreen,
     detail_lines,
     result_value,
 )
+from .model import Reminder
 
 
 class ReminderProposalPresenter:
@@ -37,7 +38,12 @@ class ReminderProposalPresenter:
         )
         text = str(values.get("instruction") or (reminder.instruction if reminder else ""))
         head = f"Reminder “{result_value(text)}”" if text else f"Reminder #{change.entity_id}"
-        verb = ACTION_VERBS.get(change.action, change.action.title())
+        # A Reminder has no archive, so the only removal `remove` can send reads as one.
+        verb = (
+            "Delete"
+            if change.action == "archive"
+            else ACTION_VERBS.get(change.action, change.action.title())
+        )
         schedule = values.get("schedule_text")
         return f"{verb} {head}" + (f" ({schedule})" if schedule else "")
 

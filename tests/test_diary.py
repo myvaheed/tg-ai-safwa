@@ -12,11 +12,6 @@ from llm_gateway import ToolCall
 from safwa.ai.prepare import ChangePreparer
 from safwa.bootstrap.module_manifest import AgentContext
 from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS, SYSTEM_PROMPT
-from safwa.domain import (
-    delete_reminder,
-    reschedule_reminder,
-    update_reminder_text,
-)
 from safwa.features.diary.agent import (
     DIARY_AGENT,
     DIARY_PROMPT,
@@ -38,10 +33,15 @@ from safwa.features.diary.use_cases import (
 )
 from safwa.features.profile.use_cases import sync_diary_reminder
 from safwa.features.proposals.api import ToolPreparationError
+from safwa.features.reminders.schedule import resolve
+from safwa.features.reminders.use_cases import (
+    delete_reminder,
+    reschedule_reminder,
+    update_reminder_text,
+)
 from safwa.foundation.clock import SystemClock
 from safwa.foundation.errors import DomainError
 from safwa.models import Reminder
-from safwa.reminders import resolve
 
 
 class FrozenClock:

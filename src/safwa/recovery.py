@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .constants import REMINDER_CATCHUP_GRACE_MINUTES, SESSION_IDLE_DAYS
 from .enums import ProposalStatus
+from .features.reminders.schedule import next_fire, on_wall_clock, roll_forward, schedule_of
 from .models import (
     AgentRun,
     AgentStep,
@@ -18,7 +19,6 @@ from .models import (
     UiSession,
     Workspace,
 )
-from .reminders import next_fire, on_wall_clock, roll_forward, schedule_of
 
 
 async def recover_startup(

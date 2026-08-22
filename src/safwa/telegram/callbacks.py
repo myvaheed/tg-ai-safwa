@@ -20,7 +20,6 @@ from ..domain import (
     create_card,
     create_tag,
     create_value,
-    delete_reminder,
     delete_subtree,
     finish_action,
     finish_sprint,
@@ -34,6 +33,7 @@ from ..domain import (
     update_check_fields,
 )
 from ..enums import CardStage, CheckOutcome, MessageKind, ProposalStatus
+from ..features.reminders.use_cases import delete_reminder
 from ..models import (
     CallbackToken,
     Card,

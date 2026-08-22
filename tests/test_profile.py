@@ -8,15 +8,16 @@ from sqlalchemy import select
 
 from safwa.ai.context import ordered_owner_context, planning_context
 from safwa.bootstrap.modules import RECOVERY_HOOKS
-from safwa.domain import create_reminder, start_sprint
+from safwa.domain import start_sprint
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.screens import SETTINGS_FIELDS
 from safwa.features.profile.use_cases import profile_field, set_profile_field
+from safwa.features.reminders.schedule import resolve
+from safwa.features.reminders.use_cases import create_reminder
 from safwa.foundation.clock import SystemClock
 from safwa.foundation.errors import DomainError
 from safwa.models import Reminder, UserProfile, Workspace
 from safwa.recovery import recover_startup
-from safwa.reminders import resolve
 
 
 class FrozenClock:

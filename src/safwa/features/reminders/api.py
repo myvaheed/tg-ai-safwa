@@ -17,8 +17,13 @@ from ...enums import ScheduleKind
 from ...foundation.clock import Clock
 from ...foundation.errors import DomainError
 from ...foundation.models import Workspace
-from ...models import Reminder
-from ...reminders import Schedule, next_fire, schedule_columns
+from .model import Reminder
+from .schedule import Schedule, next_fire, parse_clock, schedule_columns
+
+
+def parse_clock_or_off(raw: str) -> time | None:
+    """A daily Settings clock. ``off`` is None, which is how that setting is switched off."""
+    return None if raw.strip().lower() == "off" else parse_clock(raw)
 
 
 async def sync_daily_system_reminder(
