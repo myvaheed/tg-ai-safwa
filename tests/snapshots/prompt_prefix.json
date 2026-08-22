@@ -1,10 +1,10 @@
 {
-  "BOARD_PROMPT": "06f09b2d9a079435",
+  "BOARD_PROMPT": "22318383e4e66bda",
   "DIARY_PROMPT": "291840fcfbec7aa2",
   "PERSONA": "4d7d76dae685589c",
-  "SYSTEM_PROMPT": "004766b36622a45b",
+  "SYSTEM_PROMPT": "971bfc16131db535",
   "tool:card": "0852f459f188e677",
-  "tool:check": "8f82dbb7f541965e",
+  "tool:check": "c458af6b74f30a3e",
   "tool:diary": "dc0cea6954abc8d4",
   "tool:open": "2ed5e4eb391a8334",
   "tool:query_safwa": "7607bfecab630369",

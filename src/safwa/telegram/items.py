@@ -16,10 +16,11 @@ from ..models import SavedRequest, Tag, UiSession, Value
 from ._core import ITEM_REFERENCES, Services
 from ._messaging import edit_registered_message, send_registered, token_button
 from ._presentation import kind_label, menu_row
-from .cards import linked_card_count
+from .cards import carrier_counts
 from .text_input import TextInputScreen, render_text_input
 
 logger = logging.getLogger(__name__)
+
 
 
 async def render_item_editor(
@@ -37,7 +38,7 @@ async def render_item_editor(
     if entity not in ITEM_REFERENCES or mode not in {"create", "view"}:
         raise DomainError("Unsupported item editor")
     spec = ITEM_REFERENCES[entity]
-    linked_count = 0
+    carried_by: list[tuple[str, int]] = []
     async with services.sessions() as session:
         item: Tag | Value | None = None
         if mode == "view":
@@ -45,7 +46,7 @@ async def render_item_editor(
             if item is None or item.archived_at is not None:
                 raise DomainError(f"{entity.title()} does not exist")
             editor_values = {"name": item.name, "description": item.description}
-            linked_count = await linked_card_count(session, spec, item.id)
+            carried_by = await carrier_counts(session, spec, item.id)
         else:
             editor_values = {"name": "", "description": "", **(values or {})}
 
@@ -134,7 +135,11 @@ async def render_item_editor(
         f"<b>{title}</b>\n"
         f"Name: {html.escape(editor_values['name'] or '—')}\n"
         f"Description: {html.escape(editor_values['description'] or '—')}"
-        + (f"\nLinked Cards: {linked_count}" if mode == "view" else "")
+        + (
+            "".join(f"\nLinked {label}s: {count}" for label, count in carried_by)
+            if mode == "view"
+            else ""
+        )
     )
     markup = InlineKeyboardMarkup(inline_keyboard=rows + list(extra_rows or []))
     if replace_message_id is not None:

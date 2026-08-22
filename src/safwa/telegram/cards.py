@@ -79,6 +79,26 @@ async def linked_card_count(session: AsyncSession, spec: ReferenceSpec, item_id:
     )
 
 
+async def carrier_counts(
+    session: AsyncSession, spec: ReferenceSpec, item_id: int
+) -> list[tuple[str, int]]:
+    """What carries this Tag or Value right now, one entry per kind of thing.
+
+    The spec says what can carry it, so a screen counts Checks for a Value without knowing
+    which item it is looking at.
+    """
+    return [
+        (carrier.owner_label, await linked_card_count(session, carrier, item_id))
+        for carrier in (spec, *spec.also_carried_by)
+    ]
+
+
+def carrier_phrase(counts: list[tuple[str, int]]) -> str:
+    """One wording for the archive question and for the receipt that answers it."""
+    parts = [f"{count} {label}{'' if count == 1 else 's'}" for label, count in counts if count]
+    return " and ".join(parts) or "nothing"
+
+
 # Which side a one-tap stage move sits on, so a row always reads the same way: leaving
 # Today for the Sprint on the left, pulling a Sprint Action into Today on the right.
 QUICK_MOVE_BUTTONS = {
@@ -472,7 +492,7 @@ async def _choice_options(session: AsyncSession, field: str) -> list[tuple[str, 
     return [(item.name, item.id) for item in items]
 
 
-def _choice_rows(
+def choice_rows(
     options: list[tuple[str, Any]],
     selected: set[Any],
     build: Callable[[Any], tuple[str, dict[str, Any]]],
@@ -517,7 +537,7 @@ async def handle_card_creation_chooser(
             def build(value: Any, state_field: str = state_field) -> tuple[str, dict]:
                 return "card_create_set", {"field": state_field, "value": value}
 
-        choices = _choice_rows(current.items if current else options, selected, build)
+        choices = choice_rows(current.items if current else options, selected, build)
         await session.commit()
     await choice_screen(
         message,
@@ -555,9 +575,10 @@ async def render_card_choices(
             )
 
             def build(value: Any, relation: RelationChoice = relation) -> tuple[str, dict]:
+                # The page rides along, so ticking one on page 2 comes back to page 2.
                 return (
                     f"card_toggle_{relation.singular}",
-                    {"id": card.id, relation.payload_key: value},
+                    {"id": card.id, relation.payload_key: value, "page": page},
                 )
         elif field == "stage":
             # A stage change is a domain move, not a plain field write.
@@ -573,7 +594,7 @@ async def render_card_choices(
             def build(value: Any, column: str = column) -> tuple[str, dict]:
                 return "card_set_field", {"id": card.id, "field": column, "value": value}
 
-        choices = _choice_rows(current.items if current else options, selected, build)
+        choices = choice_rows(current.items if current else options, selected, build)
         await session.commit()
     await choice_screen(
         message,

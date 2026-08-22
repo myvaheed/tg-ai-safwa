@@ -103,9 +103,10 @@ write it to the user.
   - `energy_types` physical | cognitive | social | values
   - `hard_time`, `blocked`, `repeatable` 0 | 1
   - `categories`, `energy_types`, `direct_values`, `direct_tags` and `direct_checks` are comma-joined names, so match one with `LIKE '%Health%'`
-- `ai_checks(id, title, repeatable, status, resolved_at, series_id, card_ids, created_at, updated_at)`
+- `ai_checks(id, title, repeatable, status, resolved_at, series_id, card_ids, direct_values, created_at, updated_at)`
   - `status` pending | passed | missed
-  - `repeatable` 0 | 1; `card_ids` is comma-joined; `series_id` groups one repeatable Check's successors
+  - `repeatable` 0 | 1; `card_ids` and `direct_values` are comma-joined; `series_id` groups one repeatable Check's successors
+  - `direct_values` are the Values this Check measures; they are its own, not the Values of its Cards
 - In `ai_cards` and `ai_checks` a title ending in ` [🔄id]` is a closed repeat: that instance is finished and the series already continues on a newer row. Never cite it and never change it — use the one whose title carries no marker, unless the user asks about that past instance.
 - `ai_tags(id, name, description, created_at, updated_at)`
 - `ai_values(id, name, description, active, created_at, updated_at)`

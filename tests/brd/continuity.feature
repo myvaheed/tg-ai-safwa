@@ -1,80 +1,85 @@
-Feature: Continuity summaries and memory
-  Safwa keeps dialogue summaries current and treats memory.md as owner-editable text.
+Feature: Summaries and memory
+  Safwa keeps a running Summary of the conversation so the older part of it still counts, and
+  remembers durable facts in memory.md — a plain text file the owner owns and may edit in any
+  editor. Telegram is where the conversation really lives; that file is where the facts really live.
+
+  Numbers below name the constant they come from; the tests read the constant.
 
   Background:
-    Given Telegram is the canonical dialogue and memory.md is an ordinary UTF-8 text file
+    Given a conversation in Telegram, and memory.md, a plain text file the owner may edit
 
-  Scenario: CO-SUMMARY-001 — Automatic Summary waits for 6000 estimated tokens
-    Given canonical dialogue is below 6000 estimated tokens
-    Then the automatic post-turn check writes no Summary
-    But an explicit forced check may write one
+  Scenario: CO-SUMMARY-001 — A Summary is written when the window fills, and not before
+    Given the conversation is under 6000 tokens (SUMMARY_TRIGGER_TOKENS = 6000)
+    Then the check that runs after every turn writes no Summary
+    But a Summary asked for outright may still be written
 
-  Scenario: CO-SUMMARY-002 — A new Summary includes the previous Summary
-    Given a previous Summary and newer canonical dialogue
-    When another Summary is requested
-    Then the provider input contains the previous Summary and the newer dialogue
+  Scenario: CO-SUMMARY-002 — A new Summary is written from the old one and what happened since
+    Given an earlier Summary, and conversation that happened after it
+    When another Summary is written
+    Then it is written from both, so nothing the earlier one covered is lost
 
-  Scenario: CO-SUMMARY-003 — An owner message arriving during Summary generation wins the race
-    Given Summary generation has read one canonical dialogue snapshot
-    When an owner message arrives before the generated Summary is recorded
-    Then the result based on the earlier snapshot is discarded
-    And a later attempt may summarize the expanded dialogue
+  Scenario: CO-SUMMARY-003 — If the owner speaks while a Summary is being written, the owner wins
+    Given a Summary is being written from the conversation as it stood
+    When the owner says something before that Summary is stored
+    Then it is thrown away, because it no longer covers the whole conversation
+    And a later attempt covers the owner's words too
 
-  Scenario: CO-MEMORY-004 — memory.md is the source of durable facts
-    Given memory.md is an ordinary UTF-8 text file
-    When memory is read
-    Then trimmed non-empty lines are facts in file order
-    And blank lines are ignored
-    And an absent file means no facts
+  Scenario: CO-MEMORY-004 — memory.md is where the facts are
+    Given memory.md
+    When Safwa reads what it remembers
+    Then every non-empty line is one fact, in the order the file has them
+    And blank lines are skipped
+    And a file that is not there means Safwa remembers nothing, which is not a failure
 
-  Scenario: CO-MEMORY-005 — A later local edit is observed on the next synchronization
+  Scenario: CO-MEMORY-005 — An edit the owner makes themselves is picked up on the next read
     Given Safwa has already read memory.md
     When the owner edits the file outside Safwa
-    Then the next synchronization returns the edited facts
+    Then the next read gives Safwa what the owner wrote
 
-  Scenario: CO-MEMORY-006 — An AI replacement cannot overwrite a newer local edit
-    Given AI maintenance started from one file hash
-    When the owner edits memory.md before replacement
-    Then replacement is rejected
-    And the owner's file remains byte-for-byte unchanged
+  Scenario: CO-MEMORY-006 — Safwa never writes over an edit the owner made in the meantime
+    Given Safwa started rewriting memory from the file as it stood
+    When the owner edits that file before the rewrite is saved
+    Then the rewrite is dropped rather than saved over them
+    And the owner's file is left exactly as they left it
 
-  Scenario: CO-SYNC-007 — Memory maintenance starts after its own cursor
-    Given memory maintenance previously processed dialogue to a cursor
-    When maintenance reads again
-    Then it requests canonical dialogue after that cursor
+  Scenario: CO-SYNC-007 — Memory reads on from where it last stopped
+    Given memory was last brought up to date to a point in the conversation
+    When it is brought up to date again
+    Then it reads only what was said after that point, never the whole conversation again
 
-  Scenario: CO-SYNC-008 — The memory cursor advances only after a successful file write
-    Given canonical dialogue exists after the memory cursor
-    When an owner file edit makes the generated replacement lose its hash race
-    Then the owner's newer memory.md is preserved
-    And the processed cursor is unchanged
+  Scenario: CO-SYNC-008 — Memory moves its place on only after the file was actually written
+    Given there is conversation memory has not read yet
+    When the owner's own edit means the rewrite cannot be saved
+    Then the owner's file is what survives
+    And memory has not moved its place on, so that same conversation is read again next time
 
-  Scenario: CO-SCHEDULE-009 — Configured Memory maintenance runs once per local day
-    Given Memory sync time is due
-    And no successful run is recorded for the local day
-    When the scheduler checks more than once that day
-    Then maintenance runs exactly once
+  Scenario: CO-SCHEDULE-009 — Memory upkeep happens once a day, however often it is checked
+    Given the owner set a time of day for memory upkeep, and today's run has not happened yet
+    When that time has passed and the check runs several times over the day
+    Then upkeep happens once, not once per check
 
-  Scenario: CO-SCHEDULE-010 — off disables scheduled Memory maintenance
-    Given Memory sync time is off
-    When the scheduler checks eligibility
-    Then maintenance does not run
+  Scenario: CO-SCHEDULE-010 — Off means memory upkeep does not happen at all
+    Given the owner set memory upkeep to off
+    When the check runs
+    Then nothing is read, nothing is written, and nothing is sent to the model
 
-  Scenario: CO-GENERATION-011 — Foreground dialogue has priority over Summary and Memory
-    Given Summary and Memory use the same background-generation gate
-    When foreground dialogue generation is active
-    Then neither background operation starts
-    And a dialogue revision change marks an already running result stale
+  Scenario: CO-GENERATION-011 — Answering the owner comes before both Summary and memory
+    Given writing a Summary and keeping memory up to date are both background work
+    When Safwa is answering the owner
+    Then neither of them starts, because answering comes first
+    And if the conversation moves on while one of them is already running, its result is thrown
+      away rather than saved
 
   Scenario: CO-MEMORY-012 — A memory.md Safwa cannot use is never written over
-    Given memory.md is not UTF-8 text, or is larger than the memory token budget
-    When memory is read for a turn
-    Then no fact is injected, the turn still runs, and the reason is recorded
-    And scheduled maintenance stops without calling the provider
-    And a fact sent with /mem is refused
-    And the owner's file is left byte-for-byte unchanged
+    Given memory.md is not text Safwa can read, or is over 4000 tokens (MEMORY_TOKEN_BUDGET = 4000)
+    When Safwa needs what it remembers
+    Then it answers with no facts rather than failing the turn, and records why
+    And scheduled upkeep stops instead of sending that file to the model
+    And a fact the owner adds with /mem is refused and told why
+    And the owner's file is left byte for byte as it is, because Safwa does not write over what it
+      could not read
 
-  Scenario: CO-MEMORY-014 — A fact added by hand is appended to memory.md
-    Given memory.md holds two facts
-    When the owner adds one fact with /mem
-    Then the file holds the earlier facts and the new one, in that order
+  Scenario: CO-MEMORY-014 — A fact the owner adds by hand goes to the end of the file
+    Given memory.md already holds two facts
+    When the owner adds one with /mem
+    Then the file holds the two it had, and the new one after them

@@ -1,116 +1,113 @@
 Feature: Diary
-  The Diary keeps one owner-written entry for each local calendar day.
-  AI writes are proposals; the Advisor reads and opens saved days directly.
+  One entry per day, in the owner's own words. Safwa never writes one on its own — it proposes and
+  the owner saves. Reading a day back, and pointing the owner at one, Safwa does itself.
 
   Background:
-    Given a fresh Diary workspace
+    Given a Diary with nothing in it yet
 
-  Scenario: DI-DAY-001 — Writing a missing day creates its single Diary entry
-    Given no Diary entry exists for "2026-08-15"
-    When the Diary writes "Первый день." with mood 8 for "2026-08-15"
-    Then exactly one Diary entry exists for "2026-08-15"
-    And its body is "Первый день."
-    And its mood is 8
+  Scenario: DI-DAY-001 — Writing a day that has nothing on it starts that day
+    Given nothing is written for 15.08.2026
+    When "Первый день." is written for that day, rated 8
+    Then that day has one entry and only one
+    And it holds those words, and that rating
 
-  Scenario: DI-DAY-002 — Writing an existing day replaces the whole entry
-    Given a Diary entry "Уже записано." with mood 5 exists for "2026-08-15"
-    When the Diary replaces it with "Переписал." and mood 7
-    Then exactly one Diary entry exists for "2026-08-15"
-    And its body is "Переписал."
-    And its mood is 7
-    And the entry keeps its identity and moves to the next version
+  Scenario: DI-DAY-002 — Writing a day that already has something on it rewrites it whole
+    Given 15.08.2026 reads "Уже записано.", rated 5
+    When it is rewritten as "Переписал.", rated 7
+    Then there is still one entry for that day
+    And it holds the new words and the new rating
+    And it is the same day rewritten, not a second one
 
-  Scenario: DI-DATE-003 — A prepared write keeps the local date the owner named
-    Given no Diary entry exists for "2026-08-14"
-    When the Diary subagent prepares "Запись за вчера." for "2026-08-14"
-    Then the prepared change targets "2026-08-14"
-    And no Diary entry has been saved yet
+  Scenario: DI-DATE-003 — A day put up for approval stays the day the owner named
+    Given nothing is written for 14.08.2026
+    When the Diary is asked to write "Запись за вчера." for that day
+    Then what comes back for the owner to approve is aimed at 14.08.2026
+    And nothing is in the Diary yet
 
-  Scenario: DI-MOOD-004 — A feeling score is optional and is bounded
-    When the Diary validates an omitted mood and the boundary moods
-    Then the omitted, zero, and ten moods are accepted
-    When the Diary validates mood 11
-    Then the invalid mood is rejected
+  Scenario: DI-MOOD-004 — Rating a day is optional, and the scale is 0 to 10
+    Given a day may be rated from 0 through 10, or not rated at all
+    Then 0, 10 and no rating are all accepted
+    But 11 is refused
 
-  Scenario: DI-DELETE-005 — An approved removal deletes the existing day
-    Given a Diary entry "Есть что удалять." with mood 6 exists for "2026-08-15"
-    When the owner approves deleting that Diary entry
-    Then no Diary entry exists for "2026-08-15"
+  Scenario: DI-DELETE-005 — An approved deletion takes the day away
+    Given 15.08.2026 reads "Есть что удалять.", rated 6
+    When the owner approves deleting that day
+    Then nothing is written for that day any more
 
-  Scenario: DI-DELETE-005 — Removing an unwritten day is retryable
-    Given no Diary entry exists for "2026-08-15"
-    When the Diary subagent prepares a deletion for "2026-08-15"
-    Then preparation reports "target_not_found"
-    And the preparation result is retryable
-    And no Diary entry has been saved yet
+  Scenario: DI-DELETE-005 — Deleting a day that was never written says so, and Safwa can carry on
+    Given nothing is written for 15.08.2026
+    When the Diary is asked to delete that day
+    Then it answers that there is nothing there to delete
+    And Safwa can act on that answer and try something else, rather than the turn ending there
+    And nothing in the Diary changed
 
-  Scenario: DI-READ-006 — The Advisor reads and cites a day without routing
-    Given the Advisor Diary policy is loaded
-    When the owner asks what was written on a saved Diary day
-    Then the Advisor policy reads "ai_diary" directly
-    And the Diary day can be cited as "(diary:12)"
-    And only Diary writes require routing
+  Scenario: DI-READ-006 — Safwa reads a day back itself, and points the owner at it
+    Given the owner asks what they wrote on a day
+    When Safwa answers
+    Then Safwa reads the Diary itself, without handing the question to anyone
+    And it can point at that day in its answer
+    And only writing to the Diary is handed over
 
-  Scenario: DI-LINK-007 — A Diary citation identifies the complete read-only day
-    Given a Diary entry "День с рынком." with mood 6 exists for "2026-08-15"
-    When the Diary citation is made for that entry
-    Then it identifies the Diary entry by its real id
-    And its label includes the local date and optional mood
+  Scenario: DI-LINK-007 — What Safwa points at is the whole day, read-only
+    Given 15.08.2026 reads "День с рынком.", rated 6
+    When Safwa points at that day
+    Then it is aimed at that day itself and no other
+    And what the owner reads on it is the date, and the rating if there is one
 
-  Scenario: DI-WRITE-008 — An AI write is prepared as a proposal before it is saved
-    Given no Diary entry exists for "2026-08-15"
-    When the Diary subagent prepares "День до сохранения." for "2026-08-15"
-    Then the prepared change is a create proposal
-    And no Diary entry has been saved yet
+  Scenario: DI-WRITE-008 — Safwa's own writing waits for the owner
+    Given nothing is written for 15.08.2026
+    When the Diary is asked to write "День до сохранения." for that day
+    Then it comes back as something for the owner to approve
+    And nothing is in the Diary until they do
 
-  Scenario: DI-RECEIPT-009 — A Save or Discard receipt does not copy the day text
-    When the Diary prepares a receipt for "Секретный текст дня."
-    Then the receipt identifies the date, operation, mood, and character count
-    And the receipt does not contain "Секретный текст дня."
+  Scenario: DI-RECEIPT-009 — The line the owner gets back never quotes the day itself
+    When the owner saves or discards a day that reads "Секретный текст дня."
+    Then the line they get back says the date, what was done, the rating, and how long the text was
+    And the words of the day are not in that line, because the Diary is not something to quote back
 
-  Scenario: DI-OPEN-010 — The Advisor directly opens an existing named day
-    Given a Diary entry exists for "2026-08-14"
-    When the Advisor opens that Diary entry
-    Then the open request names that Diary entry directly
-    And the Advisor does not need to route the open request
+  Scenario: DI-OPEN-010 — Safwa opens a day it was told the date of
+    Given something is written for 14.08.2026
+    When Safwa opens that day for the owner
+    Then it opens that day directly, without handing the request to anyone
 
-  Scenario: DI-OPEN-010 — The Advisor reports an absent current day without routing
-    Given no Diary entry exists for "2026-08-15"
-    When the Advisor looks up that Diary date
-    Then no Diary entry is available to open
-    And the Advisor does not need to route the open request
+  Scenario: DI-OPEN-010 — Safwa says a day is empty rather than handing the question over
+    Given nothing is written for 15.08.2026
+    When Safwa looks that day up
+    Then there is nothing to open
+    And it still does not hand the request to anyone
 
-  Scenario: DI-DAY-011 — A day with nothing written is never saved
-    Given a Diary write whose text is empty or only whitespace
-    When that day is created or replaced with it
-    Then the write is refused
-    And an unwritten day stays unwritten, and a written one keeps the text it had
+  Scenario: DI-DAY-011 — A day with nothing written on it is never saved
+    Given text that is empty, or only spaces
+    When a day is written or rewritten with it
+    Then it is refused
+    And a day with nothing on it stays that way, and a day with words keeps the words it had
 
-  Scenario: DI-DATE-012 — Today is the owner's local day
-    Given the workspace timezone is Europe/Istanbul and the moment is just past local midnight
-    When the Diary subagent is told which day it is
-    Then the day is the local date, which is not the UTC date
+  Scenario: DI-DATE-012 — Today is the owner's today
+    Given the owner is in Europe/Istanbul and it is just past midnight there
+    When the Diary is told which day it is
+    Then it is the owner's day, which at that hour is not the same date in UTC
 
-  Scenario: DI-DATE-012 — An unnamed day is read as the local day
-    Given the workspace timezone is Europe/Istanbul and the moment is just past local midnight
-    When read_day is called with no date
-    Then it reads the local day, from its local midnight to the next
+  Scenario: DI-DATE-012 — A day nobody named is the owner's today
+    Given the owner is in Europe/Istanbul and it is just past midnight there
+    When a day is read without naming one
+    Then it is the owner's day, from their midnight to the next
 
-  Scenario: DI-READ-013 — Neither source alone can write a day, so the subagent holds both
-    Given work done with buttons never reaches the conversation
-    And how a day felt never reaches the planning database
-    When the Diary subagent is bound to this application
-    Then read_day gives it the conversation and query_safwa gives it the database
-    And it holds no other read tool
+  Scenario: DI-READ-013 — Neither the conversation nor the data can write a day alone
+    Given what the owner did with buttons never reaches the conversation
+    And how a day felt never reaches the planning data
+    When the Diary is set up
+    Then it is given the reader that hands it the conversation
+    And the reader that hands it the planning data
+    And no other reader, because those two are what a day is written from
 
-  Scenario: DI-MOOD-014 — A rewrite that names no feeling score keeps the saved one
-    Given a Diary entry with mood 8 exists for "2026-08-15"
-    When the Diary rewrites that day and names no feeling score
-    Then the saved day carries the new text and mood 8
-    And a rewrite that names mood 3 stores mood 3 instead
+  Scenario: DI-MOOD-014 — Rewriting a day without naming a rating keeps the rating it had
+    Given 15.08.2026 is rated 8
+    When that day is rewritten and no rating is named
+    Then the new words are saved and the day is still rated 8
+    And a rewrite that names 3 rates it 3 instead
 
   Scenario: DI-READ-015 — A day nobody talked about reads as empty, not as a failure
     Given the owner said nothing to Safwa on a day
-    When read_day is called for that day
-    Then it returns that day, saying its conversation holds nothing
-    And the call does not fail, so the database is still a source for that day
+    When the Diary reads that day
+    Then it comes back saying that day's conversation holds nothing
+    And it does not fail, so the planning data is still there to write the day from

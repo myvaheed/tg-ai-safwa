@@ -10,7 +10,6 @@ from safwa.domain import (
     create_tag,
     create_value,
     edit_card_text,
-    effective_value_ids,
     finish_action,
     finish_sprint,
     live_repeat_instance_id,
@@ -23,7 +22,6 @@ from safwa.domain import (
     toggle_card_tag,
     toggle_card_value,
     update_card_fields,
-    utcnow,
 )
 from safwa.domain import create_card as create_domain_card
 from safwa.enums import CardStage
@@ -34,7 +32,6 @@ from safwa.models import (
     Card,
     CardEvent,
     CardTag,
-    CardValue,
     FeedbackQueue,
     Tag,
     UserProfile,
@@ -155,25 +152,8 @@ async def test_sprint_snapshots_and_carryover(sessions):
         assert added.effective_stage == "today"
 
 
-async def test_parent_effective_values_are_derived_from_descendants(sessions):
-    async with sessions() as session:
-        goal = await create_card(session, title="Goal", kind="goal", effort_points=None)
-        action = await create_card(
-            session,
-            title="Child",
-            parent_id=goal.id,
-            expected_parent_version=goal.version,
-            root_confirmed=False,
-        )
-        value = Value(name="Fitness", active=True)
-        session.add(value)
-        await session.flush()
-        session.add(CardValue(card_id=action.id, value_id=value.id))
-        await session.flush()
-        assert await effective_value_ids(session, goal.id) == {value.id}
-
-
 async def test_ui_mutations_use_domain_services_and_are_audited(sessions):
+    """PL-VALUE-001 — tests/brd/values.feature"""
     async with sessions() as session:
         tag = await create_tag(session, "Personal")
         value = await create_value(session, "Consistency")
@@ -199,47 +179,8 @@ async def test_ui_mutations_use_domain_services_and_are_audited(sessions):
         assert {event.operation for event in events} >= {"edit_title", "archive"}
 
 
-async def test_create_tag_and_value_restore_archived_names(sessions):
-    async with sessions() as session:
-        tag = await create_tag(session, "VrWalk", "Original Tag")
-        value = await create_value(session, "Fitness", "Original Value", active=True)
-        await session.flush()
-        tag_id = tag.id
-        value_id = value.id
-        tag.archived_at = utcnow()
-        value.archived_at = utcnow()
-        await session.commit()
-
-        restored_tag = await create_tag(session, "vrwalk")
-        restored_value = await create_value(session, "FITNESS")
-        await session.commit()
-
-        assert restored_tag.id == tag_id
-        assert restored_tag.archived_at is None
-        assert restored_tag.description == "Original Tag"
-        assert restored_value.id == value_id
-        assert restored_value.archived_at is None
-        assert restored_value.description == "Original Value"
-        assert restored_value.active is True
-        assert len(list(await session.scalars(select(Tag)))) == 1
-        assert len(list(await session.scalars(select(Value)))) == 1
-
-        with pytest.raises(DomainError, match="already exists"):
-            await create_tag(session, "VRWALK")
-        with pytest.raises(DomainError, match="already exists"):
-            await create_value(session, "fitness")
-
-        restored_tag.archived_at = utcnow()
-        restored_value.archived_at = utcnow()
-        await session.commit()
-        restored_tag = await create_tag(session, "VrWalk", "")
-        restored_value = await create_value(session, "Fitness", "New Value", active=False)
-        assert restored_tag.description == ""
-        assert restored_value.description == "New Value"
-        assert restored_value.active is False
-
-
 async def test_committed_card_relationships_are_validated_propagated_and_audited(sessions):
+    """PL-VALUE-004 — tests/brd/values.feature"""
     async with sessions() as session:
         first_goal = await create_card(session, title="First goal", kind="goal", effort_points=None)
         second_goal = await create_card(
@@ -261,7 +202,6 @@ async def test_committed_card_relationships_are_validated_propagated_and_audited
         assert second_goal.effective_stage == CardStage.TODAY.value
 
         assert await toggle_card_value(session, action.id, value.id) is True
-        assert await effective_value_ids(session, second_goal.id) == {value.id}
         assert await toggle_card_value(session, action.id, value.id) is False
 
         tag = Tag(name="Family")

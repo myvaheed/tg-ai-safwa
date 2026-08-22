@@ -17,6 +17,7 @@ from ...ai.sql import RequestQueryError, UnsafeQueryError, normalize_request_sql
 from ...domain import (
     CARD_REFERENCE_SPECS,
     CHECK_REFERENCE,
+    CHECK_VALUE_REFERENCE,
     TAG_REFERENCE,
     VALUE_REFERENCE,
     DomainError,
@@ -468,7 +469,9 @@ class CheckProposalHandler:
         check, expected_version = await require_target(context, change, Check)
         if check is not None:
             await reject_closed_repeat(context.session, check, change.entity)
-        return PreparedChange(values=dict(change.values), expected_version=expected_version)
+        values = dict(change.values)
+        await _validate_named_references(context.session, values, CHECK_VALUE_REFERENCE)
+        return PreparedChange(values=values, expected_version=expected_version)
 
     async def apply(self, context: ApplyContext, change: ProposalChange) -> list[int]:
         session = context.session
@@ -495,6 +498,12 @@ class CheckProposalHandler:
             )
         elif change.action == "archive":
             await archive_check(session, check.id)
+        elif change.action in {"link", "unlink"}:
+            spec = CHECK_VALUE_REFERENCE
+            for value_id in sorted(await _named_ids(session, values, spec)):
+                exists = await session.get(spec.link_model, spec.link_key(check.id, value_id))
+                if (change.action == "link") != (exists is not None):
+                    await spec.toggle(session, check.id, value_id, actor=ActorType.AI)
         else:
             raise DomainError(f"Unsupported Check action: {change.action}")
         return [check.id]

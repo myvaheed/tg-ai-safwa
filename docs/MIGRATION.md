@@ -55,7 +55,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 1 | `llm_gateway` | technical | **done** |
 | 2 | `FeatureModule` and proposal capabilities | technical | **done** |
 | 3 | Pilot: Diary | business | **done** |
-| 4 | Leaf business batches | business | **in progress** — 4.a Continuity and Profile, 4.b Reminders, 4.c Saved Requests |
+| 4 | Leaf business batches | business | **done** — 4.a Continuity and Profile, 4.b Reminders, 4.c Saved Requests, 4.d Values and Tags |
 | 5 | Planning core | business | not started |
 | 6 | Proposals and the first reactive process | business | not started |
 | 7 | `agent_runtime` | technical + business | not started |
@@ -64,6 +64,22 @@ registries" looks like when a machine counts it. The target is one place, `boots
 
 A phase ends in a state that can be kept forever: tests green, bot working, no old path running
 beside a new one. A phase that cannot be finished is rolled back whole.
+
+## What can be deleted, and what can only be archived
+
+**Only a Diary day, a Reminder, a Card and a Check may be deleted outright; a Value, a Tag and a
+Saved Request are archived and never deleted.** Written down here so a packet that claims otherwise
+is visible against it.
+
+Two things do not match that rule today, and each belongs to a later packet rather than to whoever
+reads this line:
+
+- A **Check** has no delete of its own. `remove(mode="delete")` is refused for anything but a Card,
+  and `archive_check` is the only direct path; a Check is deleted only as a side effect, when
+  `delete_subtree` removes the last Card that needed it. Phase 5 owns Checks and should either give
+  a Check its own delete or say why the cascade is the whole story.
+- A **Reminder** is the mirror image: it has no archive at all, so deleting is its only off switch
+  (RM-WRITE-010). That one is deliberate and approved.
 
 ## What Phase 0 delivered
 
@@ -398,7 +414,7 @@ Profile and Continuity out of turn because the review of Phase 3 landed on them.
 |---|---|---|
 | ~~4.b Reminders~~ | **done** — 4.b.1 the record, 4.b.2 the firing | — |
 | ~~4.c Saved Requests~~ | **done** | — |
-| 4.d Values and Tags | the Value and Tag half of `domain.py` | nothing; the feature package does not exist |
+| ~~4.d Values and Tags~~ | **done** — and it grew a feature, see below | — |
 
 Each needs its own approved scenario package before its tests are written. None of them creates a
 Manager: none has a long-lived process.
@@ -637,6 +653,85 @@ and K at 0, G at 2, H at 28.
 | Re-export-only modules (DoD #13) | 0 | 0 |
 | Modules under `src/` | 106 | 107 |
 | `domain.py` | 1693 | 1608 |
+
+## What Phase 4.d delivered
+
+Values and Tags are feature-owned, and a Check can carry a Value. Their approved behaviour, the five
+decisions the owner made with them, and the test audit live in [brd/values_tags.md](brd/values_tags.md);
+the scenarios are [`tests/brd/values.feature`](../tests/brd/values.feature) and
+[`tests/brd/tags.feature`](../tests/brd/tags.feature) — two files, because a Value is a focus and a
+Tag is a label for finding Cards, and those are two different businesses.
+
+- `features/planning/model.py` owns `Value`, `Tag`, `CardValue`, `CardTag` and the new `CheckValue`;
+  `safwa.models` keeps the compatibility imports. Not one existing column changed.
+- `features/planning/use_cases.py` owns the seven Value and Tag writes. `domain.py` fell from 1608 to
+  1516 lines.
+- `domain.effective_value_ids` is **deleted**. It had no production caller, no screen, no view and no
+  place in the spec; two assertions were holding it up.
+
+### The Check link, which the owner asked for inside this batch
+
+A Card is work that *serves* a Value; a Check shows *how well the Value is actually held to*. So a
+Check now carries Values of its own, written from the Check side the way a Card writes its own links.
+Nothing is derived between a Check's Values and the Values of the Cards it belongs to — they are two
+different statements, and PL-VALUE-010 says so out loud.
+
+- `ReferenceSpec` gained `owner_key`, `owner_label` and `also_carried_by`. The first two make the
+  linking side a parameter instead of always a Card; the third is how the Value screen counts Checks
+  **without branching on the entity name** — the first attempt did branch, and Rule H caught it.
+- `archive_value` clears `check_values` in the same transaction, `delete_subtree` clears it for the
+  Checks it deletes, and an answered repeatable Check hands its Values to its successor. That last one
+  is the owner's: without it a Value would gain one finished Check per repeat cycle for ever. The same
+  question is open for a repeatable Card and is Phase 5's.
+- The `check` tool gained `link` and `unlink`, `ai_checks` gained `direct_values`, the Check screen
+  gained a Values picker, and the Check review screen shows them.
+
+### The five decisions
+
+- **Q1 — autoapproval may still flip a Value's focus.** Unchanged, but the rule left this packet: it
+  came up in three batches running, so the whole allowlist goes to the Proposals and autoapproval
+  packet and is written once.
+- **Q2 — `effective_value_ids` is deleted.** See above.
+- **Q3 — the create screen no longer wipes a description it never showed.** Safwa's door sent nothing
+  and the stored description survived; the owner's door sent an empty box, which overwrote. Reviving
+  an archived Value by name erased its description with nothing on screen that looked like a deletion.
+- **Q4 — ticking a Tag on page 2 stays on page 2.** The selector reopened without its page, so paging
+  undid itself on every tap. The fix is in the shared handler, so Checks, Categories and Energy types
+  got it too.
+- **Q5 — a Check can carry a Value, now rather than in Phase 5.** The concern that this turns a file
+  move into a feature was stated, the owner reaffirmed, and this section is the record of what it cost.
+
+### Two things the review should know
+
+- **Implementation ran ahead of the tests for Q5.** The packet said the five new rules would be
+  written test-first and fail first; they were not — the code landed first and the tests after. Each
+  one was then verified by reverting its production line and confirming the test fails, and all five
+  do. That check is the only reason the claim is worth anything, and it is not a substitute for the
+  order the process asks for.
+- **DoD #3 rose from 5 to 6.** `features/planning/telegram.py` is 616 lines, up from 584, because the
+  Check review screen has to render Values. It is the only number that rose. Phase 5 owns that file
+  and is where it should be split; splitting it here for a line count would have been the wrong reason.
+
+### Scenarios that found something
+
+`test_manual_check_screens_only_repeat_and_answer` and the archive receipt test both had to learn
+about the new surface, which is the point of having them. Nothing else in the suite moved.
+
+Verification: `ruff check .` clean; `pytest -q` 582 passed / 3 skipped; 0 import cycles (465 edges);
+Rules A–F and K at 0, G at 2, H at 28. Snapshots moved on exactly the four hashes the batch declared
+— `schema.json` gained `check_values` and no existing table moved, `prompt_prefix.json` moved
+`SYSTEM_PROMPT`, `BOARD_PROMPT` and `tool:check`, and `PERSONA`, `DIARY_PROMPT` and every other tool
+are untouched.
+
+| | Phase 4.c | Phase 4.d |
+|---|---:|---:|
+| Entity dispatch points outside `features/` (DoD #1) | 28 | 28 |
+| Use case base abstractions (DoD #2) | 0 | 0 |
+| Modules over 600 lines (DoD #3) | 5 | **6** |
+| Re-export-only modules (DoD #13) | 0 | 0 |
+| Modules under `src/` | 107 | 109 |
+| Import cycles | 0 (458 edges) | 0 (465 edges) |
+| `domain.py` | 1608 | 1516 |
 
 ### Done means
 

@@ -272,8 +272,10 @@ system message.
   domain boundary.
 - A Check records a state observation, never planned work: no effort, never in a Sprint, and Pending
   is derived rather than stored.
-- A Card owns three link sets of one shape — Values, Tags, Checks. Adding a fourth means adding a
-  spec, not a special case.
+- A Card owns three link sets of one shape — Values, Tags, Checks — and a Check owns one, its
+  Values. All four are `ReferenceSpec`s: adding another means adding a spec, not a special case.
+  A Check's Values are its own statement about what it measures; nothing is derived between them
+  and the Values of the Cards that Check belongs to.
 - `manual_stage` is what the user set; `effective_stage` is derived for parents from descendants and
   is what dashboards and queries read.
 - Effort is restricted to `EFFORT_POINTS` and required for Actions; the `Literal` in

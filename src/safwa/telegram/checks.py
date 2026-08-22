@@ -7,20 +7,22 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import delete, select
 
-from ..constants import CHECK_LIST_LIMIT
+from ..constants import CHECK_LIST_LIMIT, SELECTOR_PAGE_SIZE
 from ..domain import (
     DomainError,
     card_checks,
     check_card_ids,
+    check_value_ids,
     is_closed_repeat,
     live_repeat_instance_id,
     pending_checks,
 )
 from ..enums import CHECK_OUTCOME_LABELS, CheckOutcome, MessageKind
-from ..models import Card, Check, UiSession
+from ..models import Card, Check, UiSession, Value
 from ._core import Services
 from ._messaging import edit_registered_message, send_registered, token_button
-from ._presentation import with_notice
+from ._presentation import paginate, with_notice
+from .cards import choice_rows, choice_screen
 
 CHECK_STATUS_EMOJIS = {
     "pending": "⬜",
@@ -134,6 +136,7 @@ async def render_check(
         if check is None or check.archived_at is not None:
             raise DomainError("Check does not exist or is archived")
         linked_card_ids = await check_card_ids(session, check.id)
+        linked_value_ids = await check_value_ids(session, check.id)
         payload = {"id": check.id, "card_id": card_id, "back": back}
         current = check_status(check)
         # The owner sets only what they alone know: whether it repeats, and how it turned out.
@@ -181,6 +184,17 @@ async def render_check(
                 await token_button(
                     session,
                     services.owner_id,
+                    "💎 Values",
+                    "check_choose_values",
+                    payload,
+                )
+            ]
+        )
+        rows.append(
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
                     "↩️ Back",
                     "check_list_back" if card_id is not None else "check_back",
                     {"card_id": card_id, "back": back},
@@ -199,6 +213,16 @@ async def render_check(
             else []
         )
         card_titles = [card.title for card in linked_cards]
+        value_names = (
+            [
+                value.name
+                for value in await session.scalars(
+                    select(Value).where(Value.id.in_(linked_value_ids)).order_by(Value.name)
+                )
+            ]
+            if linked_value_ids
+            else []
+        )
         await session.commit()
 
     body = "\n".join(
@@ -207,6 +231,7 @@ async def render_check(
             f"Status: {check_status_label(check)}",
             f"Repeatable: {'Yes' if check.repeatable else 'No'}",
             f"Cards: {html.escape(', '.join(card_titles)) or '—'}",
+            f"Values: {html.escape(', '.join(value_names)) or '—'}",
         ]
     )
     await _deliver(
@@ -217,6 +242,47 @@ async def render_check(
         replace_message_id,
         related_id=check.id,
         replace=replace,
+    )
+
+
+async def render_check_values(
+    message: Message,
+    services: Services,
+    check_id: int,
+    *,
+    card_id: int | None = None,
+    back: dict[str, Any] | None = None,
+    page: int = 0,
+) -> None:
+    """Choose which Values this Check measures. Its Cards are chosen elsewhere."""
+    back = back or {"kind": "home"}
+    payload = {"id": check_id, "card_id": card_id, "back": back}
+    async with services.sessions() as session:
+        check = await session.get(Check, check_id)
+        if check is None or check.archived_at is not None:
+            raise DomainError("Check does not exist or is archived")
+        options = [
+            (value.name, value.id)
+            for value in await session.scalars(
+                select(Value).where(Value.archived_at.is_(None)).order_by(Value.name)
+            )
+        ]
+        current = paginate(options, page, SELECTOR_PAGE_SIZE)
+        selected = set(await check_value_ids(session, check.id))
+        choices = choice_rows(
+            current.items,
+            selected,
+            # The page rides along, so ticking one on page 2 comes back to page 2.
+            lambda value_id: ("check_toggle_value", {**payload, "value_id": value_id, "page": page}),
+        )
+        await session.commit()
+    await choice_screen(
+        message,
+        services,
+        "Values",
+        choices,
+        back=("↩️ Back", "check_view", payload),
+        paging=(current, "check_choose_values", payload),
     )
 
 

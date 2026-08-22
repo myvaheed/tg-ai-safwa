@@ -29,6 +29,7 @@ from ..domain import (
     set_feedback,
     set_value_focus,
     start_sprint,
+    toggle_check_value,
     update_card_fields,
     update_check_fields,
 )
@@ -61,8 +62,9 @@ from ._presentation import menu_row, proposal_outcome_text, with_notice
 from .cards import (
     card_creation_errors,
     card_editor_back_state,
+    carrier_counts,
+    carrier_phrase,
     handle_card_creation_chooser,
-    linked_card_count,
     render_card,
     render_card_choices,
     render_card_creation,
@@ -71,7 +73,12 @@ from .cards import (
     require_card_draft,
     sanitize_card_creation_state,
 )
-from .checks import render_check, render_check_resolution, render_checks
+from .checks import (
+    render_check,
+    render_check_resolution,
+    render_check_values,
+    render_checks,
+)
 from .commands import (
     command_start,
     command_tags,
@@ -79,7 +86,11 @@ from .commands import (
     render_feedback,
     sync_bot_commands,
 )
-from .items import render_item_editor, render_item_text_prompt, render_saved_request
+from .items import (
+    render_item_editor,
+    render_item_text_prompt,
+    render_saved_request,
+)
 from .plan import (
     PLAN_UI_KIND,
     on_plan_card,
@@ -161,7 +172,11 @@ async def _on_item_create(context: CallbackContext) -> None:
             raise DomainError("Item editor expired")
         values = dict(editor.state.get("values", {}))
         create = create_value if context.payload["entity"] == "value" else create_tag
-        item = await create(session, values.get("name", ""), values.get("description", ""))
+        # A description box the owner never typed into is not a description they gave, so it
+        # must not overwrite the one an archived Value or Tag is coming back with.
+        item = await create(
+            session, values.get("name", ""), values.get("description", "").strip() or None
+        )
         await session.commit()
     await render_item_editor(
         context.message,
@@ -192,7 +207,7 @@ async def _on_item_archive_prompt(context: CallbackContext) -> None:
         item = await session.get(spec.model, context.payload["id"])
         if item is None or item.archived_at is not None:
             raise DomainError(f"{entity.title()} does not exist")
-        linked_count = await linked_card_count(session, spec, item.id)
+        carried_by = await carrier_counts(session, spec, item.id)
         confirm = await token_button(
             session,
             context.owner_id,
@@ -212,8 +227,8 @@ async def _on_item_archive_prompt(context: CallbackContext) -> None:
         context.message,
         context.services,
         f"<b>Archive {html.escape(entity.title())}?</b>\n"
-        f"{html.escape(item.name)} will be removed from active lists and unlinked from "
-        f"{linked_count} Card(s).",
+        f"{html.escape(item.name)} will be removed from active lists and taken off "
+        f"{carrier_phrase(carried_by)}. Nothing it is on is deleted.",
         kind=MessageKind.APPROVAL,
         markup=InlineKeyboardMarkup(inline_keyboard=[[confirm], [back]]),
         related_id=item.id,
@@ -224,7 +239,7 @@ async def _on_item_archive_confirm(context: CallbackContext) -> None:
     entity = context.payload["entity"]
     async with context.sessions() as session:
         archive = archive_tag if entity == "tag" else archive_value
-        item, linked_count = await archive(session, context.payload["id"])
+        item, removed = await archive(session, context.payload["id"])
         await _clear_ui_sessions(session, context.owner_id)
         back = await token_button(
             session,
@@ -237,7 +252,7 @@ async def _on_item_archive_confirm(context: CallbackContext) -> None:
     await send_registered(
         context.message,
         context.services,
-        f"Archived <b>{html.escape(item.name)}</b>. Removed {linked_count} Card link(s).",
+        f"Archived <b>{html.escape(item.name)}</b>. Taken off {removed} link(s).",
         kind=MessageKind.RECEIPT,
         markup=InlineKeyboardMarkup(inline_keyboard=[[back]]),
         related_id=item.id,
@@ -587,7 +602,11 @@ async def _on_card_toggle_relation(context: CallbackContext) -> None:
         )
         await session.commit()
     await render_card_choices(
-        context.message, context.services, f"card_choose_{field}", context.payload["id"]
+        context.message,
+        context.services,
+        f"card_choose_{field}",
+        context.payload["id"],
+        page=int(context.payload.get("page", 0)),
     )
 
 
@@ -708,6 +727,26 @@ async def _on_check_list(context: CallbackContext) -> None:
         int(context.payload["card_id"]),
         back=_check_back(context),
     )
+
+
+async def _on_check_choose_values(context: CallbackContext) -> None:
+    await render_check_values(
+        context.message,
+        context.services,
+        context.payload["id"],
+        card_id=context.payload.get("card_id"),
+        back=context.payload.get("back"),
+        page=int(context.payload.get("page", 0)),
+    )
+
+
+async def _on_check_toggle_value(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        await toggle_check_value(
+            session, context.payload["id"], context.payload["value_id"]
+        )
+        await session.commit()
+    await _on_check_choose_values(context)
 
 
 async def _on_check_view(context: CallbackContext) -> None:
@@ -1033,6 +1072,8 @@ CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "item_view": _on_item_view,
     "item_edit_text": _on_item_edit_text,
     "item_text_back": _on_item_text_back,
+    "check_choose_values": _on_check_choose_values,
+    "check_toggle_value": _on_check_toggle_value,
     "item_create": _on_item_create,
     "item_toggle_focus": _on_item_toggle_focus,
     "item_archive_prompt": _on_item_archive_prompt,

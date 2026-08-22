@@ -13,7 +13,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...ai.contracts import AgentChange
-from ...domain import CARD_REFERENCE_SPECS, ReferenceSpec, card_progress, resolve_references
+from ...domain import (
+    CARD_REFERENCE_SPECS,
+    CHECK_VALUE_REFERENCE,
+    ReferenceSpec,
+    card_progress,
+    check_value_ids,
+    resolve_references,
+)
 from ...enums import (
     CHECK_ANSWER_ACTIONS,
     CHECK_OUTCOME_LABELS,
@@ -128,10 +135,14 @@ async def _card_detail_snapshot(session: AsyncSession, card: Card) -> dict[str, 
     }
 
 
-async def _reference_groups(session: AsyncSession, values: dict[str, Any]) -> list[str]:
-    """Name the Values, Tags and Checks a Card payload points at, for the owner."""
+async def _reference_groups(
+    session: AsyncSession,
+    values: dict[str, Any],
+    specs: tuple[ReferenceSpec, ...] = CARD_REFERENCE_SPECS,
+) -> list[str]:
+    """Name the items a payload points at, for the owner."""
     groups: list[str] = []
-    for spec in CARD_REFERENCE_SPECS:
+    for spec in specs:
         if not spec.mentioned_in(values):
             continue
         resolved = await resolve_references(session, spec, values)
@@ -423,6 +434,12 @@ class CardProposalPresenter:
         )
 
 
+async def _value_names(session: AsyncSession, value_ids: list[int]) -> str:
+    """The Values on a Check, as the owner reads them on a screen."""
+    names = await _reference_names(session, CHECK_VALUE_REFERENCE, sorted(value_ids))
+    return ", ".join(result_value(name) for name in names)
+
+
 class CheckProposalPresenter:
     entity = "check"
 
@@ -433,6 +450,10 @@ class CheckProposalPresenter:
         self, session: AsyncSession, change: ProposalChange, fallback: AgentChange | None
     ) -> list[str]:
         values = dict(change.values)
+        if change.action in {"link", "unlink"}:
+            verb = change.action.title()
+            groups = await _reference_groups(session, values, (CHECK_VALUE_REFERENCE,))
+            return [f"{verb}: {group}" for group in groups]
         proposed = {name: values[name] for name in ("title", "repeatable") if name in values}
         if change.action in {"complete", "cancel"}:
             proposed["outcome"] = CHECK_ANSWER_ACTIONS[change.action]
@@ -475,16 +496,29 @@ class CheckProposalPresenter:
     ) -> ProposalScreen | None:
         current: dict[str, Any] = {}
         archived = False
+        linked_ids: list[int] = []
         if change.entity_id:
             check = await session.get(Check, change.entity_id)
             if check is not None:
                 archived = check.archived_at is not None
+                linked_ids = await check_value_ids(session, check.id)
                 current = {
                     "title": check.title,
                     "repeatable": check.repeatable,
                     "status": CHECK_OUTCOME_LABELS[check.outcome or "pending"],
+                    "values": await _value_names(session, linked_ids),
                 }
-        proposed = {**current, **dict(change.values)}
+        payload = {k: v for k, v in change.values.items() if not k.startswith("value_")}
+        proposed = {**current, **payload}
+        if change.action in {"link", "unlink"}:
+            resolved = await resolve_references(session, CHECK_VALUE_REFERENCE, change.values)
+            target = resolved.ids | set(resolved.unknown_ids)
+            after = (
+                set(linked_ids) | target
+                if change.action == "link"
+                else set(linked_ids) - target
+            )
+            proposed["values"] = await _value_names(session, list(after))
         if change.action in CHECK_ANSWER_ACTIONS:
             proposed["status"] = CHECK_OUTCOME_LABELS[CHECK_ANSWER_ACTIONS[change.action]]
         if change.action in {"archive", "delete"}:
@@ -503,7 +537,8 @@ class CheckProposalPresenter:
                 f"Title: {html.escape(display_diff_value(proposed.get('title')))}\n"
                 f"Status: {html.escape(display_diff_value(proposed.get('status')))}\n"
                 f"Repeatable: "
-                f"{html.escape(display_diff_value(proposed.get('repeatable')))}",
+                f"{html.escape(display_diff_value(proposed.get('repeatable')))}\n"
+                f"Values: {html.escape(display_diff_value(proposed.get('values')))}",
             ),
             diffs=field_diffs(current, proposed),
         )

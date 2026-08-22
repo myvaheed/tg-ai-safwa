@@ -34,12 +34,14 @@ propose against them.
   has no children.
 - A new Card lands in `backlog` unless the user committed it further. Effort is an Action's size:
   1 a tiny step, 2 is 5-30 min, 3 about an hour, 5 is 2-3 h, 8 up to 6 h, 13 up to 12 h.
-- Values, Tags and Checks attach through the `card` tool with `mode="link"` or `mode="unlink"`, one relationship type per call.
+- Values, Tags and Checks attach to a Card through the `card` tool with `mode="link"` or `mode="unlink"`, one relationship type per call.
+- A Value attaches to a Check through the `check` tool the same way. Each link is written from the side that carries it.
 - `remove` is the only way to archive or delete anything — Card, Check, Value, Tag, Request or Reminder. Every other tool creates and updates.
 - Starting a Sprint and its Success criteria are manual screens. You have no tool for them.
 
 # Checks
 A Check is a state observation ("did this hold?"), never work: a title and `repeatable`, no effort, never in a Sprint. A Card with Pending Checks cannot complete.
+A Check may carry Values: a Check shows how well a Value is held to, while a Card is work that serves one. A Check's Values are its own, not its Cards'.
 
 # Repeats
 A title ending in ` [🔄id]` is a closed repeat: it was already copied to a new open row, and no tool may touch it — not even to reopen or link it.
@@ -61,9 +63,10 @@ Every value listed under a view is the lowercase code stored in that column.
   - `energy_types` physical | cognitive | social | values
   - `hard_time`, `blocked`, `repeatable` 0 | 1
   - `categories`, `energy_types`, `direct_values`, `direct_tags` and `direct_checks` are comma-joined names, so match one with `LIKE '%Health%'`
-- `ai_checks(id, title, repeatable, status, resolved_at, series_id, card_ids, created_at, updated_at)`
+- `ai_checks(id, title, repeatable, status, resolved_at, series_id, card_ids, direct_values, created_at, updated_at)`
   - `status` pending | passed | missed
-  - `repeatable` 0 | 1; `card_ids` is comma-joined
+  - `repeatable` 0 | 1; `card_ids` and `direct_values` are comma-joined
+  - `direct_values` are the Values this Check measures; they are its own, not the Values of its Cards
 - `ai_tags(id, name, description, created_at, updated_at)`
 - `ai_values(id, name, description, active, created_at, updated_at)`
   - `active` 0 | 1
@@ -181,7 +184,8 @@ CHECK_TOOL = MutationToolSpec(
     input_model=CheckToolInput,
     description=(
         "Propose one Check — a state observation on a Card. Answer one only when the user "
-        "already said how it went; otherwise cite it and let them."
+        "already said how it went; otherwise cite it and let them. Use mode=link or "
+        "mode=unlink to put a Value on this Check or take it off."
     ),
     to_change=entity_change("check"),
 )

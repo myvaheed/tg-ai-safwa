@@ -29,6 +29,14 @@ from .enums import (
     ScheduleKind,
     WorkspaceMode,
 )
+from .features.planning.use_cases import archive_tag as archive_tag
+from .features.planning.use_cases import archive_value as archive_value
+from .features.planning.use_cases import create_tag as create_tag
+from .features.planning.use_cases import create_value as create_value
+from .features.planning.use_cases import set_value_focus as set_value_focus
+from .features.planning.use_cases import update_tag_fields as update_tag_fields
+from .features.planning.use_cases import update_value_fields as update_value_fields
+from .features.planning.use_cases import value_link_counts as value_link_counts
 from .features.reminders.schedule import Schedule
 from .features.reminders.use_cases import create_reminder
 from .foundation.errors import DomainError
@@ -44,6 +52,7 @@ from .models import (
     CardTag,
     CardValue,
     Check,
+    CheckValue,
     FeedbackQueue,
     Reminder,
     Sprint,
@@ -80,7 +89,8 @@ class ReferenceSpec:
     """One Card relationship: where it lives in a payload and how it is written.
 
     ``singular_key`` doubles as the link table's own column name, so the same spec
-    addresses the payload, the lookup and the junction row.
+    addresses the payload, the lookup and the junction row.  ``owner_key`` is the other
+    half of that row: a Card carries Values, Tags and Checks, and a Check carries Values.
     """
 
     singular_key: str
@@ -88,20 +98,30 @@ class ReferenceSpec:
     query_key: str
     model: type[Tag] | type[Value] | type[Check]
     label: str
-    link_model: type[CardTag] | type[CardValue] | type[CardCheck]
+    link_model: type[CardTag] | type[CardValue] | type[CardCheck] | type[CheckValue]
     toggle: Callable[..., Awaitable[bool]]
     # A Check is named by `title`, so the column a query_key resolves against varies.
     name_attr: str = "name"
+    owner_key: str = "card_id"
+    # What does the linking, for a screen that counts what carries this item.
+    owner_label: str = "Card"
+    # Other link tables that can carry the same item, so a screen counts them all without
+    # knowing which item it is looking at.
+    also_carried_by: tuple[ReferenceSpec, ...] = ()
 
     def mentioned_in(self, values: dict[str, Any]) -> bool:
         return bool({self.singular_key, self.plural_key, self.query_key} & values.keys())
 
-    def link_key(self, card_id: int, entity_id: int) -> dict[str, int]:
-        return {"card_id": card_id, self.singular_key: entity_id}
+    def link_key(self, owner_id: int, entity_id: int) -> dict[str, int]:
+        return {self.owner_key: owner_id, self.singular_key: entity_id}
 
     @property
     def link_column(self) -> Any:
         return self.link_model.__table__.c[self.singular_key]
+
+    @property
+    def owner_column(self) -> Any:
+        return self.link_model.__table__.c[self.owner_key]
 
     @property
     def name_column(self) -> Any:
@@ -291,170 +311,6 @@ async def create_card(
     return card
 
 
-async def create_tag(session: AsyncSession, name: str, description: str | None = None) -> Tag:
-    normalized = name.strip()
-    if not normalized:
-        raise DomainError("Tag name cannot be empty")
-    existing = await session.scalar(select(Tag).where(Tag.name.collate("NOCASE") == normalized))
-    if existing is not None:
-        if existing.archived_at is None:
-            raise DomainError("A Tag with this name already exists")
-        existing.archived_at = None
-        if description is not None:
-            existing.description = description.strip()
-        existing.version += 1
-        await _bump_workspace(session)
-        return existing
-    tag = Tag(name=normalized, description=(description or "").strip())
-    session.add(tag)
-    await _bump_workspace(session)
-    return tag
-
-
-async def update_tag_fields(
-    session: AsyncSession,
-    tag_id: int,
-    *,
-    name: str | None = None,
-    description: str | None = None,
-) -> Tag:
-    tag = await session.get(Tag, tag_id)
-    if tag is None or tag.archived_at is not None:
-        raise DomainError("Tag does not exist or is archived")
-    if name is not None:
-        normalized = name.strip()
-        if not normalized:
-            raise DomainError("Tag name cannot be empty")
-        duplicate = await session.scalar(
-            select(Tag).where(
-                Tag.name.collate("NOCASE") == normalized,
-                Tag.id != tag.id,
-            )
-        )
-        if duplicate is not None:
-            raise DomainError("A Tag with this name already exists")
-        tag.name = normalized
-    if description is not None:
-        tag.description = description.strip()
-    tag.version += 1
-    await _bump_workspace(session)
-    return tag
-
-
-async def archive_tag(session: AsyncSession, tag_id: int) -> tuple[Tag, int]:
-    """Archive a Tag and remove every direct Card link in the same transaction."""
-    tag = await session.get(Tag, tag_id)
-    if tag is None or tag.archived_at is not None:
-        raise DomainError("Tag does not exist or is archived")
-    linked_count = int(
-        await session.scalar(
-            select(func.count()).select_from(CardTag).where(CardTag.tag_id == tag.id)
-        )
-        or 0
-    )
-    await session.execute(delete(CardTag).where(CardTag.tag_id == tag.id))
-    tag.archived_at = utcnow()
-    tag.version += 1
-    await _bump_workspace(session)
-    return tag, linked_count
-
-
-async def create_value(
-    session: AsyncSession,
-    name: str,
-    description: str | None = None,
-    *,
-    active: bool | None = None,
-) -> Value:
-    normalized = name.strip()
-    if not normalized:
-        raise DomainError("Value name cannot be empty")
-    existing = await session.scalar(select(Value).where(Value.name.collate("NOCASE") == normalized))
-    if existing is not None:
-        if existing.archived_at is None:
-            raise DomainError("A Value with this name already exists")
-        existing.archived_at = None
-        if description is not None:
-            existing.description = description.strip()
-        if active is not None:
-            existing.active = active
-        existing.version += 1
-        await _bump_workspace(session)
-        return existing
-    value = Value(
-        name=normalized,
-        description=(description or "").strip(),
-        active=bool(active),
-    )
-    session.add(value)
-    await _bump_workspace(session)
-    return value
-
-
-async def update_value_fields(
-    session: AsyncSession,
-    value_id: int,
-    *,
-    name: str | None = None,
-    description: str | None = None,
-    active: bool | None = None,
-) -> Value:
-    value = await session.get(Value, value_id)
-    if value is None or value.archived_at is not None:
-        raise DomainError("Value does not exist or is archived")
-    if name is not None:
-        normalized = name.strip()
-        if not normalized:
-            raise DomainError("Value name cannot be empty")
-        duplicate = await session.scalar(
-            select(Value).where(
-                Value.name.collate("NOCASE") == normalized,
-                Value.id != value.id,
-            )
-        )
-        if duplicate is not None:
-            raise DomainError("A Value with this name already exists")
-        value.name = normalized
-    if description is not None:
-        value.description = description.strip()
-    if active is not None:
-        value.active = active
-    value.version += 1
-    await _bump_workspace(session)
-    return value
-
-
-async def archive_value(session: AsyncSession, value_id: int) -> tuple[Value, int]:
-    """Archive a Value and remove every direct Card link in the same transaction."""
-    value = await session.get(Value, value_id)
-    if value is None or value.archived_at is not None:
-        raise DomainError("Value does not exist or is archived")
-    linked_count = int(
-        await session.scalar(
-            select(func.count()).select_from(CardValue).where(CardValue.value_id == value.id)
-        )
-        or 0
-    )
-    await session.execute(delete(CardValue).where(CardValue.value_id == value.id))
-    value.active = False
-    value.archived_at = utcnow()
-    value.version += 1
-    await _bump_workspace(session)
-    return value, linked_count
-
-
-async def set_value_focus(
-    session: AsyncSession, value_id: int, active: bool | None = None
-) -> Value:
-    """Set or flip Value focus through the single Value write path."""
-    value = await session.get(Value, value_id)
-    if value is None or value.archived_at is not None:
-        raise DomainError("Value does not exist or is archived")
-    return await update_value_fields(
-        session, value_id, active=(not value.active) if active is None else active
-    )
-
-
 async def edit_card_text(session: AsyncSession, card_id: int, field: str, value: str) -> Card:
     if field not in {"title", "note", "blocked_description"}:
         raise DomainError("Only a Card title, Note, or blocked description can be edited as text")
@@ -596,6 +452,39 @@ async def toggle_card_tag(
     await _record_event(session, card, operation, actor, before, new_correlation_id())
     await _bump_workspace(session)
     return linked
+
+
+async def toggle_check_value(
+    session: AsyncSession, check_id: int, value_id: int, *, actor: ActorType = ActorType.USER_UI
+) -> bool:
+    """Put a Value on a Check or take it off, and say whether it is on now.
+
+    Nothing is recorded against the Cards that Check belongs to: a Check's Values are its
+    own statement about what it measures, and their Values are theirs.
+    """
+    del actor  # a Check keeps no event log of its own
+    check = await session.get(Check, check_id)
+    value = await session.get(Value, value_id)
+    if check is None or check.archived_at is not None:
+        raise DomainError("Check does not exist or is archived")
+    if value is None or value.archived_at is not None:
+        raise DomainError("Value does not exist or is archived")
+    link = await session.get(CheckValue, {"check_id": check_id, "value_id": value_id})
+    if link is None:
+        session.add(CheckValue(check_id=check_id, value_id=value_id))
+        linked = True
+    else:
+        await session.delete(link)
+        linked = False
+    check.version += 1
+    await _bump_workspace(session)
+    return linked
+
+
+async def check_value_ids(session: AsyncSession, check_id: int) -> list[int]:
+    return sorted(
+        await session.scalars(select(CheckValue.value_id).where(CheckValue.check_id == check_id))
+    )
 
 
 async def toggle_card_category(
@@ -844,7 +733,16 @@ async def _apply_check_outcome(
     check.version += 1
     if not (was_pending and spawn and check.repeatable):
         return None
-    return await _spawn_check_successor(session, check)
+    # A repeat's Values follow the Check the owner is still answering: the copy takes them
+    # and the answered one lets them go, or a Value would gain one finished Check a cycle.
+    value_ids = await check_value_ids(session, check.id)
+    successor = await _spawn_check_successor(session, check)
+    if value_ids:
+        await session.execute(delete(CheckValue).where(CheckValue.check_id == check.id))
+        for value_id in value_ids:
+            if successor is not None:
+                session.add(CheckValue(check_id=successor.id, value_id=value_id))
+    return successor
 
 
 async def resolve_check(
@@ -955,19 +853,6 @@ async def _children(session: AsyncSession, card_id: int) -> list[Card]:
         await session.scalars(
             select(Card).where(Card.parent_id == card_id, Card.archived_at.is_(None))
         )
-    )
-
-
-async def effective_value_ids(session: AsyncSession, card_id: int) -> set[int]:
-    """Direct Values plus descendant Values, without duplicating stored links."""
-    pending = [card_id]
-    card_ids: list[int] = []
-    while pending:
-        current = pending.pop()
-        card_ids.append(current)
-        pending.extend(child.id for child in await _children(session, current))
-    return set(
-        await session.scalars(select(CardValue.value_id).where(CardValue.card_id.in_(card_ids)))
     )
 
 
@@ -1580,12 +1465,16 @@ async def delete_subtree(session: AsyncSession, card_id: int) -> int:
     # A Check linked to a Card outside this subtree is still in use, so only Checks that
     # lose every link go with the Cards.  Both deletes are explicit rather than left to
     # the FK cascade, which is a connection pragma and not guaranteed here.
-    await session.execute(
-        delete(Check).where(
-            Check.id.in_(select(CardCheck.check_id).where(CardCheck.card_id.in_(ids))),
-            Check.id.not_in(select(CardCheck.check_id).where(CardCheck.card_id.not_in(ids))),
+    doomed_checks = list(
+        await session.scalars(
+            select(Check.id).where(
+                Check.id.in_(select(CardCheck.check_id).where(CardCheck.card_id.in_(ids))),
+                Check.id.not_in(select(CardCheck.check_id).where(CardCheck.card_id.not_in(ids))),
+            )
         )
     )
+    await session.execute(delete(CheckValue).where(CheckValue.check_id.in_(doomed_checks)))
+    await session.execute(delete(Check).where(Check.id.in_(doomed_checks)))
     await session.execute(delete(CardCheck).where(CardCheck.card_id.in_(ids)))
     await session.execute(delete(Card).where(Card.id.in_(ids)))
     await propagate_ancestors(session, parent_id)
@@ -1594,8 +1483,27 @@ async def delete_subtree(session: AsyncSession, card_id: int) -> int:
 
 
 # Declared last so each spec can name the toggle command that writes it.
+# The one link a Check carries itself.  Same shape, different side of the junction row.
+CHECK_VALUE_REFERENCE = ReferenceSpec(
+    "value_id",
+    "value_ids",
+    "value_query",
+    Value,
+    "Value",
+    CheckValue,
+    toggle_check_value,
+    owner_key="check_id",
+    owner_label="Check",
+)
 VALUE_REFERENCE = ReferenceSpec(
-    "value_id", "value_ids", "value_query", Value, "Value", CardValue, toggle_card_value
+    "value_id",
+    "value_ids",
+    "value_query",
+    Value,
+    "Value",
+    CardValue,
+    toggle_card_value,
+    also_carried_by=(CHECK_VALUE_REFERENCE,),
 )
 TAG_REFERENCE = ReferenceSpec(
     "tag_id", "tag_ids", "tag_query", Tag, "Tag", CardTag, toggle_card_tag

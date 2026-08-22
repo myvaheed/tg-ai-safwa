@@ -14,7 +14,7 @@ docs/brd/
   test_inventory.md                          generated: scripts/test_inventory.py
   diary.md  continuity.md  profile_settings.md
   planning/cards.md  planning/checks.md  planning/sprint.md
-  reminders.md  saved_requests.md  proposals.md
+  reminders.md  saved_requests.md  proposals.md  values_tags.md
   agents.md  telegram_history.md
 ```
 
@@ -83,6 +83,28 @@ async def test_pl_check_014_action_with_unanswered_check_cannot_finish(app):
 `app.given` is a dictionary of business fixtures, not a general DSL. It builds data through
 public operations and never restates a business rule inside the builder — a builder that
 knows the rule makes the test check itself.
+
+## Language
+
+A `.feature` file is read by someone who has never seen the code. Write it in the owner's words, not
+the codebase's.
+
+- Say what happens to the owner, not which function does it. "The Reminder keeps its next fire", not
+  "no schedule column changes".
+- Name a mechanism only when the rule is *about* that mechanism. DI-READ-013 names its two readers
+  because which two the subagent holds **is** the rule; DI-DAY-001 names nothing, because writing
+  down a day is not about a function.
+- No internal nouns where the owner has a word for it. `provider input`, `cursor`, `hash race`,
+  `snapshot`, `workspace revision`, `row` — each has a plain equivalent, and the plain one is right
+  unless the rule is about the mechanism.
+- Domain nouns stay capitalized and exact: Card, Sprint, Value, Tag, Check, Request, Reminder,
+  Summary, Diary.
+- **A source is never copied word for word**, `archived_docs/` least of all: it was written quickly
+  and carries wrong artifacts. Read what it is getting at, check it against the code, and write that.
+  Where the two disagree, the disagreement ships as a `question`.
+
+The identifier line is the exception: it is an identifier, and it never changes wording once
+approved. The `Scenario:` title after the em dash is prose and may be made clearer.
 
 ## Numbers
 

@@ -27,11 +27,13 @@ from safwa.constants import (
     DIARY_TIME_DEFAULT,
     PLAN_LINK_BURST_TAPS,
     REQUEST_RESULT_LIMIT,
+    SELECTOR_PAGE_SIZE,
     TELEGRAM_TEXT_LIMIT,
 )
 from safwa.domain import (
     DomainError,
     archive_tag,
+    archive_value,
     create_card,
     create_check,
     create_tag,
@@ -40,6 +42,9 @@ from safwa.domain import (
     set_sprint_success_criteria,
     start_sprint,
     toggle_card_check,
+    toggle_card_tag,
+    toggle_card_value,
+    toggle_check_value,
 )
 from safwa.enums import CardStage, MessageKind
 from safwa.features.diary.use_cases import create_diary_entry
@@ -678,7 +683,7 @@ async def test_manual_tag_and_value_archive_unlinks_cards(sessions) -> None:
         await callback_token_handler(
             FakeCallback(confirm.callback_data.split(":", 1)[1], message), services
         )
-        assert "Removed 1 Card link(s)" in message.edits[-1][0]
+        assert "Taken off 1 link(s)" in message.edits[-1][0]
 
     async with sessions() as session:
         tag = await session.get(Tag, tag_id)
@@ -769,9 +774,11 @@ async def test_dashboard_paging_walks_between_pages(sessions) -> None:
 
 
 async def test_tag_selector_pages_instead_of_truncating(sessions) -> None:
+    """PL-TAG-021 — tests/brd/tags.feature"""
+    overflow = SELECTOR_PAGE_SIZE + 2
     async with sessions() as session:
         card = await create_card(session, kind="action", title="Pick tags", effort_points=1)
-        for index in range(12):
+        for index in range(overflow):
             await create_tag(session, f"Tag {index:02d}")
         await session.commit()
         card_id = card.id
@@ -783,16 +790,126 @@ async def test_tag_selector_pages_instead_of_truncating(sessions) -> None:
     text, markup = message.edits[-1]
     names = [name for name in button_texts(markup) if name.startswith("Tag ")]
     assert "page 1/2" in text
-    assert names == [f"Tag {index:02d}" for index in range(10)]
+    assert names == [f"Tag {index:02d}" for index in range(SELECTOR_PAGE_SIZE)]
 
     nxt = next(button for row in markup.inline_keyboard for button in row if button.text == "Next ▶")
     await callback_token_handler(FakeCallback(nxt.callback_data.split(":", 1)[1], message), services)
 
     text, markup = message.edits[-1]
     names = [name for name in button_texts(markup) if name.startswith("Tag ")]
-    # Tag 11 used to be unreachable: the selector stopped at a hard limit with no paging.
+    # The last Tags used to be unreachable: the selector stopped at a hard limit with no paging.
     assert "page 2/2" in text
-    assert names == ["Tag 10", "Tag 11"]
+    assert names == [f"Tag {index:02d}" for index in range(SELECTOR_PAGE_SIZE, overflow)]
+
+    # Ticking one on page 2 used to redraw page 1, which undid the paging on every tap.
+    last = next(
+        button
+        for row in markup.inline_keyboard
+        for button in row
+        if button.text == f"Tag {overflow - 1:02d}"
+    )
+    await callback_token_handler(
+        FakeCallback(last.callback_data.split(":", 1)[1], message), services
+    )
+    text, markup = message.edits[-1]
+    assert "page 2/2" in text
+    assert f"✓ Tag {overflow - 1:02d}" in button_texts(markup)
+
+    back = next(
+        button for row in markup.inline_keyboard for button in row if button.text == "↩️ Back"
+    )
+    await callback_token_handler(FakeCallback(back.callback_data.split(":", 1)[1], message), services)
+    assert "Pick tags" in message.edits[-1][0]
+
+
+async def test_writing_a_name_by_hand_does_not_wipe_the_description_it_comes_back_with(
+    sessions,
+) -> None:
+    """PL-VALUE-006 — tests/brd/values.feature"""
+    async with sessions() as session:
+        value = await create_value(session, "Fitness", "Why it matters", active=True)
+        await archive_value(session, value.id)
+        await session.commit()
+        value_id = value.id
+
+    services = services_for(sessions)
+    message = FakeMessage(101, bot_message=True)
+    # The owner types the name and nothing else; the description box is untouched.
+    await render_item_editor(message, services, "value", mode="create", values={"name": "fitness"})
+    create = next(
+        button
+        for row in message.edits[-1][1].inline_keyboard
+        for button in row
+        if button.text == "✅ Create Value"
+    )
+    await callback_token_handler(
+        FakeCallback(create.callback_data.split(":", 1)[1], message), services
+    )
+
+    async with sessions() as session:
+        restored = await session.get(Value, value_id)
+        assert restored.archived_at is None
+        assert restored.description == "Why it matters"
+        assert len(list(await session.scalars(select(Value)))) == 1
+
+
+async def test_the_tag_screen_counts_its_cards_and_has_no_focus(sessions) -> None:
+    """PL-TAG-015 — tests/brd/tags.feature"""
+    async with sessions() as session:
+        tag = await create_tag(session, "Family")
+        for title in ("Phone call", "Trip plan", "Birthday"):
+            card = await create_card(session, kind="action", title=title, effort_points=1)
+            await toggle_card_tag(session, card.id, tag.id)
+        await session.commit()
+        tag_id, card_id = tag.id, card.id
+
+    services = services_for(sessions)
+    message = FakeMessage(97, bot_message=True)
+    await render_item_editor(message, services, "tag", mode="view", item_id=tag_id)
+    text, markup = message.edits[-1]
+    assert "Linked Cards: 3" in text
+    # A Tag has no focus, and it never goes on a Check.
+    assert "Linked Checks" not in text
+    assert not [name for name in button_texts(markup) if "Focus" in name]
+    assert [name for name in CALLBACK_ACTIONS if name.startswith("check_choose")] == [
+        "check_choose_values"
+    ]
+
+    async with sessions() as session:
+        await toggle_card_tag(session, card_id, tag_id)
+        await session.commit()
+    message = FakeMessage(98, bot_message=True)
+    await render_item_editor(message, services, "tag", mode="view", item_id=tag_id)
+    assert "Linked Cards: 2" in message.edits[-1][0]
+
+
+async def test_the_value_screen_counts_cards_and_checks_and_flips_focus(sessions) -> None:
+    """PL-VALUE-004 — tests/brd/values.feature"""
+    async with sessions() as session:
+        value = await create_value(session, "Health")
+        card = await create_card(session, kind="action", title="Morning run", effort_points=1)
+        check = await create_check(session, title="Did I sleep seven hours?")
+        await toggle_card_value(session, card.id, value.id)
+        await toggle_check_value(session, check.id, value.id)
+        await session.commit()
+        value_id = value.id
+
+    services = services_for(sessions)
+    message = FakeMessage(99, bot_message=True)
+    await render_item_editor(message, services, "value", mode="view", item_id=value_id)
+    text, markup = message.edits[-1]
+    assert "Linked Cards: 1" in text
+    assert "Linked Checks: 1" in text
+
+    focus = next(
+        button
+        for row in markup.inline_keyboard
+        for button in row
+        if button.text.startswith("💎 Focus")
+    )
+    assert focus.text == "💎 Focus: Off"
+    await callback_token_handler(FakeCallback(focus.callback_data.split(":", 1)[1], message), services)
+    assert "💎 Focus: On" in button_texts(message.edits[-1][1])
 
 
 async def test_moving_a_blocked_card_shows_its_warning_on_the_card_screen(sessions) -> None:

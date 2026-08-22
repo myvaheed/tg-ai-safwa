@@ -472,6 +472,7 @@ async def test_manual_check_screens_only_repeat_and_answer(e2e_harness):
     assert (await _live_actions(e2e_harness)) - listed == {
         "check_toggle_repeat",
         "check_set_status",
+        "check_choose_values",
         "check_list_back",
     }
     assert "Note" not in message.rendered[-1]

@@ -30,6 +30,11 @@ from .features.continuity.model import MemoryFactCache as MemoryFactCache
 from .features.continuity.model import MemorySyncState as MemorySyncState
 from .features.continuity.model import SummaryState as SummaryState
 from .features.diary.model import DiaryEntry as DiaryEntry
+from .features.planning.model import CardTag as CardTag
+from .features.planning.model import CardValue as CardValue
+from .features.planning.model import CheckValue as CheckValue
+from .features.planning.model import Tag as Tag
+from .features.planning.model import Value as Value
 from .features.profile.model import UserProfile as UserProfile
 from .features.reminders.model import Reminder as Reminder
 from .features.saved_requests.model import SavedRequest as SavedRequest
@@ -40,16 +45,6 @@ from .foundation.models import Workspace as Workspace
 def new_correlation_id() -> str:
     """Return a short internal audit correlation key, not an entity identifier."""
     return secrets.token_hex(8)
-
-
-class Value(Base, TimestampMixin):
-    __tablename__ = "values"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(200), unique=True)
-    description: Mapped[str] = mapped_column(Text, default="")
-    active: Mapped[bool] = mapped_column(Boolean, default=False)
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    version: Mapped[int] = mapped_column(Integer, default=1)
 
 
 class Card(Base, TimestampMixin):
@@ -94,33 +89,6 @@ class Card(Base, TimestampMixin):
     __table_args__ = (
         Index("ix_cards_live_sort", "effective_stage", "hard_time", "priority", "created_at"),
     )
-
-
-class CardValue(Base):
-    __tablename__ = "card_values"
-    card_id: Mapped[int] = mapped_column(
-        ForeignKey("cards.id", ondelete="CASCADE"), primary_key=True
-    )
-    value_id: Mapped[int] = mapped_column(
-        ForeignKey("values.id", ondelete="CASCADE"), primary_key=True
-    )
-
-
-class Tag(Base, TimestampMixin):
-    __tablename__ = "tags"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(200), unique=True)
-    description: Mapped[str] = mapped_column(Text, default="")
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    version: Mapped[int] = mapped_column(Integer, default=1)
-
-
-class CardTag(Base):
-    __tablename__ = "card_tags"
-    card_id: Mapped[int] = mapped_column(
-        ForeignKey("cards.id", ondelete="CASCADE"), primary_key=True
-    )
-    tag_id: Mapped[int] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
 
 
 class Check(Base, TimestampMixin):

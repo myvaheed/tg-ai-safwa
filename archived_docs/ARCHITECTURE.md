@@ -90,13 +90,18 @@ no underscore (the whole package is private behind `__init__.__all__`).
   categories, energy types, `liked`. Stripped for Goal/Idea at both the AI and domain boundaries.
 - `blocked` is warning-only, requires non-empty `blocked_description`. No Card-to-Card dependency graph.
 - Priority `critical|medium|low`; `hard_time` independent boolean.
+- **Check links**: a Check owns one set, its Values — the same `ReferenceSpec` shape, with
+  `check_id` as the owning column. A Check shows how well a Value is held to; a Card is work that
+  serves one, and nothing is derived between a Check's Values and its Cards'. `archive_value`
+  clears both link tables, `delete_subtree` clears `check_values` for the Checks it deletes, and an
+  answered repeatable Check hands its Values to the successor that replaces it.
 - **Card links**: a Card owns exactly three, all the same shape — Values, Tags, Checks. Each has a
   `ReferenceSpec` in `CARD_REFERENCE_SPECS`, a `toggle_card_*` command, and a `card_*` junction table;
   `ReferenceSpec.name_attr` is the only difference (a Check is named by `title`). Values have `active`
-  (AI focus); Tags do not. Neither classifies a Check.
+  (AI focus); Tags do not. A Tag never goes on a Check; a Value does — see Check links above.
 - **Checks**: a state observation ("did this hold?"), not planned work — no effort, never in a Sprint.
-  A Card is its only relationship, held on the Card side in `card_checks`: one Check may hang on many
-  Cards (one answer then satisfies all of them) or on none. A Check carries only a title and
+  A Card link is held on the Card side in `card_checks`: one Check may hang on many
+  Cards (one answer then satisfies all of them) or on none. Its Values are held on its own side. A Check carries only a title and
   `repeatable`. `outcome` is `passed|missed`;
   **Pending is derived** (`outcome IS NULL`) and never stored, so there is no reset path. `resolved_at`
   keeps the *first* resolution — re-answering overwrites the outcome and the previous one is not
