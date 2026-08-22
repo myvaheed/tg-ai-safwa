@@ -21,8 +21,8 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
 )
 from safwa.domain import bootstrap_workspace
+from safwa.features.cards.agent import BOARD_PROMPT, BOARD_TOOLS
 from safwa.features.continuity.memory import MemoryFileStore
-from safwa.features.planning.agent import BOARD_PROMPT, BOARD_TOOLS
 from safwa.foundation.database import Database, upgrade_database
 
 
@@ -122,7 +122,7 @@ class E2EHarness:
                 query_read_tool(ReadOnlyQueryRunner(self.database_path, ALLOWED_VIEWS, timezone=TIMEZONE)),
             ),
             mutation_tools=BOARD_TOOLS,
-            planning_state=True,
+            board_state=True,
         )
 
     def advisor(

@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import select, text
 
-from safwa.ai.context import planning_context
+from safwa.ai.context import board_context
 from safwa.ai.contracts import RemoveToolInput
 from safwa.ai.sql import create_ai_views
 from safwa.bootstrap.modules import AI_VIEWS
@@ -19,21 +19,14 @@ from safwa.domain import (
     delete_subtree,
     resolve_check,
     toggle_card_check,
-    toggle_card_tag,
     toggle_card_value,
     toggle_check_value,
 )
 from safwa.enums import CheckOutcome
-from safwa.features.planning.model import CardValue, CheckValue
-from safwa.features.planning.use_cases import (
-    archive_tag,
-    archive_value,
-    create_tag,
-    create_value,
-    update_tag_fields,
-    update_value_fields,
-)
-from safwa.models import Card, Check, Tag, Value
+from safwa.features.tags.use_cases import archive_tag, create_tag
+from safwa.features.values.model import CardValue, CheckValue
+from safwa.features.values.use_cases import archive_value, create_value, update_value_fields
+from safwa.models import Card, Check, Value
 
 
 async def _action(session, title: str, **overrides):
@@ -46,7 +39,17 @@ async def _action(session, title: str, **overrides):
     )
 
 
-# --------------------------------------------------------------------------- naming
+async def _views(session):
+    await (await session.connection()).run_sync(
+        lambda connection: create_ai_views(connection, AI_VIEWS)
+    )
+
+
+async def value_card_ids(session, value_id: int) -> list[int]:
+    return sorted(
+        await session.scalars(select(CardValue.card_id).where(CardValue.value_id == value_id))
+    )
+
 
 
 async def test_a_value_name_is_taken_whatever_the_capitals(sessions):
@@ -64,23 +67,6 @@ async def test_a_value_name_is_taken_whatever_the_capitals(sessions):
             await update_value_fields(session, other.id, name="   ")
         with pytest.raises(DomainError, match="cannot be empty"):
             await create_value(session, "  ")
-
-
-async def test_a_tag_name_is_taken_whatever_the_capitals(sessions):
-    """PL-TAG-016 — tests/brd/tags.feature"""
-    async with sessions() as session:
-        await create_tag(session, "Family")
-        other = await create_tag(session, "Work")
-        await session.commit()
-
-        with pytest.raises(DomainError, match="already exists"):
-            await create_tag(session, "FAMILY")
-        with pytest.raises(DomainError, match="already exists"):
-            await update_tag_fields(session, other.id, name="family")
-        with pytest.raises(DomainError, match="cannot be empty"):
-            await update_tag_fields(session, other.id, name=" ")
-        with pytest.raises(DomainError, match="cannot be empty"):
-            await create_tag(session, "")
 
 
 async def test_writing_down_an_archived_value_brings_that_one_back(sessions):
@@ -113,34 +99,6 @@ async def test_writing_down_an_archived_value_brings_that_one_back(sessions):
         assert again.description == "New Value"
 
 
-async def test_writing_down_an_archived_tag_brings_that_one_back(sessions):
-    """PL-TAG-017 — tests/brd/tags.feature"""
-    async with sessions() as session:
-        tag = await create_tag(session, "Family", "Original Tag")
-        tag_id = tag.id
-        await archive_tag(session, tag.id)
-        await session.commit()
-
-        restored = await create_tag(session, "family")
-        await session.commit()
-        assert restored.id == tag_id
-        assert restored.archived_at is None
-        assert restored.description == "Original Tag"
-        assert len(list(await session.scalars(select(Tag)))) == 1
-
-        with pytest.raises(DomainError, match="already exists"):
-            await create_tag(session, "FAMILY")
-
-
-async def value_card_ids(session, value_id: int) -> list[int]:
-    return sorted(
-        await session.scalars(select(CardValue.card_id).where(CardValue.value_id == value_id))
-    )
-
-
-# ----------------------------------------------------------------- archiving and links
-
-
 async def test_archiving_a_value_takes_it_off_cards_and_checks(sessions):
     """PL-VALUE-007 — tests/brd/values.feature"""
     async with sessions() as session:
@@ -168,26 +126,6 @@ async def test_archiving_a_value_takes_it_off_cards_and_checks(sessions):
             await archive_value(session, value.id)
 
 
-async def test_archiving_a_tag_takes_it_off_its_cards_and_the_cards_stay(sessions):
-    """PL-TAG-018 — tests/brd/tags.feature"""
-    async with sessions() as session:
-        tag = await create_tag(session, "Family")
-        first = await _action(session, "Phone call")
-        second = await _action(session, "Trip plan")
-        await toggle_card_tag(session, first.id, tag.id)
-        await toggle_card_tag(session, second.id, tag.id)
-        await session.commit()
-
-        _archived, removed = await archive_tag(session, tag.id)
-        await session.commit()
-
-        assert removed == 2
-        assert (await session.get(Card, first.id)).archived_at is None
-        assert (await session.get(Card, second.id)).archived_at is None
-        with pytest.raises(DomainError, match="does not exist or is archived"):
-            await archive_tag(session, tag.id)
-
-
 async def test_nothing_is_linked_to_an_archived_value(sessions):
     """PL-VALUE-009 — tests/brd/values.feature"""
     async with sessions() as session:
@@ -201,21 +139,6 @@ async def test_nothing_is_linked_to_an_archived_value(sessions):
             await toggle_card_value(session, card.id, value.id)
         with pytest.raises(DomainError, match="Value does not exist or is archived"):
             await toggle_check_value(session, check.id, value.id)
-
-
-async def test_a_card_is_not_given_an_archived_tag(sessions):
-    """PL-TAG-020 — tests/brd/tags.feature"""
-    async with sessions() as session:
-        tag = await create_tag(session, "Family")
-        card = await _action(session, "Phone call")
-        await archive_tag(session, tag.id)
-        await session.commit()
-
-        with pytest.raises(DomainError, match="Tag does not exist or is archived"):
-            await toggle_card_tag(session, card.id, tag.id)
-
-
-# ------------------------------------------------------------------- a Check's Values
 
 
 async def test_a_check_can_carry_a_value_of_its_own(sessions):
@@ -290,15 +213,6 @@ async def test_an_answered_repeat_hands_its_values_to_its_successor(sessions):
         assert await check_value_ids(session, once.id) == [value.id]
 
 
-# ----------------------------------------------------------------- what Safwa reads
-
-
-async def _views(session):
-    await (await session.connection()).run_sync(
-        lambda connection: create_ai_views(connection, AI_VIEWS)
-    )
-
-
 async def test_safwa_sees_the_values_a_check_is_about(sessions):
     """PL-VALUE-013 — tests/brd/values.feature"""
     async with sessions() as session:
@@ -368,7 +282,7 @@ async def test_safwa_is_told_which_values_are_in_focus(sessions):
         await archive_tag(session, old_tag.id)
         await session.commit()
 
-        context = await planning_context(session)
+        context = await board_context(session)
 
     values_line = next(
         line for line in context.state.splitlines() if line.startswith("Active Values:")
@@ -399,7 +313,7 @@ async def test_a_critical_card_serving_a_focus_is_shown_to_safwa_first(sessions)
             await _action(session, f"Filler {index}", priority="critical")
         await session.commit()
 
-        context = await planning_context(session)
+        context = await board_context(session)
 
     titles = [
         line.split("](")[0].removeprefix("- [")
@@ -411,18 +325,8 @@ async def test_a_critical_card_serving_a_focus_is_shown_to_safwa_first(sessions)
     assert titles.index("Plain critical") < titles.index("Serves an archived Value")
 
 
-# ----------------------------------------------------------------- archived, not deleted
-
-
 def test_a_value_is_archived_never_deleted():
     """PL-VALUE-008 — tests/brd/values.feature"""
     assert RemoveToolInput(mode="archive", entity="value", id=1).entity == "value"
     with pytest.raises(ValidationError, match="a value is archived, never deleted"):
         RemoveToolInput(mode="delete", entity="value", id=1)
-
-
-def test_a_tag_is_archived_never_deleted():
-    """PL-TAG-019 — tests/brd/tags.feature"""
-    assert RemoveToolInput(mode="archive", entity="tag", id=1).entity == "tag"
-    with pytest.raises(ValidationError, match="a tag is archived, never deleted"):
-        RemoveToolInput(mode="delete", entity="tag", id=1)

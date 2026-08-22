@@ -1,9 +1,4 @@
-"""How a proposed Card, Check, Value or Tag is checked and then written.
-
-Preparation runs against live data and writes nothing, so a failure is one model-visible
-retryable tool error. Application calls the same domain operations the manual UI calls:
-two paths, one operation.
-"""
+"""How a proposed Card is checked and then written."""
 
 from __future__ import annotations
 
@@ -17,38 +12,22 @@ from ...ai.sql import RequestQueryError, UnsafeQueryError, normalize_request_sql
 from ...domain import (
     CARD_REFERENCE_SPECS,
     CHECK_REFERENCE,
-    CHECK_VALUE_REFERENCE,
     TAG_REFERENCE,
     VALUE_REFERENCE,
     DomainError,
-    ReferenceSpec,
     StaleStateError,
-    archive_check,
     archive_subtree,
-    archive_tag,
-    archive_value,
     create_card,
-    create_check,
-    create_tag,
-    create_value,
     delete_subtree,
     finish_action,
-    is_closed_repeat,
-    live_repeat_instance_id,
     move_card,
     pending_checks,
-    resolve_check,
-    resolve_references,
     set_card_parent,
     toggle_card_category,
     toggle_card_energy_type,
     update_card_fields,
-    update_check_fields,
-    update_tag_fields,
-    update_value_fields,
 )
 from ...enums import (
-    CHECK_ANSWER_ACTIONS,
     TERMINAL_STAGES,
     ActorType,
     CardKind,
@@ -56,24 +35,27 @@ from ...enums import (
     Category,
     EnergyType,
 )
-from ...models import Card, CardCategory, CardEnergyType, Check, ProposalChange, Tag, Value
+from ...models import Card, CardCategory, CardEnergyType, ProposalChange
 from ..proposals.api import (
     ApplyContext,
     PreparationContext,
     PreparedChange,
     ToolPreparationError,
+    named_ids,
+    reject_closed_repeat,
     require_target,
+    validate_named_references,
 )
 
-REFERENCE_HINT = (
-    "Find the item with query_safwa and retry this call with its numeric ID. If you "
-    "proposed it earlier in this same turn, wait for that result and use the ID it returns."
-)
 PARENT_HINT = (
     "Find the parent with query_safwa and retry with its numeric parent_id, or drop the "
     "parent. If you proposed it earlier in this same turn, wait for that result first."
 )
+
+
 ACTION_ONLY_FIELDS = ("effort_points", "repeatable", "categories", "energy_types")
+
+
 CARD_SCALAR_FIELDS = frozenset(
     {
         "title",
@@ -88,70 +70,12 @@ CARD_SCALAR_FIELDS = frozenset(
 )
 
 
-async def live_instance_hint(session: AsyncSession, entity: Card | Check) -> str:
-    live_id = await live_repeat_instance_id(session, entity)
-    if live_id is None:
-        return "The series has ended. Tell the owner instead of proposing again."
-    return f"Retry this call with #{live_id}, the open one in its series."
-
-
-async def reject_closed_repeat(session: AsyncSession, entity: Card | Check, label: str) -> None:
-    if not is_closed_repeat(entity):
-        return
-    raise ToolPreparationError(
-        "closed_repeat",
-        f"{label.title()} #{entity.id} is a closed repeat and cannot be changed.",
-        await live_instance_hint(session, entity),
-    )
-
-
 def allows_parent(child_kind: str | None, parent_kind: str | None) -> bool:
     if child_kind == CardKind.IDEA.value:
         return parent_kind == CardKind.GOAL.value
     if child_kind == CardKind.ACTION.value:
         return parent_kind in {CardKind.GOAL.value, CardKind.IDEA.value}
     return False
-
-
-async def _validate_named_references(
-    session: AsyncSession, values: dict[str, Any], spec: ReferenceSpec
-) -> None:
-    """Reject a relationship the owner could not act on, with a retryable hint."""
-    resolved = await resolve_references(session, spec, values)
-    if resolved.blank:
-        raise ToolPreparationError(
-            "invalid_arguments",
-            f"{spec.label} name must not be empty.",
-            f"Provide one exact {spec.label} name or its numeric ID.",
-        )
-    if resolved.unknown_ids:
-        raise ToolPreparationError(
-            "reference_not_found",
-            f"{spec.label} #{resolved.unknown_ids[0]} does not exist or is archived.",
-            REFERENCE_HINT,
-        )
-    if resolved.missing:
-        raise ToolPreparationError(
-            "reference_not_found",
-            f"{spec.label} '{resolved.missing[0]}' was not found.",
-            REFERENCE_HINT,
-        )
-    if resolved.ambiguous:
-        raise ToolPreparationError(
-            "reference_ambiguous",
-            f"{spec.label} '{resolved.ambiguous[0]}' matched more than one item.",
-            f"Use query_safwa to choose one {spec.label} and retry with its numeric ID.",
-        )
-    if spec.model is not Check:
-        return
-    for check_id in sorted(resolved.ids):
-        check = await session.get(Check, check_id)
-        if check is not None and is_closed_repeat(check):
-            raise ToolPreparationError(
-                "closed_repeat",
-                f"Check #{check_id} is a closed repeat and cannot be linked.",
-                await live_instance_hint(session, check),
-            )
 
 
 async def _resolve_parent_reference(
@@ -274,23 +198,6 @@ async def _guard_pending_checks(
     )
 
 
-async def _named_ids(
-    session: AsyncSession, values: dict[str, Any], spec: ReferenceSpec
-) -> set[int]:
-    """Resolve one relationship at approval time against committed data.
-
-    A proposal holds one change, so a name referenced here always belongs to an
-    item an earlier proposal already saved.
-    """
-    resolved = await resolve_references(session, spec, values)
-    if resolved.unresolved:
-        raise DomainError(
-            f"{spec.label} '{resolved.unresolved[0]}' is not available for this approved link"
-        )
-    # Unknown numeric IDs stay for the domain command to reject with its own message.
-    return resolved.ids | set(resolved.unknown_ids)
-
-
 async def _apply_stage_change(session: AsyncSession, card: Card, stage: CardStage) -> None:
     """Route one approved stage change so terminal stages keep their accounting.
 
@@ -337,7 +244,7 @@ async def _replace_card_sets(
                 select(spec.link_column).where(spec.link_model.card_id == card.id)
             )
         )
-        target = await _named_ids(session, values, spec)
+        target = await named_ids(session, values, spec)
         for entity_id in sorted(current ^ target):
             await spec.toggle(session, card.id, entity_id, actor=ActorType.AI)
 
@@ -349,7 +256,7 @@ async def _apply_card_links(
     for spec in CARD_REFERENCE_SPECS:
         if not spec.mentioned_in(values):
             continue
-        for entity_id in sorted(await _named_ids(session, values, spec)):
+        for entity_id in sorted(await named_ids(session, values, spec)):
             exists = await session.get(spec.link_model, spec.link_key(card.id, entity_id))
             if linked != (exists is not None):
                 await spec.toggle(session, card.id, entity_id, actor=ActorType.AI)
@@ -386,7 +293,7 @@ class CardProposalHandler:
                 raise DomainError("The Card proposal contains no applicable fields")
         await _resolve_parent_reference(context, values, str(proposed_kind))
         for spec in CARD_REFERENCE_SPECS:
-            await _validate_named_references(context.session, values, spec)
+            await validate_named_references(context.session, values, spec)
         await _guard_pending_checks(context.session, change, values)
         return PreparedChange(values=values, expected_version=expected_version)
 
@@ -411,9 +318,9 @@ class CardProposalHandler:
                 ),
                 categories=set(values.get("categories") or []),
                 energy_types=set(values.get("energy_types") or []),
-                value_ids=await _named_ids(session, values, VALUE_REFERENCE),
-                tag_ids=await _named_ids(session, values, TAG_REFERENCE),
-                check_ids=await _named_ids(session, values, CHECK_REFERENCE),
+                value_ids=await named_ids(session, values, VALUE_REFERENCE),
+                tag_ids=await named_ids(session, values, TAG_REFERENCE),
+                check_ids=await named_ids(session, values, CHECK_REFERENCE),
                 actor=ActorType.AI,
             )
             return [card.id]
@@ -458,126 +365,3 @@ class CardProposalHandler:
         else:
             raise DomainError(f"Unsupported approved Card action: {change.action}")
         return [card.id]
-
-
-class CheckProposalHandler:
-    entity = "check"
-    # A Check proposal keeps the version it was prepared against.
-    version_model: type[Any] | None = None
-
-    async def prepare(self, context: PreparationContext, change: Any) -> PreparedChange:
-        check, expected_version = await require_target(context, change, Check)
-        if check is not None:
-            await reject_closed_repeat(context.session, check, change.entity)
-        values = dict(change.values)
-        await _validate_named_references(context.session, values, CHECK_VALUE_REFERENCE)
-        return PreparedChange(values=values, expected_version=expected_version)
-
-    async def apply(self, context: ApplyContext, change: ProposalChange) -> list[int]:
-        session = context.session
-        values = dict(change.values)
-        if change.action == "create":
-            created = await create_check(
-                session,
-                title=str(values["title"]),
-                repeatable=bool(values.get("repeatable", False)),
-            )
-            return [created.id]
-        check = await session.get(Check, change.entity_id) if change.entity_id else None
-        if check is None or check.version != change.expected_version:
-            raise StaleStateError("A Check changed; refresh this proposal")
-        if change.action == "update":
-            scalar_fields = {
-                name: value for name, value in values.items() if name in {"title", "repeatable"}
-            }
-            if scalar_fields:
-                await update_check_fields(session, check.id, scalar_fields)
-        elif change.action in CHECK_ANSWER_ACTIONS:
-            await resolve_check(
-                session, check.id, CHECK_ANSWER_ACTIONS[change.action], actor=ActorType.AI
-            )
-        elif change.action == "archive":
-            await archive_check(session, check.id)
-        elif change.action in {"link", "unlink"}:
-            spec = CHECK_VALUE_REFERENCE
-            for value_id in sorted(await _named_ids(session, values, spec)):
-                exists = await session.get(spec.link_model, spec.link_key(check.id, value_id))
-                if (change.action == "link") != (exists is not None):
-                    await spec.toggle(session, check.id, value_id, actor=ActorType.AI)
-        else:
-            raise DomainError(f"Unsupported Check action: {change.action}")
-        return [check.id]
-
-
-class ValueProposalHandler:
-    entity = "value"
-    version_model: type[Any] | None = Value
-
-    async def prepare(self, context: PreparationContext, change: Any) -> PreparedChange:
-        _value, expected_version = await require_target(context, change, Value)
-        return PreparedChange(values=dict(change.values), expected_version=expected_version)
-
-    async def apply(self, context: ApplyContext, change: ProposalChange) -> list[int]:
-        session = context.session
-        value = await session.get(Value, change.entity_id) if change.entity_id else None
-        if change.action == "create":
-            name = str(change.values["name"]).strip()
-            if not name:
-                raise DomainError("A new Value needs a name")
-            value = await create_value(
-                session,
-                name,
-                change.values.get("description"),
-                active=change.values.get("active"),
-            )
-            await session.flush()
-        else:
-            if value is None or value.version != change.expected_version:
-                raise StaleStateError("A Value changed; refresh this proposal")
-            if change.action == "update":
-                value = await update_value_fields(
-                    session,
-                    value.id,
-                    name=change.values.get("name"),
-                    description=change.values.get("description"),
-                    active=change.values.get("active"),
-                )
-            elif change.action == "archive":
-                value, _unlinked_count = await archive_value(session, value.id)
-            else:
-                raise DomainError(f"Unsupported Value action: {change.action}")
-        return [value.id]
-
-
-class TagProposalHandler:
-    entity = "tag"
-    version_model: type[Any] | None = Tag
-
-    async def prepare(self, context: PreparationContext, change: Any) -> PreparedChange:
-        _tag, expected_version = await require_target(context, change, Tag)
-        return PreparedChange(values=dict(change.values), expected_version=expected_version)
-
-    async def apply(self, context: ApplyContext, change: ProposalChange) -> list[int]:
-        session = context.session
-        tag = await session.get(Tag, change.entity_id) if change.entity_id else None
-        if change.action == "create":
-            name = str(change.values.get("name", change.values.get("title", ""))).strip()
-            if not name:
-                raise DomainError("A new Tag needs a name")
-            tag = await create_tag(session, name, change.values.get("description"))
-            await session.flush()
-        else:
-            if tag is None or tag.version != change.expected_version:
-                raise StaleStateError("A Tag changed; refresh this proposal")
-            if change.action == "update":
-                tag = await update_tag_fields(
-                    session,
-                    tag.id,
-                    name=change.values.get("name"),
-                    description=change.values.get("description"),
-                )
-            elif change.action == "archive":
-                tag, _unlinked_count = await archive_tag(session, tag.id)
-            else:
-                raise DomainError(f"Unsupported Tag action: {change.action}")
-        return [tag.id]

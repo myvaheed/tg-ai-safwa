@@ -118,11 +118,29 @@ What each feature plugs into the application is declared once, in
 [bootstrap/modules.py](src/safwa/bootstrap/modules.py) — see
 [docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md).
 
-The codebase is moving from flat layers to vertical features. The Diary pilot owns its model, use
-cases, agent contract and Telegram adapter under [features/diary](src/safwa/features/diary); its AI
-and UI mutation paths call the same feature operations. Other business areas remain in
+The codebase is moving from flat layers to vertical features. A feature owns its model, use cases,
+agent contract and Telegram adapter, and its AI and UI mutation paths call the same operations —
+[features/diary](src/safwa/features/diary) is the shape to copy. What has not moved yet lives in
 [domain.py](src/safwa/domain.py), [telegram/](src/safwa/telegram) and
-[ai/service.py](src/safwa/ai/service.py) until their declared phases.
+[ai/service.py](src/safwa/ai/service.py) until its declared phase.
+
+### Board and Planning are not the same word
+
+**One package per `.feature` file**, so a rule and the code that keeps it are found in one place.
+
+- **The board** is what the owner keeps: Cards, Checks, Values, Tags, Requests and Reminders. It is
+  not a package — it is the set, and `board` is the subagent that proposes every change to it. Its
+  `AgentSpec` lives in [features/cards/agent.py](src/safwa/features/cards/agent.py) because Cards
+  are the board's centre, and the roster already lets a subagent declare tools other features own.
+- **Planning** is the workspace mode without a running Sprint (`WorkspaceMode.PLANNING`), the Sprint
+  itself, and the screen where the next one is planned.
+  [features/planning](src/safwa/features/planning) is exactly that and nothing else.
+
+A Card is not "planning data". Say Card, Check, Value, Tag, Sprint — or say the board.
+
+`AgentSpec.board_state` is that set's current state, sent to a subagent that asked for it. Two
+strings the model reads still call it "planning state"; changing them moves the `SYSTEM_PROMPT`
+hash, so they wait for a batch that declares it.
 
 `archived_docs/INITIAL_PLAN.md` and `archived_docs/MEMORY_HISTORY_USAGE.md` are the authoritative product spec —
 read them before changing history, memory, proposal, or UI behavior. When sources drift: the product
@@ -134,7 +152,7 @@ Cross-feature tuning — token budgets, poll intervals, shared timeouts — live
 [config.py](src/safwa/config.py) takes its defaults from there. A limit that belongs to one feature
 is a constant at the top of that feature's module, next to where it is used. The same split applies
 to [enums.py](src/safwa/enums.py): `MessageKind` and `AIProvider` are shared, while `CardStage`,
-`CardKind` and `CheckOutcome` belong to Planning.
+`CardKind` belongs to Cards, `CheckOutcome` to Checks, and `WorkspaceMode` to Planning.
 
 The `telegram` package is layered and imports run one way only: `_core.py` ← `_presentation.py` ←
 `_messaging.py` ← `text_input.py` ← the feature renderers ← `screens.py` / `proposals.py` ← the
@@ -169,8 +187,8 @@ The model never mutates and never writes mutation SQL. A mutation tool call beco
 contract, then `ChangePreparer.prepare` against live data, then proposal rows, then a review screen,
 and `ProposalService.apply` calls the *same* `domain.py` functions the manual UI calls.
 
-- **Every mutation tool belongs to a subagent, never to the Advisor.** `board` owns the planning
-  data, `diary` owns the Diary. Preparation runs where the change was authored.
+- **Every mutation tool belongs to a subagent, never to the Advisor.** `board` owns the board —
+  Cards, Checks, Values, Tags, Requests, Reminders — and `diary` owns the Diary. Preparation runs where the change was authored.
 - **Every proposal screen is exactly Save/Discard.** A screen that needs a field control is the wrong
   screen.
 - Autoapproval decides only whether a screen is shown; it never bypasses proposal persistence, and

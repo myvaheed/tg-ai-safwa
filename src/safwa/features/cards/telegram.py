@@ -1,8 +1,4 @@
-"""How a proposed Card, Check, Value or Tag reads to the owner.
-
-Two renderings of one change: the receipt lines a resolved proposal leaves in the
-conversation, and the review screen the owner answers with Save or Discard.
-"""
+"""How a proposed Card reads to the owner: its receipt lines and its review screen."""
 
 from __future__ import annotations
 
@@ -15,15 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...ai.contracts import AgentChange
 from ...domain import (
     CARD_REFERENCE_SPECS,
-    CHECK_VALUE_REFERENCE,
-    ReferenceSpec,
     card_progress,
-    check_value_ids,
     resolve_references,
 )
 from ...enums import (
-    CHECK_ANSWER_ACTIONS,
-    CHECK_OUTCOME_LABELS,
     CardKind,
     CardStage,
     Priority,
@@ -34,10 +25,7 @@ from ...models import (
     CardEnergyType,
     CardTag,
     CardValue,
-    Check,
     ProposalChange,
-    Tag,
-    Value,
 )
 from ...telegram import card_overview_text, category_expression, energy_expression
 from ..proposals.api import (
@@ -47,10 +35,9 @@ from ..proposals.api import (
     detail_lines,
     detail_value,
     display_diff_value,
-    field_diffs,
-    named_details,
-    named_summary,
     reference_details,
+    reference_groups,
+    reference_names,
     result_value,
 )
 
@@ -69,6 +56,8 @@ CARD_DETAIL_FIELDS = (
     "energy_types",
     "parent_id",
 )
+
+
 # Every Card relationship diffs and renders through its spec, so a new one shows up here
 # without a second table to update.
 _REFERENCE_BY_PLURAL = {spec.plural_key: spec for spec in CARD_REFERENCE_SPECS}
@@ -133,33 +122,6 @@ async def _card_detail_snapshot(session: AsyncSession, card: Card) -> dict[str, 
             )
         ],
     }
-
-
-async def _reference_groups(
-    session: AsyncSession,
-    values: dict[str, Any],
-    specs: tuple[ReferenceSpec, ...] = CARD_REFERENCE_SPECS,
-) -> list[str]:
-    """Name the items a payload points at, for the owner."""
-    groups: list[str] = []
-    for spec in specs:
-        if not spec.mentioned_in(values):
-            continue
-        resolved = await resolve_references(session, spec, values)
-        names: list[str] = []
-        for entity_id in sorted(resolved.ids):
-            entity = await session.get(spec.model, entity_id)
-            if entity is not None:
-                names.append(result_value(getattr(entity, spec.name_attr)))
-        names.extend(result_value(name) for name in resolved.unresolved)
-        if len(names) == 1:
-            groups.append(f"{spec.label} “{names[0]}”")
-        elif names:
-            groups.append(f"{spec.label}s {', '.join(f'“{name}”' for name in names)}")
-    return groups
-
-
-# --------------------------------------------------------------- the review screen
 
 
 async def _card_state(
@@ -233,17 +195,6 @@ async def _card_state(
     return current, proposed
 
 
-async def _reference_names(session: AsyncSession, spec: ReferenceSpec, value: Any) -> list[str]:
-    ids = list(value or [])
-    entities = (
-        list(await session.scalars(select(spec.model).where(spec.model.id.in_(ids))))
-        if ids
-        else []
-    )
-    by_id = {entity.id: getattr(entity, spec.name_attr) for entity in entities}
-    return [by_id[item_id] for item_id in ids if item_id in by_id]
-
-
 async def _card_display_state(
     session: AsyncSession, state: dict[str, Any]
 ) -> dict[str, Any]:
@@ -251,7 +202,7 @@ async def _card_display_state(
     parent = await session.get(Card, state.get("parent_id")) if state.get("parent_id") else None
     display["parent_name"] = parent.title if parent else None
     for spec in CARD_REFERENCE_SPECS:
-        display[spec.plural_key.replace("_ids", "_names")] = await _reference_names(
+        display[spec.plural_key.replace("_ids", "_names")] = await reference_names(
             session, spec, state.get(spec.plural_key)
         )
     if display.get("id") and display.get("kind") in {
@@ -270,7 +221,7 @@ async def _card_diff_value(session: AsyncSession, field: str, value: Any) -> str
         return parent.title if parent else f"Card #{value}"
     spec = _REFERENCE_BY_PLURAL.get(field)
     if spec is not None:
-        return ", ".join(await _reference_names(session, spec, value)) or "—"
+        return ", ".join(await reference_names(session, spec, value)) or "—"
     if field == "categories":
         return category_expression(value)
     if field == "energy_types":
@@ -309,9 +260,6 @@ async def _card_diffs(
     for label, name in proposed.get("_unresolved_references", []):
         diffs.append(f"• {label}: — → {html.escape(name)} (not found)")
     return tuple(diffs)
-
-
-# ------------------------------------------------------------------- the presenters
 
 
 class CardProposalPresenter:
@@ -383,7 +331,7 @@ class CardProposalPresenter:
             else None
         )
         if action in {"link", "unlink"}:
-            joined = " · ".join(await _reference_groups(session, values))
+            joined = " · ".join(await reference_groups(session, values))
             preposition = "to" if action == "link" else "from"
             return f"{verb} {joined} {preposition} {head}" if joined else f"{verb} {head}"
         parts: list[str] = []
@@ -407,7 +355,7 @@ class CardProposalPresenter:
                 parts.append("Repeatable")
             if values.get("blocked"):
                 parts.append("Blocked")
-            parts.extend(await _reference_groups(session, values))
+            parts.extend(await reference_groups(session, values))
         elif action in {"move", "reopen"} and values.get("stage"):
             parts.append(str(values["stage"]).title())
         elif action == "update":
@@ -432,185 +380,3 @@ class CardProposalPresenter:
             blocks=(card_overview_text(display, heading="Card overview"),),
             diffs=diffs,
         )
-
-
-async def _value_names(session: AsyncSession, value_ids: list[int]) -> str:
-    """The Values on a Check, as the owner reads them on a screen."""
-    names = await _reference_names(session, CHECK_VALUE_REFERENCE, sorted(value_ids))
-    return ", ".join(result_value(name) for name in names)
-
-
-class CheckProposalPresenter:
-    entity = "check"
-
-    def raw_details(self, change: AgentChange) -> list[str]:
-        return detail_lines(dict(change.values))
-
-    async def details(
-        self, session: AsyncSession, change: ProposalChange, fallback: AgentChange | None
-    ) -> list[str]:
-        values = dict(change.values)
-        if change.action in {"link", "unlink"}:
-            verb = change.action.title()
-            groups = await _reference_groups(session, values, (CHECK_VALUE_REFERENCE,))
-            return [f"{verb}: {group}" for group in groups]
-        proposed = {name: values[name] for name in ("title", "repeatable") if name in values}
-        if change.action in {"complete", "cancel"}:
-            proposed["outcome"] = CHECK_ANSWER_ACTIONS[change.action]
-        check = (
-            await session.get(Check, change.entity_id)
-            if change.entity_id is not None
-            else None
-        )
-        if change.action == "create" or check is None:
-            return detail_lines(proposed)
-        if change.action == "archive":
-            return [f"Check: #{check.id} “{result_value(check.title)}”"]
-        before = {
-            "title": check.title,
-            "repeatable": check.repeatable,
-            "outcome": check.outcome or "pending",
-        }
-        return [
-            f"{detail_label(field)}: {detail_value(before.get(field))} → {detail_value(value)}"
-            for field, value in proposed.items()
-            if before.get(field) != value
-        ]
-
-    async def summary(
-        self, session: AsyncSession, change: ProposalChange, details: list[str]
-    ) -> str:
-        if change.action in {"complete", "cancel"}:
-            check = (
-                await session.get(Check, change.entity_id)
-                if change.entity_id is not None
-                else None
-            )
-            outcome = CHECK_ANSWER_ACTIONS[change.action]
-            head = f"“{result_value(check.title)}”" if check else f"#{change.entity_id}"
-            return f"Answer Check {head} ({CHECK_OUTCOME_LABELS[outcome]})"
-        return await named_summary(session, change, details, model=Check)
-
-    async def screen(
-        self, session: AsyncSession, change: ProposalChange
-    ) -> ProposalScreen | None:
-        current: dict[str, Any] = {}
-        archived = False
-        linked_ids: list[int] = []
-        if change.entity_id:
-            check = await session.get(Check, change.entity_id)
-            if check is not None:
-                archived = check.archived_at is not None
-                linked_ids = await check_value_ids(session, check.id)
-                current = {
-                    "title": check.title,
-                    "repeatable": check.repeatable,
-                    "status": CHECK_OUTCOME_LABELS[check.outcome or "pending"],
-                    "values": await _value_names(session, linked_ids),
-                }
-        payload = {k: v for k, v in change.values.items() if not k.startswith("value_")}
-        proposed = {**current, **payload}
-        if change.action in {"link", "unlink"}:
-            resolved = await resolve_references(session, CHECK_VALUE_REFERENCE, change.values)
-            target = resolved.ids | set(resolved.unknown_ids)
-            after = (
-                set(linked_ids) | target
-                if change.action == "link"
-                else set(linked_ids) - target
-            )
-            proposed["values"] = await _value_names(session, list(after))
-        if change.action in CHECK_ANSWER_ACTIONS:
-            proposed["status"] = CHECK_OUTCOME_LABELS[CHECK_ANSWER_ACTIONS[change.action]]
-        if change.action in {"archive", "delete"}:
-            current["status"] = "Archived" if archived else "Active"
-            proposed["status"] = "Archived" if change.action == "archive" else "Deleted"
-        if change.action == "create":
-            mode = "Create"
-        elif change.action in CHECK_ANSWER_ACTIONS:
-            mode = "Answer"
-        else:
-            mode = "Edit"
-        return ProposalScreen(
-            mode=mode,
-            item="Check",
-            blocks=(
-                f"Title: {html.escape(display_diff_value(proposed.get('title')))}\n"
-                f"Status: {html.escape(display_diff_value(proposed.get('status')))}\n"
-                f"Repeatable: "
-                f"{html.escape(display_diff_value(proposed.get('repeatable')))}\n"
-                f"Values: {html.escape(display_diff_value(proposed.get('values')))}",
-            ),
-            diffs=field_diffs(current, proposed),
-        )
-
-
-class _NamedItemPresenter:
-    """Tag and Value read the same way: a name, a description, and a field diff."""
-
-    entity = ""
-    model: type[Any] = Tag
-    label = ""
-
-    def raw_details(self, change: AgentChange) -> list[str]:
-        return detail_lines(dict(change.values))
-
-    async def details(
-        self, session: AsyncSession, change: ProposalChange, fallback: AgentChange | None
-    ) -> list[str]:
-        fallback_lines = self.raw_details(fallback) if fallback is not None else []
-        return await named_details(session, change, fallback_lines, model=self.model)
-
-    async def summary(
-        self, session: AsyncSession, change: ProposalChange, details: list[str]
-    ) -> str:
-        return await named_summary(session, change, details, model=self.model)
-
-    def _current(self, item: Any) -> dict[str, Any]:
-        raise NotImplementedError
-
-    async def screen(
-        self, session: AsyncSession, change: ProposalChange
-    ) -> ProposalScreen | None:
-        current: dict[str, Any] = {}
-        archived = False
-        if change.entity_id:
-            item = await session.get(self.model, change.entity_id)
-            if item is not None:
-                archived = item.archived_at is not None
-                current = self._current(item)
-        proposed = {**current, **dict(change.values)}
-        if change.action in {"archive", "delete"}:
-            current["status"] = "Archived" if archived else "Active"
-            proposed["status"] = "Archived" if change.action == "archive" else "Deleted"
-        return ProposalScreen(
-            mode="Create" if change.action == "create" else "Edit",
-            item=self.label,
-            blocks=(
-                f"Name: {html.escape(display_diff_value(proposed.get('name')))}\n"
-                f"Description: "
-                f"{html.escape(display_diff_value(proposed.get('description')))}",
-            ),
-            diffs=field_diffs(current, proposed),
-        )
-
-
-class TagProposalPresenter(_NamedItemPresenter):
-    entity = "tag"
-    model = Tag
-    label = "Tag"
-
-    def _current(self, item: Any) -> dict[str, Any]:
-        return {"name": item.name, "description": item.description}
-
-
-class ValueProposalPresenter(_NamedItemPresenter):
-    entity = "value"
-    model = Value
-    label = "Value"
-
-    def _current(self, item: Any) -> dict[str, Any]:
-        return {
-            "name": item.name,
-            "description": item.description,
-            "active": item.active,
-        }

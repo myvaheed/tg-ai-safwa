@@ -22,14 +22,22 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_gateway import LlmProvider
 
 from ...ai.contracts import AgentChange, tool_json_schema
 from ...ai.sql import ReadOnlyQueryRunner
-from ...domain import DomainError
-from ...models import ProposalChange, Workspace
+from ...domain import (
+    CARD_REFERENCE_SPECS,
+    DomainError,
+    ReferenceSpec,
+    is_closed_repeat,
+    live_repeat_instance_id,
+    resolve_references,
+)
+from ...models import Card, Check, ProposalChange, Workspace
 
 
 class ToolPreparationError(DomainError):
@@ -390,3 +398,173 @@ def reference_details(values: Mapping[str, Any], prefix: str) -> list[str]:
     if query is not None:
         result.extend(str(item) for item in (query if isinstance(query, list) else [query]))
     return result
+
+
+# ------------------------------------------------- preparing a change over references
+
+REFERENCE_HINT = (
+    "Find the item with query_safwa and retry this call with its numeric ID. If you "
+    "proposed it earlier in this same turn, wait for that result and use the ID it returns."
+)
+
+
+async def live_instance_hint(session: AsyncSession, entity: Card | Check) -> str:
+    live_id = await live_repeat_instance_id(session, entity)
+    if live_id is None:
+        return "The series has ended. Tell the owner instead of proposing again."
+    return f"Retry this call with #{live_id}, the open one in its series."
+
+
+async def reject_closed_repeat(session: AsyncSession, entity: Card | Check, label: str) -> None:
+    if not is_closed_repeat(entity):
+        return
+    raise ToolPreparationError(
+        "closed_repeat",
+        f"{label.title()} #{entity.id} is a closed repeat and cannot be changed.",
+        await live_instance_hint(session, entity),
+    )
+
+
+async def validate_named_references(
+    session: AsyncSession, values: dict[str, Any], spec: ReferenceSpec
+) -> None:
+    """Reject a relationship the owner could not act on, with a retryable hint."""
+    resolved = await resolve_references(session, spec, values)
+    if resolved.blank:
+        raise ToolPreparationError(
+            "invalid_arguments",
+            f"{spec.label} name must not be empty.",
+            f"Provide one exact {spec.label} name or its numeric ID.",
+        )
+    if resolved.unknown_ids:
+        raise ToolPreparationError(
+            "reference_not_found",
+            f"{spec.label} #{resolved.unknown_ids[0]} does not exist or is archived.",
+            REFERENCE_HINT,
+        )
+    if resolved.missing:
+        raise ToolPreparationError(
+            "reference_not_found",
+            f"{spec.label} '{resolved.missing[0]}' was not found.",
+            REFERENCE_HINT,
+        )
+    if resolved.ambiguous:
+        raise ToolPreparationError(
+            "reference_ambiguous",
+            f"{spec.label} '{resolved.ambiguous[0]}' matched more than one item.",
+            f"Use query_safwa to choose one {spec.label} and retry with its numeric ID.",
+        )
+    if spec.model is not Check:
+        return
+    for check_id in sorted(resolved.ids):
+        check = await session.get(Check, check_id)
+        if check is not None and is_closed_repeat(check):
+            raise ToolPreparationError(
+                "closed_repeat",
+                f"Check #{check_id} is a closed repeat and cannot be linked.",
+                await live_instance_hint(session, check),
+            )
+
+
+async def named_ids(
+    session: AsyncSession, values: dict[str, Any], spec: ReferenceSpec
+) -> set[int]:
+    """Resolve one relationship at approval time against committed data.
+
+    A proposal holds one change, so a name referenced here always belongs to an
+    item an earlier proposal already saved.
+    """
+    resolved = await resolve_references(session, spec, values)
+    if resolved.unresolved:
+        raise DomainError(
+            f"{spec.label} '{resolved.unresolved[0]}' is not available for this approved link"
+        )
+    # Unknown numeric IDs stay for the domain command to reject with its own message.
+    return resolved.ids | set(resolved.unknown_ids)
+
+
+# --------------------------------------------------------- presenting one to the owner
+
+async def reference_names(session: AsyncSession, spec: ReferenceSpec, value: Any) -> list[str]:
+    ids = list(value or [])
+    entities = (
+        list(await session.scalars(select(spec.model).where(spec.model.id.in_(ids))))
+        if ids
+        else []
+    )
+    by_id = {entity.id: getattr(entity, spec.name_attr) for entity in entities}
+    return [by_id[item_id] for item_id in ids if item_id in by_id]
+
+
+async def reference_groups(
+    session: AsyncSession,
+    values: dict[str, Any],
+    specs: tuple[ReferenceSpec, ...] = CARD_REFERENCE_SPECS,
+) -> list[str]:
+    """Name the items a payload points at, for the owner."""
+    groups: list[str] = []
+    for spec in specs:
+        if not spec.mentioned_in(values):
+            continue
+        resolved = await resolve_references(session, spec, values)
+        names: list[str] = []
+        for entity_id in sorted(resolved.ids):
+            entity = await session.get(spec.model, entity_id)
+            if entity is not None:
+                names.append(result_value(getattr(entity, spec.name_attr)))
+        names.extend(result_value(name) for name in resolved.unresolved)
+        if len(names) == 1:
+            groups.append(f"{spec.label} “{names[0]}”")
+        elif names:
+            groups.append(f"{spec.label}s {', '.join(f'“{name}”' for name in names)}")
+    return groups
+
+
+class NamedItemPresenter:
+    """Tag and Value read the same way: a name, a description, and a field diff."""
+
+    entity = ""
+    model: type[Any]
+    label = ""
+
+    def raw_details(self, change: AgentChange) -> list[str]:
+        return detail_lines(dict(change.values))
+
+    async def details(
+        self, session: AsyncSession, change: ProposalChange, fallback: AgentChange | None
+    ) -> list[str]:
+        fallback_lines = self.raw_details(fallback) if fallback is not None else []
+        return await named_details(session, change, fallback_lines, model=self.model)
+
+    async def summary(
+        self, session: AsyncSession, change: ProposalChange, details: list[str]
+    ) -> str:
+        return await named_summary(session, change, details, model=self.model)
+
+    def _current(self, item: Any) -> dict[str, Any]:
+        raise NotImplementedError
+
+    async def screen(
+        self, session: AsyncSession, change: ProposalChange
+    ) -> ProposalScreen | None:
+        current: dict[str, Any] = {}
+        archived = False
+        if change.entity_id:
+            item = await session.get(self.model, change.entity_id)
+            if item is not None:
+                archived = item.archived_at is not None
+                current = self._current(item)
+        proposed = {**current, **dict(change.values)}
+        if change.action in {"archive", "delete"}:
+            current["status"] = "Archived" if archived else "Active"
+            proposed["status"] = "Archived" if change.action == "archive" else "Deleted"
+        return ProposalScreen(
+            mode="Create" if change.action == "create" else "Edit",
+            item=self.label,
+            blocks=(
+                f"Name: {html.escape(display_diff_value(proposed.get('name')))}\n"
+                f"Description: "
+                f"{html.escape(display_diff_value(proposed.get('description')))}",
+            ),
+            diffs=field_diffs(current, proposed),
+        )

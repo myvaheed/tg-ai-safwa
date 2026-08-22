@@ -15,6 +15,8 @@ from collections.abc import Awaitable, Callable
 from ..ai.context import SYSTEM_PROMPT_TEMPLATE
 from ..ai.sql import SqlView
 from ..ai.subagents import RoutedSubagent
+from ..features.cards.module import MODULE as CARDS
+from ..features.checks.module import MODULE as CHECKS
 from ..features.continuity.module import MODULE as CONTINUITY
 from ..features.diary.module import MODULE as DIARY
 from ..features.planning.module import MODULE as PLANNING
@@ -28,12 +30,18 @@ from ..features.proposals.api import (
 from ..features.proposals.module import MODULE as PROPOSALS_FEATURE
 from ..features.reminders.module import MODULE as REMINDERS
 from ..features.saved_requests.module import MODULE as SAVED_REQUESTS
+from ..features.tags.module import MODULE as TAGS
+from ..features.values.module import MODULE as VALUES
 from .module_manifest import AgentContext, BackgroundTask, FeatureModule
 
 # Order is what the routing rules and the recovery hooks follow, so it is fixed rather than
 # incidental: Profile settles the Diary's own Reminder before the Reminder rebuild walks the
 # whole table, and the Advisor's prompt lists the subagents in this order every run.
 MODULES: tuple[FeatureModule, ...] = (
+    CARDS,
+    CHECKS,
+    VALUES,
+    TAGS,
     PLANNING,
     DIARY,
     PROFILE,
@@ -126,7 +134,7 @@ def routed_subagents(context: AgentContext) -> tuple[RoutedSubagent, ...]:
             instructions=agent.instructions,
             read_tools=agent.read_tools(context) if agent.read_tools else (),
             mutation_tools=agent.mutation_tools,
-            planning_state=agent.planning_state,
+            board_state=agent.board_state,
             clock=agent.clock(context) if agent.clock else None,
         )
         for agent in AGENTS

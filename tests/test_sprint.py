@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy import select
 
-from safwa.ai.context import planning_context
+from safwa.ai.context import board_context
 from safwa.constants import SPRINT_LENGTH_DAYS
 from safwa.domain import (
     DomainError,
@@ -126,14 +126,14 @@ async def test_a_sprint_expires_only_after_local_midnight_past_its_end(sessions)
         assert action.effective_stage == "sprint"
 
 
-async def test_planning_context_names_the_sprint_and_today_actions(sessions):
+async def test_board_context_names_the_sprint_and_today_actions(sessions):
     async with sessions() as session:
         await create_card(session, title="Ship it", stage="today")
         await create_card(session, title="Later", stage="backlog")
         await start_sprint(session, success_criteria="Ship v2")
         await session.commit()
 
-        context = await planning_context(session)
+        context = await board_context(session)
 
     assert "Success criteria: Ship v2" in context.state
     assert "Today Actions:" in context.state
@@ -141,20 +141,20 @@ async def test_planning_context_names_the_sprint_and_today_actions(sessions):
     assert "Later" not in context.state
 
 
-async def test_planning_context_asks_for_a_sprint_and_hides_today(sessions):
+async def test_board_context_asks_for_a_sprint_and_hides_today(sessions):
     async with sessions() as session:
         await create_card(session, title="Ship it", stage="today")
         await set_sprint_success_criteria(session, "Ship v2")
         await session.commit()
 
-        context = await planning_context(session)
+        context = await board_context(session)
 
     assert "No Sprint is running" in context.state
     assert "Draft Success criteria for the next one: Ship v2" in context.state
     assert "Today Actions:" not in context.state
 
 
-async def test_planning_context_lists_critical_cards_valued_first(sessions):
+async def test_board_context_lists_critical_cards_valued_first(sessions):
     async with sessions() as session:
         value = await create_value(session, name="Health", active=True)
         for index in range(11):
@@ -164,7 +164,7 @@ async def test_planning_context_lists_critical_cards_valued_first(sessions):
         await create_card(session, title="Ordinary", priority="medium")
         await session.commit()
 
-        context = await planning_context(session)
+        context = await board_context(session)
 
     listed = [line for line in context.state.splitlines() if line.startswith("- [")]
     assert len(listed) == 10

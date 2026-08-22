@@ -30,14 +30,14 @@ from .features.continuity.model import MemoryFactCache as MemoryFactCache
 from .features.continuity.model import MemorySyncState as MemorySyncState
 from .features.continuity.model import SummaryState as SummaryState
 from .features.diary.model import DiaryEntry as DiaryEntry
-from .features.planning.model import CardTag as CardTag
-from .features.planning.model import CardValue as CardValue
-from .features.planning.model import CheckValue as CheckValue
-from .features.planning.model import Tag as Tag
-from .features.planning.model import Value as Value
 from .features.profile.model import UserProfile as UserProfile
 from .features.reminders.model import Reminder as Reminder
 from .features.saved_requests.model import SavedRequest as SavedRequest
+from .features.tags.model import CardTag as CardTag
+from .features.tags.model import Tag as Tag
+from .features.values.model import CardValue as CardValue
+from .features.values.model import CheckValue as CheckValue
+from .features.values.model import Value as Value
 from .foundation.models import Base, TimestampMixin
 from .foundation.models import Workspace as Workspace
 

@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy import select
 
-from safwa.ai.context import ordered_owner_context, planning_context
+from safwa.ai.context import board_context, ordered_owner_context
 from safwa.bootstrap.modules import RECOVERY_HOOKS
 from safwa.domain import start_sprint
 from safwa.features.profile.model import ProfileField
@@ -40,7 +40,7 @@ async def test_explicit_profile_context_is_after_memory_in_the_prompt(sessions) 
             "Current Advisor instruction",
             clock=SystemClock(),
         )
-        context = await planning_context(session)
+        context = await board_context(session)
 
     rendered = ordered_owner_context(
         "About me: stale inference\nAdvisor instructions: stale inference",

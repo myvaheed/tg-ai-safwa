@@ -56,7 +56,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 2 | `FeatureModule` and proposal capabilities | technical | **done** |
 | 3 | Pilot: Diary | business | **done** |
 | 4 | Leaf business batches | business | **done** — 4.a Continuity and Profile, 4.b Reminders, 4.c Saved Requests, 4.d Values and Tags |
-| 5 | Planning core | business | not started |
+| 5 | Cards, Checks and the Sprint | business | not started |
 | 6 | Proposals and the first reactive process | business | not started |
 | 7 | `agent_runtime` | technical + business | not started |
 | 8 | `telegram_llm` and `TurnManager` | technical | not started |
@@ -732,6 +732,58 @@ are untouched.
 | Modules under `src/` | 107 | 109 |
 | Import cycles | 0 (458 edges) | 0 (465 edges) |
 | `domain.py` | 1608 | 1516 |
+
+## After 4.d: one package per `.feature`, and two words that were one
+
+A technical batch, run the same day 4.d landed. No test changed what it expects, and **every
+snapshot came out byte-identical** — the same `SYSTEM_PROMPT`, `BOARD_PROMPT`, every tool schema and
+every table hash — which is the evidence that nothing but structure moved.
+
+The owner read the docs back and found that **"planning" meant four different things**: the
+workspace mode without a Sprint, the screen where the next Sprint is planned, the block of state the
+model is handed, and the package holding Cards, Checks, Values, Tags and the Sprint. The fourth is
+the widest of the four and contained the first two, which is backwards.
+
+**The vocabulary now.** The *board* is what the owner keeps — Cards, Checks, Values, Tags, Requests
+and Reminders — and it is not a package: it is the set, and `board` is the subagent that proposes
+every change to it. *Planning* is the workspace mode without a Sprint, the Sprint, and the screen
+where the next one is planned. See [CLAUDE.md](../CLAUDE.md#board-and-planning-are-not-the-same-word).
+
+**The split.** `features/planning` held five entities and is now five packages, one per `.feature`
+file: `features/cards`, `features/checks`, `features/values`, `features/tags`, and a `planning` that
+is only the Sprint views and the Sprint-expiry task.
+
+- The shared proposal machinery moved to `features/proposals/api.py`, where the rest of it already
+  was: `REFERENCE_HINT`, `live_instance_hint`, `reject_closed_repeat`, `validate_named_references`,
+  `named_ids`, `reference_names`, `reference_groups` and `NamedItemPresenter`. They are generic over
+  `ReferenceSpec` and belong to preparing and presenting a proposal, not to Cards. That is why
+  **Rule E stayed at 0**: no feature had to reach into another, and no new `api.py` door was needed.
+- `BOARD_AGENT` and `BOARD_PROMPT` live in `features/cards/agent.py`, because Cards are the board's
+  centre and the roster already lets a subagent declare mutation tools other features publish. If
+  that reads wrong later, it is one file move.
+- `MARKER_FORMAT` moved to `ai/sql.py`: two views render the closed-repeat marker, so the wording
+  stays in one place.
+- `AgentSpec.planning_state` is `board_state`, and `planning_context` is `board_context`. **Two
+  strings the model reads still say "planning state"** — one in `SYSTEM_PROMPT`, one on the per-turn
+  block. Changing them moves the `SYSTEM_PROMPT` hash, so they wait for a batch that declares it.
+- `features/board/` and `features/core/` were empty untracked directories left over from an earlier
+  attempt. Deleted. There is no `board` package and there is not going to be one.
+
+**DoD #3 is back to 5.** `features/planning/telegram.py` was 616 lines after 4.d, the one number that
+had risen; splitting it by entity is what that number was asking for.
+
+| | Phase 4.d | After the split |
+|---|---:|---:|
+| Tests | 582 passed / 3 skipped | 582 passed / 3 skipped |
+| Entity dispatch points outside `features/` (DoD #1) | 28 | 28 |
+| Modules over 600 lines (DoD #3) | **6** | 5 |
+| Import cycles | 0 (465 edges) | 0 |
+| Modules under `src/` | 109 | 132 |
+| Largest feature module | `planning/telegram.py` 616 | `proposals/api.py` 570 |
+
+`docs/brd/values_tags.md` keeps its scenarios and carries a note that its code plan named the old
+paths. A packet records the decision that was made; it is not rewritten when a later one moves the
+files.
 
 ### Done means
 

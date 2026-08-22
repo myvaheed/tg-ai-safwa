@@ -79,7 +79,7 @@ no underscore (the whole package is private behind `__init__.__all__`).
 
 ## Feature map
 
-### Planning domain
+### The board
 
 - **Cards**: strict tree. Goal root-only; Idea root or under Goal; Action root or under Goal/Idea,
   no children. Stages `backlog|sprint|today|done|cancelled`.
@@ -347,7 +347,7 @@ shape the Advisor runs on — its own prompt, its own tools, its own transcript,
   end of every Advisor turn and abandons each saved subagent session that turn did not route into, so
   words about something else end the draft instead of leaving it to be revived by a later `route`. A
   session whose batch is still `pending` is left alone: its screen is live and Save resumes it.
-- **board** ([ai/board.py](../src/safwa/ai/board.py)): owns `card`, `check`, `value`, `tag`,
+- **board** ([features/cards/agent.py](../src/safwa/features/cards/agent.py)): owns `card`, `check`, `value`, `tag`,
   `request`, `reminder` and `remove`, plus the prompt sections that only serve them — the full
   Planning structure, Checks, the Reminder timing rules, and how to fill a proposal in. It declares
   `planning_state=True`, so the board's current state is in its context, and takes the whole

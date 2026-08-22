@@ -13,7 +13,7 @@ docs/brd/
   README.md                                  this file
   test_inventory.md                          generated: scripts/test_inventory.py
   diary.md  continuity.md  profile_settings.md
-  planning/cards.md  planning/checks.md  planning/sprint.md
+  cards.md  checks.md  planning.md
   reminders.md  saved_requests.md  proposals.md  values_tags.md
   agents.md  telegram_history.md
 ```
@@ -41,9 +41,12 @@ the real unit, integration, and E2E checks.
 
 `<AREA>-<TOPIC>-<NNN>`, zero-padded, never reused and never renumbered.
 
+One `.feature` file is one package under `src/safwa/features/`, so a rule and the code that keeps
+it are found in one place.
+
 | Area | Prefix | Area | Prefix |
 |---|---|---|---|
-| Planning | `PL` | Proposals | `PR` |
+| The board — Cards, Checks, Values, Tags, and the Sprint they are planned into | `PL` | Proposals | `PR` |
 | Reminders | `RM` | Agents and routing | `AG` |
 | Diary | `DI` | Telegram history | `TG` |
 | Saved Requests | `SR` | Continuity and memory | `CO` |
@@ -77,7 +80,7 @@ in step.
 
 ```python
 async def test_pl_check_014_action_with_unanswered_check_cannot_finish(app):
-    """PL-CHECK-014 — tests/brd/planning.feature"""
+    """PL-CHECK-014 — tests/brd/checks.feature"""
 ```
 
 `app.given` is a dictionary of business fixtures, not a general DSL. It builds data through

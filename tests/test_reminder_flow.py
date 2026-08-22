@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy import select
 
-from safwa.ai.context import DialogueMessage, planning_context
+from safwa.ai.context import DialogueMessage, board_context
 from safwa.ai.service import AIOutcome
 from safwa.constants import REMINDER_CATCHUP_GRACE_MINUTES
 from safwa.domain import (
@@ -549,7 +549,7 @@ async def test_every_write_path_refuses_a_reminder_safwa_derived(sessions):
         assert await session.get(Reminder, reminder_id) is not None
 
 
-async def test_no_reminder_reaches_the_cacheable_planning_context(sessions):
+async def test_no_reminder_reaches_the_cacheable_board_context(sessions):
     """RM-READ-024 — tests/brd/reminders.feature"""
     # `next_fire_at` moves on every fire, and this block is the prefix a remote provider
     # caches; the model reads Reminders through `ai_reminders` instead.
@@ -561,7 +561,7 @@ async def test_no_reminder_reaches_the_cacheable_planning_context(sessions):
             tz=TZ,
         )
         await session.commit()
-        context = await planning_context(session)
+        context = await board_context(session)
 
     assert "Review the launch plan" not in context.state
     assert "Reminder" not in context.state

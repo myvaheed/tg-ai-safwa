@@ -1,1 +1,1 @@
-"""The planning feature. Its wiring lives in `module.py`."""
+"""Planning: the workspace mode without a Sprint, the Sprint, and planning the next one."""

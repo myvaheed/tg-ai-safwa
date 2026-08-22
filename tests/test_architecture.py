@@ -22,8 +22,8 @@ from sqlalchemy import inspect
 from safwa.ai.service import OPEN_TOOL, QUERY_SAFWA_TOOL, ROUTE_TOOL
 from safwa.ai.subagents import PERSONA
 from safwa.bootstrap.modules import PROPOSALS, SYSTEM_PROMPT
+from safwa.features.cards.agent import BOARD_PROMPT
 from safwa.features.diary.agent import DIARY_PROMPT
-from safwa.features.planning.agent import BOARD_PROMPT
 from safwa.models import Base
 from scripts.architecture_metrics import RULES, allowlist, cycles, violations
 

@@ -56,7 +56,7 @@ from ..models import (
     Workspace,
 )
 from .autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
-from .context import DialogueMessage, ordered_owner_context, planning_context
+from .context import DialogueMessage, board_context, ordered_owner_context
 from .contracts import (
     AgentChange,
     OpenInput,
@@ -946,7 +946,7 @@ class AIAdvisor:
     ) -> list[dict[str, Any]]:
         memory = await self.memory.sync()
         async with self.sessions() as session:
-            context = await planning_context(session)
+            context = await board_context(session)
         # Ordered by how often each block changes, so the stable prefix stays
         # byte-identical across turns and remote prompt caching can hit it.
         # Anything volatile goes after the dialogue, never into a system block.
@@ -981,9 +981,9 @@ class AIAdvisor:
         the ``SUBAGENT_HISTORY_LAST_MESSAGES`` window never trims them away.
         """
         messages: list[dict[str, Any]] = [{"role": "system", "content": routed.prompt}]
-        if routed.planning_state:
+        if routed.board_state:
             async with self.sessions() as session:
-                context = await planning_context(session)
+                context = await board_context(session)
             _append_user_message(messages, f"[System]: Current planning state:\n{context.state}")
         conversation = conversation_block(
             [

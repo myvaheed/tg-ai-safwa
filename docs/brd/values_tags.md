@@ -4,6 +4,12 @@ Status: **approved by the owner on 2026-08-23**, with Q1 through Q5 settled alon
 option C, which grows the batch.
 Batch: Phase 4.d
 
+**Superseded in one respect, on the same day.** This packet put Values and Tags inside
+`features/planning`. The owner then fixed the vocabulary: `planning` means the workspace mode
+without a Sprint and the screen where the next one is planned, `board` means the whole set the owner
+keeps, and there is one package per `.feature` file. Values and Tags live in `features/values` and
+`features/tags`. Every scenario below is unchanged; only the paths in "The code plan" are.
+
 Sources: `archived_docs/INITIAL_PLAN.md` §Cards and §Advisor context, `archived_docs/ARCHITECTURE.md`
 §Card links, the current code and its tests, and the owner's decisions recorded below.
 

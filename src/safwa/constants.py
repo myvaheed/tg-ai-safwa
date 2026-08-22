@@ -27,7 +27,7 @@ REPEAT_MARKER = " [🔄{index}]"
 WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 # --- AI context -----------------------------------------------------------
-# How many critical Cards the planning state names before the model has to query for more.
+# How many critical Cards the board state names before the model has to query for more.
 CONTEXT_CRITICAL_CARD_LIMIT = 10
 
 # --- AI agent loop --------------------------------------------------------

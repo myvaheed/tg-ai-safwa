@@ -24,7 +24,12 @@ from ..constants import (
     DEFAULT_COLUMN_LIMIT,
     DEFAULT_ROW_LIMIT,
     QUERY_TIMEOUT_SECONDS,
+    REPEAT_MARKER,
 )
+
+# The marker `domain.repeat_marker` renders, as a SQLite format string: one wording, so a
+# closed repeat reads the same whether the model queried it or the owner tapped a citation.
+MARKER_FORMAT = REPEAT_MARKER.replace("{index}", "%d")
 
 
 class UnsafeQueryError(ValueError):

@@ -46,7 +46,7 @@ class AgentSpec:
     purpose: str
     instructions: str
     mutation_tools: tuple[str, ...] = ()
-    planning_state: bool = False
+    board_state: bool = False
     read_tools: Callable[[AgentContext], tuple[ReadToolSpec, ...]] | None = None
     clock: Callable[[AgentContext], Callable[[], str]] | None = None
 

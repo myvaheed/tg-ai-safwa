@@ -37,7 +37,7 @@ class RoutedSubagent:
     read_tools: tuple[ReadToolSpec, ...] = ()
     mutation_tools: tuple[str, ...] = ()
     # Whether the board's current state belongs in its context at all.
-    planning_state: bool = False
+    board_state: bool = False
     # The volatile line that goes after the dialogue, never into the cached prefix.
     clock: Callable[[], str] | None = field(default=None)
 

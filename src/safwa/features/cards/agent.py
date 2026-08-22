@@ -1,15 +1,21 @@
-"""The board subagent: it proposes every change to the planning data."""
+"""The Card mutation tool, and the board subagent that owns every board change.
+
+The board is what the owner keeps: Cards, Checks, Values, Tags, Requests and Reminders.
+Its subagent lives with Cards because Cards are its centre, and the roster already lets a
+subagent declare mutation tools other features publish.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
-from ...ai.contracts import CardToolInput, CheckToolInput, TagToolInput, ValueToolInput
+from ...ai.contracts import CardToolInput
 from ...ai.mini import ReadToolSpec, query_read_tool
 from ...bootstrap.module_manifest import AgentContext, AgentSpec
 from ..proposals.api import MutationToolSpec, entity_change
 
 BOARD_TOOLS = ("card", "check", "value", "tag", "request", "reminder", "remove")
+
 
 BOARD_PROMPT = """You keep the user's board: their Cards, Checks, Values, Tags, Requests and Reminders.
 
@@ -97,7 +103,7 @@ BOARD_AGENT = AgentSpec(
     ),
     instructions=BOARD_PROMPT,
     mutation_tools=BOARD_TOOLS,
-    planning_state=True,
+    board_state=True,
     read_tools=_board_read_tools,
 )
 
@@ -177,29 +183,4 @@ CARD_TOOL = MutationToolSpec(
     ),
     to_change=entity_change("card"),
     repair=_card_repair,
-)
-
-CHECK_TOOL = MutationToolSpec(
-    name="check",
-    input_model=CheckToolInput,
-    description=(
-        "Propose one Check — a state observation on a Card. Answer one only when the user "
-        "already said how it went; otherwise cite it and let them. Use mode=link or "
-        "mode=unlink to put a Value on this Check or take it off."
-    ),
-    to_change=entity_change("check"),
-)
-
-VALUE_TOOL = MutationToolSpec(
-    name="value",
-    input_model=ValueToolInput,
-    description="Propose one Value — a focus the user names and links Cards to.",
-    to_change=entity_change("value"),
-)
-
-TAG_TOOL = MutationToolSpec(
-    name="tag",
-    input_model=TagToolInput,
-    description="Propose one Tag — a free label for finding Cards.",
-    to_change=entity_change("tag"),
 )

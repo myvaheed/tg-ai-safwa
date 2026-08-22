@@ -19,18 +19,18 @@ class DialogueMessage:
 
 
 @dataclass(frozen=True)
-class PlanningContext:
+class BoardContext:
     """Split so the volatile clock can be sent after the cacheable prefix."""
 
     state: str
     clock: str
 
 
-def ordered_owner_context(memory_text: str, planning_state: str) -> str:
-    """Put explicit profile/planning state after the durable memory it can override."""
+def ordered_owner_context(memory_text: str, board_state: str) -> str:
+    """Put the explicit board state after the durable memory it can override."""
     return (
         f"Persistent memory:\n{memory_text}"
-        f"\n\nCurrent planning state:\n{planning_state}"
+        f"\n\nCurrent planning state:\n{board_state}"
     )
 
 
@@ -185,7 +185,7 @@ async def _critical_cards(session: AsyncSession) -> list[Card]:
     )
 
 
-async def planning_context(session: AsyncSession) -> PlanningContext:
+async def board_context(session: AsyncSession) -> BoardContext:
     workspace = await session.get(Workspace, 1)
     profile = await session.get(UserProfile, 1)
     active_values = list(
@@ -252,7 +252,7 @@ async def planning_context(session: AsyncSession) -> PlanningContext:
             f"- {citation(card.title, 'card', card.id)} effort={card.effort_points}"
             for card in today
         )
-    return PlanningContext(
+    return BoardContext(
         state="\n".join(lines),
         clock=f"Current local time: {datetime.now(timezone):%Y-%m-%d %H:%M} ({timezone})",
     )
