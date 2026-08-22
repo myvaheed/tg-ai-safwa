@@ -6,10 +6,20 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from safwa.constants import REMINDER_CATCHUP_GRACE_MINUTES, REMINDER_FIRE_BATCH
+from safwa.constants import (
+    REMINDER_CATCHUP_GRACE_MINUTES,
+    REMINDER_FIRE_BATCH,
+    REMINDER_MIN_INTERVAL_MINUTES,
+)
+from safwa.features.reminders.background import (
+    Firing,
+    prepare,
+    run_scheduler,
+    settle,
+    tick,
+)
 from safwa.features.reminders.schedule import resolve, schedule_columns
-from safwa.models import Reminder, UserProfile
-from safwa.scheduler import Firing, prepare, run_scheduler, settle, tick
+from safwa.models import Reminder, UserProfile, Workspace
 
 TZ = ZoneInfo("Europe/Istanbul")
 NOW = datetime(2026, 8, 13, 9, 0, tzinfo=UTC)  # a Thursday
@@ -51,6 +61,7 @@ class Recorder:
 
 
 async def test_a_closed_gate_advances_nothing(sessions):
+    """RM-FIRE-013 — tests/brd/reminders.feature"""
     reminder_id = await make_reminder(sessions)
     recorder = Recorder(open_gate=False)
 
@@ -63,6 +74,7 @@ async def test_a_closed_gate_advances_nothing(sessions):
 
 
 async def test_a_failed_escalation_advances_nothing(sessions):
+    """RM-FIRE-013 — tests/brd/reminders.feature"""
     reminder_id = await make_reminder(sessions)
     recorder = Recorder(delivered=False)
 
@@ -75,7 +87,8 @@ async def test_a_failed_escalation_advances_nothing(sessions):
 
 
 async def test_a_system_reminder_fires_like_any_other(sessions):
-    """It is hidden from the UI and from the model, never from the poll."""
+    """RM-SYSTEM-022 — tests/brd/reminders.feature"""
+    # It is hidden from the UI and from the model, never from the poll.
     reminder_id = await make_reminder(sessions)
     async with sessions() as session:
         (await session.get(Reminder, reminder_id)).system = True
@@ -90,6 +103,7 @@ async def test_a_system_reminder_fires_like_any_other(sessions):
 
 
 async def test_one_escalation_carries_at_most_the_batch_size(sessions):
+    """RM-FIRE-012 — tests/brd/reminders.feature"""
     for offset in range(REMINDER_FIRE_BATCH + 2):
         await make_reminder(sessions, due=NOW - timedelta(minutes=offset))
     recorder = Recorder()
@@ -101,6 +115,7 @@ async def test_one_escalation_carries_at_most_the_batch_size(sessions):
 
 
 async def test_the_oldest_due_reminders_go_first(sessions):
+    """RM-FIRE-012 — tests/brd/reminders.feature"""
     late = await make_reminder(sessions, due=NOW - timedelta(hours=1))
     early = await make_reminder(sessions, due=NOW - timedelta(minutes=1))
     recorder = Recorder()
@@ -114,6 +129,7 @@ async def test_the_oldest_due_reminders_go_first(sessions):
 
 
 async def test_a_one_shot_is_deleted_only_after_the_turn_succeeds(sessions):
+    """RM-FIRE-016 — tests/brd/reminders.feature"""
     reminder_id = await make_reminder(
         sessions, clock="09:00", day="20.08.2026", due=NOW
     )
@@ -127,7 +143,8 @@ async def test_a_one_shot_is_deleted_only_after_the_turn_succeeds(sessions):
 
 
 async def test_a_one_shot_fires_however_late(sessions):
-    """A one-shot ignores the catch-up grace entirely: it produces exactly one escalation."""
+    """RM-FIRE-016 — tests/brd/reminders.feature"""
+    # A one-shot ignores the catch-up grace entirely: it produces exactly one escalation.
     await make_reminder(
         sessions,
         clock="09:00",
@@ -144,6 +161,7 @@ async def test_a_one_shot_fires_however_late(sessions):
 
 
 async def test_a_repeat_inside_the_grace_window_still_fires(sessions):
+    """RM-CATCHUP-019 — tests/brd/reminders.feature"""
     reminder_id = await make_reminder(
         sessions, due=NOW - timedelta(minutes=REMINDER_CATCHUP_GRACE_MINUTES - 1)
     )
@@ -154,6 +172,7 @@ async def test_a_repeat_inside_the_grace_window_still_fires(sessions):
 
 
 async def test_a_repeat_past_the_grace_window_rolls_forward_silently(sessions):
+    """RM-CATCHUP-019 — tests/brd/reminders.feature"""
     reminder_id = await make_reminder(sessions, due=NOW - timedelta(days=3))
     recorder = Recorder()
 
@@ -165,8 +184,37 @@ async def test_a_repeat_past_the_grace_window_rolls_forward_silently(sessions):
     assert reminder.fire_count == 0  # rolled forward is not fired
 
 
+async def test_a_frequent_repeat_is_judged_by_its_stored_fire_not_its_rhythm(sessions):
+    """RM-CATCHUP-019 — tests/brd/reminders.feature"""
+    # The grace measures how long this Reminder went unanswered, not how recently the
+    # schedule would have produced an occurrence: three hours of silence is three hours
+    # whether it repeats every five minutes or once a day.
+    reminder_id = await make_reminder(
+        sessions, due=NOW - timedelta(hours=3), interval_minutes=REMINDER_MIN_INTERVAL_MINUTES
+    )
+    recorder = Recorder()
+
+    assert await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder)) is False
+
+    assert not recorder.escalated  # not 36 escalations, and not one either
+    assert (await load(sessions, reminder_id)).next_fire_at > NOW
+
+
+async def test_a_delivered_escalation_leaves_the_workspace_revision_alone(sessions):
+    """RM-FIRE-014 — tests/brd/reminders.feature"""
+    await make_reminder(sessions)
+    async with sessions() as session:
+        before = (await session.get(Workspace, 1)).revision
+
+    assert await tick(sessions, tz=TZ, now=NOW, **_hooks(Recorder())) is True
+
+    async with sessions() as session:
+        assert (await session.get(Workspace, 1)).revision == before
+
+
 async def test_a_repeat_advances_from_its_scheduled_moment_not_the_delivery_moment(sessions):
-    """A turn that takes four minutes must not push every later fire four minutes out."""
+    """RM-FIRE-015 — tests/brd/reminders.feature"""
+    # A turn that takes four minutes must not push every later fire four minutes out.
     reminder_id = await make_reminder(sessions, due=NOW, interval_minutes=120)
     delivered_at = NOW + timedelta(minutes=4)
 
@@ -179,6 +227,7 @@ async def test_a_repeat_advances_from_its_scheduled_moment_not_the_delivery_mome
 
 
 async def test_a_due_reminder_reaches_the_advisor_without_a_preflight_session(sessions):
+    """RM-FIRE-011 — tests/brd/reminders.feature"""
     reminder_id = await make_reminder(sessions, instruction="Review Card #88.")
     recorder = Recorder()
 
@@ -193,6 +242,7 @@ async def test_a_due_reminder_reaches_the_advisor_without_a_preflight_session(se
 
 
 async def test_settle_records_a_successful_delivery(sessions):
+    """RM-FIRE-013 — tests/brd/reminders.feature"""
     reminder_id = await make_reminder(sessions, instruction="Review Card #88.")
     async with sessions() as session:
         reminder = await session.get(Reminder, reminder_id)
@@ -209,7 +259,8 @@ async def test_settle_records_a_successful_delivery(sessions):
 
 
 async def test_the_loop_survives_a_failing_tick(sessions):
-    """A broken tick must not end the loop; reminders have to keep running."""
+    """RM-POLL-021 — tests/brd/reminders.feature"""
+    # A broken tick must not end the loop; reminders have to keep running.
     await make_reminder(sessions)
     calls = {"count": 0}
 

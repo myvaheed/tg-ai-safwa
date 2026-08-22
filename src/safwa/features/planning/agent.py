@@ -68,7 +68,7 @@ Every value listed under a view is the lowercase code stored in that column.
 - `ai_values(id, name, description, active, created_at, updated_at)`
   - `active` 0 | 1
 - `ai_requests(id, name, description, query_sql, created_at, updated_at)`
-- `ai_reminders(id, instruction, schedule_kind, weekdays, at_time, interval_minutes, quiet_windows, next_fire_at, last_fired_at, fire_count, created_at, updated_at)`
+- `ai_reminders(id, instruction, schedule_kind, weekdays, at_time, interval_minutes, quiet_windows, next_fire_at_local, last_fired_at, fire_count, created_at, updated_at)`
   - `schedule_kind` once | interval | daily | weekly
   - `weekdays` and `quiet_windows` are JSON arrays; `at_time` is local `HH:MM:SS`
 - `ai_current_sprint(id, number, planned_start_date, planned_end_date, actual_started_at, success_criteria)`

@@ -192,6 +192,7 @@ async def test_editing_a_reminder_without_when_never_touches_the_schedule(e2e_ha
 
 
 async def test_ai_reminders_view_is_readable(e2e_harness):
+    """RM-READ-024 — tests/brd/reminders.feature"""
     advisor, _provider = e2e_harness.advisor(
         reminder_script(
             {"interval_minutes": 120},
@@ -205,9 +206,20 @@ async def test_ai_reminders_view_is_readable(e2e_harness):
         await session.commit()
 
     reader = advisor.query_runner
-    result = await reader.run("SELECT id, instruction, schedule_kind FROM ai_reminders")
+    result = await reader.run(
+        "SELECT id, instruction, schedule_kind, next_fire_at_local FROM ai_reminders"
+    )
     rows = result.as_tool_result()
     assert rows and rows[0]["schedule_kind"] == "interval"
+
+    async with e2e_harness.sessions() as session:
+        stored = await session.scalar(select(Reminder))
+    # The model quotes this back to the owner, so it reads in the owner's clock rather
+    # than the UTC instant the row stores.
+    assert rows[0]["next_fire_at_local"] == (
+        f"{stored.next_fire_at.astimezone(reader.tz):%Y-%m-%d %H:%M}"
+    )
+    assert rows[0]["next_fire_at_local"] != f"{stored.next_fire_at:%Y-%m-%d %H:%M}"
 
 
 class _TestMessage:
@@ -338,7 +350,8 @@ async def test_the_model_removes_a_reminder_with_one_save(e2e_harness):
 
 
 async def test_the_diary_reminder_is_invisible_to_the_model(e2e_harness):
-    """Unnameable is unmutatable: the model cannot ask to change an id it never reads."""
+    """RM-SYSTEM-022 — tests/brd/reminders.feature"""
+    # Unnameable is unmutatable: the model cannot ask to change an id it never reads.
     async with e2e_harness.sessions() as session:
         await set_profile_field(
             session, ProfileField.DIARY_TIME, time(22, 0), clock=SystemClock()

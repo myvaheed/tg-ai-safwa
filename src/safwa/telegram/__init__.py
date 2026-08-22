@@ -30,7 +30,6 @@ from .cards import (
 )
 from .commands import sync_bot_commands
 from .dialogue import ordinary_text, voice_message
-from .escalation import ReminderRuntime, format_escalation
 from .items import render_item_editor, render_item_text_prompt
 from .proposals import render_ai_outcome, render_proposal
 from .screens import open_citation, open_item_screen, render_citations
@@ -43,7 +42,6 @@ __all__ = [
     "GenerationGuard",
     "OwnerAndWritingMiddleware",
     "RELATION_CHOICES",
-    "ReminderRuntime",
     "Services",
     "callback_token_handler",
     "card_overview_text",
@@ -51,7 +49,6 @@ __all__ = [
     "discard_stale_status",
     "dismiss_prior_ui",
     "energy_expression",
-    "format_escalation",
     "handle_card_creation_chooser",
     "open_citation",
     "open_item_screen",

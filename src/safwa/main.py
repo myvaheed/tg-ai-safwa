@@ -140,6 +140,7 @@ async def run(settings: Settings) -> None:
         ALLOWED_VIEWS,
         row_limit=settings.ai_query_row_limit,
         char_budget=settings.ai_query_char_budget,
+        timezone=settings.timezone,
     )
     bot = Bot(
         token=settings.telegram_bot_token.get_secret_value(),

@@ -20,6 +20,7 @@ from safwa.domain import (
 from safwa.domain import create_card as create_domain_card
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
+from safwa.features.reminders.use_cases import delete_reminder
 from safwa.foundation.clock import SystemClock
 from safwa.models import Reminder, Workspace
 
@@ -73,6 +74,23 @@ async def test_starting_a_sprint_schedules_both_end_reminders(sessions):
 
         await finish_sprint(session, reason="finished_early")
 
+        assert await session.scalar(select(Reminder).limit(1)) is None
+
+
+async def test_a_sprints_end_warnings_belong_to_safwa(sessions):
+    """RM-SYSTEM-022 — tests/brd/reminders.feature"""
+    async with sessions() as session:
+        await start_sprint(session, success_criteria="Ship v2")
+        reminders = list(await session.scalars(select(Reminder)))
+
+        assert reminders and all(reminder.system for reminder in reminders)
+        # So the owner never sees a trigger they cannot own, and the model never reads one
+        # it cannot name: the Sprint that authored them is what removes them.
+        for reminder in reminders:
+            with pytest.raises(DomainError, match="change it in Settings"):
+                await delete_reminder(session, reminder.id)
+
+        await finish_sprint(session, reason="finished_early")
         assert await session.scalar(select(Reminder).limit(1)) is None
 
 

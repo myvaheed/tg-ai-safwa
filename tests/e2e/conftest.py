@@ -102,6 +102,9 @@ class ScriptedProvider:
         )
 
 
+TIMEZONE = "Europe/Istanbul"
+
+
 @dataclass
 class E2EHarness:
     sessions: async_sessionmaker[AsyncSession]
@@ -116,7 +119,7 @@ class E2EHarness:
             purpose="every change to the planning data",
             instructions=BOARD_PROMPT,
             read_tools=(
-                query_read_tool(ReadOnlyQueryRunner(self.database_path, ALLOWED_VIEWS)),
+                query_read_tool(ReadOnlyQueryRunner(self.database_path, ALLOWED_VIEWS, timezone=TIMEZONE)),
             ),
             mutation_tools=BOARD_TOOLS,
             planning_state=True,
@@ -136,7 +139,7 @@ class E2EHarness:
             self.sessions,
             provider,
             self.memory,
-            ReadOnlyQueryRunner(self.database_path, ALLOWED_VIEWS),
+            ReadOnlyQueryRunner(self.database_path, ALLOWED_VIEWS, timezone=TIMEZONE),
             PROPOSALS,
             system_prompt=SYSTEM_PROMPT,
             model_name="e2e-scripted-model",
@@ -157,7 +160,7 @@ async def e2e_harness(tmp_path: Path, monkeypatch) -> E2EHarness:
     upgrade_database(f"sqlite:///{database_path.as_posix()}")
     database = Database(f"sqlite+aiosqlite:///{database_path.as_posix()}")
     async with database.sessions() as session:
-        await bootstrap_workspace(session, 42, "Europe/Istanbul")
+        await bootstrap_workspace(session, 42, TIMEZONE)
         await session.run_sync(
             lambda sync_session: create_ai_views(sync_session.connection(), AI_VIEWS)
         )

@@ -1244,6 +1244,60 @@ async def test_reminder_text_requires_a_value_and_restores_its_view(sessions) ->
     assert "Walk around the block." in message.bot.edits[-1][1]
 
 
+async def test_the_reminders_screen_lists_opens_and_confirms_a_delete(sessions) -> None:
+    """RM-UI-023 — tests/brd/reminders.feature"""
+    services = services_for(sessions)
+    empty = FakeMessage(60, bot_message=True)
+    await render_reminders(empty, services)
+    assert "Ask your advisor" in empty.edits[-1][0]  # no creation button, and it says why
+
+    async with sessions() as session:
+        soon = await create_reminder(
+            session,
+            instruction="Take a walk.",
+            schedule=resolve(interval_minutes=120, now=datetime.now(UTC), tz=ZoneInfo("UTC")),
+            tz=ZoneInfo("UTC"),
+        )
+        await create_reminder(
+            session,
+            instruction="Review the launch plan.",
+            schedule=resolve(days=["Mon"], clock="08:30", now=datetime.now(UTC), tz=ZoneInfo("UTC")),
+            tz=ZoneInfo("UTC"),
+        )
+        await session.commit()
+        soon_id = soon.id
+
+    listing = FakeMessage(61, bot_message=True)
+    await render_reminders(listing, services)
+    labels = button_texts(listing.edits[-1][1])
+    assert labels[0] == "every 2 hours · Take a walk."  # the schedule, then the text
+    assert labels[1].startswith("every Mon at 08:30 · ")  # next fire first
+
+    detail = FakeMessage(62, bot_message=True)
+    await render_reminder(detail, services, soon_id)
+    text, markup = detail.edits[-1]
+    assert "every 2 hours · next " in text
+    assert "Not fired yet" in text
+    assert "Take a walk." in text
+    assert "Timing is set through your advisor." in text
+    assert button_texts(markup) == ["✏️ Text", "🗑 Delete", "↩️ Back"]
+
+    remove = next(
+        button
+        for row in markup.inline_keyboard
+        for button in row
+        if button.text == "🗑 Delete"
+    )
+    await callback_token_handler(
+        FakeCallback(remove.callback_data.split(":", 1)[1], detail), services
+    )
+    prompt_text, prompt_markup = detail.edits[-1]
+    assert "Delete this Reminder?" in prompt_text
+    assert button_texts(prompt_markup) == ["Delete Reminder", "↩️ Back"]
+    async with sessions() as session:
+        assert await session.get(Reminder, soon_id) is not None  # one confirmation, not none
+
+
 async def test_manual_card_creation_uses_save_discard_and_no_parent_control(sessions) -> None:
     async with sessions() as session:
         session.add(
@@ -1927,7 +1981,8 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
 
 
 async def test_the_reminders_screen_and_settings_hide_safwas_own_reminder(sessions) -> None:
-    """The owner sets the Diary in Settings; the Reminder behind it is not theirs to see."""
+    """RM-SYSTEM-022 — tests/brd/reminders.feature"""
+    # The owner sets the Diary in Settings; the Reminder behind it is not theirs to see.
     async with sessions() as session:
         await set_profile_field(
             session, ProfileField.DIARY_TIME, time(22, 0), clock=SystemClock()

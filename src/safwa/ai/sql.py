@@ -13,8 +13,10 @@ import sqlite3
 import time
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from ..constants import (
     DEFAULT_CELL_LIMIT,
@@ -27,6 +29,18 @@ from ..constants import (
 
 class UnsafeQueryError(ValueError):
     pass
+
+
+def local_time(stored: str | None, tz: ZoneInfo) -> str | None:
+    """A stored UTC timestamp as the owner's local wall clock.
+
+    SQLite has no timezone database, so a view that wants local time asks for this
+    function; a fixed offset written into the view SQL would be an hour wrong for half of
+    every daylight-saving year.
+    """
+    if not stored:
+        return None
+    return f"{datetime.fromisoformat(stored).replace(tzinfo=UTC).astimezone(tz):%Y-%m-%d %H:%M}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,9 +134,11 @@ class ReadOnlyQueryRunner:
         column_limit: int = DEFAULT_COLUMN_LIMIT,
         cell_limit: int = DEFAULT_CELL_LIMIT,
         timeout: float = QUERY_TIMEOUT_SECONDS,
+        timezone: str = "UTC",
     ) -> None:
         self.database_path = database_path.resolve()
         self.views = frozenset(views)
+        self.tz = ZoneInfo(timezone)
         self.row_limit = row_limit
         self.char_budget = char_budget
         self.column_limit = column_limit
@@ -194,6 +210,9 @@ class ReadOnlyQueryRunner:
                 return sqlite3.SQLITE_DENY
             return sqlite3.SQLITE_OK
 
+        connection.create_function(
+            "local_time", 1, lambda stored: local_time(stored, self.tz), deterministic=True
+        )
         connection.set_authorizer(authorizer)
         deadline = time.monotonic() + self.timeout
         connection.set_progress_handler(

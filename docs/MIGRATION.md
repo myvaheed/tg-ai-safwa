@@ -55,7 +55,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 1 | `llm_gateway` | technical | **done** |
 | 2 | `FeatureModule` and proposal capabilities | technical | **done** |
 | 3 | Pilot: Diary | business | **done** |
-| 4 | Leaf business batches | business | **in progress** — 4.a Continuity and Profile, 4.b.1 the Reminder record |
+| 4 | Leaf business batches | business | **in progress** — 4.a Continuity and Profile, 4.b Reminders |
 | 5 | Planning core | business | not started |
 | 6 | Proposals and the first reactive process | business | not started |
 | 7 | `agent_runtime` | technical + business | not started |
@@ -381,8 +381,8 @@ Both snapshots were regenerated for declared changes and nothing else moved in t
   — a mechanism Reminders, Values, Tags and Cards all need too. Building it for Profile alone is
   the per-feature field `module_manifest.py` exists to refuse. It moves with the Phase 8 handler
   batch, whole.
-- `features/reminders/api.py` reaches the flat `reminders.py` and `models.Reminder`. That is inside
-  the feature that owns them now, and it resolves when the Reminders batch moves the module.
+- `features/reminders/api.py` reached the flat `reminders.py` and `models.Reminder`. Closed by
+  4.b.1: both are inside the feature.
 
 ## Before starting the rest of Phase 4
 
@@ -396,7 +396,7 @@ Profile and Continuity out of turn because the review of Phase 3 landed on them.
 
 | Batch | Moves | Already there |
 |---|---|---|
-| 4.b Reminders | split into 4.b.1 (the record, **done**) and 4.b.2 (the firing) | see below |
+| ~~4.b Reminders~~ | **done** — 4.b.1 the record, 4.b.2 the firing | — |
 | 4.c Saved Requests | `saved_requests.py` | `features/saved_requests/{agent,proposal,telegram,views}.py` |
 | 4.d Values and Tags | the Value and Tag half of `domain.py` | nothing; the feature package does not exist |
 
@@ -510,19 +510,63 @@ as the batch declared; 0 import cycles (457 edges); Rules A–F and K at 0, G at
 | Re-export-only modules (DoD #13) | 0 | 0 |
 | `domain.py` | 1755 | 1693 |
 
-### What 4.b.2 still moves
+## What Phase 4.b.2 delivered
 
-| From | To |
-|---|---|
-| `scheduler.py` — `Firing`, `due_reminders`, `is_stale`, `prepare`, `settle`, `tick`, `run_scheduler` | `features/reminders/background.py` |
-| `recovery.reconcile_reminders` | `features/reminders/use_cases.py` |
-| `telegram/escalation.py` | `features/reminders/telegram.py`, unless the owner prefers Phase 8 |
-| `scheduler.run_sprint_expiry` | `features/planning/background.py`, its only caller; `scheduler.py` is then empty |
+Reminders is whole. The poll, the escalation, startup reconciliation and both surfaces are
+feature-owned, and `scheduler.py` is gone.
 
-Two edits in 4.b.2 are not moves: a Sprint's end warnings become `system=True` (Q2), and
-`ai_reminders` gains `next_fire_at_local` through a `local_time()` function registered on the
-read-only connection (Q3). The second is the only snapshot cost of the whole batch — the view's
-column list is prose inside `SYSTEM_PROMPT` and the board prompt, so both hashes move once.
+- `features/reminders/background.py` is the poll engine: `Firing`, `due_reminders`, `is_stale`,
+  `prepare`, `settle`, `tick`, `run_scheduler`. It takes its gate and its escalation as callables
+  and imports no adapter.
+- `features/reminders/telegram.py` holds both ways a Reminder reaches the owner: the proposal
+  presenter and `ReminderRuntime` / `format_escalation`. `telegram/escalation.py` is gone, and the
+  `telegram` package no longer exports either name.
+- `features/reminders/use_cases.py` gained `reconcile_reminders` from `recovery.py`.
+- `run_sprint_expiry` moved to `features/planning/background.py`, its only caller. `scheduler.py`
+  is deleted.
+
+### The cycle, and what it was telling us
+
+Moving the escalation next to the poll made `background.py` and `telegram.py` import each other —
+the engine wanted `ReminderRuntime`, the adapter wanted `Firing`. A `TYPE_CHECKING` import hides
+that from the interpreter but not from Rule A, and rightly: the fault was that one module held both
+the engine and the wiring that binds it to an adapter. `_poll_due_reminders` moved to `module.py`,
+which is the file whose whole job is what this feature plugs into the application. The edge now
+runs one way, `telegram.py` → `background.py`, and no deferred import was needed anywhere.
+
+### The two behaviour changes, both decided in the packet
+
+- **A Sprint's end warnings are `system` (Q2).** They were ordinary Reminders, so the owner saw
+  triggers they never set and could edit or delete them, and the model read them in `ai_reminders`.
+  The test was written first and failed; the fix is one line where `sprint_id` was already set.
+  `finish_sprint` deletes by `sprint_id` without going through the refusing path, and
+  `sync_daily_system_reminder` already selected only the system Reminder belonging to no Sprint.
+- **`ai_reminders` exposes `next_fire_at_local` (Q3).** The schedule columns stay raw — `describe()`
+  is the one wording and a second one in SQL would be free to disagree with it — but the next fire
+  is what the model quotes back to the owner, so it reads in the owner's clock. SQLite has no
+  timezone database, so `ai/sql.py` registers a `local_time()` function on the read-only connection
+  and `ReadOnlyQueryRunner` takes the timezone. A fixed offset in the view SQL would be an hour
+  wrong for half of every daylight-saving year. `CREATE VIEW` does not resolve the function, so only
+  the read path needs it.
+
+Six scenarios had no test at all and now do: RM-FIRE-014, RM-GATE-017, the refusal half of
+RM-SYSTEM-022, the `/reminders` screens in RM-UI-023, the frequent-interval case Q1 settled, and
+the prompt-prefix half of RM-READ-024.
+
+Verification: `ruff check .` clean; `pytest -q` 550 passed / 3 skipped; 0 import cycles (453 edges);
+Rules A–F and K at 0, G at 2, H at 28. `schema.json` unchanged. `prompt_prefix.json` moved on
+exactly the two hashes the batch declared, `SYSTEM_PROMPT` and `BOARD_PROMPT`, and only because the
+`ai_reminders` column list is prose in both; `PERSONA`, `DIARY_PROMPT` and `tool:reminder` are
+untouched.
+
+| | Phase 4.b.1 | Phase 4.b.2 |
+|---|---:|---:|
+| Entity dispatch points outside `features/` (DoD #1) | 28 | 28 |
+| Use case base abstractions (DoD #2) | 0 | 0 |
+| Modules over 600 lines (DoD #3) | 5 | 5 |
+| Re-export-only modules (DoD #13) | 0 | 0 |
+| Modules under `src/` | 108 | 106 |
+| Import cycles | 0 (457 edges) | 0 (453 edges) |
 
 ### Done means
 

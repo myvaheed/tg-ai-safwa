@@ -2,22 +2,18 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable
 from datetime import UTC, datetime, timedelta
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .constants import REMINDER_CATCHUP_GRACE_MINUTES, SESSION_IDLE_DAYS
+from .constants import SESSION_IDLE_DAYS
 from .enums import ProposalStatus
-from .features.reminders.schedule import next_fire, on_wall_clock, roll_forward, schedule_of
 from .models import (
     AgentRun,
     AgentStep,
     CallbackToken,
     ChangeProposal,
-    Reminder,
     UiSession,
-    Workspace,
 )
 
 
@@ -49,35 +45,6 @@ async def recover_startup(
     )
     await session.execute(delete(CallbackToken).where(CallbackToken.expires_at < now))
     await session.execute(delete(UiSession).where(UiSession.expires_at < now))
-
-
-async def reconcile_reminders(session: AsyncSession, now: datetime | None = None) -> None:
-    """Fix `next_fire_at` on every repeating Reminder after downtime.
-
-    Two things go stale while the process is down. A wall-clock schedule stores a local
-    time, so after a timezone change "08:30" is a different UTC instant and every stored
-    fire time is wrong at once; those are rebuilt. A schedule that came due meanwhile is
-    rolled forward, but only once it is past the catch-up grace — inside the grace the row
-    stays overdue, because the first poll firing it is the catch-up.
-
-    A one-shot is never moved: it always fires, however late.
-    """
-    now = now or datetime.now(UTC)
-    workspace = await session.get(Workspace, 1)
-    tz = ZoneInfo(workspace.timezone if workspace else "UTC")
-    grace = timedelta(minutes=REMINDER_CATCHUP_GRACE_MINUTES)
-    for reminder in await session.scalars(select(Reminder)):
-        schedule = schedule_of(reminder)
-        if not schedule.repeating:
-            continue  # a one-shot always fires, however late
-        if not on_wall_clock(schedule, reminder.next_fire_at, tz):
-            rebuilt = next_fire(schedule, previous=None, now=now, tz=tz)
-            if rebuilt is not None:
-                reminder.next_fire_at = rebuilt
-        if now - reminder.next_fire_at > grace:
-            reminder.next_fire_at = roll_forward(
-                schedule, previous=reminder.next_fire_at, now=now, tz=tz
-            )
 
 
 async def _close_abandoned_sessions(session: AsyncSession, *, now: datetime) -> None:

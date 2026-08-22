@@ -1528,6 +1528,9 @@ async def _schedule_sprint_reminders(
             tz=tz,
         )
         reminder.sprint_id = sprint.id
+        # No owner set these, so they are Safwa's: hidden from `/reminders` and from the
+        # model, and removed by finishing the Sprint rather than by hand.
+        reminder.system = True
         created.append(reminder)
     return created
 
