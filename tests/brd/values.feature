@@ -86,3 +86,10 @@ Feature: Values
     Then it is deleted, and every Card and Check that carried it loses that link and nothing else
     And no screen offers to archive a Value, and the remove tool refuses to
     And its name is free from that moment, and a new Value taking it is a new Value
+
+  Scenario: VL-CHECK-016 — A repeating Card hands the Check's Values to the next cycle
+    Given a repeating Action with a Check that carries a Value
+    When the owner finishes the Action and the next cycle's Card appears
+    Then the Check on the new Card carries that Value
+    And the answered one no longer does
+    And so the Value is measured by every cycle, not by one finished Check on an archived Card

@@ -134,9 +134,9 @@ async def create_card(
     await validate_parent(session, card_kind, parent_id)
 
     if (loose := await unlinkable_value_id(session, value_ids or set())) is not None:
-        raise DomainError(f"Value #{loose} does not exist or is archived")
+        raise DomainError(f"Value #{loose} does not exist")
     if (loose := await unlinkable_tag_id(session, tag_ids or set())) is not None:
-        raise DomainError(f"Tag #{loose} does not exist or is archived")
+        raise DomainError(f"Tag #{loose} does not exist")
     for check_id in check_ids or set():
         check = await session.get(Check, check_id)
         if check is None or check.archived_at is not None:

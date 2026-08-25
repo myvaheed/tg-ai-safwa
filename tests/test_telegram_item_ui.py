@@ -80,6 +80,7 @@ from safwa.models import (
     CardTag,
     CardValue,
     ChangeProposal,
+    Check,
     ProposalChange,
     Reminder,
     SavedRequest,
@@ -1948,7 +1949,7 @@ async def test_diary_proposal_shows_the_entry_itself_and_only_save_or_discard(
                     "entry_date": "2026-08-15",
                     "body": "Сходил на рынок, вечером стало легче.",
                     "feeling_score": 6,
-                    "ai_comment": "A day that ended better than it began.",
+                    "remark": "A day that ended better than it began.",
                 },
             )
         )
@@ -3148,3 +3149,45 @@ async def test_ch_archive_016_an_archived_check_keeps_its_answer(sessions) -> No
     assert not [label for label in labels if "Repeat" in label or "Values" in label]
     # The one thing it still offers is the way to the open instance of its series.
     assert [label for label in labels if label.startswith("🔄 Current:")]
+
+
+async def test_ch_delete_014_the_owner_deletes_a_check_from_its_screen(sessions) -> None:
+    """CH-DELETE-014 — tests/brd/checks.feature"""
+    async with sessions() as session:
+        card = await create_card(
+            session, kind="action", title="Go to the market", effort_points=2, stage="today"
+        )
+        value = await create_value(session, "Health")
+        check = await create_check(session, title="Milk")
+        await toggle_card_check(session, card.id, check.id)
+        await toggle_check_value(session, check.id, value.id)
+        await session.commit()
+        card_id, check_id, value_id = card.id, check.id, value.id
+
+    services = services_for(sessions)
+    message = FakeMessage(700, bot_message=True)
+    await render_check(message, services, check_id, card_id=card_id)
+    remove = next(
+        button
+        for row in message.edits[-1][1].inline_keyboard
+        for button in row
+        if button.text == "🗑 Delete"
+    )
+    await callback_token_handler(
+        FakeCallback(remove.callback_data.split(":", 1)[1], message), services
+    )
+    confirm = next(
+        button
+        for row in message.edits[-1][1].inline_keyboard
+        for button in row
+        if button.text == "Permanently delete Check"
+    )
+    await callback_token_handler(
+        FakeCallback(confirm.callback_data.split(":", 1)[1], message), services
+    )
+
+    async with sessions() as session:
+        assert await session.get(Check, check_id) is None
+        # Its Card stays, and so does the Value it pointed at.
+        assert await session.get(Card, card_id) is not None
+        assert await session.get(Value, value_id) is not None

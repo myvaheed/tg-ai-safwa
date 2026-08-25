@@ -481,6 +481,7 @@ async def test_manual_check_screens_only_repeat_and_answer(e2e_harness):
         "check_set_status",
         "check_choose_values",
         "check_list_back",
+        "check_delete_prompt",
     }
     assert "Note" not in message.rendered[-1]
 

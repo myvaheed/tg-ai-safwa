@@ -47,7 +47,7 @@ async def test_explicit_profile_context_is_after_memory_in_the_prompt(sessions) 
         context.state,
     )
 
-    assert rendered.index("Persistent memory:") < rendered.index("Current planning state:")
+    assert rendered.index("Persistent memory:") < rendered.index("Current board state:")
     assert rendered.index("About me: stale inference") < rendered.index("About me: Current About Me")
     assert rendered.index("Advisor instructions: stale inference") < rendered.index(
         "Advisor instructions: Current Advisor instruction"

@@ -72,7 +72,7 @@ class DiaryProposalHandler:
             "entry_date": entry_date.isoformat(),
             "body": str(values.get("pov") or ""),
             "feeling_score": score,
-            "ai_comment": str(values.get("ai_comment") or ""),
+            "remark": str(values.get("remark") or ""),
         }
 
     async def apply(self, context: ApplyContext, change: ProposalChange) -> list[int]:

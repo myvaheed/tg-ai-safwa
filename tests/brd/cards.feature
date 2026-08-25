@@ -82,7 +82,7 @@ Feature: Cards
 
   Scenario: CD-LINK-012 — A Card is created with all of its Values, Tags and Checks, or the Card is not created at all
     Given a Card is written with the Value "Health", the Tag "home" and the Check "Slept 7 hours"
-    When any one of those three has been archived, or no longer exists
+    When the Check has been archived, or any one of the three no longer exists
     Then no Card appears, and neither do the two links that were fine
     And the owner is told which one could not be linked
     And nothing is left half-written for them to clean up

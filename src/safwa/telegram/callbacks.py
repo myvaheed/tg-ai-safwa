@@ -18,6 +18,7 @@ from ..domain import (
     create_card,
     create_tag,
     create_value,
+    delete_check,
     delete_subtree,
     delete_tag,
     delete_value,
@@ -765,6 +766,41 @@ async def _on_check_toggle_repeat(context: CallbackContext) -> None:
     await _on_check_view(context)
 
 
+async def _on_check_delete_prompt(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        check = await session.get(Check, int(context.payload["id"]))
+        if check is None:
+            raise DomainError("Check does not exist")
+        confirm = await token_button(
+            session,
+            context.owner_id,
+            "Permanently delete Check",
+            "check_delete_confirm",
+            context.payload,
+        )
+        back = await token_button(
+            session, context.owner_id, "↩️ Back", "check_view", context.payload
+        )
+        title = check.title
+        await session.commit()
+    await send_registered(
+        context.message,
+        context.services,
+        f"<b>Delete Check?</b>\n{html.escape(title)} will be deleted, answered or not. "
+        f"Its Card stays, and so do the Values it pointed at.",
+        kind=MessageKind.APPROVAL,
+        markup=InlineKeyboardMarkup(inline_keyboard=[[confirm], [back]]),
+    )
+
+
+async def _on_check_delete_confirm(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        await delete_check(session, int(context.payload["id"]))
+        await session.commit()
+    # Back to whatever list the Check was opened from: the Check itself is gone.
+    await _on_check_list(context)
+
+
 async def _on_check_set_status(context: CallbackContext) -> None:
     notice = None
     async with context.sessions() as session:
@@ -1098,6 +1134,8 @@ CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "check_view": _on_check_view,
     "check_toggle_repeat": _on_check_toggle_repeat,
     "check_set_status": _on_check_set_status,
+    "check_delete_prompt": _on_check_delete_prompt,
+    "check_delete_confirm": _on_check_delete_confirm,
     "check_list_back": _on_check_list,
     "check_back": _on_card_back,
     "check_resolve_set": _on_check_resolve_set,

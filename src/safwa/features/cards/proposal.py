@@ -212,7 +212,7 @@ async def _guard_pending_checks(
 async def _apply_stage_change(session: AsyncSession, card: Card, stage: CardStage) -> None:
     """Route one approved stage change so terminal stages keep their accounting.
 
-    ``finish_action`` owns completion timestamps, feedback, Sprint results and repeat
+    ``finish_action`` owns completion timestamps, Sprint results and repeat
     successors; ``move_card`` owns live stages and subtree propagation.  Every approved
     stage change goes through here so no path can reach Done or Cancelled without the
     completion bookkeeping.

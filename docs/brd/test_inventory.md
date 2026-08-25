@@ -54,6 +54,6 @@ a technical contract; `given-when-then` — the body already carries the comment
 | `test_state_flow.py` | 22 | 0 | 22 | 0 | contract-file |
 | `test_subagents.py` | 6 | 6 | 0 | 0 | — |
 | `test_tags.py` | 4 | 4 | 0 | 0 | — |
-| `test_telegram_item_ui.py` | 83 | 44 | 0 | 39 | fakes, ui-layout |
-| `test_values.py` | 11 | 11 | 0 | 0 | — |
-| **total** | **576** | **446** | **90** | **40** | |
+| `test_telegram_item_ui.py` | 84 | 44 | 0 | 40 | fakes, ui-layout |
+| `test_values.py` | 12 | 12 | 0 | 0 | — |
+| **total** | **578** | **447** | **90** | **41** | |

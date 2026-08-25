@@ -1045,7 +1045,7 @@ class AIAdvisor:
         if routed.board_state:
             async with self.sessions() as session:
                 context = await board_context(session)
-            _append_user_message(messages, f"[System]: Current planning state:\n{context.state}")
+            _append_user_message(messages, f"[System]: Current board state:\n{context.state}")
         conversation = _conversation_for(dialogue)
         if conversation:
             _append_user_message(

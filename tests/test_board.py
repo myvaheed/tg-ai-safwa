@@ -36,12 +36,11 @@ def test_the_board_judges_a_change_against_the_state_it_is_given():
     assert BOARD_AGENT.board_state is True
 
 
-# Every prompt whose view list is composed rather than written out. The Diary writes its
-# own, with columns trimmed on purpose, and it is not one of these.
+# Every prompt a model reads a view list from, however that list was written.
 CATALOGUE_PROMPTS = {
     "advisor": SYSTEM_PROMPT,
     "heavy_analyzer": HEAVY_ANALYZER_PROMPT,
-    **{agent.name: agent.instructions for agent in AGENTS if agent.views},
+    **{agent.name: agent.instructions for agent in AGENTS},
 }
 
 

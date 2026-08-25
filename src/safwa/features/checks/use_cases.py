@@ -161,6 +161,13 @@ async def _delete_checks(session: AsyncSession, check_ids: list[int]) -> None:
 async def _copy_check(
     session: AsyncSession, source: Check, series_id: int, card_id: int | None
 ) -> Check:
+    """Open the next instance of a series, taking over what the source was measuring.
+
+    A Value is carried by the Check the owner is still answering and never by a pile of
+    finished ones, so it moves rather than being copied. Every path that opens the next
+    instance comes through here — the answer inside a cycle, the next cycle's Card, and
+    reopening — so none of them can carry the series on and leave the Values behind.
+    """
     successor = Check(
         title=source.title,
         repeatable=source.repeatable,
@@ -171,6 +178,9 @@ async def _copy_check(
     await session.flush()
     if card_id is not None:
         session.add(CardCheck(card_id=card_id, check_id=successor.id))
+    for value_id in await check_value_ids(session, source.id):
+        session.add(CheckValue(check_id=successor.id, value_id=value_id))
+    await session.execute(delete(CheckValue).where(CheckValue.check_id == source.id))
     return successor
 
 
@@ -211,15 +221,7 @@ async def apply_check_outcome(
     check.version += 1
     if not (was_pending and spawn and check.repeatable):
         return None
-    # A repeat's Values follow the Check the owner is still answering: the copy takes them
-    # and the answered one lets them go, or a Value would gain one finished Check a cycle.
-    value_ids = await check_value_ids(session, check.id)
-    successor = await _spawn_check_successor(session, check)
-    if value_ids and successor is not None:
-        await session.execute(delete(CheckValue).where(CheckValue.check_id == check.id))
-        for value_id in value_ids:
-            session.add(CheckValue(check_id=successor.id, value_id=value_id))
-    return successor
+    return await _spawn_check_successor(session, check)
 
 
 async def resolve_check(

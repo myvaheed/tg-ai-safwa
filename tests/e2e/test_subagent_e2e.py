@@ -190,7 +190,7 @@ async def test_a_routed_subagent_proposes_for_itself(e2e_harness):
                         "mode": "update",
                         "date": TODAY,
                         "pov": "Закрыл рынок, хоть и поздно.",
-                        "ai_comment": "One thing finished is still a finished day.",
+                        "remark": "One thing finished is still a finished day.",
                         "feeling_score": 6,
                     },
                 ),
@@ -314,7 +314,7 @@ async def test_a_subagent_reads_the_tail_of_the_conversation_as_tagged_data(e2e_
     board_seen = [item for item in provider.calls[0] if item["role"] == "user"]
     assert len(board_seen) == 1
     conversation = str(board_seen[0]["content"])
-    assert conversation.startswith("[System]: Current planning state:")
+    assert conversation.startswith("[System]: Current board state:")
     # The tail only, and every line says whose it is: the subagent said none of it, so
     # nothing reaches it in the slot it writes to itself.
     assert "сообщение 0" not in conversation

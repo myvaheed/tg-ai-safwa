@@ -445,7 +445,8 @@ async def validate_named_references(
     if resolved.unknown_ids:
         raise ToolPreparationError(
             "reference_not_found",
-            f"{spec.label} #{resolved.unknown_ids[0]} does not exist or is archived.",
+            f"{spec.label} #{resolved.unknown_ids[0]} does not exist"
+            + (" or is archived." if spec.archivable else "."),
             REFERENCE_HINT,
         )
     if resolved.missing:

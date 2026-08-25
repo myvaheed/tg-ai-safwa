@@ -146,8 +146,8 @@ class DiaryProposalPresenter:
             blocks.append(html.escape(str(current.get("body") or "")))
         else:
             blocks.append(html.escape(str(proposed.get("body") or "")))
-            if proposed.get("ai_comment"):
-                blocks.append(f"<i>{html.escape(str(proposed['ai_comment']))}</i>")
+            if proposed.get("remark"):
+                blocks.append(f"<i>{html.escape(str(proposed['remark']))}</i>")
         return ProposalScreen(
             mode=(
                 "Create"

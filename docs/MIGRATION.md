@@ -56,7 +56,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 2 | `FeatureModule` and proposal capabilities | technical | **done** |
 | 3 | Pilot: Diary | business | **done** |
 | 4 | Leaf business batches | business | **done** — 4.a Continuity and Profile, 4.b Reminders, 4.c Saved Requests, 4.d Values and Tags |
-| 5 | Cards, Checks and the Sprint | business | in progress — 5.0 the board package (technical), 5.a Cards, 5.b stages, 5.c Checks, 5.d archiving, 5.e the archive as a mark and 5.f the heavy analyzer **done** |
+| 5 | Cards, Checks and the Sprint | business | in progress — 5.0 the board package (technical), 5.a Cards, 5.b stages, 5.c Checks, 5.d archiving, 5.e the archive as a mark, 5.f the heavy analyzer and 5.g a repeat's Values **done**; Planning left |
 | 6 | Proposals and the first reactive process | business | not started |
 | 7 | `agent_runtime` | technical + business | not started |
 | 8 | `telegram_llm` and `TurnManager` | technical | not started |
@@ -1250,3 +1250,61 @@ declared: `SYSTEM_PROMPT` by the two marker lines moving below the catalogue and
 `agent:board` by the one added clause, plus `HEAVY_ANALYZER_PROMPT` and `tool:call_helper` as new
 entries. Metrics: 144 modules for 142 and 580 edges for 574, both the new package; DoD #1 26, #2 0,
 #3 6, #13 0, 0 cycles, Rule G 2, Rule H 26 — all unchanged.
+
+## What Phase 5.g delivered
+
+Approval packet: [docs/brd/values_on_a_repeat.md](brd/values_on_a_repeat.md). One new scenario
+(`VL-CHECK-016`), one rewritten line (`CD-LINK-012`), and five fixes that needed none.
+
+**A repeating Card hands the Check's Values to the next cycle.** `_spawn_repeat_successor` copied
+the Card's Values, Tags, Categories and Energy one loop each, then called
+`clone_checks_for_successor`, whose `_copy_check` took `title` and `repeatable` and stopped. The
+Value stayed on the answered Check, on the closed Card, archived two Sprints later — so the Check
+the owner answered next measured nothing. Reproduced on a real database before the fix: successor
+Card values `[1]`, successor Check values `[]`.
+
+`VL-CHECK-012` already stated the rule this broke — a Value is carried by the Check the owner is
+still answering, never by a pile of finished ones — so the fix was that rule applied to the path
+that forgot it. The move now lives in `_copy_check`, which every path that opens the next instance
+goes through, and `apply_check_outcome` dropped its own copy of it. Three paths, one place.
+
+**A Check has a Delete button.** `CH-DELETE-014` says "the owner or Safwa", and only the `remove`
+tool implemented it. `check_delete_prompt` and `check_delete_confirm` follow the Card screen's
+shape. It is also what an archived Check now offers: since 5.e its screen had only `🔄 Current` and
+Back, and no way out at all.
+
+**Three strings the model reads say "board state".** The block holds Values, Tags, the Sprint and
+the critical Cards, and carries a `Workspace mode:` line where `planning` means the mode with no
+Sprint — one block using the word for two things. Phase 5.a renamed this in code and left the
+strings because they move the `SYSTEM_PROMPT` hash. The mode line is untouched.
+
+**`ai_comment` is `remark`.** Every view a model is told about is `ai_*`, so a `diary` tool field in
+that namespace gave a small model a reason to try selecting from it. Nothing is stored under either
+name, so only the tool schema and the review screen changed.
+
+**"does not exist or is archived" follows the spec.** A Value and a Tag have carried no
+`archived_at` since 4.d. `ReferenceSpec.archivable` already existed, so the sentence asks it.
+
+**`_apply_stage_change`'s docstring stopped claiming `finish_action` owns feedback.** Feedback was
+removed in Phase 5.
+
+### Corrected
+
+`item_delete_prompt` and `item_delete_confirm` were reported here as untested. They are not:
+`test_manual_tag_and_value_delete_unlinks_cards` drives both through the real callback path, for a
+Tag and for a Value. The Diary's prompt also rejoined the check that no prompt names a view the
+database does not have, which the `ai_comment` rename made possible.
+
+### Found and left alone
+
+- **Automatic archiving writes no `card_event`, and should not.** The log records what the owner did
+  on a screen and what an approved proposal did; the sweep that archives what has waited two Sprints
+  is neither, `archived_at` already records it, a row per archived Card would grow the log with the
+  board, and after 5.f there is no actor left for it to claim. `ai_card_events`'s own documentation
+  now says `archive` is always the owner's own.
+- `render_card` is 985 lines of module and 250 of function. Phase 8.
+
+Verification: `ruff check .` clean; `pytest -q` 668 passed / 3 skipped; `schema.json` byte-identical.
+`prompt_prefix.json` moved on `SYSTEM_PROMPT`, `tool:diary` and `agent:diary` — the diary prompt
+names the renamed field twice — and on nothing else. Metrics unchanged from 5.f: 144 modules, 580
+edges, 0 cycles, Rule G 2, Rule H 26, DoD #1 26, #2 0, #3 6, #13 0.

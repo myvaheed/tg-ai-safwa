@@ -138,9 +138,9 @@ agent contract and Telegram adapter, and its AI and UI mutation paths call the s
 
 A Card is not "planning data". Say Card, Check, Value, Tag, Sprint — or say the board.
 
-`AgentSpec.board_state` is that set's current state, sent to a subagent that asked for it. Two
-strings the model reads still call it "planning state"; changing them moves the `SYSTEM_PROMPT`
-hash, so they wait for a batch that declares it.
+`AgentSpec.board_state` is that set's current state, sent to a subagent that asked for it, and the
+model reads it under that name. The `Workspace mode:` line inside it is the other word: there
+`planning` is the mode with no Sprint.
 
 `archived_docs/INITIAL_PLAN.md` and `archived_docs/MEMORY_HISTORY_USAGE.md` are the authoritative product spec —
 read them before changing history, memory, proposal, or UI behavior. When sources drift: the product

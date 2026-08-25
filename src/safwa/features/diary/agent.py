@@ -33,7 +33,7 @@ class DiaryToolInput(ToolInput):
         default=None,
         description="With update: that whole day in the user's voice. It replaces the saved entry.",
     )
-    ai_comment: str | None = Field(
+    remark: str | None = Field(
         default=None,
         description="With update: one sentence of your own about the day, addressed to the user.",
     )
@@ -75,7 +75,7 @@ DIARY_PROMPT = """You keep the user's Diary. One day, one entry, in their own vo
      `ai_checks(id, title, repeatable, status, resolved_at, series_id, card_id)` — what held;
      `ai_cards(id, title, kind, stage, priority, effort_points, parent_id)` — item names.
 3. Then call the tool once:
-   - `diary(mode="update", date=…, pov=…, ai_comment=…, feeling_score=…)` — whether or not that day
+   - `diary(mode="update", date=…, pov=…, remark=…, feeling_score=…)` — whether or not that day
      is written already. Fold in the saved entry: your `pov` replaces it, so what you leave out of
      `pov` is lost. `feeling_score` is the one exception — see below.
    - `diary(mode="delete", date=…)` — the user asked for that day to go.
@@ -85,7 +85,7 @@ DIARY_PROMPT = """You keep the user's Diary. One day, one entry, in their own vo
 `pov` is the day itself, and only the user speaks in it: first person, their words, their language.
 Never "you". No advice, no praise, no task list. Name people and items as the user names them, and
 write nothing your sources do not show.
-`ai_comment` is your one line to the user about that day — noticing, not praising.
+`remark` is your one line to the user about that day — noticing, not praising.
 
 # feeling_score
 0-10: how the day felt to *them*, read from what they said about it, not from how much they

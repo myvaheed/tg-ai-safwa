@@ -133,7 +133,7 @@ def test_di_write_008_update_action_is_resolved_from_live_day() -> None:
     """DI-WRITE-008 — tests/brd/diary.feature"""
     change = PROPOSALS.change_from_tool(
         "diary",
-        {"mode": "update", "date": "2026-08-15", "pov": "День.", "ai_comment": "Held."},
+        {"mode": "update", "date": "2026-08-15", "pov": "День.", "remark": "Held."},
     )
     assert (change.entity, change.action, change.id) == ("diary", "update", None)
     assert "mode" not in change.values
@@ -151,7 +151,7 @@ async def test_di_day_001_missing_day_is_created(sessions) -> None:
         "entry_date": today.isoformat(),
         "body": "Первый день.",
         "feeling_score": 8,
-        "ai_comment": "",
+        "remark": "",
     }
 
 

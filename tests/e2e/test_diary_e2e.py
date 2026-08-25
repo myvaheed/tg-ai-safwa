@@ -48,7 +48,7 @@ async def test_di_write_008_routed_write_is_saved_through_proposal(e2e_harness):
         [
             turn(("route", {"name": "diary"})),
             turn(("read_day", {})),
-            write(TODAY, "Рынок закрыл.", ai_comment="One thing held.", feeling_score=7),
+            write(TODAY, "Рынок закрыл.", remark="One thing held.", feeling_score=7),
         ],
         subagents=(diary_subagent(e2e_harness),),
     )

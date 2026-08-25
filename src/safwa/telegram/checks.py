@@ -202,15 +202,24 @@ async def render_check(
                     )
                 ]
             )
+        # Deleting is the owner's half of CH-DELETE-014, and it is what an archived Check
+        # offers instead of the controls it no longer has.
         rows.append(
             [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "🗑 Delete",
+                    "check_delete_prompt",
+                    payload,
+                ),
                 await token_button(
                     session,
                     services.owner_id,
                     "↩️ Back",
                     "check_list_back" if card_id is not None else "check_back",
                     {"card_id": card_id, "back": back},
-                )
+                ),
             ]
         )
         linked_cards = (

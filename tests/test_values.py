@@ -28,7 +28,7 @@ from safwa.features.proposals.remove import RemoveToolInput
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import CardValue, CheckValue
 from safwa.features.values.use_cases import create_value, delete_value, update_value_fields
-from safwa.models import Card, Check, Value
+from safwa.models import Card, CardCheck, Check, Value
 
 
 async def _action(session, title: str, **overrides):
@@ -298,3 +298,37 @@ async def test_a_deleted_value_frees_its_name(sessions):
         assert again.description == ""
         assert again.active is False
         assert len(list(await session.scalars(select(Value)))) == 1
+
+
+async def test_a_repeating_card_hands_the_checks_values_to_the_next_cycle(sessions):
+    """VL-CHECK-016 — tests/brd/values.feature"""
+    async with sessions() as session:
+        value = await create_value(session, "Health")
+        card = await _action(session, "Pull-ups", stage="today", repeatable=True)
+        check = await create_check(session, title="Did 20 pull-ups?", repeatable=True)
+        await toggle_card_check(session, card.id, check.id)
+        await toggle_check_value(session, check.id, value.id)
+        await session.commit()
+
+        result = await finish_action(
+            session, card.id, CardStage.DONE, check_outcomes={check.id: CheckOutcome.PASSED}
+        )
+        await session.commit()
+
+        successor = result.successor_ids[0]
+        carried = [
+            check_id
+            for check_id in await session.scalars(
+                select(CheckValue.check_id).where(CheckValue.value_id == value.id)
+            )
+        ]
+        next_cycle = list(
+            await session.scalars(
+                select(Check.id)
+                .join(CardCheck, CardCheck.check_id == Check.id)
+                .where(CardCheck.card_id == successor)
+            )
+        )
+        # The Value measures the Check the owner answers next, never the finished one it left.
+        assert carried == next_cycle
+        assert await check_value_ids(session, check.id) == []

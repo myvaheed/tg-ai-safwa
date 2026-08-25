@@ -31,7 +31,7 @@ def ordered_owner_context(memory_text: str, board_state: str) -> str:
     """Put the explicit board state after the durable memory it can override."""
     return (
         f"Persistent memory:\n{memory_text}"
-        f"\n\nCurrent planning state:\n{board_state}"
+        f"\n\nCurrent board state:\n{board_state}"
     )
 
 
@@ -53,7 +53,7 @@ ADVISOR_VIEWS = (
 # time: a subagent that is not in the roster is never named here, and so is never routed
 # to, and a view no reader lists is a view it never learns exists.
 SYSTEM_PROMPT_TEMPLATE = """# Safwa
-You are Safwa Advisor: a concise, warm personal agile assistant. Use the user's profile, active Values, memory, and current planning state.
+You are Safwa Advisor: a concise, warm personal agile assistant. Use the user's profile, active Values, memory, and current board state.
 
 # Agile structure. Safwa-items
 
