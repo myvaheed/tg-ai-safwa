@@ -12,7 +12,7 @@ from safwa.ai.context import DialogueMessage
 from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.bootstrap.modules import ALLOWED_VIEWS
 from safwa.domain import (
-    check_card_ids,
+    check_card_id,
     create_card,
     create_check,
     finish_action,
@@ -20,7 +20,9 @@ from safwa.domain import (
     resolve_check,
     toggle_card_check,
 )
-from safwa.enums import CardStage, CheckOutcome, MessageKind
+from safwa.enums import MessageKind
+from safwa.features.cards.model import CardStage
+from safwa.features.checks.model import CheckOutcome
 from safwa.models import CallbackToken, Card, ChangeProposal, Check, TelegramMessage
 from safwa.telegram import (
     GenerationGuard,
@@ -381,7 +383,7 @@ async def test_ai_can_create_and_read_checks(e2e_harness):
         assert created.repeatable is True
         assert created.outcome is None
         # The check tool never attaches; a new Check starts unlinked.
-        assert await check_card_ids(session, created.id) == []
+        assert await check_card_id(session, created.id) is None
         created_id = created.id
 
     # ai_checks must be reachable, since it is the only route to a Check with no Card.
@@ -405,34 +407,41 @@ async def test_ai_can_create_and_read_checks(e2e_harness):
     await _claim(e2e_harness, "proposal_approve", message, services, id=outcome.proposal_id)
 
     async with e2e_harness.sessions() as session:
-        assert await check_card_ids(session, created_id) == [card_id]
+        assert await check_card_id(session, created_id) == card_id
 
-    # ai_cards carries the link, so no join view is needed to see what gates a Card.
+    # ai_cards names the Checks on a Card; how each one stands is ai_checks, reached by
+    # card_id, so the same fact is never counted twice in two places.
     linked = await advisor.query_runner.run(
-        f"SELECT direct_checks, pending_checks FROM ai_cards WHERE id = {card_id}"
+        f"SELECT direct_checks FROM ai_cards WHERE id = {card_id}"
     )
     assert linked.rows[0]["direct_checks"] == "Posture straight?"
-    assert linked.rows[0]["pending_checks"] == 1
+    standing = await advisor.query_runner.run(
+        f"SELECT title, status FROM ai_checks WHERE card_id = {card_id}"
+    )
+    assert standing.rows == [{"title": "Posture straight?", "status": "pending"}]
 
 
-async def test_ai_links_a_check_to_a_second_card_by_title(e2e_harness):
-    card_id, check_ids = await _market_card_with_checks(e2e_harness)
+async def test_ai_links_a_check_to_a_card_by_title(e2e_harness):
+    """CH-LINK-003 — tests/brd/checks.feature"""
     async with e2e_harness.sessions() as session:
-        second = await create_card(
+        card = await create_card(
             session, title="Go to the pharmacy", kind="action", stage="today", effort_points=1
         )
+        loose = await create_check(session, title="Take the tote bag")
         await session.commit()
-        second_id = second.id
+        card_id, check_id = card.id, loose.id
 
     # check_query resolves an exact title, the same way value_query and tag_query do, so
     # the model can attach a Check it has only seen by name.
     advisor, _provider = e2e_harness.advisor(
         [
-            mutation_turn(("card", {"mode": "link", "id": second_id, "check_query": ["Milk"]})),
-            "Linked it there too.",
+            mutation_turn(
+                ("card", {"mode": "link", "id": card_id, "check_query": ["Take the tote bag"]})
+            ),
+            "Linked it.",
         ]
     )
-    outcome = await advisor.handle("The milk goes on the pharmacy run as well")
+    outcome = await advisor.handle("The tote bag goes on the pharmacy run")
     assert outcome.proposal_id is not None
     message = _TestMessage()
     services = _services(e2e_harness, advisor)
@@ -440,9 +449,8 @@ async def test_ai_links_a_check_to_a_second_card_by_title(e2e_harness):
     await _claim(e2e_harness, "proposal_approve", message, services, id=outcome.proposal_id)
 
     async with e2e_harness.sessions() as session:
-        assert await check_card_ids(session, check_ids[0]) == sorted([card_id, second_id])
-        # The shared Check now gates both Cards, and one answer will clear both.
-        assert [item.id for item in await pending_checks(session, second_id)] == [check_ids[0]]
+        assert await check_card_id(session, check_id) == card_id
+        assert [item.id for item in await pending_checks(session, card_id)] == [check_id]
 
 
 async def _live_actions(harness) -> set[str]:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ...ai.sql import MARKER_FORMAT, SqlView
-from ...enums import TERMINAL_STAGES
+from .model import TERMINAL_STAGES
 
 _TERMINAL_STAGE_SQL = ", ".join(f"'{stage.value}'" for stage in TERMINAL_STAGES)
 
@@ -30,10 +30,6 @@ AI_CARDS = SqlView(
                (SELECT group_concat(k.title, ',') FROM card_checks cc
                 JOIN checks k ON k.id=cc.check_id
                 WHERE cc.card_id=c.id AND k.archived_at IS NULL) AS direct_checks,
-               (SELECT count(*) FROM card_checks cc
-                JOIN checks k ON k.id=cc.check_id
-                WHERE cc.card_id=c.id AND k.archived_at IS NULL
-                  AND k.outcome IS NULL) AS pending_checks,
                c.created_at, c.updated_at
         FROM cards c
         WHERE c.archived_at IS NULL""",

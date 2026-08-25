@@ -43,7 +43,7 @@ async def render_item_editor(
         item: Tag | Value | None = None
         if mode == "view":
             item = await session.get(spec.model, item_id)
-            if item is None or item.archived_at is not None:
+            if item is None:
                 raise DomainError(f"{entity.title()} does not exist")
             editor_values = {"name": item.name, "description": item.description}
             carried_by = await carrier_counts(session, spec, item.id)
@@ -111,8 +111,8 @@ async def render_item_editor(
                     await token_button(
                         session,
                         services.owner_id,
-                        f"Archive {entity.title()}",
-                        "item_archive_prompt",
+                        f"Delete {entity.title()}",
+                        "item_delete_prompt",
                         {"entity": entity, "id": item.id},
                     )
                 ]
@@ -174,7 +174,7 @@ async def render_saved_request(
 ) -> None:
     async with services.sessions() as session:
         request = await session.get(SavedRequest, request_id)
-        if request is None or request.archived_at is not None:
+        if request is None:
             raise DomainError("Request no longer exists")
         matches = await request_cards(session, request.query_sql, services.views)
         cards = matches[:REQUEST_RESULT_LIMIT]

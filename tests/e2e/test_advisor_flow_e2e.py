@@ -22,9 +22,8 @@ from safwa.domain import (
     move_card,
     sprint_metrics,
     start_sprint,
-    utcnow,
 )
-from safwa.enums import CardStage
+from safwa.features.cards.model import CardStage
 from safwa.features.saved_requests.use_cases import create_saved_request, request_cards
 from safwa.models import (
     AgentRun,
@@ -36,7 +35,6 @@ from safwa.models import (
     CardTag,
     CardValue,
     ChangeProposal,
-    FeedbackQueue,
     ProposalChange,
     SavedRequest,
     Tag,
@@ -309,7 +307,7 @@ async def test_ai_stage_update_to_done_keeps_completion_accounting(e2e_harness):
             select(ProposalChange).where(ProposalChange.proposal_id == outcome.proposal_id)
         )
         # An approved stage change routes terminal stages through finish_action, so the
-        # completion timestamp, feedback item and Sprint result are never skipped.
+        # completion timestamp and Sprint result are never skipped.
         change.values = {**change.values, "stage": CardStage.DONE.value}
         await session.commit()
 
@@ -319,12 +317,8 @@ async def test_ai_stage_update_to_done_keeps_completion_accounting(e2e_harness):
 
     async with e2e_harness.sessions() as session:
         stored = await session.get(Card, action_id)
-        feedback = await session.scalar(
-            select(FeedbackQueue).where(FeedbackQueue.card_id == action_id)
-        )
         assert stored.effective_stage == CardStage.DONE.value
         assert stored.completed_at is not None
-        assert feedback is not None
         assert (await sprint_metrics(session, sprint_id))["completed"] == 5
 
 
@@ -448,10 +442,6 @@ async def test_ai_card_proposal_to_repeat_sprint_and_retrospective(e2e_harness):
         assert current_goal is not None
         assert current_goal.effective_stage == CardStage.TODAY.value
 
-        feedback = await session.scalar(
-            select(FeedbackQueue).where(FeedbackQueue.card_id == action.id)
-        )
-        assert feedback is not None
         assert await sprint_metrics(session, sprint.id) == {
             "committed": 2,
             "added": 2,
@@ -2015,59 +2005,6 @@ async def test_proposal_ui_queues_mutations_and_reports_dependency_failure(e2e_h
     assert proposal.status == "rejected"
     assert tag is None
     assert link is None
-
-
-async def test_tag_proposal_save_restores_an_archived_tag(e2e_harness):
-    async with e2e_harness.sessions() as session:
-        archived_tag = Tag(name="VrWalk", description="Old description", archived_at=utcnow())
-        session.add(archived_tag)
-        await session.commit()
-        archived_tag_id = archived_tag.id
-        revision_before = (await session.get(Workspace, 1)).revision
-
-    advisor, provider = e2e_harness.advisor(
-        [
-            mutation_turn(
-                (
-                    "tag",
-                    {"mode": "create", "name": "VrWalk", "description": "VR project"},
-                )
-            ),
-            "The VrWalk tag was restored.",
-        ]
-    )
-    outcome = await advisor.handle("Create a VrWalk tag")
-    assert outcome.proposal_id is not None
-    message = _QueueTestMessage()
-    services = SimpleNamespace(
-        sessions=e2e_harness.sessions,
-        advisor=advisor,
-        history=_QueueTestHistory(),
-        owner_id=42,
-        guard=GenerationGuard(),
-    )
-    await render_proposal(message, services, outcome.proposal_id)
-    async with e2e_harness.sessions() as session:
-        token = await session.scalar(
-            select(CallbackToken).where(CallbackToken.action == "proposal_approve")
-        )
-        assert token is not None
-
-    await callback_token_handler(_QueueTestCallback(token.token, message), services)
-
-    async with e2e_harness.sessions() as session:
-        proposal = await session.get(ChangeProposal, outcome.proposal_id)
-        tags = list(await session.scalars(select(Tag).where(Tag.name == "VrWalk")))
-        revision_after = (await session.get(Workspace, 1)).revision
-    assert proposal.status == "approved"
-    assert len(tags) == 1
-    assert tags[0].id == archived_tag_id
-    assert tags[0].archived_at is None
-    assert tags[0].description == "VR project"
-    assert revision_after == revision_before + 1
-    assert "✅ Saved — New Tag “VrWalk”" in message.rendered[-1]
-    assert "The VrWalk tag was restored." in message.rendered[-1]
-    assert len(provider.calls) == 2
 
 
 async def test_single_proposal_save_error_is_reported_and_resolved(e2e_harness):

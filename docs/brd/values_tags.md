@@ -2,6 +2,10 @@
 
 Status: **approved by the owner on 2026-08-23**, with Q1 through Q5 settled alongside it; Q5 as
 option C, which grows the batch.
+**Partly superseded on 2026-08-24** by [archive_and_delete.md](archive_and_delete.md): a Value and
+a Tag are deleted, never archived. `VL-ARCHIVE-007`, `VL-ARCHIVE-008`, `VL-NAME-006`, `VL-LINK-009`,
+`TA-ARCHIVE-004`, `TA-ARCHIVE-005`, `TA-NAME-003` and `TA-LINK-006` are gone; `VL-DELETE-015` and
+`TA-DELETE-008` replace them. Read that packet before acting on anything about archiving here.
 Batch: Phase 4.d
 
 **Superseded in one respect, on the same day.** This packet put Values and Tags inside
@@ -25,8 +29,8 @@ same scenarios, same identifiers, same order, different words.
 
 Two feature files, because the two entities are two different businesses:
 
-- `tests/brd/values.feature` — a Value is a focus. PL-VALUE-001 … PL-VALUE-014.
-- `tests/brd/tags.feature` — a Tag is a label for finding Cards. PL-TAG-015 … PL-TAG-021.
+- `tests/brd/values.feature` — a Value is a focus. VL-FOCUS-001 … VL-READ-014.
+- `tests/brd/tags.feature` — a Tag is a label for finding Cards. TA-LINK-001 … TA-PICK-007.
 
 Twenty-one scenarios. That is past the five-to-fifteen guideline, and it is Q5 that put it there:
 fourteen of them are the move, seven are what a Check carrying a Value brings with it. The two files
@@ -53,7 +57,7 @@ through `021` are taken here; the Phase 5 Cards, Checks and Sprint packets conti
   the answer to Q1 and the new Check link — goes to the Proposals and autoapproval packet.
 - **Two feature files**, split on business purpose rather than on shared plumbing.
 - **An answered repeat must let go of its Values**, or every cycle would copy them and a Value would
-  end up holding a pile of finished Checks. That is PL-VALUE-012, and the owner named the same
+  end up holding a pile of finished Checks. That is VL-CHECK-012, and the owner named the same
   question for a repeatable Card — that one is Phase 5's.
 
 ## Scope
@@ -68,7 +72,7 @@ Out, and why:
   they load the Card, snapshot it, record a Card event and bump the Card's version. They are Card
   writes that happen to name a Value, and Phase 5 owns them. This batch says what a link may point
   at; it does not move the toggles.
-- **A repeatable Card and its Values.** The same question PL-VALUE-012 answers for a Check. The
+- **A repeatable Card and its Values.** The same question VL-CHECK-012 answers for a Check. The
   owner named it and put it in Phase 5, where repeats live.
 - **`resolve_references`.** It turns names and numbers into items and knows nothing about who is
   linking to them. Unchanged, and it stays in `domain.py` for Phase 5.
@@ -93,7 +97,7 @@ parameter. See the code plan.
 
 ## `tests/brd/values.feature` — a Value is a focus
 
-### PL-VALUE-001 — A Value carries a focus, and the owner turns it on and off
+### VL-FOCUS-001 — A Value carries a focus, and the owner turns it on and off
 
 Status: approved
 
@@ -104,7 +108,7 @@ And the Value's screen has a button that flips it, showing which way it is now
 And /values shows at a glance which Values are in focus
 ```
 
-### PL-VALUE-002 — Values in focus are the ones Safwa is told to weigh
+### VL-FOCUS-002 — Values in focus are the ones Safwa is told to weigh
 
 Status: approved
 
@@ -116,7 +120,7 @@ And the Value arrives as something Safwa can hand straight back to the owner as 
 And a Value the owner archived is not mentioned at all
 ```
 
-### PL-VALUE-003 — A critical Card that serves a Value in focus is shown to Safwa first
+### VL-READ-003 — A critical Card that serves a Value in focus is shown to Safwa first
 
 Status: approved
 
@@ -128,7 +132,7 @@ And a Card that only serves an archived Value does not count as serving a focus
 And among the rest, a Card with a Hard Time comes first, and then the older one
 ```
 
-### PL-VALUE-004 — One Value is carried by many things, which is what it is for
+### VL-LINK-004 — One Value is carried by many things, which is what it is for
 
 Status: approved
 
@@ -140,7 +144,7 @@ And taking Health off one of them leaves it on the other two
 And the Value's screen says how many Cards and how many Checks carry it right now
 ```
 
-### PL-VALUE-005 — A Value's name is taken whatever the capitals, and is never blank
+### VL-NAME-005 — A Value's name is taken whatever the capitals, and is never blank
 
 Status: approved
 
@@ -152,7 +156,7 @@ And renaming another Value to "fitness" is refused the same way
 And a name that is empty, or only spaces, is refused
 ```
 
-### PL-VALUE-006 — Writing down a Value the owner archived brings that one back
+### VL-NAME-006 — Writing down a Value the owner archived brings that one back
 
 Status: approved
 
@@ -166,7 +170,7 @@ And it comes back with its focus off, and on nothing, because archiving took it 
 And there is still only one Fitness
 ```
 
-### PL-VALUE-007 — Archiving a Value takes it off everything, and the things it was on stay
+### VL-ARCHIVE-007 — Archiving a Value takes it off everything, and the things it was on stay
 
 Status: approved
 
@@ -180,7 +184,7 @@ And the Value's focus is off
 And a Value that is already archived cannot be archived again
 ```
 
-### PL-VALUE-008 — A Value is archived, never deleted
+### VL-ARCHIVE-008 — A Value is archived, never deleted
 
 Status: approved
 
@@ -191,7 +195,7 @@ And a request to delete one is refused before anything is written
 And the owner's screen offers Archive and no delete either
 ```
 
-### PL-VALUE-009 — Nothing can be linked to a Value that is archived
+### VL-LINK-009 — Nothing can be linked to a Value that is archived
 
 Status: approved
 
@@ -203,7 +207,7 @@ And a name that belongs to no Value is refused too, and says which name it was
 And nothing is half-done: if one name in a link cannot be found, none of them are linked
 ```
 
-### PL-VALUE-010 — A Check can carry a Value, because a Check shows how well that Value is held to
+### VL-CHECK-010 — A Check can carry a Value, because a Check shows how well that Value is held to
 
 Status: approved — new behaviour, decided by Q5
 
@@ -216,7 +220,7 @@ And a Check's Values and a Check's Cards have nothing to do with each other: put
   Check changes nothing about the Cards that Check belongs to, and their Values are not its own
 ```
 
-### PL-VALUE-011 — Archiving a Check keeps its Values; deleting one takes them away
+### VL-CHECK-011 — Archiving a Check keeps its Values; deleting one takes them away
 
 Status: approved — new behaviour, decided by Q5
 
@@ -228,7 +232,7 @@ When that Check is deleted instead
 Then the link goes with it, and the Value is not left pointing at something that is gone
 ```
 
-### PL-VALUE-012 — An answered repeat hands its Values to the copy that takes its place
+### VL-CHECK-012 — An answered repeat hands its Values to the copy that takes its place
 
 Status: approved — new behaviour, decided by Q5
 
@@ -243,7 +247,7 @@ But a Check that does not repeat keeps its Values when it is answered, because i
   that one observation
 ```
 
-### PL-VALUE-013 — Safwa can see which Values a Check is about
+### VL-READ-013 — Safwa can see which Values a Check is about
 
 Status: approved — new behaviour, decided by Q5
 
@@ -254,7 +258,7 @@ Then it sees the Values on it, by name
 And that is how it knows which Value the owner is working on through that Check
 ```
 
-### PL-VALUE-014 — Safwa can start from a Value and find what is behind it
+### VL-READ-014 — Safwa can start from a Value and find what is behind it
 
 Status: approved — new behaviour, decided by Q5
 
@@ -271,7 +275,7 @@ And an archived Card or Check is in neither answer
 
 ## `tests/brd/tags.feature` — a Tag is a label for finding Cards
 
-### PL-TAG-015 — A Tag is a label, and one Tag is on many Cards
+### TA-LINK-001 — A Tag is a label, and one Tag is on many Cards
 
 Status: approved
 
@@ -285,7 +289,7 @@ And the Tag's screen says how many Cards carry it right now
 And a Tag has no focus, and a Tag never goes on a Check — a Tag is for finding Cards
 ```
 
-### PL-TAG-016 — A Tag's name is taken whatever the capitals, and is never blank
+### TA-NAME-002 — A Tag's name is taken whatever the capitals, and is never blank
 
 Status: approved
 
@@ -297,7 +301,7 @@ And renaming another Tag to "family" is refused the same way
 And a name that is empty, or only spaces, is refused
 ```
 
-### PL-TAG-017 — Writing down a Tag the owner archived brings that one back
+### TA-NAME-003 — Writing down a Tag the owner archived brings that one back
 
 Status: approved
 
@@ -311,7 +315,7 @@ And it comes back on no Cards, because archiving took it off the ones it was on
 And there is still only one Family
 ```
 
-### PL-TAG-018 — Archiving a Tag takes it off its Cards, and those Cards stay
+### TA-ARCHIVE-004 — Archiving a Tag takes it off its Cards, and those Cards stay
 
 Status: approved
 
@@ -324,7 +328,7 @@ And those Cards are otherwise untouched: none of them is deleted, moved or chang
 And a Tag that is already archived cannot be archived again
 ```
 
-### PL-TAG-019 — A Tag is archived, never deleted
+### TA-ARCHIVE-005 — A Tag is archived, never deleted
 
 Status: approved
 
@@ -335,7 +339,7 @@ And a request to delete one is refused before anything is written
 And the owner's screen offers Archive and no delete either
 ```
 
-### PL-TAG-020 — A Card cannot be given a Tag that is archived
+### TA-LINK-006 — A Card cannot be given a Tag that is archived
 
 Status: approved
 
@@ -347,7 +351,7 @@ And a name that belongs to no Tag is refused too, and says which name it was
 And nothing is half-done: if one name in a link cannot be found, none of them are linked
 ```
 
-### PL-TAG-021 — Choosing Tags for a Card shows them a page at a time
+### TA-PICK-007 — Choosing Tags for a Card shows them a page at a time
 
 Status: approved
 
@@ -374,7 +378,7 @@ can widen it when it takes the Card screens.
 
 The concern was stated and the owner reaffirmed, so it is recorded rather than argued: this turns a
 file move into a feature. **The batch is still worth doing as one**, because the Value half of the
-archive rule (PL-VALUE-007) has to know about Checks the moment the link exists, and that rule is
+archive rule (VL-ARCHIVE-007) has to know about Checks the moment the link exists, and that rule is
 this batch's — splitting them would mean shipping a Value archive that leaves the Value pointing at
 Checks it no longer belongs on.
 
@@ -382,7 +386,7 @@ Checks it no longer belongs on.
 that shows *how well the Value is actually being held to* — "did I sleep seven hours?" says
 something about Health without being work at all. The two are separate statements, so nothing is
 derived from one to the other: a Check's Values are its own, and the Values of the Cards it belongs
-to are theirs. PL-VALUE-010 says that in one line so nobody has to guess.
+to are theirs. VL-CHECK-010 says that in one line so nobody has to guess.
 
 **Which side attaches it.** The Check. Every link Safwa has works this way already — a Card carries
 its own Values, Tags and Checks, and the Card is where they go on and come off. A Check carrying a
@@ -391,11 +395,11 @@ tool puts Values on a Check.
 
 **Answered repeats.** A repeatable Check spawns a fresh copy when it is answered, and that copy
 takes the Card links with it. Values have to work the same way or worse: if both the answered Check
-and its successor kept the Value, a Value would gain one dead Check per cycle forever. PL-VALUE-012
+and its successor kept the Value, a Value would gain one dead Check per cycle forever. VL-CHECK-012
 hands the Values to the successor and takes them off the answered one, so a Value is carried by the
 Check the owner is still answering. A one-off Check keeps its Values, because it *is* the record.
 
-**A Tag on a Check was not asked for and is not added.** A Tag is for finding Cards. PL-TAG-015 says
+**A Tag on a Check was not asked for and is not added.** A Tag is for finding Cards. TA-LINK-001 says
 so out loud, so that adding one later is a decision rather than a drift.
 
 What Q5 costs, so nothing is a surprise later:
@@ -440,7 +444,7 @@ they archived last month got it back with its description erased — and the scr
 the old description, so nothing on it looked like a deletion.
 
 **Settled: fix the screen.** A box the owner never typed into is not something they gave. One line
-in `_on_item_create`. PL-VALUE-006 and PL-TAG-017 both carry the line, and their tests fail first.
+in `_on_item_create`. VL-NAME-006 and TA-NAME-003 both carry the line, and their tests fail first.
 
 ### Q4 — Ticking a Tag on page 2 threw the owner back to page 1
 
@@ -449,7 +453,7 @@ putting the last two on a Card meant page forward, tick, page forward, tick. The
 undid itself.
 
 **Settled: keep the page.** The list reopens where the owner was. The fix is in the shared handler,
-so Checks, Categories and Energy types get it too; PL-TAG-021 claims the Tag half. Fails first.
+so Checks, Categories and Energy types get it too; TA-PICK-007 claims the Tag half. Fails first.
 
 ---
 
@@ -460,34 +464,34 @@ where the module moves, its import path.
 
 | Scenario | Existing tests | Class | Decision | Status |
 |---|---|---|---|---|
-| PL-VALUE-001 | `test_domain.py::test_ui_mutations_use_domain_services_and_are_audited` (flips focus) | business_valid | keep, cited; **to write**: the Focus button is on the Value screen, and `/values` shows which are in focus | approved |
-| PL-VALUE-002 | — | missing | **to write**: the context line over a Value in focus, one out of focus, and an archived one | approved |
-| PL-VALUE-003 | — | missing | **to write**: the ordering of the critical Cards Safwa is handed | approved |
-| PL-VALUE-004 | `test_domain.py::test_committed_card_relationships_are_validated_propagated_and_audited` | business_valid | keep, cited; **to write**: one Value over three Cards, and both counts on its screen | approved |
-| PL-VALUE-005 | `test_domain.py::test_create_tag_and_value_restore_archived_names` (its tail refuses a duplicate) | business_valid | keep, cited; **to write**: the rename refusal and the blank name | approved |
-| PL-VALUE-006 | `test_domain.py::test_create_tag_and_value_restore_archived_names` | business_valid | keep, cited; extend with "on nothing". Q3's half **to write**, fails first | approved |
-| PL-VALUE-007 | `test_telegram_item_ui.py::test_manual_tag_and_value_archive_unlinks_cards` | business_valid | keep, cited; **to write**: the Check links come off too | approved |
-| PL-VALUE-008 | `test_ai_sql.py::test_change_from_tool_maps_modes_to_actions` (the archive-never-delete half) | business_valid | keep, cited | approved |
-| PL-VALUE-009 | `test_domain.py::test_committed_card_relationships_are_validated_propagated_and_audited` (the unknown-number half) | business_valid | keep, cited; **to write**: an archived Value by name and by number, from a Card and from a Check | approved |
-| PL-VALUE-010 | — | missing | **to write**, fails first: the link from the Check side, and that a Check's Values and its Cards' Values are separate | approved |
-| PL-VALUE-011 | — | missing | **to write**, fails first: an archived Check keeps its Values, a deleted one takes them away | approved |
-| PL-VALUE-012 | `test_checks.py` covers the repeat successor and its Card links | business_valid | keep, uncited — it is the repeat rule, Phase 5's; **to write**, fails first: the Values go to the successor and off the answered one, and a one-off keeps them | approved |
-| PL-VALUE-013 | — | missing | **to write**, fails first: the new `ai_checks` column, read the way Safwa would read it | approved |
-| PL-VALUE-014 | `test_advisor_flow_e2e.py::test_ai_request_query_values_and_ignores_archived_cards` (the Cards half, through a Request) | characterization_valid | keep, uncited; **to write**, fails first: from one Value name to its Checks and its Cards, archived ones absent | approved |
-| PL-TAG-015 | `test_advisor_flow_e2e.py::test_ai_create_tag_and_links_are_reviewed_as_separate_proposals` (one Tag over two Cards) | business_valid | keep, cited; **to write**: the count on the Tag screen, no focus control, and no way to put one on a Check | approved |
-| PL-TAG-016 | `test_domain.py::test_create_tag_and_value_restore_archived_names` | business_valid | keep, cited; **to write**: the rename refusal and the blank name | approved |
-| PL-TAG-017 | `test_domain.py::test_create_tag_and_value_restore_archived_names` | business_valid | keep, cited; Q3's half **to write**, fails first | approved |
-| PL-TAG-018 | `test_telegram_item_ui.py::test_manual_tag_and_value_archive_unlinks_cards` | business_valid | keep — but one test cannot cite two scenarios, so PL-VALUE-007 takes it and this one is **to write** over a Tag | approved |
-| PL-TAG-019 | `test_ai_sql.py::test_change_from_tool_maps_modes_to_actions` | business_valid | keep — PL-VALUE-008 takes it; this one is **to write** over a Tag | approved |
-| PL-TAG-020 | — | missing | **to write**: an archived Tag by name and by number, and a name that is nobody's | approved |
-| PL-TAG-021 | `test_telegram_item_ui.py::test_tag_selector_pages_instead_of_truncating` | business_valid | keep, cited — it hard-codes `10` and `12`; rewrite to read `SELECTOR_PAGE_SIZE`. Q4's half **to write**, fails first | approved |
+| VL-FOCUS-001 | `test_domain.py::test_ui_mutations_use_domain_services_and_are_audited` (flips focus) | business_valid | keep, cited; **to write**: the Focus button is on the Value screen, and `/values` shows which are in focus | approved |
+| VL-FOCUS-002 | — | missing | **to write**: the context line over a Value in focus, one out of focus, and an archived one | approved |
+| VL-READ-003 | — | missing | **to write**: the ordering of the critical Cards Safwa is handed | approved |
+| VL-LINK-004 | `test_domain.py::test_committed_card_relationships_are_validated_propagated_and_audited` | business_valid | keep, cited; **to write**: one Value over three Cards, and both counts on its screen | approved |
+| VL-NAME-005 | `test_domain.py::test_create_tag_and_value_restore_archived_names` (its tail refuses a duplicate) | business_valid | keep, cited; **to write**: the rename refusal and the blank name | approved |
+| VL-NAME-006 | `test_domain.py::test_create_tag_and_value_restore_archived_names` | business_valid | keep, cited; extend with "on nothing". Q3's half **to write**, fails first | approved |
+| VL-ARCHIVE-007 | `test_telegram_item_ui.py::test_manual_tag_and_value_archive_unlinks_cards` | business_valid | keep, cited; **to write**: the Check links come off too | approved |
+| VL-ARCHIVE-008 | `test_ai_sql.py::test_change_from_tool_maps_modes_to_actions` (the archive-never-delete half) | business_valid | keep, cited | approved |
+| VL-LINK-009 | `test_domain.py::test_committed_card_relationships_are_validated_propagated_and_audited` (the unknown-number half) | business_valid | keep, cited; **to write**: an archived Value by name and by number, from a Card and from a Check | approved |
+| VL-CHECK-010 | — | missing | **to write**, fails first: the link from the Check side, and that a Check's Values and its Cards' Values are separate | approved |
+| VL-CHECK-011 | — | missing | **to write**, fails first: an archived Check keeps its Values, a deleted one takes them away | approved |
+| VL-CHECK-012 | `test_checks.py` covers the repeat successor and its Card links | business_valid | keep, uncited — it is the repeat rule, Phase 5's; **to write**, fails first: the Values go to the successor and off the answered one, and a one-off keeps them | approved |
+| VL-READ-013 | — | missing | **to write**, fails first: the new `ai_checks` column, read the way Safwa would read it | approved |
+| VL-READ-014 | `test_advisor_flow_e2e.py::test_ai_request_query_values_and_ignores_archived_cards` (the Cards half, through a Request) | characterization_valid | keep, uncited; **to write**, fails first: from one Value name to its Checks and its Cards, archived ones absent | approved |
+| TA-LINK-001 | `test_advisor_flow_e2e.py::test_ai_create_tag_and_links_are_reviewed_as_separate_proposals` (one Tag over two Cards) | business_valid | keep, cited; **to write**: the count on the Tag screen, no focus control, and no way to put one on a Check | approved |
+| TA-NAME-002 | `test_domain.py::test_create_tag_and_value_restore_archived_names` | business_valid | keep, cited; **to write**: the rename refusal and the blank name | approved |
+| TA-NAME-003 | `test_domain.py::test_create_tag_and_value_restore_archived_names` | business_valid | keep, cited; Q3's half **to write**, fails first | approved |
+| TA-ARCHIVE-004 | `test_telegram_item_ui.py::test_manual_tag_and_value_archive_unlinks_cards` | business_valid | keep — but one test cannot cite two scenarios, so VL-ARCHIVE-007 takes it and this one is **to write** over a Tag | approved |
+| TA-ARCHIVE-005 | `test_ai_sql.py::test_change_from_tool_maps_modes_to_actions` | business_valid | keep — VL-ARCHIVE-008 takes it; this one is **to write** over a Tag | approved |
+| TA-LINK-006 | — | missing | **to write**: an archived Tag by name and by number, and a name that is nobody's | approved |
+| TA-PICK-007 | `test_telegram_item_ui.py::test_tag_selector_pages_instead_of_truncating` | business_valid | keep, cited — it hard-codes `10` and `12`; rewrite to read `SELECTOR_PAGE_SIZE`. Q4's half **to write**, fails first | approved |
 
 **Ten gaps that exist and nothing checks, and seven tests that fail first.** The gaps are behaviour
 the code already has: the Focus button, the context line, the critical-Card ordering, both rename
 refusals and blank names, one Value and one Tag over many Cards with their counts, an archived
 reference in a link for both, and the Tag halves of archive-and-unlink and archive-never-delete. The
-seven that fail first are Q3 (twice), Q4, and the five new Check rules — PL-VALUE-010 through
-PL-VALUE-014.
+seven that fail first are Q3 (twice), Q4, and the five new Check rules — VL-CHECK-010 through
+VL-READ-014.
 
 Tests in these files that belong elsewhere and are untouched:
 `test_telegram_item_ui.py::test_tag_field_input_reuses_editor_message_and_deletes_input` (the text
@@ -533,9 +537,9 @@ Phase 8. `SELECTOR_PAGE_SIZE` and `CONTEXT_CRITICAL_CARD_LIMIT` stay in `constan
 | `toggle_check_value` | `domain.py`, beside `toggle_card_value` — it is a Check write, and Checks are Phase 5 |
 | `ReferenceSpec.owner_key` | defaults to `"card_id"`; the Check spec passes `"check_id"`. `link_key` and `link_column` read it instead of hardcoding the Card |
 | `CHECK_VALUE_REFERENCE` | `domain.py`, with the other specs |
-| `archive_value` | also clears `check_values`, in the same transaction (PL-VALUE-007) |
-| `_copy_check` | copies the source Check's Values onto the successor, and the answered Check loses them (PL-VALUE-012) |
-| `delete_subtree` | also clears `check_values` for the Checks it deletes (PL-VALUE-011) |
+| `archive_value` | also clears `check_values`, in the same transaction (VL-ARCHIVE-007) |
+| `_copy_check` | copies the source Check's Values onto the successor, and the answered Check loses them (VL-CHECK-012) |
+| `delete_subtree` | also clears `check_values` for the Checks it deletes (VL-CHECK-011) |
 | `CheckToolInput` | gains `link` and `unlink` modes and the three `value_*` fields |
 | `CheckProposalHandler` | applies the link the way `CardProposalHandler` does |
 | `CheckProposalPresenter` | shows the Values on the review screen |
@@ -546,7 +550,7 @@ Phase 8. `SELECTOR_PAGE_SIZE` and `CONTEXT_CRITICAL_CARD_LIMIT` stay in `constan
 `resolve_references` is untouched: it turns names and numbers into Values and does not care who is
 linking. That is why `ReferenceSpec` only needs the owner column.
 
-PL-VALUE-014 needs no new column. Once `ai_checks` has `values`, going from a Value's name to what
+VL-READ-014 needs no new column. Once `ai_checks` has `values`, going from a Value's name to what
 carries it is `ai_cards.direct_values LIKE '%Health%'` and `ai_checks.values LIKE '%Health%'` — the
 same shape the prompt already tells the model to use, and both views already hide archived rows.
 

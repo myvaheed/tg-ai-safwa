@@ -20,3 +20,8 @@ class Clock(Protocol):
 class SystemClock:
     def now(self) -> datetime:
         return datetime.now(UTC)
+
+
+def utcnow() -> datetime:
+    """The system clock, for the write paths that have not been given one yet."""
+    return datetime.now(UTC)

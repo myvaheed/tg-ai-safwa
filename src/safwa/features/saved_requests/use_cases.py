@@ -9,7 +9,6 @@ by nothing but being valid — the caps in `ReadOnlyQueryRunner` exist for what 
 from __future__ import annotations
 
 from collections.abc import Collection
-from datetime import UTC, datetime
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,15 +39,7 @@ async def create_saved_request(
         select(SavedRequest).where(SavedRequest.name.collate("NOCASE") == normalized_name)
     )
     if existing is not None:
-        if existing.archived_at is None:
-            raise DomainError("A Request with this name already exists")
-        existing.archived_at = None
-        existing.query_sql = normalized_query
-        if description is not None:
-            existing.description = description.strip()
-        existing.version += 1
-        await bump_workspace(session)
-        return existing
+        raise DomainError("A Request with this name already exists")
     request = SavedRequest(
         name=normalized_name,
         description=(description or "").strip(),
@@ -70,8 +61,8 @@ async def update_saved_request(
     views: Collection[str],
 ) -> SavedRequest:
     request = await session.get(SavedRequest, request_id)
-    if request is None or request.archived_at is not None:
-        raise DomainError("Request does not exist or is archived")
+    if request is None:
+        raise DomainError("Request does not exist")
     if name is not None:
         normalized_name = name.strip()
         if not normalized_name:
@@ -97,12 +88,11 @@ async def update_saved_request(
     return request
 
 
-async def archive_saved_request(session: AsyncSession, request_id: int) -> SavedRequest:
+async def delete_saved_request(session: AsyncSession, request_id: int) -> SavedRequest:
     request = await session.get(SavedRequest, request_id)
-    if request is None or request.archived_at is not None:
-        raise DomainError("Request does not exist or is archived")
-    request.archived_at = datetime.now(UTC)
-    request.version += 1
+    if request is None:
+        raise DomainError("Request does not exist")
+    await session.delete(request)
     await bump_workspace(session)
     return request
 

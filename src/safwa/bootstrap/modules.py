@@ -15,6 +15,7 @@ from collections.abc import Awaitable, Callable
 from ..ai.context import SYSTEM_PROMPT_TEMPLATE
 from ..ai.sql import SqlView
 from ..ai.subagents import RoutedSubagent
+from ..features.board.module import MODULE as BOARD
 from ..features.cards.module import MODULE as CARDS
 from ..features.checks.module import MODULE as CHECKS
 from ..features.continuity.module import MODULE as CONTINUITY
@@ -38,6 +39,7 @@ from .module_manifest import AgentContext, BackgroundTask, FeatureModule
 # incidental: Profile settles the Diary's own Reminder before the Reminder rebuild walks the
 # whole table, and the Advisor's prompt lists the subagents in this order every run.
 MODULES: tuple[FeatureModule, ...] = (
+    BOARD,
     CARDS,
     CHECKS,
     VALUES,

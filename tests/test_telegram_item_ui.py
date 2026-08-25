@@ -32,12 +32,11 @@ from safwa.constants import (
 )
 from safwa.domain import (
     DomainError,
-    archive_tag,
-    archive_value,
     create_card,
     create_check,
     create_tag,
     create_value,
+    delete_tag,
     finish_action,
     set_sprint_success_criteria,
     start_sprint,
@@ -46,7 +45,9 @@ from safwa.domain import (
     toggle_card_value,
     toggle_check_value,
 )
-from safwa.enums import CardStage, MessageKind
+from safwa.enums import MessageKind
+from safwa.features.cards.model import CardStage
+from safwa.features.cards.use_cases import EFFORT_POINTS
 from safwa.features.diary.use_cases import create_diary_entry
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.screens import command_settings
@@ -57,8 +58,8 @@ from safwa.features.profile.use_cases import (
 from safwa.features.reminders.schedule import resolve
 from safwa.features.reminders.use_cases import create_reminder
 from safwa.features.saved_requests.use_cases import (
-    archive_saved_request,
     create_saved_request,
+    delete_saved_request,
 )
 from safwa.foundation.clock import SystemClock
 from safwa.history import (
@@ -643,7 +644,8 @@ async def test_tag_field_input_reuses_editor_message_and_deletes_input(sessions)
         assert classified.kind == MessageKind.UI_INPUT.value
 
 
-async def test_manual_tag_and_value_archive_unlinks_cards(sessions) -> None:
+async def test_manual_tag_and_value_delete_unlinks_cards(sessions) -> None:
+    """VL-DELETE-015 — tests/brd/values.feature"""
     async with sessions() as session:
         card = Card(kind="action", title="Family walk", effort_points=2)
         tag = Tag(name="Family")
@@ -665,20 +667,21 @@ async def test_manual_tag_and_value_archive_unlinks_cards(sessions) -> None:
         await render_item_editor(message, services, entity, mode="view", item_id=item_id)
         text, markup = message.edits[-1]
         assert "Linked Cards: 1" in text
-        archive = next(
+        assert f"Archive {entity.title()}" not in button_texts(markup)
+        remove = next(
             button
             for row in markup.inline_keyboard
             for button in row
-            if button.text == f"Archive {entity.title()}"
+            if button.text == f"Delete {entity.title()}"
         )
         await callback_token_handler(
-            FakeCallback(archive.callback_data.split(":", 1)[1], message), services
+            FakeCallback(remove.callback_data.split(":", 1)[1], message), services
         )
         confirm = next(
             button
             for row in message.edits[-1][1].inline_keyboard
             for button in row
-            if button.text == f"Archive {entity.title()}"
+            if button.text == f"Delete {entity.title()}"
         )
         await callback_token_handler(
             FakeCallback(confirm.callback_data.split(":", 1)[1], message), services
@@ -686,11 +689,8 @@ async def test_manual_tag_and_value_archive_unlinks_cards(sessions) -> None:
         assert "Taken off 1 link(s)" in message.edits[-1][0]
 
     async with sessions() as session:
-        tag = await session.get(Tag, tag_id)
-        value = await session.get(Value, value_id)
-        assert tag.archived_at is not None
-        assert value.archived_at is not None
-        assert value.active is False
+        assert await session.get(Tag, tag_id) is None
+        assert await session.get(Value, value_id) is None
         assert await session.get(CardTag, {"card_id": card.id, "tag_id": tag_id}) is None
         assert await session.get(CardValue, {"card_id": card.id, "value_id": value_id}) is None
 
@@ -774,7 +774,7 @@ async def test_dashboard_paging_walks_between_pages(sessions) -> None:
 
 
 async def test_tag_selector_pages_instead_of_truncating(sessions) -> None:
-    """PL-TAG-021 — tests/brd/tags.feature"""
+    """TA-PICK-007 — tests/brd/tags.feature"""
     overflow = SELECTOR_PAGE_SIZE + 2
     async with sessions() as session:
         card = await create_card(session, kind="action", title="Pick tags", effort_points=1)
@@ -822,39 +822,8 @@ async def test_tag_selector_pages_instead_of_truncating(sessions) -> None:
     assert "Pick tags" in message.edits[-1][0]
 
 
-async def test_writing_a_name_by_hand_does_not_wipe_the_description_it_comes_back_with(
-    sessions,
-) -> None:
-    """PL-VALUE-006 — tests/brd/values.feature"""
-    async with sessions() as session:
-        value = await create_value(session, "Fitness", "Why it matters", active=True)
-        await archive_value(session, value.id)
-        await session.commit()
-        value_id = value.id
-
-    services = services_for(sessions)
-    message = FakeMessage(101, bot_message=True)
-    # The owner types the name and nothing else; the description box is untouched.
-    await render_item_editor(message, services, "value", mode="create", values={"name": "fitness"})
-    create = next(
-        button
-        for row in message.edits[-1][1].inline_keyboard
-        for button in row
-        if button.text == "✅ Create Value"
-    )
-    await callback_token_handler(
-        FakeCallback(create.callback_data.split(":", 1)[1], message), services
-    )
-
-    async with sessions() as session:
-        restored = await session.get(Value, value_id)
-        assert restored.archived_at is None
-        assert restored.description == "Why it matters"
-        assert len(list(await session.scalars(select(Value)))) == 1
-
-
 async def test_the_tag_screen_counts_its_cards_and_has_no_focus(sessions) -> None:
-    """PL-TAG-015 — tests/brd/tags.feature"""
+    """TA-LINK-001 — tests/brd/tags.feature"""
     async with sessions() as session:
         tag = await create_tag(session, "Family")
         for title in ("Phone call", "Trip plan", "Birthday"):
@@ -884,7 +853,7 @@ async def test_the_tag_screen_counts_its_cards_and_has_no_focus(sessions) -> Non
 
 
 async def test_the_value_screen_counts_cards_and_checks_and_flips_focus(sessions) -> None:
-    """PL-VALUE-004 — tests/brd/values.feature"""
+    """VL-LINK-004 — tests/brd/values.feature"""
     async with sessions() as session:
         value = await create_value(session, "Health")
         card = await create_card(session, kind="action", title="Morning run", effort_points=1)
@@ -1024,7 +993,7 @@ async def test_citations_become_deep_links_only_for_live_items(sessions) -> None
     async with sessions() as session:
         card = await create_card(session, kind="action", title="Pull-ups", effort_points=1)
         tag = await create_tag(session, "Training")
-        await archive_tag(session, tag.id)
+        await delete_tag(session, tag.id)
         await session.commit()
         card_id, tag_id = card.id, tag.id
 
@@ -1040,7 +1009,7 @@ async def test_citations_become_deep_links_only_for_live_items(sessions) -> None
         f'<a href="https://t.me/safwa_ai_bot?start=card-{card_id}">⭐️ Pull-ups · ⚡1</a>'
         in rendered
     )
-    # An archived item is as gone as a deleted one, and an unknown type is not a citation.
+    # A deleted item leaves its words and loses its link, and an unknown type is not a citation.
     assert f"[Training](tag:{tag_id})" not in rendered and "Training" in rendered
     assert "nothing" in rendered and "card-4242" not in rendered
     assert "[not one](sprint:1)" in rendered
@@ -1280,8 +1249,10 @@ async def test_a_closed_card_shows_when_it_closed_and_where_its_series_went(sess
 
 
 async def test_card_text_and_blocked_reason_stay_on_one_validated_editor(sessions) -> None:
+    """CD-BLOCKED-010 — tests/brd/cards.feature"""
     async with sessions() as session:
-        card = await create_card(session, kind="idea", title="Original")
+        # An Action, because Blocked is an Action field and no other kind is offered it.
+        card = await create_card(session, kind="action", title="Original", effort_points=2)
         await session.commit()
         card_id = card.id
 
@@ -1420,8 +1391,13 @@ async def test_the_reminders_screen_lists_opens_and_confirms_a_delete(sessions) 
         assert await session.get(Reminder, soon_id) is not None  # one confirmation, not none
 
 
-async def test_manual_card_creation_uses_save_discard_and_no_parent_control(sessions) -> None:
+async def test_cd_tree_005_no_screen_can_change_a_cards_parent(sessions) -> None:
+    """CD-TREE-005 — tests/brd/cards.feature"""
     async with sessions() as session:
+        goal = await create_card(session, title="Ship product", kind="goal")
+        child = await create_card(
+            session, title="Write announcement", kind="action", parent_id=goal.id, effort_points=5
+        )
         session.add(
             UiSession(
                 owner_id=42,
@@ -1441,7 +1417,94 @@ async def test_manual_card_creation_uses_save_discard_and_no_parent_control(sess
     buttons = button_texts(message.edits[-1][1])
     assert "✅ Save" in buttons
     assert "🗑 Discard" in buttons
-    assert "🌳 Parent" not in buttons
+    assert not any(text.startswith("🌳 Parent") for text in buttons)
+
+    bot = FakeBot()
+    card_message = FakeMessage(52, bot_message=True, bot=bot)
+    await render_card(
+        card_message,
+        services_for(sessions),
+        child.id,
+        replace_message_id=card_message.message_id,
+    )
+    # The one Parent button on the Card screen opens the parent; it does not choose one.
+    parent_button = next(
+        button
+        for row in bot.edits[-1][2].inline_keyboard
+        for button in row
+        if button.text.startswith("🌳 Parent")
+    )
+    async with sessions() as session:
+        token = await session.get(
+            CallbackToken, parent_button.callback_data.removeprefix("cb:")
+        )
+        assert token is not None and token.action == "card_view"
+
+    # And no handler in the whole package writes one either.
+    for module in pkgutil.walk_packages(telegram_source.__path__, f"{telegram_source.__name__}."):
+        source = inspect.getsource(importlib.import_module(module.name))
+        assert "set_card_parent" not in source, module.name
+
+
+async def test_cd_field_007_a_goal_draft_is_not_offered_an_actions_controls(sessions) -> None:
+    """CD-FIELD-007 — tests/brd/cards.feature"""
+    action_only = {"🚧 Blocked", "🔢 Effort", "🔁 Repeat", "🏷 Categories", "⚡ Energy"}
+    async with sessions() as session:
+        editor = UiSession(
+            owner_id=42,
+            kind="card_create",
+            state={"kind": "action", "title": "Run", "effort_points": 2, "blocked": False},
+            expires_at=datetime.now(UTC).replace(year=2030),
+        )
+        session.add(editor)
+        await session.commit()
+
+    message = FakeMessage(53, bot_message=True)
+    await render_card_creation(message, services_for(sessions))
+    assert action_only <= set(button_texts(message.edits[-1][1]))
+
+    async with sessions() as session:
+        stored = await session.get(UiSession, editor.id)
+        stored.state = {**stored.state, "kind": "goal", "blocked": True}
+        await session.commit()
+
+    goal_message = FakeMessage(54, bot_message=True)
+    await render_card_creation(goal_message, services_for(goal_sessions := sessions))
+    goal_buttons = set(button_texts(goal_message.edits[-1][1]))
+    assert not (action_only & goal_buttons)
+    assert "📝 Blocked reason" not in goal_buttons
+
+    async with goal_sessions() as session:
+        stored = await session.get(UiSession, editor.id)
+        assert stored.state["blocked"] is False
+
+
+async def test_cd_effort_008_save_appears_only_once_the_draft_has_an_effort(sessions) -> None:
+    """CD-EFFORT-008 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        editor = UiSession(
+            owner_id=42,
+            kind="card_create",
+            state={"kind": "action", "title": "Run", "effort_points": None},
+            expires_at=datetime.now(UTC).replace(year=2030),
+        )
+        session.add(editor)
+        await session.commit()
+
+    message = FakeMessage(55, bot_message=True)
+    await render_card_creation(message, services_for(sessions))
+    text, markup = message.edits[-1]
+    assert "✅ Save" not in button_texts(markup)
+    assert "An Action needs effort points" in text
+
+    async with sessions() as session:
+        stored = await session.get(UiSession, editor.id)
+        stored.state = {**stored.state, "effort_points": min(EFFORT_POINTS)}
+        await session.commit()
+
+    ready = FakeMessage(56, bot_message=True)
+    await render_card_creation(ready, services_for(sessions))
+    assert "✅ Save" in button_texts(ready.edits[-1][1])
 
 
 async def test_card_creation_choosers_show_kind_category_and_energy_emojis(sessions) -> None:
@@ -2909,8 +2972,8 @@ async def test_the_requests_screen_lists_runs_and_comes_back(sessions) -> None:
     assert "Open actions" in detail.edits[-1][0]
 
 
-async def test_archiving_a_request_takes_it_off_every_surface(sessions) -> None:
-    """SR-AI-009 — tests/brd/saved_requests.feature"""
+async def test_deleting_a_request_takes_it_off_every_surface(sessions) -> None:
+    """SR-DELETE-013 — tests/brd/saved_requests.feature"""
     await _seed_plan(sessions)
     async with sessions() as session:
         await (await session.connection()).run_sync(
@@ -2929,12 +2992,12 @@ async def test_archiving_a_request_takes_it_off_every_surface(sessions) -> None:
     assert "Only Pick me" in button_texts(listing.edits[-1][1])
 
     async with sessions() as session:
-        await archive_saved_request(session, request_id)
+        await delete_saved_request(session, request_id)
         await session.commit()
 
     async with sessions() as session:
         assert (await session.execute(text("SELECT id FROM ai_requests"))).all() == []
-        assert (await session.get(SavedRequest, request_id)) is not None
+        assert (await session.get(SavedRequest, request_id)) is None
 
     after = FakeMessage(944, bot_message=True)
     await command_requests(after, services)
@@ -2945,3 +3008,75 @@ async def test_archiving_a_request_takes_it_off_every_surface(sessions) -> None:
     await render_plan(screen, services, filters=[request_id])
     labels = button_texts(screen.edits[-1][1])
     assert "Pick me (1)" in labels and "Skip me (2)" in labels
+
+
+async def test_no_screen_offers_a_goal_or_an_idea_a_stage_control(sessions) -> None:
+    """CD-STAGE-013 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Health")
+        idea = await create_card(session, kind="idea", title="Sleep better", parent_id=goal.id)
+        action = await create_card(
+            session, kind="action", title="Buy a pillow", effort_points=2, parent_id=idea.id
+        )
+        await session.commit()
+        ids = (goal.id, idea.id, action.id)
+
+    services = services_for(sessions)
+    for index, card_id in enumerate(ids, start=310):
+        message = FakeMessage(index, bot_message=True)
+        await render_card(message, services, card_id)
+        offered = "📍 Stage" in button_texts(message.edits[-1][1])
+        assert offered is (card_id == ids[2])
+
+    # The creation screen offers it for an Action alone, too.
+    async with sessions() as session:
+        editor = UiSession(
+            owner_id=42,
+            kind="card_create",
+            state={"kind": "action", "title": "Run", "effort_points": 2},
+            expires_at=datetime.now(UTC).replace(year=2030),
+        )
+        session.add(editor)
+        await session.commit()
+        editor_id = editor.id
+
+    message = FakeMessage(320, bot_message=True)
+    await render_card_creation(message, services)
+    assert "📍 Stage" in button_texts(message.edits[-1][1])
+
+    async with sessions() as session:
+        stored = await session.get(UiSession, editor_id)
+        stored.state = {**stored.state, "kind": "goal"}
+        await session.commit()
+
+    goal_message = FakeMessage(321, bot_message=True)
+    await render_card_creation(goal_message, services)
+    assert "📍 Stage" not in button_texts(goal_message.edits[-1][1])
+
+
+async def test_a_goal_screen_names_each_blocked_action_and_quotes_its_reason(sessions) -> None:
+    """CD-BLOCKED-019 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Health")
+        await create_card(
+            session,
+            kind="action",
+            title="Buy a pillow",
+            effort_points=2,
+            parent_id=goal.id,
+            blocked=True,
+            blocked_description="Shop is shut",
+        )
+        await session.commit()
+        goal_id = goal.id
+
+    services = services_for(sessions)
+    message = FakeMessage(330, bot_message=True)
+    await render_card(message, services, goal_id)
+
+    text = message.edits[-1][0]
+    assert "Blocked: Yes" in text
+    assert "Blocked by Buy a pillow: Shop is shut" in text
+    # A Goal has no reason of its own, so nothing asks for one.
+    assert "Blocked description" not in text
+    assert "🚧 Blocked" not in button_texts(message.edits[-1][1])

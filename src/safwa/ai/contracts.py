@@ -94,13 +94,31 @@ def _normalized_tool_payload(model: type[BaseModel], value: Any) -> Any:
     return payload
 
 
+def _without_titles(node: Any) -> Any:
+    """Drop Pydantic's `title` labels, which repeat the property name they sit under.
+
+    A property really called `title` is a dict, and the label is always a string, so the
+    two are told apart by what the value is rather than by where it sits.
+    """
+    if isinstance(node, list):
+        return [_without_titles(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    return {
+        key: _without_titles(value)
+        for key, value in node.items()
+        if not (key == "title" and isinstance(value, str))
+    }
+
+
 def tool_json_schema(model: type[BaseModel]) -> dict[str, Any]:
     """Return a schema that lets constrained decoders choose null for omitted options.
 
     Some providers materialize every property. Keeping the nullable branch prevents them from
     inventing placeholder IDs such as 0 or 1; the input normalizer then removes those nulls.
+    A `title` carries no such reason: it is the property name written a second way, so it goes.
     """
-    return model.model_json_schema()
+    return _without_titles(model.model_json_schema())
 
 
 class ToolInput(BaseModel):
@@ -402,21 +420,6 @@ class ReminderToolInput(RecordToolInput):
             "Required to create. Omit it on update to leave the schedule untouched."
         ),
     )
-
-
-class RemoveToolInput(ToolInput):
-    mode: Literal["archive", "delete"] = Field(
-        default="archive",
-        description="archive hides it and keeps its history; delete erases it, and only a Card allows it.",
-    )
-    entity: Literal["card", "check", "tag", "value", "request", "reminder"]
-    id: PositiveInt
-
-    @model_validator(mode="after")
-    def validate_target(self) -> RemoveToolInput:
-        if self.mode == "delete" and self.entity != "card":
-            raise ValueError(f"a {self.entity} is archived, never deleted")
-        return self
 
 
 class ReminderConfigInput(ToolInput):

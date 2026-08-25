@@ -39,17 +39,26 @@ the real unit, integration, and E2E checks.
 
 ## Identifier
 
-`<AREA>-<TOPIC>-<NNN>`, zero-padded, never reused and never renumbered.
+`<AREA>-<TOPIC>-<NNN>`, zero-padded, never reused and never renumbered inside its own package.
+
+The **topic is the aspect the rule is about**, never the package's own name written twice:
+`DI-MOOD-004` and `DI-DELETE-005`, not `DI-DIARY-004`. An identifier that repeats its area says
+nothing a reader can use, and a package whose scenarios all share one topic has not been read
+carefully enough to say what each of them is about.
 
 One `.feature` file is one package under `src/safwa/features/`, so a rule and the code that keeps
-it are found in one place.
+it are found in one place. The prefix names that package, never a group of them: `PL` used to cover
+Cards, Checks, Values, Tags and the Sprint at once, which meant five packages sharing one numbering
+line and no way to read an identifier and know where its code lives.
 
 | Area | Prefix | Area | Prefix |
 |---|---|---|---|
-| The board — Cards, Checks, Values, Tags, and the Sprint they are planned into | `PL` | Proposals | `PR` |
-| Reminders | `RM` | Agents and routing | `AG` |
-| Diary | `DI` | Telegram history | `TG` |
-| Saved Requests | `SR` | Continuity and memory | `CO` |
+| Cards | `CD` | Proposals | `PR` |
+| Checks | `CH` | Agents and routing | `AG` |
+| Values | `VL` | Telegram history | `TG` |
+| Tags | `TA` | Continuity and memory | `CO` |
+| Planning — the Sprint and the mode without one | `PL` | Diary | `DI` |
+| Reminders | `RM` | Saved Requests | `SR` |
 | Profile and Settings | `PS` | | |
 
 `tests/test_brd_traceability.py` reads this table, so a prefix that is not in it is not a
@@ -58,7 +67,7 @@ scenario identifier.
 ## Format
 
 ````markdown
-### PL-CHECK-014 — An Action cannot be finished while a Check is unanswered
+### CH-GATE-001 — An Action cannot be finished while a Check is unanswered
 
 Status: approved
 Sources: INITIAL_PLAN §…, CHECKS_PLAN §…
@@ -79,8 +88,8 @@ scenario text lives in the `.feature` file; restating it here would be a second 
 in step.
 
 ```python
-async def test_pl_check_014_action_with_unanswered_check_cannot_finish(app):
-    """PL-CHECK-014 — tests/brd/checks.feature"""
+async def test_ch_gate_001_action_with_unanswered_check_cannot_finish(app):
+    """CH-GATE-001 — tests/brd/checks.feature"""
 ```
 
 `app.given` is a dictionary of business fixtures, not a general DSL. It builds data through
@@ -235,7 +244,7 @@ Classes are the ones in `test_inventory.md`: `business_valid`, `characterization
 `implementation_coupled`, `contradictory`, `obsolete`, `missing`. A test is not invalid for
 using a Mock or an ORM — invalid means it disagrees with approved behaviour, and nothing else.
 
-A deleted test stays visible in review as "replaced by PL-CHECK-014" rather than vanishing
+A deleted test stays visible in review as "replaced by CH-GATE-001" rather than vanishing
 inside a large mechanical diff.
 
 ## Behaviour that does not exist yet

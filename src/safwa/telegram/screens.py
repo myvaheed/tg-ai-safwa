@@ -72,7 +72,7 @@ async def _card_citation_label(session: AsyncSession, card: Card) -> str:
     if card.kind in {CardKind.GOAL.value, CardKind.IDEA.value}:
         progress = await card_progress(session, card.id)
         return _with_citation_fields(
-            leading, [f"⚡{progress['completed_effort']}/{progress['total_effort']}"]
+            leading, [f"⚡{progress['completed_effort']}/{card.effort_points or 0}"]
         )
     if card.kind != CardKind.ACTION.value:
         return leading

@@ -1,6 +1,8 @@
 # Saved Requests — approval packet
 
-Status: **approved by the owner on 2026-08-22**, Q1, Q2 and Q3 settled with it
+Status: **approved by the owner on 2026-08-22**, Q1, Q2 and Q3 settled with it.
+**Partly superseded on 2026-08-24** by [archive_and_delete.md](archive_and_delete.md): a Request is
+deleted, never archived. `SR-AI-009` and `SR-WRITE-003` are gone and `SR-DELETE-013` replaces them.
 Batch: Phase 4.c
 Sources: `archived_docs/INITIAL_PLAN.md` §"A Saved Request is an AI-created, verified, read-only SQL
 query over allowlisted AI views" and §Planning (Backlog narrowed by picked Requests),

@@ -16,7 +16,8 @@ from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import select
 
 from ..domain import DomainError, sprint_length_days, sprint_metrics
-from ..enums import CardKind, CardStage, MessageKind
+from ..enums import CardKind, MessageKind
+from ..features.cards.model import CardStage
 from ..models import Card, Sprint, UserProfile, Workspace
 from ._core import Services
 from ._messaging import edit_registered_message, paging_row, send_registered, token_button

@@ -11,13 +11,14 @@ from ..constants import CHECK_LIST_LIMIT, SELECTOR_PAGE_SIZE
 from ..domain import (
     DomainError,
     card_checks,
-    check_card_ids,
+    check_card_id,
     check_value_ids,
     is_closed_repeat,
     live_repeat_instance_id,
-    pending_checks,
+    unobserved_series,
 )
-from ..enums import CHECK_OUTCOME_LABELS, CheckOutcome, MessageKind
+from ..enums import MessageKind
+from ..features.checks.model import CHECK_OUTCOME_LABELS, CheckOutcome
 from ..models import Card, Check, UiSession, Value
 from ._core import Services
 from ._messaging import edit_registered_message, send_registered, token_button
@@ -135,7 +136,8 @@ async def render_check(
         check = await session.get(Check, check_id)
         if check is None or check.archived_at is not None:
             raise DomainError("Check does not exist or is archived")
-        linked_card_ids = await check_card_ids(session, check.id)
+        linked_card_id = await check_card_id(session, check.id)
+        linked_card_ids = [linked_card_id] if linked_card_id is not None else []
         linked_value_ids = await check_value_ids(session, check.id)
         payload = {"id": check.id, "card_id": card_id, "back": back}
         current = check_status(check)
@@ -264,7 +266,7 @@ async def render_check_values(
         options = [
             (value.name, value.id)
             for value in await session.scalars(
-                select(Value).where(Value.archived_at.is_(None)).order_by(Value.name)
+                select(Value).order_by(Value.name)
             )
         ]
         current = paginate(options, page, SELECTOR_PAGE_SIZE)
@@ -296,15 +298,17 @@ async def render_check_resolution(
     replace_message_id: int | None = None,
     notice: str | None = None,
 ) -> None:
-    """The Done-gate screen: answer every Pending Check, or go back and stay live.
+    """The Done-gate screen: answer every unobserved Check, or go back and stay live.
 
-    Nothing is written until Save, so leaving here cannot half-finish the Card.
+    A repeating series already answered on this Card is not asked again: its open instance
+    belongs to the next cycle. Nothing is written until Save, so leaving here cannot
+    half-finish the Card.
     """
     async with services.sessions() as session:
         card = await session.get(Card, card_id)
         if card is None or card.archived_at is not None:
             raise DomainError("Card does not exist or is archived")
-        pending = await pending_checks(session, card_id)
+        pending = await unobserved_series(session, card_id)
         if not pending:
             raise DomainError("This Card has no Pending Checks")
         # Nothing is prefilled: the gate may only be cleared by an answer the user gave.

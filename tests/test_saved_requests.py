@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import select, text
 
 from safwa.ai.autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
 from safwa.ai.sql import RequestQueryError, create_ai_views
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
+from safwa.features.proposals.remove import RemoveToolInput
 from safwa.features.saved_requests.model import SavedRequest
 from safwa.features.saved_requests.use_cases import (
-    archive_saved_request,
     create_saved_request,
+    delete_saved_request,
     request_cards,
     update_saved_request,
 )
@@ -169,42 +171,6 @@ async def test_a_request_name_is_taken_whatever_its_case(sessions):
             )
 
 
-async def test_create_request_restores_an_archived_name(sessions):
-    """SR-WRITE-003 — tests/brd/saved_requests.feature"""
-    async with sessions() as session:
-        request = await create_saved_request(
-            session,
-            "All goals",
-            "SELECT id FROM ai_cards WHERE kind = 'goal'",
-            "Original description",
-            views=ALLOWED_VIEWS,
-        )
-        request_id = request.id
-        await archive_saved_request(session, request.id)
-        await session.commit()
-
-        restored = await create_saved_request(
-            session,
-            "all GOALS",
-            "SELECT id FROM ai_cards WHERE kind = 'goal' AND stage = 'backlog'",
-            views=ALLOWED_VIEWS,
-        )
-        await session.commit()
-
-        assert restored.id == request_id
-        assert restored.archived_at is None
-        assert restored.description == "Original description"
-        assert "stage = 'backlog'" in restored.query_sql
-        assert len(list(await session.scalars(select(SavedRequest)))) == 1
-        with pytest.raises(DomainError, match="already exists"):
-            await create_saved_request(
-                session,
-                "ALL GOALS",
-                "SELECT id FROM ai_cards WHERE kind = 'goal'",
-                views=ALLOWED_VIEWS,
-            )
-
-
 def test_a_request_query_is_never_allowlisted_for_autoapproval():
     """SR-AI-010 — tests/brd/saved_requests.feature"""
     reviewer = AutoApprovalReviewer(provider=None)
@@ -226,3 +192,38 @@ def test_a_request_query_is_never_allowlisted_for_autoapproval():
     assert reviewer.rule_for(candidate("update", {"query_sql": "SELECT id FROM ai_cards"})) is None
     assert reviewer.rule_for(candidate("update", {"name": "X", "query_sql": "SELECT id"})) is None
     assert reviewer.rule_for(candidate("create", {"name": "X"})) is None
+
+
+async def test_a_request_is_deleted_not_archived(sessions):
+    """SR-DELETE-013 — tests/brd/saved_requests.feature"""
+    async with sessions() as session:
+        request = await create_saved_request(
+            session,
+            "All goals",
+            "SELECT id FROM ai_cards WHERE kind = 'goal'",
+            "Original description",
+            views=ALLOWED_VIEWS,
+        )
+        await session.commit()
+
+        await delete_saved_request(session, request.id)
+        await session.commit()
+
+        assert await session.get(SavedRequest, request.id) is None
+        with pytest.raises(DomainError, match="Request does not exist"):
+            await delete_saved_request(session, request.id)
+
+        # The name is free from that moment, and what takes it is a new Request.
+        again = await create_saved_request(
+            session, "all GOALS", "SELECT id FROM ai_cards", views=ALLOWED_VIEWS
+        )
+        await session.commit()
+        assert again.description == ""
+        assert len(list(await session.scalars(select(SavedRequest)))) == 1
+
+
+def test_the_remove_tool_refuses_to_archive_a_request():
+    """SR-DELETE-013 — tests/brd/saved_requests.feature"""
+    assert RemoveToolInput(mode="delete", entity="request", id=1).entity == "request"
+    with pytest.raises(ValidationError, match="a request is deleted, never archived"):
+        RemoveToolInput(mode="archive", entity="request", id=1)

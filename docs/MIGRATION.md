@@ -56,7 +56,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 2 | `FeatureModule` and proposal capabilities | technical | **done** |
 | 3 | Pilot: Diary | business | **done** |
 | 4 | Leaf business batches | business | **done** — 4.a Continuity and Profile, 4.b Reminders, 4.c Saved Requests, 4.d Values and Tags |
-| 5 | Cards, Checks and the Sprint | business | not started |
+| 5 | Cards, Checks and the Sprint | business | in progress — 5.0 the board package (technical), 5.a Cards, 5.b stages, 5.c Checks and 5.d archiving **done** |
 | 6 | Proposals and the first reactive process | business | not started |
 | 7 | `agent_runtime` | technical + business | not started |
 | 8 | `telegram_llm` and `TurnManager` | technical | not started |
@@ -67,19 +67,30 @@ beside a new one. A phase that cannot be finished is rolled back whole.
 
 ## What can be deleted, and what can only be archived
 
-**Only a Diary day, a Reminder, a Card and a Check may be deleted outright; a Value, a Tag and a
-Saved Request are archived and never deleted.** Written down here so a packet that claims otherwise
-is visible against it.
+**Everything is deleted. Only a Card and a Check are also archived**, because those are the two the
+owner makes many of and that reach a state where they are over. Archiving exists so the workspace
+does not fill up: it hides a closed Card or Check two Sprints after it closed
+(`ARCHIVE_AFTER_SPRINTS`), and an archived one still counts in effort, in completed Cards and in
+every trend that counted it.
 
-Two things do not match that rule today, and each belongs to a later packet rather than to whoever
-reads this line:
+- Archiving by hand is refused for anything but a **Card or a Check**, and refused for one that is
+  not closed yet. `remove(mode="delete")` is the default and takes every entity.
+- A **Value**, a **Tag** and a **Saved Request** carry no `archived_at` at all. Deleting one breaks
+  its links and leaves what carried it standing.
+- Deleting a Card deletes its Checks, except one that carries a Value: that Check is also a
+  measurement, so it stays, on no Card.
 
-- A **Check** has no delete of its own. `remove(mode="delete")` is refused for anything but a Card,
-  and `archive_check` is the only direct path; a Check is deleted only as a side effect, when
-  `delete_subtree` removes the last Card that needed it. Phase 5 owns Checks and should either give
-  a Check its own delete or say why the cascade is the whole story.
-- A **Reminder** is the mirror image: it has no archive at all, so deleting is its only off switch
-  (RM-WRITE-010). That one is deliberate and approved.
+The rule is `docs/brd/archive_and_delete.md`, approved 2026-08-24.
+
+## Completion feedback was removed in Phase 5, and will be built again
+
+The owner ruled on 2026-08-24 that the completion feedback loop — the thumbs-up asked after an Action
+is Done — is torn out rather than specified, and designed again from scratch afterwards. No packet
+writes a scenario for it, and no scenario may mention it until the one that rebuilds it.
+
+It went with 5.b: `FeedbackQueue`, `Card.liked`, `set_feedback`, `move_card`'s two reopen lines that
+cleared them, the `/feedback` command and `render_feedback`, the `feedback` callback, the pending
+count on `/status`, and the `liked` inputs to `analytics.py` including the capacity advice.
 
 ## What Phase 0 delivered
 
@@ -674,7 +685,7 @@ Tag is a label for finding Cards, and those are two different businesses.
 A Card is work that *serves* a Value; a Check shows *how well the Value is actually held to*. So a
 Check now carries Values of its own, written from the Check side the way a Card writes its own links.
 Nothing is derived between a Check's Values and the Values of the Cards it belongs to — they are two
-different statements, and PL-VALUE-010 says so out loud.
+different statements, and VL-CHECK-010 says so out loud.
 
 - `ReferenceSpec` gained `owner_key`, `owner_label` and `also_carried_by`. The first two make the
   linking side a parameter instead of always a Card; the third is how the Value screen counts Checks
@@ -760,14 +771,14 @@ is only the Sprint views and the Sprint-expiry task.
   **Rule E stayed at 0**: no feature had to reach into another, and no new `api.py` door was needed.
 - `BOARD_AGENT` and `BOARD_PROMPT` live in `features/cards/agent.py`, because Cards are the board's
   centre and the roster already lets a subagent declare mutation tools other features publish. If
-  that reads wrong later, it is one file move.
+  that reads wrong later, it is one file move. It did, and it was: Phase 5.0.
 - `MARKER_FORMAT` moved to `ai/sql.py`: two views render the closed-repeat marker, so the wording
   stays in one place.
 - `AgentSpec.planning_state` is `board_state`, and `planning_context` is `board_context`. **Two
   strings the model reads still say "planning state"** — one in `SYSTEM_PROMPT`, one on the per-turn
   block. Changing them moves the `SYSTEM_PROMPT` hash, so they wait for a batch that declares it.
 - `features/board/` and `features/core/` were empty untracked directories left over from an earlier
-  attempt. Deleted. There is no `board` package and there is not going to be one.
+  attempt. Deleted. (Phase 5.0 reversed this: `board` is a package, and it holds the subagent.)
 
 **DoD #3 is back to 5.** `features/planning/telegram.py` was 616 lines after 4.d, the one number that
 had risen; splitting it by entity is what that number was asking for.
@@ -785,8 +796,318 @@ had risen; splitting it by entity is what that number was asking for.
 paths. A packet records the decision that was made; it is not rewritten when a later one moves the
 files.
 
+## Phase 5.0: the board is a package
+
+A technical batch, opening Phase 5. The owner reversed the decision recorded above: `board` is a
+feature package after all — everything that belongs to the board *subagent*, and nothing else.
+
+- `features/board/` owns `BOARD_AGENT`, `BOARD_PROMPT`, `BOARD_TOOLS` and its read tools.
+  `features/cards/agent.py` is the `card` mutation tool and its repair, which is what its docstring
+  now says.
+- `BOARD` is first in `MODULES`, where `CARDS` was, so the roster order and therefore the `# Routing`
+  section of `SYSTEM_PROMPT` are unchanged.
+- `tests/test_board.py` is the subagent's own contract: every mutation tool the application
+  publishes reaches the board or the Diary and none reaches the Advisor; the board asks for the
+  board state it is told to judge against; and the view list its prompt carries names no view the
+  database does not have — that list is prose, and a renamed view would fail only inside a query the
+  model writes at runtime.
+
+### One prefix per package, and a guard with no door
+
+Two more things the owner asked for while Phase 5.a was being read, both landing here because
+neither changes behaviour.
+
+- **`PL` covered five packages, so the scenario prefix now names one.** Cards are `CD`, Checks `CH`,
+  Values `VL`, Tags `TA`, and `PL` keeps what `features/planning` actually is — the Sprint and the
+  mode without one. The topic went with it: `PL-VALUE-004` said "value" twice and nothing about the
+  rule, and it is `VL-LINK-004` now, the way `DI-MOOD-004` and `DI-DELETE-005` have always read.
+  The fourteen Value scenarios keep their numbers; the seven Tag ones restart at `001`, because a
+  package's numbering begins at its own first scenario. `docs/brd/README.md` carries the new table
+  and the rule for the topic, which is what `tests/test_brd_traceability.py` reads.
+- **The cycle guard in `validate_parent` is deleted.** It walked the ancestors to refuse a loop, and
+  no caller could reach it: a Goal never takes a parent, an Idea only takes a Goal, an Action takes
+  a Goal or an Idea and has no children. The owner's rule — do not validate what cannot exist by
+  definition. The `card_id` parameter existed only for that walk and is gone with it.
+
+`board_context` stays in `ai/context.py`. It is the board's state, but the Advisor reads it too, and
+moving it would mean reaching past four features' models; the Cards and Sprint packets decide where
+it lands.
+
+Verification: `ruff check .` clean; `pytest -q` 585 passed / 3 skipped (582 plus the three board
+tests); **both snapshots byte-identical and not regenerated**; allowlist unchanged, Rule G 2, Rule H
+28; DoD #1 28, #2 0, #3 5, #13 0.
+
+## What Phase 5.a delivered
+
+Cards are feature-owned: what a Card is, where it may sit, and which fields its kind may carry. The
+approved behaviour, the three decisions the owner made with it and the test audit live in
+[brd/cards.md](brd/cards.md); the scenarios are [`tests/brd/cards.feature`](../tests/brd/cards.feature),
+`CD-KIND-001` … `CD-LINK-012`.
+
+### The behaviour change: Blocked is an Action field
+
+A Goal and an Idea are never blocked in their own right. Blocked joins effort, repeat, categories
+and energy types, and is stripped for the other two kinds at every door — `create_card`, the Card
+proposal, the creation screen and the Card screen — while the domain update door refuses it, the
+same backstop the other four have. The two tests were written first and failed first.
+
+**`SYSTEM_PROMPT` moved, and only it.** The Advisor's prompt carries the Action-only list, so Blocked
+had to join that line; `PERSONA`, `BOARD_PROMPT`, `DIARY_PROMPT`, every tool schema and every table
+in `schema.json` are byte-identical. `BOARD_PROMPT` needed no edit — it never stated the rule.
+
+What a Goal or an Idea shows instead is derived from the Actions in its branch. That derivation is
+**not** in this batch: it is parent state derived from descendants, like `effective_stage`, and it
+belongs to the packet that owns propagation. The owner's decision is recorded as its source.
+
+### The move, and what it cost
+
+- `features/cards/model.py` owns `Card`, `CardCheck`, `CardCategory`, `CardEnergyType`, `CardEvent`
+  and `new_correlation_id`. Not one column changed. `Card.values` names `CardValue` as a quoted
+  forward reference and does not import it: the link row belongs to Values, SQLAlchemy resolves the
+  target from the registry, and the Card half of a shared aggregate costs no dependency.
+- `features/cards/use_cases.py` owns `create_card`, `edit_card_text`, `update_card_fields`,
+  `set_card_parent`, the three validators, `card_snapshot`, `record_card_event`,
+  `aggregate_child_stages`, `propagate_ancestors` and `card_children`. `domain.py` fell from 1516 to
+  1172 lines and imports them back, the way it already did for Values and Tags.
+- `features/values/api.py` and `features/tags/api.py` are new doors, and they are why **Rule E stayed
+  at 0**: `create_card` used to load a `Value` row and add a `CardValue` row itself. It now asks
+  `unlinkable_value_id` and calls `attach_values`, which hand back an answer and take the write.
+- `foundation/clock.py` gained `utcnow`, and `domain.utcnow` is that function re-exported. Two
+  features and the moved code all wanted the same system clock, and the one they were importing was
+  `domain`'s — which the move would have turned into a cycle.
+- `EFFORT_POINTS` left `constants.py` for `features/cards/use_cases.py`. `constants.py` is
+  cross-feature tuning; the effort scale is one feature's rule.
+
+### Three things this batch did not do, and why
+
+- **`TERMINAL_STAGES` and `LIVE_STAGE_PRECEDENCE` stayed in `enums.py`.** The packet's code plan said
+  they move. They are derived from `CardStage`, which is still shared, and a set split from the enum
+  it enumerates is worse than one that waits: all three move in the batch that moves `CardStage`.
+- **`sync_commitment_for_stage` lives in `features/cards/use_cases.py`, and it is the Sprint's.** A
+  Sprint commitment follows an Action's stage, and every writer of that stage is in that file or
+  calls into it. It moves to the Sprint feature when `SprintCommitment` does — recorded here so the
+  wrong owner is visible rather than forgotten.
+- **`test_card_move_tool_rejects_a_terminal_stage` is not cited by CD-STAGE-011.** The audit table
+  said it would be; reading it again, it is about `move` mode reaching a terminal stage, which is the
+  stage-ladder packet's rule, not about how a Card is born. It stays green and uncited until then.
+
+### What the scenarios found
+
+`test_card_text_and_blocked_reason_stay_on_one_validated_editor` blocked an **Idea** to reach the
+editor. After D2 the Blocked button is not on that screen, and the test stopped at the missing
+button — which is the audit's own prediction ("a test that keeps working after the rule changes was
+not testing the rule"). It is an Action now, and it cites CD-BLOCKED-010.
+
+Three scenarios had no test at all and now do: an Idea's own parent rule (CD-TREE-003), a title that
+is only spaces (CD-TITLE-009), and that no screen anywhere can change a parent — asserted against the
+whole `telegram` package, not one screen (CD-TREE-005).
+
+Verification: `ruff check .` clean; `pytest -q` 598 passed / 3 skipped; 0 import cycles;
+Rules A–F and K at 0, G at 2, H at 28. `prompt_prefix.json` moved on exactly one line,
+`SYSTEM_PROMPT`; `schema.json` untouched.
+
+| | after 5.0 | Phase 5.a |
+|---|---:|---:|
+| Entity dispatch points outside `features/` (DoD #1) | 28 | 28 |
+| Use case base abstractions (DoD #2) | 0 | 0 |
+| Modules over 600 lines (DoD #3) | 5 | 5 |
+| Re-export-only modules (DoD #13) | 0 | 0 |
+| Modules under `src/` | 135 | 139 |
+| `domain.py` | 1516 | **1172** |
+
 ### Done means
 
 `pytest -q`, `ruff check .`, and `scripts/architecture_metrics.py` — plus: allowlist counts and DoD
 numbers may only fall, import cycles stay 0, and any snapshot line that moved is one the batch
 declared. 4.a ended at 540 passed / 3 skipped, DoD #1 28, #2 0, #3 5, #13 0, 445 edges, 0 cycles.
+
+
+## What Phase 5.b, 5.c and 5.d delivered
+
+Three packets approved together on 2026-08-24 and shipped as one batch, because each of them changes
+what the other two write: the stage ladder ([brd/card_stages.md](brd/card_stages.md), `CD-STAGE-013`
+… `CD-EFFORT-021`), Checks across a Card's life ([brd/checks.md](brd/checks.md), `CH-WRITE-001` …
+`CH-DELETE-014`), and what leaves the workspace
+([brd/archive_and_delete.md](brd/archive_and_delete.md), `CD-ARCHIVE-022` … `CD-DELETE-025` plus
+`VL-DELETE-015`, `TA-DELETE-008`, `SR-DELETE-013`). Thirty scenarios.
+
+### A stage is an Action's field, and a parent shows its branch
+
+Stage joins effort, repeat and Blocked: a Goal and an Idea have none of their own. Only an Action
+moves, so `move_card` lost its subtree walk — an Action has no children and no other kind may be
+moved, so the recursion had nothing left to visit.
+
+`propagate_ancestors` is now the one walk that writes every derived value. It reads the Actions in
+the branch, archived ones included, and writes `effective_stage`, `blocked` and `effort_points` into
+the plain columns. No view gained a `CASE` and no column was added: a Goal cannot be given an effort
+of its own, so the column was free to hold the one number it does have.
+
+- A branch with no Action shows Backlog and never Done or Cancelled. `manual_stage` on a Goal and an
+  Idea is no longer written or read.
+- A parent has no `blocked_description`. Several blocked Actions have several reasons, and picking
+  one would be Safwa writing the owner's words; the screen quotes each Action instead
+  (`blocking_actions`).
+- Summing `effort_points` over every row counts each Action again inside each ancestor. Anything
+  that wants the real total adds up Actions, and the prompt's `ai_cards` line says so.
+
+`card_progress` kept the completion counts and lost its effort half to the column.
+
+### Three rules replaced eight cases for Checks
+
+A Check hangs on one Card or on none. That ruling **deleted** machinery rather than adding it: the
+eligible-Cards walk in `_spawn_check_successor`, the shared-Check survival rule in `archive_subtree`
+and `delete_subtree`, and `_has_other_live_card` all existed to hold a Check that several Cards
+disagreed about. `CardCheck` took a unique constraint on `check_id`.
+
+- **R1** — a Card closes when every Check series on it was answered at least once **on this Card**.
+  `unobserved_series` is that question, and it replaced the flat Pending gate at every door: the
+  domain, the Done screen and the proposal guard.
+- **R2** — closing deletes whatever is still Pending. The Values that instance carried go back to the
+  answered instance of its series rather than out with the row.
+- **R3** — reopening puts each plain Check back to Pending and opens one fresh instance of each
+  repeating series.
+
+R1 and R3 meet in one place worth naming: an open instance that an answer on this Card opened belongs
+to the next cycle and does not hold the Card, which is what `source_instance_id` records. A reopened
+Card opens its fresh instance with no source, so the series is unobserved there again — that is the
+whole difference between "answered mid-cycle, so Done is allowed" and "reopened, so ask again".
+
+`features/checks/` gained `model.py`, `use_cases.py` and `api.py`. Cards asks that door
+`require_check_answers` before it writes anything and `settle_checks` after, and never touches a
+Check row itself.
+
+**Two things the model reads were wrong, and one was noise.** `SYSTEM_PROMPT` said "A Card with
+Pending Checks cannot complete", which R1 replaced, and listed the Action-only fields without stage.
+Both are fixed. Separately, every tool schema carried Pydantic's `title` on every property — the
+property name written a second way, with no reason behind it the way the nullable branch has one.
+`tool_json_schema` drops it: 11359 characters of mutation-tool schema became 9987, and the board
+subagent's whole prefix fell from 16417 to 15128.
+
+**`ai_card_events` left the Advisor's view catalogue.** A 4B model rarely writes a useful query over
+an audit log, and the line describing it — `edit_<field>`, `link_<kind>` / `unlink_<kind>` — was the
+hardest thing in the catalogue to read. The view itself stays: it is declared, created and
+allowlisted, so a saved Request may still reach it, and the `diary` subagent still reads it, because
+work done with buttons never reaches the conversation and that log is the only record of it. Only the
+Advisor stopped being told about it. `BOARD_PROMPT` never listed it.
+
+**`ai_cards.pending_checks` is gone.** It counted open instances, and under R1 that is no longer the
+gate: a Card whose repeating Check was answered once has one open instance and completes anyway, so
+the number contradicted the rule stated two lines above it in the same prompt. Nothing in the code
+read it. `ai_cards.direct_checks` names the Checks on a Card and `ai_checks.card_id` says how each
+one stands, so the fact is in one place instead of two, and the `ai_cards` line is one column
+shorter. What the model actually needs at the moment it needs it still comes from the completion
+guard, which refuses the proposal with the unanswered titles in a retryable error.
+
+### Archiving got one reason, and everything else is deleted
+
+Archiving exists so the workspace does not fill up. Only a Card and a Check qualify, they go on their
+own two Sprints after closing (`ARCHIVE_AFTER_SPRINTS`), and archived is a matter of sight: the
+effort and the completion still count. `archive_settled_items` runs where a Sprint ends, which is
+also why nothing is archived while the workspace is in Planning.
+
+- `archived_at` came off `Value`, `Tag` and `SavedRequest`, and every `archived_at IS NULL` that
+  filtered them went with it — the three `ai_*` views, the context builder, the pickers and the
+  screens. `archive_value`, `archive_tag` and `archive_saved_request` are `delete_*` now.
+- `RemoveToolInput` is turned inside out: `delete` is the default and takes every entity, `archive`
+  is refused for anything but a closed Card or Check. It moved to `features/proposals/remove.py`,
+  next to the tool it belongs to, which is why Rule H fell by two.
+- Deleting a Card deletes its Checks, except one that carries a Value: that Check is also a
+  measurement, so it stays, on no Card. `delete_subtree` deletes every link, commitment and event by
+  name rather than trusting the FK cascade, which is a connection pragma the test engine does not set.
+- Archiving by hand is refused for a Card that is not closed, and reopening one takes it back out of
+  the archive.
+
+### Completion feedback is gone
+
+Torn out whole, as the owner ruled: `FeedbackQueue`, `Card.liked`, `set_feedback`, the `/feedback`
+command and its screen, the `feedback` callback, the pending count on `/status`, and the `liked`
+inputs to `analytics.py` including the capacity advice. No scenario mentions it, and none may until
+the packet that builds it again.
+
+### The move
+
+- `features/checks/model.py` owns `Check`, `CheckOutcome` and the two label maps. `CardCheck` stayed
+  in `features/cards/model.py`: the link is written from the Card and recorded in the Card's history.
+- `features/cards/model.py` gained `CardStage`, `TERMINAL_STAGES` and `LIVE_STAGE_PRECEDENCE` — the
+  three that 5.a deliberately left behind, because a set split from the enum it enumerates is worse
+  than one that waits.
+- `features/cards/use_cases.py` took `move_card`, `finish_action`, the repeat successor,
+  `card_progress`, `archive_subtree`, `delete_subtree`, the archiver and `OperationResult`.
+  `domain.py` fell from 1172 to 701 lines.
+
+### Two numbers moved the wrong way, and why
+
+- **DoD #3 rose from 5 to 6.** `features/cards/use_cases.py` is 741 lines. The packets put the Card
+  lifecycle there by name, and `domain.py` fell 471 lines to do it; the file holds one feature's own
+  rules rather than a layer's. `domain.py` is still 701 and falls under 600 in 5.e, when the Sprint
+  leaves it.
+- Nothing else rose. DoD #1 fell 28 → 26, #2 and #13 stayed at 0, cycles stayed at 0, Rules A–F and K
+  at 0, G at 2.
+
+Both snapshots moved, and both were declared. `prompt_prefix.json` on `SYSTEM_PROMPT`, `BOARD_PROMPT`
+and `tool:remove` for what the batch says, and on `DIARY_PROMPT` and all eleven tool schemas for the
+`title` that left them — fourteen keys in all. `schema.json` on `cards`, `tags`,
+`values`, `saved_requests`, and `feedback_queue` which is gone. The owner rebuilds the database.
+
+Verification: `ruff check .` clean; `pytest -q` 617 passed / 3 skipped; 0 import cycles.
+
+| | Phase 5.a | 5.b–5.d |
+|---|---:|---:|
+| Entity dispatch points outside `features/` (DoD #1) | 28 | **26** |
+| Use case base abstractions (DoD #2) | 0 | 0 |
+| Modules over 600 lines (DoD #3) | 5 | 6 |
+| Re-export-only modules (DoD #13) | 0 | 0 |
+| Modules under `src/` | 139 | 142 |
+| `domain.py` | 1172 | **701** |
+
+### Tests the ruling broke
+
+Deleted as business_invalid, each because it asserted a rule the owner removed:
+`test_one_check_serves_several_cards`, `test_successor_is_linked_to_live_cards_only`,
+`test_terminal_card_never_regains_a_pending_check`,
+`test_archive_and_delete_keep_a_check_its_other_cards_still_need`, the Value, Tag and Request archive
+tests, the three "writing the name brings the archived one back" tests, and
+`test_ai_links_a_check_to_a_second_card_by_title`, which became the one-Card link test instead.
+
+## What the 5.b–5.d review fixed
+
+Three defects the review found, all in what the batch had just written.
+
+**An archived answer stopped counting.** `unobserved_series`, `drop_pending_checks` and
+`clone_checks_for_successor` all read `card_checks`, which hides an archived Check. So two Sprints
+after a repeating Check was answered, the archiver took that answer off the screens and R1 stopped
+seeing it: the Card was refused Done and asked the same question again, the Values of the instance
+R2 deleted were dropped instead of handed back, and a repeating Card whose only Check had been
+archived gave its successor no Check at all. `series_instances` is what the three rules read now —
+every instance on the Card, an archived one included — and `reopen_checks` uses it instead of the
+copy of that query it was carrying. `card_checks` keeps its meaning and its one caller: what a screen
+shows. Two tests were written first and failed first, CH-ARCHIVE-013 and CH-CLOSE-011.
+
+**Rule J could not see a uniqueness rule.** The schema digest was columns, indexes and foreign keys,
+so `CardCheck`'s `UniqueConstraint("check_id")` — the whole of "a Check hangs on one Card" — was
+added without moving a hash, and could be dropped the same way. The digest takes unique constraints
+now, which is a declared snapshot change: the nine tables that carry one were regenerated, and
+nothing about the database itself moved.
+
+**A parent counted the Actions in its branch and never saw its other children.** A Goal with one
+Done Action and an Idea that had nothing in it called itself Done, because `derived_from_actions`
+walked past the Idea to reach Actions and there were none to find. Archiving that Goal then took the
+Idea into the archive in Backlog, and the owner ruled that a Card that is not Done or Cancelled is
+never archived, whoever dragged it there.
+
+The lie was the derivation, not the archive, so the guard is not where the fix went. A parent now
+adds up its **direct children** — `derived_from_children` — and each child already carries its own
+derived values, so the recursion reaches the Actions and an Idea with nothing in it stays in Backlog
+and holds its Goal there. Effort and Blocked give the same numbers as before: an Idea's
+`effort_points` is already its branch's sum. Two consequences the review had listed separately close
+themselves: an archived Card is now terminal by construction, so `archive_subtree` needs no subtree
+check, and `archive_settled_cards` stops silently never archiving a Goal that looks finished — the
+Goal no longer looks finished. Two tests were written first and failed first, CD-STAGE-015 and
+CD-ARCHIVE-024, and both scenarios gained the line the rule made observable.
+
+`SYSTEM_PROMPT` and `BOARD_PROMPT` moved on one word each, twice: what a Goal and an Idea add up to
+is the Cards under them, not the Actions. That is the declared `prompt_prefix.json` change; no tool
+schema moved.
+
+Verification: `ruff check .` clean; `pytest -q` 621 passed / 3 skipped; metrics unchanged — DoD #1
+26, #2 0, #3 6, #13 0, 0 cycles, Rule G 2, Rule H 26.

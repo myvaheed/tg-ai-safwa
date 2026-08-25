@@ -24,7 +24,7 @@ from safwa.domain import (
     update_card_fields,
 )
 from safwa.domain import create_card as create_domain_card
-from safwa.enums import CardStage
+from safwa.features.cards.model import CardStage
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.foundation.clock import SystemClock
@@ -32,7 +32,6 @@ from safwa.models import (
     Card,
     CardEvent,
     CardTag,
-    FeedbackQueue,
     Tag,
     UserProfile,
     Value,
@@ -72,7 +71,7 @@ async def test_parent_stage_propagation_and_reopen(sessions):
         assert goal.effective_stage == CardStage.BACKLOG.value
 
 
-async def test_repeat_completion_clones_and_queues_feedback(sessions):
+async def test_repeat_completion_clones_the_action(sessions):
     async with sessions() as session:
         card = await create_card(session, title="Run", repeatable=True, stage="today")
         result = await finish_action(session, card.id, CardStage.DONE)
@@ -80,10 +79,6 @@ async def test_repeat_completion_clones_and_queues_feedback(sessions):
         successor = await session.get(Card, result.successor_ids[0])
         assert successor.effective_stage == CardStage.TODAY.value
         assert successor.repeat_series_id == card.repeat_series_id
-        feedback = await session.scalar(
-            select(FeedbackQueue).where(FeedbackQueue.card_id == card.id)
-        )
-        assert feedback is not None
 
 
 async def test_a_closed_repeat_names_its_place_in_the_series(sessions):
@@ -153,7 +148,7 @@ async def test_sprint_snapshots_and_carryover(sessions):
 
 
 async def test_ui_mutations_use_domain_services_and_are_audited(sessions):
-    """PL-VALUE-001 — tests/brd/values.feature"""
+    """VL-FOCUS-001 — tests/brd/values.feature"""
     async with sessions() as session:
         tag = await create_tag(session, "Personal")
         value = await create_value(session, "Consistency")
@@ -167,6 +162,7 @@ async def test_ui_mutations_use_domain_services_and_are_audited(sessions):
             "Prefers calm, practical planning",
             clock=SystemClock(),
         )
+        await finish_action(session, card.id, CardStage.CANCELLED)
         await archive_subtree(session, card.id)
         await session.commit()
 
@@ -180,7 +176,7 @@ async def test_ui_mutations_use_domain_services_and_are_audited(sessions):
 
 
 async def test_committed_card_relationships_are_validated_propagated_and_audited(sessions):
-    """PL-VALUE-004 — tests/brd/values.feature"""
+    """VL-LINK-004 — tests/brd/values.feature"""
     async with sessions() as session:
         first_goal = await create_card(session, title="First goal", kind="goal", effort_points=None)
         second_goal = await create_card(
@@ -267,6 +263,7 @@ async def test_an_action_cannot_reach_a_terminal_stage_through_move(sessions):
 
 
 async def test_goal_progress_is_recursive_but_children_count_is_direct(sessions):
+    """CD-EFFORT-021 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, title="Goal", kind="goal", effort_points=None)
         idea = await create_card(
@@ -294,7 +291,9 @@ async def test_goal_progress_is_recursive_but_children_count_is_direct(sessions)
 
         assert progress == {
             "completed_effort": 3,
-            "total_effort": 8,
             "completed_children": 1,
             "total_children": 2,
         }
+        # The branch total is the Card's own effort now, so a query reads it too.
+        assert (await session.get(Card, goal.id)).effort_points == 8
+        assert (await session.get(Card, idea.id)).effort_points == 3

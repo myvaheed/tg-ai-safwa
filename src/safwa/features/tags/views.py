@@ -7,7 +7,7 @@ from ...ai.sql import SqlView
 AI_TAGS = SqlView(
     "ai_tags",
     """SELECT id, name, description, created_at, updated_at
-        FROM tags WHERE archived_at IS NULL""",
+        FROM tags""",
 )
 
 

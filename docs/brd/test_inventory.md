@@ -19,21 +19,23 @@ a technical contract; `given-when-then` — the body already carries the comment
 | `e2e/test_advisor_flow_e2e.py` | 53 | 52 | 0 | 1 | ui-layout |
 | `e2e/test_autoapproval_e2e.py` | 7 | 7 | 0 | 0 | — |
 | `e2e/test_checks_e2e.py` | 9 | 9 | 0 | 0 | — |
-| `e2e/test_diary_e2e.py` | 12 | 12 | 0 | 0 | — |
-| `e2e/test_reminder_e2e.py` | 7 | 7 | 0 | 0 | — |
+| `e2e/test_diary_e2e.py` | 13 | 13 | 0 | 0 | — |
+| `e2e/test_reminder_e2e.py` | 8 | 8 | 0 | 0 | — |
 | `e2e/test_startup_e2e.py` | 1 | 1 | 0 | 0 | fakes |
 | `e2e/test_subagent_e2e.py` | 12 | 12 | 0 | 0 | — |
 | `test_ai_sql.py` | 19 | 0 | 19 | 0 | contract-file |
 | `test_architecture.py` | 7 | 0 | 7 | 0 | contract-file |
 | `test_asr.py` | 12 | 0 | 12 | 0 | contract-file, fakes |
 | `test_backup.py` | 2 | 0 | 2 | 0 | contract-file |
-| `test_brd_traceability.py` | 5 | 5 | 0 | 0 | — |
-| `test_card_creation.py` | 8 | 8 | 0 | 0 | — |
-| `test_checks.py` | 15 | 15 | 0 | 0 | — |
+| `test_board.py` | 3 | 3 | 0 | 0 | — |
+| `test_brd_traceability.py` | 6 | 6 | 0 | 0 | — |
+| `test_card_creation.py` | 5 | 5 | 0 | 0 | — |
+| `test_cards.py` | 27 | 27 | 0 | 0 | — |
+| `test_checks.py` | 22 | 22 | 0 | 0 | — |
 | `test_config.py` | 4 | 0 | 4 | 0 | contract-file |
 | `test_continuity.py` | 11 | 11 | 0 | 0 | — |
-| `test_diary.py` | 20 | 20 | 0 | 0 | — |
-| `test_domain.py` | 13 | 13 | 0 | 0 | — |
+| `test_diary.py` | 19 | 19 | 0 | 0 | — |
+| `test_domain.py` | 11 | 11 | 0 | 0 | — |
 | `test_feature_modules.py` | 7 | 7 | 0 | 0 | — |
 | `test_history.py` | 18 | 18 | 0 | 0 | — |
 | `test_infrastructure.py` | 8 | 0 | 8 | 0 | contract-file, fakes |
@@ -41,12 +43,14 @@ a technical contract; `given-when-then` — the body already carries the comment
 | `test_profile.py` | 11 | 11 | 0 | 0 | — |
 | `test_provider.py` | 14 | 0 | 14 | 0 | contract-file, fakes |
 | `test_qa.py` | 2 | 0 | 2 | 0 | contract-file |
-| `test_reminder_flow.py` | 28 | 28 | 0 | 0 | fakes |
-| `test_reminders.py` | 33 | 33 | 0 | 0 | — |
-| `test_saved_requests.py` | 3 | 3 | 0 | 0 | — |
-| `test_scheduler.py` | 14 | 14 | 0 | 0 | — |
-| `test_sprint.py` | 9 | 9 | 0 | 0 | — |
+| `test_reminder_flow.py` | 31 | 31 | 0 | 0 | fakes |
+| `test_reminders.py` | 34 | 34 | 0 | 0 | — |
+| `test_saved_requests.py` | 8 | 8 | 0 | 0 | — |
+| `test_scheduler.py` | 16 | 16 | 0 | 0 | — |
+| `test_sprint.py` | 10 | 10 | 0 | 0 | — |
 | `test_state_flow.py` | 22 | 0 | 22 | 0 | contract-file |
 | `test_subagents.py` | 6 | 6 | 0 | 0 | — |
-| `test_telegram_item_ui.py` | 71 | 38 | 0 | 33 | fakes, ui-layout |
-| **total** | **473** | **349** | **90** | **34** | |
+| `test_tags.py` | 4 | 4 | 0 | 0 | — |
+| `test_telegram_item_ui.py` | 81 | 42 | 0 | 39 | fakes, ui-layout |
+| `test_values.py` | 11 | 11 | 0 | 0 | — |
+| **total** | **544** | **414** | **90** | **40** | |

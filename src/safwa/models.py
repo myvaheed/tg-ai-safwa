@@ -1,31 +1,32 @@
 from __future__ import annotations
 
-import secrets
 from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
     JSON,
-    Boolean,
     Date,
     DateTime,
     ForeignKey,
-    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from .enums import (
-    ActorType,
-    CardStage,
     MessageKind,
-    Priority,
     ProposalStatus,
 )
+from .features.cards.model import Card as Card
+from .features.cards.model import CardCategory as CardCategory
+from .features.cards.model import CardCheck as CardCheck
+from .features.cards.model import CardEnergyType as CardEnergyType
+from .features.cards.model import CardEvent as CardEvent
+from .features.cards.model import new_correlation_id as new_correlation_id
+from .features.checks.model import Check as Check
 from .features.continuity.model import MemoryFactCache as MemoryFactCache
 from .features.continuity.model import MemorySyncState as MemorySyncState
 from .features.continuity.model import SummaryState as SummaryState
@@ -40,111 +41,6 @@ from .features.values.model import CheckValue as CheckValue
 from .features.values.model import Value as Value
 from .foundation.models import Base, TimestampMixin
 from .foundation.models import Workspace as Workspace
-
-
-def new_correlation_id() -> str:
-    """Return a short internal audit correlation key, not an entity identifier."""
-    return secrets.token_hex(8)
-
-
-class Card(Base, TimestampMixin):
-    __tablename__ = "cards"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    parent_id: Mapped[int | None] = mapped_column(
-        ForeignKey("cards.id", ondelete="CASCADE"), index=True
-    )
-    kind: Mapped[str] = mapped_column(String(20))
-    title: Mapped[str] = mapped_column(String(500))
-    note: Mapped[str] = mapped_column(Text, default="")
-    manual_stage: Mapped[str] = mapped_column(String(20), default=CardStage.BACKLOG.value)
-    effective_stage: Mapped[str] = mapped_column(
-        String(20), default=CardStage.BACKLOG.value, index=True
-    )
-    priority: Mapped[str] = mapped_column(String(20), default=Priority.MEDIUM.value)
-    hard_time: Mapped[bool] = mapped_column(Boolean, default=False)
-    blocked: Mapped[bool] = mapped_column(Boolean, default=False)
-    blocked_description: Mapped[str] = mapped_column(Text, default="")
-    effort_points: Mapped[int | None] = mapped_column(Integer)
-    repeatable: Mapped[bool] = mapped_column(Boolean, default=False)
-    repeat_series_id: Mapped[int | None] = mapped_column(Integer, index=True)
-    source_instance_id: Mapped[int | None] = mapped_column(
-        ForeignKey("cards.id", ondelete="SET NULL")
-    )
-    liked: Mapped[bool | None] = mapped_column(Boolean)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
-    version: Mapped[int] = mapped_column(Integer, default=1)
-
-    parent: Mapped[Card | None] = relationship(
-        remote_side="Card.id", foreign_keys=[parent_id], back_populates="children"
-    )
-    children: Mapped[list[Card]] = relationship(
-        foreign_keys=[parent_id], back_populates="parent", cascade="all, delete-orphan"
-    )
-    values: Mapped[list[CardValue]] = relationship(cascade="all, delete-orphan")
-    categories: Mapped[list[CardCategory]] = relationship(cascade="all, delete-orphan")
-    energy_types: Mapped[list[CardEnergyType]] = relationship(cascade="all, delete-orphan")
-
-    __table_args__ = (
-        Index("ix_cards_live_sort", "effective_stage", "hard_time", "priority", "created_at"),
-    )
-
-
-class Check(Base, TimestampMixin):
-    """One state observation: "did this hold?", answered once and then replaced.
-
-    Pending is derived (`outcome IS NULL`), never stored, so there is no reset path.
-    A resolved Check may be re-answered; the previous outcome is overwritten and lost,
-    which is why `resolved_at` keeps the *first* resolution — it is the observation time
-    the trend is keyed on, while `updated_at` carries any later correction.
-    """
-
-    __tablename__ = "checks"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    title: Mapped[str] = mapped_column(String(500))
-    repeatable: Mapped[bool] = mapped_column(Boolean, default=False)
-    outcome: Mapped[str | None] = mapped_column(String(20), index=True)
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    resolved_by: Mapped[str | None] = mapped_column(String(20))
-    series_id: Mapped[int | None] = mapped_column(Integer, index=True)
-    source_instance_id: Mapped[int | None] = mapped_column(
-        ForeignKey("checks.id", ondelete="SET NULL")
-    )
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
-    version: Mapped[int] = mapped_column(Integer, default=1)
-
-
-class CardCheck(Base):
-    """The one Check relationship, stored on the Card side like `card_values`.
-
-    A Check is not owned by a Card: the same Check may be linked to many Cards, and one
-    answer satisfies every one of them.
-    """
-
-    __tablename__ = "card_checks"
-    card_id: Mapped[int] = mapped_column(
-        ForeignKey("cards.id", ondelete="CASCADE"), primary_key=True
-    )
-    check_id: Mapped[int] = mapped_column(
-        ForeignKey("checks.id", ondelete="CASCADE"), primary_key=True, index=True
-    )
-
-
-class CardCategory(Base):
-    __tablename__ = "card_categories"
-    card_id: Mapped[int] = mapped_column(
-        ForeignKey("cards.id", ondelete="CASCADE"), primary_key=True
-    )
-    category: Mapped[str] = mapped_column(String(30), primary_key=True)
-
-
-class CardEnergyType(Base):
-    __tablename__ = "card_energy_types"
-    card_id: Mapped[int] = mapped_column(
-        ForeignKey("cards.id", ondelete="CASCADE"), primary_key=True
-    )
-    energy_type: Mapped[str] = mapped_column(String(30), primary_key=True)
 
 
 class Sprint(Base, TimestampMixin):
@@ -173,21 +69,6 @@ class SprintCommitment(Base, TimestampMixin):
     result: Mapped[str | None] = mapped_column(String(20))
 
     __table_args__ = (UniqueConstraint("sprint_id", "card_id"),)
-
-
-class CardEvent(Base):
-    __tablename__ = "card_events"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    card_id: Mapped[int | None] = mapped_column(
-        ForeignKey("cards.id", ondelete="CASCADE"), index=True
-    )
-    sprint_id: Mapped[int | None] = mapped_column(ForeignKey("sprints.id", ondelete="SET NULL"))
-    actor: Mapped[str] = mapped_column(String(20), default=ActorType.SYSTEM.value)
-    operation: Mapped[str] = mapped_column(String(80))
-    before: Mapped[dict[str, Any] | None] = mapped_column(JSON)
-    after: Mapped[dict[str, Any] | None] = mapped_column(JSON)
-    correlation_id: Mapped[str] = mapped_column(String(16), default=new_correlation_id, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class ChangeProposal(Base, TimestampMixin):
@@ -260,15 +141,6 @@ class TelegramMessage(Base):
     related_id: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (UniqueConstraint("chat_id", "message_id"),)
-
-
-class FeedbackQueue(Base, TimestampMixin):
-    __tablename__ = "feedback_queue"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    card_id: Mapped[int] = mapped_column(ForeignKey("cards.id", ondelete="CASCADE"), unique=True)
-    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    answer: Mapped[bool | None] = mapped_column(Boolean)
 
 
 class UiSession(Base, TimestampMixin):

@@ -31,7 +31,8 @@ from ..constants import (
     SPRINT_PLAN_TITLE_LIMIT,
 )
 from ..domain import move_card
-from ..enums import CardStage, MessageKind
+from ..enums import MessageKind
+from ..features.cards.model import CardStage
 from ..features.saved_requests.use_cases import request_cards
 from ..models import Card, SavedRequest, TelegramMessage, UiSession
 from ._core import CallbackContext, Services
@@ -141,7 +142,7 @@ async def _resolve_filters(
     matched: set[int] | None = None
     for request_id in filters:
         request = await session.get(SavedRequest, request_id)
-        if request is None or request.archived_at is not None:
+        if request is None:
             continue
         live.append(request_id)
         ids = {
@@ -321,9 +322,7 @@ async def render_plan_filters(message: Message, services: Services) -> None:
         picked = set(state.get("filters", []))
         requests = list(
             await session.scalars(
-                select(SavedRequest)
-                .where(SavedRequest.archived_at.is_(None))
-                .order_by(SavedRequest.name)
+                select(SavedRequest).order_by(SavedRequest.name)
             )
         )
         rows = [

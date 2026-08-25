@@ -15,7 +15,8 @@ from ..constants import (
     PROPOSAL_OUTCOME_DETAIL_LIMIT,
     TELEGRAM_TEXT_LIMIT,
 )
-from ..enums import CardKind, CardStage, Category, EnergyType, Priority
+from ..enums import CardKind, Category, EnergyType, Priority
+from ..features.cards.model import CardStage
 from ..models import Card, ProposalChange
 
 _KIND_EMOJIS = {
@@ -238,10 +239,19 @@ def card_overview_text(state: dict[str, Any], *, heading: str = "Card") -> str:
         ]
     )
     if state.get("blocked"):
-        lines.append(
-            "Blocked description: "
-            + html.escape(str(state.get("blocked_description") or "Required"))
-        )
+        # A Goal and an Idea read as blocked for the Actions under them, and each of those
+        # gave its own reason, so the screen quotes them instead of inventing one.
+        blocking = state.get("blocking_actions") or []
+        if blocking:
+            lines.extend(
+                f"Blocked by {html.escape(str(title))}: {html.escape(str(reason))}"
+                for title, reason in blocking
+            )
+        else:
+            lines.append(
+                "Blocked description: "
+                + html.escape(str(state.get("blocked_description") or "Required"))
+            )
     if kind == CardKind.ACTION.value:
         lines.extend(
             [
@@ -254,7 +264,7 @@ def card_overview_text(state: dict[str, Any], *, heading: str = "Card") -> str:
     else:
         lines.extend(
             [
-                f"Effort: {state.get('completed_effort', 0)}/{state.get('total_effort', 0)} EP",
+                f"Effort: {state.get('completed_effort', 0)}/{state.get('effort_points') or 0} EP",
                 "Children: "
                 f"{state.get('completed_children', 0)}/{state.get('total_children', 0)} completed",
             ]

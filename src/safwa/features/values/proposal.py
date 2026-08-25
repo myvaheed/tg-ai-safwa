@@ -13,7 +13,7 @@ from ..proposals.api import (
     require_target,
 )
 from .model import Value
-from .use_cases import archive_value, create_value, update_value_fields
+from .use_cases import create_value, delete_value, update_value_fields
 
 
 class ValueProposalHandler:
@@ -49,8 +49,8 @@ class ValueProposalHandler:
                     description=change.values.get("description"),
                     active=change.values.get("active"),
                 )
-            elif change.action == "archive":
-                value, _unlinked_count = await archive_value(session, value.id)
+            elif change.action == "delete":
+                value, _unlinked_count = await delete_value(session, value.id)
             else:
                 raise DomainError(f"Unsupported Value action: {change.action}")
         return [value.id]

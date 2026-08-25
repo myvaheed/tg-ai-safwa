@@ -15,7 +15,8 @@ from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.ai.subagents import RoutedSubagent
 from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS
 from safwa.domain import create_card, finish_action
-from safwa.enums import CardKind, CardStage
+from safwa.enums import CardKind
+from safwa.features.cards.model import CardStage
 from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
 from safwa.features.diary.model import DiaryEntry
 from safwa.models import AgentRun, AgentStep, Card

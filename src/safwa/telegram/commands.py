@@ -14,17 +14,16 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
 )
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 
 from ..analytics import render_retrospective_png, retrospective_data, retrospective_recommendations
-from ..enums import CardStage, MessageKind
+from ..enums import MessageKind
+from ..features.cards.model import CardStage
 from ..features.continuity.memory import MemoryFileError
 from ..features.continuity.persona import MemoryMaintenanceResult
 from ..features.continuity.use_cases import record_memory_run
 from ..history import mark_message, register_message
 from ..models import (
-    Card,
-    FeedbackQueue,
     SavedRequest,
     Sprint,
     Tag,
@@ -45,7 +44,6 @@ from ._presentation import (
     menu_row,
     retro_back_row,
     start_payload,
-    with_notice,
 )
 from .cards import render_dashboard, start_manual_card_creation
 from .plan import handle_plan_start, is_plan_link
@@ -65,7 +63,6 @@ BOT_COMMANDS = [
     BotCommand(command="tags", description="Manage Tags"),
     BotCommand(command="requests", description="Saved AI Requests"),
     BotCommand(command="retro", description="Latest retrospective"),
-    BotCommand(command="feedback", description="Pending completion feedback"),
     BotCommand(command="reminders", description="Your Reminders"),
     BotCommand(command="settings", description="Profile and reminders"),
     BotCommand(command="syncmem", description="Sync Telegram dialogue into memory"),
@@ -164,7 +161,7 @@ async def command_values(message: Message, services: Services) -> None:
     async with services.sessions() as session:
         values = list(
             await session.scalars(
-                select(Value).where(Value.archived_at.is_(None)).order_by(Value.name)
+                select(Value).order_by(Value.name)
             )
         )
         rows = [
@@ -200,7 +197,7 @@ async def command_values(message: Message, services: Services) -> None:
 async def command_tags(message: Message, services: Services) -> None:
     async with services.sessions() as session:
         tags = list(
-            await session.scalars(select(Tag).where(Tag.archived_at.is_(None)).order_by(Tag.name))
+            await session.scalars(select(Tag).order_by(Tag.name))
         )
         rows = [
             [
@@ -233,9 +230,7 @@ async def command_requests(message: Message, services: Services) -> None:
     async with services.sessions() as session:
         requests = list(
             await session.scalars(
-                select(SavedRequest)
-                .where(SavedRequest.archived_at.is_(None))
-                .order_by(SavedRequest.name)
+                select(SavedRequest).order_by(SavedRequest.name)
             )
         )
         rows = [
@@ -358,54 +353,6 @@ async def command_retro(message: Message, services: Services) -> None:
         await session.commit()
 
 
-async def render_feedback(
-    message: Message, services: Services, *, notice: str | None = None
-) -> None:
-    async with services.sessions() as session:
-        pending = list(
-            await session.scalars(
-                select(FeedbackQueue)
-                .where(FeedbackQueue.answered_at.is_(None))
-                .order_by(FeedbackQueue.created_at)
-            )
-        )
-        if not pending:
-            await send_registered(
-                message,
-                services,
-                with_notice("No completion feedback pending.", notice),
-                kind=MessageKind.DASHBOARD,
-                markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
-            )
-            return
-        item = pending[0]
-        card = await session.get(Card, item.card_id)
-        yes = await token_button(
-            session, services.owner_id, "Yes 🙂", "feedback", {"id": item.id, "liked": True}
-        )
-        no = await token_button(
-            session, services.owner_id, "No 🙁", "feedback", {"id": item.id, "liked": False}
-        )
-        await session.commit()
-    await send_registered(
-        message,
-        services,
-        with_notice(
-            f"<b>Feedback 1/{len(pending)}</b>\n"
-            f"Did you like doing <b>{html.escape(card.title)}</b>?",
-            notice,
-        ),
-        kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=[[yes, no], menu_row()]),
-        related_id=card.id,
-    )
-
-
-@router.message(Command("feedback"))
-async def command_feedback(message: Message, services: Services) -> None:
-    await render_feedback(message, services)
-
-
 @router.message(Command("reminders"))
 async def command_reminders(message: Message, services: Services) -> None:
     """Show the triggers the owner set; creation and timing stay advisor-only."""
@@ -427,17 +374,11 @@ async def command_status(message: Message, services: Services) -> None:
     memory = await services.memory.sync()
     async with services.sessions() as session:
         workspace = await session.get(Workspace, 1)
-        feedback = (
-            await session.scalar(
-                select(func.count(FeedbackQueue.id)).where(FeedbackQueue.answered_at.is_(None))
-            )
-            or 0
-        )
     await send_registered(
         message,
         services,
         f"<b>Status</b>\nMode: {workspace.mode}\nRevision: {workspace.revision}\n"
-        f"Feedback: {feedback}\nMemory: {html.escape(memory.error or 'OK')}",
+        f"Memory: {html.escape(memory.error or 'OK')}",
         kind=MessageKind.DASHBOARD,
     )
 

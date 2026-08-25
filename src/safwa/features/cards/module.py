@@ -1,4 +1,4 @@
-"""Cards: the tree the owner keeps, and the board subagent that changes all of it."""
+"""Cards: the tree the owner keeps."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ from . import agent, proposal, telegram, views
 
 MODULE = FeatureModule(
     name="cards",
-    agents=(agent.BOARD_AGENT,),
     proposals=(
         ProposalContribution(
             handler=proposal.CardProposalHandler(),

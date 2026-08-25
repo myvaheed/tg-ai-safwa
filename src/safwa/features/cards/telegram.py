@@ -16,7 +16,6 @@ from ...domain import (
 )
 from ...enums import (
     CardKind,
-    CardStage,
     Priority,
 )
 from ...models import (
@@ -40,6 +39,7 @@ from ..proposals.api import (
     reference_names,
     result_value,
 )
+from .model import CardStage
 
 CARD_DETAIL_FIELDS = (
     "kind",

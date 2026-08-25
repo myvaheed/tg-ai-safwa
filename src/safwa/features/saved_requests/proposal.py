@@ -20,8 +20,8 @@ from ..proposals.api import (
 )
 from .model import SavedRequest
 from .use_cases import (
-    archive_saved_request,
     create_saved_request,
+    delete_saved_request,
     update_saved_request,
 )
 
@@ -72,8 +72,8 @@ class RequestProposalHandler:
                 query_sql=change.values.get("query_sql"),
                 views=context.views,
             )
-        elif change.action == "archive":
-            request = await archive_saved_request(session, request.id)
+        elif change.action == "delete":
+            request = await delete_saved_request(session, request.id)
         else:
             raise DomainError(f"Unsupported Request action: {change.action}")
         return [request.id]

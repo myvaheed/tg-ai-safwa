@@ -552,7 +552,7 @@ class NamedItemPresenter:
         if change.entity_id:
             item = await session.get(self.model, change.entity_id)
             if item is not None:
-                archived = item.archived_at is not None
+                archived = getattr(item, "archived_at", None) is not None
                 current = self._current(item)
         proposed = {**current, **dict(change.values)}
         if change.action in {"archive", "delete"}:

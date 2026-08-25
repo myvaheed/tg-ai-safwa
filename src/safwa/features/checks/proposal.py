@@ -10,13 +10,11 @@ from ...domain import (
     StaleStateError,
     archive_check,
     create_check,
+    delete_check,
     resolve_check,
     update_check_fields,
 )
-from ...enums import (
-    CHECK_ANSWER_ACTIONS,
-    ActorType,
-)
+from ...enums import ActorType
 from ...models import Check, ProposalChange
 from ..proposals.api import (
     ApplyContext,
@@ -27,6 +25,7 @@ from ..proposals.api import (
     require_target,
     validate_named_references,
 )
+from .model import CHECK_ANSWER_ACTIONS
 
 
 class CheckProposalHandler:
@@ -67,6 +66,8 @@ class CheckProposalHandler:
             )
         elif change.action == "archive":
             await archive_check(session, check.id)
+        elif change.action == "delete":
+            await delete_check(session, check.id)
         elif change.action in {"link", "unlink"}:
             spec = CHECK_VALUE_REFERENCE
             for value_id in sorted(await named_ids(session, values, spec)):

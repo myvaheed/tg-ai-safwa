@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt  # noqa: E402
 
-from .enums import CardStage
+from .features.cards.model import CardStage
 from .models import (
     Card,
     CardCategory,
@@ -77,10 +77,6 @@ async def retrospective_data(session: AsyncSession, sprint_id: int) -> dict:
             if card.hard_time and result_by_card[card.id] == CardStage.DONE.value
         ),
     }
-    liked = {
-        "yes": sum(1 for card in cards if card.liked is True),
-        "no": sum(1 for card in cards if card.liked is False),
-    }
     had_blocked_work = any(card.blocked for card in cards)
     active_value_ids = set(await session.scalars(select(Value.id).where(Value.active.is_(True))))
     active_value_cards = (
@@ -106,7 +102,6 @@ async def retrospective_data(session: AsyncSession, sprint_id: int) -> dict:
         "categories": dict(categories),
         "energies": dict(energies),
         "hard_time": hard_time,
-        "liked": liked,
         "had_blocked_work": had_blocked_work,
         "active_value_completed": active_value_completed,
     }
@@ -172,11 +167,6 @@ def retrospective_recommendations(data: dict) -> list[str]:
     hard_time = data.get("hard_time", {})
     if hard_time.get("committed", 0) and hard_time.get("completed", 0) < hard_time["committed"]:
         recommendations.append("Some Hard Time effort slipped; protect those time windows first.")
-    liked = data.get("liked", {})
-    if liked.get("no", 0) > liked.get("yes", 0):
-        recommendations.append(
-            "More completed work felt unpleasant than enjoyable; adjust method or timing."
-        )
     if data.get("had_blocked_work"):
         recommendations.append("Review blocked work before committing the next Sprint.")
     if data.get("active_value_completed", 0) == 0:
@@ -184,5 +174,5 @@ def retrospective_recommendations(data: dict) -> list[str]:
             "No completed effort linked to active Values; check alignment in Planning."
         )
     return recommendations or [
-        "Keep observing your energy and liked feedback before changing capacity."
+        "Keep observing your energy and blocked work before changing capacity."
     ]

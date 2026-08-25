@@ -13,10 +13,6 @@ from ...domain import (
     check_value_ids,
     resolve_references,
 )
-from ...enums import (
-    CHECK_ANSWER_ACTIONS,
-    CHECK_OUTCOME_LABELS,
-)
 from ...models import (
     Check,
     ProposalChange,
@@ -33,6 +29,7 @@ from ..proposals.api import (
     reference_names,
     result_value,
 )
+from .model import CHECK_ANSWER_ACTIONS, CHECK_OUTCOME_LABELS
 
 
 async def _value_names(session: AsyncSession, value_ids: list[int]) -> str:

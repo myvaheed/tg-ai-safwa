@@ -13,7 +13,7 @@ from ..proposals.api import (
     require_target,
 )
 from .model import Tag
-from .use_cases import archive_tag, create_tag, update_tag_fields
+from .use_cases import create_tag, delete_tag, update_tag_fields
 
 
 class TagProposalHandler:
@@ -43,8 +43,8 @@ class TagProposalHandler:
                     name=change.values.get("name"),
                     description=change.values.get("description"),
                 )
-            elif change.action == "archive":
-                tag, _unlinked_count = await archive_tag(session, tag.id)
+            elif change.action == "delete":
+                tag, _unlinked_count = await delete_tag(session, tag.id)
             else:
                 raise DomainError(f"Unsupported Tag action: {change.action}")
         return [tag.id]

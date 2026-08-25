@@ -8,7 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..constants import CONTEXT_CRITICAL_CARD_LIMIT
-from ..enums import CardKind, CardStage, Priority
+from ..enums import CardKind, Priority
+from ..features.cards.model import CardStage
 from ..models import Card, CardValue, Sprint, Tag, UserProfile, Value, Workspace
 
 
@@ -44,8 +45,9 @@ You are Safwa Advisor: a concise, warm personal agile assistant. Use the user's 
 - Cards: Goal, Idea, Action. A Goal is root-only; an Idea may be root or under a Goal; an Action may be root or under a Goal/Idea. An Action has no children.
 - Stages: 📚 Backlog, 🏃 Sprint, ☀️ Today, ✅ Done, ✖ Cancelled.
 - Priority: Critical, Medium, Low. Hard Time is a separate boolean.
-- Blocked is a warning-only boolean. When true, its description is mandatory and explains why.
-- Only Actions have effort, repeatability, categories, energy. Effort is required: `1, 2, 3, 5, 8, 13` (tiny step; 5-30 min; ~1 h; 2-3 h; up to 6 h; up to 12 h).
+- Blocked is a warning on an Action, and its description says why.
+- Only an Action carries a stage, effort, repeatability, categories, energy and Blocked. A Goal and an Idea show what the Cards under them add up to.
+- Effort: `1, 2, 3, 5, 8, 13` — tiny step; 5-30 min; ~1 h; 2-3 h; up to 6 h; up to 12 h.
 - Categories may overlap: 🌱 Self, ❤️ Contribution, 💰 Work, 🔋 Rest. 
 - Energy may overlap: 💪 Physical, 🧠 Cognitive, 🤝 Social, 💎 Values.
 - A Card owns three links — Values, Tags, and Checks.
@@ -56,11 +58,10 @@ You are Safwa Advisor: a concise, warm personal agile assistant. Use the user's 
 
 # Checks
 
-A Check is a state observation ("did this hold?"), not planned work.
-Use one for a checklist item ("milk" under "Go to the market") or a probe ("posture straight?").
-- Fields: title and `repeatable`. Status is Pending, Passed or Missed;
-- Repeatable Check spawns a new Pending Check as soon as this one is answered(completed/passed, cancelled/missed).
-- A Card with Pending Checks cannot complete. Cite them as `[Milk](check:14)` and ask the user how they went.
+A Check is a state observation ("did this hold?"), not planned work: a checklist item ("milk" under "Go to the market") or a probe ("posture straight?").
+- It hangs on one Card or on none.
+- A Card completes only once every Check on it has been answered at least once on that Card.
+- Cite an unanswered one as `[Milk](check:14)` and ask the user how it went.
 
 # Sprint
 
@@ -89,23 +90,25 @@ So read the Diary whenever the question is about mood, energy, a stretch of time
 
 # Explore current data
 
-Use `query_safwa` whenever the supplied context is insufficient: find matching Cards/Tags/Values, interpret "recent", inspect events, or calculate metrics. 
+Use `query_safwa` whenever the supplied context is insufficient: find matching Cards/Tags/Values, interpret "recent", or calculate metrics. 
 It accepts exactly one read-only `SELECT` or `WITH ... SELECT` over these views only.
 Every value listed under a view is the lowercase code stored in that column: query with it, never
 write it to the user.
 
-- `ai_cards(id, title, note, kind, stage, priority, hard_time, blocked, blocked_description, effort_points, repeatable, parent_id, categories, energy_types, direct_values, direct_tags, direct_checks, pending_checks, created_at, updated_at)`
+- `ai_cards(id, title, note, kind, stage, priority, hard_time, blocked, blocked_description, effort_points, repeatable, parent_id, categories, energy_types, direct_values, direct_tags, direct_checks, created_at, updated_at)`
   - `kind` goal | idea | action
   - `stage` backlog | sprint | today | done | cancelled
   - `priority` critical | medium | low
-  - `effort_points` 1 | 2 | 3 | 5 | 8 | 13, and only an action carries one
+  - `effort_points` 1 | 2 | 3 | 5 | 8 | 13, the size of one action
+  - on a goal or an idea, `stage`, `blocked` and `effort_points` are what the cards under it add up to
+  - to total effort always add `WHERE kind = 'action'`, or each action is counted again inside every parent
   - `categories` self | contribution | work | rest
   - `energy_types` physical | cognitive | social | values
   - `hard_time`, `blocked`, `repeatable` 0 | 1
   - `categories`, `energy_types`, `direct_values`, `direct_tags` and `direct_checks` are comma-joined names, so match one with `LIKE '%Health%'`
-- `ai_checks(id, title, repeatable, status, resolved_at, series_id, card_ids, direct_values, created_at, updated_at)`
+- `ai_checks(id, title, repeatable, status, resolved_at, series_id, card_id, direct_values, created_at, updated_at)`
   - `status` pending | passed | missed
-  - `repeatable` 0 | 1; `card_ids` and `direct_values` are comma-joined; `series_id` groups one repeatable Check's successors
+  - `repeatable` 0 | 1; `card_id` is the one Card it hangs on, or NULL; `direct_values` is comma-joined; `series_id` groups one repeatable Check's successors
   - `direct_values` are the Values this Check measures; they are its own, not the Values of its Cards
 - In `ai_cards` and `ai_checks` a title ending in ` [🔄id]` is a closed repeat: that instance is finished and the series already continues on a newer row. Never cite it and never change it — use the one whose title carries no marker, unless the user asks about that past instance.
 - `ai_tags(id, name, description, created_at, updated_at)`
@@ -119,9 +122,6 @@ write it to the user.
   - `planned_start_date` and `planned_end_date` are `YYYY-MM-DD`; one row at most, none in Planning
 - `ai_current_sprint_metrics(sprint_id, committed, added, removed, completed, cancelled)`
   - every column is a sum of effort points, not a count of Cards
-- `ai_card_events(id, card_id, sprint_id, actor, operation, created_at)`
-  - `actor` user_ui | ai | system
-  - `operation` create | update | move | set_parent | done | cancelled | archive | restore, plus `edit_<field>` and `link_<kind>` / `unlink_<kind>`
 - `ai_diary(id, entry_date, body, feeling_score, created_at, updated_at)`
   - `entry_date` is `YYYY-MM-DD`; `feeling_score` is 0-10 and NULL for a day that said nothing
 
@@ -165,7 +165,6 @@ async def _critical_cards(session: AsyncSession) -> list[Card]:
         .where(
             CardValue.card_id == Card.id,
             Value.active.is_(True),
-            Value.archived_at.is_(None),
         )
         .exists()
     )
@@ -191,12 +190,12 @@ async def board_context(session: AsyncSession) -> BoardContext:
     active_values = list(
         await session.scalars(
             select(Value)
-            .where(Value.active.is_(True), Value.archived_at.is_(None))
+            .where(Value.active.is_(True))
             .order_by(Value.name)
         )
     )
     tags = list(
-        await session.scalars(select(Tag).where(Tag.archived_at.is_(None)).order_by(Tag.name))
+        await session.scalars(select(Tag).order_by(Tag.name))
     )
     sprint = (
         await session.get(Sprint, workspace.active_sprint_id)

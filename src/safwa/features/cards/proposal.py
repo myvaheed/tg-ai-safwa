@@ -16,26 +16,18 @@ from ...domain import (
     VALUE_REFERENCE,
     DomainError,
     StaleStateError,
-    archive_subtree,
-    create_card,
-    delete_subtree,
-    finish_action,
-    move_card,
-    pending_checks,
     set_card_parent,
     toggle_card_category,
     toggle_card_energy_type,
-    update_card_fields,
 )
 from ...enums import (
-    TERMINAL_STAGES,
     ActorType,
     CardKind,
-    CardStage,
     Category,
     EnergyType,
 )
 from ...models import Card, CardCategory, CardEnergyType, ProposalChange
+from ..checks.api import unobserved_series
 from ..proposals.api import (
     ApplyContext,
     PreparationContext,
@@ -46,6 +38,15 @@ from ..proposals.api import (
     require_target,
     validate_named_references,
 )
+from .model import TERMINAL_STAGES, CardStage
+from .use_cases import (
+    archive_subtree,
+    create_card,
+    delete_subtree,
+    finish_action,
+    move_card,
+    update_card_fields,
+)
 
 PARENT_HINT = (
     "Find the parent with query_safwa and retry with its numeric parent_id, or drop the "
@@ -53,7 +54,17 @@ PARENT_HINT = (
 )
 
 
-ACTION_ONLY_FIELDS = ("effort_points", "repeatable", "categories", "energy_types")
+STAGE_ACTIONS = frozenset({"move", "complete", "cancel", "reopen"})
+
+
+ACTION_ONLY_FIELDS = (
+    "effort_points",
+    "repeatable",
+    "categories",
+    "energy_types",
+    "blocked",
+    "blocked_description",
+)
 
 
 CARD_SCALAR_FIELDS = frozenset(
@@ -175,7 +186,7 @@ async def _resolve_parent_reference(
 async def _guard_pending_checks(
     session: AsyncSession, change: Any, values: dict[str, Any]
 ) -> None:
-    """Refuse to prepare a completion while the Card still has Pending Checks.
+    """Refuse to prepare a completion while a Check series on the Card has no answer.
 
     The error is model-visible and retryable, and it carries the titles so the model
     does not have to spend a `query_safwa` round discovering them.
@@ -185,7 +196,7 @@ async def _guard_pending_checks(
     )
     if not completing or change.id is None:
         return
-    pending = await pending_checks(session, int(change.id))
+    pending = await unobserved_series(session, int(change.id))
     if not pending:
         return
     listed_checks = ", ".join(f"#{check.id} “{check.title}”" for check in pending)
@@ -279,6 +290,13 @@ class CardProposalHandler:
             values.get("kind") if change.action == "create" else getattr(card, "kind", None)
         )
         if proposed_kind != CardKind.ACTION.value:
+            if change.action in STAGE_ACTIONS or "stage" in values:
+                raise ToolPreparationError(
+                    "stage_is_action_only",
+                    "A Goal and an Idea have no stage of their own: it shows what the Actions "
+                    "under it are in.",
+                    "Move, complete or reopen the Actions in its branch instead.",
+                )
             for action_only_field in ACTION_ONLY_FIELDS:
                 values.pop(action_only_field, None)
             if proposed_kind == CardKind.GOAL.value and (

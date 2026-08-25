@@ -72,7 +72,7 @@ DIARY_PROMPT = """You keep the user's Diary. One day, one entry, in their own vo
    - `query_safwa` — one read-only SELECT over these views only:
      `ai_diary(id, entry_date, body, feeling_score, created_at, updated_at)` — the saved days;
      `ai_card_events(id, card_id, sprint_id, actor, operation, created_at)` — work done;
-     `ai_checks(id, title, repeatable, status, resolved_at, series_id, card_ids)` — what held;
+     `ai_checks(id, title, repeatable, status, resolved_at, series_id, card_id)` — what held;
      `ai_cards(id, title, kind, stage, priority, effort_points, parent_id)` — item names.
 3. Then call the tool once:
    - `diary(mode="update", date=…, pov=…, ai_comment=…, feeling_score=…)` — whether or not that day

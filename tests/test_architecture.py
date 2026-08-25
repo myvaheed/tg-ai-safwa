@@ -17,12 +17,12 @@ import json
 from pathlib import Path
 
 import pytest
-from sqlalchemy import inspect
+from sqlalchemy import UniqueConstraint, inspect
 
 from safwa.ai.service import OPEN_TOOL, QUERY_SAFWA_TOOL, ROUTE_TOOL
 from safwa.ai.subagents import PERSONA
 from safwa.bootstrap.modules import PROPOSALS, SYSTEM_PROMPT
-from safwa.features.cards.agent import BOARD_PROMPT
+from safwa.features.board.agent import BOARD_PROMPT
 from safwa.features.diary.agent import DIARY_PROMPT
 from safwa.models import Base
 from scripts.architecture_metrics import RULES, allowlist, cycles, violations
@@ -135,7 +135,14 @@ def test_rule_j_schema_is_unchanged_outside_a_schema_batch(request):
             f"{','.join(c.name for c in fk.columns)}->{fk.elements[0].target_fullname}"
             for fk in table.foreign_key_constraints
         )
-        produced[name] = _digest("|".join([*columns, *indexes, *keys]))
+        # A uniqueness rule is what a table refuses, so it is schema: "a Check hangs on one
+        # Card" is one constraint, and dropping it would otherwise move no hash.
+        unique = sorted(
+            f"unique({','.join(c.name for c in constraint.columns)})"
+            for constraint in table.constraints
+            if isinstance(constraint, UniqueConstraint)
+        )
+        produced[name] = _digest("|".join([*columns, *indexes, *keys, *unique]))
 
     _snapshot("schema", produced, request.config.getoption("--snapshot-update"))
 

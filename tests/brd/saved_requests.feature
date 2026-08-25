@@ -24,14 +24,6 @@ Feature: Saved Requests
     And renaming another Request onto that name is refused the same way
     And a name that is empty, or only spaces, is refused
 
-  Scenario: SR-WRITE-003 — Saving under an archived Request's name brings that one back
-    Given a Request named "All goals" was archived, and it had a description
-    When a Request is saved under that name again
-    Then it is the archived one that comes back, still the same Request
-    And it asks the new question, not the old one
-    And it keeps the description it had, because none was given
-    And there is still only one Request with that name
-
   Scenario: SR-SQL-004 — A Request's query only reads, and it has to come back with Cards
     Given a Request is being saved
     When its query is checked
@@ -61,15 +53,6 @@ Feature: Saved Requests
     And a query that does not pass comes back to Safwa as something it can fix and try again
     And for that refused attempt there is no proposal and no Request anywhere
 
-  Scenario: SR-AI-009 — A Request is archived, never deleted
-    Given Safwa wants a Request gone
-    When it asks for it to be removed
-    Then deleting it outright is refused, because only a Card can be deleted
-    And once the owner approves archiving it, it is gone from the Request screens, and Safwa no
-      longer sees it
-    And a Plan filter that was using it stops using it, without an error anywhere
-    And its name is free for a new Request to take
-
   Scenario: SR-AI-010 — A Request may be renamed without a screen; it may never be re-aimed without one
     Given Safwa proposes a change to a Request
     When it is considered for saving without asking the owner
@@ -77,21 +60,27 @@ Feature: Saved Requests
     And any change that touches the query always goes to the owner first
     And a brand new Request always goes to the owner first
 
-  Scenario: SR-READ-011 — Safwa reads the live Requests, and points at one with its count
+  Scenario: SR-READ-011 — Safwa reads the saved Requests, and points at one with its count
     Given saved Requests exist
     When Safwa answers
-    Then it sees the ones that are not archived, and only those
+    Then it sees every Request the owner has saved
     And it can point at one in its answer
     And what the owner reads on it is the Request's name and how many Cards it returns right now
-    And pointing at an archived Request leaves the words and takes the link away
     And so does pointing at a number that is no Request at all
 
   Scenario: SR-UI-012 — /requests is a list, a run, and a way back
     Given the owner opens /requests
-    Then they see every Request that is not archived, by name
+    Then they see every Request the owner has saved, by name
     When they open one
     Then it runs, and shows its description and how many Cards it matched
     And the first 25 of those Cards are there to tap (REQUEST_RESULT_LIMIT = 25)
     And it says so when there were more than that
     And a Card opened from that list comes back to the Request it was opened from
     And Refresh runs the Request again
+
+  Scenario: SR-DELETE-013 — A Request is deleted, not archived
+    Given a saved Request that a Plan filter is using
+    When the owner or Safwa asks for it to be removed
+    Then it is deleted, and the filter stops using it without an error anywhere
+    And no screen offers to archive a Request, and the remove tool refuses to
+    And its name is free from that moment

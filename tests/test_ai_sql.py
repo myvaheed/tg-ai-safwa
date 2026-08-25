@@ -28,8 +28,8 @@ def test_native_mutation_tools_become_typed_change_intents():
     assert (remove.entity, remove.action, remove.id) == ("card", "delete", 42)
     with pytest.raises(ValueError):
         CardToolInput(mode="create", kind="action")
-    with pytest.raises(ValueError, match="archived, never deleted"):
-        PROPOSALS.change_from_tool("remove", {"mode": "delete", "entity": "tag", "id": 42})
+    with pytest.raises(ValueError, match="deleted, never archived"):
+        PROPOSALS.change_from_tool("remove", {"mode": "archive", "entity": "tag", "id": 42})
 
 
 def test_card_tool_modes_reject_ambiguous_mutations():
@@ -182,7 +182,7 @@ def test_null_placeholders_are_ignored_across_mutation_tools(
     assert change.values == expected_values
 
     remove = PROPOSALS.change_from_tool("remove", {"entity": "card", "id": 42, "mode": None})
-    assert remove.action == "archive"
+    assert remove.action == "delete"
 
 
 @pytest.mark.parametrize("placeholder", [None, "", "  ", "null", "None", "NIL", "undefined"])

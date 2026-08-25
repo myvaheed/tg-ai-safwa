@@ -17,8 +17,8 @@ AI_CHECKS = SqlView(
                k.repeatable,
                COALESCE(k.outcome, 'pending') AS status,
                k.resolved_at, k.series_id,
-               (SELECT group_concat(cc.card_id, ',') FROM card_checks cc
-                WHERE cc.check_id=k.id) AS card_ids,
+               (SELECT cc.card_id FROM card_checks cc
+                WHERE cc.check_id=k.id) AS card_id,
                (SELECT group_concat(v.name, ',') FROM check_values cv
                 JOIN "values" v ON v.id=cv.value_id WHERE cv.check_id=k.id) AS direct_values,
                k.created_at, k.updated_at

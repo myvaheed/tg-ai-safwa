@@ -33,25 +33,10 @@ class CardKind(StrEnum):
     ACTION = "action"
 
 
-class CardStage(StrEnum):
-    BACKLOG = "backlog"
-    SPRINT = "sprint"
-    TODAY = "today"
-    DONE = "done"
-    CANCELLED = "cancelled"
-
-
 class Priority(StrEnum):
     CRITICAL = "critical"
     MEDIUM = "medium"
     LOW = "low"
-
-
-class CheckOutcome(StrEnum):
-    """The two settable answers to a Check. Pending is derived from a null outcome."""
-
-    PASSED = "passed"
-    MISSED = "missed"
 
 
 class ScheduleKind(StrEnum):
@@ -106,22 +91,3 @@ class MessageKind(StrEnum):
     STATUS = "status"
     RETROSPECTIVE_PNG = "retrospective_png"
     ERROR = "error"
-
-
-CHECK_OUTCOME_LABELS = {
-    "pending": "Pending",
-    CheckOutcome.PASSED.value: "Passed",
-    CheckOutcome.MISSED.value: "Missed",
-}
-# A Check is answered with the Card lifecycle verbs: complete is Passed, cancel is Missed.
-CHECK_ANSWER_ACTIONS = {
-    "complete": CheckOutcome.PASSED.value,
-    "cancel": CheckOutcome.MISSED.value,
-}
-
-TERMINAL_STAGES = {CardStage.DONE, CardStage.CANCELLED}
-LIVE_STAGE_PRECEDENCE = {
-    CardStage.BACKLOG: 1,
-    CardStage.SPRINT: 2,
-    CardStage.TODAY: 3,
-}

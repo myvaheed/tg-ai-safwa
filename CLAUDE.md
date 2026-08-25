@@ -128,10 +128,10 @@ agent contract and Telegram adapter, and its AI and UI mutation paths call the s
 
 **One package per `.feature` file**, so a rule and the code that keeps it are found in one place.
 
-- **The board** is what the owner keeps: Cards, Checks, Values, Tags, Requests and Reminders. It is
-  not a package — it is the set, and `board` is the subagent that proposes every change to it. Its
-  `AgentSpec` lives in [features/cards/agent.py](src/safwa/features/cards/agent.py) because Cards
-  are the board's centre, and the roster already lets a subagent declare tools other features own.
+- **The board** is what the owner keeps: Cards, Checks, Values, Tags, Requests and Reminders — the
+  set, not one entity. `board` is the subagent that proposes every change to it, and
+  [features/board](src/safwa/features/board) is that subagent and nothing else: the roster lets it
+  declare mutation tools the features that own those entities publish.
 - **Planning** is the workspace mode without a running Sprint (`WorkspaceMode.PLANNING`), the Sprint
   itself, and the screen where the next one is planned.
   [features/planning](src/safwa/features/planning) is exactly that and nothing else.
@@ -151,8 +151,10 @@ Cross-feature tuning — token budgets, poll intervals, shared timeouts — live
 [constants.py](src/safwa/constants.py), which imports nothing from Safwa;
 [config.py](src/safwa/config.py) takes its defaults from there. A limit that belongs to one feature
 is a constant at the top of that feature's module, next to where it is used. The same split applies
-to [enums.py](src/safwa/enums.py): `MessageKind` and `AIProvider` are shared, while `CardStage`,
-`CardKind` belongs to Cards, `CheckOutcome` to Checks, and `WorkspaceMode` to Planning.
+to [enums.py](src/safwa/enums.py): `MessageKind` and `AIProvider` are shared, while `CardStage` and
+its two sets now live in [features/cards/model.py](src/safwa/features/cards/model.py) and
+`CheckOutcome` in [features/checks/model.py](src/safwa/features/checks/model.py). `CardKind` still
+waits in `enums.py`, and `WorkspaceMode` belongs to Planning.
 
 The `telegram` package is layered and imports run one way only: `_core.py` ← `_presentation.py` ←
 `_messaging.py` ← `text_input.py` ← the feature renderers ← `screens.py` / `proposals.py` ← the
@@ -286,16 +288,33 @@ system message.
 ### Domain invariants
 
 - Card tree: Goal is root-only; Idea may be root or under a Goal; Action may be root or under
-  Goal/Idea and has no children. Action-only fields are stripped for Goal/Idea at both the AI and the
-  domain boundary.
+  Goal/Idea and has no children. **Stage**, effort, repeat, categories, energy and **Blocked**
+  belong to an Action alone, and are stripped for Goal/Idea at both the AI and the domain boundary.
+  A Card's parent is set by proposal only; no screen offers the control.
+- A Goal and an Idea show what their **direct children** add up to. Each child already carries its
+  own derived values, so the recursion reaches the Actions, and a child that never started still
+  counts: an Idea with nothing in it is in Backlog and holds its Goal there.
+  `propagate_ancestors` is the one walk that writes it, into the plain `effective_stage`, `blocked`
+  and `effort_points` columns, so Safwa reads one column that means the same thing on every row.
+  Every path that changes an Action ends there. A parent with nothing under it shows Backlog and
+  never Done or Cancelled, and it has no `blocked_description` of its own. Summing `effort_points`
+  over every row counts each Action again inside every ancestor — a real total says
+  `WHERE kind = 'action'`.
+- `manual_stage` is what the user set, and it is an Action's alone; `effective_stage` is what
+  dashboards and queries read.
 - A Check records a state observation, never planned work: no effort, never in a Sprint, and Pending
-  is derived rather than stored.
+  is derived rather than stored. A Check hangs on **one** Card or on none.
+- Three rules govern a Check across a Card's life: a Card closes when every Check series on it was
+  answered at least once **on this Card**; closing deletes whatever is still Pending; reopening puts
+  each plain Check back to Pending and opens one fresh instance of each repeating series. They live
+  in [features/checks](src/safwa/features/checks), and Cards reaches them through `checks/api.py`.
+- **Everything is deleted; only a Card and a Check are also archived**, two Sprints after they
+  closed (`ARCHIVE_AFTER_SPRINTS`). Archived is a matter of sight: it still counts everywhere it
+  counted. A Value, a Tag and a Saved Request carry no `archived_at` at all.
 - A Card owns three link sets of one shape — Values, Tags, Checks — and a Check owns one, its
   Values. All four are `ReferenceSpec`s: adding another means adding a spec, not a special case.
   A Check's Values are its own statement about what it measures; nothing is derived between them
   and the Values of the Cards that Check belongs to.
-- `manual_stage` is what the user set; `effective_stage` is derived for parents from descendants and
-  is what dashboards and queries read.
 - Effort is restricted to `EFFORT_POINTS` and required for Actions; the `Literal` in
   `ai/contracts.py` mirrors it — change both together.
 - Enums are `StrEnum` but columns store plain strings — always compare/assign `.value`.

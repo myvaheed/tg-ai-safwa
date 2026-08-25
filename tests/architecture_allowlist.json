@@ -6,9 +6,7 @@
       "Rule G|safwa/telegram/_messaging.py|starts a background task": 1
     },
     "Rule H": {
-      "Rule H|safwa/ai/contracts.py|branches on card": 1,
       "Rule H|safwa/ai/contracts.py|collection over card, check, diary, request, tag, value": 1,
-      "Rule H|safwa/ai/contracts.py|collection over card, check, reminder, request, tag, value": 1,
       "Rule H|safwa/ai/service.py|branches on card": 1,
       "Rule H|safwa/ai/service.py|dict over card, check, diary, request, tag, value": 1,
       "Rule H|safwa/history.py|collection over card, check, diary, request, tag, value": 1,

@@ -12,13 +12,12 @@ defaults.  Everything else is fixed at the code level.
 
 from __future__ import annotations
 
-# --- Domain ---------------------------------------------------------------
-# The allowed Action effort scale.  Mirrored by the Literal in ai/contracts.py.
-EFFORT_POINTS = {1, 2, 3, 5, 8, 13}
 # The default Sprint length; the owner overrides it per workspace in Settings.
 SPRINT_LENGTH_DAYS = 14
 SPRINT_LENGTH_MIN_DAYS = 2
 SPRINT_LENGTH_MAX_DAYS = 60
+# How many Sprint endings a closed Card or Check waits before it leaves the screens.
+ARCHIVE_AFTER_SPRINTS = 2
 # How a closed instance of a repeat series is named wherever its title is read: the model
 # sees it in `ai_cards`/`ai_checks`, the owner sees it in a citation link. 
 REPEAT_MARKER = " [🔄{index}]"

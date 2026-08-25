@@ -11,10 +11,11 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..constants import EFFORT_POINTS, SELECTOR_PAGE_SIZE
+from ..constants import SELECTOR_PAGE_SIZE
 from ..domain import (
     DomainError,
     ReferenceSpec,
+    blocking_actions,
     card_progress,
     is_closed_repeat,
     live_repeat_instance_id,
@@ -23,12 +24,13 @@ from ..domain import (
 )
 from ..enums import (
     CardKind,
-    CardStage,
     Category,
     EnergyType,
     MessageKind,
     Priority,
 )
+from ..features.cards.model import CardStage
+from ..features.cards.use_cases import EFFORT_POINTS
 from ..models import (
     Card,
     CardCategory,
@@ -94,7 +96,7 @@ async def carrier_counts(
 
 
 def carrier_phrase(counts: list[tuple[str, int]]) -> str:
-    """One wording for the archive question and for the receipt that answers it."""
+    """One wording for the delete question and for the receipt that answers it."""
     parts = [f"{count} {label}{'' if count == 1 else 's'}" for label, count in counts if count]
     return " and ".join(parts) or "nothing"
 
@@ -247,8 +249,10 @@ def sanitize_card_creation_state(state: dict[str, Any]) -> dict[str, Any]:
         clean["stage"] = CardStage.BACKLOG.value
     if clean["kind"] != CardKind.ACTION.value:
         clean.update(
+            stage=CardStage.BACKLOG.value,
             effort_points=None,
             repeatable=False,
+            blocked=False,
             categories=[],
             energy_types=[],
         )
@@ -275,6 +279,7 @@ def card_creation_errors(state: dict[str, Any]) -> list[str]:
             bool(state.get("repeatable")),
             set(state.get("categories") or []),
             set(state.get("energy_types") or []),
+            blocked=bool(state.get("blocked")),
         ),
         lambda: validate_blocked_fields(
             bool(state.get("blocked")), state.get("blocked_description")
@@ -293,29 +298,29 @@ async def card_creation_markup(
     fields: list[tuple[str, str, dict[str, Any]]] = [
         ("🧩 Kind", "card_create_choose_kind", {}),
         ("✏️ Title", "card_create_edit_text", {"field": "title"}),
-        ("📍 Stage", "card_create_choose_stage", {}),
         ("📝 Note", "card_create_edit_text", {"field": "note"}),
         ("⚠️ Priority", "card_create_choose_priority", {}),
         ("⏱ Hard Time", "card_create_toggle", {"field": "hard_time"}),
-        ("🚧 Blocked", "card_create_toggle", {"field": "blocked"}),
     ]
-    if state.get("blocked"):
-        fields.append(
-            (
-                "📝 Blocked reason",
-                "card_create_edit_text",
-                {"field": "blocked_description"},
-            )
-        )
     if state["kind"] == CardKind.ACTION.value:
+        fields.insert(2, ("📍 Stage", "card_create_choose_stage", {}))
         fields.extend(
             [
+                ("🚧 Blocked", "card_create_toggle", {"field": "blocked"}),
                 ("🔢 Effort", "card_create_choose_effort", {}),
                 ("🔁 Repeat", "card_create_toggle", {"field": "repeatable"}),
                 ("🏷 Categories", "card_create_choose_categories", {}),
                 ("⚡ Energy", "card_create_choose_energy", {}),
             ]
         )
+        if state.get("blocked"):
+            fields.append(
+                (
+                    "📝 Blocked reason",
+                    "card_create_edit_text",
+                    {"field": "blocked_description"},
+                )
+            )
     fields.extend(
         [
             ("💎 Values", "card_create_choose_values", {}),
@@ -487,7 +492,7 @@ async def _choice_options(session: AsyncSession, field: str) -> list[tuple[str, 
         raise DomainError("Unknown Card selector")
     model = Value if field == "values" else Tag
     items = await session.scalars(
-        select(model).where(model.archived_at.is_(None)).order_by(model.name)
+        select(model).order_by(model.name)
     )
     return [(item.name, item.id) for item in items]
 
@@ -736,20 +741,22 @@ async def render_card(
         field_specs = [
             ("✏️ Title", "card_edit_text", {"id": card.id, "field": "title"}),
             ("📝 Note", "card_edit_text", {"id": card.id, "field": "note"}),
-            ("📍 Stage", "card_choose_stage", {"id": card.id}),
             ("⚠️ Priority", "card_choose_priority", {"id": card.id}),
             ("⏱ Hard Time", "card_toggle_field", {"id": card.id, "field": "hard_time"}),
-            ("🚧 Blocked", "card_toggle_field", {"id": card.id, "field": "blocked"}),
         ]
-        if card.blocked:
-            field_specs.append(
-                (
-                    "📝 Blocked reason",
-                    "card_edit_text",
-                    {"id": card.id, "field": "blocked_description"},
-                )
-            )
         if card.kind == CardKind.ACTION.value:
+            field_specs.insert(2, ("📍 Stage", "card_choose_stage", {"id": card.id}))
+            field_specs.append(
+                ("🚧 Blocked", "card_toggle_field", {"id": card.id, "field": "blocked"})
+            )
+            if card.blocked:
+                field_specs.append(
+                    (
+                        "📝 Blocked reason",
+                        "card_edit_text",
+                        {"id": card.id, "field": "blocked_description"},
+                    )
+                )
             field_specs.extend(
                 [
                     ("🔢 Effort", "card_choose_effort", {"id": card.id}),
@@ -902,11 +909,13 @@ async def render_card(
                 expires_at=datetime.now(UTC) + timedelta(minutes=30),
             )
         )
-        progress = (
-            await card_progress(session, card.id)
-            if card.kind in {CardKind.GOAL.value, CardKind.IDEA.value}
-            else {}
-        )
+        progress: dict[str, Any] = {}
+        if card.kind != CardKind.ACTION.value:
+            progress = dict(await card_progress(session, card.id))
+            progress["blocking_actions"] = [
+                (action.title, action.blocked_description)
+                for action in await blocking_actions(session, card.id)
+            ]
         workspace = await session.get(Workspace, 1)
         tz = ZoneInfo(workspace.timezone if workspace else "UTC")
         closed_at = (

@@ -21,7 +21,7 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
 )
 from safwa.domain import bootstrap_workspace
-from safwa.features.cards.agent import BOARD_PROMPT, BOARD_TOOLS
+from safwa.features.board.agent import BOARD_PROMPT, BOARD_TOOLS
 from safwa.features.continuity.memory import MemoryFileStore
 from safwa.foundation.database import Database, upgrade_database
 
