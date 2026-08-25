@@ -168,9 +168,9 @@ Feature: Cards
     And a Card still open is never archived, however old it is
     And a Goal whose branch is not finished is not archived either
 
-  Scenario: CD-ARCHIVE-023 — An archived Card is hidden but still counted
+  Scenario: CD-ARCHIVE-023 — An archived Card is marked, not left out
     Given a Goal with two finished Actions under it, one of them archived
-    Then the screens, the dashboards and Safwa show the live one and not the archived one
+    Then the archived one shows under its Goal marked "[📦]", and the lists by stage leave it out
     And the effort of both is still counted, and both still count as Cards that were completed
     And the Sprint it closed in still reports it
 
@@ -185,6 +185,26 @@ Feature: Cards
     When the owner reopens an archived Card
     Then it is out of the archive and back on the screens
     And an archived Action that repeats stays archived: it cannot be reopened
+
+  Scenario: CD-REPEAT-026 — A repeat series reads as one series
+    Given a repeating Action finished twice, so the series holds three Cards
+    Then all three name the same series, and a Card that was never copied names itself
+    And each finished one is titled "[🔄2, live #7]": its place in the series, then the open one
+      (REPEAT_MARKER)
+    And the open one is titled plainly, which is what says it is the one to work with
+    And a Card that does not repeat is never titled with a marker
+    And an archived one carries "[📦]" after its place in the series (ARCHIVE_MARKER)
+    When the series has ended and no open one is left
+    Then the last finished one is titled "[🔄3]" (REPEAT_MARKER_ENDED)
+
+  Scenario: CD-ARCHIVE-027 — An archived Card opens, and reads as archived
+    Given an archived Card, cited in one of Safwa's answers or listed under its Goal
+    When the owner taps it, or Safwa opens it
+    Then it opens on a screen that says it is archived, offering nothing that would edit it
+    And an Action that does not repeat offers Reopen, which takes it out of the archive
+    And an Action that repeats offers no Reopen, by CD-ARCHIVE-024
+    And a Goal and an Idea offer none: they leave the archive when a Card under them is reopened
+    And deleting it is offered, and deletes it
 
   Scenario: CD-DELETE-025 — Deleting a Card deletes everything under it
     Given a Goal with Ideas and Actions under it

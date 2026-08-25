@@ -78,7 +78,7 @@ Feature: Values
       carry it
     And the Checks are the evidence: they say how well Health is actually being held to
     And the Cards are the work: they say what is being done about it
-    And an archived Card or Check is in neither answer
+    And an archived Card or Check is in both answers, marked "[📦]"
 
   Scenario: VL-DELETE-015 — A Value is deleted, not archived
     Given a Value carried by Cards and by Checks

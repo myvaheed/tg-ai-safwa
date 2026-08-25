@@ -114,14 +114,20 @@ async def require_target(
     """
     entity = await context.session.get(model, change.id) if change.id else None
     expected_version = entity.version if entity is not None else None
-    if change.id is not None and (
-        entity is None or getattr(entity, "archived_at", None) is not None
-    ):
+    if change.id is not None and entity is None:
         raise ToolPreparationError(
             "target_not_found",
-            f"{change.entity.title()} #{change.id} does not exist or is archived.",
+            f"{change.entity.title()} #{change.id} does not exist.",
             "Find the current numeric ID with query_safwa and retry. If nothing matches, say so "
             "instead of proposing again.",
+        )
+    if entity is not None and getattr(entity, "archived_at", None) is not None:
+        raise ToolPreparationError(
+            "target_archived",
+            f"{change.entity.title()} #{change.id} is archived.",
+            f"An archived item is not changed automatically. Do not propose this again. End your "
+            f"answer with one line naming it: [title]({change.entity}:{change.id}). The owner "
+            f"opens it and changes it by hand.",
         )
     return entity, expected_version
 

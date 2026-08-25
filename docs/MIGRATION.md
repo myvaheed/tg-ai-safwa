@@ -1111,3 +1111,77 @@ schema moved.
 
 Verification: `ruff check .` clean; `pytest -q` 621 passed / 3 skipped; metrics unchanged — DoD #1
 26, #2 0, #3 6, #13 0, 0 cycles, Rule G 2, Rule H 26.
+
+## What Phase 5.e delivered
+
+Archiving stopped meaning "gone". The packet is
+[brd/series_and_archive.md](brd/series_and_archive.md); the scenarios are five new ones —
+`CD-REPEAT-026`, `CD-ARCHIVE-027`, `CH-REPEAT-015`, `CH-ARCHIVE-016`, `PR-TARGET-001` — plus one
+rewritten line in each of `CD-ARCHIVE-023`, `CH-ARCHIVE-013`, `SR-RUN-006` and `VL-READ-014`.
+[`tests/brd/proposals.feature`](../tests/brd/proposals.feature) is a new file, and `PR` is a prefix
+in use.
+
+**A list by stage leaves an archived item out. Every other list shows it, marked.** `ai_cards` and
+`ai_checks` stopped filtering `archived_at`, and so did the Cards under a Card, the Checks on a
+Card, the Cards a Check hangs on, and the answer of a saved Request. The mark is ` [📦]`, rendered
+by the same function that renders the repeat marker, so the owner and the model read one wording.
+
+Safwa had been answering a counting question wrong and answering it quietly: with a repeating Check
+on a Card, "how many times did I do it" came back 1/1 where the truth was 2/1, because the archiver
+had taken the older answers off the view. `ai_checks.card_id` could also name a Card `ai_cards` did
+not carry, so a join between the two dropped rows instead of failing.
+
+**The repeat marker names the open instance.** It rendered ` [🔄2]` while both prompts told the
+model that number was an id. It is the instance's place in its series, so a model that read it as an
+id opened a different item. It is ` [🔄2, live #7]` now, and ` [🔄2]` only when the series has
+ended. `REPEAT_MARKER` carries a `{live}` slot that `REPEAT_LIVE` fills, so there is one branch and
+one format rather than one of each per outcome.
+
+**A series names itself.** `ai_cards` gained `series_id` and `ai_checks` exposes
+`COALESCE(series_id, id)`, because the first instance carries no series until a second one is made —
+grouping by it dropped every unrepeated row into one nameless bucket. `ai_checks` also gained
+`card_series_id`, which turns "every answer across every copy of a repeating Action" into one flat
+query with no join. The `direct_checks` column left `ai_cards`: once `ai_checks` showed the archived
+ones, the two disagreed about how many Checks a Card has, and `ai_checks WHERE card_id = N` is the
+one answer.
+
+**An archived item opens.** The citation keeps its link, `open` no longer calls one missing, and
+`render_card`/`render_check` render it instead of refusing. The archived screen is a branch inside
+each render, not a `render_archived_*` of its own: only the controls differ — no field button, no
+answer button, no second trip to the archive, Reopen for an Action that does not repeat, Delete —
+and a second function would be a copy of the reading half, which is the shape this batch removed
+from two other places.
+
+**`require_target` says which refusal it is.** "Does not exist or is archived" was one sentence for
+two different failures, and it sent the model looking for an id that was already right. An archived
+target is `target_archived` now, and the hint tells the model to name it to the owner as
+`[title](card:12)` rather than to propose again.
+
+### What this batch cleaned up
+
+- `card_checks` and `series_instances` were the same query once the filter went; one survives.
+- The children screen and the Card screen each carried their own copy of "the Cards under this one"
+  and "the Checks on this one". Both call the use case now, so a filter cannot drift between two
+  screens again.
+- Four `archived_at` filters were deleted because they filtered nothing: an archived Card is always
+  terminal, so a query for Today, for the Sprint, or for a non-terminal stage could never see one,
+  and an archived Check always has an answer, so a query for Pending could not either.
+- **The read authorizer denied a query it should have allowed, and had since it was written.**
+  SQLite reports a read with no column name when a view is flattened into a scan that needs none —
+  `SELECT count(*)` over any view, or `SELECT id` where the id is the rowid — and it names no view
+  to attribute it to. `SELECT id FROM ai_values` failed on a view this batch never touched. The
+  authorizer now allows a read that names no column; the statement validator has already refused
+  every `FROM` that is not a view. It only surfaced here because dropping the `WHERE` clause left
+  `ai_cards` with no column read of its own.
+
+### Found and left alone
+
+- A Check has no delete button on any screen. `CH-DELETE-014` says the owner may delete one, and
+  only the `remove` tool does. Older than this batch.
+- `render_card` is 250 lines and grew a branch. Splitting its button rows from its reading is the
+  obvious next cut, and it belongs to the batch that moves the Telegram adapters into their features.
+
+Verification: `ruff check .` clean; `pytest -q` 632 passed / 3 skipped; `prompt_prefix.json` moved
+on `SYSTEM_PROMPT` and `BOARD_PROMPT` and nothing else, `schema.json` byte-identical; metrics
+unchanged except the import graph, 574 edges for 572 — the two view modules now import
+`constants` for the archive marker. DoD #1 26, #2 0, #3 6, #13 0, 0 cycles, Rule G 2, Rule H 26.

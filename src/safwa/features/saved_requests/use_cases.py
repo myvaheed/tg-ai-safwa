@@ -112,8 +112,6 @@ async def request_cards(
         raise RequestQueryError("Request SQL id results must be integers") from error
     if not ids:
         return []
-    cards = list(
-        await session.scalars(select(Card).where(Card.id.in_(ids), Card.archived_at.is_(None)))
-    )
+    cards = list(await session.scalars(select(Card).where(Card.id.in_(ids))))
     by_id = {card.id: card for card in cards}
     return [by_id[card_id] for card_id in ids if card_id in by_id]

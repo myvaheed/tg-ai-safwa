@@ -1366,7 +1366,7 @@ class AIAdvisor:
             }
         async with self.sessions() as session:
             item = await session.get(OPENABLE_MODELS[request.item_type], request.id)
-            if item is None or getattr(item, "archived_at", None) is not None:
+            if item is None:
                 return {
                     "status": "error",
                     "code": "not_found",

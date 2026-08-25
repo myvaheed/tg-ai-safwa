@@ -22,6 +22,7 @@ from safwa.domain import (
     pending_checks,
     resolve_check,
     start_sprint,
+    title_marks,
     toggle_card_check,
     toggle_check_value,
     unobserved_series,
@@ -532,3 +533,80 @@ async def test_nothing_is_archived_while_the_workspace_is_in_planning(sessions):
         # Fewer Sprint endings than the wait, so the archiver has nothing to go on.
         assert await archive_settled_items(session) == ([], [])
         assert (await session.get(Check, check.id)).archived_at is None
+
+
+async def test_ch_repeat_015_every_instance_names_its_series_and_the_cards(read_views):
+    """CH-REPEAT-015 — tests/brd/checks.feature"""
+    sessions, runner = read_views
+    async with sessions() as session:
+        card = await create_action(session, title="Pull up 20 times", repeatable=True)
+        check = await linked_check(session, card.id, title="Pulled up today?", repeatable=True)
+        _, second = await resolve_check(session, check.id, CheckOutcome.PASSED)
+        await resolve_check(session, second.id, CheckOutcome.MISSED)
+        result = await finish_action(session, card.id, CardStage.DONE)
+        successor_card = result.successor_ids[0]
+        loose = await linked_check(session, None, title="Weighed in?")
+        await session.commit()
+        card_id, check_id, loose_id = card.id, check.id, loose.id
+
+    rows = (
+        await runner.run(
+            "SELECT id, title, status, series_id, card_id, card_series_id FROM ai_checks "
+            "ORDER BY id"
+        )
+    ).rows
+    by_id = {row["id"]: row for row in rows}
+
+    # Every instance of the series names the same series, whichever copy of the Card it
+    # landed on, and a Check that was never copied names itself.
+    series = {row["series_id"] for row in rows if row["id"] != loose_id}
+    assert series == {check_id}
+    assert by_id[loose_id]["series_id"] == loose_id
+    assert by_id[loose_id]["card_series_id"] is None
+
+    # Counting every answer across every copy of that Action reads one list and joins nothing.
+    counted = (
+        await runner.run(
+            f"SELECT status, count(*) AS n FROM ai_checks WHERE card_series_id = {card_id} "
+            "GROUP BY status ORDER BY status"
+        )
+    ).rows
+    assert counted == [{"status": "missed", "n": 1}, {"status": "passed", "n": 1},
+                       {"status": "pending", "n": 1}]
+    assert {row["card_id"] for row in rows if row["id"] != loose_id} == {card_id, successor_card}
+
+    answered = by_id[check_id]
+    assert answered["title"].startswith("Pulled up today? [🔄1, live #")
+
+
+async def test_ch_repeat_015_a_card_finds_its_checks_by_naming_the_card(sessions):
+    """CH-REPEAT-015 — tests/brd/checks.feature"""
+    async with sessions() as session:
+        card = await create_action(session, title="Posture")
+        answered = await linked_check(session, card.id, title="Sat straight?")
+        await resolve_check(session, answered.id, CheckOutcome.PASSED)
+        await archive_check(session, answered.id)
+        pending = await linked_check(session, card.id, title="Stood up?")
+        await session.commit()
+
+        # One list, archived or not: the screen marks what is archived instead of hiding it.
+        assert [check.id for check in await card_checks(session, card.id)] == [
+            answered.id,
+            pending.id,
+        ]
+        assert await title_marks(session, answered) == " [📦]"
+
+
+async def test_ch_archive_013_safwa_reads_an_archived_answer(read_views):
+    """CH-ARCHIVE-013 — tests/brd/checks.feature"""
+    sessions, runner = read_views
+    async with sessions() as session:
+        card = await create_action(session, title="Posture")
+        check = await linked_check(session, card.id, title="Sat straight?")
+        await resolve_check(session, check.id, CheckOutcome.PASSED)
+        await archive_check(session, check.id)
+        await session.commit()
+        check_id = check.id
+
+    rows = (await runner.run("SELECT id, title, status FROM ai_checks")).rows
+    assert rows == [{"id": check_id, "title": "Sat straight? [📦]", "status": "passed"}]

@@ -98,10 +98,25 @@ Feature: Checks
   Scenario: CH-ARCHIVE-013 — An answered Check is archived two Sprints later
     Given a Check that was answered
     When two Sprints have gone by since it was answered
-    Then it is archived without anyone asking, off the screens by default and still in every count
+    Then it is archived without anyone asking: still counted, and marked "[📦]" wherever it shows
     And its Card did not take it there, and it did not wait for its Card
     And the owner may archive an answered Check by hand before then
     And a Check that is still Pending cannot be archived
+
+  Scenario: CH-REPEAT-015 — A Check names its own series and the Card's
+    Given a repeating Check answered twice on a repeating Action that has been finished once
+    Then every instance names the same Check series, and one never copied names itself
+    And every instance also names the series of the Card it hangs on, and none if it hangs on none
+    And counting every answer across every copy of that Action reads one list and joins nothing
+    And the Checks on a Card are found by naming that Card, and in no other place
+    And an answered instance is titled "[🔄2, live #7]" and the Pending one plainly (REPEAT_MARKER)
+
+  Scenario: CH-ARCHIVE-016 — An archived Check opens, and keeps its answer
+    Given an archived Check, cited in one of Safwa's answers or listed on its Card
+    When the owner taps it, or Safwa opens it
+    Then it opens on a screen that says it is archived, showing the answer it was archived with
+    And no answer button is offered, and nothing else that would change it
+    And a closed repeat still offers the button that opens the open one in its series
 
   Scenario: CH-DELETE-014 — Deleting a Check deletes it
     Given a Check the owner wants gone

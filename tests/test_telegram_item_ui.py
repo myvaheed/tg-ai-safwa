@@ -32,12 +32,15 @@ from safwa.constants import (
 )
 from safwa.domain import (
     DomainError,
+    archive_check,
+    archive_subtree,
     create_card,
     create_check,
     create_tag,
     create_value,
     delete_tag,
     finish_action,
+    resolve_check,
     set_sprint_success_criteria,
     start_sprint,
     toggle_card_check,
@@ -48,6 +51,7 @@ from safwa.domain import (
 from safwa.enums import MessageKind
 from safwa.features.cards.model import CardStage
 from safwa.features.cards.use_cases import EFFORT_POINTS
+from safwa.features.checks.model import CheckOutcome
 from safwa.features.diary.use_cases import create_diary_entry
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.screens import command_settings
@@ -117,6 +121,7 @@ from safwa.telegram._messaging import (
     send_registered,
 )
 from safwa.telegram._presentation import start_payload
+from safwa.telegram.checks import render_check
 from safwa.telegram.commands import command_requests, command_start
 from safwa.telegram.dialogue import run_dialogue_turn
 from safwa.telegram.plan import handle_plan_start, is_plan_link, render_plan
@@ -1225,8 +1230,9 @@ async def test_a_closed_card_shows_when_it_closed_and_where_its_series_went(sess
     await render_card(message, services, card_id)
 
     text, markup = message.edits[-1]
-    # The title is what the owner typed: the marker belongs to what the model reads.
-    assert "Title: <b>Run</b>" in text
+    # One wording: the owner reads the same marks the model does, and the id in them is
+    # the open instance the series moved to.
+    assert f"Title: <b>Run [🔄1, live #{live_id}]</b>" in text
     assert "Completed at: " in text
     current = next(button for button in button_texts(markup) if button.startswith("🔄 Current"))
     assert current == "🔄 Current: Run"
@@ -3080,3 +3086,65 @@ async def test_a_goal_screen_names_each_blocked_action_and_quotes_its_reason(ses
     # A Goal has no reason of its own, so nothing asks for one.
     assert "Blocked description" not in text
     assert "🚧 Blocked" not in button_texts(message.edits[-1][1])
+
+
+async def test_cd_archive_027_an_archived_card_reads_as_archived(sessions) -> None:
+    """CD-ARCHIVE-027 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        plain = await create_card(
+            session, kind="action", title="Walk", effort_points=2, stage="today"
+        )
+        await finish_action(session, plain.id, CardStage.DONE)
+        await archive_subtree(session, plain.id)
+        repeating = await create_card(
+            session, kind="action", title="Run", effort_points=2, stage="today", repeatable=True
+        )
+        await finish_action(session, repeating.id, CardStage.DONE)
+        await archive_subtree(session, repeating.id)
+        await session.commit()
+        plain_id, repeating_id = plain.id, repeating.id
+
+    services = services_for(sessions)
+    message = FakeMessage(500, bot_message=True)
+    await render_card(message, services, plain_id)
+    text, labels = message.edits[-1][0], button_texts(message.edits[-1][1])
+
+    assert "[📦]" in text
+    assert "♻️ Reopen" in labels
+    assert "Delete" in labels
+    # Nothing that would edit it: no field control, and no second trip to the archive.
+    assert "Archive" not in labels
+    assert not [label for label in labels if label in {"✏️ Title", "📍 Stage", "💎 Values"}]
+
+    # A closed repeat cannot be reopened, so Delete is the only way out of the archive.
+    message = FakeMessage(501, bot_message=True)
+    await render_card(message, services, repeating_id)
+    repeating_labels = button_texts(message.edits[-1][1])
+    assert "♻️ Reopen" not in repeating_labels
+    assert "Delete" in repeating_labels
+
+
+async def test_ch_archive_016_an_archived_check_keeps_its_answer(sessions) -> None:
+    """CH-ARCHIVE-016 — tests/brd/checks.feature"""
+    async with sessions() as session:
+        card = await create_card(
+            session, kind="action", title="Posture", effort_points=2, stage="today"
+        )
+        check = await create_check(session, title="Sat straight?", repeatable=True)
+        await toggle_card_check(session, card.id, check.id)
+        await resolve_check(session, check.id, CheckOutcome.PASSED)
+        await archive_check(session, check.id)
+        await session.commit()
+        check_id = check.id
+
+    services = services_for(sessions)
+    message = FakeMessage(600, bot_message=True)
+    await render_check(message, services, check_id)
+    text, labels = message.edits[-1][0], button_texts(message.edits[-1][1])
+
+    assert "[📦]" in text
+    assert "Status: ✅" in text
+    assert not [label for label in labels if "Passed" in label or "Missed" in label]
+    assert not [label for label in labels if "Repeat" in label or "Values" in label]
+    # The one thing it still offers is the way to the open instance of its series.
+    assert [label for label in labels if label.startswith("🔄 Current:")]

@@ -69,3 +69,26 @@ async def sessions():
         await session.commit()
     yield factory
     await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def read_views(tmp_path):
+    """A workspace on disk plus the `ai_*` views: what a test reads when Safwa reads.
+
+    The views are dropped and rebuilt from the feature declarations, so a test that asks
+    what Safwa sees asks the real catalogue rather than a copy of it.
+    """
+    from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
+    from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
+
+    path = tmp_path / "views.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{path.as_posix()}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+        await connection.run_sync(lambda sync: create_ai_views(sync, AI_VIEWS))
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        await bootstrap_workspace(session, 42, "Europe/Istanbul")
+        await session.commit()
+    yield factory, ReadOnlyQueryRunner(path, ALLOWED_VIEWS, timezone="Europe/Istanbul")
+    await engine.dispose()

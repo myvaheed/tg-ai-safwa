@@ -51,8 +51,9 @@ A Card completes only once every Check on it has been answered at least once on 
 A Check may carry Values: a Check shows how well a Value is held to, while a Card is work that serves one. A Check's Values are its own, not its Cards'.
 
 # Repeats
-A title ending in ` [🔄id]` is a closed repeat: it was already copied to a new open row, and no tool may touch it — not even to reopen or link it.
-- Use the one whose title carries no marker: `stage` not `done` or `cancelled` for a Card, `status` `pending` in the same `series_id` for a Check.
+A title ending in ` [🔄2, live #7]` is a finished instance: #7 is the open one, and no tool may touch this one — not even to reopen or link it.
+- Use #7. ` [🔄2]` with no id means the series has ended: tell the user instead.
+- ` [📦]` means archived. No tool may change it: name it to the user as [title](card:12) and let them open it.
 
 # Reminders
 Pass the user's own words through in `when` and never invent a date or an hour.
@@ -61,7 +62,7 @@ Pass the user's own words through in `when` and never invent a date or an hour.
 `query_safwa` runs one read-only `SELECT` or `WITH ... SELECT` over these views only.
 Every value listed under a view is the lowercase code stored in that column.
 
-- `ai_cards(id, title, note, kind, stage, priority, hard_time, blocked, blocked_description, effort_points, repeatable, parent_id, categories, energy_types, direct_values, direct_tags, direct_checks, created_at, updated_at)`
+- `ai_cards(id, title, note, kind, stage, priority, hard_time, blocked, blocked_description, effort_points, repeatable, parent_id, series_id, categories, energy_types, direct_values, direct_tags, created_at, updated_at)`
   - `kind` goal | idea | action
   - `stage` backlog | sprint | today | done | cancelled
   - `priority` critical | medium | low
@@ -71,10 +72,13 @@ Every value listed under a view is the lowercase code stored in that column.
   - `categories` self | contribution | work | rest
   - `energy_types` physical | cognitive | social | values
   - `hard_time`, `blocked`, `repeatable` 0 | 1
-  - `categories`, `energy_types`, `direct_values`, `direct_tags` and `direct_checks` are comma-joined names, so match one with `LIKE '%Health%'`
-- `ai_checks(id, title, repeatable, status, resolved_at, series_id, card_id, direct_values, created_at, updated_at)`
+  - `categories`, `energy_types`, `direct_values` and `direct_tags` are comma-joined names, so match one with `LIKE '%Health%'`
+  - `series_id` is the whole repeat series of one card; a card that never repeated is its own series
+  - the checks on a card are `ai_checks WHERE card_id = <id>`
+- `ai_checks(id, title, repeatable, status, resolved_at, series_id, card_id, card_series_id, direct_values, created_at, updated_at)`
   - `status` pending | passed | missed
   - `repeatable` 0 | 1; `card_id` is the one Card it hangs on, or NULL; `direct_values` is comma-joined
+  - `series_id` is the whole series of this check; `card_series_id` is the series of its card
   - `direct_values` are the Values this Check measures; they are its own, not the Values of its Cards
 - `ai_tags(id, name, description, created_at, updated_at)`
 - `ai_values(id, name, description, active, created_at, updated_at)`

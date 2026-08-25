@@ -460,11 +460,8 @@ async def sync_commitment_for_stage(
 
 
 async def card_children(session: AsyncSession, card_id: int) -> list[Card]:
-    return list(
-        await session.scalars(
-            select(Card).where(Card.parent_id == card_id, Card.archived_at.is_(None))
-        )
-    )
+    """Every Card under this one. An archived child is shown marked, not left out."""
+    return list(await session.scalars(select(Card).where(Card.parent_id == card_id)))
 
 
 def is_closed_repeat(card: Card) -> bool:

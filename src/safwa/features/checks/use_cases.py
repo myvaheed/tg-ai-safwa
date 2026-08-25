@@ -31,23 +31,11 @@ def is_closed_repeat(check: Check) -> bool:
 
 
 async def card_checks(session: AsyncSession, card_id: int) -> list[Check]:
-    """The Checks a screen shows on this Card: the archived ones are out of sight."""
-    return list(
-        await session.scalars(
-            select(Check)
-            .join(CardCheck, CardCheck.check_id == Check.id)
-            .where(CardCheck.card_id == card_id, Check.archived_at.is_(None))
-            .order_by(Check.id)
-        )
-    )
-
-
-async def series_instances(session: AsyncSession, card_id: int) -> list[Check]:
-    """Every Check instance on this Card, an archived one included.
+    """Every Check on this Card, an archived one included.
 
     Archiving is a matter of sight, so an answer that was archived is still an answer and
-    a series that was archived is still a series. R1, R2 and R3 all read this rather than
-    the live list, or a Card would ask its Checks again two Sprints after it answered them.
+    a series that was archived is still a series. R1, R2 and R3 read this, and so does the
+    screen — which marks the archived ones instead of leaving them out.
     """
     return list(
         await session.scalars(
@@ -65,11 +53,7 @@ async def pending_checks(session: AsyncSession, card_id: int) -> list[Check]:
         await session.scalars(
             select(Check)
             .join(CardCheck, CardCheck.check_id == Check.id)
-            .where(
-                CardCheck.card_id == card_id,
-                Check.outcome.is_(None),
-                Check.archived_at.is_(None),
-            )
+            .where(CardCheck.card_id == card_id, Check.outcome.is_(None))
             .order_by(Check.id)
         )
     )
@@ -85,7 +69,7 @@ async def unobserved_series(session: AsyncSession, card_id: int) -> list[Check]:
     """
     answered: dict[int, set[int]] = {}
     open_instance: dict[int, Check] = {}
-    for check in await series_instances(session, card_id):
+    for check in await card_checks(session, card_id):
         series_id = check.series_id or check.id
         if check.outcome is None:
             open_instance[series_id] = check
@@ -283,7 +267,7 @@ async def drop_pending_checks(session: AsyncSession, card_id: int) -> None:
     answered, so they go back to that answered instance rather than out with the row.
     """
     by_series: dict[int, list[Check]] = {}
-    for check in await series_instances(session, card_id):
+    for check in await card_checks(session, card_id):
         by_series.setdefault(check.series_id or check.id, []).append(check)
     doomed: list[int] = []
     for _, instances in sorted(by_series.items()):
@@ -312,7 +296,7 @@ async def clone_checks_for_successor(
     series on the new Card.
     """
     latest: dict[int, Check] = {}
-    for check in await series_instances(session, card_id):
+    for check in await card_checks(session, card_id):
         latest[check.series_id or check.id] = check
     for series_id, check in sorted(latest.items()):
         await _copy_check(session, check, series_id, successor_id)
@@ -326,7 +310,7 @@ async def reopen_checks(session: AsyncSession, card_id: int) -> None:
     next one instead of unsaying the last.
     """
     by_series: dict[int, list[Check]] = {}
-    for check in await series_instances(session, card_id):
+    for check in await card_checks(session, card_id):
         by_series.setdefault(check.series_id or check.id, []).append(check)
     for series_id, series in sorted(by_series.items()):
         newest = series[-1]

@@ -14,7 +14,6 @@ from safwa.domain import (
     finish_sprint,
     live_repeat_instance_id,
     move_card,
-    repeat_marker,
     set_card_parent,
     set_value_focus,
     sprint_metrics,
@@ -79,28 +78,6 @@ async def test_repeat_completion_clones_the_action(sessions):
         successor = await session.get(Card, result.successor_ids[0])
         assert successor.effective_stage == CardStage.TODAY.value
         assert successor.repeat_series_id == card.repeat_series_id
-
-
-async def test_a_closed_repeat_names_its_place_in_the_series(sessions):
-    async with sessions() as session:
-        first = await create_card(session, title="Run", repeatable=True, stage="today")
-        result = await finish_action(session, first.id, CardStage.DONE)
-        second = await session.get(Card, result.successor_ids[0])
-        result = await finish_action(session, second.id, CardStage.DONE)
-        third = await session.get(Card, result.successor_ids[0])
-        await session.commit()
-
-        assert await repeat_marker(session, first) == " [🔄1]"
-        assert await repeat_marker(session, second) == " [🔄2]"
-        # The open row carries the series, so it is named plainly — that is what says it is
-        # the one to work with.
-        assert await repeat_marker(session, third) == ""
-
-        # A Card that does not repeat is not a series, closed or not.
-        plain = await create_card(session, title="Once", stage="today")
-        await finish_action(session, plain.id, CardStage.DONE)
-        await session.commit()
-        assert await repeat_marker(session, plain) == ""
 
 
 async def test_a_closed_repeat_cannot_be_reopened_and_points_at_the_open_one(sessions):

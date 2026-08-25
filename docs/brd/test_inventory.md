@@ -30,17 +30,18 @@ a technical contract; `given-when-then` — the body already carries the comment
 | `test_board.py` | 3 | 3 | 0 | 0 | — |
 | `test_brd_traceability.py` | 6 | 6 | 0 | 0 | — |
 | `test_card_creation.py` | 5 | 5 | 0 | 0 | — |
-| `test_cards.py` | 27 | 27 | 0 | 0 | — |
-| `test_checks.py` | 22 | 22 | 0 | 0 | — |
+| `test_cards.py` | 30 | 30 | 0 | 0 | — |
+| `test_checks.py` | 25 | 25 | 0 | 0 | — |
 | `test_config.py` | 4 | 0 | 4 | 0 | contract-file |
 | `test_continuity.py` | 11 | 11 | 0 | 0 | — |
 | `test_diary.py` | 19 | 19 | 0 | 0 | — |
-| `test_domain.py` | 11 | 11 | 0 | 0 | — |
+| `test_domain.py` | 10 | 10 | 0 | 0 | — |
 | `test_feature_modules.py` | 7 | 7 | 0 | 0 | — |
 | `test_history.py` | 18 | 18 | 0 | 0 | — |
 | `test_infrastructure.py` | 8 | 0 | 8 | 0 | contract-file, fakes |
 | `test_memory.py` | 7 | 7 | 0 | 0 | — |
 | `test_profile.py` | 11 | 11 | 0 | 0 | — |
+| `test_proposals.py` | 2 | 2 | 0 | 0 | — |
 | `test_provider.py` | 14 | 0 | 14 | 0 | contract-file, fakes |
 | `test_qa.py` | 2 | 0 | 2 | 0 | contract-file |
 | `test_reminder_flow.py` | 31 | 31 | 0 | 0 | fakes |
@@ -51,6 +52,6 @@ a technical contract; `given-when-then` — the body already carries the comment
 | `test_state_flow.py` | 22 | 0 | 22 | 0 | contract-file |
 | `test_subagents.py` | 6 | 6 | 0 | 0 | — |
 | `test_tags.py` | 4 | 4 | 0 | 0 | — |
-| `test_telegram_item_ui.py` | 81 | 42 | 0 | 39 | fakes, ui-layout |
+| `test_telegram_item_ui.py` | 83 | 44 | 0 | 39 | fakes, ui-layout |
 | `test_values.py` | 11 | 11 | 0 | 0 | — |
-| **total** | **544** | **414** | **90** | **40** | |
+| **total** | **553** | **423** | **90** | **40** | |

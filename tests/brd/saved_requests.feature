@@ -43,7 +43,7 @@ Feature: Saved Requests
     When it is run
     Then the Cards come back in that order
     And a Card the query named twice appears once
-    And an archived Card is not in the answer
+    And an archived Card comes back marked "[📦]"
     And a Card that no longer exists is skipped, rather than breaking the run
 
   Scenario: SR-AI-007 — The screen shows the query that will be saved, and a bad one never gets there

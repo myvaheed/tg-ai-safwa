@@ -10,6 +10,8 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .constants import (
+    ARCHIVE_MARKER,
+    REPEAT_LIVE,
     REPEAT_MARKER,
     SPRINT_LENGTH_DAYS,
     SPRINT_LENGTH_MAX_DAYS,
@@ -413,31 +415,39 @@ def is_closed_repeat(entity: Card | Check) -> bool:
     return _is_closed_repeat_card(entity)
 
 
-async def repeat_marker(session: AsyncSession, entity: Card | Check) -> str:
-    """`` [🔄3]`` for a closed repeat instance, empty for anything else.
+async def title_marks(session: AsyncSession, entity: Card | Check) -> str:
+    """What a title carries after it: its place in a repeat series, and the archive.
 
-    The number is the instance's place in its series, counted over every row the series
-    has ever had: archiving one must not renumber the others.  Nothing is stored renamed —
-    `ai_cards` and `ai_checks` render the same marker in SQL.
+    The place is counted over every row the series has ever had, so archiving one does not
+    renumber the others, and `live #7` is the open one — a closed instance read as the one
+    to work with is the mistake both marks exist to stop.  Nothing is stored renamed:
+    `ai_cards` and `ai_checks` render the same marks in SQL.
     """
-    if not is_closed_repeat(entity):
-        return ""
-    if isinstance(entity, Check):
-        statement = (
-            select(func.count())
-            .select_from(Check)
-            .where(Check.series_id == (entity.series_id or entity.id), Check.id <= entity.id)
-        )
-    else:
-        statement = (
-            select(func.count())
-            .select_from(Card)
-            .where(
-                Card.repeat_series_id == (entity.repeat_series_id or entity.id),
-                Card.id <= entity.id,
+    marks = ""
+    if is_closed_repeat(entity):
+        if isinstance(entity, Check):
+            statement = (
+                select(func.count())
+                .select_from(Check)
+                .where(Check.series_id == (entity.series_id or entity.id), Check.id <= entity.id)
             )
+        else:
+            statement = (
+                select(func.count())
+                .select_from(Card)
+                .where(
+                    Card.repeat_series_id == (entity.repeat_series_id or entity.id),
+                    Card.id <= entity.id,
+                )
+            )
+        live_id = await live_repeat_instance_id(session, entity)
+        marks += REPEAT_MARKER.format(
+            index=await session.scalar(statement),
+            live="" if live_id is None else REPEAT_LIVE.format(live_id=live_id),
         )
-    return REPEAT_MARKER.format(index=await session.scalar(statement))
+    if entity.archived_at is not None:
+        marks += ARCHIVE_MARKER
+    return marks
 
 
 async def live_repeat_instance_id(session: AsyncSession, entity: Card | Check) -> int | None:
@@ -524,7 +534,6 @@ async def start_sprint(
     cards = await session.scalars(
         select(Card).where(
             Card.kind == CardKind.ACTION.value,
-            Card.archived_at.is_(None),
             Card.effective_stage.in_([CardStage.SPRINT.value, CardStage.TODAY.value]),
         )
     )

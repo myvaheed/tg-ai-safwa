@@ -199,8 +199,9 @@ async def test_safwa_can_start_from_a_value_and_find_what_is_behind_it(sessions)
                 )
             ).scalars()
         )
-        assert cards == ["Morning run"]
-        assert checks == ["Did I sleep seven hours?"]
+        # The archived ones are in both answers, and the marker is what says they are old.
+        assert cards == ["Morning run", "Old plan [📦]"]
+        assert checks == ["Did I sleep seven hours?", "Old observation [📦]"]
 
 
 async def test_safwa_is_told_which_values_are_in_focus(sessions):

@@ -16,9 +16,12 @@ from ..domain import (
     DomainError,
     ReferenceSpec,
     blocking_actions,
+    card_checks,
+    card_children,
     card_progress,
     is_closed_repeat,
     live_repeat_instance_id,
+    title_marks,
     validate_action_fields,
     validate_blocked_fields,
 )
@@ -34,11 +37,9 @@ from ..features.cards.use_cases import EFFORT_POINTS
 from ..models import (
     Card,
     CardCategory,
-    CardCheck,
     CardEnergyType,
     CardTag,
     CardValue,
-    Check,
     Tag,
     UiSession,
     Value,
@@ -136,7 +137,8 @@ async def card_list_rows(
             metadata.append("Repeat")
         if card.blocked:
             metadata.append("Blocked")
-        label = f"{prefix(card) if prefix else ''}{card.title} · {' · '.join(metadata)}"
+        marks = await title_marks(session, card)
+        label = f"{prefix(card) if prefix else ''}{card.title}{marks} · {' · '.join(metadata)}"
         descriptions.append(f"• {label}")
         row = [
             await token_button(
@@ -622,16 +624,9 @@ async def render_children(
     back = back or {"kind": "home"}
     async with services.sessions() as session:
         parent = await session.get(Card, parent_id)
-        if parent is None or parent.archived_at is not None:
-            raise DomainError("Parent Card does not exist or is archived")
-        children = list(
-            await session.scalars(
-                select(Card).where(
-                    Card.parent_id == parent.id,
-                    Card.archived_at.is_(None),
-                )
-            )
-        )
+        if parent is None:
+            raise DomainError("Parent Card does not exist")
+        children = await card_children(session, parent.id)
         current = paginate_cards(children, page)
         child_back = {
             "kind": "children",
@@ -738,13 +733,14 @@ async def render_card(
                 select(CardEnergyType.energy_type).where(CardEnergyType.card_id == card.id)
             )
         )
-        field_specs = [
+        archived = card.archived_at is not None
+        field_specs: list[tuple[str, str, dict[str, Any]]] = [] if archived else [
             ("✏️ Title", "card_edit_text", {"id": card.id, "field": "title"}),
             ("📝 Note", "card_edit_text", {"id": card.id, "field": "note"}),
             ("⚠️ Priority", "card_choose_priority", {"id": card.id}),
             ("⏱ Hard Time", "card_toggle_field", {"id": card.id, "field": "hard_time"}),
         ]
-        if card.kind == CardKind.ACTION.value:
+        if card.kind == CardKind.ACTION.value and not archived:
             field_specs.insert(2, ("📍 Stage", "card_choose_stage", {"id": card.id}))
             field_specs.append(
                 ("🚧 Blocked", "card_toggle_field", {"id": card.id, "field": "blocked"})
@@ -769,12 +765,13 @@ async def render_card(
                     ("⚡ Energy", "card_choose_energy", {"id": card.id}),
                 ]
             )
-        field_specs.extend(
-            [
-                ("💎 Values", "card_choose_values", {"id": card.id}),
-                ("🏷 Tags", "card_choose_tags", {"id": card.id}),
-            ]
-        )
+        if not archived:
+            field_specs.extend(
+                [
+                    ("💎 Values", "card_choose_values", {"id": card.id}),
+                    ("🏷 Tags", "card_choose_tags", {"id": card.id}),
+                ]
+            )
         buttons = [await token_button(session, services.owner_id, *spec) for spec in field_specs]
         rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
         relationship_rows: list[list[InlineKeyboardButton]] = []
@@ -822,14 +819,7 @@ async def render_card(
                     )
                 ]
             )
-        direct_checks = list(
-            await session.scalars(
-                select(Check)
-                .join(CardCheck, CardCheck.check_id == Check.id)
-                .where(CardCheck.card_id == card.id, Check.archived_at.is_(None))
-                .order_by(Check.id)
-            )
-        )
+        direct_checks = await card_checks(session, card.id)
         check_total = len(direct_checks)
         pending_total = sum(1 for check in direct_checks if check.outcome is None)
         # A Check reaches a Card through a proposal, so an empty list has nothing to offer.
@@ -871,20 +861,37 @@ async def render_card(
                     ),
                 ]
             )
-        rows.append(
-            [
+        # What an archived Card still offers: it leaves the archive by being reopened, and
+        # a closed repeat never reopens, so for that one the only way out is Delete.
+        closing_row = [
+            await token_button(
+                session,
+                services.owner_id,
+                "Delete",
+                "card_delete_prompt",
+                {"id": card.id},
+            )
+        ]
+        if archived:
+            if card.kind == CardKind.ACTION.value and not is_closed_repeat(card):
+                closing_row.insert(
+                    0,
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        "♻️ Reopen",
+                        "card_move",
+                        {"id": card.id, "stage": CardStage.BACKLOG.value},
+                    ),
+                )
+        else:
+            closing_row.insert(
+                0,
                 await token_button(
                     session, services.owner_id, "Archive", "card_archive", {"id": card.id}
                 ),
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "Delete",
-                    "card_delete_prompt",
-                    {"id": card.id},
-                ),
-            ]
-        )
+            )
+        rows.append(closing_row)
         rows.append(
             [
                 await token_button(
@@ -897,18 +904,20 @@ async def render_card(
             ]
         )
         await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
-        session.add(
-            UiSession(
-                owner_id=services.owner_id,
-                kind="card_editor",
-                state={
-                    "card_id": card.id,
-                    "back": back,
-                    "message_id": replace_message_id or message.message_id,
-                },
-                expires_at=datetime.now(UTC) + timedelta(minutes=30),
+        # An archived Card has no field to type into, so it leaves no editor behind.
+        if not archived:
+            session.add(
+                UiSession(
+                    owner_id=services.owner_id,
+                    kind="card_editor",
+                    state={
+                        "card_id": card.id,
+                        "back": back,
+                        "message_id": replace_message_id or message.message_id,
+                    },
+                    expires_at=datetime.now(UTC) + timedelta(minutes=30),
+                )
             )
-        )
         progress: dict[str, Any] = {}
         if card.kind != CardKind.ACTION.value:
             progress = dict(await card_progress(session, card.id))
@@ -918,6 +927,10 @@ async def render_card(
             ]
         workspace = await session.get(Workspace, 1)
         tz = ZoneInfo(workspace.timezone if workspace else "UTC")
+        card_marks = await title_marks(session, card)
+        check_names = [
+            check.title + await title_marks(session, check) for check in direct_checks
+        ]
         closed_at = (
             card.cancelled_at
             if card.effective_stage == CardStage.CANCELLED.value
@@ -928,7 +941,7 @@ async def render_card(
         card_overview_text(
             {
                 "kind": card.kind,
-                "title": card.title,
+                "title": card.title + card_marks,
                 "parent_name": parent.title if parent else None,
                 "stage": card.effective_stage,
                 "closed_at": f"{closed_at.astimezone(tz):%Y-%m-%d %H:%M}" if closed_at else None,
@@ -943,7 +956,7 @@ async def render_card(
                 "energy_types": energy_types,
                 "value_names": [value.name for value in direct_values],
                 "tag_names": [tag.name for tag in direct_tags],
-                "check_names": [check.title for check in direct_checks],
+                "check_names": check_names,
                 **progress,
             }
         ),

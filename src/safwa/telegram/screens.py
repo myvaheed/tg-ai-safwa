@@ -9,7 +9,7 @@ from aiogram.types import InlineKeyboardButton, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..domain import DomainError, card_progress, repeat_marker
+from ..domain import DomainError, card_progress, title_marks
 from ..enums import CardKind, MessageKind
 from ..features.diary.model import DiaryEntry
 from ..features.diary.telegram import diary_label, render_diary
@@ -67,7 +67,7 @@ def _with_citation_fields(leading: str, fields: list[str]) -> str:
 
 
 async def _card_citation_label(session: AsyncSession, card: Card) -> str:
-    marker = await repeat_marker(session, card)
+    marker = await title_marks(session, card)
     leading = f"{kind_emoji(card.kind)} {_short_citation_title(card.title)}{marker}"
     if card.kind in {CardKind.GOAL.value, CardKind.IDEA.value}:
         progress = await card_progress(session, card.id)
@@ -102,10 +102,10 @@ async def _card_citation_label(session: AsyncSession, card: Card) -> str:
 async def _check_citation_label(session: AsyncSession, check: Check) -> str | None:
     """A live Check keeps the model's own words.
 
-    A closed repeat has to carry its marker, or the link looks exactly like the open one it
-    was superseded by.
+    A closed repeat or an archived one has to carry its marks, or the link looks exactly
+    like the open one it was superseded by.
     """
-    marker = await repeat_marker(session, check)
+    marker = await title_marks(session, check)
     return f"{_short_citation_title(check.title)}{marker}" if marker else None
 
 
@@ -193,7 +193,7 @@ async def render_citations(session: AsyncSession, services: Services, text: str)
     if services.bot_username:
         for item_type, item_id in {(match[2], int(match[3])) for match in matches}:
             item = await session.get(OPENABLE_MODELS[item_type], item_id)
-            if item is None or getattr(item, "archived_at", None) is not None:
+            if item is None:
                 continue
             live[(item_type, item_id)] = await _citation_label(
                 session, services, item_type, item

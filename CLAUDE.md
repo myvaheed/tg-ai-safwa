@@ -311,6 +311,10 @@ system message.
 - **Everything is deleted; only a Card and a Check are also archived**, two Sprints after they
   closed (`ARCHIVE_AFTER_SPRINTS`). Archived is a matter of sight: it still counts everywhere it
   counted. A Value, a Tag and a Saved Request carry no `archived_at` at all.
+- **A list by stage leaves an archived item out; every other list shows it, marked `[📦]`.** It
+  opens, it reads as archived, and no proposal changes it — only the owner, by reopening or
+  deleting it. `domain.title_marks` is the one place both marks are written, and `ai_cards` and
+  `ai_checks` render the same wording in SQL.
 - A Card owns three link sets of one shape — Values, Tags, Checks — and a Check owns one, its
   Values. All four are `ReferenceSpec`s: adding another means adding a spec, not a special case.
   A Check's Values are its own statement about what it measures; nothing is derived between them

@@ -22,6 +22,7 @@ from safwa.domain import (
     move_card,
     sprint_metrics,
     start_sprint,
+    title_marks,
 )
 from safwa.features.cards.model import CardStage
 from safwa.features.saved_requests.use_cases import create_saved_request, request_cards
@@ -1177,7 +1178,7 @@ async def test_ai_can_query_saved_requests_through_the_safe_view(e2e_harness):
     assert '"name": "All goals"' in follow_up_context
 
 
-async def test_ai_request_query_values_and_ignores_archived_cards(e2e_harness):
+async def test_ai_request_query_values_and_marks_archived_cards(e2e_harness):
     """SR-RUN-006 — tests/brd/saved_requests.feature"""
     async with e2e_harness.sessions() as session:
         value = Value(name="Family")
@@ -1214,7 +1215,9 @@ async def test_ai_request_query_values_and_ignores_archived_cards(e2e_harness):
         request = await session.get(SavedRequest, affected[0])
         assert request is not None
         matches = await request_cards(session, request.query_sql, ALLOWED_VIEWS)
-        assert [card.id for card in matches] == [live.id]
+        # An archived Card is in the answer, and the marker on its title is what says so.
+        assert [card.id for card in matches] == [live.id, archived.id]
+        assert await title_marks(session, matches[1]) == " [📦]"
 
 
 async def test_ai_request_query_supports_complex_boolean_logic(e2e_harness):

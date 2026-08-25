@@ -287,13 +287,13 @@ async def test_a_closed_repeat_is_marked_everywhere_it_is_read(e2e_harness):
         row["id"]: row["title"]
         for row in (await runner.run("SELECT id, title FROM ai_checks")).rows
     }
-    assert titles[first_id] == "Posture straight? [🔄1]"
+    assert titles[first_id] == f"Posture straight? [🔄1, live #{second_id}]"
     assert titles[second_id] == "Posture straight?"
     cards = {
         row["id"]: row["title"]
         for row in (await runner.run("SELECT id, title FROM ai_cards")).rows
     }
-    assert cards[run_id] == "Run [🔄1]"
+    assert cards[run_id] == f"Run [🔄1, live #{live_run_id}]"
     assert cards[live_run_id] == "Run"
 
     # `open` shows exactly the id it was given: the marker is what says which one that is.
@@ -306,7 +306,7 @@ async def test_a_closed_repeat_is_marked_everywhere_it_is_read(e2e_harness):
     message = _TestMessage()
     services = _services(e2e_harness, advisor)
     await render_ai_outcome(message, services, outcome)
-    assert "<b>Check</b>: Posture straight?" in message.sent[-1]
+    assert f"<b>Check</b>: Posture straight? [🔄1, live #{second_id}]" in message.sent[-1]
     # The closed screen offers the live instance the series moved to.
     await _claim(e2e_harness, "check_view", message, services, id=second_id)
     assert "Status: ⬜ Pending" in message.rendered[-1]
@@ -316,7 +316,10 @@ async def test_a_closed_repeat_is_marked_everywhere_it_is_read(e2e_harness):
     advisor, _provider = e2e_harness.advisor([f"Yesterday's [x](check:{first_id}) passed."])
     cited = await advisor.handle("How did it go yesterday?")
     await render_ai_outcome(message, _services(e2e_harness, advisor), cited)
-    assert f'?start=check-{first_id}">Posture straight? [🔄1]</a>' in message.rendered[-1]
+    assert (
+        f'?start=check-{first_id}">Posture straight? [🔄1, live #{second_id}]</a>'
+        in message.rendered[-1]
+    )
 
 
 async def test_citations_link_live_items_and_drop_missing_ones(e2e_harness):
@@ -409,12 +412,8 @@ async def test_ai_can_create_and_read_checks(e2e_harness):
     async with e2e_harness.sessions() as session:
         assert await check_card_id(session, created_id) == card_id
 
-    # ai_cards names the Checks on a Card; how each one stands is ai_checks, reached by
-    # card_id, so the same fact is never counted twice in two places.
-    linked = await advisor.query_runner.run(
-        f"SELECT direct_checks FROM ai_cards WHERE id = {card_id}"
-    )
-    assert linked.rows[0]["direct_checks"] == "Posture straight?"
+    # One place answers which Checks are on a Card, so the same fact is never counted
+    # twice in two places that can disagree.
     standing = await advisor.query_runner.run(
         f"SELECT title, status FROM ai_checks WHERE card_id = {card_id}"
     )

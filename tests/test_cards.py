@@ -32,6 +32,7 @@ from safwa.domain import (
     move_card,
     set_card_parent,
     start_sprint,
+    title_marks,
     toggle_card_check,
     toggle_card_tag,
     toggle_card_value,
@@ -702,7 +703,7 @@ async def test_cd_archive_022_a_closed_card_is_archived_two_sprints_later(sessio
         assert (await session.get(Card, open_goal.id)).archived_at is None
 
 
-async def test_cd_archive_023_an_archived_card_is_hidden_but_still_counted(sessions):
+async def test_cd_archive_023_an_archived_card_is_marked_not_left_out(sessions):
     """CD-ARCHIVE-023 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
@@ -723,7 +724,13 @@ async def test_cd_archive_023_an_archived_card_is_hidden_but_still_counted(sessi
         assert (await session.get(Card, goal.id)).effort_points == 8
         assert (await card_progress(session, goal.id))["completed_effort"] == 8
         assert (await session.get(Card, goal.id)).effective_stage == CardStage.DONE.value
-        assert [item.id for item in await card_children(session, goal.id)] == [shown.id]
+        # The Goal lists both children and marks the archived one, rather than dropping it.
+        assert [item.id for item in await card_children(session, goal.id)] == [
+            hidden.id,
+            shown.id,
+        ]
+        assert await title_marks(session, hidden) == " [📦]"
+        assert await title_marks(session, shown) == ""
 
 
 async def test_cd_archive_024_only_a_closed_card_can_be_archived_by_hand(sessions):
@@ -820,3 +827,76 @@ async def test_cd_delete_025_deleting_a_card_deletes_everything_under_it(session
         assert list(await session.scalars(select(CardTag.card_id))) == []
         assert list(await session.scalars(select(SprintCommitment.card_id))) == []
         assert list(await session.scalars(select(CardEvent.card_id))) == []
+
+
+async def test_cd_repeat_026_a_closed_repeat_names_its_place_and_the_open_one(sessions):
+    """CD-REPEAT-026 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        first = await create_card(session, kind="action", title="Run", effort_points=2, repeatable=True, stage="today")
+        result = await finish_action(session, first.id, CardStage.DONE)
+        second = await session.get(Card, result.successor_ids[0])
+        result = await finish_action(session, second.id, CardStage.DONE)
+        third = await session.get(Card, result.successor_ids[0])
+        await session.commit()
+
+        assert await title_marks(session, first) == f" [🔄1, live #{third.id}]"
+        assert await title_marks(session, second) == f" [🔄2, live #{third.id}]"
+        # The open one is named plainly, and that is what says it is the one to work with.
+        assert await title_marks(session, third) == ""
+
+        plain = await create_card(session, kind="action", title="Once", effort_points=1, stage="today")
+        await finish_action(session, plain.id, CardStage.DONE)
+        await session.commit()
+        assert await title_marks(session, plain) == ""
+
+        # With the open one deleted the series has ended, so the marker names no id.
+        await delete_subtree(session, third.id)
+        await session.commit()
+        assert await title_marks(session, second) == " [🔄2]"
+
+
+async def test_cd_repeat_026_the_views_name_the_series_and_the_open_one(read_views):
+    """CD-REPEAT-026 — tests/brd/cards.feature"""
+    sessions, runner = read_views
+    async with sessions() as session:
+        first = await create_card(session, kind="action", title="Run", effort_points=2, repeatable=True, stage="today")
+        result = await finish_action(session, first.id, CardStage.DONE)
+        plain = await create_card(session, kind="action", title="Once", effort_points=1, stage="today")
+        await session.commit()
+        first_id, second_id, plain_id = first.id, result.successor_ids[0], plain.id
+
+    rows = (await runner.run("SELECT id, title, series_id FROM ai_cards ORDER BY id")).rows
+    by_id = {row["id"]: row for row in rows}
+
+    assert by_id[first_id]["series_id"] == by_id[second_id]["series_id"] == first_id
+    # A Card that never repeated is a series of one, named after itself rather than left
+    # nameless, so grouping by the series never drops it into a bucket with the others.
+    assert by_id[plain_id]["series_id"] == plain_id
+    assert by_id[first_id]["title"] == f"Run [🔄1, live #{second_id}]"
+    assert by_id[second_id]["title"] == "Run"
+
+
+async def test_cd_archive_023_an_archived_card_is_marked_and_still_listed(read_views):
+    """CD-ARCHIVE-023 — tests/brd/cards.feature"""
+    sessions, runner = read_views
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Health")
+        kept = await create_card(
+            session, kind="action", title="Kept", effort_points=2, stage="today", parent_id=goal.id
+        )
+        gone = await create_card(
+            session, kind="action", title="Gone", effort_points=3, stage="today", parent_id=goal.id
+        )
+        await finish_action(session, kept.id, CardStage.DONE)
+        await finish_action(session, gone.id, CardStage.DONE)
+        await archive_subtree(session, gone.id)
+        await session.commit()
+
+        assert {child.id for child in await card_children(session, goal.id)} == {kept.id, gone.id}
+        assert await title_marks(session, gone) == " [📦]"
+        # The effort of both is still counted, archived or not.
+        assert (await session.get(Card, goal.id)).effort_points == 5
+        gone_id = gone.id
+
+    rows = (await runner.run("SELECT id, title FROM ai_cards ORDER BY id")).rows
+    assert {row["id"]: row["title"] for row in rows}[gone_id] == "Gone [📦]"

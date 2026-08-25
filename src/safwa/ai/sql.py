@@ -24,12 +24,14 @@ from ..constants import (
     DEFAULT_COLUMN_LIMIT,
     DEFAULT_ROW_LIMIT,
     QUERY_TIMEOUT_SECONDS,
+    REPEAT_LIVE,
     REPEAT_MARKER,
 )
 
-# The marker `domain.repeat_marker` renders, as a SQLite format string: one wording, so a
-# closed repeat reads the same whether the model queried it or the owner tapped a citation.
-MARKER_FORMAT = REPEAT_MARKER.replace("{index}", "%d")
+# The marks `domain.title_marks` renders, as SQLite format strings: one wording, so a row
+# reads the same whether the model queried it or the owner tapped a citation.
+MARKER_FORMAT = REPEAT_MARKER.replace("{index}", "%d").replace("{live}", "%s")
+LIVE_FORMAT = REPEAT_LIVE.replace("{live_id}", "%d")
 
 
 class UnsafeQueryError(ValueError):
@@ -223,7 +225,7 @@ class ReadOnlyQueryRunner:
         statement = validate_read_sql(sql, self.views)
         connection = sqlite3.connect(f"file:{self.database_path.as_posix()}?mode=ro", uri=True)
 
-        def authorizer(action, arg1, _arg2, _db, trigger):  # type: ignore[no-untyped-def]
+        def authorizer(action, arg1, column, _db, trigger):  # type: ignore[no-untyped-def]
             if action in {
                 sqlite3.SQLITE_INSERT,
                 sqlite3.SQLITE_UPDATE,
@@ -234,9 +236,15 @@ class ReadOnlyQueryRunner:
                 sqlite3.SQLITE_PRAGMA,
             }:
                 return sqlite3.SQLITE_DENY
+            # A read with no column name discloses no column. SQLite reports one when a
+            # view is flattened into a scan that needs none — `SELECT count(*)` over any
+            # view, or `SELECT id` where the id is the rowid — and it names no view to
+            # attribute it to. Denying it would refuse those queries outright, and the
+            # statement validator has already refused every FROM that is not a view.
             if (
                 action == sqlite3.SQLITE_READ
                 and arg1
+                and column
                 and arg1.casefold() not in self.views
                 and (not trigger or trigger.casefold() not in self.views)
             ):

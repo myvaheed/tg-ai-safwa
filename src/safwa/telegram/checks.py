@@ -15,6 +15,7 @@ from ..domain import (
     check_value_ids,
     is_closed_repeat,
     live_repeat_instance_id,
+    title_marks,
     unobserved_series,
 )
 from ..enums import MessageKind
@@ -53,8 +54,8 @@ def outcome_button_label(outcome: str, title: str, *, current: str | None) -> st
 
 async def card_title(session, card_id: int) -> str:
     card = await session.get(Card, card_id)
-    if card is None or card.archived_at is not None:
-        raise DomainError("Card does not exist or is archived")
+    if card is None:
+        raise DomainError("Card does not exist")
     return str(card.title)
 
 
@@ -72,13 +73,15 @@ async def render_checks(
         checks = await card_checks(session, card_id)
         shown = checks[:CHECK_LIST_LIMIT]
         rows: list[list[InlineKeyboardButton]] = []
+        titles: list[str] = []
         for check in shown:
+            titles.append(check.title + await title_marks(session, check))
             rows.append(
                 [
                     await token_button(
                         session,
                         services.owner_id,
-                        f"{CHECK_STATUS_EMOJIS[check_status(check)]} {check.title}"[:60],
+                        f"{CHECK_STATUS_EMOJIS[check_status(check)]} {titles[-1]}"[:60],
                         "check_view",
                         {"id": check.id, "card_id": card_id, "back": back},
                     )
@@ -98,9 +101,9 @@ async def render_checks(
         lines.append("No Checks yet.")
     else:
         lines.extend(
-            f"{CHECK_STATUS_EMOJIS[check_status(check)]} {html.escape(check.title)}"
+            f"{CHECK_STATUS_EMOJIS[check_status(check)]} {html.escape(title)}"
             f" — {CHECK_OUTCOME_LABELS[check_status(check)]}"
-            for check in shown
+            for check, title in zip(shown, titles, strict=True)
         )
     if len(checks) > len(shown):
         lines.append(f"Showing the first {CHECK_LIST_LIMIT} of {len(checks)} Checks.")
@@ -134,37 +137,43 @@ async def render_check(
     back = back or {"kind": "home"}
     async with services.sessions() as session:
         check = await session.get(Check, check_id)
-        if check is None or check.archived_at is not None:
-            raise DomainError("Check does not exist or is archived")
+        if check is None:
+            raise DomainError("Check does not exist")
+        # An archived Check is read, not answered: it keeps the answer it was archived with.
+        archived = check.archived_at is not None
         linked_card_id = await check_card_id(session, check.id)
         linked_card_ids = [linked_card_id] if linked_card_id is not None else []
         linked_value_ids = await check_value_ids(session, check.id)
         payload = {"id": check.id, "card_id": card_id, "back": back}
         current = check_status(check)
         # The owner sets only what they alone know: whether it repeats, and how it turned out.
-        rows = [
-            [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    f"🔁 Repeat: {'On' if check.repeatable else 'Off'}",
-                    "check_toggle_repeat",
-                    payload,
-                )
-            ],
-            [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    outcome_button_label(
-                        outcome, CHECK_OUTCOME_LABELS[outcome], current=current
-                    ),
-                    "check_set_status",
-                    {**payload, "outcome": outcome},
-                )
-                for outcome in SETTABLE_OUTCOMES
-            ],
-        ]
+        rows: list[list[InlineKeyboardButton]] = (
+            []
+            if archived
+            else [
+                [
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        f"🔁 Repeat: {'On' if check.repeatable else 'Off'}",
+                        "check_toggle_repeat",
+                        payload,
+                    )
+                ],
+                [
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        outcome_button_label(
+                            outcome, CHECK_OUTCOME_LABELS[outcome], current=current
+                        ),
+                        "check_set_status",
+                        {**payload, "outcome": outcome},
+                    )
+                    for outcome in SETTABLE_OUTCOMES
+                ],
+            ]
+        )
         live_id = (
             await live_repeat_instance_id(session, check) if is_closed_repeat(check) else None
         )
@@ -181,17 +190,18 @@ async def render_check(
                     )
                 ]
             )
-        rows.append(
-            [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "💎 Values",
-                    "check_choose_values",
-                    payload,
-                )
-            ]
-        )
+        if not archived:
+            rows.append(
+                [
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        "💎 Values",
+                        "check_choose_values",
+                        payload,
+                    )
+                ]
+            )
         rows.append(
             [
                 await token_button(
@@ -204,17 +214,12 @@ async def render_check(
             ]
         )
         linked_cards = (
-            list(
-                await session.scalars(
-                    select(Card).where(
-                        Card.id.in_(linked_card_ids), Card.archived_at.is_(None)
-                    )
-                )
-            )
+            list(await session.scalars(select(Card).where(Card.id.in_(linked_card_ids))))
             if linked_card_ids
             else []
         )
-        card_titles = [card.title for card in linked_cards]
+        card_titles = [card.title + await title_marks(session, card) for card in linked_cards]
+        check_marks = await title_marks(session, check)
         value_names = (
             [
                 value.name
@@ -229,7 +234,7 @@ async def render_check(
 
     body = "\n".join(
         [
-            f"<b>Check</b>: {html.escape(check.title)}",
+            f"<b>Check</b>: {html.escape(check.title + check_marks)}",
             f"Status: {check_status_label(check)}",
             f"Repeatable: {'Yes' if check.repeatable else 'No'}",
             f"Cards: {html.escape(', '.join(card_titles)) or '—'}",
