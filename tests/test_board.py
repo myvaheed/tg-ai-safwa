@@ -9,8 +9,16 @@ from __future__ import annotations
 
 import re
 
-from safwa.bootstrap.modules import AGENTS, ALLOWED_VIEWS, PROPOSALS
-from safwa.features.board.agent import BOARD_AGENT, BOARD_PROMPT
+import pytest
+
+from safwa.bootstrap.modules import (
+    AGENTS,
+    ALLOWED_VIEWS,
+    HEAVY_ANALYZER_PROMPT,
+    PROPOSALS,
+    SYSTEM_PROMPT,
+)
+from safwa.features.board.agent import BOARD_AGENT
 
 
 def test_every_mutation_tool_belongs_to_the_board_or_to_the_diary():
@@ -28,10 +36,20 @@ def test_the_board_judges_a_change_against_the_state_it_is_given():
     assert BOARD_AGENT.board_state is True
 
 
-def test_the_prompt_names_no_view_the_database_does_not_have():
-    # The view list is prose.  A renamed view leaves the old name in the prompt, and the
-    # failure is a query the model writes at runtime against a view that is gone.
-    named = set(re.findall(r"\bai_[a-z_]+\b", BOARD_PROMPT))
+# Every prompt whose view list is composed rather than written out. The Diary writes its
+# own, with columns trimmed on purpose, and it is not one of these.
+CATALOGUE_PROMPTS = {
+    "advisor": SYSTEM_PROMPT,
+    "heavy_analyzer": HEAVY_ANALYZER_PROMPT,
+    **{agent.name: agent.instructions for agent in AGENTS if agent.views},
+}
+
+
+@pytest.mark.parametrize("reader", sorted(CATALOGUE_PROMPTS))
+def test_a_prompt_names_no_view_the_database_does_not_have(reader: str):
+    # The catalogue is composed and cannot name a view that is gone. A prompt also names
+    # views in its own prose, and there nothing checks the spelling.
+    named = set(re.findall(r"\bai_[a-z_]+\b", CATALOGUE_PROMPTS[reader]))
 
     assert named <= ALLOWED_VIEWS
     assert named

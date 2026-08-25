@@ -11,15 +11,17 @@ cacheable prefix stays byte-identical across turns.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 
-from ..ai.context import SYSTEM_PROMPT_TEMPLATE
-from ..ai.sql import SqlView
+from ..ai.context import ADVISOR_VIEWS, SYSTEM_PROMPT_TEMPLATE
+from ..ai.sql import SqlView, view_catalogue
 from ..ai.subagents import RoutedSubagent
 from ..features.board.module import MODULE as BOARD
 from ..features.cards.module import MODULE as CARDS
 from ..features.checks.module import MODULE as CHECKS
 from ..features.continuity.module import MODULE as CONTINUITY
 from ..features.diary.module import MODULE as DIARY
+from ..features.heavy_analyzer import agent as heavy_analyzer
 from ..features.planning.module import MODULE as PLANNING
 from ..features.profile.module import MODULE as PROFILE
 from ..features.proposals.api import (
@@ -33,7 +35,7 @@ from ..features.reminders.module import MODULE as REMINDERS
 from ..features.saved_requests.module import MODULE as SAVED_REQUESTS
 from ..features.tags.module import MODULE as TAGS
 from ..features.values.module import MODULE as VALUES
-from .module_manifest import AgentContext, BackgroundTask, FeatureModule
+from .module_manifest import AgentContext, AgentSpec, BackgroundTask, FeatureModule
 
 # Order is what the routing rules and the recovery hooks follow, so it is fixed rather than
 # incidental: Profile settles the Diary's own Reminder before the Reminder rebuild walks the
@@ -100,7 +102,22 @@ def _proposals() -> ProposalRegistry:
 
 PROPOSALS: ProposalRegistry = _proposals()
 
-AGENTS = tuple(agent for module in MODULES for agent in module.agents)
+
+def _with_catalogue(agent: AgentSpec) -> AgentSpec:
+    """Fill a subagent's `{views}` in, once, so what it reads is what the snapshot hashes."""
+    if not agent.views:
+        return agent
+    if "{views}" not in agent.instructions:
+        raise RuntimeError(f"The {agent.name} subagent names views but has no {{views}} to fill")
+    return replace(
+        agent,
+        instructions=agent.instructions.replace(
+            "{views}", view_catalogue(AI_VIEWS, agent.views)
+        ),
+    )
+
+
+AGENTS = tuple(_with_catalogue(agent) for module in MODULES for agent in module.agents)
 
 
 def _routing_rules() -> str:
@@ -115,8 +132,18 @@ def _routing_rules() -> str:
     return "\n".join(f'- `route("{agent.name}")` — {agent.purpose}' for agent in AGENTS)
 
 
-# The routing rules are prose in the prompt, so a subagent they omit is never routed to.
-SYSTEM_PROMPT: str = SYSTEM_PROMPT_TEMPLATE.replace("{routes}", _routing_rules())
+# The routing rules are prose in the prompt, so a subagent they omit is never routed to,
+# and so is a view the Advisor's own list leaves out.
+SYSTEM_PROMPT: str = SYSTEM_PROMPT_TEMPLATE.replace(
+    "{routes}", _routing_rules()
+).replace("{views}", view_catalogue(AI_VIEWS, ADVISOR_VIEWS))
+
+# The one helper, which is not a subagent: it is called rather than routed, so it is not
+# in `AGENTS` and no routing rule ever names it. A second helper is what earns a field on
+# `FeatureModule`; one does not.
+HEAVY_ANALYZER_PROMPT: str = heavy_analyzer.PROMPT_TEMPLATE.replace(
+    "{views}", view_catalogue(AI_VIEWS, heavy_analyzer.VIEWS)
+)
 
 RECOVERY_HOOKS: tuple[Callable[..., Awaitable[None]], ...] = tuple(
     module.recover for module in MODULES if module.recover is not None

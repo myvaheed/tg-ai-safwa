@@ -56,16 +56,53 @@ def local_time(stored: str | None, tz: ZoneInfo) -> str | None:
 
 @dataclass(frozen=True, slots=True)
 class SqlView:
-    """One `ai_*` view: the name the model sees, and the SELECT that builds it."""
+    """One `ai_*` view: the name the model sees, the SELECT that builds it, and the block
+    a reader is given about it.
+
+    The block lives beside the SELECT because the two say the same thing to two audiences:
+    a column that changes shape and a column that changes meaning are then one edit.
+    """
 
     name: str
     sql: str
+    doc: str = ""
+
+
+def view_catalogue(views: Collection[SqlView], names: Sequence[str]) -> str:
+    """The blocks of the named views, in the order the reader asked for them.
+
+    A reader is scoped by the list it is given: a view it is never told about is a view it
+    never queries, which is the only scoping a shared allowlist leaves available.
+    """
+    by_name = {view.name: view for view in views}
+    unknown = [name for name in names if name not in by_name]
+    if unknown:
+        raise RuntimeError(f"A reader asks for views no feature publishes: {unknown}")
+    silent = [name for name in names if not by_name[name].doc.strip()]
+    if silent:
+        raise RuntimeError(f"A reader is offered views with no documentation: {silent}")
+    return "\n".join(by_name[name].doc.strip("\n") for name in names)
 
 
 FORBIDDEN = re.compile(
     r"\b(insert|update|delete|replace|alter|drop|create|pragma|attach|detach|vacuum|reindex|analyze)\b",
     re.IGNORECASE,
 )
+
+
+# What a read that is more than one flat scan of one view always contains. A bare
+# aggregate is deliberately not here: `SELECT count(*) FROM ai_cards WHERE stage = 'today'`
+# is a lookup, and offering help for it would fire on most turns. Counting is hard once it
+# is grouped or joined, and both of those are caught.
+COMPLEX_READ = re.compile(
+    r"\b(join|group\s+by|having|union|intersect|except|with)\b|\bover\s*\(|\(\s*select\b",
+    re.IGNORECASE,
+)
+
+
+def is_complex_read(sql: str) -> bool:
+    """Whether one read goes past a single flat scan, and so past what a small model writes well."""
+    return bool(COMPLEX_READ.search(sql))
 
 
 def validate_read_sql(sql: str, views: Collection[str]) -> str:

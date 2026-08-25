@@ -15,14 +15,17 @@ from safwa.ai.service import AIAdvisor
 from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from safwa.ai.subagents import RoutedSubagent
 from safwa.bootstrap.modules import (
+    AGENTS,
     AI_VIEWS,
     ALLOWED_VIEWS,
+    HEAVY_ANALYZER_PROMPT,
     PROPOSALS,
     SYSTEM_PROMPT,
 )
 from safwa.domain import bootstrap_workspace
-from safwa.features.board.agent import BOARD_PROMPT, BOARD_TOOLS
+from safwa.features.board.agent import BOARD_TOOLS
 from safwa.features.continuity.memory import MemoryFileStore
+from safwa.features.heavy_analyzer import agent as heavy_analyzer
 from safwa.foundation.database import Database, upgrade_database
 
 
@@ -87,7 +90,7 @@ class ScriptedProvider:
         if "route" not in offered or not isinstance(response, CompletionTurn):
             return None
         wanted = {call.name for call in response.tool_calls}
-        if not wanted or wanted <= offered:
+        if not wanted or wanted <= offered or "call_helper" in wanted:
             return None
         target = "diary" if wanted & {"read_day", "diary"} else "board"
         return CompletionTurn(
@@ -117,7 +120,8 @@ class E2EHarness:
         return RoutedSubagent(
             name="board",
             purpose="every change to the planning data",
-            instructions=BOARD_PROMPT,
+            # The instructions as assembled, `{views}` filled in: what the application runs.
+            instructions=next(agent.instructions for agent in AGENTS if agent.name == "board"),
             read_tools=(
                 query_read_tool(ReadOnlyQueryRunner(self.database_path, ALLOWED_VIEWS, timezone=TIMEZONE)),
             ),
@@ -131,6 +135,7 @@ class E2EHarness:
         *,
         cache_breakpoints: bool = False,
         subagents: tuple[RoutedSubagent, ...] | None = None,
+        helpers: dict[str, object] | None = None,
         autoapprove: bool = False,
     ) -> tuple[AIAdvisor, ScriptedProvider]:
         subagents = (self.board(),) if subagents is None else subagents
@@ -146,8 +151,19 @@ class E2EHarness:
             cache_breakpoints=cache_breakpoints,
             autoapproval=AutoApprovalReviewer(provider) if autoapprove else None,
             subagents=subagents,
+            helpers=helpers,
         )
         return advisor, provider
+
+    def analyzer(self, provider) -> dict[str, object]:
+        """The real heavy analyzer, reading the real views through the same runner."""
+        return {
+            heavy_analyzer.NAME: heavy_analyzer.build(
+                provider,
+                ReadOnlyQueryRunner(self.database_path, ALLOWED_VIEWS, timezone=TIMEZONE),
+                prompt=HEAVY_ANALYZER_PROMPT,
+            )
+        }
 
 
 @pytest_asyncio.fixture

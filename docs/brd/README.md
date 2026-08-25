@@ -59,7 +59,7 @@ line and no way to read an identifier and know where its code lives.
 | Tags | `TA` | Continuity and memory | `CO` |
 | Planning — the Sprint and the mode without one | `PL` | Diary | `DI` |
 | Reminders | `RM` | Saved Requests | `SR` |
-| Profile and Settings | `PS` | | |
+| Profile and Settings | `PS` | The heavy analyzer | `HAN` |
 
 `tests/test_brd_traceability.py` reads this table, so a prefix that is not in it is not a
 scenario identifier.

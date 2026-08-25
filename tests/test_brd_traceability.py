@@ -18,14 +18,14 @@ TESTS = Path(__file__).parent
 BRD = TESTS / "brd"
 README = TESTS.parent / "docs" / "brd" / "README.md"
 
-SCENARIO = re.compile(r"^\s*Scenario: (?P<id>[A-Z]{2}-[A-Z-]+-\d{3}) — ")
-IDENTIFIER = re.compile(r"^(?P<id>[A-Z]{2}-[A-Z-]+-\d{3})\b")
-CITATION = re.compile(r"^(?P<id>[A-Z]{2}-[A-Z-]+-\d{3}) — (?P<feature>tests/brd/[a-z_]+\.feature)$")
+SCENARIO = re.compile(r"^\s*Scenario: (?P<id>[A-Z]{2,3}-[A-Z-]+-\d{3}) — ")
+IDENTIFIER = re.compile(r"^(?P<id>[A-Z]{2,3}-[A-Z-]+-\d{3})\b")
+CITATION = re.compile(r"^(?P<id>[A-Z]{2,3}-[A-Z-]+-\d{3}) — (?P<feature>tests/brd/[a-z_]+\.feature)$")
 
 
 def approved_prefixes() -> set[str]:
     table = README.read_text(encoding="utf-8-sig")
-    return set(re.findall(r"\|\s*`([A-Z]{2})`\s*\|", table))
+    return set(re.findall(r"\|\s*`([A-Z]{2,3})`\s*\|", table))
 
 
 def scenarios() -> dict[str, str]:

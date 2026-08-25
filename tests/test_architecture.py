@@ -19,11 +19,9 @@ from pathlib import Path
 import pytest
 from sqlalchemy import UniqueConstraint, inspect
 
-from safwa.ai.service import OPEN_TOOL, QUERY_SAFWA_TOOL, ROUTE_TOOL
+from safwa.ai.service import CALL_HELPER_TOOL, OPEN_TOOL, QUERY_SAFWA_TOOL, ROUTE_TOOL
 from safwa.ai.subagents import PERSONA
-from safwa.bootstrap.modules import PROPOSALS, SYSTEM_PROMPT
-from safwa.features.board.agent import BOARD_PROMPT
-from safwa.features.diary.agent import DIARY_PROMPT
+from safwa.bootstrap.modules import AGENTS, HEAVY_ANALYZER_PROMPT, PROPOSALS, SYSTEM_PROMPT
 from safwa.models import Base
 from scripts.architecture_metrics import RULES, allowlist, cycles, violations
 
@@ -106,12 +104,16 @@ def test_rule_i_prompt_prefix_is_byte_stable(request):
     produced = {
         "SYSTEM_PROMPT": _digest(SYSTEM_PROMPT),
         "PERSONA": _digest(PERSONA),
-        "BOARD_PROMPT": _digest(BOARD_PROMPT),
-        "DIARY_PROMPT": _digest(DIARY_PROMPT),
+        "HEAVY_ANALYZER_PROMPT": _digest(HEAVY_ANALYZER_PROMPT),
         "tool:open": _digest(json.dumps(OPEN_TOOL, sort_keys=True)),
         "tool:route": _digest(json.dumps(ROUTE_TOOL, sort_keys=True)),
         "tool:query_safwa": _digest(json.dumps(QUERY_SAFWA_TOOL, sort_keys=True)),
+        "tool:call_helper": _digest(json.dumps(CALL_HELPER_TOOL, sort_keys=True)),
     }
+    # The instructions as assembled, not as written: `{views}` is filled in at import
+    # time, so the raw constant is not what any subagent reads.
+    for agent in AGENTS:
+        produced[f"agent:{agent.name}"] = _digest(agent.instructions)
     for name, tool in PROPOSALS.tools.items():
         produced[f"tool:{name}"] = _digest(json.dumps(tool.schema(), sort_keys=True))
 

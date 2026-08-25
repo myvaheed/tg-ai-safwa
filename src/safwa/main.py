@@ -21,6 +21,7 @@ from .bootstrap.modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
     BACKGROUND_TASKS,
+    HEAVY_ANALYZER_PROMPT,
     PROPOSALS,
     RECOVERY_HOOKS,
     SYSTEM_PROMPT,
@@ -32,6 +33,7 @@ from .domain import bootstrap_workspace
 from .enums import AIProvider
 from .features.continuity.memory import MemoryFileStore
 from .features.continuity.persona import PersonaContinuity
+from .features.heavy_analyzer import agent as heavy_analyzer
 from .foundation.database import Database, upgrade_database
 from .history import TelegramHistorySource
 from .models import Workspace
@@ -166,6 +168,11 @@ async def run(settings: Settings) -> None:
         subagents=routed_subagents(
             AgentContext(settings=settings, query_runner=query_runner, history=history)
         ),
+        helpers={
+            heavy_analyzer.NAME: heavy_analyzer.build(
+                provider, query_runner, prompt=HEAVY_ANALYZER_PROMPT
+            )
+        },
     )
     continuity = PersonaContinuity(
         database.sessions,

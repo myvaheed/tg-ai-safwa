@@ -39,6 +39,11 @@ AI_CHECKS = SqlView(
                 JOIN "values" v ON v.id=cv.value_id WHERE cv.check_id=k.id) AS direct_values,
                k.created_at, k.updated_at
         FROM checks k""",
+    doc="""- `ai_checks(id, title, repeatable, status, resolved_at, series_id, card_id, card_series_id, direct_values, created_at, updated_at)`
+  - `status` pending | passed | missed
+  - `repeatable` 0 | 1; `card_id` is the one Card it hangs on, or NULL; `direct_values` is comma-joined
+  - `series_id` is the whole series of this check; `card_series_id` is the series of its card, so one query counts every answer across every copy of a repeating action
+  - `direct_values` are the Values this Check measures; they are its own, not the Values of its Cards""",
 )
 
 

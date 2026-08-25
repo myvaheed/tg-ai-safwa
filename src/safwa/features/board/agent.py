@@ -62,33 +62,7 @@ Pass the user's own words through in `when` and never invent a date or an hour.
 `query_safwa` runs one read-only `SELECT` or `WITH ... SELECT` over these views only.
 Every value listed under a view is the lowercase code stored in that column.
 
-- `ai_cards(id, title, note, kind, stage, priority, hard_time, blocked, blocked_description, effort_points, repeatable, parent_id, series_id, categories, energy_types, direct_values, direct_tags, created_at, updated_at)`
-  - `kind` goal | idea | action
-  - `stage` backlog | sprint | today | done | cancelled
-  - `priority` critical | medium | low
-  - `effort_points` 1 | 2 | 3 | 5 | 8 | 13, the size of one action
-  - on a goal or an idea, `stage`, `blocked` and `effort_points` are what the cards under it add up to
-  - to total effort always add `WHERE kind = 'action'`, or each action is counted again inside every parent
-  - `categories` self | contribution | work | rest
-  - `energy_types` physical | cognitive | social | values
-  - `hard_time`, `blocked`, `repeatable` 0 | 1
-  - `categories`, `energy_types`, `direct_values` and `direct_tags` are comma-joined names, so match one with `LIKE '%Health%'`
-  - `series_id` is the whole repeat series of one card; a card that never repeated is its own series
-  - the checks on a card are `ai_checks WHERE card_id = <id>`
-- `ai_checks(id, title, repeatable, status, resolved_at, series_id, card_id, card_series_id, direct_values, created_at, updated_at)`
-  - `status` pending | passed | missed
-  - `repeatable` 0 | 1; `card_id` is the one Card it hangs on, or NULL; `direct_values` is comma-joined
-  - `series_id` is the whole series of this check; `card_series_id` is the series of its card
-  - `direct_values` are the Values this Check measures; they are its own, not the Values of its Cards
-- `ai_tags(id, name, description, created_at, updated_at)`
-- `ai_values(id, name, description, active, created_at, updated_at)`
-  - `active` 0 | 1
-- `ai_requests(id, name, description, query_sql, created_at, updated_at)`
-- `ai_reminders(id, instruction, schedule_kind, weekdays, at_time, interval_minutes, quiet_windows, next_fire_at_local, last_fired_at, fire_count, created_at, updated_at)`
-  - `schedule_kind` once | interval | daily | weekly
-  - `weekdays` and `quiet_windows` are JSON arrays; `at_time` is local `HH:MM:SS`
-- `ai_current_sprint(id, number, planned_start_date, planned_end_date, actual_started_at, success_criteria)`
-  - `planned_start_date` and `planned_end_date` are `YYYY-MM-DD`; one row at most, none in Planning
+{views}
 
 `created_at` and `updated_at` are UTC text: compare them with `datetime('now')`.
 IDs are small integers. Never ask the user for one you can find yourself.
@@ -109,6 +83,17 @@ BOARD_AGENT = AgentSpec(
         "Request or Reminder."
     ),
     instructions=BOARD_PROMPT,
+    # What it changes, and what it judges a change against. The Diary is not the board's,
+    # and neither is the log of what has already happened.
+    views=(
+        "ai_cards",
+        "ai_checks",
+        "ai_tags",
+        "ai_values",
+        "ai_requests",
+        "ai_reminders",
+        "ai_current_sprint",
+    ),
     mutation_tools=BOARD_TOOLS,
     board_state=True,
     read_tools=_board_read_tools,

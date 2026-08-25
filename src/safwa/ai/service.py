@@ -5,6 +5,7 @@ import json
 import logging
 import sqlite3
 import time
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -59,6 +60,7 @@ from .autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
 from .context import DialogueMessage, board_context, ordered_owner_context
 from .contracts import (
     AgentChange,
+    CallHelperInput,
     OpenInput,
     QueryToolInput,
     RouteInput,
@@ -66,7 +68,7 @@ from .contracts import (
 )
 from .mini import QUERY_SAFWA_TOOL, ReadToolSpec
 from .prepare import ChangePreparer
-from .sql import ReadOnlyQueryRunner, UnsafeQueryError
+from .sql import ReadOnlyQueryRunner, UnsafeQueryError, is_complex_read
 from .subagents import RoutedSubagent
 
 logger = logging.getLogger(__name__)
@@ -107,11 +109,26 @@ ROUTE_TOOL: dict[str, Any] = {
         "parameters": tool_json_schema(RouteInput),
     },
 }
+CALL_HELPER_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "call_helper",
+        "description": (
+            "Ask a helper a question one simple read could not answer. It writes the query "
+            "and hands back its result. You keep the turn and you write the answer."
+        ),
+        "parameters": tool_json_schema(CallHelperInput),
+    },
+}
 # The Advisor reads and routes. Every mutation tool belongs to the subagent that owns that
 # feature, so judging *which* change to propose happens where the change is authored.
 SAFWA_TOOLS = (QUERY_SAFWA_TOOL, OPEN_TOOL)
 # Tools that run during the turn instead of becoming a proposal the owner approves.
-IMMEDIATE_TOOLS = frozenset({"query_safwa", "route", "open"})
+IMMEDIATE_TOOLS = frozenset({"query_safwa", "route", "open", "call_helper"})
+
+# What a helper is: it reads, it answers with rows, and it cannot open a screen. `route`
+# is the other half — a subagent that writes, and whose screen suspends the whole chain.
+Helper = Callable[..., Awaitable[dict[str, Any]]]
 
 
 
@@ -186,6 +203,17 @@ class AgentSession:
     prior_receipts: list[str] = field(default_factory=list)
     # The item `open` resolved, kept until the session answers the owner.
     open_item: str | None = None
+    # Whether a read in this session was complex enough to be offered a helper. The tool
+    # is added when that happens, and `tools` is rebuilt from the kind on a resume — so a
+    # session that routed a change and came back would lose a tool it had been shown.
+    helper_offered: bool = False
+
+    def offer_helper(self) -> None:
+        """Put `call_helper` on this session's tools, once, and remember that it is there."""
+        if self.helper_offered:
+            return
+        self.helper_offered = True
+        self.tools = (*self.tools, CALL_HELPER_TOOL)
 
     @property
     def immediate(self) -> frozenset[str]:
@@ -214,6 +242,7 @@ class AgentSession:
             "awaiting_route": self.awaiting_route,
             "prior_receipts": self.prior_receipts,
             "open_item": self.open_item,
+            "helper_offered": self.helper_offered,
         }
 
     @classmethod
@@ -245,6 +274,8 @@ class AgentSession:
             prior_receipts=list(state.get("prior_receipts") or []),
             open_item=state.get("open_item") or None,
         )
+        if state.get("helper_offered"):
+            session.offer_helper()
         return session, [dict(item) for item in state.get("transcript") or []]
 
 
@@ -272,6 +303,27 @@ def _log_preview(content: str, limit: int = 500) -> str:
 
 def _json_safe(value: Any) -> Any:
     return json.loads(json.dumps(value, ensure_ascii=False, default=str))
+
+
+def _conversation_for(dialogue: list[dict[str, Any]]) -> str:
+    """The tail of the conversation as data, for anyone who is not its assistant."""
+    return conversation_block(
+        [
+            DialogueMessage(role=str(item["role"]), content=str(item["content"]))
+            for item in dialogue[-SUBAGENT_HISTORY_LAST_MESSAGES:]
+        ]
+    )
+
+
+def _add_notice(rows: list[dict[str, Any]], text: str) -> None:
+    """Attach a notice to a result, joining one that is already the last row.
+
+    Two notice rows would be two instructions, and this model follows the last one it read.
+    """
+    if rows and set(rows[-1]) == {"notice"}:
+        rows[-1] = {"notice": f"{rows[-1]['notice']} {text}"}
+        return
+    rows.append({"notice": text})
 
 
 def _system_note(content: str) -> dict[str, Any]:
@@ -616,6 +668,7 @@ class AIAdvisor:
         provider_name: str = "openai-compatible",
         cache_breakpoints: bool = False,
         subagents: tuple[RoutedSubagent, ...] = (),
+        helpers: Mapping[str, Helper] | None = None,
         autoapproval: AutoApprovalReviewer | None = None,
     ) -> None:
         self.sessions = sessions
@@ -628,6 +681,14 @@ class AIAdvisor:
         self.provider_name = provider_name
         self.cache_breakpoints = cache_breakpoints
         self.subagents = {routed.name: routed for routed in subagents}
+        self.helpers = dict(helpers or {})
+        # Built once: the offer is the whole of what the model is ever told about helpers,
+        # so it has to name the tool in the shape the tool actually takes.
+        self.helper_offer = (
+            "This read is complex. call_helper("
+            + " or ".join(f'"{name}"' for name in self.helpers)
+            + ', "<your question in words>") writes the query and hands back its result.'
+        )
         self.autoapproval = autoapproval
         self.preparer = ChangePreparer(provider, query_runner, proposals)
         # An empty roster means there is nothing to route to, so the tool is not offered.
@@ -985,12 +1046,7 @@ class AIAdvisor:
             async with self.sessions() as session:
                 context = await board_context(session)
             _append_user_message(messages, f"[System]: Current planning state:\n{context.state}")
-        conversation = conversation_block(
-            [
-                DialogueMessage(role=str(item["role"]), content=str(item["content"]))
-                for item in dialogue[-SUBAGENT_HISTORY_LAST_MESSAGES:]
-            ]
-        )
+        conversation = _conversation_for(dialogue)
         if conversation:
             _append_user_message(
                 messages,
@@ -1104,6 +1160,8 @@ class AIAdvisor:
                         result = await self._execute_query_tool(agent, call)
                     elif call.name == "open":
                         result = await self._execute_open_tool(agent, call)
+                    elif call.name == "call_helper":
+                        result = await self._execute_call_helper_tool(agent, call)
                     elif call.name in agent.read_specs:
                         result = await self._execute_read_tool(agent, call)
                     elif has_reads and has_mutations:
@@ -1233,6 +1291,85 @@ class AIAdvisor:
         agent.display_result_summaries.extend(str(line) for line in receipt.get("did") or [])
         return receipt, None
 
+    async def _execute_call_helper_tool(
+        self, agent: AgentSession, call: ToolCall
+    ) -> dict[str, Any]:
+        """Ask a helper one question and hand its rows back. Nothing suspends.
+
+        The helper reads and answers with data, so this session keeps its turn: there is no
+        screen to wait for and no receipt to compose.
+        """
+        try:
+            payload = CallHelperInput.model_validate(json.loads(call.arguments_json or "{}"))
+        except (ValidationError, json.JSONDecodeError, TypeError, ValueError) as error:
+            return {
+                "status": "error",
+                "code": "invalid_arguments",
+                "error": (
+                    _validation_error_summary(error)
+                    if isinstance(error, ValidationError)
+                    else str(error)
+                ),
+                "hint": (
+                    f'Send {{"name": "<helper>", "request": "<your question>"}}. '
+                    f"One of: {', '.join(self.helpers)}."
+                ),
+                "retryable": True,
+            }
+        helper = self.helpers.get(payload.name.strip())
+        if helper is None:
+            return {
+                "status": "error",
+                "code": "unknown_helper",
+                "error": f"There is no helper named {payload.name!r}.",
+                "hint": f"Call one of: {', '.join(self.helpers) or 'none'}.",
+                "retryable": True,
+            }
+        async with self.sessions() as session:
+            session.add(
+                AgentStep(
+                    run_id=agent.run_id,
+                    position=agent.tool_count,
+                    kind="helper",
+                    metadata_json={
+                        "tool_call_id": call.id,
+                        "helper": payload.name,
+                        "request": payload.request,
+                    },
+                )
+            )
+            await session.commit()
+        logger.info("HELPER -> %s %s", payload.name, _log_preview(payload.request, 200))
+        try:
+            return await helper(
+                conversation=_conversation_for(agent.dialogue), request=payload.request
+            )
+        except Exception as error:
+            # A helper is an optimisation. Losing the turn because one broke would be worse
+            # than the answer the Advisor can still give from what it read itself.
+            logger.exception("Helper %s failed", payload.name)
+            return {
+                "helper": payload.name,
+                "status": "error",
+                "error": failure_reason(error),
+                "hint": "Answer the owner with what you already have.",
+            }
+
+    def _should_offer_helper(
+        self, agent: AgentSession, sql: str, rows: list[dict[str, Any]]
+    ) -> bool:
+        """Whether this read earned the model a helper it was not already carrying.
+
+        A read that failed does not: its `hint` already says to repair that one SELECT, and
+        a second instruction in the same result is the one this model would follow.
+        """
+        if not self.helpers or agent.kind != "advisor" or not sql:
+            return False
+        if rows and rows[0].get("status") == "error":
+            return False
+        capped = bool(rows) and set(rows[-1]) == {"notice"}
+        return capped or is_complex_read(sql)
+
     async def _execute_read_tool(
         self, agent: AgentSession, call: ToolCall
     ) -> Any:
@@ -1321,6 +1458,9 @@ class AIAdvisor:
                         "retryable": True,
                     }
                 ]
+        if self._should_offer_helper(agent, sql, rows):
+            agent.offer_helper()
+            _add_notice(rows, self.helper_offer)
         logger.info(
             "AI TOOL query_safwa -> rows=%d sql=%s",
             len(rows),

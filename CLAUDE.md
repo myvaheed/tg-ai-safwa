@@ -221,6 +221,11 @@ subagent has no `route`, so there is no recursion.
   `assistant` slot — prose there demonstrates answering in prose. The Advisor is that conversation's
   assistant and reads the roles as they are. A routed session is also required to open with a tool
   call; only its first turn, because the loop ends on a turn that calls none.
+- `route` hands the turn to a subagent that **writes**. `call_helper` asks one that only **reads**
+  and answers with rows: it cannot open a screen, so nothing suspends and the caller keeps its turn.
+  A helper is in no routing rule and in no base tool set — the tool result that needed one is what
+  offers it, and `heavy_analyzer` is the only one. It ends by forwarding its own last read, never by
+  retelling it.
 - `parent_run_id` is who routed here. A screen suspends the whole chain; Save resumes the subagent,
   and its receipt resumes its caller, up to the session that has no parent.
 - A session runs until it answers in words: a turn that stops with nothing is told so and asked
@@ -251,8 +256,11 @@ history. Those caps exist because a local model pays for what it reads.
 
 The views are dropped and rebuilt on **every startup** — change view shape in the owning feature's
 `views.py`, never with a migration. `ALLOWED_VIEWS` and `CREATE VIEW` both come from those `SqlView`
-declarations, and the composition root hands the catalogue to whoever validates against it. The view
-list in a prompt is still prose: it is what scopes a reader.
+declarations, and the composition root hands the catalogue to whoever validates against it. A
+`SqlView` carries its own `doc` too, so the block a model reads about a view lives beside the SELECT.
+**The view list in a prompt is what scopes a reader**: an agent names the views it reads, the
+composition root fills them into `{views}`, and a view no list names is one that reader never learns
+exists. The Diary writes its own list by hand, with columns trimmed on purpose.
 
 ### `data/memory.md` is authoritative
 

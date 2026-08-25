@@ -26,7 +26,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
-from ...enums import ActorType, Priority
+from ...enums import Priority
 from ...foundation.models import Base, TimestampMixin
 
 
@@ -138,7 +138,7 @@ class CardEvent(Base):
         ForeignKey("cards.id", ondelete="CASCADE"), index=True
     )
     sprint_id: Mapped[int | None] = mapped_column(ForeignKey("sprints.id", ondelete="SET NULL"))
-    actor: Mapped[str] = mapped_column(String(20), default=ActorType.SYSTEM.value)
+    actor: Mapped[str] = mapped_column(String(20))
     operation: Mapped[str] = mapped_column(String(80))
     before: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     after: Mapped[dict[str, Any] | None] = mapped_column(JSON)

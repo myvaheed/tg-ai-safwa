@@ -56,7 +56,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 2 | `FeatureModule` and proposal capabilities | technical | **done** |
 | 3 | Pilot: Diary | business | **done** |
 | 4 | Leaf business batches | business | **done** — 4.a Continuity and Profile, 4.b Reminders, 4.c Saved Requests, 4.d Values and Tags |
-| 5 | Cards, Checks and the Sprint | business | in progress — 5.0 the board package (technical), 5.a Cards, 5.b stages, 5.c Checks and 5.d archiving **done** |
+| 5 | Cards, Checks and the Sprint | business | in progress — 5.0 the board package (technical), 5.a Cards, 5.b stages, 5.c Checks, 5.d archiving, 5.e the archive as a mark and 5.f the heavy analyzer **done** |
 | 6 | Proposals and the first reactive process | business | not started |
 | 7 | `agent_runtime` | technical + business | not started |
 | 8 | `telegram_llm` and `TurnManager` | technical | not started |
@@ -1185,3 +1185,68 @@ Verification: `ruff check .` clean; `pytest -q` 632 passed / 3 skipped; `prompt_
 on `SYSTEM_PROMPT` and `BOARD_PROMPT` and nothing else, `schema.json` byte-identical; metrics
 unchanged except the import graph, 574 edges for 572 — the two view modules now import
 `constants` for the archive marker. DoD #1 26, #2 0, #3 6, #13 0, 0 cycles, Rule G 2, Rule H 26.
+
+## What Phase 5.f delivered
+
+Approval packet: [docs/brd/heavy_analyzer.md](brd/heavy_analyzer.md). Twelve scenarios,
+`tests/brd/heavy_analyzer.feature`, prefix `HAN`.
+
+**The Advisor is offered a helper by the read that needed one.** A `query_safwa` result whose SQL
+goes past one flat scan — `JOIN`, `GROUP BY`, `HAVING`, a set operation, `WITH`, a window, a query
+inside a query — or whose rows were cut by a cap, carries a notice naming `call_helper`, and the
+tool is added to that session's tools there and then. A read that failed offers nothing: its `hint`
+already says to repair that one SELECT. Nothing about helpers is in `SYSTEM_PROMPT`, which is what
+the owner required, and `is_complex_read` deliberately lets a bare aggregate through.
+
+**`heavy_analyzer` is a mini session, not a routed subagent.** It reads with `query_safwa` and ends
+by calling `forward_output` — its last read goes to the Advisor as rows, with the SQL beside them —
+or `report_failure` with one sentence. It never speaks: a result of fifty rows cannot be retold, and
+a small model retelling numbers is where numbers get invented. Ten reads
+(`HEAVY_ANALYZER_MAX_TOOL_CALLS`) bound it.
+
+Because the answer is rows, none of the routing machinery was touched: `route`, `RoutedSubagent`,
+`_run_child` and `_routed_context` are unchanged, and no flag was needed to keep the helper out of
+the routing rules — it is not in `AGENTS` at all. `call_helper` blocks the Advisor exactly as `route`
+does; `/cancel` cancels the turn and the helper with it.
+
+**Each view carries its own documentation.** `SqlView.doc` holds the block a model reads, beside the
+SELECT it describes, and `view_catalogue(views, names)` composes the list one reader is given. The
+Advisor names nine views, the board seven, the helper all ten. The catalogue existed twice before
+and had already drifted; it now exists once per view. `view_catalogue` refuses a name no feature
+publishes and a view with no `doc`.
+
+**`ai_card_events` reaches a second reader.** Only the Diary was told the log existed. The helper is
+told too — one row per change over time is the shape a question about a stretch of time uses — and
+the Advisor and the board still are not. `actor` stays: it names the source of a change, `user_ui`
+or `ai`, which is the only distinction left when there is one owner.
+
+**`ActorType.SYSTEM` is gone.** It appeared once in the whole codebase, as a column default that
+could not fire because `record_card_event` always passes an actor.
+
+### What this batch cleaned up
+
+- The `{views}` composition removed the second copy of the view catalogue, and gave the board the
+  `card_series_id` clause the Advisor's copy had and its own did not.
+- Rule I now hashes the **assembled** prompts (`agent:board`, `agent:diary`) rather than the raw
+  constants, so the snapshot covers what a model actually reads. `agent:diary` came out at the same
+  hash `DIARY_PROMPT` had, which is what says the Diary's own list was left alone.
+- The view-name check moved off `BOARD_PROMPT` alone and onto every prompt whose list is composed.
+- `tests/test_brd_traceability.py` accepted two-letter prefixes only; `HAN` was silently invisible
+  to it. Widened to two or three.
+
+### Found and left alone
+
+- **Automatic archiving writes no `card_event`.** The owner's Archive button records one; the sweep
+  that archives what has waited two Sprints records nothing, so the log's `archive` rows are always
+  the manual half. Adding the event changes what the log contains, so it is its own batch.
+- **`ai_comment` is a Diary field named like a view.** Nothing breaks, but a check that reads view
+  names out of a prompt cannot tell it from a view, which is why the Diary's prompt stays out of
+  that check. Renaming the field is a schema batch.
+- `ai/service.py` is 2286 lines and grew again here. It is the module Phase 7 extracts.
+
+Verification: `ruff check .` clean; `pytest -q` 665 passed / 3 skipped; `schema.json` byte-identical
+(Rule J hashes name, type, nullability and key, not a default). `prompt_prefix.json` moved once, as
+declared: `SYSTEM_PROMPT` by the two marker lines moving below the catalogue and nothing else,
+`agent:board` by the one added clause, plus `HEAVY_ANALYZER_PROMPT` and `tool:call_helper` as new
+entries. Metrics: 144 modules for 142 and 580 edges for 574, both the new package; DoD #1 26, #2 0,
+#3 6, #13 0, 0 cycles, Rule G 2, Rule H 26 — all unchanged.

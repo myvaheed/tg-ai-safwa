@@ -63,9 +63,10 @@ class EnergyType(StrEnum):
 
 
 class ActorType(StrEnum):
+    """Who made a change: the owner on a screen, or a proposal the owner approved."""
+
     USER_UI = "user_ui"
     AI = "ai"
-    SYSTEM = "system"
 
 
 class ProposalStatus(StrEnum):

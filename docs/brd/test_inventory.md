@@ -20,6 +20,7 @@ a technical contract; `given-when-then` — the body already carries the comment
 | `e2e/test_autoapproval_e2e.py` | 7 | 7 | 0 | 0 | — |
 | `e2e/test_checks_e2e.py` | 9 | 9 | 0 | 0 | — |
 | `e2e/test_diary_e2e.py` | 13 | 13 | 0 | 0 | — |
+| `e2e/test_heavy_analyzer_e2e.py` | 10 | 10 | 0 | 0 | — |
 | `e2e/test_reminder_e2e.py` | 8 | 8 | 0 | 0 | — |
 | `e2e/test_startup_e2e.py` | 1 | 1 | 0 | 0 | fakes |
 | `e2e/test_subagent_e2e.py` | 12 | 12 | 0 | 0 | — |
@@ -37,6 +38,7 @@ a technical contract; `given-when-then` — the body already carries the comment
 | `test_diary.py` | 19 | 19 | 0 | 0 | — |
 | `test_domain.py` | 10 | 10 | 0 | 0 | — |
 | `test_feature_modules.py` | 7 | 7 | 0 | 0 | — |
+| `test_heavy_analyzer.py` | 13 | 13 | 0 | 0 | — |
 | `test_history.py` | 18 | 18 | 0 | 0 | — |
 | `test_infrastructure.py` | 8 | 0 | 8 | 0 | contract-file, fakes |
 | `test_memory.py` | 7 | 7 | 0 | 0 | — |
@@ -54,4 +56,4 @@ a technical contract; `given-when-then` — the body already carries the comment
 | `test_tags.py` | 4 | 4 | 0 | 0 | — |
 | `test_telegram_item_ui.py` | 83 | 44 | 0 | 39 | fakes, ui-layout |
 | `test_values.py` | 11 | 11 | 0 | 0 | — |
-| **total** | **553** | **423** | **90** | **40** | |
+| **total** | **576** | **446** | **90** | **40** | |

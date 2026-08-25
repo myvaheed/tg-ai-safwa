@@ -468,6 +468,13 @@ class RouteInput(ToolInput):
     name: str = Field(description="The subagent to hand the turn to, spelled as listed.")
 
 
+class CallHelperInput(ToolInput):
+    name: str = Field(description="The helper to ask, spelled as the notice gave it.")
+    request: str = Field(
+        description="Your question in words. Say exactly what to count and over what."
+    )
+
+
 class OpenInput(ToolInput):
     """The one item to put on the screen."""
 
