@@ -523,8 +523,8 @@ async def test_deleting_a_check_deletes_it(sessions):
             await delete_check(session, pending.id)
 
 
-async def test_nothing_is_archived_while_the_workspace_is_in_planning(sessions):
-    """CH-ARCHIVE-013 — tests/brd/checks.feature"""
+async def test_pl_end_014_nothing_is_archived_while_the_workspace_is_in_planning(sessions):
+    """PL-END-014 — tests/brd/planning.feature"""
     async with sessions() as session:
         check = await create_check(session, title="Milk")
         await resolve_check(session, check.id, CheckOutcome.PASSED)

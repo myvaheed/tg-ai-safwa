@@ -301,7 +301,6 @@ def menu_markup(*, sprint_active: bool) -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="🔎 Requests", callback_data="nav:requests"),
                 InlineKeyboardButton(text="⏰ Reminders", callback_data="nav:reminders"),
-                InlineKeyboardButton(text="📊 Retro", callback_data="nav:retro"),
                 InlineKeyboardButton(text="⚙️ Settings", callback_data="nav:settings"),
             ],
         ]
@@ -311,11 +310,6 @@ def menu_markup(*, sprint_active: bool) -> InlineKeyboardMarkup:
 def menu_row() -> list[InlineKeyboardButton]:
     """A consistent escape hatch for a screen reached through quick actions."""
     return [InlineKeyboardButton(text="↩️ Menu", callback_data="nav:home")]
-
-
-def retro_back_row() -> list[InlineKeyboardButton]:
-    """Return from a media-only retrospective without creating another screen."""
-    return [InlineKeyboardButton(text="↩️ Menu", callback_data="nav:retro_back")]
 
 
 def split_telegram_text(text: str, limit: int = TELEGRAM_TEXT_LIMIT) -> list[str]:

@@ -11,6 +11,7 @@ from datetime import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...constants import SPRINT_LENGTH_DAYS
 from .model import UserProfile
 
 
@@ -18,3 +19,15 @@ async def scheduled_memory_time(session: AsyncSession) -> time | None:
     """The local time the owner set for memory maintenance, or None when it is off."""
     profile = await session.get(UserProfile, 1)
     return profile.memory_update_time if profile is not None else None
+
+
+async def sprint_length_days(session: AsyncSession) -> int:
+    """How many days the owner wants a Sprint to run, or the default nobody changed."""
+    profile = await session.get(UserProfile, 1)
+    return profile.sprint_length_days if profile is not None else SPRINT_LENGTH_DAYS
+
+
+async def capacity_effort_points(session: AsyncSession) -> int | None:
+    """The effort the owner means to take on in a Sprint, or None when it is off."""
+    profile = await session.get(UserProfile, 1)
+    return profile.capacity_effort_points if profile is not None else None

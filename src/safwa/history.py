@@ -43,7 +43,7 @@ _KIND_MARK_DIGITS = ("​", "‌")
 _KIND_MARK_WIDTH = 5
 _EVENT_MARK_WIDTH = 128
 _KIND_MARK_CODES: dict[str, int] = {
-    # 1 and 2 belonged to the retired session kinds and stay out of circulation.
+    # 1, 2 and 13 belonged to retired kinds and stay out of circulation.
     MessageKind.DIALOGUE_USER.value: 3,
     MessageKind.DIALOGUE_ASSISTANT.value: 4,
     MessageKind.REMINDER.value: 5,
@@ -54,7 +54,6 @@ _KIND_MARK_CODES: dict[str, int] = {
     MessageKind.CARD_EDITOR.value: 10,
     MessageKind.APPROVAL.value: 11,
     MessageKind.RECEIPT.value: 12,
-    MessageKind.RETROSPECTIVE_PNG.value: 13,
     MessageKind.ERROR.value: 14,
     MessageKind.STATUS.value: 15,
 }
@@ -114,7 +113,7 @@ def read_kind_mark(text: str) -> tuple[str | None, str]:
 # The same reasoning as the kind mark: an item citation is written as Markdown, sent as a
 # link, and must read back as the Markdown the model wrote.  Telethon hands us plain text,
 # so a link would otherwise return as bare words and teach the model that citing is optional.
-CITATION_TYPES = ("card", "check", "tag", "value", "request", "diary")
+CITATION_TYPES = ("card", "check", "tag", "value", "request", "diary", "retro")
 # A Diary day is labelled "04.03.2026 [6 🙂]", so one level of nesting is part of the shape
 # rather than a malformed citation.  The two branches cannot match the same character, so
 # the alternation stays linear.

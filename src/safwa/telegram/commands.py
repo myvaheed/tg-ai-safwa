@@ -9,23 +9,19 @@ from aiogram import Bot, F
 from aiogram.filters import Command
 from aiogram.types import (
     BotCommand,
-    BufferedInputFile,
     CallbackQuery,
     InlineKeyboardMarkup,
     Message,
 )
 from sqlalchemy import delete, select
 
-from ..analytics import render_retrospective_png, retrospective_data, retrospective_recommendations
 from ..enums import MessageKind
 from ..features.cards.model import CardStage
 from ..features.continuity.memory import MemoryFileError
 from ..features.continuity.persona import MemoryMaintenanceResult
 from ..features.continuity.use_cases import record_memory_run
-from ..history import mark_message, register_message
 from ..models import (
     SavedRequest,
-    Sprint,
     Tag,
     UiSession,
     Value,
@@ -42,7 +38,6 @@ from ._messaging import (
 from ._presentation import (
     menu_markup,
     menu_row,
-    retro_back_row,
     start_payload,
 )
 from .cards import render_dashboard, start_manual_card_creation
@@ -62,7 +57,6 @@ BOT_COMMANDS = [
     BotCommand(command="values", description="Values in focus"),
     BotCommand(command="tags", description="Manage Tags"),
     BotCommand(command="requests", description="Saved AI Requests"),
-    BotCommand(command="retro", description="Latest retrospective"),
     BotCommand(command="reminders", description="Your Reminders"),
     BotCommand(command="settings", description="Profile and reminders"),
     BotCommand(command="syncmem", description="Sync Telegram dialogue into memory"),
@@ -313,46 +307,6 @@ async def command_remember(message: Message, services: Services) -> None:
     await send_registered(message, services, "Remembered in memory.md.", kind=MessageKind.RECEIPT)
 
 
-@router.message(Command("retro"))
-async def command_retro(message: Message, services: Services) -> None:
-    async with services.sessions() as session:
-        sprint = await session.scalar(
-            select(Sprint).where(Sprint.status == "finished").order_by(Sprint.number.desc())
-        )
-        if sprint is None:
-            await send_registered(
-                message,
-                services,
-                "No finished Sprint yet.",
-                kind=MessageKind.DASHBOARD,
-                markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
-            )
-            return
-        data = await retrospective_data(session, sprint.id)
-    png = render_retrospective_png(data)
-    caption, event_id = mark_message(
-        f"Sprint {sprint.number} retrospective\n"
-        + "\n".join(retrospective_recommendations(data)),
-        MessageKind.RETROSPECTIVE_PNG,
-    )
-    sent = await message.answer_photo(
-        BufferedInputFile(png, filename=f"sprint-{sprint.number}-retro.png"),
-        caption=caption,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[retro_back_row()]),
-    )
-    async with services.sessions() as session:
-        await register_message(
-            session,
-            sent.chat.id,
-            sent.message_id,
-            "out",
-            MessageKind.RETROSPECTIVE_PNG,
-            sprint.id,
-            event_id,
-        )
-        await session.commit()
-
-
 @router.message(Command("reminders"))
 async def command_reminders(message: Message, services: Services) -> None:
     """Show the triggers the owner set; creation and timing stay advisor-only."""
@@ -398,12 +352,6 @@ async def navigation(callback: CallbackQuery, services: Services) -> None:
     if not callback.message:
         return
     action = callback.data.split(":", 1)[1]
-    if action == "retro_back":
-        # Telegram cannot turn a photo message into a text message.  The screen
-        # underneath is still the menu that opened the retrospective, so remove
-        # only the media screen rather than sending an unnecessary new message.
-        await callback.message.delete()
-        return
     # Imported here, not above: the Settings screen lives in its feature and reaches
     # back into this package. It moves with the handlers in Phase 8.
     from ..features.profile.screens import command_settings
@@ -420,7 +368,6 @@ async def navigation(callback: CallbackQuery, services: Services) -> None:
         "tags": command_tags,
         "requests": command_requests,
         "reminders": command_reminders,
-        "retro": command_retro,
         "settings": command_settings,
     }
     handler = handlers.get(action)

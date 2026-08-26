@@ -26,6 +26,7 @@ from ..models import (
     CardEnergyType,
     Check,
     SavedRequest,
+    Sprint,
     Tag,
     Value,
 )
@@ -35,11 +36,13 @@ from ._presentation import CATEGORY_EMOJIS, ENERGY_EMOJIS, kind_emoji
 from .cards import render_card
 from .checks import render_check
 from .items import render_item_editor, render_saved_request
+from .sprint import render_sprint_retro
 
 logger = logging.getLogger(__name__)
 
 OPENABLE_MODELS: dict[str, Any] = {
     "card": Card,
+    "retro": Sprint,
     "check": Check,
     "tag": Tag,
     "value": Value,
@@ -126,6 +129,8 @@ async def _citation_label(
         return _with_citation_fields(f"💬 {_short_citation_title(item.name)}", [str(len(matches))])
     if item_type == "diary":
         return diary_label(item.entry_date, item.feeling_score)
+    if item_type == "retro":
+        return f"📊 Sprint {item.number} retro"
     return None
 
 
@@ -159,6 +164,8 @@ async def open_item_screen(
         )
     elif item_type == "diary":
         await render_diary(message, services, item_id, extra_rows=extra_rows, replace=replace)
+    elif item_type == "retro":
+        await render_sprint_retro(message, services, item_id)
     else:
         raise DomainError(f"{item_type.title()} has no screen to open")
 

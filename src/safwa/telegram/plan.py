@@ -33,6 +33,7 @@ from ..constants import (
 from ..domain import move_card
 from ..enums import MessageKind
 from ..features.cards.model import CardStage
+from ..features.profile.api import capacity_effort_points
 from ..features.saved_requests.use_cases import request_cards
 from ..models import Card, SavedRequest, TelegramMessage, UiSession
 from ._core import CallbackContext, Services
@@ -44,7 +45,7 @@ from ._messaging import (
 )
 from ._presentation import Page, paginate, start_payload
 from .cards import render_card
-from .sprint import stage_actions
+from .sprint import plan_cost, stage_actions
 
 PLAN_UI_KIND = "sprint_plan"
 _PLAN_TTL = timedelta(hours=24)
@@ -283,11 +284,12 @@ async def render_plan(
         markup = await _markup(
             session, services, shown, filters=live, backlog_total=len(backlog)
         )
-        effort = sum(card.effort_points or 0 for card in planned)
+        cost, warning = plan_cost(planned, await capacity_effort_points(session))
         await session.commit()
     body = (
         "<p><b>Sprint plan</b></p>"
-        f"<p>In Sprint: {len(planned)} Actions · {effort} EP</p>"
+        f"<p>In Sprint: {cost}</p>"
+        + (f"<p>{warning}</p>" if warning else "")
         + _table(services, planned)
     )
     if replace_message_id is not None:

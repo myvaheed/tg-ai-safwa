@@ -44,7 +44,6 @@ from ..models import (
     Check,
     ProposalChange,
     UiSession,
-    UserProfile,
     Workspace,
 )
 from ._core import (
@@ -907,12 +906,10 @@ async def _on_sprint_back(context: CallbackContext) -> None:
 
 async def _on_sprint_start(context: CallbackContext) -> None:
     async with context.sessions() as session:
-        profile = await session.get(UserProfile, 1)
         workspace = await session.get(Workspace, 1)
         sprint = await start_sprint(
             session,
             success_criteria=workspace.sprint_success_criteria if workspace else "",
-            capacity=profile.capacity_effort_points if profile else None,
         )
         await _clear_ui_sessions(session, context.owner_id)
         await session.commit()

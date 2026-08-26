@@ -11,7 +11,6 @@ from safwa.domain import (
     create_value,
     edit_card_text,
     finish_action,
-    finish_sprint,
     live_repeat_instance_id,
     move_card,
     set_card_parent,
@@ -34,7 +33,6 @@ from safwa.models import (
     Tag,
     UserProfile,
     Value,
-    Workspace,
 )
 
 
@@ -110,18 +108,21 @@ async def test_a_closed_repeat_cannot_be_reopened_and_points_at_the_open_one(ses
         assert (await session.get(Card, plain.id)).effective_stage == CardStage.TODAY.value
 
 
-async def test_sprint_snapshots_and_carryover(sessions):
+async def test_pl_scope_007_work_that_joins_a_running_sprint_is_counted_apart(sessions):
+    """PL-SCOPE-007 — tests/brd/planning.feature"""
     async with sessions() as session:
         initial = await create_card(session, title="Initial", stage="sprint", effort_points=5)
         sprint = await start_sprint(session, success_criteria="Ship the release")
-        added = await create_card(session, title="Added", stage="today", effort_points=3)
+        # Created straight into Today while the Sprint runs.
+        created = await create_card(session, title="Added", stage="today", effort_points=3)
+        moved = await create_card(session, title="Moved", effort_points=2)
+        await move_card(session, moved.id, CardStage.SPRINT)
         await finish_action(session, initial.id, CardStage.DONE)
+
         metrics = await sprint_metrics(session, sprint.id)
-        assert metrics == {"committed": 5, "added": 3, "removed": 0, "completed": 5, "cancelled": 0}
-        await finish_sprint(session, reason="finished_early")
-        workspace = await session.get(Workspace, 1)
-        assert workspace.mode == "planning"
-        assert added.effective_stage == "today"
+
+        assert metrics == {"committed": 5, "added": 5, "removed": 0, "completed": 5, "cancelled": 0}
+        assert created.effective_stage == "today"
 
 
 async def test_ui_mutations_use_domain_services_and_are_audited(sessions):
@@ -202,7 +203,8 @@ async def test_committed_card_relationships_are_validated_propagated_and_audited
         }
 
 
-async def test_reopening_a_finished_action_clears_its_sprint_result(sessions):
+async def test_pl_scope_009_a_sprint_records_what_each_action_came_to(sessions):
+    """PL-SCOPE-009 — tests/brd/planning.feature"""
     async with sessions() as session:
         action = await create_card(session, title="Ship", stage="sprint", effort_points=5)
         sprint = await start_sprint(session, success_criteria="Ship the release")
@@ -215,8 +217,14 @@ async def test_reopening_a_finished_action_clears_its_sprint_result(sessions):
         assert (await sprint_metrics(session, sprint.id))["completed"] == 0
         assert action.effective_stage == CardStage.SPRINT.value
 
+        await finish_action(session, action.id, CardStage.CANCELLED)
 
-async def test_returning_to_sprint_scope_cancels_the_earlier_removal(sessions):
+        metrics = await sprint_metrics(session, sprint.id)
+        assert (metrics["cancelled"], metrics["completed"]) == (5, 0)
+
+
+async def test_pl_scope_008_returning_to_sprint_scope_cancels_the_earlier_removal(sessions):
+    """PL-SCOPE-008 — tests/brd/planning.feature"""
     async with sessions() as session:
         action = await create_card(session, title="Ship", stage="sprint", effort_points=5)
         sprint = await start_sprint(session, success_criteria="Ship the release")

@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from safwa.ai.context import board_context, ordered_owner_context
 from safwa.bootstrap.modules import RECOVERY_HOOKS
-from safwa.domain import start_sprint
+from safwa.domain import create_card, start_sprint
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.screens import SETTINGS_FIELDS
 from safwa.features.profile.use_cases import profile_field, set_profile_field
@@ -144,6 +144,7 @@ async def test_a_scheduled_clock_field_refuses_a_value_that_is_not_a_time(sessio
 async def test_diary_reminder_settings_sync_only_the_diary_system_reminder(sessions) -> None:
     """PS-DIARY-006 — tests/brd/profile_settings.feature"""
     async with sessions() as session:
+        await create_card(session, kind="action", title="Planned", stage="sprint", effort_points=3)
         sprint = await start_sprint(session, success_criteria="Keep the Sprint reminders")
         ordinary = await create_reminder(
             session,

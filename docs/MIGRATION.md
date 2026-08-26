@@ -56,7 +56,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 2 | `FeatureModule` and proposal capabilities | technical | **done** |
 | 3 | Pilot: Diary | business | **done** |
 | 4 | Leaf business batches | business | **done** — 4.a Continuity and Profile, 4.b Reminders, 4.c Saved Requests, 4.d Values and Tags |
-| 5 | Cards, Checks and the Sprint | business | in progress — 5.0 the board package (technical), 5.a Cards, 5.b stages, 5.c Checks, 5.d archiving, 5.e the archive as a mark, 5.f the heavy analyzer and 5.g a repeat's Values **done**; Planning left |
+| 5 | Cards, Checks and the Sprint | business | **done** — 5.0 the board package (technical), 5.a Cards, 5.b stages, 5.c Checks, 5.d archiving, 5.e the archive as a mark, 5.f the heavy analyzer, 5.g a repeat's Values, 5.h Planning and the plan screen |
 | 6 | Proposals and the first reactive process | business | not started |
 | 7 | `agent_runtime` | technical + business | not started |
 | 8 | `telegram_llm` and `TurnManager` | technical | not started |
@@ -1308,3 +1308,91 @@ Verification: `ruff check .` clean; `pytest -q` 668 passed / 3 skipped; `schema.
 `prompt_prefix.json` moved on `SYSTEM_PROMPT`, `tool:diary` and `agent:diary` — the diary prompt
 names the renamed field twice — and on nothing else. Metrics unchanged from 5.f: 144 modules, 580
 edges, 0 cycles, Rule G 2, Rule H 26, DoD #1 26, #2 0, #3 6, #13 0.
+
+## What Phase 5.h delivered
+
+The last business batch of Phase 5, and the one that empties `domain.py` of the Sprint. Approval
+packets: [brd/planning.md](brd/planning.md) and [brd/sprint_plan.md](brd/sprint_plan.md), nineteen
+scenarios in [`tests/brd/planning.feature`](../tests/brd/planning.feature), `PL-MODE-001` …
+`PL-PLAN-019`.
+
+### Three rules the code did not keep
+
+- **A Sprint needs work, not only words.** The Planning screen offered Start only with Success
+  criteria and at least one Action in Sprint or Today; `start_sprint` itself accepted an empty plan.
+  The owner ruled it a rule, so the domain refuses one now, and eight tests that started a Sprint
+  over an empty board had to plan something first — which is what says the refusal reaches every
+  door.
+- **A Sprint that ends is a conversation, not a receipt.** The expiry poll used to post
+  `⏹ Sprint 3 reached its planned end date`, a `RECEIPT`, which is never part of the dialogue Safwa
+  reads. Ending a Sprint now writes a six-line summary from the Sprint's own record and leaves it as
+  a system Reminder that is already due, so the scheduler hands it over the way a fired Reminder
+  hands over its words: the same gate, the same one turn, the same retry when the owner is mid-answer.
+  Safwa writes the message, and ends it with `[Sprint retro](retro:12)`.
+- **On its last day, ending the Sprint is not early.** The button says `⏹ Finish Sprint` from the
+  planned end date onwards.
+
+### What the summary says, and what it does not
+
+Six lines: which Sprint and when it ran, how it ended, its Success criteria, the five effort figures,
+how the Actions ended up, and the titles of what is still open (`SUMMARY_OPEN_TITLES = 5`, then a
+count). No analysis, no categories, no energy, no advice — Safwa is told how the Sprint went so it
+does not go reading tables to find out.
+
+`retro` is a citation type now, and the screen it opens is deliberately empty: the retrospective is
+its own feature, and it inherits a link that already works rather than having to add one.
+
+### The retrospective picture is gone
+
+Torn out whole, the way the completion feedback loop was in 5.b: `analytics.py`, `/retro` and its
+menu button, `retrospective_data`, `render_retrospective_png`, `retrospective_recommendations` with
+the four thresholds nobody chose, the `retrospective_png` message kind, and the `matplotlib`
+dependency. Kind code 13 stays out of circulation, beside 1 and 2.
+
+`sprints.capacity_effort_points` went too. It was written at every start and read by nothing; the
+capacity is one number in Settings, and `PL-PLAN-018` puts it beside the plan's total on both
+screens that show one. Nothing replaced the column: the effort a Sprint started with is its
+`committed` figure, which its own commitment rows already answer.
+
+### The move, and the two directions that could not both be doors
+
+`features/planning` owns `Sprint`, `SprintCommitment`, and every use case that starts, ends,
+expires or counts one. `domain.py` fell from 710 to 547 lines and is under 600 for the first time.
+
+Cards and Planning need each other in both directions — Cards writes a stage and the Sprint must
+record it; the Sprint ends and Cards must archive what settled — and a door each way is a cycle. The
+split that has one direction only:
+
+- `features/planning/api.py` is what Cards calls, and it holds the implementations rather than
+  re-exporting them: `sync_commitment_for_stage`, `record_sprint_result`,
+  `delete_commitments_of_cards` and `settled_cutoff`, which counts in Sprints and so was never
+  Cards' question. `features/cards/use_cases.py` no longer names `SprintCommitment` at all.
+- `features/cards/api.py` is what Planning reads: the `CardStage` enum, `planned_actions` and
+  `action_titles`. It imports the Card model and nothing else, so the chain
+  `cards.use_cases → planning.api → cards.api → cards.model` revisits nothing.
+- `archive_settled_items` is composed in `domain.py`, where both halves are in reach, and
+  `domain.finish_sprint` and `domain.expire_due_sprint` are the two callers that run it. Planning's
+  own `finish_sprint` ends the Sprint and hands it over; it does not archive.
+- `features/profile/api.py` gained `sprint_length_days` and `capacity_effort_points`;
+  `features/reminders/api.py` gained `create_sprint_reminder` and `delete_sprint_reminders`, so a
+  Sprint's own warnings and its hand-over are written through the Reminders door instead of by
+  setting `system` and `sprint_id` on a row from outside.
+
+**The Telegram adapters did not move.** The packets planned `features/planning/telegram.py` for
+`telegram/sprint.py` and `telegram/plan.py`. Both are imported at module level by
+`telegram/callbacks.py` and `telegram/commands.py`, so moving them makes `safwa.telegram` import a
+feature that imports `safwa.telegram` — the cycle `features/profile/screens.py` is already dodged
+with a function-level import. They move in Phase 8 with the rest of the adapters, beside
+`render_card`.
+
+### Tests
+
+`tests/test_sprint.py` is the Sprint's own file again: seventeen tests, sixteen of them citing a
+`PL` scenario. The renames follow the audit tables in both packets; `test_domain.py`,
+`test_telegram_item_ui.py`, `test_checks.py` and the advisor E2E cite the rest. New behaviour got
+its test first in each of the three cases above.
+
+Verification: `ruff check .` clean; `pytest -q` 678 passed / 3 skipped. `schema.json` moved on
+`sprints` alone, as declared. `prompt_prefix.json` byte-identical — the hand-over is a per-turn
+request, not a prompt. Metrics: DoD #1 26, #2 0, #3 **5** (`domain.py` left the list), #13 0,
+0 cycles, Rule G 2, Rule H 26.

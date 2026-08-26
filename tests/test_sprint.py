@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import select
 
 from safwa.ai.context import board_context
+from safwa.bootstrap.modules import MODULES
 from safwa.constants import SPRINT_LENGTH_DAYS
 from safwa.domain import (
     DomainError,
@@ -14,15 +15,17 @@ from safwa.domain import (
     expire_due_sprint,
     finish_sprint,
     set_sprint_success_criteria,
+    sprint_metrics,
     start_sprint,
     toggle_card_value,
+    update_card_fields,
 )
 from safwa.domain import create_card as create_domain_card
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.reminders.use_cases import delete_reminder
 from safwa.foundation.clock import SystemClock
-from safwa.models import Reminder, Workspace
+from safwa.models import Reminder, Sprint, Workspace
 
 
 async def create_card(session, **overrides):
@@ -31,39 +34,116 @@ async def create_card(session, **overrides):
     return await create_domain_card(session, **payload)
 
 
-async def test_a_sprint_cannot_start_without_success_criteria(sessions):
+async def plan_one(session, **overrides):
+    """The one Action a Sprint needs before it can start."""
+    payload = {"title": "Planned", "stage": "sprint"}
+    payload.update(overrides)
+    return await create_card(session, **payload)
+
+
+async def test_pl_criteria_003_a_sprint_starts_with_words_and_with_work(sessions):
+    """PL-CRITERIA-003 — tests/brd/planning.feature"""
     async with sessions() as session:
+        with pytest.raises(DomainError):
+            await set_sprint_success_criteria(session, "   ")
+
+        # Words but no work.
+        with pytest.raises(DomainError, match="at least one Action"):
+            await start_sprint(session, success_criteria="Ship v2")
+
+        await plan_one(session)
+
+        # Work but no words.
         with pytest.raises(DomainError):
             await start_sprint(session, success_criteria="   ")
 
-
-async def test_sprint_length_comes_from_settings_and_is_bounded(sessions):
-    async with sessions() as session:
-        await set_profile_field(session, ProfileField.SPRINT_LENGTH_DAYS, 7, clock=SystemClock())
         sprint = await start_sprint(session, success_criteria="Ship v2")
-        assert (sprint.planned_end_date - sprint.planned_start_date).days == 6
+
         assert sprint.success_criteria == "Ship v2"
-
-        with pytest.raises(DomainError):
-            await set_profile_field(session, ProfileField.SPRINT_LENGTH_DAYS, 1, clock=SystemClock())
-        with pytest.raises(DomainError):
-            await set_profile_field(session, ProfileField.SPRINT_LENGTH_DAYS, 61, clock=SystemClock())
+        assert (await session.get(Workspace, 1)).active_sprint_id == sprint.id
 
 
-async def test_default_sprint_length_is_the_constant(sessions):
+async def test_pl_criteria_004_success_criteria_outlive_the_sprint(sessions):
+    """PL-CRITERIA-004 — tests/brd/planning.feature"""
     async with sessions() as session:
+        await plan_one(session)
+        await set_sprint_success_criteria(session, "Ship v2")
+        await start_sprint(session, success_criteria="Ship v2")
+        await finish_sprint(session, reason="finished_early")
+        await session.commit()
+
+        assert (await session.get(Workspace, 1)).sprint_success_criteria == "Ship v2"
+        context = await board_context(session)
+
+    assert "No Sprint is running" in context.state
+    assert "Draft Success criteria for the next one: Ship v2" in context.state
+    assert "Today Actions:" not in context.state
+
+
+async def test_pl_start_005_a_sprint_runs_the_length_settings_asked_for(sessions):
+    """PL-START-005 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        await plan_one(session)
+        await set_profile_field(session, ProfileField.SPRINT_LENGTH_DAYS, 7, clock=SystemClock())
+
         sprint = await start_sprint(session, success_criteria="Ship v2")
+
+        assert (sprint.planned_end_date - sprint.planned_start_date).days == 6
+        assert sprint.planned_start_date == sprint.actual_started_at.date()
+
+
+async def test_pl_start_005_the_default_length_is_the_constant(sessions):
+    """PL-START-005 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        await plan_one(session)
+
+        sprint = await start_sprint(session, success_criteria="Ship v2")
+
         assert (
             sprint.planned_end_date - sprint.planned_start_date
         ).days == SPRINT_LENGTH_DAYS - 1
 
 
-async def test_starting_a_sprint_schedules_both_end_reminders(sessions):
+async def test_pl_start_005_numbering_follows_the_highest_number_ever_used(sessions):
+    """PL-START-005 — tests/brd/planning.feature"""
     async with sessions() as session:
-        sprint = await start_sprint(session, success_criteria="Ship v2")
-        reminders = list(
-            await session.scalars(select(Reminder).order_by(Reminder.next_fire_at))
+        await plan_one(session)
+        first = await start_sprint(session, success_criteria="Ship v2")
+        await finish_sprint(session, reason="finished_early")
+        second = await start_sprint(session, success_criteria="Ship v3")
+        await finish_sprint(session, reason="finished_early")
+
+        third = await start_sprint(session, success_criteria="Ship v4")
+
+        assert [first.number, second.number, third.number] == [1, 2, 3]
+
+
+async def test_pl_scope_006_a_sprint_commits_to_what_is_planned_at_the_effort_it_has_then(
+    sessions,
+):
+    """PL-SCOPE-006 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        goal = await create_card(session, title="Be fit", kind="goal", effort_points=None)
+        small = await create_card(session, title="Small", stage="sprint", effort_points=3)
+        await create_card(
+            session, title="Big", stage="today", effort_points=5, parent_id=goal.id
         )
+        sprint = await start_sprint(session, success_criteria="Ship v2")
+
+        assert (await sprint_metrics(session, sprint.id))["committed"] == 8
+
+        await update_card_fields(session, small.id, {"effort_points": 8})
+
+        # What the Sprint took on is what it was worth then, not what it is worth now.
+        assert (await sprint_metrics(session, sprint.id))["committed"] == 8
+
+
+async def test_pl_warn_011_a_sprint_warns_the_owner_before_it_ends(sessions):
+    """PL-WARN-011 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        await plan_one(session)
+        sprint = await start_sprint(session, success_criteria="Ship v2")
+        reminders = list(await session.scalars(select(Reminder).order_by(Reminder.next_fire_at)))
 
         assert [reminder.sprint_id for reminder in reminders] == [sprint.id, sprint.id]
         # Both fire at the clock the Sprint started at, one day apart.
@@ -74,12 +154,27 @@ async def test_starting_a_sprint_schedules_both_end_reminders(sessions):
 
         await finish_sprint(session, reason="finished_early")
 
-        assert await session.scalar(select(Reminder).limit(1)) is None
+        left = list(await session.scalars(select(Reminder)))
+        assert [reminder.instruction[:6] for reminder in left] == ["Sprint"]
+        assert "ends tomorrow" not in left[0].instruction
+
+
+async def test_pl_warn_011_a_two_day_sprint_only_warns_on_its_last_day(sessions):
+    """PL-WARN-011 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        await plan_one(session)
+        await set_profile_field(session, ProfileField.SPRINT_LENGTH_DAYS, 2, clock=SystemClock())
+        await start_sprint(session, success_criteria="Ship v2")
+        reminders = list(await session.scalars(select(Reminder)))
+
+        assert len(reminders) == 1
+        assert "ends today" in reminders[0].instruction
 
 
 async def test_a_sprints_end_warnings_belong_to_safwa(sessions):
     """RM-SYSTEM-022 — tests/brd/reminders.feature"""
     async with sessions() as session:
+        await plan_one(session)
         await start_sprint(session, success_criteria="Ship v2")
         reminders = list(await session.scalars(select(Reminder)))
 
@@ -91,20 +186,12 @@ async def test_a_sprints_end_warnings_belong_to_safwa(sessions):
                 await delete_reminder(session, reminder.id)
 
         await finish_sprint(session, reason="finished_early")
-        assert await session.scalar(select(Reminder).limit(1)) is None
+        left = list(await session.scalars(select(Reminder)))
+        assert all(reminder.system for reminder in left)
 
 
-async def test_a_two_day_sprint_only_warns_on_its_last_day(sessions):
-    async with sessions() as session:
-        await set_profile_field(session, ProfileField.SPRINT_LENGTH_DAYS, 2, clock=SystemClock())
-        await start_sprint(session, success_criteria="Ship v2")
-        reminders = list(await session.scalars(select(Reminder)))
-
-        assert len(reminders) == 1
-        assert "ends today" in reminders[0].instruction
-
-
-async def test_a_sprint_expires_only_after_local_midnight_past_its_end(sessions):
+async def test_pl_end_013_a_sprint_expires_only_after_local_midnight_past_its_end(sessions):
+    """PL-END-013 — tests/brd/planning.feature"""
     async with sessions() as session:
         action = await create_card(session, title="Ship", stage="sprint")
         sprint = await start_sprint(session, success_criteria="Ship v2")
@@ -126,32 +213,87 @@ async def test_a_sprint_expires_only_after_local_midnight_past_its_end(sessions)
         assert action.effective_stage == "sprint"
 
 
-async def test_board_context_names_the_sprint_and_today_actions(sessions):
+async def test_pl_end_015_an_ended_sprint_is_handed_to_safwa(sessions):
+    """PL-END-015 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        done = await create_card(session, title="Shipped", stage="sprint", effort_points=5)
+        await create_card(session, title="Still open", stage="today", effort_points=3)
+        sprint = await start_sprint(session, success_criteria="Ship v2")
+        from safwa.domain import finish_action
+        from safwa.features.cards.model import CardStage
+
+        await finish_action(session, done.id, CardStage.DONE)
+        await finish_sprint(session, reason="finished_early")
+        await session.commit()
+
+        handed = list(await session.scalars(select(Reminder)))
+
+    assert len(handed) == 1
+    words = handed[0].instruction
+    assert handed[0].sprint_id == sprint.id and handed[0].system is True
+    assert f"Sprint {sprint.number} is over" in words
+    assert "the owner closed it" in words
+    assert "Success criteria: Ship v2" in words
+    assert "committed 8, added 0, removed 0, done 5, cancelled 0" in words
+    assert "1 finished, 0 cancelled, 1 still open" in words
+    assert "Still open: Still open" in words
+    assert f"[Sprint retro](retro:{sprint.id})" in words
+
+
+async def test_pl_end_015_a_sprint_that_closed_itself_says_so(sessions):
+    """PL-END-015 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        await plan_one(session)
+        sprint = await start_sprint(session, success_criteria="Ship v2")
+        local_midnight = datetime.combine(
+            sprint.planned_end_date + timedelta(days=1),
+            datetime.min.time(),
+            tzinfo=ZoneInfo("Europe/Istanbul"),
+        )
+        await expire_due_sprint(session, now=local_midnight)
+        await session.commit()
+
+        handed = list(await session.scalars(select(Reminder)))
+
+    assert len(handed) == 1
+    assert "its end date passed" in handed[0].instruction
+
+
+async def test_pl_mode_002_no_tool_anywhere_writes_a_sprint(sessions):
+    """PL-MODE-002 — tests/brd/planning.feature"""
+    tools = {
+        contribution.tool.name for module in MODULES for contribution in module.proposals
+    }
+    entities = {
+        contribution.handler.entity for module in MODULES for contribution in module.proposals
+    }
+
+    assert "sprint" not in tools
+    assert "sprint" not in entities
+    # The Sprint is not proposable at all: nothing the model can call reaches one.
+    assert not any("sprint" in name for name in tools)
+
+
+async def test_pl_context_010_safwa_is_handed_the_sprint_and_todays_actions(sessions):
+    """PL-CONTEXT-010 — tests/brd/planning.feature"""
     async with sessions() as session:
         await create_card(session, title="Ship it", stage="today")
         await create_card(session, title="Later", stage="backlog")
-        await start_sprint(session, success_criteria="Ship v2")
+        sprint = await start_sprint(session, success_criteria="Ship v2")
         await session.commit()
 
         context = await board_context(session)
 
+    assert f"Sprint {sprint.number}: {sprint.planned_start_date} – {sprint.planned_end_date}" in (
+        context.state
+    )
     assert "Success criteria: Ship v2" in context.state
     assert "Today Actions:" in context.state
     assert "[Ship it](card:1)" in context.state
     assert "Later" not in context.state
-
-
-async def test_board_context_asks_for_a_sprint_and_hides_today(sessions):
-    async with sessions() as session:
-        await create_card(session, title="Ship it", stage="today")
-        await set_sprint_success_criteria(session, "Ship v2")
-        await session.commit()
-
-        context = await board_context(session)
-
-    assert "No Sprint is running" in context.state
-    assert "Draft Success criteria for the next one: Ship v2" in context.state
-    assert "Today Actions:" not in context.state
+    # The five effort figures are not handed over; Safwa reads them when it wants them.
+    for word in ("committed", "Committed", "cancelled effort"):
+        assert word not in context.state
 
 
 async def test_board_context_lists_critical_cards_valued_first(sessions):
@@ -170,3 +312,55 @@ async def test_board_context_lists_critical_cards_valued_first(sessions):
     assert len(listed) == 10
     assert listed[0].startswith("- [Valued](card:")
     assert "Ordinary" not in context.state
+
+
+async def test_pl_end_012_finishing_early_leaves_the_work_where_it_is(sessions):
+    """PL-END-012 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        await create_card(session, title="Initial", stage="sprint", effort_points=5)
+        sprint = await start_sprint(session, success_criteria="Ship the release")
+        added = await create_card(session, title="Added", stage="today", effort_points=3)
+
+        await finish_sprint(session, reason="finished_early")
+
+        workspace = await session.get(Workspace, 1)
+        assert workspace.mode == "planning"
+        assert workspace.active_sprint_id is None
+        assert added.effective_stage == "today"
+        assert (await session.get(Sprint, sprint.id)).finish_reason == "finished_early"
+        with pytest.raises(DomainError, match="No Sprint is active"):
+            await finish_sprint(session)
+
+
+async def test_pl_end_014_a_sprint_ending_is_when_the_workspace_is_tidied(sessions):
+    """PL-END-014 — tests/brd/planning.feature"""
+    from safwa.constants import ARCHIVE_AFTER_SPRINTS
+    from safwa.domain import finish_action
+    from safwa.features.cards.model import CardStage
+    from safwa.models import Card
+
+    async with sessions() as session:
+        closed = await create_card(session, title="Shipped", stage="sprint", effort_points=2)
+        await plan_one(session, title="Carries the Sprints")
+        await start_sprint(session, success_criteria="Ship v1")
+        await finish_action(session, closed.id, CardStage.DONE)
+        await finish_sprint(session)
+        await session.commit()
+
+        for index in range(ARCHIVE_AFTER_SPRINTS):
+            await start_sprint(session, success_criteria=f"Ship v{index + 2}")
+            # The last of them is the one nobody closed.
+            if index == ARCHIVE_AFTER_SPRINTS - 1:
+                sprint = await session.get(Workspace, 1)
+                running = await session.get(Sprint, sprint.active_sprint_id)
+                after_midnight = datetime.combine(
+                    running.planned_end_date + timedelta(days=1),
+                    datetime.min.time(),
+                    tzinfo=ZoneInfo("Europe/Istanbul"),
+                )
+                await expire_due_sprint(session, now=after_midnight)
+            else:
+                await finish_sprint(session)
+            await session.commit()
+
+        assert (await session.get(Card, closed.id)).archived_at is not None

@@ -1,8 +1,8 @@
 """Writing a Card: what one is, where it may sit, and the fields its kind may carry.
 
-`sync_commitment_for_stage` lives here until the Sprint moves in a later Phase 5 batch: a
-Sprint commitment follows an Action's stage, and every writer of that stage is in this file
-or calls into it.
+A Sprint commitment follows an Action's stage, and every writer of that stage is in this
+file: each one calls Planning's door afterwards, and no Card row here ever touches a
+commitment itself.
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ from typing import Any
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...constants import ARCHIVE_AFTER_SPRINTS
 from ...enums import (
     ActorType,
     CardKind,
@@ -25,7 +24,7 @@ from ...enums import (
 from ...foundation.clock import utcnow
 from ...foundation.errors import DomainError
 from ...foundation.workspace import bump_workspace, require_workspace
-from ...models import CardTag, CardValue, Check, Sprint, SprintCommitment
+from ...models import CardTag, CardValue, Check
 from ..checks.api import (
     check_card_id,
     clone_checks_for_successor,
@@ -33,6 +32,11 @@ from ..checks.api import (
     reopen_checks,
     require_check_answers,
     settle_checks,
+)
+from ..planning.api import (
+    delete_commitments_of_cards,
+    record_sprint_result,
+    sync_commitment_for_stage,
 )
 from ..tags.api import attach_tags, unlinkable_tag_id
 from ..values.api import attach_values, unlinkable_value_id
@@ -421,44 +425,6 @@ async def record_card_event(
     )
 
 
-async def sync_commitment_for_stage(
-    session: AsyncSession, card: Card, previous_stage: CardStage | None = None
-) -> None:
-    workspace = await require_workspace(session)
-    if not workspace.active_sprint_id or card.kind != CardKind.ACTION.value:
-        return
-    commitment = await session.scalar(
-        select(SprintCommitment).where(
-            SprintCommitment.sprint_id == workspace.active_sprint_id,
-            SprintCommitment.card_id == card.id,
-        )
-    )
-    current = CardStage(card.effective_stage)
-    in_scope = current in {CardStage.SPRINT, CardStage.TODAY, CardStage.DONE, CardStage.CANCELLED}
-    was_scope = previous_stage in {CardStage.SPRINT, CardStage.TODAY} if previous_stage else False
-    if in_scope and commitment is None:
-        session.add(
-            SprintCommitment(
-                sprint_id=workspace.active_sprint_id,
-                card_id=card.id,
-                effort_snapshot=card.effort_points or 0,
-                scope_kind="added",
-                added_at=utcnow(),
-            )
-        )
-    elif commitment and was_scope and current is CardStage.BACKLOG:
-        commitment.removed_at = utcnow()
-    if commitment is None:
-        return
-    if previous_stage in TERMINAL_STAGES and current not in TERMINAL_STAGES:
-        # A reopened Action is no longer a completed or cancelled Sprint result.
-        commitment.result = None
-    if commitment.removed_at is not None and current in {CardStage.SPRINT, CardStage.TODAY}:
-        # Returning to Sprint scope cancels the earlier removal instead of
-        # counting the same effort as both removed and selected.
-        commitment.removed_at = None
-
-
 async def card_children(session: AsyncSession, card_id: int) -> list[Card]:
     """Every Card under this one. An archived child is shown marked, not left out."""
     return list(await session.scalars(select(Card).where(Card.parent_id == card_id)))
@@ -581,19 +547,7 @@ async def finish_action(
     card.version += 1
     correlation_id = new_correlation_id()
     await record_card_event(session, card, terminal_stage.value, actor, before, correlation_id)
-    workspace = await require_workspace(session)
-    commitment = (
-        await session.scalar(
-            select(SprintCommitment).where(
-                SprintCommitment.card_id == card.id,
-                SprintCommitment.sprint_id == workspace.active_sprint_id,
-            )
-        )
-        if workspace.active_sprint_id
-        else None
-    )
-    if commitment:
-        commitment.result = terminal_stage.value
+    await record_sprint_result(session, card.id, terminal_stage)
     result = OperationResult(card_ids=[card.id])
     if card.blocked:
         result.warnings.append(f"Blocked: {card.blocked_description}")
@@ -684,27 +638,13 @@ async def delete_subtree(session: AsyncSession, card_id: int) -> int:
     await delete_checks_of_cards(session, ids)
     # Every link, commitment and event is deleted by name rather than left to the FK
     # cascade, which is a connection pragma and not guaranteed here.
-    for model in (CardValue, CardTag, CardCategory, CardEnergyType, SprintCommitment, CardEvent):
+    await delete_commitments_of_cards(session, ids)
+    for model in (CardValue, CardTag, CardCategory, CardEnergyType, CardEvent):
         await session.execute(delete(model).where(model.card_id.in_(ids)))
     await session.execute(delete(Card).where(Card.id.in_(ids)))
     await propagate_ancestors(session, parent_id)
     await bump_workspace(session)
     return len(ids)
-
-
-async def settled_cutoff(session: AsyncSession) -> datetime | None:
-    """When a Sprint ends, what closed on or before this moment has waited long enough."""
-    ended = list(
-        await session.scalars(
-            select(Sprint)
-            .where(Sprint.actual_ended_at.is_not(None))
-            .order_by(Sprint.number.desc())
-            .limit(ARCHIVE_AFTER_SPRINTS + 1)
-        )
-    )
-    if len(ended) <= ARCHIVE_AFTER_SPRINTS:
-        return None
-    return ended[ARCHIVE_AFTER_SPRINTS].actual_ended_at
 
 
 async def archive_settled_cards(session: AsyncSession, cutoff: datetime) -> list[int]:

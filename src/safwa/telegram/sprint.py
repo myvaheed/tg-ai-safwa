@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import html
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import select
@@ -18,6 +19,7 @@ from sqlalchemy import select
 from ..domain import DomainError, sprint_length_days, sprint_metrics
 from ..enums import CardKind, MessageKind
 from ..features.cards.model import CardStage
+from ..foundation.clock import utcnow
 from ..models import Card, Sprint, UserProfile, Workspace
 from ._core import Services
 from ._messaging import edit_registered_message, paging_row, send_registered, token_button
@@ -114,9 +116,10 @@ async def render_sprint(
                 session, services.owner_id, current, "dashboard_page", dict(SPRINT_BACK)
             )
         )
-        rows.append(
-            [await token_button(session, services.owner_id, "⏹ Finish early", "sprint_finish")]
-        )
+        # On the last day ending the Sprint is not early, and the button says so.
+        local_today = utcnow().astimezone(ZoneInfo(workspace.timezone)).date()
+        finishing = "⏹ Finish Sprint" if local_today >= sprint.planned_end_date else "⏹ Finish early"
+        rows.append([await token_button(session, services.owner_id, finishing, "sprint_finish")])
         rows.append(menu_row())
         header = (
             f"{sprint.planned_start_date} – {sprint.planned_end_date}\n"
@@ -204,18 +207,11 @@ async def _render_planning(
             )
         rows.append(menu_row())
         await session.commit()
-    selected_effort = sum(card.effort_points or 0 for card in planned)
-    capacity = profile.capacity_effort_points if profile else None
-    warning = (
-        f"\n⚠️ Above configured capacity ({capacity} EP)."
-        if capacity and selected_effort > capacity
-        else ""
-    )
+    cost, warning = plan_cost(planned, profile.capacity_effort_points if profile else None)
     text = with_notice(
         "<b>Planning</b>\n"
         f"Success criteria: {html.escape(criteria) if criteria else 'not set yet'}\n"
-        f"Planned: {len(planned)} Actions · {selected_effort} EP · "
-        f"capacity {capacity if capacity is not None else '—'} EP{warning}",
+        f"Planned: {cost}" + (f"\n{warning}" if warning else ""),
         notice,
     )
     markup = InlineKeyboardMarkup(inline_keyboard=rows)
@@ -232,6 +228,21 @@ async def _render_planning(
         await send_registered(message, services, text, kind=MessageKind.DASHBOARD, markup=markup)
 
 
+def plan_cost(planned: list[Card], capacity: int | None) -> tuple[str, str]:
+    """What the plan costs and, beside it, the capacity the owner set for a Sprint.
+
+    Written once because both screens that show the plan's total show it against the same
+    number, and the warning is advice: nothing about it stops a Sprint from starting.
+    """
+    effort = sum(card.effort_points or 0 for card in planned)
+    line = (
+        f"{len(planned)} Actions · {effort} EP · "
+        f"capacity {capacity if capacity is not None else '—'} EP"
+    )
+    above = f"⚠️ Above configured capacity ({capacity} EP)." if capacity and effort > capacity else ""
+    return line, above
+
+
 async def stage_actions(session, *stages: CardStage) -> list[Card]:  # type: ignore[no-untyped-def]
     return list(
         await session.scalars(
@@ -241,4 +252,27 @@ async def stage_actions(session, *stages: CardStage) -> list[Card]:  # type: ign
                 Card.archived_at.is_(None),
             )
         )
+    )
+
+
+async def render_sprint_retro(message: Message, services: Services, sprint_id: int) -> None:
+    """The Sprint retro screen. It is empty: the retrospective is its own feature."""
+    async with services.sessions() as session:
+        sprint = await session.get(Sprint, sprint_id)
+        if sprint is None:
+            raise DomainError("Sprint does not exist")
+        rows = [menu_row()]
+        text = (
+            f"<b>Sprint {sprint.number} retro</b>\n"
+            f"{sprint.planned_start_date} – {sprint.planned_end_date}\n"
+            f"Success criteria: {html.escape(sprint.success_criteria)}\n\n"
+            "There is nothing here yet."
+        )
+        await session.commit()
+    await send_registered(
+        message,
+        services,
+        text,
+        kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )

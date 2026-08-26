@@ -10,7 +10,6 @@ from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.context import DialogueMessage
 from safwa.ai.service import AIOutcome, ProposalService
-from safwa.analytics import render_retrospective_png, retrospective_data
 from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS, SYSTEM_PROMPT
 from safwa.constants import MAX_TOOL_CALLS
 from safwa.domain import (
@@ -351,7 +350,8 @@ async def test_ai_parent_query_rejects_non_ai_card_sql(
     assert "read-only SELECT over ai_cards" in tool_result["hint"]
 
 
-async def test_ai_card_proposal_to_repeat_sprint_and_retrospective(e2e_harness):
+async def test_ai_card_proposal_reaches_the_sprint_it_was_planned_into(e2e_harness):
+    """PL-SCOPE-007 — tests/brd/planning.feature"""
     async with e2e_harness.sessions() as session:
         goal = await create_manual_card(
             session,
@@ -431,7 +431,7 @@ async def test_ai_card_proposal_to_repeat_sprint_and_retrospective(e2e_harness):
         )
 
         await move_card(session, action.id, CardStage.SPRINT)
-        sprint = await start_sprint(session, success_criteria="Ship the release", capacity=8)
+        sprint = await start_sprint(session, success_criteria="Ship the release")
         await move_card(session, action.id, CardStage.TODAY)
         completion = await finish_action(session, action.id, CardStage.DONE)
         assert len(completion.successor_ids) == 1
@@ -451,11 +451,6 @@ async def test_ai_card_proposal_to_repeat_sprint_and_retrospective(e2e_harness):
             "cancelled": 0,
         }
 
-        retro = await retrospective_data(session, sprint.id)
-        png = render_retrospective_png(retro)
-        assert png.startswith(b"\x89PNG\r\n\x1a\n")
-        assert len(png) > 10_000
-
         await finish_sprint(session, reason="finished_early")
         workspace = await session.get(Workspace, 1)
         assert workspace is not None
@@ -472,7 +467,7 @@ async def test_ai_read_query_round_trip_uses_safe_view(e2e_harness):
             stage="sprint",
             effort_points=5,
         )
-        await start_sprint(session, success_criteria="Ship the release", capacity=8)
+        await start_sprint(session, success_criteria="Ship the release")
         await finish_action(session, action.id, CardStage.DONE)
         await session.commit()
 

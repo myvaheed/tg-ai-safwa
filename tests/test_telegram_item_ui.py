@@ -1162,7 +1162,7 @@ async def test_a_diary_citation_is_named_by_the_entry_and_opens_the_whole_day(se
 
 
 def test_citation_codec_matches_every_openable_item_screen() -> None:
-    expected = {"card", "check", "tag", "value", "request", "diary"}
+    expected = {"card", "check", "tag", "value", "request", "diary", "retro"}
     assert set(CITATION_TYPES) == expected
     assert set(OPENABLE_MODELS) == expected
 
@@ -1634,7 +1634,8 @@ async def test_backlog_dashboard_lists_actions_only(sessions) -> None:
     assert any("Visible Action" in text for text in button_texts(dashboard_markup))
 
 
-async def test_menu_offers_today_only_while_a_sprint_runs(sessions) -> None:
+async def test_pl_mode_001_the_menu_offers_today_only_while_a_sprint_runs(sessions) -> None:
+    """PL-MODE-001 — tests/brd/planning.feature"""
     services = services_for(sessions)
     message = FakeMessage(74, bot_message=True)
 
@@ -1642,6 +1643,9 @@ async def test_menu_offers_today_only_while_a_sprint_runs(sessions) -> None:
     assert "☀️ Today" not in button_texts(message.edits[-1][1])
 
     async with sessions() as session:
+        await create_card(
+            session, kind="action", title="Planned", stage="sprint", effort_points=2
+        )
         await start_sprint(session, success_criteria="Ship v2")
         await session.commit()
 
@@ -1649,7 +1653,8 @@ async def test_menu_offers_today_only_while_a_sprint_runs(sessions) -> None:
     assert "☀️ Today" in button_texts(message.edits[-1][1])
 
 
-async def test_today_screen_is_closed_during_planning(sessions) -> None:
+async def test_pl_mode_001_the_today_screen_is_closed_during_planning(sessions) -> None:
+    """PL-MODE-001 — tests/brd/planning.feature"""
     message = FakeMessage(75, bot_message=True)
 
     await render_today(message, services_for(sessions))
@@ -1703,7 +1708,8 @@ async def test_quick_move_buttons_walk_an_action_between_today_and_sprint(sessio
         assert (await session.get(Card, action_id)).effective_stage == CardStage.TODAY.value
 
 
-async def test_starting_a_sprint_needs_criteria_and_a_plan(sessions) -> None:
+async def test_pl_criteria_003_starting_a_sprint_needs_criteria_and_a_plan(sessions) -> None:
+    """PL-CRITERIA-003 — tests/brd/planning.feature"""
     async with sessions() as session:
         await create_card(
             session, kind="action", title="Sprint work", stage="sprint", effort_points=2
@@ -1785,10 +1791,14 @@ async def test_starting_a_sprint_needs_criteria_and_a_plan(sessions) -> None:
     assert "today" not in message.bot.published_commands[-1]
     async with sessions() as session:
         assert (await session.get(Workspace, 1)).active_sprint_id is None
-        assert await session.scalar(select(Reminder).limit(1)) is None
+        # Both end warnings are gone; what is left is the Sprint handed to Safwa.
+        left = list(await session.scalars(select(Reminder)))
+        assert len(left) == 1
+        assert left[0].instruction.startswith("Sprint 1 is over")
 
 
-async def test_the_planning_screen_refuses_an_empty_plan(sessions) -> None:
+async def test_pl_criteria_003_the_planning_screen_refuses_an_empty_plan(sessions) -> None:
+    """PL-CRITERIA-003 — tests/brd/planning.feature"""
     async with sessions() as session:
         await set_sprint_success_criteria(session, "Ship v2")
         await session.commit()
@@ -2734,7 +2744,8 @@ async def _plan_filters(sessions) -> list[int]:
         return list(ui.state["filters"])
 
 
-async def test_the_plan_is_the_sprint_as_a_table_and_the_backlog_as_the_keyboard(sessions):
+async def test_pl_plan_016_the_plan_is_a_table_and_the_backlog_is_the_keyboard(sessions):
+    """PL-PLAN-016 — tests/brd/planning.feature"""
     ids = await _seed_plan(sessions)
     services = services_for(sessions)
     screen = FakeMessage(100, bot_message=True)
@@ -2753,7 +2764,8 @@ async def test_the_plan_is_the_sprint_as_a_table_and_the_backlog_as_the_keyboard
     assert "Apply filter" in " ".join(labels)
 
 
-async def test_a_return_tap_moves_the_card_back_and_redraws_the_same_screen(sessions):
+async def test_pl_plan_016_a_return_tap_moves_the_card_back_and_redraws_the_same_screen(sessions):
+    """PL-PLAN-016 — tests/brd/planning.feature"""
     ids = await _seed_plan(sessions)
     services = services_for(sessions)
     screen = FakeMessage(101, bot_message=True)
@@ -2806,7 +2818,8 @@ async def test_opening_a_card_from_the_plan_comes_back_to_the_same_page_and_filt
     assert "Apply filter (1)" in " ".join(labels)
 
 
-async def test_a_filter_that_matches_nothing_says_so_instead_of_an_empty_keyboard(sessions):
+async def test_pl_plan_017_a_filter_that_matches_nothing_says_so_instead_of_going_blank(sessions):
+    """PL-PLAN-017 — tests/brd/planning.feature"""
     await _seed_plan(sessions)
     async with sessions() as session:
         request = await create_saved_request(
@@ -2825,7 +2838,8 @@ async def test_a_filter_that_matches_nothing_says_so_instead_of_an_empty_keyboar
     assert "Into Sprint" not in " ".join(labels)
 
 
-async def test_the_filter_screen_toggles_a_request_on_and_off(sessions) -> None:
+async def test_pl_plan_017_the_filter_screen_toggles_a_request_on_and_off(sessions) -> None:
+    """PL-PLAN-017 — tests/brd/planning.feature"""
     await _seed_plan(sessions)
     async with sessions() as session:
         request = await create_saved_request(
@@ -2882,8 +2896,8 @@ async def test_the_filter_screen_toggles_a_request_on_and_off(sessions) -> None:
     assert "Pick me (1)" in labels
 
 
-async def test_a_burst_of_link_taps_earns_a_warning(sessions, monkeypatch) -> None:
-    """The bot cannot refuse the tap — it hears about it after Telegram accepted it."""
+async def test_pl_plan_019_a_burst_of_link_taps_earns_a_warning(sessions, monkeypatch) -> None:
+    """PL-PLAN-019 — tests/brd/planning.feature"""
     import safwa.telegram._messaging as messaging
 
     monkeypatch.setattr(messaging, "TOAST_SECONDS", 0)
@@ -2899,6 +2913,9 @@ async def test_a_burst_of_link_taps_earns_a_warning(sessions, monkeypatch) -> No
 
     await handle_plan_start(screen, services, payload)
     assert "link taps" in screen.answers[-1]
+    assert "hours" in screen.answers[-1]
+    # The tap that earned the warning still opened the Card it points at.
+    assert "Pick me" in screen.bot.edits[-1][1]
 
     _, expiry = messaging._toasts[screen.chat.id]
     await expiry
@@ -3191,3 +3208,41 @@ async def test_ch_delete_014_the_owner_deletes_a_check_from_its_screen(sessions)
         # Its Card stays, and so does the Value it pointed at.
         assert await session.get(Card, card_id) is not None
         assert await session.get(Value, value_id) is not None
+
+
+async def test_pl_plan_018_the_plans_cost_is_shown_against_the_capacity(sessions) -> None:
+    """PL-PLAN-018 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        await (await session.connection()).run_sync(
+            lambda connection: create_ai_views(connection, AI_VIEWS)
+        )
+        await create_card(
+            session, kind="action", title="Heavy", stage="sprint", effort_points=13
+        )
+        await set_sprint_success_criteria(session, "Ship v2")
+        await session.commit()
+
+    services = services_for(sessions)
+    planning = FakeMessage(120, bot_message=True)
+    await render_sprint(planning, services)
+
+    assert "Planned: 1 Actions · 13 EP · capacity — EP" in planning.edits[-1][0]
+    assert "Above configured capacity" not in planning.edits[-1][0]
+
+    async with sessions() as session:
+        await set_profile_field(
+            session, ProfileField.CAPACITY_EFFORT_POINTS, 10, clock=SystemClock()
+        )
+        await session.commit()
+
+    await render_sprint(planning, services)
+    assert "Planned: 1 Actions · 13 EP · capacity 10 EP" in planning.edits[-1][0]
+    assert "⚠️ Above configured capacity (10 EP)." in planning.edits[-1][0]
+    # Above the capacity is advice: the Sprint still starts.
+    assert any(label.startswith("▶️ Start") for label in button_texts(planning.edits[-1][1]))
+
+    plan = FakeMessage(121, bot_message=True)
+    await render_plan(plan, services)
+
+    assert "In Sprint: 1 Actions · 13 EP · capacity 10 EP" in plan.edits[-1][0]
+    assert "Above configured capacity" in plan.edits[-1][0]

@@ -90,5 +90,4 @@ class MessageKind(StrEnum):
     RECEIPT = "receipt"
     # Transient progress the sender deletes again, never part of the conversation.
     STATUS = "status"
-    RETROSPECTIVE_PNG = "retrospective_png"
     ERROR = "error"

@@ -6,10 +6,10 @@ said and when, and Reminders keeps the row, its schedule and its arithmetic.
 
 from __future__ import annotations
 
-from datetime import UTC, time
+from datetime import UTC, datetime, time
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...constants import WEEKDAY_NAMES
@@ -19,6 +19,7 @@ from ...foundation.errors import DomainError
 from ...foundation.models import Workspace
 from .model import Reminder
 from .schedule import Schedule, next_fire, parse_clock, schedule_columns
+from .use_cases import create_reminder
 
 
 def parse_clock_or_off(raw: str) -> time | None:
@@ -75,3 +76,33 @@ async def sync_daily_system_reminder(
     existing.next_fire_at = first
     existing.version += 1
     return existing
+
+
+async def create_sprint_reminder(
+    session: AsyncSession,
+    *,
+    instruction: str,
+    at_time: time,
+    anchor_at: datetime,
+    tz: ZoneInfo,
+    sprint_id: int,
+) -> Reminder:
+    """One warning a Sprint sets for itself: fires once, at the clock the Sprint started at.
+
+    No owner set it, so it is Safwa's: hidden from `/reminders` and from the model, and
+    removed by the Sprint ending rather than by hand.
+    """
+    reminder = await create_reminder(
+        session,
+        instruction=instruction,
+        schedule=Schedule(kind=ScheduleKind.ONCE, at_time=at_time, anchor_at=anchor_at),
+        tz=tz,
+    )
+    reminder.sprint_id = sprint_id
+    reminder.system = True
+    return reminder
+
+
+async def delete_sprint_reminders(session: AsyncSession, sprint_id: int) -> None:
+    """A finished Sprint's own warnings have nothing left to announce."""
+    await session.execute(delete(Reminder).where(Reminder.sprint_id == sprint_id))

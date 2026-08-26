@@ -50,10 +50,10 @@ a technical contract; `given-when-then` — the body already carries the comment
 | `test_reminders.py` | 34 | 34 | 0 | 0 | — |
 | `test_saved_requests.py` | 8 | 8 | 0 | 0 | — |
 | `test_scheduler.py` | 16 | 16 | 0 | 0 | — |
-| `test_sprint.py` | 10 | 10 | 0 | 0 | — |
+| `test_sprint.py` | 17 | 17 | 0 | 0 | — |
 | `test_state_flow.py` | 22 | 0 | 22 | 0 | contract-file |
 | `test_subagents.py` | 6 | 6 | 0 | 0 | — |
 | `test_tags.py` | 4 | 4 | 0 | 0 | — |
-| `test_telegram_item_ui.py` | 84 | 44 | 0 | 40 | fakes, ui-layout |
+| `test_telegram_item_ui.py` | 85 | 46 | 0 | 39 | fakes, ui-layout |
 | `test_values.py` | 12 | 12 | 0 | 0 | — |
-| **total** | **578** | **447** | **90** | **41** | |
+| **total** | **586** | **456** | **90** | **40** | |

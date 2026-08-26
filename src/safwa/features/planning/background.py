@@ -11,8 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ...bootstrap.module_manifest import BackgroundContext, BackgroundTask
 from ...constants import SPRINT_EXPIRY_POLL_SECONDS
 from ...domain import expire_due_sprint
-from ...enums import MessageKind
-from ...history import mark_message, register_message
 from ...telegram import sync_bot_commands
 
 logger = logging.getLogger(__name__)
@@ -26,10 +24,11 @@ async def run_sprint_expiry(
     announce: Announcer,
     poll_seconds: float = SPRINT_EXPIRY_POLL_SECONDS,
 ) -> None:
-    """Close a Sprint that ran past its planned end date and say so once.
+    """Close a Sprint that ran past its planned end date.
 
-    A separate poll from the Reminder one: it takes no lease and asks the advisor nothing,
-    because closing a Sprint at midnight is arithmetic, not a conversation.
+    A separate poll from the Reminder one: closing a Sprint at midnight is arithmetic, not
+    a conversation. What the owner is told about it is a conversation, and that is why the
+    ending leaves a due Reminder behind rather than writing a message here.
     """
     while True:
         try:
@@ -46,27 +45,12 @@ async def run_sprint_expiry(
         await asyncio.sleep(poll_seconds)
 
 
-async def _announce_and_expire(context: BackgroundContext) -> None:
+async def _expire_and_close_today(context: BackgroundContext) -> None:
     async def announce(number: int) -> None:
-        text = (
-            f"⏹ Sprint {number} reached its planned end date and was closed automatically. "
-            "Whatever was still open kept its stage."
-        )
-        marked_text, event_id = mark_message(text, MessageKind.RECEIPT)
-        sent = await context.bot.send_message(context.settings.telegram_owner_id, marked_text)
-        async with context.sessions() as session:
-            await register_message(
-                session,
-                sent.chat.id,
-                sent.message_id,
-                "out",
-                MessageKind.RECEIPT,
-                event_id=event_id,
-            )
-            await session.commit()
+        # Today belongs to a running Sprint, so the command list changes the moment one ends.
         await sync_bot_commands(context.bot, sprint_active=False)
 
     await run_sprint_expiry(context.sessions, announce=announce)
 
 
-SPRINT_EXPIRY = BackgroundTask("sprint-expiry", _announce_and_expire)
+SPRINT_EXPIRY = BackgroundTask("sprint-expiry", _expire_and_close_today)

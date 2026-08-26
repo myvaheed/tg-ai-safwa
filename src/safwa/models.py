@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
     JSON,
-    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -31,6 +30,8 @@ from .features.continuity.model import MemoryFactCache as MemoryFactCache
 from .features.continuity.model import MemorySyncState as MemorySyncState
 from .features.continuity.model import SummaryState as SummaryState
 from .features.diary.model import DiaryEntry as DiaryEntry
+from .features.planning.model import Sprint as Sprint
+from .features.planning.model import SprintCommitment as SprintCommitment
 from .features.profile.model import UserProfile as UserProfile
 from .features.reminders.model import Reminder as Reminder
 from .features.saved_requests.model import SavedRequest as SavedRequest
@@ -41,34 +42,6 @@ from .features.values.model import CheckValue as CheckValue
 from .features.values.model import Value as Value
 from .foundation.models import Base, TimestampMixin
 from .foundation.models import Workspace as Workspace
-
-
-class Sprint(Base, TimestampMixin):
-    __tablename__ = "sprints"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    number: Mapped[int] = mapped_column(Integer, unique=True)
-    planned_start_date: Mapped[date] = mapped_column(Date)
-    planned_end_date: Mapped[date] = mapped_column(Date)
-    actual_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    actual_ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    capacity_effort_points: Mapped[int | None] = mapped_column(Integer)
-    success_criteria: Mapped[str] = mapped_column(Text, default="")
-    status: Mapped[str] = mapped_column(String(20), default="active")
-    finish_reason: Mapped[str | None] = mapped_column(String(100))
-
-
-class SprintCommitment(Base, TimestampMixin):
-    __tablename__ = "sprint_commitments"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    sprint_id: Mapped[int] = mapped_column(ForeignKey("sprints.id", ondelete="CASCADE"), index=True)
-    card_id: Mapped[int] = mapped_column(ForeignKey("cards.id", ondelete="CASCADE"), index=True)
-    effort_snapshot: Mapped[int] = mapped_column(Integer)
-    scope_kind: Mapped[str] = mapped_column(String(20), default="initial")
-    added_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    result: Mapped[str | None] = mapped_column(String(20))
-
-    __table_args__ = (UniqueConstraint("sprint_id", "card_id"),)
 
 
 class ChangeProposal(Base, TimestampMixin):

@@ -682,7 +682,10 @@ async def test_cd_archive_022_a_closed_card_is_archived_two_sprints_later(sessio
     """CD-ARCHIVE-022 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal, action = await _goal_with_action(session, title="Walk")
-        open_goal, live = await _goal_with_action(session, goal_title="Fitness", title="Swim")
+        # A Sprint needs an Action planned into it, and this one is also what stays live.
+        open_goal, live = await _goal_with_action(
+            session, goal_title="Fitness", title="Swim", stage="sprint"
+        )
         await finish_action(session, action.id, CardStage.DONE)
         await session.commit()
 

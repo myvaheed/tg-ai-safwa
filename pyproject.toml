@@ -12,7 +12,6 @@ dependencies = [
   "aiogram>=3.22,<4",
   "aiosqlite>=0.20,<1",
   "greenlet>=3.0,<4",
-  "matplotlib>=3.9,<4",
   "openai>=1.70,<3",
   "pydantic>=2.10,<3",
   "pydantic-settings>=2.7,<3",
