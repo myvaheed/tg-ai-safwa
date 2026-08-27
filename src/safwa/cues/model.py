@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Integer, Text
+from uuid import uuid4
+
+from sqlalchemy import Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..foundation.models import Base, TimestampMixin
@@ -18,4 +20,7 @@ class Cue(Base, TimestampMixin):
 
     __tablename__ = "cues"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_id: Mapped[str] = mapped_column(
+        String(32), unique=True, index=True, default=lambda: uuid4().hex
+    )
     text: Mapped[str] = mapped_column(Text)

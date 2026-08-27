@@ -84,10 +84,77 @@ def view_catalogue(views: Collection[SqlView], names: Sequence[str]) -> str:
     return "\n".join(by_name[name].doc.strip("\n") for name in names)
 
 
-FORBIDDEN = re.compile(
-    r"\b(insert|update|delete|replace|alter|drop|create|pragma|attach|detach|vacuum|reindex|analyze)\b",
-    re.IGNORECASE,
+FORBIDDEN = frozenset(
+    {
+        "insert", "update", "delete", "replace", "alter", "drop",
+        "create", "pragma", "attach", "detach", "vacuum", "reindex", "analyze",
+    }
 )
+# What ends a FROM clause, so a comma past it is a list of columns rather than of tables.
+FROM_END = frozenset(
+    {"where", "group", "having", "order", "limit", "union", "intersect", "except", "window"}
+)
+SQL_TOKEN = re.compile(
+    r"(?P<comment>--|/\*)"
+    r"|(?P<quoted>'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|`(?:``|[^`])*`|\[(?:\]\]|[^\]])*\])"
+    r"|(?P<word>[A-Za-z_][A-Za-z0-9_]*)"
+    r"|(?P<punct>[(),])"
+)
+
+
+def _unquoted(token: str) -> str:
+    if token[0] == "[":
+        return token[1:-1].replace("]]", "]")
+    if token[0] in "'\"`":
+        return token[1:-1].replace(token[0] * 2, token[0])
+    return token
+
+
+def scan_statement(statement: str) -> set[str]:
+    """Every token-level rule, and the table names the allowlist below is checked against.
+
+    One pass, because each rule reads the same tokens: a keyword only counts outside a
+    string literal, and a table source can be hidden behind a comment, a parenthesized bare
+    name or SQLite's legacy comma-separated list. Splitting these into separate regular
+    expressions is what let a query name a base table the FROM/JOIN allowlist never saw.
+    """
+    names: set[str] = set()
+    depth = 0
+    from_depths: set[int] = set()
+    expect_name = False  # the previous token was FROM or JOIN
+    expect_select = False  # ... and an opening parenthesis followed it
+    for match in SQL_TOKEN.finditer(statement):
+        token = match.group()
+        if match.lastgroup == "comment":
+            raise UnsafeQueryError("SQL comments are not allowed")
+        if token == "(":
+            expect_name, expect_select = False, expect_name or expect_select
+            depth += 1
+            continue
+        if expect_select and (
+            match.lastgroup != "word" or token.casefold() not in {"select", "with"}
+        ):
+            raise UnsafeQueryError("Name a view directly after FROM or JOIN")
+        expect_select = False
+        if token == ")":
+            from_depths.discard(depth)
+            depth = max(0, depth - 1)
+        elif token == ",":
+            if depth in from_depths:
+                raise UnsafeQueryError("Use JOIN instead of a comma-separated table list")
+        elif expect_name:
+            names.add(_unquoted(token).casefold())
+            expect_name = False
+        elif match.lastgroup == "word":
+            lowered = token.casefold()
+            if lowered in FORBIDDEN:
+                raise UnsafeQueryError("Unsafe SQL keyword")
+            if lowered in {"from", "join"}:
+                expect_name = True
+                from_depths.add(depth)
+            elif lowered in FROM_END:
+                from_depths.discard(depth)
+    return names
 
 
 # What a read that is more than one flat scan of one view always contains. A bare
@@ -111,16 +178,7 @@ def validate_read_sql(sql: str, views: Collection[str]) -> str:
         raise UnsafeQueryError("Only one SQL statement is allowed")
     if not re.match(r"^(select|with)\b", statement, re.IGNORECASE):
         raise UnsafeQueryError("Only SELECT queries are allowed")
-    if FORBIDDEN.search(statement):
-        raise UnsafeQueryError("Unsafe SQL keyword")
-    names = {
-        match.group(1).casefold()
-        for match in re.finditer(
-            r"\b(?:from|join)\s+[\"`\[]?([A-Za-z_][A-Za-z0-9_]*)[\"`\]]?",
-            statement,
-            re.I,
-        )
-    }
+    names = scan_statement(statement)
     # A CTE may be recursive and may declare its columns, and both forms name a table
     # the FROM/JOIN scan below would otherwise report as an unavailable view.
     cte_names = {
@@ -273,11 +331,9 @@ class ReadOnlyQueryRunner:
                 sqlite3.SQLITE_PRAGMA,
             }:
                 return sqlite3.SQLITE_DENY
-            # A read with no column name discloses no column. SQLite reports one when a
-            # view is flattened into a scan that needs none — `SELECT count(*)` over any
-            # view, or `SELECT id` where the id is the rowid — and it names no view to
-            # attribute it to. Denying it would refuse those queries outright, and the
-            # statement validator has already refused every FROM that is not a view.
+            # SQLite sometimes reports an empty column for a view flattened into a
+            # rowid scan. The statement validator therefore owns columnless table-source
+            # reads; the authorizer independently refuses every attributed base column.
             if (
                 action == sqlite3.SQLITE_READ
                 and arg1

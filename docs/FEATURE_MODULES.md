@@ -64,6 +64,7 @@ safwa/features/<feature>/
   model.py      # feature-owned ORM entities, their field enums and value constants
   use_cases.py  # business operations shared by every adapter
   api.py        # what another feature may call; Rule E allows no other door
+  references.py # ReferenceSpec per named relationship the feature carries
   views.py      # SqlView per ai_* view
   agent.py      # MutationToolSpec, and an AgentSpec if it owns a subagent
   proposal.py   # ProposalHandler
@@ -77,6 +78,12 @@ word.
 `api.py` **defines** what it publishes. It exists only when another feature actually calls in, and
 it hands over the answer rather than the row: `scheduled_memory_time(session)`, not `UserProfile`.
 A module that only re-exports is counted as a leftover path by Definition of Done #13.
+
+`references.py` declares one [`ReferenceSpec`](../src/safwa/foundation/references.py) per named
+relationship — a Card carries Values, Tags and Checks, a Check carries Values — so a payload key,
+its lookup, its junction row and the toggle that writes it are one record. It is separate from
+`api.py` because each spec names a toggle from `use_cases.py`, and `api.py` cannot import those:
+Planning reads through the Cards door while the Card use cases read through Planning's.
 
 ## Who owns the transaction
 

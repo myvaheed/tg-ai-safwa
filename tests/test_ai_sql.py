@@ -288,6 +288,18 @@ def test_query_tool_rejects_null_empty_and_extra_arguments():
         "DELETE FROM ai_cards",
         "SELECT * FROM cards",
         'SELECT * FROM "cards"',
+        "SELECT count(*) FROM (sqlite_master)",
+        "SELECT count(*) FROM/**/sqlite_master",
+        "SELECT count(*) FROM 'sqlite_master'",
+        "SELECT count(*) FROM[sqlite_master]",
+        "SELECT count(*) FROM ai_cards, sqlite_master",
+        "SELECT count(*) FROM ai_cards, (sqlite_master)",
+        "SELECT count(*) FROM ai_cards, sqlite_master NOT INDEXED",
+        "SELECT count(*) FROM ((sqlite_master))",
+        "SELECT count(*) FROM main.sqlite_master",
+        "SELECT id FROM ai_cards JOIN (sqlite_master) ON 1 = 1",
+        "SELECT id FROM ai_cards UNION SELECT count(*) FROM sqlite_master",
+        "SELECT id FROM ai_cards LIMIT 1 -- and one more",
         "PRAGMA table_info(ai_cards)",
         "SELECT * FROM ai_cards; SELECT * FROM ai_values",
     ],
@@ -297,10 +309,35 @@ def test_read_sql_rejects_unsafe_queries(sql):
         validate_read_sql(sql, ALLOWED_VIEWS)
 
 
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT id FROM ai_cards ORDER BY joined_at",
+        "SELECT id FROM ai_cards WHERE title LIKE '%--%'",
+        "SELECT id FROM ai_cards WHERE title LIKE '%fromage%'",
+        "SELECT id FROM ai_cards WHERE title LIKE '%update the docs%'",
+        "SELECT id FROM ai_cards WHERE note LIKE '%drop the ball%'",
+        "SELECT id FROM ai_cards WHERE title = 'it''s here'",
+    ],
+)
+def test_read_sql_reads_keywords_only_outside_quotes(sql):
+    """A word inside a string literal is text, and one column may start with a keyword."""
+    assert validate_read_sql(sql, ALLOWED_VIEWS)
+
+
 def test_read_sql_accepts_views_and_ctes():
     assert validate_read_sql("SELECT title FROM ai_cards LIMIT 5", ALLOWED_VIEWS)
+    assert validate_read_sql("SELECT id, title FROM ai_cards LIMIT 5", ALLOWED_VIEWS)
     assert validate_read_sql(
         "WITH x AS (SELECT * FROM ai_cards) SELECT count(*) FROM x", ALLOWED_VIEWS
+    )
+    assert validate_read_sql(
+        "SELECT count(*) FROM (SELECT id FROM ai_cards)", ALLOWED_VIEWS
+    )
+    assert validate_read_sql(
+        "SELECT c.id FROM ai_cards c JOIN ai_values v "
+        "ON c.id = coalesce(v.id, c.id)",
+        ALLOWED_VIEWS,
     )
 
 

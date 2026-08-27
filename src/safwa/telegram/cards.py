@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..constants import SELECTOR_PAGE_SIZE
 from ..domain import (
     DomainError,
-    ReferenceSpec,
     blocking_actions,
     card_checks,
     card_children,
@@ -34,6 +33,7 @@ from ..enums import (
 )
 from ..features.cards.model import CardStage
 from ..features.cards.use_cases import EFFORT_POINTS
+from ..foundation.references import ReferenceSpec
 from ..models import (
     Card,
     CardCategory,
@@ -83,16 +83,12 @@ async def linked_card_count(session: AsyncSession, spec: ReferenceSpec, item_id:
 
 
 async def carrier_counts(
-    session: AsyncSession, spec: ReferenceSpec, item_id: int
+    session: AsyncSession, carriers: tuple[ReferenceSpec, ...], item_id: int
 ) -> list[tuple[str, int]]:
-    """What carries this Tag or Value right now, one entry per kind of thing.
-
-    The spec says what can carry it, so a screen counts Checks for a Value without knowing
-    which item it is looking at.
-    """
+    """What carries this Tag or Value right now, one entry per kind of thing."""
     return [
-        (carrier.owner_label, await linked_card_count(session, carrier, item_id))
-        for carrier in (spec, *spec.also_carried_by)
+        (carrier.owner, await linked_card_count(session, carrier, item_id))
+        for carrier in carriers
     ]
 
 

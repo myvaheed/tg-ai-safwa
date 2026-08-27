@@ -28,23 +28,7 @@
       "Rule H|safwa/telegram/screens.py|dict over card, check, diary, request, tag, value": 1
     },
     "Rule L": {
-      "Rule L|safwa/features/cards/proposal.py|imports safwa.domain.CARD_REFERENCE_SPECS": 1,
-      "Rule L|safwa/features/cards/proposal.py|imports safwa.domain.CHECK_REFERENCE": 1,
-      "Rule L|safwa/features/cards/proposal.py|imports safwa.domain.TAG_REFERENCE": 1,
-      "Rule L|safwa/features/cards/proposal.py|imports safwa.domain.VALUE_REFERENCE": 1,
-      "Rule L|safwa/features/cards/proposal.py|imports safwa.domain.toggle_card_category": 1,
-      "Rule L|safwa/features/cards/proposal.py|imports safwa.domain.toggle_card_energy_type": 1,
-      "Rule L|safwa/features/cards/telegram.py|imports safwa.domain.CARD_REFERENCE_SPECS": 1,
-      "Rule L|safwa/features/cards/telegram.py|imports safwa.domain.resolve_references": 1,
-      "Rule L|safwa/features/checks/proposal.py|imports safwa.domain.CHECK_VALUE_REFERENCE": 1,
-      "Rule L|safwa/features/checks/telegram.py|imports safwa.domain.CHECK_VALUE_REFERENCE": 1,
-      "Rule L|safwa/features/checks/telegram.py|imports safwa.domain.resolve_references": 1,
-      "Rule L|safwa/features/planning/background.py|imports safwa.domain.expire_due_sprint": 1,
-      "Rule L|safwa/features/proposals/api.py|imports safwa.domain.CARD_REFERENCE_SPECS": 1,
-      "Rule L|safwa/features/proposals/api.py|imports safwa.domain.ReferenceSpec": 1,
-      "Rule L|safwa/features/proposals/api.py|imports safwa.domain.is_closed_repeat": 1,
-      "Rule L|safwa/features/proposals/api.py|imports safwa.domain.live_repeat_instance_id": 1,
-      "Rule L|safwa/features/proposals/api.py|imports safwa.domain.resolve_references": 1
+      "Rule L|safwa/features/planning/background.py|imports safwa.domain.expire_due_sprint": 1
     }
   }
 }

@@ -28,8 +28,10 @@ SAFWA_AI_MODEL=openai/gpt-5.6-luna
 Every derived value (`SAFWA_AI_BASE_URL`, `SAFWA_AI_MAX_RETRIES`, `SAFWA_AI_SEND_TEMPERATURE`,
 `SAFWA_AI_CACHE_BREAKPOINTS`, `SAFWA_AI_REASONING_EFFORT`) can still be set explicitly. Set the
 model and Telegram credentials in `.env`. Set `SAFWA_TELEGRAM_BOT_USERNAME` without `@`; Safwa uses
-it to build `t.me` links for Card, Check, Tag, Value, and Saved Request citations. Safwa upgrades its
-SQLite schema at startup.
+it to build `t.me` links for Card, Check, Tag, Value, and Saved Request citations.
+
+Safwa is still under active development and has no production database. Schema migrations are not
+supported yet: after a schema change, rebuild the local SQLite database from scratch.
 
 `SAFWA_TELEGRAM_API_ID` and `SAFWA_TELEGRAM_API_HASH` belong to the Telethon user-client, not the
 bot. The Bot API cannot reread arbitrary chat history, while Safwa uses the Telegram conversation as
@@ -140,8 +142,7 @@ Use `/start`, `/today`, `/sprint`, `/backlog`, `/values`, `/tags`, `/requests`, 
 Remove or edit durable facts directly in `data/memory.md`; the file watcher imports the change.
 
 The advisor reads a window of the chat bounded by a token budget, so nothing has to be started or
-ended. `/summarize` writes a `📜 Summary` on demand, which becomes the far edge of that window;
-card, Sprint, Value, and memory data are never deleted.
+ended. `/summarize` writes a `📜 Summary` on demand, which becomes the far edge of that window.
 
 Creating a Card by hand stores nothing until **Save**: the draft lives in the screen and is gone if
 you leave it.

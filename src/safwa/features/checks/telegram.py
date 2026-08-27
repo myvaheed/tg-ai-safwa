@@ -8,10 +8,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...ai.contracts import AgentChange
-from ...domain import (
-    CHECK_VALUE_REFERENCE,
-    resolve_references,
-)
+from ...foundation.references import resolve_references
 from ...models import (
     Check,
     ProposalChange,
@@ -29,6 +26,7 @@ from ..proposals.api import (
     result_value,
 )
 from .model import CHECK_ANSWER_ACTIONS, CHECK_OUTCOME_LABELS
+from .references import CHECK_VALUE_REFERENCE
 from .use_cases import check_value_ids
 
 

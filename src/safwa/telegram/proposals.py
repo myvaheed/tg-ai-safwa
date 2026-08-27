@@ -27,6 +27,7 @@ async def render_proposal(
     *,
     replace_message_id: int | None = None,
     notice: str | None = None,
+    event_id: str | None = None,
 ) -> None:
     async with services.sessions() as session:
         proposal = await session.get(ChangeProposal, proposal_id)
@@ -95,6 +96,7 @@ async def render_proposal(
             kind=MessageKind.APPROVAL,
             markup=markup,
             related_id=proposal_id,
+            event_id=event_id,
         )
 
 
@@ -104,10 +106,11 @@ async def render_ai_outcome(
     outcome: AIOutcome,
     *,
     kind: MessageKind = MessageKind.DIALOGUE_ASSISTANT,
+    event_id: str | None = None,
 ) -> None:
     """Render one agent state; suspended approval batches expose only their head item."""
     if outcome.proposal_id is not None:
-        await render_proposal(message, services, outcome.proposal_id)
+        await render_proposal(message, services, outcome.proposal_id, event_id=event_id)
         return
     async with services.sessions() as session:
         text = await render_citations(
@@ -118,6 +121,7 @@ async def render_ai_outcome(
         services,
         text,
         kind=kind,
+        event_id=event_id,
     )
     if outcome.open_item:
         await open_citation(message, services, outcome.open_item)

@@ -9,14 +9,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...ai.contracts import AgentChange
-from ...domain import (
-    CARD_REFERENCE_SPECS,
-    resolve_references,
-)
 from ...enums import (
     CardKind,
     Priority,
 )
+from ...foundation.references import resolve_references
 from ...models import (
     Card,
     CardCategory,
@@ -39,6 +36,7 @@ from ..proposals.api import (
     result_value,
 )
 from .model import CardStage
+from .references import CARD_REFERENCE_SPECS
 from .use_cases import card_progress
 
 CARD_DETAIL_FIELDS = (
@@ -331,7 +329,9 @@ class CardProposalPresenter:
             else None
         )
         if action in {"link", "unlink"}:
-            joined = " · ".join(await reference_groups(session, values))
+            joined = " · ".join(
+                await reference_groups(session, values, CARD_REFERENCE_SPECS)
+            )
             preposition = "to" if action == "link" else "from"
             return f"{verb} {joined} {preposition} {head}" if joined else f"{verb} {head}"
         parts: list[str] = []
@@ -355,7 +355,7 @@ class CardProposalPresenter:
                 parts.append("Repeatable")
             if values.get("blocked"):
                 parts.append("Blocked")
-            parts.extend(await reference_groups(session, values))
+            parts.extend(await reference_groups(session, values, CARD_REFERENCE_SPECS))
         elif action in {"move", "reopen"} and values.get("stage"):
             parts.append(str(values["stage"]).title())
         elif action == "update":

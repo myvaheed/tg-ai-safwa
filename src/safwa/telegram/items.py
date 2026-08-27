@@ -13,7 +13,7 @@ from ..domain import DomainError
 from ..enums import MessageKind
 from ..features.saved_requests.use_cases import request_cards
 from ..models import SavedRequest, Tag, UiSession, Value
-from ._core import ITEM_REFERENCES, Services
+from ._core import ITEM_CARRIERS, Services
 from ._messaging import edit_registered_message, send_registered, token_button
 from ._presentation import kind_label, menu_row
 from .cards import carrier_counts
@@ -34,18 +34,18 @@ async def render_item_editor(
     replace_message_id: int | None = None,
     replace: bool | None = None,
 ) -> None:
-    if entity not in ITEM_REFERENCES or mode not in {"create", "view"}:
+    if entity not in ITEM_CARRIERS or mode not in {"create", "view"}:
         raise DomainError("Unsupported item editor")
-    spec = ITEM_REFERENCES[entity]
+    carriers = ITEM_CARRIERS[entity]
     carried_by: list[tuple[str, int]] = []
     async with services.sessions() as session:
         item: Tag | Value | None = None
         if mode == "view":
-            item = await session.get(spec.model, item_id)
+            item = await session.get(carriers[0].model, item_id)
             if item is None:
                 raise DomainError(f"{entity.title()} does not exist")
             editor_values = {"name": item.name, "description": item.description}
-            carried_by = await carrier_counts(session, spec, item.id)
+            carried_by = await carrier_counts(session, carriers, item.id)
         else:
             editor_values = {"name": "", "description": "", **(values or {})}
 

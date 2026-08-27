@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...domain import CHECK_VALUE_REFERENCE
 from ...enums import ActorType
 from ...foundation.errors import DomainError, StaleStateError
 from ...models import Check, ProposalChange
@@ -18,6 +17,7 @@ from ..proposals.api import (
     validate_named_references,
 )
 from .model import CHECK_ANSWER_ACTIONS
+from .references import CHECK_VALUE_REFERENCE
 from .use_cases import (
     archive_check,
     create_check,

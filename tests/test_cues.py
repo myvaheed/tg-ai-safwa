@@ -17,12 +17,14 @@ class Recorder:
         self.open_gate = open_gate
         self.delivered = delivered
         self.said: list[str] = []
+        self.events: list[str] = []
         self.releases = 0
 
     async def gate(self) -> bool:
         return self.open_gate
 
-    async def speak(self, text: str) -> bool:
+    async def speak(self, event_id: str, text: str) -> bool:
+        self.events.append(event_id)
         self.said.append(text)
         return self.delivered
 
@@ -54,6 +56,7 @@ async def test_pl_end_015_a_waiting_cue_is_said_once_and_then_gone(sessions):
     assert await tick(sessions, **_hooks(recorder)) is True
 
     assert recorder.said == ["Sprint 1 is over."]
+    assert len(recorder.events[0]) == 32
     assert await remaining(sessions) == []
     assert await tick(sessions, **_hooks(recorder)) is False
 

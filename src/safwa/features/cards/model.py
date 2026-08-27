@@ -144,3 +144,8 @@ class CardEvent(Base):
     after: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     correlation_id: Mapped[str] = mapped_column(String(16), default=new_correlation_id, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+def is_closed_repeat(card: Card) -> bool:
+    """A repeat instance that already ended, so its series continues on a newer row."""
+    return card.repeatable and CardStage(card.effective_stage) in TERMINAL_STAGES

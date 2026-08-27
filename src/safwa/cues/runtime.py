@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 
 from ..ai.context import DialogueMessage
 from ..enums import MessageKind, ProposalStatus
-from ..models import AgentRun, AgentStep, ChangeProposal
+from ..models import AgentRun, AgentStep, ChangeProposal, TelegramMessage
 from ..telegram._core import BACKGROUND_SOURCE_ID, Services
 from ..telegram.proposals import render_ai_outcome
 
@@ -77,7 +77,7 @@ class CueRuntime:
         self.services.guard.release(BACKGROUND_SOURCE_ID)
         self._lease_revision = None
 
-    async def speak(self, text: str) -> bool:
+    async def speak(self, event_id: str, text: str) -> bool:
         """Run one Advisor turn over the request. Returns whether the answer was delivered.
 
         Returning False leaves the caller's own record untouched, so whatever produced the
@@ -85,6 +85,18 @@ class CueRuntime:
         """
         if not self.still_current():
             return False
+        async with self.services.sessions() as session:
+            delivered = await session.scalar(
+                select(TelegramMessage.id).where(
+                    TelegramMessage.chat_id == self.owner_id,
+                    TelegramMessage.event_id == event_id,
+                )
+            )
+        if delivered is not None:
+            # Telegram delivery was registered but the process stopped before the Cue row
+            # was deleted. The next tick finishes that local half instead of saying it again.
+            return True
+        outcome = None
         try:
             dialogue = await self.services.history.dialogue(self.owner_id)
             dialogue = [*dialogue, DialogueMessage(role="user", content=text)]
@@ -97,10 +109,24 @@ class CueRuntime:
             # CUE keeps the answer in dialogue while marking it as something the model
             # volunteered, not a reply to a message that is not there.
             await render_ai_outcome(
-                self._anchor(), self.services, outcome, kind=MessageKind.CUE
+                self._anchor(),
+                self.services,
+                outcome,
+                kind=MessageKind.CUE,
+                event_id=event_id,
             )
             return True
         except Exception:
+            if outcome is not None and outcome.proposal_id is not None:
+                try:
+                    # A proposal is committed before its Telegram screen is rendered. If
+                    # rendering failed, close that unanswered batch so it cannot hold the
+                    # Cue gate shut forever; the Cue remains and retries the whole turn.
+                    await self.services.advisor.cancel_approval_for_target(
+                        "proposal", outcome.proposal_id
+                    )
+                except Exception:
+                    logger.exception("Could not release a failed Cue proposal")
             logger.exception("A Cue failed to reach the owner")
             return False
 

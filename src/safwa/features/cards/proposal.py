@@ -9,14 +9,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...ai.sql import RequestQueryError, UnsafeQueryError, normalize_request_sql
-from ...domain import (
-    CARD_REFERENCE_SPECS,
-    CHECK_REFERENCE,
-    TAG_REFERENCE,
-    VALUE_REFERENCE,
-    toggle_card_category,
-    toggle_card_energy_type,
-)
 from ...enums import (
     ActorType,
     CardKind,
@@ -37,6 +29,12 @@ from ..proposals.api import (
     validate_named_references,
 )
 from .model import TERMINAL_STAGES, CardStage
+from .references import (
+    CARD_REFERENCE_SPECS,
+    CHECK_REFERENCE,
+    TAG_REFERENCE,
+    VALUE_REFERENCE,
+)
 from .use_cases import (
     archive_subtree,
     create_card,
@@ -44,6 +42,8 @@ from .use_cases import (
     finish_action,
     move_card,
     set_card_parent,
+    toggle_card_category,
+    toggle_card_energy_type,
     update_card_fields,
 )
 

@@ -45,8 +45,6 @@ class Firing:
     reminder_id: int
     instruction: str
     schedule: str
-    fire_count: int
-    last_fired_at: datetime | None
     due_at: datetime
 
 
@@ -96,8 +94,6 @@ async def prepare(
                 reminder_id=reminder.id,
                 instruction=reminder.instruction,
                 schedule=describe(schedule, tz=tz, now=now),
-                fire_count=reminder.fire_count,
-                last_fired_at=reminder.last_fired_at,
                 due_at=reminder.next_fire_at,
             )
         )
@@ -120,8 +116,6 @@ async def settle(
         if not schedule.repeating:
             await session.delete(reminder)
             continue
-        reminder.last_fired_at = now
-        reminder.fire_count += 1
         reminder.next_fire_at = roll_forward(schedule, previous=firing.due_at, now=now, tz=tz)
 
 
@@ -146,7 +140,7 @@ async def tick(
             # Every one of them was a stale repeat, and `prepare` rolled it forward.
             await session.commit()
             return False
-        await cue_advisor(session, text=format_cue(firings, tz=tz, now=moment))
+        await cue_advisor(session, text=format_cue(firings, now=moment))
         await settle(session, firings, now=moment, tz=tz)
         await session.commit()
         return True
@@ -170,7 +164,7 @@ async def run_scheduler(
         await asyncio.sleep(poll_seconds)
 
 
-def format_cue(firings: list[Firing], *, tz: ZoneInfo, now: datetime) -> str:
+def format_cue(firings: list[Firing], *, now: datetime) -> str:
     """The whole batch as one request."""
     count = len(firings)
     header = "1 Reminder triggered." if count == 1 else f"{count} Reminders triggered."
@@ -185,21 +179,12 @@ def format_cue(firings: list[Firing], *, tz: ZoneInfo, now: datetime) -> str:
     for position, firing in enumerate(firings, start=1):
         blocks.append(f"{position}. Reminder #{firing.reminder_id}")
         blocks.append(f"   Text: {firing.instruction}")
-        blocks.append(f"   Schedule: {firing.schedule}{_history(firing, tz=tz)}")
+        blocks.append(f"   Schedule: {firing.schedule}")
         lateness = _lateness(firing, now=now)
         if lateness:
             blocks.append(f"   {lateness}")
         blocks.append("")
     return "\n".join(blocks).strip()
-
-
-def _history(firing: Firing, *, tz: ZoneInfo) -> str:
-    if not firing.fire_count:
-        return " (first time)"
-    times = "once" if firing.fire_count == 1 else f"{firing.fire_count} times"
-    if firing.last_fired_at is None:
-        return f" (fired {times})"
-    return f" (fired {times}, last {firing.last_fired_at.astimezone(tz):%Y-%m-%d %H:%M})"
 
 
 def _lateness(firing: Firing, *, now: datetime) -> str:

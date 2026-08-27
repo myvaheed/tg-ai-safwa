@@ -1378,7 +1378,6 @@ async def test_the_reminders_screen_lists_opens_and_confirms_a_delete(sessions) 
     await render_reminder(detail, services, soon_id)
     text, markup = detail.edits[-1]
     assert "every 2 hours · next " in text
-    assert "Not fired yet" in text
     assert "Take a walk." in text
     assert "Timing is set through your advisor." in text
     assert button_texts(markup) == ["✏️ Text", "🗑 Delete", "↩️ Back"]

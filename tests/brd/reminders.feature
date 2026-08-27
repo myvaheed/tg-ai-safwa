@@ -95,7 +95,7 @@ Feature: Reminders
   Scenario: RM-FIRE-011 — A Reminder that comes due hands its words to Safwa
     Given a Reminder comes due
     When it goes off
-    Then Safwa is given the words, the schedule, and when it fired before, as one request
+    Then Safwa is given the words and the schedule as one request
     And Safwa reads the same conversation it would read for anything the owner said
     And what it says goes into the chat as Safwa speaking first, not as a reply
     And nothing in between decides what the Reminder meant — that is Safwa's job
@@ -113,7 +113,7 @@ Feature: Reminders
     When Safwa is busy, or the turn fails, or the owner speaks in the middle of it
     Then those words are still waiting, and the next check says them, 30 seconds later
       (SCHEDULER_POLL_SECONDS = 30)
-    And they are said exactly once, however many checks that takes
+    And once their Telegram delivery is registered, another check never says them again
 
   Scenario: RM-FIRE-014 — A Reminder firing is not a change the owner made
     Given a Reminder went off and moved on
@@ -190,7 +190,7 @@ Feature: Reminders
   Scenario: RM-UI-023 — /reminders is a list, a Reminder, and two things to do with it
     Given the owner opens /reminders
     Then each line is when it fires and the start of its words, soonest first
-    And opening one shows when it fires, when it fired before, and all of its words
+    And opening one shows when it fires next and all of its words
     And the only things to do are change the words and delete it
     And there is no way to make one here, and no way to change a time here
     And an empty list says that Safwa is who makes them

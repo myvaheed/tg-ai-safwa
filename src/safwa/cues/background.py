@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Supplied by the runtime so this module stays free of the Advisor and the bot.
 Gate = Callable[[], Awaitable[bool]]
-Speaker = Callable[[str], Awaitable[bool]]
+Speaker = Callable[[str, str], Awaitable[bool]]
 LeaseRelease = Callable[[], None]
 
 
@@ -37,12 +37,12 @@ async def tick(
         cue = await next_cue(session)
         if cue is None:
             return False
-        cue_id, text = cue.id, cue.text
+        cue_id, event_id, text = cue.id, cue.event_id, cue.text
     if not await gate():
         # Nothing is deleted, so the row stays and the next tick tries it again.
         return False
     try:
-        if not await speak(text):
+        if not await speak(event_id, text):
             return False
         async with sessions() as session:
             delivered = await session.get(Cue, cue_id)

@@ -61,7 +61,6 @@ async def test_the_words_are_written_down_before_the_reminder_moves_on(sessions)
     assert len(await said(sessions)) == 1
     reminder = await load(sessions, reminder_id)
     assert reminder.next_fire_at > NOW
-    assert reminder.fire_count == 1
 
 
 async def test_nothing_is_written_while_something_is_still_waiting(sessions):
@@ -76,7 +75,6 @@ async def test_nothing_is_written_while_something_is_still_waiting(sessions):
     assert await said(sessions) == ["Sprint 1 is over."]
     reminder = await load(sessions, reminder_id)
     assert reminder.next_fire_at == NOW  # still due, so a later tick takes it
-    assert reminder.fire_count == 0
 
 
 async def test_a_system_reminder_fires_like_any_other(sessions):
@@ -157,7 +155,7 @@ async def test_a_repeat_inside_the_grace_window_still_fires(sessions):
     )
 
     assert await tick(sessions, tz=TZ, now=NOW) is True
-    assert (await load(sessions, reminder_id)).fire_count == 1
+    assert (await load(sessions, reminder_id)).next_fire_at > NOW
 
 
 async def test_a_repeat_past_the_grace_window_rolls_forward_silently(sessions):
@@ -169,7 +167,6 @@ async def test_a_repeat_past_the_grace_window_rolls_forward_silently(sessions):
     assert await said(sessions) == []
     reminder = await load(sessions, reminder_id)
     assert reminder.next_fire_at > NOW
-    assert reminder.fire_count == 0  # rolled forward is not fired
 
 
 async def test_a_frequent_repeat_is_judged_by_its_stored_fire_not_its_rhythm(sessions):
@@ -227,7 +224,7 @@ async def test_a_due_reminder_reaches_the_advisor_without_a_preflight_session(se
 # --- prepare / settle in isolation ----------------------------------------
 
 
-async def test_settle_records_the_firing(sessions):
+async def test_settle_advances_a_repeat(sessions):
     """RM-FIRE-013 — tests/brd/reminders.feature"""
     reminder_id = await make_reminder(sessions, instruction="Review Card #88.")
     async with sessions() as session:
@@ -237,8 +234,7 @@ async def test_settle_records_the_firing(sessions):
         await session.commit()
 
     reminder = await load(sessions, reminder_id)
-    assert reminder.last_fired_at == NOW
-    assert reminder.fire_count == 1
+    assert reminder.next_fire_at > NOW
 
 
 # --- the poll loop --------------------------------------------------------

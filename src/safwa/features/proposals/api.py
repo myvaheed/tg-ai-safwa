@@ -29,15 +29,21 @@ from llm_gateway import LlmProvider
 
 from ...ai.contracts import AgentChange, tool_json_schema
 from ...ai.sql import ReadOnlyQueryRunner
-from ...domain import (
-    CARD_REFERENCE_SPECS,
-    ReferenceSpec,
-    is_closed_repeat,
-    live_repeat_instance_id,
-    resolve_references,
-)
 from ...foundation.errors import DomainError
+from ...foundation.references import ReferenceSpec, resolve_references
 from ...models import Card, Check, ProposalChange, Workspace
+from ..cards.api import (
+    is_closed_repeat as is_closed_card_repeat,
+)
+from ..cards.api import (
+    live_repeat_instance_id as live_card_repeat_instance_id,
+)
+from ..checks.api import (
+    is_closed_repeat as is_closed_check_repeat,
+)
+from ..checks.api import (
+    live_repeat_instance_id as live_check_repeat_instance_id,
+)
 
 
 class ToolPreparationError(DomainError):
@@ -414,6 +420,18 @@ REFERENCE_HINT = (
 )
 
 
+def is_closed_repeat(entity: Card | Check) -> bool:
+    if isinstance(entity, Check):
+        return is_closed_check_repeat(entity)
+    return is_closed_card_repeat(entity)
+
+
+async def live_repeat_instance_id(session: AsyncSession, entity: Card | Check) -> int | None:
+    if isinstance(entity, Check):
+        return await live_check_repeat_instance_id(session, entity)
+    return await live_card_repeat_instance_id(session, entity)
+
+
 async def live_instance_hint(session: AsyncSession, entity: Card | Check) -> str:
     live_id = await live_repeat_instance_id(session, entity)
     if live_id is None:
@@ -506,7 +524,7 @@ async def reference_names(session: AsyncSession, spec: ReferenceSpec, value: Any
 async def reference_groups(
     session: AsyncSession,
     values: dict[str, Any],
-    specs: tuple[ReferenceSpec, ...] = CARD_REFERENCE_SPECS,
+    specs: tuple[ReferenceSpec, ...],
 ) -> list[str]:
     """Name the items a payload points at, for the owner."""
     groups: list[str] = []

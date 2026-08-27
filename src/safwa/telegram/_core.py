@@ -16,15 +16,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..ai.service import AIAdvisor
 from ..asr import Transcriber
 from ..constants import QUEUE_PREVIEW_CHARS
-from ..domain import (
-    TAG_REFERENCE,
-    VALUE_REFERENCE,
+from ..enums import Category, EnergyType, MessageKind
+from ..features.cards.references import TAG_REFERENCE, VALUE_REFERENCE
+from ..features.cards.use_cases import (
     toggle_card_category,
     toggle_card_energy_type,
     toggle_card_tag,
     toggle_card_value,
 )
-from ..enums import Category, EnergyType, MessageKind
+from ..features.checks.api import CHECK_VALUE_REFERENCE
 from ..features.continuity.memory import MemoryFileStore
 from ..features.continuity.persona import PersonaContinuity
 from ..history import TelegramHistorySource, mark_message, register_message
@@ -415,5 +415,10 @@ CARD_RELATION_TOGGLES = {
     for field, relation in RELATION_CHOICES.items()
 }
 NAMED_CHOICE_FIELDS = frozenset({"values", "tags"})
-# Tag and Value share one field-oriented item screen; the spec supplies the differences.
-ITEM_REFERENCES = {"tag": TAG_REFERENCE, "value": VALUE_REFERENCE}
+# Tag and Value share one field-oriented item screen; the specs supply the differences.
+# Every spec of one item names the same model, and together they are what carries it: a
+# Value is on Checks as well as Cards, and the delete question has to count both.
+ITEM_CARRIERS = {
+    "tag": (TAG_REFERENCE,),
+    "value": (VALUE_REFERENCE, CHECK_VALUE_REFERENCE),
+}

@@ -71,6 +71,7 @@ async def send_registered(
     kind: MessageKind,
     markup: InlineKeyboardMarkup | None = None,
     related_id: int | None = None,
+    event_id: str | None = None,
     replace: bool | None = None,
     rich: bool = False,
 ) -> Message:
@@ -88,8 +89,9 @@ async def send_registered(
         bool(message.from_user and message.from_user.is_bot) if replace is None else replace
     )
     visible_text = text
-    event_id: str | None = None
-    if should_replace:
+    # A supplied event id belongs to a caller that owns the delivery record — a Cue, which
+    # posts a new message rather than replacing one, so no stored id is looked up for it.
+    if should_replace and event_id is None:
         async with services.sessions() as session:
             stored = await session.scalar(
                 select(TelegramMessage).where(

@@ -36,6 +36,7 @@ from safwa.models import (
     AgentStep,
     ChangeProposal,
     Reminder,
+    TelegramMessage,
     Workspace,
 )
 from safwa.telegram._core import BACKGROUND_SOURCE_ID, GenerationGuard
@@ -304,8 +305,6 @@ def _firing(**kwargs) -> Firing:
         reminder_id=7,
         instruction="Ask me what to start with today.",
         schedule="every weekday at 08:30",
-        fire_count=0,
-        last_fired_at=None,
         due_at=NOW,
     )
     return Firing(**{**defaults, **kwargs})
@@ -313,7 +312,7 @@ def _firing(**kwargs) -> Firing:
 
 def test_one_firing_reads_as_one():
     """RM-FIRE-011 — tests/brd/reminders.feature"""
-    text = format_cue([_firing()], tz=TZ, now=NOW)
+    text = format_cue([_firing()], now=NOW)
     assert text.startswith("1 Reminder triggered.")
     assert "Reminder #7" in text
     assert "Ask me what to start with today." in text
@@ -323,7 +322,6 @@ def test_a_batch_is_numbered():
     """RM-FIRE-011 — tests/brd/reminders.feature"""
     text = format_cue(
         [_firing(reminder_id=7), _firing(reminder_id=12), _firing(reminder_id=19)],
-        tz=TZ,
         now=NOW,
     )
     assert text.startswith("3 Reminders triggered.")
@@ -333,7 +331,7 @@ def test_a_batch_is_numbered():
 
 def test_the_main_advisor_is_told_to_verify_named_items_first():
     """RM-FIRE-011 — tests/brd/reminders.feature"""
-    text = format_cue([_firing(instruction="Review Card #88.")], tz=TZ, now=NOW)
+    text = format_cue([_firing(instruction="Review Card #88.")], now=NOW)
     assert "check their current state with query_safwa" in text
     assert "it may no longer apply" in text
 
@@ -341,24 +339,14 @@ def test_the_main_advisor_is_told_to_verify_named_items_first():
 def test_a_late_firing_says_how_late():
     """RM-FIRE-016 — tests/brd/reminders.feature"""
     text = format_cue(
-        [_firing(due_at=NOW - timedelta(hours=4))], tz=TZ, now=NOW
+        [_firing(due_at=NOW - timedelta(hours=4))], now=NOW
     )
     assert "Was due 4 hours ago." in text
 
 
 def test_an_on_time_firing_says_nothing_about_lateness():
     """RM-FIRE-011 — tests/brd/reminders.feature"""
-    assert "Was due" not in format_cue([_firing()], tz=TZ, now=NOW)
-
-
-def test_the_fire_history_is_carried_over():
-    """RM-FIRE-011 — tests/brd/reminders.feature"""
-    text = format_cue(
-        [_firing(fire_count=14, last_fired_at=NOW - timedelta(days=1))], tz=TZ, now=NOW
-    )
-    assert "fired 14 times" in text
-    text = format_cue([_firing()], tz=TZ, now=NOW)
-    assert "(first time)" in text
+    assert "Was due" not in format_cue([_firing()], now=NOW)
 
 
 async def test_reminder_advisor_receives_canonical_dialogue(sessions, monkeypatch):
@@ -394,10 +382,10 @@ async def test_reminder_advisor_receives_canonical_dialogue(sessions, monkeypatc
         guard=guard,
     )
     runtime = CueRuntime(services, object(), owner_id=42)
-    rendered: list[MessageKind] = []
+    rendered: list[tuple[MessageKind, str]] = []
 
-    async def fake_render(_message, _services, _outcome, *, kind):
-        rendered.append(kind)
+    async def fake_render(_message, _services, _outcome, *, kind, event_id):
+        rendered.append((kind, event_id))
 
     monkeypatch.setattr(
         "safwa.cues.runtime.render_ai_outcome", fake_render
@@ -405,7 +393,7 @@ async def test_reminder_advisor_receives_canonical_dialogue(sessions, monkeypatc
     monkeypatch.setattr(runtime, "_anchor", lambda: object())
 
     assert await runtime.can_speak() is True
-    assert await runtime.speak(format_cue([_firing()], tz=TZ, now=NOW)) is True
+    assert await runtime.speak("a" * 32, format_cue([_firing()], now=NOW)) is True
     runtime.release()
 
     assert history.chat_ids == [42]
@@ -413,7 +401,65 @@ async def test_reminder_advisor_receives_canonical_dialogue(sessions, monkeypatc
     assert dialogue[:-1] == canonical
     assert dialogue[-1] == DialogueMessage(role="user", content=request)
     assert request.startswith("1 Reminder triggered.")
-    assert rendered == [MessageKind.CUE]
+    assert rendered == [(MessageKind.CUE, "a" * 32)]
+
+
+async def test_a_registered_cue_event_is_not_generated_twice(sessions):
+    """RM-FIRE-013 — tests/brd/reminders.feature"""
+    event_id = "b" * 32
+    async with sessions() as session:
+        session.add(
+            TelegramMessage(
+                chat_id=42,
+                message_id=73,
+                event_id=event_id,
+                direction="out",
+                kind=MessageKind.CUE.value,
+            )
+        )
+        await session.commit()
+
+    runtime = _gate_runtime(sessions)
+    assert await runtime.can_speak() is True
+    assert await runtime.speak(event_id, "Do not say this twice.") is True
+    runtime.release()
+
+
+async def test_a_cue_render_failure_releases_its_pending_proposal(sessions, monkeypatch):
+    """RM-FIRE-013 — tests/brd/reminders.feature"""
+    cancelled: list[tuple[str, int]] = []
+
+    class History:
+        async def dialogue(self, _chat_id: int) -> list[DialogueMessage]:
+            return []
+
+    class Advisor:
+        async def handle(
+            self, _text: str, *, dialogue: list[DialogueMessage]
+        ) -> AIOutcome:
+            return AIOutcome("proposal", "Review this", proposal_id=17)
+
+        async def cancel_approval_for_target(self, target_type: str, target_id: int) -> None:
+            cancelled.append((target_type, target_id))
+
+    async def failed_render(*_args, **_kwargs):
+        raise RuntimeError("Telegram unavailable")
+
+    services = SimpleNamespace(
+        sessions=sessions,
+        history=History(),
+        advisor=Advisor(),
+        guard=GenerationGuard(),
+    )
+    runtime = CueRuntime(services, object(), owner_id=42)
+    monkeypatch.setattr("safwa.cues.runtime.render_ai_outcome", failed_render)
+    monkeypatch.setattr(runtime, "_anchor", lambda: object())
+
+    assert await runtime.can_speak() is True
+    assert await runtime.speak("c" * 32, "Try me again.") is False
+    runtime.release()
+
+    assert cancelled == [("proposal", 17)]
 
 
 async def test_cancelling_a_foreground_lease_aborts_its_task() -> None:

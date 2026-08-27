@@ -28,7 +28,6 @@ from ..domain import (
     resolve_check,
     set_value_focus,
     start_sprint,
-    toggle_check_value,
     unobserved_series,
     update_card_fields,
     update_check_fields,
@@ -36,6 +35,7 @@ from ..domain import (
 from ..enums import MessageKind, ProposalStatus
 from ..features.cards.model import CardStage
 from ..features.checks.model import CheckOutcome
+from ..features.checks.use_cases import toggle_check_value
 from ..features.reminders.use_cases import delete_reminder
 from ..models import (
     CallbackToken,
@@ -51,7 +51,7 @@ from ._core import (
     CARD_DRAFT_CHOICE_FIELDS,
     CARD_DRAFT_RELATIONS,
     CARD_RELATION_TOGGLES,
-    ITEM_REFERENCES,
+    ITEM_CARRIERS,
     RELATION_CHOICES,
     CallbackContext,
     CallbackHandler,
@@ -201,12 +201,12 @@ async def _on_item_toggle_focus(context: CallbackContext) -> None:
 
 async def _on_item_delete_prompt(context: CallbackContext) -> None:
     entity = context.payload["entity"]
-    spec = ITEM_REFERENCES[entity]
+    carriers = ITEM_CARRIERS[entity]
     async with context.sessions() as session:
-        item = await session.get(spec.model, context.payload["id"])
+        item = await session.get(carriers[0].model, context.payload["id"])
         if item is None:
             raise DomainError(f"{entity.title()} does not exist")
-        carried_by = await carrier_counts(session, spec, item.id)
+        carried_by = await carrier_counts(session, carriers, item.id)
         confirm = await token_button(
             session,
             context.owner_id,

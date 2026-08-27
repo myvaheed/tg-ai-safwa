@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .model import CardValue, Value
+from .model import CheckValue as CheckValue
 
 
 async def unlinkable_value_id(session: AsyncSession, value_ids: Iterable[int]) -> int | None:

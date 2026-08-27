@@ -38,8 +38,8 @@ from ..planning.api import (
     record_sprint_result,
     sync_commitment_for_stage,
 )
-from ..tags.api import attach_tags, unlinkable_tag_id
-from ..values.api import attach_values, unlinkable_value_id
+from ..tags.api import Tag, attach_tags, unlinkable_tag_id
+from ..values.api import Value, attach_values, unlinkable_value_id
 from .model import (
     LIVE_STAGE_PRECEDENCE,
     TERMINAL_STAGES,
@@ -49,6 +49,7 @@ from .model import (
     CardEnergyType,
     CardEvent,
     CardStage,
+    is_closed_repeat,
     new_correlation_id,
 )
 
@@ -254,6 +255,147 @@ async def update_card_fields(
     return card
 
 
+async def toggle_card_value(
+    session: AsyncSession, card_id: int, value_id: int, *, actor: ActorType = ActorType.USER_UI
+) -> bool:
+    """Toggle a direct Value link and return whether it is now linked."""
+    card = await session.get(Card, card_id)
+    value = await session.get(Value, value_id)
+    if card is None or card.archived_at is not None:
+        raise DomainError("Card does not exist or is archived")
+    if value is None:
+        raise DomainError("Value does not exist")
+    link = await session.scalar(
+        select(CardValue).where(CardValue.card_id == card_id, CardValue.value_id == value_id)
+    )
+    before = card_snapshot(card)
+    if link is None:
+        session.add(CardValue(card_id=card_id, value_id=value_id))
+        operation, linked = "link_value", True
+    else:
+        await session.delete(link)
+        operation, linked = "unlink_value", False
+    card.version += 1
+    await record_card_event(session, card, operation, actor, before, new_correlation_id())
+    await bump_workspace(session)
+    return linked
+
+
+async def toggle_card_tag(
+    session: AsyncSession, card_id: int, tag_id: int, *, actor: ActorType = ActorType.USER_UI
+) -> bool:
+    """Toggle a direct Tag link and return whether it is now linked."""
+    card = await session.get(Card, card_id)
+    tag = await session.get(Tag, tag_id)
+    if card is None or card.archived_at is not None:
+        raise DomainError("Card does not exist or is archived")
+    if tag is None:
+        raise DomainError("Tag does not exist")
+    link = await session.scalar(
+        select(CardTag).where(CardTag.card_id == card_id, CardTag.tag_id == tag_id)
+    )
+    before = card_snapshot(card)
+    if link is None:
+        session.add(CardTag(card_id=card_id, tag_id=tag_id))
+        operation, linked = "link_tag", True
+    else:
+        await session.delete(link)
+        operation, linked = "unlink_tag", False
+    card.version += 1
+    await record_card_event(session, card, operation, actor, before, new_correlation_id())
+    await bump_workspace(session)
+    return linked
+
+
+async def toggle_card_category(
+    session: AsyncSession,
+    card_id: int,
+    category: Category,
+    *,
+    actor: ActorType = ActorType.USER_UI,
+) -> bool:
+    card = await session.get(Card, card_id)
+    if card is None or card.archived_at is not None:
+        raise DomainError("Card does not exist or is archived")
+    if card.kind != CardKind.ACTION.value:
+        raise DomainError("Only Actions can have Categories")
+    link = await session.scalar(
+        select(CardCategory).where(
+            CardCategory.card_id == card_id,
+            CardCategory.category == category.value,
+        )
+    )
+    before = card_snapshot(card)
+    if link is None:
+        session.add(CardCategory(card_id=card_id, category=category.value))
+        operation, linked = "link_category", True
+    else:
+        await session.delete(link)
+        operation, linked = "unlink_category", False
+    card.version += 1
+    await record_card_event(session, card, operation, actor, before, new_correlation_id())
+    await bump_workspace(session)
+    return linked
+
+
+async def toggle_card_energy_type(
+    session: AsyncSession,
+    card_id: int,
+    energy_type: EnergyType,
+    *,
+    actor: ActorType = ActorType.USER_UI,
+) -> bool:
+    card = await session.get(Card, card_id)
+    if card is None or card.archived_at is not None:
+        raise DomainError("Card does not exist or is archived")
+    if card.kind != CardKind.ACTION.value:
+        raise DomainError("Only Actions can have Energy types")
+    link = await session.scalar(
+        select(CardEnergyType).where(
+            CardEnergyType.card_id == card_id,
+            CardEnergyType.energy_type == energy_type.value,
+        )
+    )
+    before = card_snapshot(card)
+    if link is None:
+        session.add(CardEnergyType(card_id=card_id, energy_type=energy_type.value))
+        operation, linked = "link_energy", True
+    else:
+        await session.delete(link)
+        operation, linked = "unlink_energy", False
+    card.version += 1
+    await record_card_event(session, card, operation, actor, before, new_correlation_id())
+    await bump_workspace(session)
+    return linked
+
+
+async def toggle_card_check(
+    session: AsyncSession, card_id: int, check_id: int, *, actor: ActorType = ActorType.USER_UI
+) -> bool:
+    """Toggle a direct Check link and return whether it is now linked."""
+    card = await session.get(Card, card_id)
+    check = await session.get(Check, check_id)
+    if card is None or card.archived_at is not None:
+        raise DomainError("Card does not exist or is archived")
+    if check is None or check.archived_at is not None:
+        raise DomainError("Check does not exist or is archived")
+    link = await session.get(CardCheck, (card_id, check_id))
+    if link is None and (held_by := await check_card_id(session, check_id)) is not None:
+        raise DomainError(f"Check #{check_id} already belongs to Card #{held_by}")
+    before = card_snapshot(card)
+    if link is None:
+        session.add(CardCheck(card_id=card_id, check_id=check_id))
+        operation, linked = "link_check", True
+    else:
+        await session.delete(link)
+        operation, linked = "unlink_check", False
+    card.version += 1
+    check.version += 1
+    await record_card_event(session, card, operation, actor, before, new_correlation_id())
+    await bump_workspace(session)
+    return linked
+
+
 async def set_card_parent(
     session: AsyncSession,
     card_id: int,
@@ -431,11 +573,6 @@ async def record_card_event(
 async def card_children(session: AsyncSession, card_id: int) -> list[Card]:
     """Every Card under this one. An archived child is shown marked, not left out."""
     return list(await session.scalars(select(Card).where(Card.parent_id == card_id)))
-
-
-def is_closed_repeat(card: Card) -> bool:
-    """A repeat instance that already ended, so its series continues on a newer row."""
-    return card.repeatable and CardStage(card.effective_stage) in TERMINAL_STAGES
 
 
 async def move_card(

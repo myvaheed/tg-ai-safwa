@@ -53,3 +53,8 @@ class Check(Base, TimestampMixin):
     )
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+def is_closed_repeat(check: Check) -> bool:
+    """A repeat instance that already ended, so its series continues on a newer row."""
+    return check.repeatable and check.outcome is not None

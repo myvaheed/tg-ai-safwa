@@ -187,13 +187,6 @@ def _detail_text(reminder: Reminder, *, tz: ZoneInfo, now: datetime) -> str:
         f"{html.escape(describe(schedule, tz=tz, now=now))} · "
         f"next {reminder.next_fire_at.astimezone(tz):%Y-%m-%d %H:%M}",
     ]
-    if reminder.fire_count:
-        fired = f"Fired {reminder.fire_count} time(s)"
-        if reminder.last_fired_at:
-            fired += f" · last {reminder.last_fired_at.astimezone(tz):%Y-%m-%d %H:%M}"
-        lines.append(fired)
-    else:
-        lines.append("Not fired yet")
     if not schedule.repeating:
         lines.append("Fires once, then deletes itself.")
     lines.extend(["", html.escape(reminder.instruction), "", "<i>Timing is set through your advisor.</i>"])

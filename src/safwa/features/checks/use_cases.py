@@ -22,12 +22,8 @@ from ...foundation.clock import utcnow
 from ...foundation.errors import DomainError
 from ...foundation.workspace import bump_workspace
 from ...models import CardCheck, CheckValue
+from ..values.api import Value
 from .model import Check, CheckOutcome
-
-
-def is_closed_repeat(check: Check) -> bool:
-    """A repeat instance that already ended, so its series continues on a newer row."""
-    return check.repeatable and check.outcome is not None
 
 
 async def card_checks(session: AsyncSession, card_id: int) -> list[Check]:
@@ -91,6 +87,29 @@ async def check_value_ids(session: AsyncSession, check_id: int) -> list[int]:
     return sorted(
         await session.scalars(select(CheckValue.value_id).where(CheckValue.check_id == check_id))
     )
+
+
+async def toggle_check_value(
+    session: AsyncSession, check_id: int, value_id: int, *, actor: ActorType = ActorType.USER_UI
+) -> bool:
+    """Put a Value on a Check or take it off, and say whether it is on now."""
+    del actor  # a Check keeps no event log of its own
+    check = await session.get(Check, check_id)
+    value = await session.get(Value, value_id)
+    if check is None or check.archived_at is not None:
+        raise DomainError("Check does not exist or is archived")
+    if value is None:
+        raise DomainError("Value does not exist")
+    link = await session.get(CheckValue, {"check_id": check_id, "value_id": value_id})
+    if link is None:
+        session.add(CheckValue(check_id=check_id, value_id=value_id))
+        linked = True
+    else:
+        await session.delete(link)
+        linked = False
+    check.version += 1
+    await bump_workspace(session)
+    return linked
 
 
 async def create_check(session: AsyncSession, *, title: str, repeatable: bool = False) -> Check:

@@ -206,9 +206,9 @@ And removal is one confirmation, not the permanent-deletion screen a Card tree g
 
 # Package B — a Reminder coming due (4.b.2)
 
-### RM-FIRE-011 — A fired Reminder hands its text to the Advisor as a request; the system composes nothing
+### RM-FIRE-011 — A Reminder that comes due hands its words to Safwa
 
-Status: draft
+Status: approved
 Sources: REMINDERS_PLAN rules 1, 3 and 6, "What the advisor receives"
 Supersedes: `tests/test_reminder_flow.py::test_one_firing_reads_as_one`, `::test_a_batch_is_numbered`,
 `::test_the_main_advisor_is_told_to_verify_named_items_first`, `::test_a_late_firing_says_how_late`,
@@ -217,102 +217,106 @@ Supersedes: `tests/test_reminder_flow.py::test_one_firing_reads_as_one`, `::test
 
 ```gherkin
 Given a Reminder comes due
-When it is escalated
-Then the Advisor receives the instruction text, its schedule and its firing history as one request
-And it reads the same canonical dialogue an owner message would
-And its answer is registered as a proactive bot message, not as a reply
-And nothing between the poll and the Advisor decides what the Reminder means
+When it goes off
+Then Safwa is given the words and the schedule as one request
+And Safwa reads the same conversation it would read for anything the owner said
+And what it says goes into the chat as Safwa speaking first, not as a reply
+And nothing in between decides what the Reminder meant — that is Safwa's job
 ```
 
-### RM-FIRE-012 — One poll is one turn
+### RM-FIRE-012 — One check is one turn
 
-Status: draft
+Status: approved
 Sources: REMINDERS_PLAN rule 7, "The loop"
 Supersedes: `tests/test_scheduler.py::test_one_escalation_carries_at_most_the_batch_size`,
 `::test_the_oldest_due_reminders_go_first` (business_valid, kept)
 
 ```gherkin
-Given 5 Reminders are due at the same poll
-When the poll runs
-Then the 3 oldest go to the Advisor as one request (REMINDER_FIRE_BATCH = 3)
-And the other 2 stay due, for the next poll 30 seconds later (SCHEDULER_POLL_SECONDS = 30)
+Given 5 Reminders come due at the same moment
+When they are checked
+Then the 3 oldest go to Safwa as one request (REMINDER_FIRE_BATCH = 3)
+And the other 2 stay due, and go once those 3 have been said
 ```
 
-### RM-FIRE-013 — A schedule advances only after the answer was delivered
+### RM-FIRE-013 — A Reminder's words are written down before anything moves on
 
-Status: draft
+Status: approved
 Sources: REMINDERS_PLAN "The loop", "Blocked escalations are not queued anywhere"
 Supersedes: `tests/test_scheduler.py::test_a_closed_gate_advances_nothing`,
 `::test_a_failed_escalation_advances_nothing`, `::test_settle_records_a_successful_delivery`
 (business_valid, kept)
 
 ```gherkin
-Given a due Reminder
-When the gate is closed, or the turn fails, or the owner takes the lease mid-turn
-Then no schedule is advanced and the Reminder is still due at the next poll, 30 seconds later
+Given a Reminder is due
+When it goes off
+Then its words are written down first, and only then does it move on to its next time
+When Safwa is busy, or the turn fails, or the owner speaks in the middle of it
+Then those words are still waiting, and the next check says them, 30 seconds later
     (SCHEDULER_POLL_SECONDS = 30)
-And only a delivered answer advances it, records the firing and counts it
+And once their Telegram delivery is registered, another check never says them again
 ```
 
-### RM-FIRE-014 — Advancing a schedule is bookkeeping, not an owner-visible change
+### RM-FIRE-014 — A Reminder firing is not a change the owner made
 
-Status: draft
+Status: approved
 Sources: REMINDERS_PLAN "Advancing `next_fire_at` does not bump `workspace.revision`"
 
 ```gherkin
-Given an answer was delivered and the schedules advance
-When the workspace revision is read
-Then it is unchanged, so no pending proposal and no in-flight answer is invalidated by a fire
+Given a Reminder went off and moved on
+When the workspace's change count is read
+Then it has not moved, so a firing never invalidates a screen the owner is looking at, or an
+    answer already on its way
 ```
 
 The next scenario is why this one is separate: a Reminder the owner or the model *writes* does bump
 the revision, and only the scheduler's own advance does not.
 
-### RM-FIRE-015 — A repeat advances from its scheduled moment, not from when the answer arrived
+### RM-FIRE-015 — A repeat counts from when it was due, not from when it was picked up
 
-Status: draft
+Status: approved
 Sources: REMINDERS_PLAN "The full pipeline"
 Supersedes: `tests/test_scheduler.py::test_a_repeat_advances_from_its_scheduled_moment_not_the_delivery_moment`
 (business_valid, kept)
 
 ```gherkin
-Given a repeating Reminder due at 08:30 and a turn that takes four minutes
-When the answer is delivered
-Then the next fire is computed from 08:30
-And a slow turn does not push every later fire out
+Given a repeating Reminder due at 08:30, picked up four minutes late
+When its words are written down
+Then the next firing is worked out from 08:30
+And a late check does not drag every later firing later with it
 ```
 
-### RM-FIRE-016 — A single occurrence fires exactly once, however late
+### RM-FIRE-016 — A one-off fires exactly once, however late
 
-Status: draft
+Status: approved
 Sources: REMINDERS_PLAN "Catch-up after downtime", "Deletion"
 Supersedes: `tests/test_scheduler.py::test_a_one_shot_is_deleted_only_after_the_turn_succeeds`,
 `::test_a_one_shot_fires_however_late` (business_valid, kept)
 
 ```gherkin
-Given a single-occurrence Reminder that is overdue
-When the poll finds it
+Given a one-off Reminder that is overdue
+When it is picked up
 Then it fires, and the request says how late it is
-And it deletes itself only after the answer was delivered
-And it never produces a second escalation
+And it removes itself the moment its words are written down
+And it never goes off a second time
 ```
 
-### RM-GATE-017 — Nothing escalates on top of an unanswered question
+### RM-GATE-017 — Nothing is said on top of an unanswered question
 
-Status: draft
+Status: approved
 Sources: REMINDERS_PLAN rule 8, "The gate"
 
 ```gherkin
-Given a Reminder is due
-When the Advisor is generating, or a proposal is pending, or an approval batch or a claimed
-    session is still unresolved
-Then nothing is escalated and nothing is queued
-And the Reminder stays due for the next poll
+Given words are waiting to be said
+When Safwa is answering, or a screen is waiting for the owner, or a half-finished turn has not
+    been settled
+Then nothing is said, and they are still waiting at the next check
+And a Reminder that comes due while they wait writes nothing and stays due
+And an hour of that is one message when Safwa frees up, not twelve
 ```
 
 ### RM-GATE-018 — The owner always wins
 
-Status: draft
+Status: approved
 Sources: REMINDERS_PLAN rule 9
 Supersedes: `tests/test_reminder_flow.py::test_a_background_lease_is_marked_background`,
 `::test_an_owner_lease_is_not_background`, `::test_a_background_lease_never_steals_from_the_owner`,
@@ -324,11 +328,11 @@ Supersedes: `tests/test_reminder_flow.py::test_a_background_lease_is_marked_back
 tests of this scenario)
 
 ```gherkin
-Given a background escalation holds the generation lease
+Given a Reminder is mid-answer in the background
 When the owner sends a message
-Then the escalation is cancelled and the owner's message is answered
-And its half-finished answer is discarded and nothing is published
-And the Reminder was never advanced, so it is still due
+Then that answer is cancelled and the owner's message is answered instead
+And the half-written answer is thrown away and never reaches the chat
+And the words it was answering are still waiting, and the next check says them
 ```
 
 ### RM-CATCHUP-019 — A missed repeat gets at most one catch-up
@@ -429,7 +433,7 @@ Sources: REMINDERS_PLAN "UI surface"
 ```gherkin
 Given the owner opens /reminders
 Then each Reminder reads as its schedule and the start of its text, next fire first
-And opening one shows its schedule, its next fire, its firing history and its full text
+And opening one shows its schedule, its next fire and its full text
 And the only actions are editing the text and deleting it
 And there is no way to create a Reminder here and no way to edit a schedule here
 And an empty list says the advisor is who creates them
@@ -507,7 +511,7 @@ spec:  id=7  instruction="Ask me what to start with today."
 code:  id=7  instruction="Ask me what to start with today."
              schedule_kind="weekly"  weekdays=["Mon","Tue","Wed","Thu","Fri"]
              at_time="08:30"  interval_minutes=NULL  quiet_windows=[]
-             next_fire_at="2026-08-23 05:30"   (UTC)   last_fired_at  fire_count
+             next_fire_at="2026-08-23 05:30"   (UTC)
 ```
 
 - **A — keep the raw columns (recommended).** `describe()` is the single wording used by the review
@@ -526,8 +530,7 @@ prompt and rarely quotes a fire time.
 
 Chosen: **A plus the local-time conversion on that one column.** The column is renamed
 `next_fire_at_local` so it is not read as the UTC instant every other `ai_*` column is — it is the
-first and only local timestamp in the catalogue, and the name is what says so. `last_fired_at`
-stays UTC: nothing asked for it, and the model quotes the next fire, not the last one.
+first and only local timestamp in the catalogue, and the name is what says so.
 
 SQLite has no timezone database, so the conversion is a `local_time(…)` function registered on the
 read-only connection in `ai/sql.py`, taking the timezone the runner is constructed with. A fixed

@@ -9,9 +9,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...enums import ActorType
+from .model import Check as Check
+from .model import is_closed_repeat as is_closed_repeat
+from .references import CHECK_VALUE_REFERENCE as CHECK_VALUE_REFERENCE
 from .use_cases import apply_check_outcome, check_resolutions, drop_pending_checks, pending_checks
 from .use_cases import archive_settled_checks as archive_settled_checks
 from .use_cases import check_card_id as check_card_id
@@ -19,6 +23,19 @@ from .use_cases import clone_checks_for_successor as clone_checks_for_successor
 from .use_cases import delete_checks_of_cards as delete_checks_of_cards
 from .use_cases import reopen_checks as reopen_checks
 from .use_cases import unobserved_series as unobserved_series
+
+
+async def live_repeat_instance_id(session: AsyncSession, check: Check) -> int | None:
+    """The open Check in this repeat series, or None when the series has ended."""
+    return await session.scalar(
+        select(Check.id)
+        .where(
+            Check.series_id == (check.series_id or check.id),
+            Check.outcome.is_(None),
+        )
+        .order_by(Check.id.desc())
+        .limit(1)
+    )
 
 
 async def require_check_answers(

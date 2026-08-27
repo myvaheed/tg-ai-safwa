@@ -703,9 +703,9 @@ Check now carries Values of its own, written from the Check side the way a Card 
 Nothing is derived between a Check's Values and the Values of the Cards it belongs to — they are two
 different statements, and VL-CHECK-010 says so out loud.
 
-- `ReferenceSpec` gained `owner_key`, `owner_label` and `also_carried_by`. The first two make the
-  linking side a parameter instead of always a Card; the third is how the Value screen counts Checks
-  **without branching on the entity name** — the first attempt did branch, and Rule H caught it.
+- `ReferenceSpec` gained `owner`, which makes the linking side a parameter instead of always a Card,
+  and the Value screen was given both carriers so it counts Checks **without branching on the entity
+  name** — the first attempt did branch, and Rule H caught it.
 - `archive_value` clears `check_values` in the same transaction, `delete_subtree` clears it for the
   Checks it deletes, and an answered repeatable Check hands its Values to its successor. That last one
   is the owner's: without it a Value would gain one finished Check per repeat cycle for ever. The same
@@ -1477,13 +1477,15 @@ it is — schedule arithmetic.
 the due Reminders it would have carried stay due. Without that line, an hour of a busy owner would
 become twelve rows and twelve messages the moment they are free.
 
-This also closes a real window: a crash between a successful delivery and `settle`'s commit used to
-fire the Reminder twice. There is no such gap now.
+This closes the scheduler's old window: a crash after the Reminder turn but before `settle` could
+materialize the same firing twice. The Cue is now the durable hand-over, so the Reminder itself
+moves on in the transaction that writes those words down.
 
 **Seven scenario lines were reworded**, each by naming the record that actually holds "not yet said":
 `RM-FIRE-012`, `RM-FIRE-013`, `RM-FIRE-014`, `RM-FIRE-015`, `RM-FIRE-016`, `RM-GATE-017`,
-`RM-GATE-018`. No rule changed; `fire_count` and `last_fired_at` now count when a Reminder went off
-rather than when its answer landed, and the two differ only for as long as a Cue waits.
+`RM-GATE-018`. No scheduling rule changed. At this checkpoint two firing-history columns were
+redefined to count when a Reminder went off rather than when its answer landed; the final review
+below subsequently removes them because no retained product behaviour needs that history.
 
 ### Tests
 
@@ -1535,3 +1537,56 @@ purpose — that is what makes the two stamps differ.
 
 Verification: `ruff check .` clean; `pytest -q` **686 passed / 3 skipped**; snapshots byte-identical.
 Metrics: 0 cycles, Rule G 2, Rule H 26, Rule L 17.
+
+## What the final Phase 5 review corrected
+
+**One scanner owns the read-only SQL door.** A normal query is still `SELECT … FROM ai_*`; no
+qualification or wrapper is required. `scan_statement` walks the statement once and from that one
+token stream refuses comments, unsafe keywords, parenthesized bare table names and comma-separated
+table lists, and collects the names the `FROM`/`JOIN` allowlist is then checked against. Each of
+those shapes could otherwise hide a base table from the allowlist, and separate regular expressions
+missed a different one each: a comment, a quoted or unspaced name, a second table after a comma.
+Reading them off one token stream also means a keyword counts only outside a string literal, so
+`WHERE title LIKE '%update%'` is a search and `ORDER BY joined_at` is a column. SQLite's authorizer
+independently refuses attributed base-table column reads; together the two layers also cover
+SQLite's columnless `count(*)` form.
+
+**A Reminder fires when its Cue is committed.** The owner confirmed that firing history has no
+product use, so both history columns were removed from the row, the Cue request, the Reminder
+screen and `ai_reminders`. Scheduling needs only `next_fire_at`; delivery ownership stays with the
+durable Cue.
+
+**A Cue retry does not repeat a registered delivery.** Every Cue owns a stable `event_id`, and that
+same id is placed in the invisible Telegram marker and the local message registry. If Telegram
+delivery was registered but the process stopped before deleting the Cue, the next poll deletes the
+Cue without running the Advisor or sending again. This is deliberately not documented as strict
+exactly-once across Telegram and SQLite: a process can still die after Telegram accepts a message
+but before the local registration commits. Closing that last external acknowledgement window would
+require remote reconciliation or an idempotency contract from Telegram, not another local flag.
+If an Advisor turn commits a proposal but its Telegram screen raises an ordinary delivery error,
+the failed batch is cancelled before retrying; it therefore cannot hold the Cue gate shut forever.
+Hard termination after that proposal commit but before either render or exception cleanup remains
+part of durable `AgentRun` recovery, which is Phase 7 rather than a second Cue state machine.
+The schema snapshot changes on `cues.event_id` and the leaner Reminder row; during development the
+database is rebuilt from scratch, as README now states.
+
+**Rule L fell from 17 to 1 without re-export indirection.** Card and Check toggles moved into their
+own use-case modules. The generic relationship resolver is `foundation/references.py`; each feature
+declares its own specs in `references.py`, a role `docs/FEATURE_MODULES.md` now carries, because a
+spec names a toggle and `api.py` cannot import the Card use cases without closing a cycle through
+Planning. A `ReferenceSpec` is eight fields: `key` yields `value_id`, `value_ids` and `value_query`,
+and `owner` yields the junction row's other column. Who carries a Value is a question the item
+screen answers, so `telegram/_core.py` holds the carriers and no spec names another. Repeat lookup
+is read through each feature API. The only
+remaining edge is `features/planning/background.py → domain.expire_due_sprint`: it composes
+Planning's clock with both the Card and Check archive sweeps, and moving that composition now would
+cross the application-composition work reserved for the later cleanup rather than finish a Phase 5
+feature move. Current metrics: 156 modules, 638 edges, 0 cycles, Rule G 2, Rule H 26, Rule L 1;
+DoD #1 26, #2 0, #3 5, #13 0. Verification: `ruff check .` clean; `pytest -q`
+**728 passed / 3 skipped**, with `test_pl_start_005` deselected: it compares a Sprint's local
+start date against a UTC one and fails every evening, on this branch and on `main` alike. The prompt hashes moved only for readers that carry the
+`ai_reminders` catalogue; the declared schema snapshot moved on `cues.event_id` and the removal of
+Reminder firing-history columns.
+
+`docs/brd/` remains temporary migration working material. The binding scenarios are under
+`tests/brd/`, and the whole packet directory is deleted when the refactoring migration ends.

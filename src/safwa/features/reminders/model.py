@@ -43,7 +43,5 @@ class Reminder(Base, TimestampMixin):
     quiet_windows: Mapped[list[str]] = mapped_column(JSON, default=list)
 
     next_fire_at: Mapped[datetime] = mapped_column(UtcDateTime, index=True)
-    last_fired_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
-    fire_count: Mapped[int] = mapped_column(Integer, default=0)
 
     version: Mapped[int] = mapped_column(Integer, default=1)
