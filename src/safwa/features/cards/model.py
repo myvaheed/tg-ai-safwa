@@ -27,7 +27,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from ...enums import Priority
-from ...foundation.models import Base, TimestampMixin
+from ...foundation.models import Base, TimestampMixin, UtcDateTime
 
 
 class CardStage(StrEnum):
@@ -76,7 +76,7 @@ class Card(Base, TimestampMixin):
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    archived_at: Mapped[datetime | None] = mapped_column(UtcDateTime, index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
 
     parent: Mapped[Card | None] = relationship(

@@ -787,6 +787,42 @@ async def test_cd_archive_024_an_unfinished_child_keeps_its_goal_out_of_the_arch
         assert (await session.get(Card, idea.id)).archived_at is None
 
 
+async def test_cd_archive_024_a_live_card_takes_its_branch_out_of_the_archive(sessions):
+    """CD-ARCHIVE-024 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Health")
+        idea = await create_card(session, kind="idea", title="Move more", parent_id=goal.id)
+        walk = await create_card(
+            session, kind="action", title="Walk", effort_points=2, parent_id=idea.id
+        )
+        swim = await create_card(
+            session, kind="action", title="Swim", effort_points=3, parent_id=idea.id
+        )
+        await finish_action(session, walk.id, CardStage.DONE)
+        await finish_action(session, swim.id, CardStage.DONE)
+        await archive_subtree(session, walk.id)
+        await session.commit()
+        # One Action still in sight keeps the whole branch above it in sight.
+        assert (await session.get(Card, idea.id)).archived_at is None
+        assert (await session.get(Card, goal.id)).archived_at is None
+    ids = (goal.id, idea.id, walk.id, swim.id)
+
+    # A later session reads the first stamp back out of the database, so the branch is
+    # worked out from one stamp that came from a row and one straight off the clock.
+    async with sessions() as session:
+        await archive_subtree(session, ids[3])
+        await session.commit()
+        assert (await session.get(Card, ids[1])).archived_at is not None
+        assert (await session.get(Card, ids[0])).archived_at is not None
+
+    async with sessions() as session:
+        await move_card(session, ids[3], CardStage.TODAY)
+        await session.commit()
+        assert (await session.get(Card, ids[1])).archived_at is None
+        assert (await session.get(Card, ids[0])).archived_at is None
+        assert (await session.get(Card, ids[2])).archived_at is not None
+
+
 async def test_cd_delete_025_deleting_a_card_deletes_everything_under_it(sessions):
     """CD-DELETE-025 — tests/brd/cards.feature"""
     async with sessions() as session:

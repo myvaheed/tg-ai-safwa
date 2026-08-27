@@ -348,8 +348,10 @@ async def branch_actions(session: AsyncSession, card_id: int) -> list[Card]:
     return found
 
 
-def derived_from_children(children: list[Card]) -> tuple[CardStage, bool, int | None]:
-    """What a Goal or an Idea shows: the stage, the block and the effort of its children.
+def derived_from_children(
+    children: list[Card],
+) -> tuple[CardStage, bool, int | None, datetime | None]:
+    """What a Goal or an Idea shows: the stage, the block, the effort and the archive.
 
     Every child already carries its own derived values, so a parent adds up the row below
     it and the recursion reaches the Actions on its own. Reading the branch's Actions
@@ -357,8 +359,9 @@ def derived_from_children(children: list[Card]) -> tuple[CardStage, bool, int | 
     a child that never started.
     """
     if not children:
-        return CardStage.BACKLOG, False, None
+        return CardStage.BACKLOG, False, None, None
     effort = [child.effort_points for child in children if child.effort_points is not None]
+    stamps = [child.archived_at for child in children]
     return (
         aggregate_child_stages(children),
         any(
@@ -366,11 +369,13 @@ def derived_from_children(children: list[Card]) -> tuple[CardStage, bool, int | 
             for child in children
         ),
         sum(effort) if effort else None,
+        # A branch leaves sight when its last Card does, and one live Card brings it back.
+        max(stamps) if all(stamp is not None for stamp in stamps) else None,
     )
 
 
 async def propagate_ancestors(session: AsyncSession, start_parent_id: int | None) -> list[int]:
-    """The one walk that writes a parent's derived values: stage, blocked and effort.
+    """The one walk that writes a parent's derived values: stage, blocked, effort, archive.
 
     They are stored in the plain columns rather than computed on read, so Safwa reads one
     column that means the same thing on every row. The price is that every path which
@@ -385,20 +390,18 @@ async def propagate_ancestors(session: AsyncSession, start_parent_id: int | None
         # An archived child still counts in what its parent shows: archiving is a matter
         # of sight, and the effort it took is still the owner's.
         children = list(await session.scalars(select(Card).where(Card.parent_id == parent.id)))
-        stage, blocked, effort = derived_from_children(children)
-        current = (parent.effective_stage, parent.blocked, parent.effort_points)
-        if current != (stage.value, blocked, effort):
+        stage, blocked, effort, archived = derived_from_children(children)
+        current = (parent.effective_stage, parent.blocked, parent.effort_points, parent.archived_at)
+        if current != (stage.value, blocked, effort, archived):
             parent.effective_stage = stage.value
             parent.blocked = blocked
             # Several blocked Actions have several reasons, and picking one would be
             # Safwa writing the owner's words. The screen quotes each Action instead.
             parent.blocked_description = ""
             parent.effort_points = effort
+            parent.archived_at = archived
             parent.version += 1
             changed.append(parent.id)
-        if stage not in TERMINAL_STAGES and parent.archived_at is not None:
-            # A branch with live work in it is not something the owner archived away.
-            parent.archived_at = None
         parent_id = parent.parent_id
     return changed
 
@@ -457,8 +460,6 @@ async def move_card(
         raise DomainError("An Action reaches Done or Cancelled through finish_action")
     previous = CardStage(card.effective_stage)
     reopening = previous in TERMINAL_STAGES
-    if card.archived_at is not None and not reopening:
-        raise DomainError("Card is archived")
     before = card_snapshot(card)
     result = OperationResult(card_ids=[card.id])
     if card.blocked:
@@ -591,34 +592,45 @@ async def blocking_actions(session: AsyncSession, card_id: int) -> list[Card]:
 
 
 async def archive_subtree(session: AsyncSession, card_id: int, archive: bool = True) -> list[int]:
+    """Archive or restore a branch by its Actions; a Goal and an Idea follow from theirs."""
     card = await session.get(Card, card_id)
     if card is None:
         raise DomainError("Card does not exist")
     if archive and CardStage(card.effective_stage) not in TERMINAL_STAGES:
         raise DomainError("Only a Card that is Done or Cancelled may be archived")
-    changed: list[int] = []
     stamp = utcnow() if archive else None
     correlation_id = new_correlation_id()
-
-    async def visit(node: Card) -> None:
-        before = card_snapshot(node)
-        node.archived_at = stamp
-        node.version += 1
+    actions = (
+        [card] if card.kind == CardKind.ACTION.value else await branch_actions(session, card.id)
+    )
+    for action in actions:
+        before = card_snapshot(action)
+        action.archived_at = stamp
+        action.version += 1
         await record_card_event(
             session,
-            node,
+            action,
             "archive" if archive else "restore",
             ActorType.USER_UI,
             before,
             correlation_id,
         )
-        changed.append(node.id)
-        for child in await session.scalars(select(Card).where(Card.parent_id == node.id)):
-            await visit(child)
-
-    await visit(card)
-    await propagate_ancestors(session, card.parent_id)
+    changed = await settle_archive(session, actions)
     await bump_workspace(session)
+    return changed
+
+
+async def settle_archive(session: AsyncSession, actions: list[Card]) -> list[int]:
+    """Every Card the archive moved: the Actions that were stamped, then their branches.
+
+    The stamps are all written before the first walk, so a parent reads its siblings as
+    they will be rather than as they were halfway through.
+    """
+    changed = [action.id for action in actions]
+    for action in actions:
+        for ancestor in await propagate_ancestors(session, action.parent_id):
+            if ancestor not in changed:
+                changed.append(ancestor)
     return changed
 
 
@@ -648,16 +660,14 @@ async def delete_subtree(session: AsyncSession, card_id: int) -> int:
 
 
 async def archive_settled_cards(session: AsyncSession, cutoff: datetime) -> list[int]:
-    """Archive every Card that closed on or before the cutoff, deepest first."""
+    """Archive every Action that closed on or before the cutoff; the parents follow."""
     stamp = utcnow()
-    archived: list[int] = []
-    terminal = [stage.value for stage in TERMINAL_STAGES]
     actions = list(
         await session.scalars(
             select(Card).where(
                 Card.archived_at.is_(None),
                 Card.kind == CardKind.ACTION.value,
-                Card.effective_stage.in_(terminal),
+                Card.effective_stage.in_([stage.value for stage in TERMINAL_STAGES]),
                 func.coalesce(Card.completed_at, Card.cancelled_at).is_not(None),
                 func.coalesce(Card.completed_at, Card.cancelled_at) <= cutoff,
             )
@@ -666,23 +676,4 @@ async def archive_settled_cards(session: AsyncSession, cutoff: datetime) -> list
     for action in actions:
         action.archived_at = stamp
         action.version += 1
-        archived.append(action.id)
-    # A Goal and an Idea have no closing time of their own, so one leaves when the whole
-    # branch under it has.
-    for kind in (CardKind.IDEA, CardKind.GOAL):
-        parents = list(
-            await session.scalars(
-                select(Card).where(
-                    Card.archived_at.is_(None),
-                    Card.kind == kind.value,
-                    Card.effective_stage.in_(terminal),
-                )
-            )
-        )
-        for parent in parents:
-            children = list(await session.scalars(select(Card).where(Card.parent_id == parent.id)))
-            if children and all(child.archived_at is not None for child in children):
-                parent.archived_at = stamp
-                parent.version += 1
-                archived.append(parent.id)
-    return archived
+    return await settle_archive(session, actions)

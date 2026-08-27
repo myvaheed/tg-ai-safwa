@@ -1480,3 +1480,43 @@ longer speaks to anyone.
 Verification: `ruff check .` clean; `pytest -q` **685 passed / 3 skipped**. `schema.json` moved by
 one line, `cues`, as declared; `prompt_prefix.json` byte-identical. Metrics: 0 cycles, DoD #1 26,
 #2 0, #3 5, #13 0, Rule G 2, Rule H 26, Rule L 17.
+
+## What the derived-archive batch delivered
+
+A Goal's and an Idea's `archived_at` was written in three places, and cleared in a fourth:
+`archive_settled_cards` walked the parents and stamped the ones whose children were all archived;
+`archive_subtree` smeared one stamp down the whole subtree; `propagate_ancestors` cleared it again
+whenever the derived stage was not terminal; and `move_card` cleared the reopened Card's own.
+Four mechanisms for one property nobody had named.
+
+The property is that **a parent's archive is derived from its children**, exactly like its stage,
+its block and its effort. `derived_from_children` returns it as a fourth element — the latest
+child's stamp when every child carries one, and nothing otherwise — and `propagate_ancestors`
+writes it beside the other three, in the same comparison and under the same `version` bump.
+
+- Only an Action is ever stamped. `archive_subtree` takes the branch's Actions and lets the parents
+  follow; `archive_settled_cards` keeps the Actions query and dropped the parent loop. `card_events`
+  are written where the stamps are, so a Goal no longer records an archive it never performed.
+- `settle_archive` is the one place that turns stamped Actions into the branch they changed: every
+  stamp is written before the first walk, so a parent reads its siblings as they will be rather than
+  as they were halfway through.
+- The un-archive branch in `propagate_ancestors` is gone. It is the same formula read the other way:
+  one live Card means not every child is archived.
+- The guard `if card.archived_at is not None and not reopening` in `move_card` was unreachable — an
+  archived Action is always in a terminal stage, so `reopening` was always true.
+
+**One behaviour changed:** archiving every child by hand now archives the parent. It used to take a
+Sprint boundary, because only `archive_settled_cards` looked at parents at all.
+
+`Card.archived_at` became `UtcDateTime`. `DateTime(timezone=True)` reads back naive out of SQLite,
+so a parent worked out from one stamp off the clock and one out of a row raised
+`TypeError: can't compare offset-naive and offset-aware datetimes`. The DDL is unchanged, so the
+schema snapshot did not move.
+
+`CD-ARCHIVE-024` gained the case the deleted branch used to hold: a live Card under an archived
+branch takes that branch out of the archive, and what was archived on its own stays archived.
+`test_cd_archive_024_a_live_card_takes_its_branch_out_of_the_archive` crosses a session boundary on
+purpose — that is what makes the two stamps differ.
+
+Verification: `ruff check .` clean; `pytest -q` **686 passed / 3 skipped**; snapshots byte-identical.
+Metrics: 0 cycles, Rule G 2, Rule H 26, Rule L 17.

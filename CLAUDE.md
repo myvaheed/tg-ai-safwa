@@ -302,9 +302,9 @@ system message.
 - A Goal and an Idea show what their **direct children** add up to. Each child already carries its
   own derived values, so the recursion reaches the Actions, and a child that never started still
   counts: an Idea with nothing in it is in Backlog and holds its Goal there.
-  `propagate_ancestors` is the one walk that writes it, into the plain `effective_stage`, `blocked`
-  and `effort_points` columns, so Safwa reads one column that means the same thing on every row.
-  Every path that changes an Action ends there. A parent with nothing under it shows Backlog and
+  `propagate_ancestors` is the one walk that writes it, into the plain `effective_stage`, `blocked`,
+  `effort_points` and `archived_at` columns, so Safwa reads one column that means the same thing on
+  every row. Every path that changes an Action ends there. A parent with nothing under it shows Backlog and
   never Done or Cancelled, and it has no `blocked_description` of its own. Summing `effort_points`
   over every row counts each Action again inside every ancestor — a real total says
   `WHERE kind = 'action'`.
@@ -319,6 +319,9 @@ system message.
 - **Everything is deleted; only a Card and a Check are also archived**, two Sprints after they
   closed (`ARCHIVE_AFTER_SPRINTS`). Archived is a matter of sight: it still counts everywhere it
   counted. A Value, a Tag and a Saved Request carry no `archived_at` at all.
+- **Only an Action is archived; a Goal and an Idea are derived, like everything else they show.**
+  A branch leaves sight when its last Card does and comes back the moment one is reopened, so a
+  parent is never stamped, never restored and never carries a `card_events` row of its own.
 - **A list by stage leaves an archived item out; every other list shows it, marked `[📦]`.** It
   opens, it reads as archived, and no proposal changes it — only the owner, by reopening or
   deleting it. `domain.title_marks` is the one place both marks are written, and `ai_cards` and

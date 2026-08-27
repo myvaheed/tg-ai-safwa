@@ -185,6 +185,8 @@ Feature: Cards
     When the owner reopens an archived Card
     Then it is out of the archive and back on the screens
     And an archived Action that repeats stays archived: it cannot be reopened
+    When a live Card appears under an archived branch
+    Then that branch is out of the archive, and what was archived on its own stays archived
 
   Scenario: CD-REPEAT-026 — A repeat series reads as one series
     Given a repeating Action finished twice, so the series holds three Cards
