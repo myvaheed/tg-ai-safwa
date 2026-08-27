@@ -6,9 +6,14 @@ It carries the principles only. Every mechanism has a document that owns it, lis
 
 ## Read first
 
-Read [archived_docs/ARCHITECTURE.md](archived_docs/ARCHITECTURE.md), [archived_docs/STRUCTURE_GRAPH.md](archived_docs/STRUCTURE_GRAPH.md)
-and [archived_docs/MEMORY_HISTORY_USAGE.md](archived_docs/MEMORY_HISTORY_USAGE.md) at the start of a session — they are
-the fastest path to full context.
+`tests/brd/*.feature` is what Safwa does, one approved rule per `Scenario`. Read the ones for the
+feature you are changing before you change it, and [tests/brd/README.md](tests/brd/README.md) for
+what a scenario is.
+
+Then [docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md) for how a feature is wired in, and
+[docs/AGENT_ARCH.md](docs/AGENT_ARCH.md) for sessions, routing and history. `uv run python
+scripts/architecture_metrics.py` prints the current module graph — no document is kept in step
+with it.
 
 ## Designing and Coding principles
 
@@ -142,10 +147,10 @@ A Card is not "planning data". Say Card, Check, Value, Tag, Sprint — or say th
 model reads it under that name. The `Workspace mode:` line inside it is the other word: there
 `planning` is the mode with no Sprint.
 
-`archived_docs/INITIAL_PLAN.md` and `archived_docs/MEMORY_HISTORY_USAGE.md` are the authoritative product spec —
-read them before changing history, memory, proposal, or UI behavior. When sources drift: the product
-spec says what should happen, code and tests say what happens now, and descriptive docs explain the
-current design. Do not present an unimplemented spec item as current behavior.
+**`tests/brd/*.feature` is the product spec.** An approved scenario outranks the code, the tests
+and every document, and changing one needs the owner. `archived_docs/` is not a spec: it was written
+quickly, and it describes modules that no longer exist. Read it for what a rule was getting at, check
+that against the code, and write down what you found — never quote it as current behavior.
 
 Cross-feature tuning — token budgets, poll intervals, shared timeouts — lives in
 [constants.py](src/safwa/constants.py), which imports nothing from Safwa;
@@ -153,8 +158,8 @@ Cross-feature tuning — token budgets, poll intervals, shared timeouts — live
 is a constant at the top of that feature's module, next to where it is used. The same split applies
 to [enums.py](src/safwa/enums.py): `MessageKind` and `AIProvider` are shared, while `CardStage` and
 its two sets now live in [features/cards/model.py](src/safwa/features/cards/model.py) and
-`CheckOutcome` in [features/checks/model.py](src/safwa/features/checks/model.py). `CardKind` still
-waits in `enums.py`, and `WorkspaceMode` belongs to Planning.
+`CheckOutcome` in [features/checks/model.py](src/safwa/features/checks/model.py). `CardKind` and
+`WorkspaceMode` still wait in `enums.py`; `WorkspaceMode` belongs to Planning.
 
 The `telegram` package is layered and imports run one way only: `_core.py` ← `_presentation.py` ←
 `_messaging.py` ← `text_input.py` ← the feature renderers ← `screens.py` / `proposals.py` ← the
@@ -384,9 +389,8 @@ ORM metadata at that point.
 
 | Subsystem | Document |
 |---|---|
-| Feature → file orientation | [archived_docs/ARCHITECTURE.md](archived_docs/ARCHITECTURE.md) |
-| Module and entity index | [archived_docs/STRUCTURE_GRAPH.md](archived_docs/STRUCTURE_GRAPH.md) |
-| Product spec | [archived_docs/INITIAL_PLAN.md](archived_docs/INITIAL_PLAN.md) |
+| Product spec | [tests/brd/](tests/brd) |
+| What a scenario is | [tests/brd/README.md](tests/brd/README.md) |
 | History, memory, summaries | [archived_docs/MEMORY_HISTORY_USAGE.md](archived_docs/MEMORY_HISTORY_USAGE.md) |
 | Checks | [archived_docs/CHECKS_PLAN.md](archived_docs/CHECKS_PLAN.md) |
 | Diary | [archived_docs/DIARY_PLAN.md](archived_docs/DIARY_PLAN.md) |
@@ -398,7 +402,12 @@ ORM metadata at that point.
 | LLM provider boundary | [docs/LLM_GATEWAY.md](docs/LLM_GATEWAY.md) |
 | Clean-architecture migration | [REFACTORING_CLEAN_ARCH_FINAL.md](REFACTORING_CLEAN_ARCH_FINAL.md) |
 | Migration status and gates | [docs/MIGRATION.md](docs/MIGRATION.md) |
-| BRD scenarios and test audit | [docs/brd/README.md](docs/brd/README.md) |
+| Approval packets, while the migration runs | [docs/brd/README.md](docs/brd/README.md) |
 
-`archived_docs/` is descriptive: it records the design as it was before the migration. `docs/` is
-where anything written from now on goes.
+`archived_docs/` records intent, not the code: its file names and module lists are pre-migration and
+largely wrong. `docs/brd/` is the approval packet around the scenarios and is deleted at the end of
+the migration; `tests/brd/` survives it. `docs/` is where anything written from now on goes.
+
+**Keep this file and `README.md` current by deleting, not by adding.** A line that stopped being
+true is removed or replaced in place — never left standing next to its correction. Both files
+name only things that exist; `tests/test_docs.py` checks every link they carry.

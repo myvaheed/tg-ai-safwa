@@ -82,7 +82,18 @@ every trend that counted it.
 
 The rule is `docs/brd/archive_and_delete.md`, approved 2026-08-24.
 
-## Completion feedback was removed in Phase 5, and will be built again
+## The two files that are read as truth are kept current by deleting
+
+`CLAUDE.md` and `README.md` are read as if every line were true, so a line that stopped being true
+costs more than a missing one. Both are corrected **in place**: the wrong line is removed or
+replaced, never left standing next to its correction, and neither file gains a paragraph explaining
+what it used to say. `tests/test_docs.py` fails on a link either of them carries to something that
+does not exist.
+
+`archived_docs/` is not held to this. It records what was intended before the migration, it names
+modules that are gone, and it is a source to read intent from — never to quote.
+
+## Completion feedback and the retrospective were removed in Phase 5, and will be built again
 
 The owner ruled on 2026-08-24 that the completion feedback loop — the thumbs-up asked after an Action
 is Done — is torn out rather than specified, and designed again from scratch afterwards. No packet
@@ -91,6 +102,10 @@ writes a scenario for it, and no scenario may mention it until the one that rebu
 It went with 5.b: `FeedbackQueue`, `Card.liked`, `set_feedback`, `move_card`'s two reopen lines that
 cleared them, the `/feedback` command and `render_feedback`, the `feedback` callback, the pending
 count on `/status`, and the `liked` inputs to `analytics.py` including the capacity advice.
+
+The retrospective went the same way in 5.h, and the same rule holds for it: it is a feature to be
+designed after the migration, not a packet of Phase 5. `retro` survives as a citation type opening a
+deliberately empty screen, so whoever builds it inherits a link that already works.
 
 ## What Phase 0 delivered
 

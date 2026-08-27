@@ -1044,18 +1044,17 @@ safwa/features/<feature>/
 | `telegram/items.py` | 249 | `features/planning/telegram.py` | Values, Tags, Requests |
 | `telegram/sprint.py` | 243 | `features/planning/telegram.py` | |
 | `backup.py` | 243 | `bootstrap/backup.py` | список таблиц из `m.backup_tables` |
-| `scheduler.py` | 231 | `features/reminders/scheduler.py` | как `BackgroundTask` |
+| `scheduler.py` | 231 | `features/reminders/background.py` | как `BackgroundTask` |
 | `telegram/screens.py` | 221 | `telegram_llm` и `features/planning` | жизненный цикл общий, `open_citation` — Safwa |
 | `constants.py` | 211 | `foundation/constants.py` и константы фич | см. 10.4 |
 | `config.py` | 209 | `bootstrap/settings.py` | |
 | `ai/autoapproval.py` | 202 | `features/proposals/autoapproval.py` | |
 | `telegram/reminders.py` | 200 | `features/reminders/telegram.py` | |
 | `telegram/text_input.py` | 193 | `features/*/telegram.py` | **не** в общий пакет, это виджет |
-| `analytics.py` | 188 | `features/planning/queries.py` | сторона чтения планирования |
 | `ai/provider.py` | 188 | `llm_gateway/openai_compatible.py` | |
 | `ai/mini.py` | 186 | `agent_runtime/model.py` | `ReadToolSpec` |
 | `memory.py` | 185 | `features/continuity/memory.py` | `memory.md` остаётся источником истины |
-| `telegram/escalation.py` | 174 | `features/reminders/telegram.py` | |
+| `telegram/escalation.py` | 174 | `cues/runtime.py` | доставка — не фича Reminder-ов |
 | `qa.py` | 153 | `bootstrap/qa.py` | |
 | `enums.py` | 127 | `foundation/enums.py` и `features/*/model.py` | см. 10.4 |
 | `ai/diary.py` | 125 | `features/diary/agent.py` | |
@@ -1361,8 +1360,11 @@ docstring на его `DI-*` и `.feature`; запуск остаётся еди
 2. `manual_stage` против `effective_stage` и распространение по предкам;
 3. Checks, ворота завершения, серии повторов;
 4. наследник повторяющегося Action;
-5. Sprint: старт, финиш, истечение, ёмкость;
-6. аналитические проекции.
+5. Sprint: старт, финиш, истечение, ёмкость.
+
+Ретроспектива — отдельная фича после миграции, не пакет этой фазы: картинка и её рекомендации
+вырваны целиком, `retro` остался типом цитаты с пустым экраном, и заново её проектируют со
+сценариев.
 
 Критерии выхода: `domain.py` больше не god-модуль; поведение трассируется к идентификаторам
 сценариев; модели ORM остались доменными моделями фичи; ни Telegram, ни агент не владеют

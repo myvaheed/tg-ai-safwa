@@ -21,7 +21,7 @@ rather than by Safwa, and none of it is written down.
 - **"Back goes where you came from, with the state it had."** The plan restoring its page and its
   picked filters is one case of a principle every screen follows, so it belongs to a Navigation
   packet of its own rather than to the Sprint. The behaviour ships unchanged in the meantime; the
-  packet that owns it adds the prefix to `docs/brd/README.md`.
+  packet that owns it adds the prefix to `tests/brd/README.md`.
 - **The retrospective.** Its own feature. What happens at the end of a Sprint is `PL-END-015` in
   [planning.md](planning.md), which also tears out the current `/retro` picture. The analysis, the
   advice and whatever the Sprint retro screen ends up showing are specified nowhere yet.

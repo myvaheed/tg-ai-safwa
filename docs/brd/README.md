@@ -1,10 +1,14 @@
-# BRD scenarios
+# BRD approval packets
 
-A BRD scenario is one approved business rule, written Given–When–Then, with an identifier that
-outlives any test name. During the migration it is the highest authority on what Safwa does:
-when code, tests and docs disagree, an approved scenario wins.
+`docs/brd/<feature>.md` is the approval packet around one feature's scenarios — `Status`,
+`Sources`, `Supersedes`, the recorded decision, the audit table and the gate results. It exists
+only while a feature is being migrated or refactored, and this whole folder is deleted at the end
+of the migration.
 
-No BDD framework. Readable pytest is enough.
+The approved scenarios themselves live in `tests/brd/<feature>.feature` and survive it. What a
+scenario has to look like — the identifier, the prefix table, the format, the language, how numbers
+are written, and what the traceability test checks — is in
+[tests/brd/README.md](../../tests/brd/README.md).
 
 ## Files
 
@@ -37,125 +41,21 @@ packet, not a permanent BDD suite or a replacement for product documentation.
 No BDD runner is used. The `.feature` file is a readable traceability contract; pytest executes
 the real unit, integration, and E2E checks.
 
-## Identifier
+## Packet header
 
-`<AREA>-<TOPIC>-<NNN>`, zero-padded, never reused and never renumbered inside its own package.
-
-The **topic is the aspect the rule is about**, never the package's own name written twice:
-`DI-MOOD-004` and `DI-DELETE-005`, not `DI-DIARY-004`. An identifier that repeats its area says
-nothing a reader can use, and a package whose scenarios all share one topic has not been read
-carefully enough to say what each of them is about.
-
-One `.feature` file is one package under `src/safwa/features/`, so a rule and the code that keeps
-it are found in one place. The prefix names that package, never a group of them: `PL` used to cover
-Cards, Checks, Values, Tags and the Sprint at once, which meant five packages sharing one numbering
-line and no way to read an identifier and know where its code lives.
-
-| Area | Prefix | Area | Prefix |
-|---|---|---|---|
-| Cards | `CD` | Proposals | `PR` |
-| Checks | `CH` | Agents and routing | `AG` |
-| Values | `VL` | Telegram history | `TG` |
-| Tags | `TA` | Continuity and memory | `CO` |
-| Planning — the Sprint and the mode without one | `PL` | Diary | `DI` |
-| Reminders | `RM` | Saved Requests | `SR` |
-| Profile and Settings | `PS` | The heavy analyzer | `HAN` |
-
-`tests/test_brd_traceability.py` reads this table, so a prefix that is not in it is not a
-scenario identifier.
-
-## Format
+Each scenario in a packet carries three lines the `.feature` file does not:
 
 ````markdown
-### CH-GATE-001 — An Action cannot be finished while a Check is unanswered
+### CH-GATE-006 — A Card cannot be Done with an unanswered Check
 
 Status: approved
-Sources: INITIAL_PLAN §…, CHECKS_PLAN §…
+Sources: archived_docs/CHECKS_PLAN.md §…
 Supersedes: tests/test_checks.py::test_finish_with_checks (implementation_coupled)
-
-Given an Action is in Today and has two Pending Checks
-When the owner finishes the Action and answers only one Check
-Then the Action stays in Today
-And the operation returns the unanswered Checks
-And no repeat successor is created
 ````
 
-The title states the rule, not the mechanism. `Sources` cites the product spec the rule came
-from. `Supersedes` names every existing test the scenario replaces, with its class.
-
-The test's docstring is the identifier and the file that carries it, and nothing else. The
-scenario text lives in the `.feature` file; restating it here would be a second copy to keep
-in step.
-
-```python
-async def test_ch_gate_001_action_with_unanswered_check_cannot_finish(app):
-    """CH-GATE-001 — tests/brd/checks.feature"""
-```
-
-`app.given` is a dictionary of business fixtures, not a general DSL. It builds data through
-public operations and never restates a business rule inside the builder — a builder that
-knows the rule makes the test check itself.
-
-## Language
-
-A `.feature` file is read by someone who has never seen the code. Write it in the owner's words, not
-the codebase's.
-
-- Say what happens to the owner, not which function does it. "The Reminder keeps its next fire", not
-  "no schedule column changes".
-- Name a mechanism only when the rule is *about* that mechanism. DI-READ-013 names its two readers
-  because which two the subagent holds **is** the rule; DI-DAY-001 names nothing, because writing
-  down a day is not about a function.
-- No internal nouns where the owner has a word for it. `provider input`, `cursor`, `hash race`,
-  `snapshot`, `workspace revision`, `row` — each has a plain equivalent, and the plain one is right
-  unless the rule is about the mechanism.
-- Domain nouns stay capitalized and exact: Card, Sprint, Value, Tag, Check, Request, Reminder,
-  Summary, Diary.
-- **A source is never copied word for word**, `archived_docs/` least of all: it was written quickly
-  and carries wrong artifacts. Read what it is getting at, check it against the code, and write that.
-  Where the two disagree, the disagreement ships as a `question`.
-
-The identifier line is the exception: it is an identifier, and it never changes wording once
-approved. The `Scenario:` title after the em dash is prose and may be made clearer.
-
-## Numbers
-
-A scenario states the number and names the constant next to it. The test reads the constant.
-
-```text
-Then the 3 oldest go to the Advisor as one request (REMINDER_FIRE_BATCH = 3)
-```
-
-Writing `the batch size` in the scenario says nothing a reviewer can check, and hard-coding `3` in
-the test makes the test and the constant two copies that can disagree in silence. Written this way
-the scenario is readable on its own, the test still follows the constant when it is tuned, and a
-constant that moves away from its scenario is visible to whoever reads the two side by side.
-
-## The traceability is checked
-
-`tests/test_brd_traceability.py` reads the `.feature` files and every test docstring, and
-fails on an approved scenario with no test, a test citing a scenario that does not exist, a
-docstring in any other shape, a prefix missing from the table above, and a repeated scenario
-title. Without it a renamed scenario or a deleted test stays green.
-
-A `.feature` file carries **no Gherkin tags**, and the same test fails on one. No BDD runner
-reads these files, so a `@di_day_011` above a scenario is a lowercase second copy of the
-identifier that nothing keeps in step. The `Scenario:` line is where the identifier lives.
-
-Two Scenario blocks may share an identifier only when they are two observable cases of the
-**same** question — a rule's two branches, or one rule at two doors. Two different rules under
-one identifier hide the second one, and no test failure will say so.
-
-The identifier is written in the docstring only. `tests/conftest.py` reads it from there and
-attaches the marker, so both of these work with nothing to keep in step:
-
-```bash
-uv run pytest -m brd -q
-```
-
-```bash
-uv run pytest --brd=DI-DAY-001 -q
-```
+`Sources` cites where the rule was read from. `Supersedes` names every existing test the scenario
+replaces, with its class. The scenario body itself is written the way
+[tests/brd/README.md](../../tests/brd/README.md) says.
 
 ## Statuses
 
@@ -169,9 +69,9 @@ uv run pytest --brd=DI-DAY-001 -q
 ## When sources disagree
 
 1. an approved BRD scenario
-2. authoritative product docs — `INITIAL_PLAN`, `MEMORY_HISTORY_USAGE`, the `*_PLAN.md` files
-3. confirmed current E2E behaviour
-4. an existing unit or integration test
+2. confirmed current E2E behaviour
+3. an existing unit or integration test
+4. `archived_docs/` — a source to read the intent from, never to copy from
 5. an implementation detail
 
 A conflict is never resolved quietly. It ships in the batch as a `question`.

@@ -1,9 +1,10 @@
 # Safwa
 
 Safwa is a single-owner personal agile organizer and AI advisor delivered through a Telegram bot.
-It supports Tags, AI-authored saved Requests, hierarchical Goal/Idea/Action cards, Planning and two-week Sprints,
-repeatable Actions, Values, energy/category analysis, mandatory card-draft review, reminders,
-retrospective PNGs, and an OpenAI-compatible persona.
+It supports hierarchical Goal/Idea/Action Cards, Checks, Values, Tags, Planning and Sprints (two
+weeks by default), repeatable Actions, a Diary, Reminders, AI-authored saved Requests, voice input,
+and an OpenAI-compatible persona. The advisor never writes to your data itself: every change it
+proposes arrives as a Save/Discard screen.
 
 ## Windows setup
 
@@ -134,13 +135,13 @@ file-backed memory state.
 
 ## Bot navigation
 
-Use `/start`, `/today`, `/sprint`, `/backlog`, `/values`, `/tags`, `/requests`, `/retro`, `/feedback`,
-`/reminders`, `/settings`, `/memory`, `/mem`, `/syncmem`, `/summarize`, `/status`, and `/cancel`.
+Use `/start`, `/today`, `/sprint`, `/backlog`, `/values`, `/tags`, `/requests`, `/reminders`,
+`/settings`, `/memory`, `/mem`, `/syncmem`, `/summarize`, `/status`, and `/cancel`.
 Remove or edit durable facts directly in `data/memory.md`; the file watcher imports the change.
 
 The advisor reads a window of the chat bounded by a token budget, so nothing has to be started or
 ended. `/summarize` writes a `📜 Summary` on demand, which becomes the far edge of that window;
 card, Sprint, Value, and memory data are never deleted.
 
-Every new card is first stored as an isolated draft. It reaches dashboards and metrics only after the
-review screen's **Create** action.
+Creating a Card by hand stores nothing until **Save**: the draft lives in the screen and is gone if
+you leave it.

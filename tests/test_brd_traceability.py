@@ -1,6 +1,6 @@
 """The `.feature` files are a contract only if something checks they are still connected.
 
-`docs/brd/README.md` says a test carries its scenario identifier in its docstring and the
+`tests/brd/README.md` says a test carries its scenario identifier in its docstring and the
 `.feature` file preserves the approved wording. Nothing enforced either, so a renamed
 scenario, a deleted test or a mistyped identifier all stayed green. These tests are what
 makes the traceability real; they are also the reason no separate BDD runner is needed.
@@ -16,7 +16,7 @@ import pytest
 
 TESTS = Path(__file__).parent
 BRD = TESTS / "brd"
-README = TESTS.parent / "docs" / "brd" / "README.md"
+README = BRD / "README.md"
 
 SCENARIO = re.compile(r"^\s*Scenario: (?P<id>[A-Z]{2,3}-[A-Z-]+-\d{3}) — ")
 IDENTIFIER = re.compile(r"^(?P<id>[A-Z]{2,3}-[A-Z-]+-\d{3})\b")
@@ -100,7 +100,7 @@ def test_every_scenario_prefix_is_declared_in_the_readme():
 
     undeclared = sorted({identifier.split("-")[0] for identifier in scenarios()} - approved)
 
-    assert not undeclared, f"prefixes missing from docs/brd/README.md: {undeclared}"
+    assert not undeclared, f"prefixes missing from tests/brd/README.md: {undeclared}"
 
 
 @pytest.mark.parametrize("path", sorted(BRD.glob("*.feature")), ids=lambda path: path.name)
