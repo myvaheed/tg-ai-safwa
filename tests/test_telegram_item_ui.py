@@ -81,6 +81,7 @@ from safwa.models import (
     CardValue,
     ChangeProposal,
     Check,
+    Cue,
     ProposalChange,
     Reminder,
     SavedRequest,
@@ -1791,10 +1792,11 @@ async def test_pl_criteria_003_starting_a_sprint_needs_criteria_and_a_plan(sessi
     assert "today" not in message.bot.published_commands[-1]
     async with sessions() as session:
         assert (await session.get(Workspace, 1)).active_sprint_id is None
-        # Both end warnings are gone; what is left is the Sprint handed to Safwa.
-        left = list(await session.scalars(select(Reminder)))
-        assert len(left) == 1
-        assert left[0].instruction.startswith("Sprint 1 is over")
+        # Both end warnings are gone, and the Sprint was handed over as a Cue.
+        assert list(await session.scalars(select(Reminder))) == []
+        handed = list(await session.scalars(select(Cue)))
+        assert len(handed) == 1
+        assert handed[0].text.startswith("Sprint 1 is over")
 
 
 async def test_pl_criteria_003_the_planning_screen_refuses_an_empty_plan(sessions) -> None:

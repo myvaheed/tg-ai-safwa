@@ -80,7 +80,8 @@ class ProposalStatus(StrEnum):
 class MessageKind(StrEnum):
     DIALOGUE_USER = "dialogue_user"
     DIALOGUE_ASSISTANT = "dialogue_assistant"
-    REMINDER = "reminder"
+    # Safwa speaking first: a Reminder that went off, a Sprint that ended.
+    CUE = "cue"
     SUMMARY = "summary"
     COMMAND = "command"
     UI_INPUT = "ui_input"

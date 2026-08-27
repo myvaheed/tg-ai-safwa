@@ -354,8 +354,7 @@ def schedule_from_payload(payload: dict[str, Any]) -> Schedule:
 def describe(schedule: Schedule, *, tz: ZoneInfo, now: datetime | None = None) -> str:
     """One human phrase for a schedule.
 
-    The single source for the proposal screen, the `/reminders` list and the escalation
-    text, so those three can never disagree about what a Reminder does.
+    The single source for the proposal screen, the `/reminders` list and the Cue text, so those three can never disagree about what a Reminder does.
     """
     if schedule.kind is ScheduleKind.ONCE:
         if schedule.anchor_at is None:

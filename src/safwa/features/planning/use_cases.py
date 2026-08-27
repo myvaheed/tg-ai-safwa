@@ -18,6 +18,7 @@ from ...constants import (
     SPRINT_LENGTH_MAX_DAYS,
     SPRINT_LENGTH_MIN_DAYS,
 )
+from ...cues.queue import cue_advisor
 from ...enums import WorkspaceMode
 from ...foundation.clock import utcnow
 from ...foundation.errors import DomainError
@@ -158,26 +159,9 @@ async def finish_sprint(session: AsyncSession, *, reason: str = "finished") -> S
     workspace.active_sprint_id = None
     workspace.revision += 1
     await session.flush()
-    await _hand_sprint_to_advisor(session, sprint, tz=ZoneInfo(workspace.timezone))
+    # Written here, so Safwa is told how the Sprint went rather than sent reading tables.
+    await cue_advisor(session, text=await sprint_summary(session, sprint))
     return sprint
-
-
-async def _hand_sprint_to_advisor(session: AsyncSession, sprint: Sprint, *, tz: ZoneInfo) -> None:
-    """Give the ended Sprint to Safwa as a Reminder that is already due.
-
-    The summary is written here, so Safwa is told how the Sprint went rather than sent
-    reading tables for it, and the delivery is the escalation path a fired Reminder
-    already takes — one turn, the same gate, and the same retry if it does not land.
-    """
-    now = utcnow()
-    await create_sprint_reminder(
-        session,
-        instruction=await sprint_summary(session, sprint),
-        at_time=now.astimezone(tz).time(),
-        anchor_at=now,
-        tz=tz,
-        sprint_id=sprint.id,
-    )
 
 
 async def sprint_summary(session: AsyncSession, sprint: Sprint) -> str:

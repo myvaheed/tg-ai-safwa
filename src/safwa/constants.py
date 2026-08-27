@@ -98,11 +98,11 @@ SPRINT_EXPIRY_POLL_SECONDS = 300.0
 MEMORY_MAINTENANCE_INTERVAL_SECONDS = 60.0
 
 # --- Reminders ------------------------------------------------------------
-# How many due Reminders one escalation may carry.  Everything the poll found goes over
+# How many due Reminders one Cue may carry.  Everything the poll found goes over
 # in a single advisor turn; the rest stay overdue and the next tick takes them.
 REMINDER_FIRE_BATCH = 3
 # How late a missed *repeat* may still fire.  Past this it rolls forward silently, so a
-# weekend offline cannot produce 32 escalations at once.  A one-shot ignores this and
+# weekend offline cannot produce 32 messages at once.  A one-shot ignores this and
 # always fires, however late.
 REMINDER_CATCHUP_GRACE_MINUTES = 120
 REMINDER_MIN_INTERVAL_MINUTES = 5

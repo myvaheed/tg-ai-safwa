@@ -15,6 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
+from .cues.model import Cue as Cue
 from .enums import (
     MessageKind,
     ProposalStatus,

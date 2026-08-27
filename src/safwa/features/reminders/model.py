@@ -17,9 +17,9 @@ class Reminder(Base, TimestampMixin):
     subject is named inside `instruction` as `#id` text rather than by a foreign key, so
     one Reminder may concern any number of Safwa items of any type.
 
-    `next_fire_at` is the only column the scheduler poll reads, and it is advanced *only*
-    after an escalation succeeds, so a cancelled or crashed turn leaves the row overdue for
-    the next tick to retry.
+    `next_fire_at` is the only column the scheduler poll reads, and it says **when** and
+    nothing more: the poll writes the words down as a Cue and moves this row on in the same
+    transaction, and the Cue row is what survives until the owner has them.
     """
 
     __tablename__ = "reminders"

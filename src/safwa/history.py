@@ -46,7 +46,7 @@ _KIND_MARK_CODES: dict[str, int] = {
     # 1, 2 and 13 belonged to retired kinds and stay out of circulation.
     MessageKind.DIALOGUE_USER.value: 3,
     MessageKind.DIALOGUE_ASSISTANT.value: 4,
-    MessageKind.REMINDER.value: 5,
+    MessageKind.CUE.value: 5,
     MessageKind.SUMMARY.value: 6,
     MessageKind.COMMAND.value: 7,
     MessageKind.UI_INPUT.value: 8,
@@ -419,7 +419,7 @@ class TelegramHistorySource:
                     role = "user"
                 elif kind in {
                     MessageKind.DIALOGUE_ASSISTANT.value,
-                    MessageKind.REMINDER.value,
+                    MessageKind.CUE.value,
                 }:
                     role = "assistant"
                 else:

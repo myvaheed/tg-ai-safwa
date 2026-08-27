@@ -21,6 +21,7 @@ from safwa.bootstrap.modules import (
     RECOVERY_HOOKS,
     SYSTEM_PROMPT,
 )
+from safwa.cues.module import CUE_QUEUE
 from safwa.models import Base
 
 
@@ -88,7 +89,9 @@ def test_a_subagent_only_declares_tools_a_feature_publishes():
 
 def test_lifecycle_work_is_collected_from_the_modules_that_own_it():
     assert list(RECOVERY_HOOKS) == [m.recover for m in MODULES if m.recover is not None]
+    # The Cue poll belongs to no feature: it delivers whatever any of them wrote.
     assert [task.name for task in BACKGROUND_TASKS] == [
-        task.name for module in MODULES for task in module.background
+        CUE_QUEUE.name,
+        *(task.name for module in MODULES for task in module.background),
     ]
     assert len({task.name for task in BACKGROUND_TASKS}) == len(BACKGROUND_TASKS)

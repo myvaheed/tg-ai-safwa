@@ -5,21 +5,23 @@ from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
+from sqlalchemy import select
 
 from safwa.constants import (
     REMINDER_CATCHUP_GRACE_MINUTES,
     REMINDER_FIRE_BATCH,
     REMINDER_MIN_INTERVAL_MINUTES,
 )
+from safwa.cues.queue import cue_advisor
+from safwa.features.reminders import background
 from safwa.features.reminders.background import (
-    Firing,
     prepare,
     run_scheduler,
     settle,
     tick,
 )
 from safwa.features.reminders.schedule import resolve, schedule_columns
-from safwa.models import Reminder, UserProfile, Workspace
+from safwa.models import Cue, Reminder, UserProfile, Workspace
 
 TZ = ZoneInfo("Europe/Istanbul")
 NOW = datetime(2026, 8, 13, 9, 0, tzinfo=UTC)  # a Thursday
@@ -41,48 +43,39 @@ async def load(sessions, reminder_id: int) -> Reminder | None:
         return await session.get(Reminder, reminder_id)
 
 
-class Recorder:
-    """Stands in for the background guard and the advisor turn."""
-
-    def __init__(self, *, open_gate=True, delivered=True):
-        self.open_gate = open_gate
-        self.delivered = delivered
-        self.escalated: list[list[Firing]] = []
-
-    async def gate(self) -> bool:
-        return self.open_gate
-
-    async def escalate(self, firings: list[Firing]) -> bool:
-        self.escalated.append(firings)
-        return self.delivered
+async def said(sessions) -> list[str]:
+    """Everything waiting to be said, oldest first."""
+    async with sessions() as session:
+        return [cue.text for cue in await session.scalars(select(Cue).order_by(Cue.id))]
 
 
-# --- the gate -------------------------------------------------------------
+# --- writing the words down -----------------------------------------------
 
 
-async def test_a_closed_gate_advances_nothing(sessions):
+async def test_the_words_are_written_down_before_the_reminder_moves_on(sessions):
     """RM-FIRE-013 — tests/brd/reminders.feature"""
     reminder_id = await make_reminder(sessions)
-    recorder = Recorder(open_gate=False)
 
-    assert await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder)) is False
+    assert await tick(sessions, tz=TZ, now=NOW) is True
 
-    assert not recorder.escalated
+    assert len(await said(sessions)) == 1
     reminder = await load(sessions, reminder_id)
-    assert reminder.next_fire_at == NOW  # still due, so the next tick retries it
-    assert reminder.fire_count == 0
+    assert reminder.next_fire_at > NOW
+    assert reminder.fire_count == 1
 
 
-async def test_a_failed_escalation_advances_nothing(sessions):
-    """RM-FIRE-013 — tests/brd/reminders.feature"""
+async def test_nothing_is_written_while_something_is_still_waiting(sessions):
+    """RM-GATE-017 — tests/brd/reminders.feature"""
     reminder_id = await make_reminder(sessions)
-    recorder = Recorder(delivered=False)
+    async with sessions() as session:
+        await cue_advisor(session, text="Sprint 1 is over.")
+        await session.commit()
 
-    assert await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder)) is False
+    assert await tick(sessions, tz=TZ, now=NOW) is False
 
-    assert recorder.escalated  # it was attempted
+    assert await said(sessions) == ["Sprint 1 is over."]
     reminder = await load(sessions, reminder_id)
-    assert reminder.next_fire_at == NOW
+    assert reminder.next_fire_at == NOW  # still due, so a later tick takes it
     assert reminder.fire_count == 0
 
 
@@ -93,68 +86,65 @@ async def test_a_system_reminder_fires_like_any_other(sessions):
     async with sessions() as session:
         (await session.get(Reminder, reminder_id)).system = True
         await session.commit()
-    recorder = Recorder()
 
-    assert await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder)) is True
-    assert recorder.escalated
+    assert await tick(sessions, tz=TZ, now=NOW) is True
+    assert await said(sessions)
 
 
 # --- batching -------------------------------------------------------------
 
 
-async def test_one_escalation_carries_at_most_the_batch_size(sessions):
+async def test_one_cue_carries_at_most_the_batch_size(sessions):
     """RM-FIRE-012 — tests/brd/reminders.feature"""
     for offset in range(REMINDER_FIRE_BATCH + 2):
         await make_reminder(sessions, due=NOW - timedelta(minutes=offset))
-    recorder = Recorder()
 
-    await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder))
+    await tick(sessions, tz=TZ, now=NOW)
 
-    assert len(recorder.escalated) == 1
-    assert len(recorder.escalated[0]) == REMINDER_FIRE_BATCH
+    waiting = await said(sessions)
+    assert len(waiting) == 1
+    assert waiting[0].startswith(f"{REMINDER_FIRE_BATCH} Reminders triggered.")
 
 
 async def test_the_oldest_due_reminders_go_first(sessions):
     """RM-FIRE-012 — tests/brd/reminders.feature"""
     late = await make_reminder(sessions, due=NOW - timedelta(hours=1))
     early = await make_reminder(sessions, due=NOW - timedelta(minutes=1))
-    recorder = Recorder()
 
-    await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder))
+    await tick(sessions, tz=TZ, now=NOW)
 
-    assert [firing.reminder_id for firing in recorder.escalated[0]] == [late, early]
+    words = (await said(sessions))[0]
+    assert words.index(f"1. Reminder #{late}") < words.index(f"2. Reminder #{early}")
 
 
 # --- one-shots ------------------------------------------------------------
 
 
-async def test_a_one_shot_is_deleted_only_after_the_turn_succeeds(sessions):
+async def test_a_one_shot_is_deleted_the_moment_its_words_are_written_down(sessions):
     """RM-FIRE-016 — tests/brd/reminders.feature"""
     reminder_id = await make_reminder(
         sessions, clock="09:00", day="20.08.2026", due=NOW
     )
-    failing = Recorder(delivered=False)
 
-    await tick(sessions, tz=TZ, now=NOW, **_hooks(failing))
-    assert await load(sessions, reminder_id) is not None
+    assert await tick(sessions, tz=TZ, now=NOW) is True
 
-    await tick(sessions, tz=TZ, now=NOW, **_hooks(Recorder()))
+    # What must not be lost now is the Cue, and keeping that is the delivery poll's job.
     assert await load(sessions, reminder_id) is None
+    assert len(await said(sessions)) == 1
 
 
 async def test_a_one_shot_fires_however_late(sessions):
     """RM-FIRE-016 — tests/brd/reminders.feature"""
-    # A one-shot ignores the catch-up grace entirely: it produces exactly one escalation.
+    # A one-shot ignores the catch-up grace entirely: it produces exactly one firing.
     await make_reminder(
         sessions,
         clock="09:00",
         day="20.08.2026",
         due=NOW - timedelta(days=30),
     )
-    recorder = Recorder()
 
-    assert await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder)) is True
-    assert len(recorder.escalated[0]) == 1
+    assert await tick(sessions, tz=TZ, now=NOW) is True
+    assert (await said(sessions))[0].startswith("1 Reminder triggered.")
 
 
 # --- catch-up -------------------------------------------------------------
@@ -165,20 +155,18 @@ async def test_a_repeat_inside_the_grace_window_still_fires(sessions):
     reminder_id = await make_reminder(
         sessions, due=NOW - timedelta(minutes=REMINDER_CATCHUP_GRACE_MINUTES - 1)
     )
-    recorder = Recorder()
 
-    assert await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder)) is True
+    assert await tick(sessions, tz=TZ, now=NOW) is True
     assert (await load(sessions, reminder_id)).fire_count == 1
 
 
 async def test_a_repeat_past_the_grace_window_rolls_forward_silently(sessions):
     """RM-CATCHUP-019 — tests/brd/reminders.feature"""
     reminder_id = await make_reminder(sessions, due=NOW - timedelta(days=3))
-    recorder = Recorder()
 
-    assert await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder)) is False
+    assert await tick(sessions, tz=TZ, now=NOW) is False
 
-    assert not recorder.escalated
+    assert await said(sessions) == []
     reminder = await load(sessions, reminder_id)
     assert reminder.next_fire_at > NOW
     assert reminder.fire_count == 0  # rolled forward is not fired
@@ -192,56 +180,54 @@ async def test_a_frequent_repeat_is_judged_by_its_stored_fire_not_its_rhythm(ses
     reminder_id = await make_reminder(
         sessions, due=NOW - timedelta(hours=3), interval_minutes=REMINDER_MIN_INTERVAL_MINUTES
     )
-    recorder = Recorder()
 
-    assert await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder)) is False
+    assert await tick(sessions, tz=TZ, now=NOW) is False
 
-    assert not recorder.escalated  # not 36 escalations, and not one either
+    assert await said(sessions) == []  # not 36 messages, and not one either
     assert (await load(sessions, reminder_id)).next_fire_at > NOW
 
 
-async def test_a_delivered_escalation_leaves_the_workspace_revision_alone(sessions):
+async def test_a_firing_leaves_the_workspace_revision_alone(sessions):
     """RM-FIRE-014 — tests/brd/reminders.feature"""
     await make_reminder(sessions)
     async with sessions() as session:
         before = (await session.get(Workspace, 1)).revision
 
-    assert await tick(sessions, tz=TZ, now=NOW, **_hooks(Recorder())) is True
+    assert await tick(sessions, tz=TZ, now=NOW) is True
 
     async with sessions() as session:
         assert (await session.get(Workspace, 1)).revision == before
 
 
-async def test_a_repeat_advances_from_its_scheduled_moment_not_the_delivery_moment(sessions):
+async def test_a_repeat_advances_from_its_scheduled_moment_not_the_tick_that_took_it(sessions):
     """RM-FIRE-015 — tests/brd/reminders.feature"""
-    # A turn that takes four minutes must not push every later fire four minutes out.
+    # A tick four minutes late must not push every later fire four minutes out.
     reminder_id = await make_reminder(sessions, due=NOW, interval_minutes=120)
-    delivered_at = NOW + timedelta(minutes=4)
+    picked_up_at = NOW + timedelta(minutes=4)
 
-    await tick(sessions, tz=TZ, now=delivered_at, **_hooks(Recorder()))
+    await tick(sessions, tz=TZ, now=picked_up_at)
 
     assert (await load(sessions, reminder_id)).next_fire_at == NOW + timedelta(hours=2)
 
 
-# --- direct escalation ----------------------------------------------------
+# --- the cue itself ----------------------------------------------------
 
 
 async def test_a_due_reminder_reaches_the_advisor_without_a_preflight_session(sessions):
     """RM-FIRE-011 — tests/brd/reminders.feature"""
     reminder_id = await make_reminder(sessions, instruction="Review Card #88.")
-    recorder = Recorder()
 
-    await tick(sessions, tz=TZ, now=NOW, **_hooks(recorder))
+    await tick(sessions, tz=TZ, now=NOW)
 
-    firing = recorder.escalated[0][0]
-    assert firing.reminder_id == reminder_id
-    assert firing.instruction == "Review Card #88."
+    words = (await said(sessions))[0]
+    assert f"Reminder #{reminder_id}" in words
+    assert "Review Card #88." in words
 
 
 # --- prepare / settle in isolation ----------------------------------------
 
 
-async def test_settle_records_a_successful_delivery(sessions):
+async def test_settle_records_the_firing(sessions):
     """RM-FIRE-013 — tests/brd/reminders.feature"""
     reminder_id = await make_reminder(sessions, instruction="Review Card #88.")
     async with sessions() as session:
@@ -258,27 +244,19 @@ async def test_settle_records_a_successful_delivery(sessions):
 # --- the poll loop --------------------------------------------------------
 
 
-async def test_the_loop_survives_a_failing_tick(sessions):
+async def test_the_loop_survives_a_failing_tick(sessions, monkeypatch):
     """RM-POLL-021 — tests/brd/reminders.feature"""
     # A broken tick must not end the loop; reminders have to keep running.
     await make_reminder(sessions)
     calls = {"count": 0}
 
-    async def gate() -> bool:
+    async def exploding_next_cue(session):
         calls["count"] += 1
         raise RuntimeError("boom")
 
-    async def escalate(firings):  # pragma: no cover - never reached
-        raise AssertionError("a failing tick delivers nothing")
-
+    monkeypatch.setattr(background, "next_cue", exploding_next_cue)
     task = asyncio.create_task(
-        run_scheduler(
-            sessions,
-            timezone="Europe/Istanbul",
-            gate=gate,
-            escalate=escalate,
-            poll_seconds=0.01,
-        )
+        run_scheduler(sessions, timezone="Europe/Istanbul", poll_seconds=0.01)
     )
     for _ in range(200):
         await asyncio.sleep(0.01)
@@ -298,10 +276,3 @@ async def test_memory_update_time_column_accepts_a_time(sessions) -> None:
         await session.commit()
     async with sessions() as session:
         assert (await session.get(UserProfile, 1)).memory_update_time == time(3, 0)
-
-
-def _hooks(recorder: Recorder) -> dict:
-    return {
-        "gate": recorder.gate,
-        "escalate": recorder.escalate,
-    }

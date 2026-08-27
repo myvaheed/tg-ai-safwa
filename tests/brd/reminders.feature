@@ -104,47 +104,50 @@ Feature: Reminders
     Given 5 Reminders come due at the same moment
     When they are checked
     Then the 3 oldest go to Safwa as one request (REMINDER_FIRE_BATCH = 3)
-    And the other 2 stay due, for the check 30 seconds later (SCHEDULER_POLL_SECONDS = 30)
+    And the other 2 stay due, and go once those 3 have been said
 
-  Scenario: RM-FIRE-013 — A Reminder moves on only once its answer reached the owner
+  Scenario: RM-FIRE-013 — A Reminder's words are written down before anything moves on
     Given a Reminder is due
+    When it goes off
+    Then its words are written down first, and only then does it move on to its next time
     When Safwa is busy, or the turn fails, or the owner speaks in the middle of it
-    Then nothing moves on, and the Reminder is still due at the next check, 30 seconds later
+    Then those words are still waiting, and the next check says them, 30 seconds later
       (SCHEDULER_POLL_SECONDS = 30)
-    And only an answer the owner actually got moves it on, records the firing and counts it
+    And they are said exactly once, however many checks that takes
 
   Scenario: RM-FIRE-014 — A Reminder firing is not a change the owner made
-    Given an answer reached the owner and the Reminders moved on
+    Given a Reminder went off and moved on
     When the workspace's change count is read
     Then it has not moved, so a firing never invalidates a screen the owner is looking at, or an
       answer already on its way
 
-  Scenario: RM-FIRE-015 — A repeat counts from when it was due, not from when it was answered
-    Given a repeating Reminder due at 08:30, and a turn that takes four minutes
-    When the answer reaches the owner
+  Scenario: RM-FIRE-015 — A repeat counts from when it was due, not from when it was picked up
+    Given a repeating Reminder due at 08:30, picked up four minutes late
+    When its words are written down
     Then the next firing is worked out from 08:30
-    And a slow turn does not drag every later firing later with it
+    And a late check does not drag every later firing later with it
 
   Scenario: RM-FIRE-016 — A one-off fires exactly once, however late
     Given a one-off Reminder that is overdue
     When it is picked up
     Then it fires, and the request says how late it is
-    And it removes itself only once the answer reached the owner
+    And it removes itself the moment its words are written down
     And it never goes off a second time
 
-  Scenario: RM-GATE-017 — Nothing goes off on top of an unanswered question
-    Given a Reminder is due
+  Scenario: RM-GATE-017 — Nothing is said on top of an unanswered question
+    Given words are waiting to be said
     When Safwa is answering, or a screen is waiting for the owner, or a half-finished turn has not
       been settled
-    Then nothing goes off and nothing is put in a queue
-    And the Reminder stays due for the next check
+    Then nothing is said, and they are still waiting at the next check
+    And a Reminder that comes due while they wait writes nothing and stays due
+    And an hour of that is one message when Safwa frees up, not twelve
 
   Scenario: RM-GATE-018 — The owner always wins
     Given a Reminder is mid-answer in the background
     When the owner sends a message
     Then that answer is cancelled and the owner's message is answered instead
     And the half-written answer is thrown away and never reaches the chat
-    And the Reminder never moved on, so it is still due
+    And the words it was answering are still waiting, and the next check says them
 
   Scenario: RM-CATCHUP-019 — A repeat missed by a little still fires, once
     Given a repeating Reminder that is 90 minutes overdue

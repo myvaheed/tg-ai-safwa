@@ -11,11 +11,12 @@ from sqlalchemy import select
 from safwa.ai.context import DialogueMessage, board_context
 from safwa.ai.service import AIOutcome
 from safwa.constants import REMINDER_CATCHUP_GRACE_MINUTES
+from safwa.cues.runtime import CueRuntime
 from safwa.domain import (
     DomainError,
 )
 from safwa.enums import MessageKind, ProposalStatus, ScheduleKind
-from safwa.features.reminders.background import Firing
+from safwa.features.reminders.background import Firing, format_cue
 from safwa.features.reminders.schedule import (
     resolve,
     schedule_columns,
@@ -23,7 +24,6 @@ from safwa.features.reminders.schedule import (
     schedule_of,
     schedule_payload,
 )
-from safwa.features.reminders.telegram import ReminderRuntime, format_escalation
 from safwa.features.reminders.use_cases import (
     create_reminder,
     delete_reminder,
@@ -276,7 +276,7 @@ def test_releasing_a_background_lease_frees_the_guard():
 
 def test_cancelling_a_background_lease_bumps_the_dialogue_revision():
     """RM-GATE-018 — tests/brd/reminders.feature"""
-    # That bump is how the running escalation learns it lost and must discard its answer.
+    # That bump is how the running turn learns it lost and must discard its answer.
     guard = GenerationGuard()
     guard.reserve_background()
     revision = guard.dialogue_revision
@@ -296,7 +296,7 @@ def test_releasing_a_background_lease_cannot_free_an_owner_lease():
     assert guard.active_source_id == 101
 
 
-# --- escalation text ------------------------------------------------------
+# --- cue text ------------------------------------------------------
 
 
 def _firing(**kwargs) -> Firing:
@@ -313,7 +313,7 @@ def _firing(**kwargs) -> Firing:
 
 def test_one_firing_reads_as_one():
     """RM-FIRE-011 — tests/brd/reminders.feature"""
-    text = format_escalation([_firing()], tz=TZ, now=NOW)
+    text = format_cue([_firing()], tz=TZ, now=NOW)
     assert text.startswith("1 Reminder triggered.")
     assert "Reminder #7" in text
     assert "Ask me what to start with today." in text
@@ -321,7 +321,7 @@ def test_one_firing_reads_as_one():
 
 def test_a_batch_is_numbered():
     """RM-FIRE-011 — tests/brd/reminders.feature"""
-    text = format_escalation(
+    text = format_cue(
         [_firing(reminder_id=7), _firing(reminder_id=12), _firing(reminder_id=19)],
         tz=TZ,
         now=NOW,
@@ -333,14 +333,14 @@ def test_a_batch_is_numbered():
 
 def test_the_main_advisor_is_told_to_verify_named_items_first():
     """RM-FIRE-011 — tests/brd/reminders.feature"""
-    text = format_escalation([_firing(instruction="Review Card #88.")], tz=TZ, now=NOW)
+    text = format_cue([_firing(instruction="Review Card #88.")], tz=TZ, now=NOW)
     assert "check their current state with query_safwa" in text
     assert "it may no longer apply" in text
 
 
 def test_a_late_firing_says_how_late():
     """RM-FIRE-016 — tests/brd/reminders.feature"""
-    text = format_escalation(
+    text = format_cue(
         [_firing(due_at=NOW - timedelta(hours=4))], tz=TZ, now=NOW
     )
     assert "Was due 4 hours ago." in text
@@ -348,16 +348,16 @@ def test_a_late_firing_says_how_late():
 
 def test_an_on_time_firing_says_nothing_about_lateness():
     """RM-FIRE-011 — tests/brd/reminders.feature"""
-    assert "Was due" not in format_escalation([_firing()], tz=TZ, now=NOW)
+    assert "Was due" not in format_cue([_firing()], tz=TZ, now=NOW)
 
 
 def test_the_fire_history_is_carried_over():
     """RM-FIRE-011 — tests/brd/reminders.feature"""
-    text = format_escalation(
+    text = format_cue(
         [_firing(fire_count=14, last_fired_at=NOW - timedelta(days=1))], tz=TZ, now=NOW
     )
     assert "fired 14 times" in text
-    text = format_escalation([_firing()], tz=TZ, now=NOW)
+    text = format_cue([_firing()], tz=TZ, now=NOW)
     assert "(first time)" in text
 
 
@@ -393,19 +393,19 @@ async def test_reminder_advisor_receives_canonical_dialogue(sessions, monkeypatc
         advisor=advisor,
         guard=guard,
     )
-    runtime = ReminderRuntime(services, object(), owner_id=42, timezone="Europe/Istanbul")
+    runtime = CueRuntime(services, object(), owner_id=42)
     rendered: list[MessageKind] = []
 
     async def fake_render(_message, _services, _outcome, *, kind):
         rendered.append(kind)
 
     monkeypatch.setattr(
-        "safwa.features.reminders.telegram.render_ai_outcome", fake_render
+        "safwa.cues.runtime.render_ai_outcome", fake_render
     )
     monkeypatch.setattr(runtime, "_anchor", lambda: object())
 
-    assert await runtime.can_escalate() is True
-    assert await runtime.escalate([_firing()]) is True
+    assert await runtime.can_speak() is True
+    assert await runtime.speak(format_cue([_firing()], tz=TZ, now=NOW)) is True
     runtime.release()
 
     assert history.chat_ids == [42]
@@ -413,7 +413,7 @@ async def test_reminder_advisor_receives_canonical_dialogue(sessions, monkeypatc
     assert dialogue[:-1] == canonical
     assert dialogue[-1] == DialogueMessage(role="user", content=request)
     assert request.startswith("1 Reminder triggered.")
-    assert rendered == [MessageKind.REMINDER]
+    assert rendered == [MessageKind.CUE]
 
 
 async def test_cancelling_a_foreground_lease_aborts_its_task() -> None:
@@ -466,24 +466,24 @@ async def test_cancelling_a_background_lease_leaves_its_loop_running() -> None:
 # --- the gate -------------------------------------------------------------
 
 
-def _gate_runtime(sessions) -> ReminderRuntime:
+def _gate_runtime(sessions) -> CueRuntime:
     services = SimpleNamespace(
         sessions=sessions,
         history=None,
         advisor=None,
         guard=GenerationGuard(),
     )
-    return ReminderRuntime(services, object(), owner_id=42, timezone="Europe/Istanbul")
+    return CueRuntime(services, object(), owner_id=42)
 
 
 async def test_an_open_question_of_any_shape_closes_the_gate(sessions):
     """RM-GATE-017 — tests/brd/reminders.feature"""
     runtime = _gate_runtime(sessions)
-    assert await runtime.can_escalate() is True
+    assert await runtime.can_speak() is True
     runtime.release()
 
     runtime.services.guard.reserve(7)
-    assert await runtime.can_escalate() is False
+    assert await runtime.can_speak() is False
     runtime.services.guard.release(7)
 
     async with sessions() as session:
@@ -492,7 +492,7 @@ async def test_an_open_question_of_any_shape_closes_the_gate(sessions):
         )
         session.add(proposal)
         await session.commit()
-    assert await runtime.can_escalate() is False
+    assert await runtime.can_speak() is False
     async with sessions() as session:
         (await session.get(ChangeProposal, proposal.id)).status = (
             ProposalStatus.APPROVED.value
@@ -512,7 +512,7 @@ async def test_an_open_question_of_any_shape_closes_the_gate(sessions):
             )
         )
         await session.commit()
-    assert await runtime.can_escalate() is False
+    assert await runtime.can_speak() is False
     async with sessions() as session:
         step = await session.scalar(select(AgentStep))
         step.metadata_json = {"status": "resolved"}
@@ -521,7 +521,7 @@ async def test_an_open_question_of_any_shape_closes_the_gate(sessions):
     async with sessions() as session:
         (await session.get(AgentRun, run.id)).claimed_at = datetime.now(UTC)
         await session.commit()
-    assert await runtime.can_escalate() is False
+    assert await runtime.can_speak() is False
 
 
 # --- Safwa's own Reminders ------------------------------------------------

@@ -25,7 +25,7 @@ from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.reminders.use_cases import delete_reminder
 from safwa.foundation.clock import SystemClock
-from safwa.models import Reminder, Sprint, Workspace
+from safwa.models import Cue, Reminder, Sprint, Workspace
 
 
 async def create_card(session, **overrides):
@@ -154,9 +154,10 @@ async def test_pl_warn_011_a_sprint_warns_the_owner_before_it_ends(sessions):
 
         await finish_sprint(session, reason="finished_early")
 
-        left = list(await session.scalars(select(Reminder)))
-        assert [reminder.instruction[:6] for reminder in left] == ["Sprint"]
-        assert "ends tomorrow" not in left[0].instruction
+        # Both warnings went with it, and the hand-over is a Cue rather than a Reminder.
+        assert list(await session.scalars(select(Reminder))) == []
+        handed = list(await session.scalars(select(Cue)))
+        assert len(handed) == 1 and handed[0].text.startswith("Sprint")
 
 
 async def test_pl_warn_011_a_two_day_sprint_only_warns_on_its_last_day(sessions):
@@ -226,11 +227,12 @@ async def test_pl_end_015_an_ended_sprint_is_handed_to_safwa(sessions):
         await finish_sprint(session, reason="finished_early")
         await session.commit()
 
-        handed = list(await session.scalars(select(Reminder)))
+        handed = list(await session.scalars(select(Cue)))
+        # Its own end warnings went with it; the hand-over is no Reminder of any kind.
+        assert list(await session.scalars(select(Reminder))) == []
 
     assert len(handed) == 1
-    words = handed[0].instruction
-    assert handed[0].sprint_id == sprint.id and handed[0].system is True
+    words = handed[0].text
     assert f"Sprint {sprint.number} is over" in words
     assert "the owner closed it" in words
     assert "Success criteria: Ship v2" in words
@@ -253,10 +255,10 @@ async def test_pl_end_015_a_sprint_that_closed_itself_says_so(sessions):
         await expire_due_sprint(session, now=local_midnight)
         await session.commit()
 
-        handed = list(await session.scalars(select(Reminder)))
+        handed = list(await session.scalars(select(Cue)))
 
     assert len(handed) == 1
-    assert "its end date passed" in handed[0].instruction
+    assert "its end date passed" in handed[0].text
 
 
 async def test_pl_mode_002_no_tool_anywhere_writes_a_sprint(sessions):

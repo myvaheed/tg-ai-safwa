@@ -24,6 +24,7 @@ flowchart TB
         SQL[ReadOnlyQueryRunner]
     end
     subgraph BG[background loops]
+        CUE[cue-queue]
         REM[reminder-scheduler]
         SPR[sprint-expiry]
         MEMP[memory-file-poll]
@@ -42,7 +43,8 @@ flowchart TB
     MINI --> SQL
     HIST --> ADV
     MEM --> ADV
-    REM --> ADV
+    CUE --> ADV
+    REM --> CUE
     SPR --> DB
     MEMP --> MEM
 ```
@@ -215,44 +217,79 @@ flowchart LR
   last one resolves, each result handed back as a tool result.
 - Anything the model must know across an approval belongs in a **tool result**, not in a receipt.
 
-## Reminders and the escalation
+## Cues — what Safwa is given to say when nobody asked
+
+Only the Advisor writes to the chat, so anything the system wants said reaches the owner as one
+ordinary Advisor turn. A **Cue** is the finished request for that turn: whoever had the facts wrote
+them down, so the Advisor relays rather than goes looking.
 
 ```mermaid
 flowchart TB
-    TICK[tick every SCHEDULER_POLL_SECONDS = 30] --> DUE{next_fire_at <= now?}
-    DUE -->|no| TICK
-    DUE -->|yes| GATE{can_escalate?}
-    GATE -->|advisor busy, pending proposal,<br/>or suspended run| TICK
-    GATE -->|free| PREP[prepare: stale repeats roll forward silently]
-    PREP --> FMT[format_escalation: up to REMINDER_FIRE_BATCH = 3 as one request]
-    FMT --> ADV[Advisor turn]
-    ADV -->|delivered| SETTLE[settle: one-shot deleted, repeat rolled forward]
-    ADV -->|not delivered| TICK
+    RM[the Reminder poll<br/>next_fire_at says when] --> ROW
+    SP[finish_sprint<br/>in the transaction that ends it] --> ROW[(cues — one row, the words)]
+    ROW --> CQ[the Cue poll, every 30s]
+    CQ --> GATE{CueRuntime.can_speak?}
+    GATE -->|advisor busy, pending proposal,<br/>or suspended run| WAIT[the row stays]
+    GATE -->|free| TURN[CueRuntime.speak: one Advisor turn]
+    TURN -->|the owner got it| DEL[the row is deleted]
+    TURN -->|cancelled or failed| WAIT
+    WAIT --> CQ
 ```
 
-The poll **is** the alarm clock: there is no scheduling library and no in-memory timer.
-`Reminder.next_fire_at` is the only column the loop reads, and it is advanced **only after an
-escalation succeeds** — that single ordering rule is what makes a cancelled or crashed turn lose
-nothing, because the row is still overdue and the next tick finds it again.
+**The `cues` row is the only record of "Safwa still owes the owner these words."** It is written
+inside the producer's own transaction and deleted only once the turn landed, so a crash, a shut gate
+or an owner who interrupts mid-turn all lose nothing: the row is still there, and the next poll says
+it again.
 
+`CueRuntime` is the whole delivery mechanism, and there is one of it:
+
+- **The gate** refuses while `guard.active`, while any `ChangeProposal` is pending, and while any
+  session is suspended on an approval batch or holds `claimed_at`. An open proposal is an unanswered
+  question, and raising a second one on top of it turns the chat into a stack of screens.
+- **The lease** is `guard.reserve_background()`. `still_current` compares `dialogue_revision` before
+  and after the turn, so an owner who speaks mid-turn wins and the half-written answer is discarded.
+- The answer is posted with `MessageKind.CUE`: it stays in dialogue, marked as something Safwa
+  volunteered rather than a reply to a message that is not there.
+- One waiting Cue is said per tick, oldest first.
+
+### Reminders — the poll is the alarm clock and nothing else
+
+```mermaid
+flowchart TB
+    TICK[tick every SCHEDULER_POLL_SECONDS = 30] --> PEND{a Cue still waiting?}
+    PEND -->|yes| TICK
+    PEND -->|no| DUE{next_fire_at <= now?}
+    DUE -->|no| TICK
+    DUE -->|yes| PREP[prepare: stale repeats roll forward silently]
+    PREP --> WRITE[one row: format_cue over up to REMINDER_FIRE_BATCH = 3]
+    WRITE --> SETTLE[settle: one-shot deleted, repeat rolled forward]
+    SETTLE --> TICK
+```
+
+There is no scheduling library and no in-memory timer. `Reminder.next_fire_at` says **when**, and
+nothing more: the tick writes the words down and moves the row on in the **same transaction**. It
+holds no gate, takes no lease and runs no Advisor turn — what guarantees the owner gets the words is
+the Cue row, exactly as for anything else Safwa says first.
+
+- **One thing waits to be said at a time.** A tick that finds a Cue still waiting writes nothing, and
+  the Reminders it would have carried stay due for a later tick. That is what stops an hour of a busy
+  owner turning into twelve messages the moment they are free.
 - `is_stale`: a *repeating* Reminder more than `REMINDER_CATCHUP_GRACE_MINUTES = 120` overdue rolls
-  forward silently, so a weekend offline does not produce 32 escalations. A one-shot is never stale.
-- A repeat advances from its **scheduled** moment, not the delivery moment, so a four-minute turn
-  does not push every later fire four minutes out.
-- The escalation composes no message and renders no item: the instruction text is handed to the
-  Advisor as a request, and what comes back is the Advisor's call.
-- Reminders are deterministic first — the scheduler only does schedule arithmetic, and the Advisor
-  composes the message. Safwa sends a proactive message only because a Reminder fired.
+  forward silently, so a weekend offline does not produce 32 messages. A one-shot is never stale: it
+  always fires, however late, and the Cue says how late.
+- A repeat advances from its **scheduled** moment, not from the tick that took it, so a late check
+  does not push every later fire late with it.
+- Reminders are deterministic first — the poll only does schedule arithmetic, and the Advisor
+  composes the message.
 
-### A Sprint's end takes the same path
+### A Sprint's end writes its own Cue
 
-`finish_sprint` (by hand or at the local midnight after the planned end date) writes a six-line
+`finish_sprint` (by hand, or at the local midnight after the planned end date) writes a six-line
 summary from the Sprint's own record — which Sprint and when, how it ended, its Success criteria,
-the five effort figures, how the Actions ended up, the titles of what is still open — and leaves it
-as a **system Reminder that is already due**. The scheduler hands it over the way a fired Reminder
-hands over its words: the same gate, the same one turn, the same retry when the owner is mid-answer.
-Safwa is told how the Sprint went so it does not go reading tables to find out, and ends its message
-with `[Sprint retro](retro:12)`.
+the five effort figures, how the Actions ended up, the titles of what is still open — and hands it
+over with `cue_advisor`, in the same transaction that ends the Sprint. Nothing dresses it as a
+Reminder that went off: the words are the Sprint's own. Safwa is told how the Sprint went so it does
+not go reading tables to find out, and ends its message with `[Sprint retro](retro:12)`.
 
 ## History — Telegram is the store, not SQLite
 
@@ -260,7 +297,7 @@ with `[Sprint retro](retro:12)`.
 flowchart LR
     CHAT[(the real private chat)] -->|Telethon, every turn| SCAN[backwards scan]
     SCAN --> KIND{MessageKind}
-    KIND -->|dialogue_user · dialogue_assistant<br/>reminder · summary| WINDOW[the window]
+    KIND -->|dialogue_user · dialogue_assistant<br/>cue · summary| WINDOW[the window]
     KIND -->|dashboard · approval · receipt<br/>command · ui_input · status · error| DROP[excluded]
     WINDOW --> BUDGET{over SUMMARY_TRIGGER_TOKENS = 6000?}
     BUDGET -->|yes| SUM[write a 📜 Summary]
@@ -362,13 +399,15 @@ stateDiagram-v2
 
 | task | interval | owner |
 |---|---|---|
+| `cue-queue` | `SCHEDULER_POLL_SECONDS = 30` | `cues/background.py` |
 | `reminder-scheduler` | `SCHEDULER_POLL_SECONDS = 30` | `features/reminders/background.py` |
 | `sprint-expiry` | `SPRINT_EXPIRY_POLL_SECONDS = 300` | `features/planning/background.py` |
 | `memory-file-poll` | `MEMORY_POLL_SECONDS = 5` | `features/continuity/background.py` |
 | `memory-maintenance` | `MEMORY_MAINTENANCE_INTERVAL_SECONDS = 60` | `features/continuity/background.py` |
 
-Each is a `BackgroundTask` declared in its feature's `module.py`. The composition root starts them
-and cancels them in the polling `finally`. A feature that needs its own objects takes them off
+Each is a `BackgroundTask`. All but the Cue poll are declared in a feature's `module.py`; the Cue
+poll belongs to no feature, so `bootstrap/modules.py` puts it in front of theirs. The composition
+root starts them and cancels them in the polling `finally`. A feature that needs its own objects takes them off
 `services`, the container the whole application already shares.
 
 ## Recovery

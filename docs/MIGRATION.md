@@ -539,15 +539,16 @@ as the batch declared; 0 import cycles (457 edges); Rules A–F and K at 0, G at
 
 ## What Phase 4.b.2 delivered
 
-Reminders is whole. The poll, the escalation, startup reconciliation and both surfaces are
-feature-owned, and `scheduler.py` is gone.
+Reminders is whole. The poll, the delivery, startup reconciliation and both surfaces are
+feature-owned, and `scheduler.py` is gone. (The delivery half moved out again to `cues/` — see
+[What the Cue batch delivered](#what-the-cue-batch-delivered).)
 
 - `features/reminders/background.py` is the poll engine: `Firing`, `due_reminders`, `is_stale`,
-  `prepare`, `settle`, `tick`, `run_scheduler`. It takes its gate and its escalation as callables
-  and imports no adapter.
+  `prepare`, `settle`, `tick`, `run_scheduler`. It takes its gate and its voice as callables and
+  imports no adapter.
 - `features/reminders/telegram.py` holds both ways a Reminder reaches the owner: the proposal
-  presenter and `ReminderRuntime` / `format_escalation`. `telegram/escalation.py` is gone, and the
-  `telegram` package no longer exports either name.
+  presenter and the turn that speaks. `telegram/escalation.py` is gone, and the `telegram` package
+  no longer exports either name.
 - `features/reminders/use_cases.py` gained `reconcile_reminders` from `recovery.py`.
 - `run_sprint_expiry` moved to `features/planning/background.py`, its only caller. `scheduler.py`
   is deleted.
@@ -1396,3 +1397,86 @@ Verification: `ruff check .` clean; `pytest -q` 678 passed / 3 skipped. `schema.
 `sprints` alone, as declared. `prompt_prefix.json` byte-identical — the hand-over is a per-turn
 request, not a prompt. Metrics: DoD #1 26, #2 0, #3 **5** (`domain.py` left the list), #13 0,
 0 cycles, Rule G 2, Rule H 26.
+
+## What the Phase 5 review fixed: dead code, one query, Rule L
+
+Found by reading Phase 5 against the code rather than against its own summary.
+
+- **Three dead guards.** `finish_action` refused an archived Card, which `TERMINAL_STAGES`
+  already refused one line later; `live_repeat_instance_id` filtered `archived_at` twice on a
+  query that cannot return an archived row. Both gone. The third, in `move_card`, waits for the
+  derived-archive batch that deletes the branch it guards.
+- **`stage_actions` was `planned_actions` with the archive filter dropped.** A Card cannot stand
+  in Sprint or Today while archived, so the two queries asked the same question. What is left is
+  `cards/api.actions_on_stages`, in the feature that owns the invariant, with `planned_actions`
+  as the two-stage call and `PLANNED_STAGES` declared once.
+- **Nine re-exports in `domain.py`** that no module outside it imported. `domain.py`: 547 → 536.
+- **Rule L: a feature never reaches back into `safwa.domain`.** Rule E watches feature-to-feature
+  edges only, so a feature taking its *own* use cases through the legacy facade passed unseen —
+  and every one of those is a reason `domain.py` cannot be deleted. Nine such imports were
+  rewritten to the feature's own module; 17 remain, allowlisted, and the count may only fall.
+- **`extra_rows`** was threaded through seven renderer signatures and never given a value.
+- **A Check's `series_id` is lazy**, as a Card's already was. Null means "I am my own series", and
+  `COALESCE(series_id, id)` is the definition everywhere. The stamp is written in `_copy_check` —
+  the moment a second instance exists is the moment the series becomes real — so all three copy
+  paths do it once, in one place.
+
+## What the Cue batch delivered
+
+The Sprint's hand-over used to be written as a **system Reminder that was already due**, so the poll
+wrapped a six-line Sprint summary in "1 Reminder triggered", told the Advisor to check the named
+items with `query_safwa` first, and indented only the summary's first line. The mechanism was named
+after its first user, and its second user had to dress up as one.
+
+`src/safwa/cues/` is that mechanism under its own name. A **Cue** is the finished request for one
+Advisor turn: whoever had the facts wrote them down, so the Advisor relays rather than goes looking.
+
+- `cues/model.py`, `cues/queue.py` — the `cues` table and `cue_advisor(session, text=...)`. The row
+  is **the single record of what Safwa still owes the owner**, written inside the producer's own
+  transaction and deleted only once the turn landed.
+- `cues/runtime.py` — `CueRuntime`, moved whole out of `features/reminders/telegram.py`: `can_speak`
+  (the gate), `still_current` / `release` (the background lease), `speak(text)` (one Advisor turn,
+  posted as `MessageKind.CUE`).
+- `cues/background.py` — one waiting Cue said per tick, oldest first.
+- `finish_sprint` calls `cue_advisor` in the transaction that ends the Sprint. No Reminder is
+  created, none is deleted afterwards, and the words are the Sprint's own.
+- `MessageKind.REMINDER` → `MessageKind.CUE`, keeping mark code 5: the meaning did not change, only
+  the name that was too narrow for it.
+- The Cue poll is not a feature's, so `bootstrap/modules.py` puts `CUE_QUEUE` in front of the tasks
+  the features declare, and `test_feature_modules.py` asserts exactly that shape.
+
+### `next_fire_at` stopped doing two jobs
+
+The first cut left Reminders delivering through `CueRuntime` directly and keeping its own retry:
+`next_fire_at` stayed unadvanced until the answer landed. That works, but it means two different
+records mean "not yet said" — a column for Reminders, a row for everything else — and which one a
+reader has to look at depends on who produced the words.
+
+Now there is one. `Reminder.next_fire_at` says **when**, and nothing more: a tick writes the Cue and
+moves the row on in the same transaction. `features/reminders/background.py` lost its `Gate`,
+`Speaker`, `LeaseCheck` and `LeaseRelease` types, its gate call, its lease and its Advisor turn;
+`features/reminders/module.py` no longer builds a runtime at all. The poll is what `CLAUDE.md` says
+it is — schedule arithmetic.
+
+**One thing waits to be said at a time.** A tick that finds a Cue still waiting writes nothing, and
+the due Reminders it would have carried stay due. Without that line, an hour of a busy owner would
+become twelve rows and twelve messages the moment they are free.
+
+This also closes a real window: a crash between a successful delivery and `settle`'s commit used to
+fire the Reminder twice. There is no such gap now.
+
+**Seven scenario lines were reworded**, each by naming the record that actually holds "not yet said":
+`RM-FIRE-012`, `RM-FIRE-013`, `RM-FIRE-014`, `RM-FIRE-015`, `RM-FIRE-016`, `RM-GATE-017`,
+`RM-GATE-018`. No rule changed; `fire_count` and `last_fired_at` now count when a Reminder went off
+rather than when its answer landed, and the two differ only for as long as a Cue waits.
+
+### Tests
+
+`tests/test_cues.py` — delivery, a shut gate, a turn that did not land, oldest-first, an empty queue
+taking no lease, and `finish_sprint` through `tick` to the words that reach the owner.
+`tests/test_scheduler.py` reads the `cues` table instead of a fake Advisor: the poll under test no
+longer speaks to anyone.
+
+Verification: `ruff check .` clean; `pytest -q` **685 passed / 3 skipped**. `schema.json` moved by
+one line, `cues`, as declared; `prompt_prefix.json` byte-identical. Metrics: 0 cycles, DoD #1 26,
+#2 0, #3 5, #13 0, Rule G 2, Rule H 26, Rule L 17.

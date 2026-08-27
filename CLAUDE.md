@@ -174,7 +174,7 @@ turn; `telegram_messages` stores event metadata, never persona text.
 
 - **Every bot message is sent registered and marked** with a `MessageKind`. An unregistered or
   unmarked message is invisible to the LLM; a wrongly-kinded one leaks UI noise into persona history.
-- Only dialogue, Reminders and Summaries become dialogue. Everything else — screens, receipts,
+- Only dialogue, Cues and Summaries become dialogue. Everything else — screens, receipts,
   errors, transient status — is excluded by its kind.
 - The window is a **token budget**, not a message count, and a Summary is written exactly when it
   fills.
@@ -333,8 +333,11 @@ system message.
 - Entities carry a `version`, and `workspace.revision` is what a pending proposal is checked against
   before it applies. `StaleStateError` is the expected failure. Only `dialogue_revision` invalidates
   an in-flight answer, because the answer's own autoapproved change moves `workspace.revision`.
-- Reminders are deterministic first: the scheduler only does schedule arithmetic, and the advisor
-  composes the message. Safwa sends a proactive message only because a Reminder fired.
+- Safwa speaks first only because a **Cue** was written for it — a Reminder that came due, a
+  Sprint that ended. The producer writes the finished request into `cues` in its own transaction;
+  `CueRuntime` owns the gate, the lease and the one turn, and deletes the row only once the owner
+  has the words. That row is the single record of what Safwa still owes, so the Reminder poll
+  does schedule arithmetic and nothing else, and one thing waits to be said at a time.
 
 ## Schema gotcha
 
@@ -387,7 +390,7 @@ ORM metadata at that point.
 | Reminders | [archived_docs/REMINDERS_PLAN.md](archived_docs/REMINDERS_PLAN.md) |
 | Subagents and routing | [archived_docs/SUBAGENTS_PLAN.md](archived_docs/SUBAGENTS_PLAN.md) |
 | Voice input | [archived_docs/ASR_PLAN.md](archived_docs/ASR_PLAN.md) |
-| Sessions, routing, helpers, escalation, history | [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md) |
+| Sessions, routing, helpers, cues, history | [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md) |
 | How a feature plugs in | [docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md) |
 | LLM provider boundary | [docs/LLM_GATEWAY.md](docs/LLM_GATEWAY.md) |
 | Clean-architecture migration | [REFACTORING_CLEAN_ARCH_FINAL.md](REFACTORING_CLEAN_ARCH_FINAL.md) |

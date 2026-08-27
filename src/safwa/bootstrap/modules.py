@@ -16,6 +16,7 @@ from dataclasses import replace
 from ..ai.context import ADVISOR_VIEWS, SYSTEM_PROMPT_TEMPLATE
 from ..ai.sql import SqlView, view_catalogue
 from ..ai.subagents import RoutedSubagent
+from ..cues.module import CUE_QUEUE
 from ..features.board.module import MODULE as BOARD
 from ..features.cards.module import MODULE as CARDS
 from ..features.checks.module import MODULE as CHECKS
@@ -149,8 +150,10 @@ RECOVERY_HOOKS: tuple[Callable[..., Awaitable[None]], ...] = tuple(
     module.recover for module in MODULES if module.recover is not None
 )
 
-BACKGROUND_TASKS: tuple[BackgroundTask, ...] = tuple(
-    task for module in MODULES for task in module.background
+# The Cue poll is not a feature's: it delivers whatever any of them wrote.
+BACKGROUND_TASKS: tuple[BackgroundTask, ...] = (
+    CUE_QUEUE,
+    *(task for module in MODULES for task in module.background),
 )
 
 
