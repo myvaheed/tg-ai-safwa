@@ -16,12 +16,11 @@ from ...constants import ARCHIVE_AFTER_SPRINTS
 from ...enums import CardKind
 from ...foundation.clock import utcnow
 from ...foundation.workspace import require_workspace
-from ..cards.api import TERMINAL_STAGES, Card, CardStage
+from ..cards.api import PLANNED_STAGES, TERMINAL_STAGES, Card, CardStage
 from .model import Sprint, SprintCommitment
 
 # The stages an Action has to be on for a Sprint to have anything to say about it.
 SPRINT_SCOPE = frozenset({CardStage.SPRINT, CardStage.TODAY, CardStage.DONE, CardStage.CANCELLED})
-PLANNED_STAGES = frozenset({CardStage.SPRINT, CardStage.TODAY})
 
 
 async def sync_commitment_for_stage(

@@ -345,6 +345,23 @@ def rule_k() -> list[Violation]:
     return out
 
 
+def rule_l() -> list[Violation]:
+    """A feature never reaches back into `safwa.domain`.
+
+    Rule E watches feature-to-feature edges only, so a feature taking its own use cases
+    through the legacy facade passed unseen — and every one of those is a reason
+    `domain.py` cannot be deleted. The count may only fall.
+    """
+    out = []
+    for module in modules():
+        if module.feature is None:
+            continue
+        for path, line in module.imported_paths():
+            if path.split(".")[:2] == ["safwa", "domain"]:
+                out.append(Violation("Rule L", module.rel, line, f"imports {path}"))
+    return out
+
+
 RULES = {
     "Rule A": rule_a,
     "Rule B": rule_b,
@@ -355,6 +372,7 @@ RULES = {
     "Rule G": rule_g,
     "Rule H": rule_h,
     "Rule K": rule_k,
+    "Rule L": rule_l,
 }
 # Rules I and J are snapshots of built artefacts rather than of the source tree, so they
 # live with their baselines in `tests/test_architecture.py`.

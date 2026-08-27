@@ -4,17 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...domain import (
-    CHECK_VALUE_REFERENCE,
-    DomainError,
-    StaleStateError,
-    archive_check,
-    create_check,
-    delete_check,
-    resolve_check,
-    update_check_fields,
-)
+from ...domain import CHECK_VALUE_REFERENCE
 from ...enums import ActorType
+from ...foundation.errors import DomainError, StaleStateError
 from ...models import Check, ProposalChange
 from ..proposals.api import (
     ApplyContext,
@@ -26,6 +18,13 @@ from ..proposals.api import (
     validate_named_references,
 )
 from .model import CHECK_ANSWER_ACTIONS
+from .use_cases import (
+    archive_check,
+    create_check,
+    delete_check,
+    resolve_check,
+    update_check_fields,
+)
 
 
 class CheckProposalHandler:

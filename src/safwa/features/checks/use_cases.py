@@ -103,10 +103,11 @@ async def create_check(session: AsyncSession, *, title: str, repeatable: bool = 
     clean_title = title.strip()
     if not clean_title:
         raise DomainError("Check title cannot be empty")
+    # `series_id` stays null until a second instance exists: a Check that never repeated
+    # is its own series, and `COALESCE(series_id, id)` is what says so, everywhere.
     check = Check(title=clean_title, repeatable=repeatable)
     session.add(check)
     await session.flush()
-    check.series_id = check.id
     await bump_workspace(session)
     return check
 
@@ -167,7 +168,11 @@ async def _copy_check(
     finished ones, so it moves rather than being copied. Every path that opens the next
     instance comes through here — the answer inside a cycle, the next cycle's Card, and
     reopening — so none of them can carry the series on and leave the Values behind.
+
+    A second instance is also what makes the series real, so the source is stamped with it
+    here: before this moment its null `series_id` was the whole statement that it was alone.
     """
+    source.series_id = series_id
     successor = Check(
         title=source.title,
         repeatable=source.repeatable,
@@ -187,7 +192,6 @@ async def _copy_check(
 async def _spawn_check_successor(session: AsyncSession, check: Check) -> Check | None:
     """Open the next instance of a repeating series, on the one Card the series is on."""
     series_id = check.series_id or check.id
-    check.series_id = series_id
     live_in_series = await session.scalar(
         select(func.count())
         .select_from(Check)

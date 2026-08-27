@@ -387,6 +387,7 @@ ORM metadata at that point.
 | Reminders | [archived_docs/REMINDERS_PLAN.md](archived_docs/REMINDERS_PLAN.md) |
 | Subagents and routing | [archived_docs/SUBAGENTS_PLAN.md](archived_docs/SUBAGENTS_PLAN.md) |
 | Voice input | [archived_docs/ASR_PLAN.md](archived_docs/ASR_PLAN.md) |
+| Sessions, routing, helpers, escalation, history | [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md) |
 | How a feature plugs in | [docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md) |
 | LLM provider boundary | [docs/LLM_GATEWAY.md](docs/LLM_GATEWAY.md) |
 | Clean-architecture migration | [REFACTORING_CLEAN_ARCH_FINAL.md](REFACTORING_CLEAN_ARCH_FINAL.md) |

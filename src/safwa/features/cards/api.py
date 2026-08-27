@@ -20,16 +20,22 @@ from .model import CardStage as CardStage
 PLANNED_STAGES = (CardStage.SPRINT, CardStage.TODAY)
 
 
-async def planned_actions(session: AsyncSession) -> list[Card]:
-    """The Actions a Sprint would start with, or is running with."""
+async def actions_on_stages(session: AsyncSession, *stages: CardStage) -> list[Card]:
+    """The Actions standing on these stages. An archived one never stands on a live stage."""
     return list(
         await session.scalars(
             select(Card).where(
                 Card.kind == CardKind.ACTION.value,
-                Card.effective_stage.in_([stage.value for stage in PLANNED_STAGES]),
+                Card.effective_stage.in_([stage.value for stage in stages]),
+                Card.archived_at.is_(None),
             )
         )
     )
+
+
+async def planned_actions(session: AsyncSession) -> list[Card]:
+    """The Actions a Sprint would start with, or is running with."""
+    return await actions_on_stages(session, *PLANNED_STAGES)
 
 
 async def action_titles(session: AsyncSession, card_ids: Iterable[int]) -> list[str]:

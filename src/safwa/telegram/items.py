@@ -32,7 +32,6 @@ async def render_item_editor(
     item_id: int | None = None,
     values: dict[str, str] | None = None,
     replace_message_id: int | None = None,
-    extra_rows: list[list[InlineKeyboardButton]] | None = None,
     replace: bool | None = None,
 ) -> None:
     if entity not in ITEM_REFERENCES or mode not in {"create", "view"}:
@@ -141,7 +140,7 @@ async def render_item_editor(
             else ""
         )
     )
-    markup = InlineKeyboardMarkup(inline_keyboard=rows + list(extra_rows or []))
+    markup = InlineKeyboardMarkup(inline_keyboard=rows)
     if replace_message_id is not None:
         await edit_registered_message(
             message,
@@ -169,7 +168,6 @@ async def render_saved_request(
     services: Services,
     request_id: int,
     *,
-    extra_rows: list[list[InlineKeyboardButton]] | None = None,
     replace: bool | None = None,
 ) -> None:
     async with services.sessions() as session:
@@ -212,7 +210,7 @@ async def render_saved_request(
         services,
         f"<b>{html.escape(request.name)}</b>\n{html.escape(details)}",
         kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=rows + list(extra_rows or [])),
+        markup=InlineKeyboardMarkup(inline_keyboard=rows),
         related_id=request.id,
         replace=replace,
     )

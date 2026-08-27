@@ -525,7 +525,7 @@ async def finish_action(
     if terminal_stage not in TERMINAL_STAGES:
         raise DomainError("Finish stage must be Done or Cancelled")
     card = await session.get(Card, card_id)
-    if card is None or card.archived_at is not None:
+    if card is None:
         raise DomainError("Card does not exist")
     if card.kind != CardKind.ACTION.value:
         raise DomainError("Only Actions are finished directly")

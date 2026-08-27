@@ -126,7 +126,6 @@ async def render_check(
     back: dict[str, Any] | None = None,
     replace_message_id: int | None = None,
     notice: str | None = None,
-    extra_rows: list[list[InlineKeyboardButton]] | None = None,
     replace: bool | None = None,
 ) -> None:
     """One Check with its answer buttons.
@@ -254,7 +253,7 @@ async def render_check(
         message,
         services,
         with_notice(body, notice),
-        InlineKeyboardMarkup(inline_keyboard=rows + list(extra_rows or [])),
+        InlineKeyboardMarkup(inline_keyboard=rows),
         replace_message_id,
         related_id=check.id,
         replace=replace,

@@ -31,12 +31,12 @@ from ...ai.contracts import AgentChange, tool_json_schema
 from ...ai.sql import ReadOnlyQueryRunner
 from ...domain import (
     CARD_REFERENCE_SPECS,
-    DomainError,
     ReferenceSpec,
     is_closed_repeat,
     live_repeat_instance_id,
     resolve_references,
 )
+from ...foundation.errors import DomainError
 from ...models import Card, Check, ProposalChange, Workspace
 
 

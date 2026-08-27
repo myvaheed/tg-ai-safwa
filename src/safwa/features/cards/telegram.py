@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...ai.contracts import AgentChange
 from ...domain import (
     CARD_REFERENCE_SPECS,
-    card_progress,
     resolve_references,
 )
 from ...enums import (
@@ -40,6 +39,7 @@ from ..proposals.api import (
     result_value,
 )
 from .model import CardStage
+from .use_cases import card_progress
 
 CARD_DETAIL_FIELDS = (
     "kind",

@@ -14,13 +14,14 @@ from datetime import timedelta
 from zoneinfo import ZoneInfo
 
 from aiogram.types import InlineKeyboardMarkup, Message
-from sqlalchemy import select
 
 from ..domain import DomainError, sprint_length_days, sprint_metrics
-from ..enums import CardKind, MessageKind
+from ..enums import MessageKind
+from ..features.cards.api import actions_on_stages
 from ..features.cards.model import CardStage
+from ..features.profile.api import capacity_effort_points
 from ..foundation.clock import utcnow
-from ..models import Card, Sprint, UserProfile, Workspace
+from ..models import Card, Sprint, Workspace
 from ._core import Services
 from ._messaging import edit_registered_message, paging_row, send_registered, token_button
 from ._presentation import menu_row, with_notice
@@ -52,7 +53,7 @@ async def render_today(
                 markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
             )
             return
-        cards = await stage_actions(session, CardStage.TODAY)
+        cards = await actions_on_stages(session, CardStage.TODAY)
         current, descriptions, rows = await card_list_rows(
             session,
             services,
@@ -102,7 +103,7 @@ async def render_sprint(
     async with services.sessions() as session:
         sprint = await session.get(Sprint, active_sprint_id)
         metrics = await sprint_metrics(session, sprint.id)
-        cards = await stage_actions(session, CardStage.SPRINT)
+        cards = await actions_on_stages(session, CardStage.SPRINT)
         current, descriptions, rows = await card_list_rows(
             session,
             services,
@@ -179,9 +180,9 @@ async def _render_planning(
     """What the next Sprint would be, and the three things that can change it."""
     async with services.sessions() as session:
         workspace = await session.get(Workspace, 1)
-        profile = await session.get(UserProfile, 1)
+        capacity = await capacity_effort_points(session)
         length = await sprint_length_days(session)
-        planned = await stage_actions(session, CardStage.SPRINT, CardStage.TODAY)
+        planned = await actions_on_stages(session, CardStage.SPRINT, CardStage.TODAY)
         criteria = (workspace.sprint_success_criteria or "").strip() if workspace else ""
         rows = [
             [
@@ -207,7 +208,7 @@ async def _render_planning(
             )
         rows.append(menu_row())
         await session.commit()
-    cost, warning = plan_cost(planned, profile.capacity_effort_points if profile else None)
+    cost, warning = plan_cost(planned, capacity)
     text = with_notice(
         "<b>Planning</b>\n"
         f"Success criteria: {html.escape(criteria) if criteria else 'not set yet'}\n"
@@ -241,18 +242,6 @@ def plan_cost(planned: list[Card], capacity: int | None) -> tuple[str, str]:
     )
     above = f"⚠️ Above configured capacity ({capacity} EP)." if capacity and effort > capacity else ""
     return line, above
-
-
-async def stage_actions(session, *stages: CardStage) -> list[Card]:  # type: ignore[no-untyped-def]
-    return list(
-        await session.scalars(
-            select(Card).where(
-                Card.effective_stage.in_([stage.value for stage in stages]),
-                Card.kind == CardKind.ACTION.value,
-                Card.archived_at.is_(None),
-            )
-        )
-    )
 
 
 async def render_sprint_retro(message: Message, services: Services, sprint_id: int) -> None:

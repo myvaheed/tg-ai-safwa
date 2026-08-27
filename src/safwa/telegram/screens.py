@@ -5,7 +5,7 @@ import logging
 import re
 from typing import Any
 
-from aiogram.types import InlineKeyboardButton, Message
+from aiogram.types import Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -140,14 +140,13 @@ async def open_item_screen(
     item_type: str,
     item_id: int,
     *,
-    extra_rows: list[list[InlineKeyboardButton]] | None = None,
     replace: bool | None = None,
 ) -> None:
     """Show one item exactly as navigating to it manually would, buttons included."""
     if item_type == "card":
-        await render_card(message, services, item_id, extra_rows=extra_rows, replace=replace)
+        await render_card(message, services, item_id, replace=replace)
     elif item_type == "check":
-        await render_check(message, services, item_id, extra_rows=extra_rows, replace=replace)
+        await render_check(message, services, item_id, replace=replace)
     elif item_type in {"tag", "value"}:
         await render_item_editor(
             message,
@@ -155,15 +154,12 @@ async def open_item_screen(
             item_type,
             mode="view",
             item_id=item_id,
-            extra_rows=extra_rows,
             replace=replace,
         )
     elif item_type == "request":
-        await render_saved_request(
-            message, services, item_id, extra_rows=extra_rows, replace=replace
-        )
+        await render_saved_request(message, services, item_id, replace=replace)
     elif item_type == "diary":
-        await render_diary(message, services, item_id, extra_rows=extra_rows, replace=replace)
+        await render_diary(message, services, item_id, replace=replace)
     elif item_type == "retro":
         await render_sprint_retro(message, services, item_id)
     else:

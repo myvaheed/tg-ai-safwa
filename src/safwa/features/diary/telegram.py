@@ -63,7 +63,6 @@ async def render_diary(
     services: Services,
     entry_id: int,
     *,
-    extra_rows: list[list[InlineKeyboardButton]] | None = None,
     replace: bool | None = None,
 ) -> None:
     """One Diary day, in full and read-only: the Diary is written through proposals alone."""
@@ -73,7 +72,7 @@ async def render_diary(
             raise DomainError("Diary entry does not exist")
         label = diary_label(entry.entry_date, entry.feeling_score)
         body = entry.body
-    rows = list(extra_rows or [])
+    rows: list[list[InlineKeyboardButton]] = []
     await send_registered(
         message,
         services,

@@ -32,6 +32,7 @@ from ..constants import (
 )
 from ..domain import move_card
 from ..enums import MessageKind
+from ..features.cards.api import actions_on_stages
 from ..features.cards.model import CardStage
 from ..features.profile.api import capacity_effort_points
 from ..features.saved_requests.use_cases import request_cards
@@ -45,7 +46,7 @@ from ._messaging import (
 )
 from ._presentation import Page, paginate, start_payload
 from .cards import render_card
-from .sprint import plan_cost, stage_actions
+from .sprint import plan_cost
 
 PLAN_UI_KIND = "sprint_plan"
 _PLAN_TTL = timedelta(hours=24)
@@ -271,8 +272,8 @@ async def render_plan(
         stored = await load_plan_state(session, services.owner_id)
         picked = list(stored.get("filters", [])) if filters is None else list(filters)
         live, matched = await _resolve_filters(session, picked, services.views)
-        planned = await stage_actions(session, CardStage.SPRINT, CardStage.TODAY)
-        backlog = await stage_actions(session, CardStage.BACKLOG)
+        planned = await actions_on_stages(session, CardStage.SPRINT, CardStage.TODAY)
+        backlog = await actions_on_stages(session, CardStage.BACKLOG)
         planned.sort(key=lambda card: card.id)
         backlog.sort(key=lambda card: card.id)
         selectable = backlog if matched is None else [c for c in backlog if c.id in matched]

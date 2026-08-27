@@ -20,27 +20,21 @@ from .enums import (
     EnergyType,
 )
 from .features.cards.model import TERMINAL_STAGES
-from .features.cards.use_cases import OperationResult as OperationResult
-from .features.cards.use_cases import aggregate_child_stages as aggregate_child_stages
-from .features.cards.use_cases import archive_settled_cards, record_card_event
+from .features.cards.use_cases import archive_settled_cards, card_snapshot, record_card_event
 from .features.cards.use_cases import archive_subtree as archive_subtree
 from .features.cards.use_cases import blocking_actions as blocking_actions
-from .features.cards.use_cases import branch_actions as branch_actions
 from .features.cards.use_cases import card_children as card_children
 from .features.cards.use_cases import card_progress as card_progress
-from .features.cards.use_cases import card_snapshot as card_snapshot
 from .features.cards.use_cases import create_card as create_card
 from .features.cards.use_cases import delete_subtree as delete_subtree
 from .features.cards.use_cases import edit_card_text as edit_card_text
 from .features.cards.use_cases import finish_action as finish_action
 from .features.cards.use_cases import is_closed_repeat as _is_closed_repeat_card
 from .features.cards.use_cases import move_card as move_card
-from .features.cards.use_cases import propagate_ancestors as propagate_ancestors
 from .features.cards.use_cases import set_card_parent as set_card_parent
 from .features.cards.use_cases import update_card_fields as update_card_fields
 from .features.cards.use_cases import validate_action_fields as validate_action_fields
 from .features.cards.use_cases import validate_blocked_fields as validate_blocked_fields
-from .features.cards.use_cases import validate_parent as validate_parent
 from .features.checks.model import CheckOutcome as CheckOutcome
 from .features.checks.use_cases import archive_check as archive_check
 from .features.checks.use_cases import archive_settled_checks
@@ -55,13 +49,11 @@ from .features.checks.use_cases import resolve_check as resolve_check
 from .features.checks.use_cases import unobserved_series as unobserved_series
 from .features.checks.use_cases import update_check_fields as update_check_fields
 from .features.planning.api import settled_cutoff
-from .features.planning.api import sync_commitment_for_stage as sync_commitment_for_stage
 from .features.planning.use_cases import finish_sprint as _finish_sprint
 from .features.planning.use_cases import set_sprint_success_criteria as set_sprint_success_criteria
 from .features.planning.use_cases import sprint_is_due
 from .features.planning.use_cases import sprint_length_days as sprint_length_days
 from .features.planning.use_cases import sprint_metrics as sprint_metrics
-from .features.planning.use_cases import sprint_summary as sprint_summary
 from .features.planning.use_cases import start_sprint as start_sprint
 from .features.tags.use_cases import create_tag as create_tag
 from .features.tags.use_cases import delete_tag as delete_tag
@@ -70,7 +62,6 @@ from .features.values.use_cases import create_value as create_value
 from .features.values.use_cases import delete_value as delete_value
 from .features.values.use_cases import set_value_focus as set_value_focus
 from .features.values.use_cases import update_value_fields as update_value_fields
-from .features.values.use_cases import value_link_counts as value_link_counts
 from .foundation.clock import utcnow as utcnow
 from .foundation.errors import DomainError
 from .foundation.errors import StaleStateError as StaleStateError
@@ -455,7 +446,6 @@ async def live_repeat_instance_id(session: AsyncSession, entity: Card | Check) -
             .where(
                 Check.series_id == (entity.series_id or entity.id),
                 Check.outcome.is_(None),
-                Check.archived_at.is_(None),
             )
             .order_by(Check.id.desc())
         )
@@ -465,7 +455,6 @@ async def live_repeat_instance_id(session: AsyncSession, entity: Card | Check) -
             .where(
                 Card.repeat_series_id == (entity.repeat_series_id or entity.id),
                 Card.effective_stage.notin_([stage.value for stage in TERMINAL_STAGES]),
-                Card.archived_at.is_(None),
             )
             .order_by(Card.id.desc())
         )

@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...ai.contracts import AgentChange
 from ...domain import (
     CHECK_VALUE_REFERENCE,
-    check_value_ids,
     resolve_references,
 )
 from ...models import (
@@ -30,6 +29,7 @@ from ..proposals.api import (
     result_value,
 )
 from .model import CHECK_ANSWER_ACTIONS, CHECK_OUTCOME_LABELS
+from .use_cases import check_value_ids
 
 
 async def _value_names(session: AsyncSession, value_ids: list[int]) -> str:

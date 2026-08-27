@@ -127,7 +127,8 @@ async def test_a_check_with_no_answer_is_pending(sessions):
         # Pending is derived from a null outcome, so nothing was stored to say so.
         assert check.outcome is None
         assert check.resolved_at is None
-        assert check.series_id == check.id
+        # A Check that never repeated is its own series, and a null `series_id` says so.
+        assert check.series_id is None
         assert [item.id for item in await pending_checks(session, card.id)] == [check.id]
 
 
