@@ -130,25 +130,12 @@ class ResolveCallsEffect:
 
 
 @dataclass(frozen=True, slots=True)
-class ShowNextEffect:
-    """The next screen the owner sees, and the target to re-read before showing it."""
-
-    target_type: str
-    target_id: int
-
-
-@dataclass(frozen=True, slots=True)
 class RejectPendingEffect:
     """The screens that lost their answer, to be recorded as discarded."""
 
     targets: tuple[tuple[str, int], ...]
 
 
-@dataclass(frozen=True, slots=True)
-class CloseBatchEffect:
-    """Every screen is decided; the turn that opened them can continue."""
-
-    repair_exhausted: bool
-
-
-BatchEffect = ResolveCallsEffect | ShowNextEffect | RejectPendingEffect | CloseBatchEffect
+# An effect is a row to write, never a reading of the state returned beside it: which
+# screen comes next is `head` and whether the batch closed is `status`.
+BatchEffect = ResolveCallsEffect | RejectPendingEffect

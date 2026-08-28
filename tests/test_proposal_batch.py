@@ -13,13 +13,11 @@ from safwa.features.proposals.model import (
     BatchDecision,
     BatchState,
     BatchStatus,
-    CloseBatchEffect,
     DecideAction,
     InterruptAction,
     QueueItem,
     RejectPendingEffect,
     ResolveCallsEffect,
-    ShowNextEffect,
 )
 from safwa.features.proposals.reducer import INTERRUPTED, reduce
 
@@ -50,35 +48,35 @@ def batch(*items: QueueItem, status: BatchStatus = BatchStatus.PENDING, exhauste
             DecideAction("proposal", 1, APPROVED),
             BatchStatus.COMPLETED,
             [APPROVED],
-            (ResolveCallsEffect(("call-1",), APPROVED), CloseBatchEffect(False)),
+            (ResolveCallsEffect(("call-1",), APPROVED),),
         ),
         (
             batch(item(1), item(2)),
             DecideAction("proposal", 1, APPROVED),
             BatchStatus.PENDING,
             [APPROVED, PENDING],
-            (ResolveCallsEffect(("call-1",), APPROVED), ShowNextEffect("proposal", 2)),
+            (ResolveCallsEffect(("call-1",), APPROVED),),
         ),
         (
             batch(item(1), item(2)),
             DecideAction("proposal", 1, DISCARDED),
             BatchStatus.PENDING,
             [DISCARDED, PENDING],
-            (ResolveCallsEffect(("call-1",), DISCARDED), ShowNextEffect("proposal", 2)),
+            (ResolveCallsEffect(("call-1",), DISCARDED),),
         ),
         (
             batch(item(1, APPROVED), item(2)),
             DecideAction("proposal", 2, FAILED),
             BatchStatus.COMPLETED,
             [APPROVED, FAILED],
-            (ResolveCallsEffect(("call-2",), FAILED), CloseBatchEffect(False)),
+            (ResolveCallsEffect(("call-2",), FAILED),),
         ),
         (
             batch(item(1, APPROVED), item(2), exhausted=True),
             DecideAction("proposal", 2, APPROVED),
             BatchStatus.COMPLETED,
             [APPROVED, APPROVED],
-            (ResolveCallsEffect(("call-2",), APPROVED), CloseBatchEffect(True)),
+            (ResolveCallsEffect(("call-2",), APPROVED),),
         ),
         (
             batch(item(1, APPROVED), item(2)),
@@ -138,6 +136,9 @@ def test_a_batch_moves_only_the_way_the_table_says(
     assert updated.status is expected_status
     assert [candidate.decision for candidate in updated.items] == expected_decisions
     assert effects == expected_effects
+    # Which screen comes next and whether the batch closed are read off the state, so an
+    # effect never repeats them; what the batch was told about its repairs is carried.
+    assert updated.repair_exhausted == state.repair_exhausted
 
 
 def test_the_head_is_the_first_screen_still_waiting_for_an_answer():

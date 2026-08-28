@@ -1654,20 +1654,23 @@ features/proposals/
   model.py       ChangeProposal, ProposalChange, ApprovalBatch, and the frozen BatchState,
                  QueueItem, BatchAction and BatchEffect unions   (Rule C reads this file)
   reducer.py     reduce(state, action) -> (state, effects), no I/O   (Rule D reads this file)
-  use_cases.py   prepare, approve, reject, cancel, expire, load and save the batch
+  use_cases.py   prepare, approve, reject, open, cancel, expire, load and save the batch
   api.py         unchanged
 ```
 
 ### Rules C and D stop being vacuous
 
 Both read 0 before this phase because the codebase had no reducer at all. Rule C now checks seven
-frozen classes in `proposals/model.py` and Rule D the one `reduce` in `proposals/reducer.py`.
+frozen classes in `proposals/model.py`, and Rule D every function in `proposals/reducer.py` — the
+entry point is a `match` that hands the work to private helpers, so checking `reduce*` by name
+would have left those helpers free to open a session.
 
 ### What the numbers should do
 
 `ai/service.py` 2286 lines, target under 1800; DoD #3 from 5 to 4. `schema.json` moves on the three
-tables that migrate. **`prompt_prefix.json` must not move** — if it does, something volatile reached
-`messages[0]`; find it rather than regenerating.
+tables that migrate. **`prompt_prefix.json` moves only for a prompt this batch declares it is
+rewriting** — a hash that moves without one means something volatile reached `messages[0]`; find it
+rather than regenerating.
 
 `tests/e2e/test_advisor_flow_e2e.py` is the insurance for Phases 6 to 8. It is added to, never
 traded for a faster unit test.
@@ -1697,18 +1700,28 @@ in the morning, waiting on a board that moved without it.
 
 `features/proposals/` owns the whole of a proposal now: `model.py` holds `ChangeProposal`,
 `ProposalChange` and the `ApprovalBatch` row beside the frozen `BatchState`, `QueueItem` and the
-action and effect unions; `reducer.py` holds the one `reduce`; `use_cases.py` holds prepare,
-approve, reject, the two batch resolutions, the queued-proposal snapshot and the two startup
-sweeps. Rules C and D read those two file names and are no longer vacuous.
+action and effect unions; `reducer.py` holds `reduce` and its two transitions; `use_cases.py` holds
+prepare, approve, reject, opening a batch, the two batch resolutions, the queued-proposal snapshot
+and the two startup sweeps. Rule C reads seven frozen classes in `model.py`, and Rule D every
+function in `reducer.py` — a transition behind a private name is checked like the rest.
+
+An effect is a row to write, never a reading of the state returned beside it, so `reduce` emits
+`ResolveCallsEffect` and `RejectPendingEffect` and nothing else: which screen comes next is
+`state.head`, and the batch closing is `state.status`. `decide_batch_item` hands that state on
+instead of a flattened target, which is what keeps closing decided in one place.
 
 `recovery.py` stopped writing to the feature's own tables and calls `expire_stale_proposals` and
-`cancel_batches_for_runs` instead. Nothing outside the package writes a proposal or a batch.
+`cancel_batches_for_runs` instead. `_materialize` opens its batch through `open_batch` and heads its
+queue through `number_queued_proposals`; `callbacks.py` records a refused screen through
+`mark_proposal_stale`. Nothing outside the package writes a proposal or a batch.
 
 The seam with Phase 7 held: `decide_batch_item` and `interrupt_batch` return what happened to the
 batch, and claiming and resuming the paused session stayed in `ai/service.py`.
 
-`ai/service.py` went from 2286 lines to 2085 across the phase, the module graph from 656 edges to
-655, and cycles stayed at 0.
+`ai/service.py` went from 2286 lines to 2088 across the phase, the module graph from 656 edges to
+655, and cycles stayed at 0. **Two of the phase's targets were missed**: `ai/service.py` is not
+under 1800, and DoD #3 is still 5. Both are `AIAdvisor`, which is the god-class §9.2 meant, and
+Phases 7 and 8 are the ones that take it apart.
 
 Two scenario packets were approved: [brd/proposals.md](brd/proposals.md) and
 [brd/proposals_interrupted.md](brd/proposals_interrupted.md), 22 scenarios in

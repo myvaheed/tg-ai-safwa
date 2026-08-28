@@ -217,10 +217,14 @@ def rule_d() -> list[Violation]:
     """Reducers are pure: a transition may not await, read a file or touch a session."""
     out = []
     for module in feature_modules("reducer.py", "manager.py"):
+        # Every function in a `reducer.py` is a transition, whatever it is called: the
+        # entry point is usually a `match` that hands the work to private helpers, and
+        # checking the name alone would leave those helpers free to open a session.
+        whole_file = module.path.name == "reducer.py"
         for node in ast.walk(module.tree):
             if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 continue
-            if not node.name.startswith("reduce"):
+            if not whole_file and not node.name.startswith("reduce"):
                 continue
             if isinstance(node, ast.AsyncFunctionDef) or any(
                 isinstance(inner, ast.Await) for inner in ast.walk(node)

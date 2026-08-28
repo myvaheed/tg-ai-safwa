@@ -31,16 +31,19 @@ from ..domain import (
     update_card_fields,
     update_check_fields,
 )
-from ..enums import MessageKind, ProposalStatus
+from ..enums import MessageKind
 from ..features.cards.model import CardStage
 from ..features.checks.model import CheckOutcome
 from ..features.checks.use_cases import toggle_check_value
-from ..features.proposals.use_cases import approve_proposal, reject_proposal
+from ..features.proposals.use_cases import (
+    approve_proposal,
+    mark_proposal_stale,
+    reject_proposal,
+)
 from ..features.reminders.use_cases import delete_reminder
 from ..models import (
     CallbackToken,
     Card,
-    ChangeProposal,
     Check,
     ProposalChange,
     UiSession,
@@ -1251,10 +1254,8 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
     except StaleStateError as error:
         if action.startswith("proposal_") and payload.get("id"):
             async with services.sessions() as session:
-                proposal = await session.get(ChangeProposal, payload["id"])
-                if proposal:
-                    proposal.status = ProposalStatus.STALE.value
-                    await session.commit()
+                await mark_proposal_stale(session, payload["id"])
+                await session.commit()
         if await _resume_failed_approval(context, error):
             return
         await send_registered(

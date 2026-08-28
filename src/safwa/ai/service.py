@@ -36,12 +36,14 @@ from ..features.proposals.api import (
     detail_lines,
     result_value,
 )
-from ..features.proposals.model import BatchStatus
+from ..features.proposals.model import BatchStatus, QueueItem
 from ..features.proposals.reducer import INTERRUPTED
 from ..features.proposals.use_cases import (
     decide_batch_item,
     interrupt_batch,
     live_batch_for_target,
+    number_queued_proposals,
+    open_batch,
     prepare_proposal,
     state_of,
 )
@@ -51,7 +53,6 @@ from ..models import (
     AgentStep,
     ApprovalBatch,
     Card,
-    ChangeProposal,
     Check,
     ProposalChange,
     SavedRequest,
@@ -1724,17 +1725,19 @@ class AIAdvisor:
                 )
             targets.sort(key=lambda item: item[0])
             tool_targets: dict[str, dict[str, Any]] = {}
-            queue: list[dict[str, Any]] = []
-            for position, (_index, target, tools) in enumerate(targets, start=1):
+            queue: list[QueueItem] = []
+            for _index, target, tools in targets:
                 call_ids = [tool.call.id for tool in tools]
-                queue_item = {**target, "call_ids": call_ids, "status": "pending"}
-                queue.append(queue_item)
-                if len(targets) > 1 and target["type"] == "proposal":
-                    proposal = await session.get(ChangeProposal, int(target["id"]))
-                    if proposal is not None:
-                        proposal.message = f"Proposal {position}/{len(targets)}\n{result.message}"
+                queue.append(
+                    QueueItem(
+                        target_type=str(target["type"]),
+                        target_id=int(target["id"]),
+                        call_ids=tuple(call_ids),
+                    )
+                )
                 for call_id in call_ids:
                     tool_targets[call_id] = target
+            await number_queued_proposals(session, queue, result.message)
             tool_results = []
             for tool in result.pending_tools:
                 target = tool_targets.get(tool.call.id)
@@ -1772,12 +1775,11 @@ class AIAdvisor:
                 if failed_call_ids:
                     agent.repair_rounds += 1
                 session.add(
-                    ApprovalBatch(
+                    open_batch(
                         run_id=agent.run_id,
-                        status=BatchStatus.PENDING.value,
-                        repair_exhausted=repair_exhausted,
+                        items=queue,
                         tool_calls=tool_results,
-                        queue=queue,
+                        repair_exhausted=repair_exhausted,
                     )
                 )
                 run = await session.get(AgentRun, agent.run_id)
@@ -1920,11 +1922,12 @@ class AIAdvisor:
             if decided is None:
                 return None
             tools = decided.tool_calls
-            if decided.next_target is not None:
+            head = decided.state.head
+            if head is not None:
                 await session.commit()
                 next_outcome = self._target_outcome(
                     "Review the next proposed change.",
-                    {"type": decided.next_target[0], "id": decided.next_target[1]},
+                    {"type": head.target_type, "id": head.target_id},
                 )
             else:
                 # The queue is empty, so the batch has done its whole job.  Closing it and
@@ -1939,7 +1942,7 @@ class AIAdvisor:
                     await session.commit()
                     return None
                 run_id = run.id
-                repair_exhausted = decided.repair_exhausted
+                repair_exhausted = decided.state.repair_exhausted
                 agent, stored_transcript = AgentSession.restore(
                     run, self._tools_for(run.kind), self._read_specs_for(run.kind)
                 )

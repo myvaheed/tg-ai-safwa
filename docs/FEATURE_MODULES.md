@@ -41,7 +41,8 @@ neither commits nor calls the domain.
 
 What stays generic is the orchestration: the workspace and its revision, the batch and proposal
 rows, the optimistic lock, and the ordered walk over the stored changes
-([`ChangePreparer`](../src/safwa/ai/prepare.py), `ProposalService`).
+([`ChangePreparer`](../src/safwa/ai/prepare.py),
+[features/proposals/use_cases.py](../src/safwa/features/proposals/use_cases.py)).
 
 ## Derived registries
 
@@ -50,7 +51,8 @@ entity, tool or view:
 
 - `AI_VIEWS` and `ALLOWED_VIEWS` — one catalogue behind both `CREATE VIEW` and the read allowlist.
   It is passed as data to whoever validates against it, so `ai/sql.py` stays a leaf.
-- `PROPOSALS` — the `ProposalRegistry` the advisor, the proposal service and the review screen read.
+- `PROPOSALS` — the `ProposalRegistry` the advisor, the proposal use cases and the review screen
+  read.
 - `SYSTEM_PROMPT` — the template in `ai/context.py` with the routing rules generated from the
   roster. `MODULES` is a constant of import time, so the cacheable prompt prefix stays byte-stable.
 - `RECOVERY_HOOKS` and `BACKGROUND_TASKS` — in `MODULES` order.
@@ -69,6 +71,7 @@ safwa/features/<feature>/
   agent.py      # MutationToolSpec, and an AgentSpec if it owns a subagent
   proposal.py   # ProposalHandler
   telegram.py   # ProposalPresenter
+  reducer.py    # reduce(state, action) -> (state, effects), when the feature has a process
 ```
 
 These names are the whole vocabulary. A feature that wants a file outside this list is saying its

@@ -3,7 +3,7 @@ discarded. Plus finding the batch a screen belongs to, and moving it between row
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -31,7 +31,6 @@ from .model import (
     QueueItem,
     RejectPendingEffect,
     ResolveCallsEffect,
-    ShowNextEffect,
 )
 from .reducer import reduce
 
@@ -132,6 +131,18 @@ async def reject_proposal(session: AsyncSession, proposal_id: int) -> None:
         proposal.status = ProposalStatus.REJECTED.value
 
 
+async def mark_proposal_stale(session: AsyncSession, proposal_id: int) -> None:
+    """Record that a proposal was refused, on a session that will be committed.
+
+    `approve_proposal` marks it and raises in the same breath, so the transaction it ran in
+    is rolled back and the mark with it.  The adapter that caught the refusal calls this on
+    a fresh session, which is what makes the screen unanswerable rather than retryable.
+    """
+    proposal = await session.get(ChangeProposal, proposal_id)
+    if proposal is not None:
+        proposal.status = ProposalStatus.STALE.value
+
+
 def state_of(batch: ApprovalBatch) -> BatchState:
     items = tuple(
         QueueItem(
@@ -151,6 +162,7 @@ def state_of(batch: ApprovalBatch) -> BatchState:
 
 def write_state(batch: ApprovalBatch, state: BatchState) -> None:
     batch.status = state.status.value
+    batch.repair_exhausted = state.repair_exhausted
     batch.queue = [
         {
             "type": item.target_type,
@@ -160,6 +172,48 @@ def write_state(batch: ApprovalBatch, state: BatchState) -> None:
         }
         for item in state.items
     ]
+
+
+def open_batch(
+    *,
+    run_id: int,
+    items: Sequence[QueueItem],
+    tool_calls: list[dict[str, Any]],
+    repair_exhausted: bool,
+) -> ApprovalBatch:
+    """The batch a suspended turn opens, with its screens in the order Safwa made them.
+
+    The caller hands over `QueueItem`s rather than rows: `write_state` is the one writer of
+    the stored shape, so the queue has a single author and it is a typed one.
+    """
+    batch = ApprovalBatch(run_id=run_id, tool_calls=tool_calls)
+    write_state(
+        batch,
+        BatchState(
+            status=BatchStatus.PENDING,
+            items=tuple(items),
+            repair_exhausted=repair_exhausted,
+        ),
+    )
+    return batch
+
+
+async def number_queued_proposals(
+    session: AsyncSession, items: Sequence[QueueItem], message: str
+) -> None:
+    """Head each proposal with its place in the queue it is waiting in.
+
+    A proposal alone in its queue carries no heading: the number is there to say how much
+    of the request is still to come.
+    """
+    if len(items) < 2:
+        return
+    for position, item in enumerate(items, start=1):
+        if item.target_type != "proposal":
+            continue
+        proposal = await session.get(ChangeProposal, item.target_id)
+        if proposal is not None:
+            proposal.message = f"Proposal {position}/{len(items)}\n{message}"
 
 
 async def live_batch_for_target(
@@ -179,12 +233,16 @@ async def live_batch_for_target(
 
 @dataclass(frozen=True)
 class BatchDecisionOutcome:
-    """What one decision did to its batch, for the caller that owns the paused turn."""
+    """What one decision did to its batch, for the caller that owns the paused turn.
+
+    `state` is what the reducer decided, handed on unflattened: `head` is the screen still
+    waiting and `None` there is the batch closing.  The caller reads it rather than
+    inferring it, which is why closing is decided in one place.
+    """
 
     run_id: int
     tool_calls: list[dict[str, Any]]
-    next_target: tuple[str, int] | None
-    repair_exhausted: bool
+    state: BatchState
 
 
 async def interrupt_batch(
@@ -234,6 +292,14 @@ async def decide_batch_item(
     batch = await live_batch_for_target(session, target_type, target_id)
     if batch is None:
         return None
+    # Reduce before anything is written: a press that arrives after the fact moves nothing,
+    # and applying its proposal first would leave that write standing on the way out.
+    state, effects = reduce(
+        state_of(batch),
+        DecideAction(target_type, target_id, BatchDecision(decision)),
+    )
+    if not effects:
+        return None
     affected: list[int] = []
     if apply_change:
         if target_type != "proposal" or decision != BatchDecision.APPROVED.value:
@@ -243,14 +309,7 @@ async def decide_batch_item(
         proposal = await session.get(ChangeProposal, target_id)
         if proposal is not None and proposal.status == ProposalStatus.PENDING.value:
             proposal.status = ProposalStatus.FAILED.value
-    state, effects = reduce(
-        state_of(batch),
-        DecideAction(target_type, target_id, BatchDecision(decision)),
-    )
-    if not effects:
-        return None
     tools = [dict(item) for item in batch.tool_calls or []]
-    next_target: tuple[str, int] | None = None
     for effect in effects:
         match effect:
             case ResolveCallsEffect():
@@ -258,18 +317,11 @@ async def decide_batch_item(
                     if str(tool.get("id")) in effect.call_ids:
                         tool["status"] = "resolved"
                         tool["result"] = render(tool, affected)
-            case ShowNextEffect():
-                next_target = (effect.target_type, effect.target_id)
     batch.tool_calls = tools
     write_state(batch, state)
-    if next_target is not None and next_target[0] == "proposal":
-        await refresh_queued_proposal(session, proposals, next_target[1])
-    return BatchDecisionOutcome(
-        run_id=batch.run_id,
-        tool_calls=tools,
-        next_target=next_target,
-        repair_exhausted=bool(batch.repair_exhausted),
-    )
+    if state.head is not None and state.head.target_type == "proposal":
+        await refresh_queued_proposal(session, proposals, state.head.target_id)
+    return BatchDecisionOutcome(run_id=batch.run_id, tool_calls=tools, state=state)
 
 
 async def refresh_queued_proposal(

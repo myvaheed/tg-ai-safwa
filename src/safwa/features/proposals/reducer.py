@@ -16,12 +16,10 @@ from .model import (
     BatchEffect,
     BatchState,
     BatchStatus,
-    CloseBatchEffect,
     DecideAction,
     InterruptAction,
     RejectPendingEffect,
     ResolveCallsEffect,
-    ShowNextEffect,
 )
 
 INTERRUPTED = "The user continued with a new message."
@@ -45,19 +43,17 @@ def _decide(
         return state, ()
     if state.status is not BatchStatus.PENDING:
         return state, ()
-    items = tuple(
-        replace(candidate, decision=action.decision) if candidate is item else candidate
-        for candidate in state.items
+    decided = replace(
+        state,
+        items=tuple(
+            replace(candidate, decision=action.decision) if candidate is item else candidate
+            for candidate in state.items
+        ),
     )
-    effects: list[BatchEffect] = [ResolveCallsEffect(item.call_ids, action.decision)]
-    head = next(
-        (candidate for candidate in items if candidate.decision is BatchDecision.PENDING), None
-    )
-    if head is not None:
-        effects.append(ShowNextEffect(head.target_type, head.target_id))
-        return replace(state, items=items), tuple(effects)
-    effects.append(CloseBatchEffect(state.repair_exhausted))
-    return replace(state, status=BatchStatus.COMPLETED, items=items), tuple(effects)
+    effects: tuple[BatchEffect, ...] = (ResolveCallsEffect(item.call_ids, action.decision),)
+    if decided.head is not None:
+        return decided, effects
+    return replace(decided, status=BatchStatus.COMPLETED), effects
 
 
 def _interrupt(
