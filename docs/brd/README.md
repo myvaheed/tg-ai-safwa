@@ -18,7 +18,8 @@ docs/brd/
   test_inventory.md                          generated: scripts/test_inventory.py
   diary.md  continuity.md  profile_settings.md
   cards.md  checks.md  planning.md
-  reminders.md  saved_requests.md  proposals.md  values_tags.md
+  reminders.md  saved_requests.md  values_tags.md
+  proposals.md  proposals_interrupted.md
   agents.md  telegram_history.md
 ```
 

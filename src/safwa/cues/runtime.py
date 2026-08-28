@@ -15,7 +15,8 @@ from sqlalchemy import func, select
 
 from ..ai.context import DialogueMessage
 from ..enums import MessageKind, ProposalStatus
-from ..models import AgentRun, AgentStep, ChangeProposal, TelegramMessage
+from ..features.proposals.model import BatchStatus
+from ..models import AgentRun, ApprovalBatch, ChangeProposal, TelegramMessage
 from ..telegram._core import BACKGROUND_SOURCE_ID, Services
 from ..telegram.proposals import render_ai_outcome
 
@@ -50,9 +51,8 @@ class CueRuntime:
             # "Resolved completely" includes the model's continuation after the last queue
             # item: that runs with the batch already closed and the session claimed.
             suspended = await session.scalar(
-                select(func.count(AgentStep.id)).where(
-                    AgentStep.kind == "approval_batch",
-                    AgentStep.metadata_json["status"].as_string() == "pending",
+                select(func.count(ApprovalBatch.id)).where(
+                    ApprovalBatch.status == BatchStatus.PENDING.value
                 )
             )
             if not suspended:

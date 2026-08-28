@@ -8,9 +8,9 @@ import pytest
 
 from llm_gateway import CompletionTurn, ToolCall
 from safwa.ai.context import DialogueMessage
-from safwa.ai.service import ProposalService
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.use_cases import create_card
+from safwa.features.proposals.use_cases import approve_proposal
 
 QUESTION = "Как у меня с подтягиваниями?"
 
@@ -278,7 +278,7 @@ async def test_han_offer_005_the_offer_outlives_a_screen(e2e_harness) -> None:
     assert first.kind == "proposal"
 
     async with e2e_harness.sessions() as session:
-        affected = await ProposalService(session, PROPOSALS).apply(first.proposal_id)
+        affected = await approve_proposal(session, PROPOSALS, first.proposal_id)
         await session.commit()
     provider.responses.extend(["Переименовал.", "Готово."])
 

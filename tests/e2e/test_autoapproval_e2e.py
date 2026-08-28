@@ -7,12 +7,13 @@ from sqlalchemy import func, select
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
+from safwa.ai.autoapproval import AutoApprovalReviewer
 from safwa.ai.context import DialogueMessage
-from safwa.ai.service import ProposalService
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.domain import create_card, create_tag, create_value
 from safwa.enums import ProposalStatus
-from safwa.models import AgentStep, Card, CardTag, ChangeProposal, Tag, Value
+from safwa.features.proposals.use_cases import approve_proposal
+from safwa.models import ApprovalBatch, Card, CardTag, ChangeProposal, Tag, Value
 
 pytestmark = pytest.mark.e2e
 
@@ -52,6 +53,7 @@ async def action(e2e_harness, title: str = "Buy milk") -> Card:
 
 
 async def test_an_exact_allowlisted_edit_is_autoapproved(e2e_harness):
+    """PR-AUTO-024 — tests/brd/proposals.feature"""
     card = await action(e2e_harness)
     request = "Rename Buy milk to Buy oat milk"
     advisor, provider = e2e_harness.advisor(
@@ -97,6 +99,7 @@ async def test_an_exact_allowlisted_edit_is_autoapproved(e2e_harness):
 
 
 async def test_creation_is_never_autoapproved(e2e_harness):
+    """PR-AUTO-025 — tests/brd/proposals.feature"""
     advisor, provider = e2e_harness.advisor(
         [
             mutation_turn(
@@ -124,6 +127,7 @@ async def test_creation_is_never_autoapproved(e2e_harness):
 
 
 async def test_reviewer_doubt_leaves_the_original_proposal_pending(e2e_harness):
+    """PR-AUTO-026 — tests/brd/proposals.feature"""
     async with e2e_harness.sessions() as session:
         tag = await create_tag(session, name="Work")
         await session.commit()
@@ -147,6 +151,7 @@ async def test_reviewer_doubt_leaves_the_original_proposal_pending(e2e_harness):
 
 
 async def test_batch_is_reviewed_head_first_without_a_bulk_block(e2e_harness):
+    """PR-AUTO-027 — tests/brd/proposals.feature"""
     async with e2e_harness.sessions() as session:
         tag = await create_tag(session, name="Work")
         value = await create_value(session, name="Freedom")
@@ -171,16 +176,17 @@ async def test_batch_is_reviewed_head_first_without_a_bulk_block(e2e_harness):
     async with e2e_harness.sessions() as session:
         assert (await session.get(Tag, tag.id)).name == "Career"
         assert (await session.get(Value, value.id)).name == "Freedom"
-        batch = await session.scalar(select(AgentStep).where(AgentStep.kind == "approval_batch"))
+        batch = await session.scalar(select(ApprovalBatch))
         assert batch is not None
-        assert [item["status"] for item in batch.metadata_json["queue"]] == [
+        assert [item["status"] for item in batch.queue] == [
             "approved",
             "pending",
         ]
-        assert batch.metadata_json["tool_calls"][0]["result"]["approval_source"] == "auto"
+        assert batch.tool_calls[0]["result"]["approval_source"] == "auto"
 
 
 async def test_next_head_is_autoapproved_after_a_manual_save(e2e_harness):
+    """PR-AUTO-027 — tests/brd/proposals.feature"""
     async with e2e_harness.sessions() as session:
         tag = await create_tag(session, name="Work")
         value = await create_value(session, name="Freedom")
@@ -200,7 +206,7 @@ async def test_next_head_is_autoapproved_after_a_manual_save(e2e_harness):
     first = await advisor.handle("Rename the Work tag and the Freedom value")
     assert first.proposal_id is not None
     async with e2e_harness.sessions() as session:
-        affected = await ProposalService(session, PROPOSALS).apply(first.proposal_id)
+        affected = await approve_proposal(session, PROPOSALS, first.proposal_id)
         await session.commit()
 
     outcome = await advisor.resolve_approval(
@@ -220,6 +226,7 @@ async def test_next_head_is_autoapproved_after_a_manual_save(e2e_harness):
 
 
 async def test_multi_step_request_can_be_autoapproved_one_proposal_at_a_time(e2e_harness):
+    """PR-AUTO-027 — tests/brd/proposals.feature"""
     card = await action(e2e_harness, "Enter university")
     async with e2e_harness.sessions() as session:
         tag = await create_tag(session, name="Study")
@@ -249,6 +256,7 @@ async def test_multi_step_request_can_be_autoapproved_one_proposal_at_a_time(e2e
 
 
 async def test_non_allowlisted_operation_does_not_call_the_reviewer(e2e_harness):
+    """PR-AUTO-025 — tests/brd/proposals.feature"""
     card = await action(e2e_harness)
 
     advisor, provider = e2e_harness.advisor(
@@ -263,3 +271,65 @@ async def test_non_allowlisted_operation_does_not_call_the_reviewer(e2e_harness)
     async with e2e_harness.sessions() as session:
         stored = await session.get(Card, card.id)
         assert stored is not None and stored.effective_stage == "backlog"
+
+
+async def test_autoapproval_that_cannot_decide_leaves_the_screen_standing(e2e_harness):
+    """PR-AUTO-026 — tests/brd/proposals.feature
+
+    The branch exists so a failure here costs the owner a button press, not their data.
+    """
+    card = await action(e2e_harness)
+    advisor, provider = e2e_harness.advisor(
+        [mutation_turn(("card", {"mode": "update", "id": card.id, "title": "Buy oat milk"}))],
+        autoapprove=True,
+    )
+
+    class UnreachableProvider:
+        async def complete(self, _request):
+            raise RuntimeError("the reviewer is unreachable")
+
+    advisor.autoapproval = AutoApprovalReviewer(UnreachableProvider())
+
+    outcome = await advisor.handle("Rename Buy milk to Buy oat milk")
+
+    assert outcome.kind == "proposal"
+    assert outcome.proposal_id is not None
+    assert len(provider.calls) == 1
+    async with e2e_harness.sessions() as session:
+        assert (await session.get(Card, card.id)).title == "Buy milk"
+        proposal = await session.get(ChangeProposal, outcome.proposal_id)
+        assert proposal is not None and proposal.status == ProposalStatus.PENDING.value
+
+
+async def test_the_third_in_a_queue_is_not_read_while_the_second_is_on_screen(e2e_harness):
+    """PR-AUTO-027 — tests/brd/proposals.feature"""
+    async with e2e_harness.sessions() as session:
+        tag = await create_tag(session, name="Work")
+        value = await create_value(session, name="Freedom")
+        await session.commit()
+    card = await action(e2e_harness)
+    advisor, provider = e2e_harness.advisor(
+        [
+            mutation_turn(
+                ("tag", {"mode": "update", "id": tag.id, "name": "Career"}),
+                ("value", {"mode": "update", "id": value.id, "name": "Autonomy"}),
+                ("card", {"mode": "update", "id": card.id, "title": "Buy oat milk"}),
+            ),
+            review_turn("autoapprove", "The requested Tag name is exact."),
+            review_turn("require_review", "The requested Value needs manual review."),
+        ],
+        autoapprove=True,
+    )
+
+    outcome = await advisor.handle("Rename the Work tag, the Freedom value and Buy milk")
+
+    assert outcome.kind == "proposal"
+    # One mutation turn and two reviews: the third was never put in front of autoapproval.
+    assert len(provider.calls) == 3
+    async with e2e_harness.sessions() as session:
+        assert (await session.get(Tag, tag.id)).name == "Career"
+        assert (await session.get(Value, value.id)).name == "Freedom"
+        assert (await session.get(Card, card.id)).title == "Buy milk"
+        batch = await session.scalar(select(ApprovalBatch))
+        assert batch is not None
+        assert [item["status"] for item in batch.queue] == ["approved", "pending", "pending"]

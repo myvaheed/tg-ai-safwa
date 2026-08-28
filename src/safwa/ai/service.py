@@ -7,7 +7,6 @@ import sqlite3
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import timedelta
 from typing import Any
 
 from pydantic import ValidationError
@@ -22,20 +21,14 @@ from ..constants import (
     RECEIPT_MEANINGS,
     SUBAGENT_DEADLINE_SECONDS,
     SUBAGENT_HISTORY_LAST_MESSAGES,
-    SUSPENDED_BATCH_LOOKUP_LIMIT,
 )
 from ..domain import (
     DomainError,
-    StaleStateError,
     utcnow,
-)
-from ..enums import (
-    ProposalStatus,
 )
 from ..features.continuity.memory import MemoryFileStore
 from ..features.diary.model import DiaryEntry
 from ..features.proposals.api import (
-    ApplyContext,
     MutationToolSpec,
     ProposalDescription,
     ProposalRegistry,
@@ -43,10 +36,20 @@ from ..features.proposals.api import (
     detail_lines,
     result_value,
 )
+from ..features.proposals.model import BatchStatus
+from ..features.proposals.reducer import INTERRUPTED
+from ..features.proposals.use_cases import (
+    decide_batch_item,
+    interrupt_batch,
+    live_batch_for_target,
+    prepare_proposal,
+    state_of,
+)
 from ..history import citation_payload, conversation_block
 from ..models import (
     AgentRun,
     AgentStep,
+    ApprovalBatch,
     Card,
     ChangeProposal,
     Check,
@@ -54,7 +57,6 @@ from ..models import (
     SavedRequest,
     Tag,
     Value,
-    Workspace,
 )
 from .autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
 from .context import DialogueMessage, board_context, ordered_owner_context
@@ -977,10 +979,9 @@ class AIAdvisor:
         """Whether this session still has a screen the owner could answer."""
         return (
             await session.scalar(
-                select(AgentStep.id).where(
-                    AgentStep.run_id == run_id,
-                    AgentStep.kind == "approval_batch",
-                    AgentStep.metadata_json["status"].as_string() == "pending",
+                select(ApprovalBatch.id).where(
+                    ApprovalBatch.run_id == run_id,
+                    ApprovalBatch.status == BatchStatus.PENDING.value,
                 )
             )
         ) is not None
@@ -1580,45 +1581,6 @@ class AIAdvisor:
             "next": "Wait for the user's review or approval; do not say it is complete.",
         }
 
-    async def _create_proposal(
-        self,
-        session: AsyncSession,
-        message: str,
-        tool: PendingTool,
-    ) -> ChangeProposal:
-        """Persist one prepared mutation tool call as its own reviewable proposal.
-
-        Every mutation call gets its own proposal screen, so a proposal always holds
-        exactly one change.  Cross-proposal references resolve by name against
-        committed data once the earlier proposal has been saved.
-        """
-        workspace = await session.get(Workspace, 1)
-        if workspace is None:
-            raise DomainError("Workspace is missing")
-        change = tool.change
-        if change is None:
-            raise DomainError("The proposal has no validated change to review")
-        prepared = await self.preparer.prepare(session, change)
-        proposal = ChangeProposal(
-            message=message,
-            workspace_revision=workspace.revision,
-            expires_at=utcnow() + timedelta(hours=24),
-        )
-        session.add(proposal)
-        await session.flush()
-        session.add(
-            ProposalChange(
-                proposal_id=proposal.id,
-                position=0,
-                entity=change.entity,
-                action=change.action,
-                entity_id=change.id,
-                expected_version=prepared.expected_version,
-                values=prepared.values,
-            )
-        )
-        return proposal
-
     def _raw_details(self, change: AgentChange | None) -> list[str]:
         """Field lines for a change that never reached a proposal row."""
         if change is None:
@@ -1722,7 +1684,12 @@ class AIAdvisor:
         async with self.sessions() as session:
             for tool in mutation_tools:
                 try:
-                    proposal = await self._create_proposal(session, result.message, tool)
+                    proposal = await prepare_proposal(
+                        session,
+                        self.preparer,
+                        message=result.message,
+                        change=tool.change,
+                    )
                 except ToolPreparationError as error:
                     failed_call_ids.add(tool.call.id)
                     preparation_results[tool.call.id] = error.as_tool_result()
@@ -1805,27 +1772,12 @@ class AIAdvisor:
                 if failed_call_ids:
                     agent.repair_rounds += 1
                 session.add(
-                    AgentStep(
+                    ApprovalBatch(
                         run_id=agent.run_id,
-                        position=max(
-                            (
-                                step.position
-                                for step in await session.scalars(
-                                    select(AgentStep).where(AgentStep.run_id == agent.run_id)
-                                )
-                            ),
-                            default=0,
-                        )
-                        + 1,
-                        kind="approval_batch",
-                        # The batch is the screens this suspension opened, nothing more:
-                        # what the session must remember to continue lives on its own row.
-                        metadata_json={
-                            "status": "pending",
-                            "repair_exhausted": repair_exhausted,
-                            "tool_calls": tool_results,
-                            "queue": queue,
-                        },
+                        status=BatchStatus.PENDING.value,
+                        repair_exhausted=repair_exhausted,
+                        tool_calls=tool_results,
+                        queue=queue,
                     )
                 )
                 run = await session.get(AgentRun, agent.run_id)
@@ -1865,19 +1817,11 @@ class AIAdvisor:
     ) -> tuple[int, AutoApprovalCandidate] | None:
         """Build the reviewer's request-only view for the active head of one batch."""
         async with self.sessions() as session:
-            batch = await self._pending_batch_for_target(session, "proposal", proposal_id)
+            batch = await live_batch_for_target(session, "proposal", proposal_id)
             if batch is None:
                 return None
-            metadata = dict(batch.metadata_json or {})
-            head = next(
-                (item for item in metadata.get("queue", []) if item.get("status") == "pending"),
-                None,
-            )
-            if (
-                head is None
-                or head.get("type") != "proposal"
-                or int(head.get("id", 0)) != proposal_id
-            ):
+            head = state_of(batch).head
+            if head is None or head.target != ("proposal", proposal_id):
                 return None
             change = await session.scalar(
                 select(ProposalChange).where(ProposalChange.proposal_id == proposal_id)
@@ -1930,7 +1874,7 @@ class AIAdvisor:
                 held_run_id=held_run_id,
             )
         except Exception as error:
-            # `apply_proposal` and the batch decision share one transaction. A failure
+            # `approve_proposal` and the batch decision share one transaction. A failure
             # therefore leaves the original pending proposal safe to render as-is.
             logger.warning(
                 "Autoapproval apply failed for proposal #%s; keeping manual review: %s",
@@ -1940,63 +1884,10 @@ class AIAdvisor:
             return outcome
         return advanced or AIOutcome("answer", "⚡ Auto-saved the proposed change.")
 
-    async def _pending_batch_for_target(
-        self,
-        session: AsyncSession,
-        target_type: str,
-        target_id: int,
-    ) -> AgentStep | None:
-        # Suspended batches are always recent: new dialogue cancels them, and a batch is
-        # closed the moment its last item resolves.  Filtering and bounding this in SQL
-        # keeps the lookup off the full agent-step history.
-        steps = list(
-            await session.scalars(
-                select(AgentStep)
-                .where(
-                    AgentStep.kind == "approval_batch",
-                    AgentStep.metadata_json["status"].as_string() == "pending",
-                )
-                .order_by(AgentStep.id.desc())
-                .limit(SUSPENDED_BATCH_LOOKUP_LIMIT)
-            )
-        )
-        for step in steps:
-            metadata = dict(step.metadata_json or {})
-            if any(
-                item.get("type") == target_type and int(item.get("id", 0)) == target_id
-                for item in metadata.get("queue", [])
-            ):
-                return step
-        return None
-
     async def has_pending_approval(self, target_type: str, target_id: int) -> bool:
         """Return whether a UI target belongs to a suspended agent turn."""
         async with self.sessions() as session:
-            return await self._pending_batch_for_target(session, target_type, target_id) is not None
-
-    async def _refresh_queued_proposal(
-        self,
-        session: AsyncSession,
-        proposal_id: int,
-    ) -> None:
-        """Snapshot a proposal when it becomes visible after earlier batch decisions."""
-        proposal = await session.get(ChangeProposal, proposal_id)
-        workspace = await session.get(Workspace, 1)
-        if proposal is None or workspace is None or proposal.status != ProposalStatus.PENDING.value:
-            return
-        proposal.workspace_revision = workspace.revision
-        changes = list(
-            await session.scalars(
-                select(ProposalChange).where(ProposalChange.proposal_id == proposal_id)
-            )
-        )
-        for change in changes:
-            handler = self.proposals.handlers.get(change.entity)
-            model = handler.version_model if handler is not None else None
-            if model is None or change.entity_id is None:
-                continue
-            entity = await session.get(model, change.entity_id)
-            change.expected_version = entity.version if entity is not None else None
+            return await live_batch_for_target(session, target_type, target_id) is not None
 
     async def resolve_approval(
         self,
@@ -2013,63 +1904,42 @@ class AIAdvisor:
         started = time.monotonic()
         next_outcome: AIOutcome | None = None
         async with self.sessions() as session:
-            batch = await self._pending_batch_for_target(session, target_type, target_id)
-            if batch is None:
+            decided = await decide_batch_item(
+                session,
+                self.proposals,
+                target_type,
+                target_id,
+                decision=decision,
+                apply_change=apply_proposal,
+                render=lambda tool, affected: _resolved_tool_result(
+                    tool,
+                    decision,
+                    {**result, "affected_ids": affected} if apply_proposal else result,
+                ),
+            )
+            if decided is None:
                 return None
-            if apply_proposal:
-                if target_type != "proposal" or decision != "approved":
-                    raise DomainError("Only an approved proposal can be applied while resolving")
-                affected = await ProposalService(session, self.proposals).apply(target_id)
-                result = {**result, "affected_ids": affected}
-            if decision == "failed" and target_type == "proposal":
-                proposal = await session.get(ChangeProposal, target_id)
-                if proposal is not None and proposal.status == ProposalStatus.PENDING.value:
-                    proposal.status = ProposalStatus.FAILED.value
-            metadata = dict(batch.metadata_json or {})
-            queue = [dict(item) for item in metadata.get("queue", [])]
-            tools = [dict(item) for item in metadata.get("tool_calls", [])]
-            resolved_call_ids: set[str] = set()
-            found = False
-            for item in queue:
-                if item.get("type") == target_type and int(item.get("id", 0)) == target_id:
-                    found = True
-                    if item.get("status") == "pending":
-                        item["status"] = decision
-                    resolved_call_ids.update(str(value) for value in item.get("call_ids", []))
-            if not found:
-                return None
-            for tool in tools:
-                if str(tool.get("id")) in resolved_call_ids:
-                    tool["status"] = "resolved"
-                    tool["result"] = _resolved_tool_result(tool, decision, result)
-            next_target = next((item for item in queue if item.get("status") == "pending"), None)
-            metadata.update({"queue": queue, "tool_calls": tools})
-            if next_target is not None:
-                if next_target.get("type") == "proposal":
-                    await self._refresh_queued_proposal(session, int(next_target["id"]))
-                metadata["status"] = "pending"
-                batch.metadata_json = metadata
+            tools = decided.tool_calls
+            if decided.next_target is not None:
                 await session.commit()
                 next_outcome = self._target_outcome(
                     "Review the next proposed change.",
-                    next_target,
+                    {"type": decided.next_target[0], "id": decided.next_target[1]},
                 )
             else:
                 # The queue is empty, so the batch has done its whole job.  Closing it and
                 # claiming the session in the same commit is what makes a crash here cost
                 # nothing: no half-open batch is left to route a later press into, and the
                 # session is left plainly interrupted.
-                metadata["status"] = "completed"
-                batch.metadata_json = metadata
                 run = await self._claim_session(
-                    session, batch.run_id, held_run_id=held_run_id
+                    session, decided.run_id, held_run_id=held_run_id
                 )
                 if run is None:
-                    logger.warning("Session #%s is already resuming", batch.run_id)
+                    logger.warning("Session #%s is already resuming", decided.run_id)
                     await session.commit()
                     return None
                 run_id = run.id
-                repair_exhausted = bool(metadata.get("repair_exhausted", False))
+                repair_exhausted = decided.repair_exhausted
                 agent, stored_transcript = AgentSession.restore(
                     run, self._tools_for(run.kind), self._read_specs_for(run.kind)
                 )
@@ -2146,33 +2016,10 @@ class AIAdvisor:
         results are folded into its transcript first, so it resumes on a settled record.
         """
         async with self.sessions() as session:
-            batch = await self._pending_batch_for_target(session, target_type, target_id)
+            batch = await interrupt_batch(session, target_type, target_id, reason=INTERRUPTED)
             if batch is None:
                 return None
-            metadata = dict(batch.metadata_json or {})
-            queue = [dict(item) for item in metadata.get("queue", [])]
-            tools = [dict(item) for item in metadata.get("tool_calls", [])]
-            pending_call_ids: set[str] = set()
-            for item in queue:
-                if item.get("status") != "pending":
-                    continue
-                item["status"] = "discarded"
-                pending_call_ids.update(str(value) for value in item.get("call_ids", []))
-                item_type = str(item.get("type"))
-                item_id = int(item.get("id", 0))
-                if item_type == "proposal":
-                    proposal = await session.get(ChangeProposal, item_id)
-                    if proposal is not None and proposal.status == ProposalStatus.PENDING.value:
-                        proposal.status = ProposalStatus.REJECTED.value
-            for tool in tools:
-                if str(tool.get("id")) in pending_call_ids:
-                    tool["status"] = "resolved"
-                    tool["result"] = {
-                        "status": "discarded",
-                        "reason": "The user continued with a new message.",
-                    }
-            metadata.update({"status": "cancelled", "queue": queue, "tool_calls": tools})
-            batch.metadata_json = metadata
+            tools = [dict(item) for item in batch.tool_calls or []]
             run = await session.get(AgentRun, batch.run_id)
             prior_summaries: list[str] = []
             if run is not None:
@@ -2236,51 +2083,3 @@ class AIAdvisor:
                 # The turn is over either way, so the session is free for the next resume.
                 run.claimed_at = None
                 await session.commit()
-
-
-class ProposalService:
-    """The orchestration a proposal needs whatever it changes.
-
-    The workspace and its revision, the optimistic lock and the ordered walk over the
-    stored changes are the same for every entity.  What each change means belongs to the
-    feature that owns it, and `apply` calls the same domain operations the manual UI calls.
-    """
-
-    def __init__(self, session: AsyncSession, proposals: ProposalRegistry) -> None:
-        self.session = session
-        self.proposals = proposals
-
-    async def apply(self, proposal_id: int, *, allow_destructive: bool = False) -> list[int]:
-        proposal = await self.session.get(ChangeProposal, proposal_id)
-        if proposal is None or proposal.status != ProposalStatus.PENDING.value:
-            raise DomainError("Proposal is no longer pending")
-        workspace = await self.session.get(Workspace, 1)
-        if workspace is None or workspace.revision != proposal.workspace_revision:
-            proposal.status = ProposalStatus.STALE.value
-            raise StaleStateError("Planning state changed; refresh this proposal")
-        changes = list(
-            await self.session.scalars(
-                select(ProposalChange)
-                .where(ProposalChange.proposal_id == proposal.id)
-                .order_by(ProposalChange.position)
-            )
-        )
-        context = ApplyContext(
-            session=self.session,
-            views=self.proposals.views,
-            allow_destructive=allow_destructive,
-        )
-        affected: list[int] = []
-        for change in changes:
-            try:
-                affected.extend(await self.proposals.handler(change.entity).apply(context, change))
-            except StaleStateError:
-                proposal.status = ProposalStatus.STALE.value
-                raise
-        proposal.status = ProposalStatus.APPROVED.value
-        return affected
-
-    async def reject(self, proposal_id: int) -> None:
-        proposal = await self.session.get(ChangeProposal, proposal_id)
-        if proposal and proposal.status == ProposalStatus.PENDING.value:
-            proposal.status = ProposalStatus.REJECTED.value

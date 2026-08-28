@@ -57,7 +57,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 3 | Pilot: Diary | business | **done** |
 | 4 | Leaf business batches | business | **done** — 4.a Continuity and Profile, 4.b Reminders, 4.c Saved Requests, 4.d Values and Tags |
 | 5 | Cards, Checks and the Sprint | business | **done** — 5.0 the board package (technical), 5.a Cards, 5.b stages, 5.c Checks, 5.d archiving, 5.e the archive as a mark, 5.f the heavy analyzer, 5.g a repeat's Values, 5.h Planning and the plan screen |
-| 6 | Proposals and the first reactive process | business | not started |
+| 6 | Proposals and the first reactive process | business | **done** — 6.a the typed batch and the reducer, 6.b the proposal use cases, 6.c interruption and autoapproval, 6.d the startup sweeps |
 | 7 | `agent_runtime` | technical + business | not started |
 | 8 | `telegram_llm` and `TurnManager` | technical | not started |
 | 9 | Packages and cleanup | technical | not started |
@@ -1590,3 +1590,215 @@ Reminder firing-history columns.
 
 `docs/brd/` remains temporary migration working material. The binding scenarios are under
 `tests/brd/`, and the whole packet directory is deleted when the refactoring migration ends.
+
+## Before starting Phase 6
+
+The plan's §9.2 names `ProposalService` the god-class and cites `service.py:2663`. That reference is
+stale: `ProposalService` is 46 lines at [ai/service.py](../src/safwa/ai/service.py), and
+the god-class is `AIAdvisor`. Read this section instead of that row.
+
+### The process, and where its identity is stored
+
+The §9.1 gate asks for the identity and where it is kept. It is the approval batch, today an
+`AgentStep` row with `kind="approval_batch"` and four untyped keys in `metadata_json`: `status`,
+`queue`, `tool_calls`, `repair_exhausted`. Not one legal combination of them is written down. Three
+writers touch it, all inside `AIAdvisor`: `_materialize` creates it, `resolve_approval` walks the
+queue, `cancel_approval_for_target` freezes it. `_pending_batch_for_target` finds it by scanning the
+agent's step log in JSON, bounded by `SUSPENDED_BATCH_LOOKUP_LIMIT`.
+
+That is `GenerationGuard` from §9.3, durable. The Manager is justified.
+
+### Three decisions taken before the phase opened
+
+- **The reducer is built now, the `StateFlow` is not.** `foundation/state_flow.py` is imported by no
+  module under `src/`. The subscriber appears in Phase 8, where the host translates a proposal state
+  into a `TurnAction`; a published flow with no reader until then is flexibility nobody asked for.
+  Phase 6 delivers the frozen union state and a pure `reduce`, and Phase 8 adds `as_state_flow()`.
+- **The batch gets its own table.** `AgentStep` is the agent's transcript log, and a batch is not a
+  step of a transcript — it is the process that suspends one. `approval_batches` carries `status` in
+  a column, which is what removes the JSON scan and its magic limit.
+- **Two scenario packets, not one.** `docs/brd/proposals.md` covers the lifecycle; the interruption
+  and autoapproval rules are their own packet. Each is approved on its own.
+
+### The seam with Phase 7
+
+`resolve_approval` is two functions in one, and the batch that blurs the line has swerved into
+Phase 7.
+
+- **Phase 6 owns** the batch record, the decision reducer, `prepare`, `approve`, `reject`, the stale
+  check, the expiry sweep, and finding a batch by its target.
+- **Phase 7 owns** `_claim_session`, `AgentSession.restore`, `_resumed_transcript`,
+  `_run_agent_loop` and `_finish_run`.
+
+The handover is "the queue is empty, here are the resolved `tool_calls`". A Phase 6 batch that
+touches `AgentSession` has crossed the seam.
+
+### One exit criterion is already met
+
+"Autoapproval calls the *same* confirmation use case" holds today: `_advance_autoapprovals` calls
+`resolve_approval` with `apply_proposal=True`. What is missing is the scenario, not the code.
+
+### The batches
+
+| # | What | Kind | State |
+|---|---|---|---|
+| 6.a | Packet one; the models move; the batch becomes a typed record; frozen state, `reduce`, table-driven transition tests | business | done |
+| 6.b | `prepare_proposal`, `approve_proposal`, `reject_proposal` as use cases; `ProposalService` deleted; `callbacks.py` and `_materialize` call them | business | done |
+| 6.c | Packet two; interruption and autoapproval over the same reducer; `decide_batch_item` and `interrupt_batch` cut at the seam | business | done |
+| 6.d | `expire_stale_proposals` and `cancel_batches_for_runs`, so `recovery.py` stops writing to the feature's own tables | technical | done |
+
+Target shape, using the file names the rules actually scan:
+
+```text
+features/proposals/
+  model.py       ChangeProposal, ProposalChange, ApprovalBatch, and the frozen BatchState,
+                 QueueItem, BatchAction and BatchEffect unions   (Rule C reads this file)
+  reducer.py     reduce(state, action) -> (state, effects), no I/O   (Rule D reads this file)
+  use_cases.py   prepare, approve, reject, cancel, expire, load and save the batch
+  api.py         unchanged
+```
+
+### Rules C and D stop being vacuous
+
+Both read 0 before this phase because the codebase had no reducer at all. Rule C now checks seven
+frozen classes in `proposals/model.py` and Rule D the one `reduce` in `proposals/reducer.py`.
+
+### What the numbers should do
+
+`ai/service.py` 2286 lines, target under 1800; DoD #3 from 5 to 4. `schema.json` moves on the three
+tables that migrate. **`prompt_prefix.json` must not move** — if it does, something volatile reached
+`messages[0]`; find it rather than regenerating.
+
+`tests/e2e/test_advisor_flow_e2e.py` is the insurance for Phases 6 to 8. It is added to, never
+traded for a faster unit test.
+
+### What the first packet settled
+
+[brd/proposals.md](brd/proposals.md) is packet one, written and ruled on 2026-08-28. Two things
+changed with it, and one was withdrawn.
+
+- **Save reads a proposal's age.** `expires_at` was written a day ahead and read by nothing but the
+  startup sweep, so the owner could press Save on an old proposal and never learn that nothing was
+  saved — the button's own 24-hour lifetime was doing a business rule's job. PR-STALE-013 makes the
+  refusal something the owner reads.
+- **A proposal keeps the right to hold several edits.** `proposal_changes` is an ordered list and
+  the screen has a branch that lists every row; nothing writes a second row today. Kept, because if
+  one ever holds several the owner has to see all of them before deciding.
+- **Withdrawn:** every screen in a queue repeating Safwa's prose for the whole request. That prose
+  is the plan, and seeing it again shows what is still left.
+
+The packet's own reachable trigger for a stale proposal is worth carrying here, because it is the
+one case where the board moves with nobody present: a Sprint closes itself once it passes its
+planned end date, on a background poll, and closing it also archives what has settled. A review
+screen is dismissed only by something the owner does, so one left standing overnight is still there
+in the morning, waiting on a board that moved without it.
+
+### What Phase 6 delivered
+
+`features/proposals/` owns the whole of a proposal now: `model.py` holds `ChangeProposal`,
+`ProposalChange` and the `ApprovalBatch` row beside the frozen `BatchState`, `QueueItem` and the
+action and effect unions; `reducer.py` holds the one `reduce`; `use_cases.py` holds prepare,
+approve, reject, the two batch resolutions, the queued-proposal snapshot and the two startup
+sweeps. Rules C and D read those two file names and are no longer vacuous.
+
+`recovery.py` stopped writing to the feature's own tables and calls `expire_stale_proposals` and
+`cancel_batches_for_runs` instead. Nothing outside the package writes a proposal or a batch.
+
+The seam with Phase 7 held: `decide_batch_item` and `interrupt_batch` return what happened to the
+batch, and claiming and resuming the paused session stayed in `ai/service.py`.
+
+`ai/service.py` went from 2286 lines to 2085 across the phase, the module graph from 656 edges to
+655, and cycles stayed at 0.
+
+Two scenario packets were approved: [brd/proposals.md](brd/proposals.md) and
+[brd/proposals_interrupted.md](brd/proposals_interrupted.md), 22 scenarios in
+`tests/brd/proposals.feature` and one in the new `tests/brd/screens.feature`.
+
+## Phase 7 notes: how an interruption is meant to work
+
+Ruled on 2026-08-28, while packet two of Phase 6 was being read. Phase 6 does not build any of it;
+these are the decisions Phase 7 starts from, so they are not derived a second time.
+
+### What the owner's words are
+
+Save, Discard and "no, call it Z" are three answers to one screen. Two of them resume the session
+that opened it and one does not, and that is the whole defect.
+
+- **Typed words resume the Advisor's turn.** They never start a new one, and they never reach a
+  subagent first: only the Advisor can tell whether they correct the proposal or change the subject.
+  `cancel_approval_for_target` stops setting the Advisor's run to `cancelled`.
+- The order is unchanged and stays below the model: the Telegram handler rejects the pending
+  proposals, closes the batch and freezes the screen into a report before anything is generated.
+  What changes is only what happens to the two suspended sessions afterwards.
+- The Advisor's pending `route` call is answered with what was proposed, what was rejected, what was
+  already saved, and the owner's words.
+
+### What each session's lifetime is
+
+- **A subagent session lives while its work is unfinished.** Save finishes it: it plays out, hands
+  back its receipt and closes, so a second `route` to the same subagent in the same turn gets a
+  fresh session. An interruption does not finish it, so it stays and keeps its own plan.
+- The turn that routed to it is the outer bound. When the Advisor's turn ends — answered or failed —
+  it closes its unfinished children by `parent_run_id`. That is a direct close at a known moment,
+  which is what lets `_close_lapsed_sessions` and its one-turn window be deleted rather than
+  re-keyed. `recovery.py` keeps its idle sweep for a process that died mid-turn.
+
+### `route` keeps carrying only a name
+
+No `instruction` field. A small model restating a task drops half of it or invents the other half,
+and the point of routing is that the subagent reads the conversation rather than a retelling.
+
+The interruption result is therefore written into the subagent's own transcript **in full** — the
+proposal it made, the refusal, and the owner's words. The words are also in the chat, but the
+conversation a subagent reads is a token budget, so a long exchange can push them out. The
+transcript is what makes it independent of that.
+
+Its text has to say the owner refused **and wrote instead**. On "rejected" alone the subagent reads
+its own transcript and proposes the same thing again.
+
+### What this removes
+
+The one-turn grace window, `_close_lapsed_sessions`, `_resume_suspended` on the interruption path,
+the walk that cancels the callers, and the hint that would have told the Advisor a subagent's
+proposal may have just been corrected. Five mechanisms, all compensating for one missing property:
+the Advisor's turn could not be resumed by words.
+
+It also ends a smaller wrong state. Today the kept subagent points at a cancelled parent until some
+later turn adopts it; with the turn resumed, the parent is the same run throughout.
+
+### The cost, accepted knowingly
+
+A subject change inside one turn: the owner interrupts "rename X" with "forget it, create Y", and
+the subagent resumes carrying the refused rename and its old plan while it creates Y. That history
+is bounded by the turn — the next owner message ends the turn with an answer, and the session dies
+with it.
+
+### The assumption this rests on, and what to do if it breaks
+
+Keeping the subagent's session is worth something only because its own plan is in its transcript.
+That plan is there as far as the model wrote it into `content`, or started it as calls it already
+made. A model that plans in a reasoning channel and emits a bare tool call with an empty `content`
+leaves nothing behind, and then a kept session is no better than a fresh one.
+
+Storing the reasoning is the wrong fix. There is nowhere to put it back: an OpenAI-compatible chat
+completion does not take reasoning in the messages it is sent, so it would have to go back as
+`content` — the model's private thinking returning as its own spoken turn. It is also long, and the
+transcript is replayed on every resume, which a local model pays for.
+
+Measure it first: after a suspension, whether `content` is empty on the assistant message that made
+the call. If it routinely is, the fix is a line in the subagent prompt — say in one line what you
+are about to do, then call the tool — which replays legally and costs a line.
+
+### Facts checked while deciding, so they are not checked again
+
+- `tool_count` and `repair_rounds` are in `state_json` and come back through `AgentSession.restore`,
+  so `MAX_TOOL_CALLS` already bounds a turn however many times it is interrupted. No separate cap on
+  interruptions is needed.
+- A proposal screen is `MessageKind.APPROVAL`, which never becomes dialogue. A subagent cannot learn
+  what it proposed from the conversation; only its own transcript holds that.
+- `_claim_session` claims on `claimed_at IS NULL` and never reads `status`, so `cancelled` is a
+  record rather than a guard.
+- There is no reasoning channel anywhere. `reasoning_effort` is a request option; `CompletionTurn`
+  carries `content`, `tool_calls` and `usage`, and nothing parses a separate reasoning field. A
+  session keeps a plan only as far as the model wrote it into `content` or into calls it already
+  made.

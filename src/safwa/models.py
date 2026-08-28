@@ -9,7 +9,6 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
-    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -18,7 +17,6 @@ from sqlalchemy.sql import func
 from .cues.model import Cue as Cue
 from .enums import (
     MessageKind,
-    ProposalStatus,
 )
 from .features.cards.model import Card as Card
 from .features.cards.model import CardCategory as CardCategory
@@ -34,6 +32,9 @@ from .features.diary.model import DiaryEntry as DiaryEntry
 from .features.planning.model import Sprint as Sprint
 from .features.planning.model import SprintCommitment as SprintCommitment
 from .features.profile.model import UserProfile as UserProfile
+from .features.proposals.model import ApprovalBatch as ApprovalBatch
+from .features.proposals.model import ChangeProposal as ChangeProposal
+from .features.proposals.model import ProposalChange as ProposalChange
 from .features.reminders.model import Reminder as Reminder
 from .features.saved_requests.model import SavedRequest as SavedRequest
 from .features.tags.model import CardTag as CardTag
@@ -43,29 +44,6 @@ from .features.values.model import CheckValue as CheckValue
 from .features.values.model import Value as Value
 from .foundation.models import Base, TimestampMixin
 from .foundation.models import Workspace as Workspace
-
-
-class ChangeProposal(Base, TimestampMixin):
-    __tablename__ = "change_proposals"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    message: Mapped[str] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(20), default=ProposalStatus.PENDING.value)
-    workspace_revision: Mapped[int] = mapped_column(Integer)
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-
-class ProposalChange(Base):
-    __tablename__ = "proposal_changes"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    proposal_id: Mapped[int] = mapped_column(
-        ForeignKey("change_proposals.id", ondelete="CASCADE"), index=True
-    )
-    position: Mapped[int] = mapped_column(Integer)
-    entity: Mapped[str] = mapped_column(String(30))
-    action: Mapped[str] = mapped_column(String(30))
-    entity_id: Mapped[int | None] = mapped_column(Integer)
-    expected_version: Mapped[int | None] = mapped_column(Integer)
-    values: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
 
 class AgentRun(Base, TimestampMixin):

@@ -10,7 +10,6 @@ from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.context import DialogueMessage
 from safwa.ai.mini import query_read_tool
-from safwa.ai.service import ProposalService
 from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.ai.subagents import RoutedSubagent
 from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS
@@ -19,7 +18,8 @@ from safwa.enums import CardKind
 from safwa.features.cards.model import CardStage
 from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
 from safwa.features.diary.model import DiaryEntry
-from safwa.models import AgentRun, AgentStep, Card
+from safwa.features.proposals.use_cases import approve_proposal
+from safwa.models import AgentRun, AgentStep, ApprovalBatch, Card
 
 TODAY = date.today().isoformat()
 
@@ -208,7 +208,7 @@ async def test_a_routed_subagent_proposes_for_itself(e2e_harness):
     async with e2e_harness.sessions() as session:
         runs = list(await session.scalars(select(AgentRun).order_by(AgentRun.id)))
         batch = await session.scalar(
-            select(AgentStep).where(AgentStep.kind == "approval_batch")
+            select(ApprovalBatch)
         )
     # The Diary session waits for the screen, and the Advisor waits for the Diary.
     assert [(run.kind, run.status, run.parent_run_id) for run in runs] == [
@@ -250,6 +250,7 @@ async def test_an_unknown_route_target_is_repaired_in_the_next_response(e2e_harn
 
 
 async def test_a_routed_subagent_is_offered_only_its_own_tools(e2e_harness):
+    """PR-WRITE-002 — tests/brd/proposals.feature"""
     advisor, provider = e2e_harness.advisor(
         [turn(("route", {"name": "diary"})), "Записал.", "Готово."],
         subagents=(diary_subagent(e2e_harness),),
@@ -265,6 +266,7 @@ async def test_a_routed_subagent_is_offered_only_its_own_tools(e2e_harness):
 
 
 async def test_the_board_owns_every_mutation_tool(e2e_harness):
+    """PR-WRITE-002 — tests/brd/proposals.feature"""
     advisor, provider = e2e_harness.advisor(
         [
             turn(("route", {"name": "board"})),
@@ -374,7 +376,7 @@ async def test_two_domains_in_one_request_are_both_finished(e2e_harness):
 
     # Saving resumes the board, whose receipt resumes the Advisor, which routes on.
     async with e2e_harness.sessions() as session:
-        affected = await ProposalService(session, PROPOSALS).apply(first.proposal_id)
+        affected = await approve_proposal(session, PROPOSALS, first.proposal_id)
         await session.commit()
     provider.responses.extend(
         [
@@ -467,7 +469,7 @@ async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
     )
     first = await advisor.handle("Переименуй действие и запиши день")
     async with e2e_harness.sessions() as session:
-        affected = await ProposalService(session, PROPOSALS).apply(first.proposal_id)
+        affected = await approve_proposal(session, PROPOSALS, first.proposal_id)
         await session.commit()
     provider.responses.extend(
         [

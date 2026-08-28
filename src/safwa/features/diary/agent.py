@@ -74,7 +74,8 @@ DIARY_PROMPT = """You keep the user's Diary. One day, one entry, in their own vo
      `ai_card_events(id, card_id, sprint_id, actor, operation, created_at)` — work done;
      `ai_checks(id, title, repeatable, status, resolved_at, series_id, card_id)` — what held;
      `ai_cards(id, title, kind, stage, priority, effort_points, parent_id)` — item names.
-3. Then call the tool once:
+3. Write one line saying what you are about to do.
+4. Use the `diary` tool:
    - `diary(mode="update", date=…, pov=…, remark=…, feeling_score=…)` — whether or not that day
      is written already. Fold in the saved entry: your `pov` replaces it, so what you leave out of
      `pov` is lost. `feeling_score` is the one exception — see below.

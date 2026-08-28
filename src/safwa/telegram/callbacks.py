@@ -10,7 +10,6 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..ai.service import ProposalService
 from ..domain import (
     DomainError,
     StaleStateError,
@@ -36,6 +35,7 @@ from ..enums import MessageKind, ProposalStatus
 from ..features.cards.model import CardStage
 from ..features.checks.model import CheckOutcome
 from ..features.checks.use_cases import toggle_check_value
+from ..features.proposals.use_cases import approve_proposal, reject_proposal
 from ..features.reminders.use_cases import delete_reminder
 from ..models import (
     CallbackToken,
@@ -1020,8 +1020,8 @@ async def _on_proposal_approve(context: CallbackContext) -> None:
         # Read the description before applying: its field lines diff against committed
         # state, which the apply is about to become.
         description = await context.services.advisor.describe_proposal(session, proposal_id)
-        affected = await ProposalService(session, context.services.advisor.proposals).apply(
-            proposal_id
+        affected = await approve_proposal(
+            session, context.services.advisor.proposals, proposal_id
         )
         await session.commit()
     if await continue_agent_approval(
@@ -1045,8 +1045,8 @@ async def _on_proposal_delete_confirm(context: CallbackContext) -> None:
     proposal_id = context.payload["id"]
     async with context.sessions() as session:
         description = await context.services.advisor.describe_proposal(session, proposal_id)
-        affected = await ProposalService(session, context.services.advisor.proposals).apply(
-            proposal_id, allow_destructive=True
+        affected = await approve_proposal(
+            session, context.services.advisor.proposals, proposal_id, allow_destructive=True
         )
         await session.commit()
     if await continue_agent_approval(
@@ -1075,7 +1075,7 @@ async def _on_proposal_reject(context: CallbackContext) -> None:
     proposal_id = context.payload["id"]
     async with context.sessions() as session:
         description = await context.services.advisor.describe_proposal(session, proposal_id)
-        await ProposalService(session, context.services.advisor.proposals).reject(proposal_id)
+        await reject_proposal(session, proposal_id)
         await session.commit()
     if await continue_agent_approval(
         context.message,

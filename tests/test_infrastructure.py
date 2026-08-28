@@ -10,7 +10,7 @@ from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
 from safwa.constants import SESSION_IDLE_DAYS
 from safwa.foundation.database import Database, upgrade_database
-from safwa.models import AgentRun, AgentStep, Base, Card, CardTag, Tag
+from safwa.models import AgentRun, ApprovalBatch, Base, Card, CardTag, Tag
 from safwa.recovery import recover_startup
 
 
@@ -54,12 +54,7 @@ async def test_startup_closes_a_session_left_waiting_past_its_screens(sessions):
         session.add_all([abandoned, waiting])
         await session.flush()
         session.add(
-            AgentStep(
-                run_id=abandoned.id,
-                position=1,
-                kind="approval_batch",
-                metadata_json={"status": "pending", "queue": []},
-            )
+            ApprovalBatch(run_id=abandoned.id, status="pending", queue=[], tool_calls=[])
         )
         await session.commit()
         await session.execute(
@@ -70,11 +65,11 @@ async def test_startup_closes_a_session_left_waiting_past_its_screens(sessions):
         await recover_startup(session)
         await session.commit()
 
-        step = await session.scalar(select(AgentStep))
+        batch = await session.scalar(select(ApprovalBatch))
         assert (await session.get(AgentRun, abandoned.id)).status == "abandoned"
         assert (await session.get(AgentRun, waiting.id)).status == "awaiting_approval"
     # The batch goes with the session: it is what a stray press would resolve into.
-    assert step.metadata_json["status"] == "cancelled"
+    assert batch.status == "cancelled"
 
 
 async def test_read_only_query_runner_reads_only_ai_views(tmp_path):

@@ -18,7 +18,7 @@ import safwa.features.profile.screens as profile_screens_source
 import safwa.telegram as telegram_source
 import safwa.telegram.plan as plan_module
 from safwa.ai.context import DialogueMessage
-from safwa.ai.service import AIOutcome, ProposalDescription, ProposalService
+from safwa.ai.service import AIOutcome, ProposalDescription
 from safwa.ai.sql import create_ai_views
 from safwa.asr import TranscriptionError, TranscriptionResult
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS
@@ -59,6 +59,7 @@ from safwa.features.profile.use_cases import (
     DIARY_REMINDER_INSTRUCTION,
     set_profile_field,
 )
+from safwa.features.proposals.use_cases import approve_proposal
 from safwa.features.reminders.schedule import resolve
 from safwa.features.reminders.use_cases import create_reminder
 from safwa.features.saved_requests.use_cases import (
@@ -491,6 +492,7 @@ async def test_proposal_ui_releases_generation_guard_before_continuity_work(sess
 
 
 async def test_new_dialogue_discards_and_freezes_pending_proposal(sessions) -> None:
+    """PR-INTERRUPT-017 — tests/brd/proposals.feature"""
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
         proposal = ChangeProposal(
@@ -555,7 +557,10 @@ async def test_new_dialogue_discards_and_freezes_pending_proposal(sessions) -> N
 
 
 async def test_a_command_dismisses_every_other_screen(sessions) -> None:
-    """A command is the owner walking away, so the middleware answers the open screens."""
+    """SC-LIVE-001 — tests/brd/screens.feature
+
+    A command is the owner walking away, so the middleware answers the open screens.
+    """
     from safwa.telegram.commands import dismiss_screens_before_a_command
 
     async with sessions() as session:
@@ -597,6 +602,132 @@ async def test_a_command_dismisses_every_other_screen(sessions) -> None:
     # Ordinary text dismisses from `ordinary_text`, after its live-editor branches.
     assert handled == ["/today", "Not a command"]
     assert sorted(bot.deleted) == [20, 40]
+
+
+async def test_the_screen_the_owner_walked_into_is_left_alone(sessions) -> None:
+    """SC-LIVE-001 — tests/brd/screens.feature
+
+    The selector is every *other* screen, so the one the event belongs to is redrawn in
+    place rather than taken away underneath the owner.
+    """
+    async with sessions() as session:
+        workspace = await session.get(Workspace, 1)
+        proposal = ChangeProposal(
+            message="Rename the Tag",
+            workspace_revision=workspace.revision,
+            status="pending",
+        )
+        session.add(proposal)
+        await session.flush()
+        session.add(
+            ProposalChange(
+                proposal_id=proposal.id,
+                position=0,
+                entity="tag",
+                action="update",
+                entity_id=9,
+                expected_version=1,
+                values={"name": "Family"},
+            )
+        )
+        session.add_all(
+            [
+                TelegramMessage(
+                    chat_id=700,
+                    message_id=10,
+                    direction="out",
+                    kind=MessageKind.APPROVAL.value,
+                    related_id=proposal.id,
+                ),
+                TelegramMessage(
+                    chat_id=700,
+                    message_id=9,
+                    direction="out",
+                    kind=MessageKind.DASHBOARD.value,
+                ),
+            ]
+        )
+        await session.commit()
+
+    bot = FakeBot()
+    dashboard = FakeMessage(9, bot_message=True, bot=bot)
+    await dismiss_prior_ui(dashboard, services_for(sessions, advisor=StubAdvisor()))
+
+    assert bot.deleted == []
+    assert bot.edits[0][0] == 10
+    assert "🗑 Discarded" in bot.edits[0][1]
+
+
+async def test_typed_words_end_the_review_and_are_then_answered(sessions) -> None:
+    """PR-INTERRUPT-017 — tests/brd/proposals.feature
+
+    Ending the review is half of it. The words that ended it are the next request.
+    """
+    async with sessions() as session:
+        workspace = await session.get(Workspace, 1)
+        proposal = ChangeProposal(
+            message="Rename the Tag",
+            workspace_revision=workspace.revision,
+            status="pending",
+        )
+        session.add(proposal)
+        await session.flush()
+        session.add(
+            ProposalChange(
+                proposal_id=proposal.id,
+                position=0,
+                entity="tag",
+                action="update",
+                entity_id=9,
+                expected_version=1,
+                values={"name": "Family"},
+            )
+        )
+        session.add(
+            TelegramMessage(
+                chat_id=700,
+                message_id=10,
+                direction="out",
+                kind=MessageKind.APPROVAL.value,
+                related_id=proposal.id,
+            )
+        )
+        await session.commit()
+        proposal_id = proposal.id
+
+    asked: list[str] = []
+
+    class Advisor(StubAdvisor):
+        async def handle(self, text, *_args, **_kwargs):
+            asked.append(text)
+            return AIOutcome("answer", "Called it Home instead.")
+
+    class History:
+        async def dialogue(self, *_args, **_kwargs):
+            return [DialogueMessage(role="user", content="[Initial request]: Rename the Tag")]
+
+    class Continuity:
+        async def maybe_summarize(self, *_args, **_kwargs):
+            return None
+
+    bot = FakeBot()
+    services = SimpleNamespace(
+        sessions=sessions,
+        owner_id=42,
+        guard=GenerationGuard(),
+        advisor=Advisor(),
+        history=History(),
+        continuity=Continuity(),
+    )
+    message = FakeMessage(11, text="No, call it Home", bot_message=False, bot=bot)
+
+    await ordinary_text(message, services)
+
+    assert asked == ["No, call it Home"]
+    assert bot.edits[0][0] == 10
+    assert "🗑 Discarded" in bot.edits[0][1]
+    async with sessions() as session:
+        assert (await session.get(ChangeProposal, proposal_id)).status == "rejected"
 
 
 async def test_tag_field_input_reuses_editor_message_and_deletes_input(sessions) -> None:
@@ -2144,7 +2275,7 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
         card_id = card.id
 
     async with sessions() as session:
-        affected = await ProposalService(session, PROPOSALS).apply(proposal_id)
+        affected = await approve_proposal(session, PROPOSALS, proposal_id)
         await session.commit()
 
     assert affected == [card_id]

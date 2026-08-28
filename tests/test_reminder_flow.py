@@ -33,7 +33,7 @@ from safwa.features.reminders.use_cases import (
 )
 from safwa.models import (
     AgentRun,
-    AgentStep,
+    ApprovalBatch,
     ChangeProposal,
     Reminder,
     TelegramMessage,
@@ -549,19 +549,12 @@ async def test_an_open_question_of_any_shape_closes_the_gate(sessions):
         run = AgentRun(status="running", provider="scripted", model="test")
         session.add(run)
         await session.flush()
-        session.add(
-            AgentStep(
-                run_id=run.id,
-                position=1,
-                kind="approval_batch",
-                metadata_json={"status": "pending"},
-            )
-        )
+        session.add(ApprovalBatch(run_id=run.id, status="pending", queue=[], tool_calls=[]))
         await session.commit()
     assert await runtime.can_speak() is False
     async with sessions() as session:
-        step = await session.scalar(select(AgentStep))
-        step.metadata_json = {"status": "resolved"}
+        batch = await session.scalar(select(ApprovalBatch))
+        batch.status = "completed"
         await session.commit()
 
     async with sessions() as session:

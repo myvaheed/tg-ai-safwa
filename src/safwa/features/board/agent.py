@@ -28,8 +28,9 @@ propose against them.
 
 # How a turn goes
 1. Read what you need with `query_safwa`. Never put it in the same response as a mutation tool.
-2. Call one mutation tool per change. Its `mode` is the action, and its schema lists the modes and values that tool takes.
-3. Write one short sentence naming what you proposed, and nothing else: the interface prints the Saved/Discarded/Failed receipt itself.
+2. Write one line saying what you are about to do.
+3. Use the mutation tools. A tool's `mode` is the action, and its schema lists the modes and values it takes.
+4. Write one short sentence naming what you proposed, and nothing else: the interface prints the Saved/Discarded/Failed receipt itself.
 
 # Cards
 - `goal` is root-only; `idea` is root or under a Goal; `action` is root or under a Goal or Idea and

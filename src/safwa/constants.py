@@ -35,7 +35,9 @@ CONTEXT_CRITICAL_CARD_LIMIT = 10
 # --- AI agent loop --------------------------------------------------------
 MAX_TOOL_CALLS = 64
 MAX_REPAIR_ROUNDS = 5
-SUSPENDED_BATCH_LOOKUP_LIMIT = 50
+# A screen the owner never answered stops being saveable after this long: it was prepared
+# against a board that has had a day to move without it.
+PROPOSAL_EXPIRY_HOURS = 24
 # A session waiting on a screen is abandoned once its proposal can no longer be acted on;
 # the proposal expires in a day, so two is past every screen the owner could still answer.
 SESSION_IDLE_DAYS = 2

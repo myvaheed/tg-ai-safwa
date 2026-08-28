@@ -89,7 +89,10 @@ async def test_pl_start_005_a_sprint_runs_the_length_settings_asked_for(sessions
         sprint = await start_sprint(session, success_criteria="Ship v2")
 
         assert (sprint.planned_end_date - sprint.planned_start_date).days == 6
-        assert sprint.planned_start_date == sprint.actual_started_at.date()
+        # A Sprint starts on the owner's day, which is not the UTC one all evening.
+        workspace = await session.get(Workspace, 1)
+        local = sprint.actual_started_at.astimezone(ZoneInfo(workspace.timezone))
+        assert sprint.planned_start_date == local.date()
 
 
 async def test_pl_start_005_the_default_length_is_the_constant(sessions):

@@ -9,10 +9,10 @@ from test_subagent_e2e import diary_subagent
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.ai.service import ProposalService
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.diary.model import DiaryEntry
 from safwa.features.diary.use_cases import create_diary_entry
+from safwa.features.proposals.use_cases import approve_proposal
 from safwa.models import AgentRun
 
 pytestmark = pytest.mark.e2e
@@ -37,7 +37,7 @@ def write(date_value: str, pov: str, **extra: object) -> ProviderTurn:
 async def _save(harness, advisor, proposal_id: int) -> tuple[list[int], object]:
     async with harness.sessions() as session:
         description = await advisor.describe_proposal(session, proposal_id)
-        affected = await ProposalService(session, PROPOSALS).apply(proposal_id)
+        affected = await approve_proposal(session, PROPOSALS, proposal_id)
         await session.commit()
     return affected, description
 

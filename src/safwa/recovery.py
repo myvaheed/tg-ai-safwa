@@ -7,12 +7,10 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .constants import SESSION_IDLE_DAYS
-from .enums import ProposalStatus
+from .features.proposals.use_cases import cancel_batches_for_runs, expire_stale_proposals
 from .models import (
     AgentRun,
-    AgentStep,
     CallbackToken,
-    ChangeProposal,
     UiSession,
 )
 
@@ -34,15 +32,7 @@ async def recover_startup(
         .values(status="interrupted", claimed_at=None)
     )
     await _close_abandoned_sessions(session, now=now)
-    await session.execute(
-        update(ChangeProposal)
-        .where(
-            ChangeProposal.status == ProposalStatus.PENDING.value,
-            ChangeProposal.expires_at.is_not(None),
-            ChangeProposal.expires_at < now,
-        )
-        .values(status=ProposalStatus.STALE.value)
-    )
+    await expire_stale_proposals(session, now=now)
     await session.execute(delete(CallbackToken).where(CallbackToken.expires_at < now))
     await session.execute(delete(UiSession).where(UiSession.expires_at < now))
 
@@ -66,16 +56,4 @@ async def _close_abandoned_sessions(session: AsyncSession, *, now: datetime) -> 
     for run in abandoned:
         run.status = "abandoned"
         run.claimed_at = None
-    if not abandoned:
-        return
-    steps = list(
-        await session.scalars(
-            select(AgentStep).where(
-                AgentStep.kind == "approval_batch",
-                AgentStep.run_id.in_([run.id for run in abandoned]),
-                AgentStep.metadata_json["status"].as_string() == "pending",
-            )
-        )
-    )
-    for step in steps:
-        step.metadata_json = {**dict(step.metadata_json or {}), "status": "cancelled"}
+    await cancel_batches_for_runs(session, [run.id for run in abandoned])

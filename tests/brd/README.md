@@ -22,7 +22,8 @@ nothing a reader can use, and a package whose scenarios all share one topic has 
 carefully enough to say what each of them is about.
 
 One `.feature` file is one package under `src/safwa/features/`, so a rule and the code that keeps
-it are found in one place. The prefix names that package, never a group of them: `PL` used to cover
+it are found in one place. `screens.feature` is the one exception: it is owned by
+`src/safwa/telegram`, which Phase 8 turns into a package of its own. The prefix names that package, never a group of them: `PL` used to cover
 Cards, Checks, Values, Tags and the Sprint at once, which meant five packages sharing one numbering
 line and no way to read an identifier and know where its code lives.
 
@@ -35,6 +36,7 @@ line and no way to read an identifier and know where its code lives.
 | Planning — the Sprint and the mode without one | `PL` | Diary | `DI` |
 | Reminders | `RM` | Saved Requests | `SR` |
 | Profile and Settings | `PS` | The heavy analyzer | `HAN` |
+| Screens | `SC` | | |
 
 `tests/test_brd_traceability.py` reads this table, so a prefix that is not in it is not a
 scenario identifier.

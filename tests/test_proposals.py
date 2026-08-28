@@ -5,21 +5,30 @@ Every test here is evidence for one scenario in `tests/brd/proposals.feature`.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import pytest
 
 from safwa.ai.prepare import ChangePreparer
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.domain import (
+    StaleStateError,
     archive_check,
     archive_subtree,
     create_card,
     create_check,
+    expire_due_sprint,
     finish_action,
     resolve_check,
+    start_sprint,
 )
 from safwa.features.cards.model import CardStage
 from safwa.features.checks.model import CheckOutcome
 from safwa.features.proposals.api import ToolPreparationError
+from safwa.features.proposals.use_cases import approve_proposal, prepare_proposal
+from safwa.foundation.clock import utcnow
+from safwa.models import Card, ChangeProposal
+from safwa.recovery import recover_startup
 
 
 async def _refused(session, tool: str, arguments: dict) -> ToolPreparationError:
@@ -66,3 +75,104 @@ async def test_pr_target_001_an_id_that_matches_nothing_is_a_different_refusal(s
         assert error.code == "target_not_found"
         assert str(error) == "Card #999 does not exist."
         assert "Find the current numeric ID with query_safwa" in error.hint
+
+
+async def _proposal_for(session, tool: str, arguments: dict) -> ChangeProposal:
+    """One prepared change, stored the way a mutation tool call stores it."""
+    return await prepare_proposal(
+        session,
+        ChangePreparer(None, None, PROPOSALS),  # type: ignore[arg-type]
+        message="Safwa proposed this",
+        change=PROPOSALS.change_from_tool(tool, arguments),
+    )
+
+
+async def test_a_sprint_closing_itself_overnight_refuses_the_waiting_proposal(sessions):
+    """PR-STALE-012 — tests/brd/proposals.feature"""
+    async with sessions() as session:
+        card = await create_card(
+            session, kind="action", title="Walk", effort_points=2, stage="today"
+        )
+        await start_sprint(
+            session,
+            success_criteria="Walk every day",
+            start_date=date.today() - timedelta(days=14),
+            length_days=7,
+        )
+        await session.commit()
+
+        proposal = await _proposal_for(
+            session, "card", {"mode": "update", "id": card.id, "title": "Walk more"}
+        )
+        await session.commit()
+
+        assert await expire_due_sprint(session) is not None
+        await session.commit()
+
+        with pytest.raises(StaleStateError):
+            await approve_proposal(session, PROPOSALS, proposal.id)
+        await session.commit()
+
+    async with sessions() as session:
+        assert (await session.get(ChangeProposal, proposal.id)).status == "stale"
+        assert (await session.get(Card, card.id)).title == "Walk"
+
+async def test_a_proposal_older_than_a_day_refuses_to_save(sessions):
+    """PR-STALE-013 — tests/brd/proposals.feature"""
+    async with sessions() as session:
+        card = await create_card(
+            session, kind="action", title="Walk", effort_points=2, stage="today"
+        )
+        old = await _proposal_for(
+            session, "card", {"mode": "update", "id": card.id, "title": "Walk more"}
+        )
+        await session.commit()
+        old.expires_at = utcnow() - timedelta(minutes=1)
+        await session.commit()
+
+        with pytest.raises(StaleStateError) as refused:
+            await approve_proposal(session, PROPOSALS, old.id)
+        await session.commit()
+
+    assert "propose it again" in str(refused.value)
+    async with sessions() as session:
+        assert (await session.get(ChangeProposal, old.id)).status == "stale"
+        assert (await session.get(Card, card.id)).title == "Walk"
+
+    async with sessions() as session:
+        fresh = await _proposal_for(
+            session, "card", {"mode": "update", "id": card.id, "title": "Walk further"}
+        )
+        await session.commit()
+        # An hour of the day is left, so this one is still the owner's to answer.
+        fresh.expires_at = utcnow() + timedelta(hours=1)
+        await approve_proposal(session, PROPOSALS, fresh.id)
+        await session.commit()
+
+    async with sessions() as session:
+        assert (await session.get(Card, card.id)).title == "Walk further"
+
+
+async def test_startup_makes_an_unanswered_proposal_too_old_to_save(sessions):
+    """PR-STALE-013 — tests/brd/proposals.feature"""
+    async with sessions() as session:
+        card = await create_card(
+            session, kind="action", title="Walk", effort_points=2, stage="today"
+        )
+        old = await _proposal_for(
+            session, "card", {"mode": "update", "id": card.id, "title": "Walk more"}
+        )
+        fresh = await _proposal_for(
+            session, "card", {"mode": "update", "id": card.id, "title": "Walk further"}
+        )
+        await session.commit()
+        old.expires_at = utcnow() - timedelta(hours=1)
+        fresh.expires_at = utcnow() + timedelta(hours=1)
+        await session.commit()
+
+        await recover_startup(session)
+        await session.commit()
+
+    async with sessions() as session:
+        assert (await session.get(ChangeProposal, old.id)).status == "stale"
+        assert (await session.get(ChangeProposal, fresh.id)).status == "pending"
