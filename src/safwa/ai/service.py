@@ -33,19 +33,23 @@ from ..features.proposals.api import (
     ProposalDescription,
     ProposalRegistry,
     ToolPreparationError,
-    detail_lines,
-    result_value,
 )
 from ..features.proposals.model import (
     AUTO_SAVED_RECEIPT,
-    DECISION_RECEIPTS,
     RECEIPT_MEANINGS,
     BatchDecision,
     ChangeAction,
-    ProposalChange,
     QueueItem,
 )
 from ..features.proposals.reducer import INTERRUPTED
+from ..features.proposals.render import (
+    AUTOAPPROVED,
+    ProposalRenderer,
+    compose_display_outcome,
+    resolved_tool_result,
+    results_summary,
+    with_queued_siblings,
+)
 from ..features.proposals.store import ProposalStore
 from ..features.proposals.use_cases import (
     decide_batch_item,
@@ -392,112 +396,6 @@ def _flatten_content(content: Any) -> str:
     return str(content or "")
 
 
-def _approval_change_label(tool: dict[str, Any]) -> str:
-    change = dict(tool.get("change") or {})
-    entity = str(change.get("entity", tool.get("name", "item"))).title()
-    action = str(change.get("action", "change")).title()
-    entity_id = change.get("id")
-    values = dict(change.get("values") or {})
-    label = f"{action} {entity}"
-    if entity_id is not None:
-        label += f" #{entity_id}"
-    name = values.get("name") or values.get("title")
-    if name:
-        label += f" “{result_value(name)}”"
-    if values.get("tag_query"):
-        label += f" → Tag “{result_value(values['tag_query'])}”"
-    elif values.get("value_query"):
-        label += f" → Value “{result_value(values['value_query'])}”"
-    elif values.get("stage"):
-        label += f" → {result_value(values['stage']).title()}"
-    return label
-
-
-# What the owner reads under a resolved call. A decision has its own line; a call that
-# never reached a screen failed before one, and reads the same as one that failed on Save.
-_RESULT_RECEIPTS = {
-    **{decision.value: receipt for decision, receipt in DECISION_RECEIPTS.items()},
-    ToolResultStatus.ERROR.value: DECISION_RECEIPTS[BatchDecision.FAILED],
-}
-
-# The reviewer saved it, so "you decided this" would be wrong in the reply.
-AUTOAPPROVED = "auto"
-
-
-def _approval_results_summary(
-    tools: list[dict[str, Any]],
-    *,
-    include_preparation_errors: bool = True,
-    for_display: bool = False,
-) -> str:
-    """Render one queue receipt.
-
-    The owner and the model need different things from the same tools: the model reads
-    IDs and every resolved field so it does not repeat its own work, while the owner
-    reads one sentence per change.  ``for_display`` picks the short form, which comes
-    from the ``display`` line built while the proposal still had a session.
-    """
-    lines = [] if for_display else ["Proposal results:"]
-    for tool in tools:
-        # Only mutation calls store a dict result; a read call in the same suspended
-        # turn stores its rows as a list, which must not be read as an outcome.
-        stored_result = tool.get("result")
-        result = stored_result if isinstance(stored_result, dict) else {}
-        if not include_preparation_errors and not tool.get("proposal_id"):
-            continue
-        if not tool.get("proposal_id") and (
-            not tool.get("change") or result.get("status") != ToolResultStatus.ERROR
-        ):
-            continue
-        status = str(result.get("status", BatchDecision.FAILED))
-        prefix = _RESULT_RECEIPTS.get(status, f"⚠️ {status.title()}")
-        if status == BatchDecision.APPROVED and result.get("approval_source") == AUTOAPPROVED:
-            prefix = AUTO_SAVED_RECEIPT
-        if for_display:
-            line = f"{prefix} — " + (
-                str(tool.get("display") or "") or _approval_change_label(tool)
-            )
-        else:
-            line = f"{prefix} — {_approval_change_label(tool)}"
-            affected_ids = result.get("affected_ids") or []
-            if status == BatchDecision.APPROVED and affected_ids:
-                line += " [result ID" + ("s" if len(affected_ids) != 1 else "") + ": "
-                line += ", ".join(f"#{item}" for item in affected_ids) + "]"
-        error = result.get("error")
-        if error:
-            line += f": {result_value(error)}"
-        lines.append(line)
-        if not for_display:
-            # The detail lines carry what Safwa resolved rather than what the model sent:
-            # parent_query/tag_query turned into IDs, and old → new values for an edit.
-            # Trimming them for saved items costs the model information and invites repeats.
-            lines.extend(f"  • {detail}" for detail in tool.get("details") or [])
-    return "\n".join(lines) if lines and (for_display or len(lines) > 1) else ""
-
-
-def _safe_approval_results_summary(
-    tools: list[dict[str, Any]],
-    *,
-    include_preparation_errors: bool = True,
-    for_display: bool = False,
-) -> str:
-    """Render the queue receipt, or nothing when rendering itself fails.
-
-    By the time this runs the approved changes are already committed, so a defect in
-    one label must never abort the turn that reports them back to the owner and to
-    the model.
-    """
-    try:
-        return _approval_results_summary(
-            tools,
-            include_preparation_errors=include_preparation_errors,
-            for_display=for_display,
-        )
-    except Exception:
-        logger.exception("Could not render the approval result summary")
-        return ""
-
-
 def _route_receipt(
     name: str,
     message: str,
@@ -528,96 +426,6 @@ def _route_receipt(
     if error:
         receipt["error"] = error
     return receipt
-
-
-def _compose_display_outcome(message: str, summaries: list[str]) -> str:
-    """Attach each application-owned result receipt exactly once.
-
-    The interface, rather than the model, owns Saved/Discarded/Failed receipts.  Approval
-    batches can accumulate overlapping summary blocks, and a provider may still echo a
-    receipt in wording of its own.  Anything that opens with a receipt prefix is therefore
-    dropped from the body, not only a line that matches one of ours character for
-    character.
-    """
-    receipt_lines: list[str] = []
-    for summary in summaries:
-        for raw_line in summary.splitlines():
-            line = raw_line.strip()
-            if line and line not in receipt_lines:
-                receipt_lines.append(line)
-
-    body = message.strip()
-    if not receipt_lines:
-        return body
-    body_lines = [
-        line for line in body.splitlines() if not line.strip().startswith(tuple(RECEIPT_MEANINGS))
-    ]
-    body = "\n".join(body_lines).strip()
-    receipt = "\n".join(receipt_lines)
-    return f"{receipt}\n\n{body}" if body else receipt
-
-
-def _with_queued_siblings(result: Any, queued: int) -> Any:
-    """Tell a failed call that the request's valid calls are still queued for review.
-
-    One failed preparation never cancels its siblings, and the model has to know that
-    before it retries.  Saying it here keeps it off a request that has no failures.
-    """
-    if not queued or not isinstance(result, dict) or result.get("status") != ToolResultStatus.ERROR:
-        return result
-    return {
-        **result,
-        "next": (
-            f"{queued} other call(s) from this request were prepared and are queued for review; "
-            "they were not cancelled. Wait for their results, then retry only this call."
-        ),
-    }
-
-
-_DECISION_NEXT_STEPS = {
-    BatchDecision.APPROVED: (
-        "This change is saved. Do not propose it again. Continue with the parts of the "
-        "user's request that are still unfinished, then answer."
-    ),
-    BatchDecision.DISCARDED: (
-        "The user rejected this change, so it does not exist. Do not retry it unless the "
-        "user asks again. Continue with the rest of the request, then answer."
-    ),
-    BatchDecision.FAILED: (
-        "Applying this change failed, so nothing was written for it. Read `error`, fix only "
-        "this call, and retry it once; every other resolved call in this request stands."
-    ),
-}
-
-
-def _resolved_tool_result(
-    tool: dict[str, Any], decision: BatchDecision, result: dict[str, Any]
-) -> dict[str, Any]:
-    """Describe one resolved queue item in the tool message the model reads back.
-
-    A bare ``{"status": "approved", "affected_ids": [9]}`` says nothing about *what* was
-    saved, which is how a resumed turn ends up repeating or misreporting its own work.
-    """
-    payload: dict[str, Any] = {"status": decision.value, **_json_safe(result)}
-    change = dict(tool.get("change") or {})
-    if change.get("entity"):
-        payload["entity"] = change["entity"]
-    if change.get("action"):
-        payload["action"] = change["action"]
-    try:
-        payload["summary"] = _approval_change_label(tool)
-    except Exception:  # a label defect must never break an already-committed change
-        logger.exception("Could not label a resolved approval queue item")
-    details = list(tool.get("details") or [])
-    if details:
-        payload["fields"] = details
-    payload["next"] = _DECISION_NEXT_STEPS.get(
-        decision, "Continue with the rest of the user's request."
-    )
-    if decision is BatchDecision.APPROVED and result.get("approval_source") == AUTOAPPROVED:
-        # The user pressed nothing, so "you saved it" would be wrong in the reply.
-        payload["next"] = "Safwa saved this one itself; the user did not decide. " + payload["next"]
-    return payload
 
 
 def _resumed_transcript(
@@ -723,6 +531,7 @@ class AIAdvisor:
         # Every review this process still owes an answer to. It is memory, not a table: a
         # restart is what ends them, and nothing outside this process ever reads one.
         self.reviews = reviews if reviews is not None else ProposalStore()
+        self.review_view = ProposalRenderer(self.reviews, self.proposals)
         self.preparer = ChangePreparer(provider, query_runner, proposals)
         # An empty roster means there is nothing to route to, so the tool is not offered.
         self.tools = (*SAFWA_TOOLS, ROUTE_TOOL) if subagents else SAFWA_TOOLS
@@ -817,7 +626,7 @@ class AIAdvisor:
         """
         if agent.parent_run_id is not None:
             return AIOutcome(AIOutcomeKind.ANSWER, message)
-        composed = _compose_display_outcome(message, agent.display_result_summaries)
+        composed = compose_display_outcome(message, agent.display_result_summaries)
         return AIOutcome(
             AIOutcomeKind.ANSWER,
             composed or "⚠️ Safwa had nothing to say about that. You can ask again.",
@@ -843,7 +652,7 @@ class AIAdvisor:
         # The caller is already resuming elsewhere; the owner still gets the receipts.
         return AIOutcome(
             AIOutcomeKind.ANSWER,
-            _compose_display_outcome(outcome.message, agent.display_result_summaries)
+            compose_display_outcome(outcome.message, agent.display_result_summaries)
             or "✅ Done.",
         )
 
@@ -1611,85 +1420,11 @@ class AIAdvisor:
             "next": "Wait for the user's review or approval; do not say it is complete.",
         }
 
-    def _raw_details(self, change: AgentChange | None) -> list[str]:
-        """Field lines for a change that never reached a proposal row."""
-        if change is None:
-            return []
-        presenter = self.proposals.presenter(change.entity)
-        if presenter is None:
-            return detail_lines(dict(change.values))
-        return presenter.raw_details(change)
-
-    async def _proposal_display_line(
-        self,
-        session: AsyncSession,
-        proposal_id: int,
-        fallback: AgentChange | None,
-        details: list[str],
-    ) -> str:
-        """One sentence describing a proposal the way the owner reads it.
-
-        The model still gets `details`; this line trades their IDs for the names the
-        owner recognises, so a receipt says which Tag landed on which Card.
-        """
-        change = self._only_change(proposal_id)
-        if change is None:
-            return _approval_change_label(
-                {
-                    "change": {
-                        "entity": fallback.entity,
-                        "action": fallback.action,
-                        "id": fallback.id,
-                        "values": fallback.values,
-                    }
-                    if fallback is not None
-                    else None
-                }
-            )
-        presenter = self.proposals.presenter(change.entity)
-        if presenter is None:
-            return _approval_change_label(
-                {
-                    "change": {
-                        "entity": change.entity,
-                        "action": change.action,
-                        "id": change.entity_id,
-                        "values": dict(change.values),
-                    }
-                }
-            )
-        return await presenter.summary(session, change, details)
-
     async def describe_proposal(
         self, session: AsyncSession, proposal_id: int
     ) -> ProposalDescription:
-        """How one proposal reads to the owner: the same line and fields a receipt uses.
-
-        Read it **before** applying — the field lines are a before/after diff against
-        committed state, and after `apply` that diff is empty.
-        """
-        fields = await self._proposal_result_details(session, proposal_id, None)
-        summary = await self._proposal_display_line(session, proposal_id, None, fields)
-        return ProposalDescription(summary=summary, fields=fields)
-
-    async def _proposal_result_details(
-        self,
-        session: AsyncSession,
-        proposal_id: int,
-        fallback: AgentChange | None,
-    ) -> list[str]:
-        change = self._only_change(proposal_id)
-        if change is None:
-            return self._raw_details(fallback)
-        presenter = self.proposals.presenter(change.entity)
-        if presenter is None:
-            return self._raw_details(fallback) or detail_lines(dict(change.values))
-        return await presenter.details(session, change, fallback)
-
-    def _only_change(self, proposal_id: int) -> ProposalChange | None:
-        """The change a review holds. Nothing writes a second one, and a receipt reads one."""
-        proposal = self.reviews.proposal(proposal_id)
-        return proposal.changes[0] if proposal is not None and proposal.changes else None
+        """How one proposal reads to the owner, for whoever is drawing a screen."""
+        return await self.review_view.describe(session, proposal_id)
 
     async def _materialize(
         self,
@@ -1738,10 +1473,10 @@ class AIAdvisor:
                     ).as_tool_result()
                     logger.info("AI TOOL %s preparation error: %s", tool.call.name, error)
                     continue
-                proposal_details[tool.call.id] = await self._proposal_result_details(
+                proposal_details[tool.call.id] = await self.review_view.result_details(
                     session, proposal.id, tool.change
                 )
-                proposal_displays[tool.call.id] = await self._proposal_display_line(
+                proposal_displays[tool.call.id] = await self.review_view.display_line(
                     session, proposal.id, tool.change, proposal_details[tool.call.id]
                 )
                 queued_proposal_ids[tool.call.id] = proposal.id
@@ -1761,11 +1496,11 @@ class AIAdvisor:
                         # A call still on screen has no result yet; that is what waiting is.
                         "result": None
                         if queued_id
-                        else _with_queued_siblings(
+                        else with_queued_siblings(
                             preparation_results[tool.call.id], len(queue)
                         ),
                         "details": proposal_details.get(tool.call.id)
-                        or self._raw_details(tool.change),
+                        or self.review_view.raw_details(tool.change),
                         "display": proposal_displays.get(tool.call.id),
                         "proposal_id": queued_id,
                         "change": (
@@ -1835,7 +1570,7 @@ class AIAdvisor:
             head = batch.state.head
             if head is None or head.proposal_id != proposal_id:
                 return None
-            change = self._only_change(proposal_id)
+            change = self.review_view.only_change(proposal_id)
             if change is None:
                 return None
             description = await self.describe_proposal(session, proposal_id)
@@ -1923,7 +1658,7 @@ class AIAdvisor:
                 proposal_id,
                 decision=decision,
                 apply_change=apply_proposal,
-                render=lambda tool, affected: _resolved_tool_result(
+                render=lambda tool, affected: resolved_tool_result(
                     tool,
                     decision,
                     {**result, "affected_ids": affected} if apply_proposal else result,
@@ -1967,10 +1702,10 @@ class AIAdvisor:
             return await self._advance_autoapprovals(next_outcome, held_run_id=held_run_id)
 
         try:
-            result_summary = _safe_approval_results_summary(tools)
+            result_summary = results_summary(tools)
             if result_summary:
                 agent.result_summaries.append(result_summary)
-            display_summary = _safe_approval_results_summary(
+            display_summary = results_summary(
                 tools, include_preparation_errors=False, for_display=True
             )
             if display_summary:
@@ -2006,11 +1741,11 @@ class AIAdvisor:
             await self._finish_run(
                 run_id, AgentRunStatus.FAILED, started, type(error).__name__
             )
-            result_summary = _safe_approval_results_summary(tools, for_display=True)
+            result_summary = results_summary(tools, for_display=True)
             if result_summary:
                 return AIOutcome(
                     AIOutcomeKind.ANSWER,
-                    _compose_display_outcome(
+                    compose_display_outcome(
                         f"⚠️ Safwa could not generate its follow-up ({failure_reason(error)}). "
                         "You can continue with a new message.",
                         [result_summary],
@@ -2038,7 +1773,7 @@ class AIAdvisor:
             tools = interrupted.tool_calls
             run = await session.get(AgentRun, interrupted.run_id)
             prior_summaries: list[str] = []
-            summary = _safe_approval_results_summary(
+            summary = results_summary(
                 tools, include_preparation_errors=False, for_display=True
             )
             if run is not None:
@@ -2061,7 +1796,7 @@ class AIAdvisor:
                     root_state["interruption"] = summary
                     root.state_json = root_state
             await session.commit()
-        return _compose_display_outcome(
+        return compose_display_outcome(
             "", [line for line in (*prior_summaries, summary) if line]
         )
 
