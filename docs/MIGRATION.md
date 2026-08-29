@@ -1811,8 +1811,10 @@ Every function in the file, by destination. Line counts are today's.
 
 | Destination | What moves | ≈ |
 |---|---|---|
-| `agent_runtime/` | `AgentSession`, `AgentLoopResult`, `_run_agent_loop`, `_provider_turn`, `_run_child`, `_deliver_to_parent`, `_execute_route_tool`, `_resumed_transcript`, `_claim_session`, `_finish_run`, `_root_run`, `_close_unfinished_children`, `_resume_interrupted_child`, the two provider loggers, `failure_reason`, `_json_safe`, `_flatten_content`, `_log_preview`, `_system_note`, `_append_user_message`, `_cache_breakpoint`, and the start-or-resume half of `handle` / `_resume_interrupted_turn` | 787 |
-| `ai/advisor.py` | `AIAdvisor.__init__`, `_tools_for`, `_read_specs_for`, `_answer`, `_answer_or_deliver`, `resolve_approval`, `cancel_approval_for_proposal`, `has_pending_approval`, `_context_messages`, `_routed_context`, `_session_messages`, the Safwa half of `handle`, and the tool-schema constants | 380 |
+| `agent_runtime/` | `AgentSession`, `AgentLoopResult`, `_run_agent_loop`, `_provider_turn`, `_run_child`, `_deliver_to_parent`, `_execute_route_tool`, `_resumed_transcript`, `_claim_session`, `_finish_run`, `_root_run`, `_close_unfinished_children`, `_resume_interrupted_child`, the two provider loggers, `_json_safe`, `_flatten_content`, `_log_preview`, `_system_note`, `_append_user_message`, `_cache_breakpoint`, and the start-or-resume half of `handle` / `_resume_interrupted_turn` | 787 |
+| `ai/advisor.py` | `AIAdvisor.__init__`, `_tools_for`, `_read_specs_for`, `_answer`, `_answer_or_deliver`, `resolve_approval`, `cancel_approval_for_proposal`, `has_pending_approval`, the Safwa half of `handle`, and the tool-schema constants | 380 |
+| `ai/messages.py` | `_context_messages`, `_routed_context`, `_session_messages` — the block contents, which are Safwa's | 145 |
+| `foundation/errors.py` | `failure_reason` | 5 |
 | `ai/tools.py` | `_execute_query_tool`, `_execute_open_tool`, `_execute_read_tool`, `_execute_call_helper_tool`, `_should_offer_helper`, `_execute_mutation_tool`, `_mutation_repair_details`, `_validation_error_summary`, `_add_notice`, `OPENABLE_MODELS` | 315 |
 | `ai/materialize.py` | `_materialize`, `_autoapproval_candidate`, `_advance_autoapprovals`, `PendingTool` | 208 |
 | `features/proposals/render.py` | `_approval_change_label`, `_approval_results_summary`, `_safe_approval_results_summary`, `_compose_display_outcome`, `_with_queued_siblings`, `_resolved_tool_result`, `_raw_details`, `_proposal_display_line`, `describe_proposal`, `_proposal_result_details`, `_only_change`, `_RESULT_RECEIPTS`, `AUTOAPPROVED`, `_DECISION_NEXT_STEPS` | 280 |
@@ -1838,8 +1840,13 @@ Four decisions the table encodes, each of which could have gone the other way:
 `_context_messages` is the one §12.5 row that is half right: it says the context builders go to
 `agent_runtime/context.py`, but `_context_messages` assembles Safwa's board state and memory. What
 crosses is the **ordering mechanism** — `_system_note`, `_append_user_message`, `_cache_breakpoint`,
-and the rule that only `messages[0]` is a system message. What the blocks contain stays in
-`ai/advisor.py`.
+and the rule that only `messages[0]` is a system message. What the blocks contain stays in Safwa, as
+`ai/messages.py`, which step 3 landed and step 4 splits along that line.
+
+`failure_reason` is the one row that moved off the map on purpose. §12.5 put it in the runtime
+because it sat beside the loop, but it turns any exception into one owner-readable clause and
+Telegram uses it, so it went to `foundation/errors.py` — which also stops `telegram/proposals.py`
+reaching into `ai/service.py` for it.
 
 Target shape of the package, using file names the rules actually scan:
 
@@ -1870,21 +1877,36 @@ A phase ends in a state that can be kept, and no step may leave an old path runn
 one. These five are each green on their own.
 
 1. **`features/proposals/render.py`** — a pure move of leaf functions. Nothing calls back into `ai/`.
+   Landed as v6.2.
 2. **`ai/tools.py`** — a pure move. The adapters already take `(agent, call)` and return a result.
-3. **`ai/materialize.py`** — a pure move of the proposal seam.
-4. **`agent_runtime/` and `ai/advisor.py` together.** What is left in `service.py` after 1–3 is the
-   session and the loop plus the host around them, and they separate in one step: the package gets
-   the loop behind its ports, `advisor.py` gets the host. This is the step that cannot be cut
-   smaller — cutting it leaves two loops running at once.
+   Landed as v6.3, with `ToolSession` naming what a tool call may touch on its session, so the
+   adapters never import the session and step 4 finds its port already cut.
+3. **`ai/messages.py`** — the context prefix, as `ContextBuilder`. Landed as v6.4.
+4. **`agent_runtime/`, `ai/advisor.py` and `ai/materialize.py` together.** What is left in
+   `service.py` after 1–3 is the session, the loop, the proposal seam and the host around them, and
+   they separate in one step: the package gets the loop behind its ports, `advisor.py` gets the
+   host, `materialize.py` gets the seam. This is the step that cannot be cut smaller — cutting it
+   leaves two loops running at once.
 5. **`ai/service.py` is deleted**, and the three production importers and twelve test modules are
    repointed. `examples/plain_chat_bot/` lands here, because until the imports are clean the package
    is not provably standalone.
+
+Steps 3 and 4 changed once the code was measured. The draft made `ai/materialize.py` step 3 and
+called it a pure move; it is not one. `_materialize` calls `_run_agent_loop`, recurses into itself
+after a repair round, and reaches `resolve_approval` through `_advance_autoapprovals`. Cutting it out
+before the runtime exists would mean handing it three callbacks into the advisor, and step 4 would
+delete all three. The repair round is the runtime's; what stays Safwa's is preparing the changes and
+opening the batch, and that split is legible only once there is a port to split against.
+
+What took its place is the one region that was separable: `_context_messages`, `_routed_context` and
+`_session_messages`, with `_system_note`, `_append_user_message` and `_cache_breakpoint`. It is also
+where the prompt prefix is actually built, so it is the move most likely to break criterion 10 —
+which is a reason to do it early and alone, not late and mixed in.
 
 **Run `tests/test_architecture.py --snapshot-update`-free after every step, not at the end.** Each of
 the five touches message assembly, and §12.5's own extra constraint is that `messages[0]` and the
 context blocks do not move by a single byte. A prefix that drifts in step 2 is cheap to find and
 expensive to find in step 5.
-
 ### Exit criteria, all of them checkable
 
 | # | Criterion | How it is checked |

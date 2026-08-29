@@ -57,7 +57,7 @@ from ..features.proposals.use_cases import (
 from ..foundation.errors import failure_reason
 from ..models import AgentRun, AgentRunStatus, AgentStep
 from .autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
-from .context import DialogueMessage, board_context, ordered_owner_context
+from .context import DialogueMessage
 from .contracts import (
     AgentChange,
     CallHelperInput,
@@ -66,6 +66,7 @@ from .contracts import (
     ToolResultStatus,
     tool_json_schema,
 )
+from .messages import ContextBuilder, system_note
 from .mini import QUERY_SAFWA_TOOL, ReadToolSpec
 from .prepare import ChangePreparer
 from .sql import ReadOnlyQueryRunner
@@ -73,7 +74,6 @@ from .subagents import RoutedSubagent
 from .tools import (
     Helper,
     ToolAdapters,
-    conversation_for,
     json_safe,
     log_preview,
     validation_error_summary,
@@ -268,42 +268,6 @@ class AgentLoopResult:
     suspended: AIOutcome | None = None
 
 
-def _system_note(content: str) -> dict[str, Any]:
-    """Carry a system block as owner text.
-
-    Only ``messages[0]`` may be a system message: the Qwen3.5 chat template raises
-    ``System message must be at the beginning`` on any later one.
-    """
-
-    return {"role": "user", "content": f"[System]: {content}"}
-
-
-def _append_user_message(messages: list[dict[str, Any]], content: str) -> None:
-    """Append user-side context without creating adjacent user turns."""
-    if messages and messages[-1].get("role") == "user":
-        messages[-1]["content"] += "\n" + content
-        return
-    messages.append({"role": "user", "content": content})
-
-
-def _cache_breakpoint(message: dict[str, Any]) -> dict[str, Any]:
-    """Mark the end of a reusable prefix.
-
-    OpenRouter accepts the Anthropic form and converts it to OpenAI's
-    ``prompt_cache_breakpoint`` for GPT-5.6 and newer, so one marker is portable.
-    """
-
-    content = message.get("content")
-    if not isinstance(content, str) or not content:
-        return message
-    return {
-        **message,
-        "content": [
-            {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
-        ],
-    }
-
-
 def _flatten_content(content: Any) -> str:
     if isinstance(content, list):
         return " ".join(str(block.get("text", "")) for block in content if isinstance(block, dict))
@@ -434,6 +398,13 @@ class AIAdvisor:
         self.cache_breakpoints = cache_breakpoints
         self.subagents = {routed.name: routed for routed in subagents}
         self.adapters = ToolAdapters(sessions, query_runner, proposals, helpers)
+        self.context = ContextBuilder(
+            sessions,
+            memory,
+            system_prompt=system_prompt,
+            subagents=self.subagents,
+            cache_breakpoints=cache_breakpoints,
+        )
         self.autoapproval = autoapproval
         # Every review this process still owes an answer to. It is memory, not a table: a
         # restart is what ends them, and nothing outside this process ever reads one.
@@ -489,7 +460,7 @@ class AIAdvisor:
             await session.commit()
 
         try:
-            messages = await self._context_messages(
+            messages = await self.context.advisor(
                 dialogue or [DialogueMessage(role="user", content=text)]
             )
             agent = AgentSession(
@@ -589,7 +560,7 @@ class AIAdvisor:
             parent.display_result_summaries.extend(
                 str(line) for line in receipt.get("did") or []
             )
-            messages = await self._session_messages(parent)
+            messages = await self.context.for_session(parent.kind, parent.dialogue, parent.prior_receipts)
             parent.prefix_len = len(messages)
             messages.extend(transcript)
             messages.append(
@@ -668,7 +639,9 @@ class AIAdvisor:
         agent.dialogue = parent.dialogue
         agent.prior_receipts = list(parent.display_result_summaries)
         try:
-            messages = await self._routed_context(routed, agent.dialogue, agent.prior_receipts)
+            messages = await self.context.routed(
+                routed, agent.dialogue, agent.prior_receipts
+            )
             agent.prefix_len = len(messages)
             messages.extend(transcript)
             agent.messages = messages
@@ -747,81 +720,6 @@ class AIAdvisor:
         if run_id is None:
             return None
         return await self._claim_session(session, int(run_id), held_run_id=None)
-
-    async def _context_messages(
-        self,
-        dialogue: list[DialogueMessage],
-    ) -> list[dict[str, Any]]:
-        memory = await self.memory.sync()
-        async with self.sessions() as session:
-            context = await board_context(session)
-        # Ordered by how often each block changes, so the stable prefix stays
-        # byte-identical across turns and remote prompt caching can hit it.
-        # Anything volatile goes after the dialogue, never into a system block.
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": self.system_prompt},
-            _system_note(ordered_owner_context(memory.text, context.state)),
-        ]
-        # The history source has already bounded the window by its token budget.
-        for item in dialogue:
-            if item.role == "user":
-                _append_user_message(messages, item.content)
-            else:
-                messages.append({"role": item.role, "content": item.content})
-        _append_user_message(messages, f"[System]: {context.clock}")
-        if self.cache_breakpoints:
-            messages[0] = _cache_breakpoint(messages[0])
-            if len(messages) > 2:
-                messages[-2] = _cache_breakpoint(messages[-2])
-        return messages
-
-    async def _routed_context(
-        self,
-        routed: RoutedSubagent,
-        dialogue: list[dict[str, Any]],
-        prior_receipts: list[str] | None = None,
-    ) -> list[dict[str, Any]]:
-        """A routed subagent reads the conversation as data, under its own prompt.
-
-        Same order as the Advisor's: prompt, then state, then conversation, then what this
-        turn has already saved, then the clock — so the stable part stays byte-identical
-        and the volatile part stays last.  The receipts sit outside the conversation, so
-        the ``SUBAGENT_HISTORY_LAST_MESSAGES`` window never trims them away.
-        """
-        messages: list[dict[str, Any]] = [{"role": "system", "content": routed.prompt}]
-        if routed.board_state:
-            async with self.sessions() as session:
-                context = await board_context(session)
-            _append_user_message(messages, f"[System]: Current board state:\n{context.state}")
-        conversation = conversation_for(dialogue)
-        if conversation:
-            _append_user_message(
-                messages,
-                "[System]: The conversation so far, newest last. None of it is yours: read it "
-                f"for what the owner wants changed.\n{conversation}",
-            )
-        if self.cache_breakpoints:
-            messages[0] = _cache_breakpoint(messages[0])
-        lines = [line for line in prior_receipts or [] if line.strip()]
-        if lines:
-            _append_user_message(
-                messages, "[System]: Already saved in this request:\n" + "\n".join(lines)
-            )
-        if routed.clock is not None:
-            _append_user_message(messages, f"[System]: {routed.clock()}")
-        return messages
-
-    async def _session_messages(self, agent: AgentSession) -> list[dict[str, Any]]:
-        """Rebuild the context prefix a session reads, from live state, by its kind."""
-        routed = self.subagents.get(agent.kind)
-        if routed is not None:
-            return await self._routed_context(routed, agent.dialogue, agent.prior_receipts)
-        return await self._context_messages(
-            [
-                DialogueMessage(role=str(item["role"]), content=str(item["content"]))
-                for item in agent.dialogue
-            ]
-        )
 
     async def _provider_turn(self, agent: AgentSession) -> CompletionTurn:
         _log_provider_request(agent.messages)
@@ -976,7 +874,7 @@ class AIAdvisor:
             # assistant message is dropped rather than kept: it carries no information and
             # some chat templates reject it.
             messages.append(
-                _system_note(
+                system_note(
                     "You stopped without answering. Write the answer to the owner now, "
                     "in their language, using what the tool results already gave you."
                 )
@@ -1337,7 +1235,7 @@ class AIAdvisor:
                 outcome = await self._answer_or_deliver(agent, self._answer(agent, exhausted))
                 outcome.did.extend(display_summary.splitlines())
                 return outcome
-            messages = await self._session_messages(agent)
+            messages = await self.context.for_session(agent.kind, agent.dialogue, agent.prior_receipts)
             agent.prefix_len = len(messages)
             messages.extend(_resumed_transcript(stored_transcript, tools))
             agent.messages = messages
@@ -1401,7 +1299,7 @@ class AIAdvisor:
                     *_resumed_transcript(
                         [dict(item) for item in state.get("transcript") or []], tools
                     ),
-                    _system_note(REFUSED_AND_WROTE),
+                    system_note(REFUSED_AND_WROTE),
                 ]
                 run.state_json = state
                 # Unfinished rather than waiting: no screen is open on it any more.  It
@@ -1473,7 +1371,7 @@ class AIAdvisor:
                 [summary] if summary else [],
                 error=REFUSED_AND_WROTE,
             )
-            messages = await self._session_messages(agent)
+            messages = await self.context.for_session(agent.kind, agent.dialogue, agent.prior_receipts)
             agent.prefix_len = len(messages)
             messages.extend(transcript)
             messages.append(
