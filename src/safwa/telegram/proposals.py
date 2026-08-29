@@ -7,10 +7,11 @@ from typing import Any
 from aiogram.enums import ChatAction
 from aiogram.types import InlineKeyboardMarkup, Message
 
-from ..ai.service import AIOutcome, failure_reason
+from ..ai.service import AIOutcome
 from ..domain import DomainError
 from ..enums import MessageKind
 from ..features.proposals.model import DECISION_RECEIPTS, BatchDecision
+from ..foundation.errors import failure_reason
 from ._core import Services
 from ._messaging import edit_registered_message, send_registered, token_button
 from ._presentation import markdown_to_telegram_html, proposal_change_summary

@@ -3,9 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import sqlite3
 import time
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -20,16 +19,13 @@ from ..constants import (
     MAX_REPAIR_ROUNDS,
     MAX_TOOL_CALLS,
     SUBAGENT_DEADLINE_SECONDS,
-    SUBAGENT_HISTORY_LAST_MESSAGES,
 )
 from ..domain import (
     DomainError,
     utcnow,
 )
 from ..features.continuity.memory import MemoryFileStore
-from ..features.diary.model import DiaryEntry
 from ..features.proposals.api import (
-    MutationToolSpec,
     ProposalDescription,
     ProposalRegistry,
     ToolPreparationError,
@@ -58,46 +54,32 @@ from ..features.proposals.use_cases import (
     open_batch,
     prepare_proposal,
 )
-from ..history import citation_payload, conversation_block
-from ..models import (
-    AgentRun,
-    AgentRunStatus,
-    AgentStep,
-    Card,
-    Check,
-    SavedRequest,
-    Tag,
-    Value,
-)
+from ..foundation.errors import failure_reason
+from ..models import AgentRun, AgentRunStatus, AgentStep
 from .autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
 from .context import DialogueMessage, board_context, ordered_owner_context
 from .contracts import (
     AgentChange,
     CallHelperInput,
     OpenInput,
-    QueryToolInput,
     RouteInput,
     ToolResultStatus,
     tool_json_schema,
 )
 from .mini import QUERY_SAFWA_TOOL, ReadToolSpec
 from .prepare import ChangePreparer
-from .sql import ReadOnlyQueryRunner, UnsafeQueryError, is_complex_read
+from .sql import ReadOnlyQueryRunner
 from .subagents import RoutedSubagent
+from .tools import (
+    Helper,
+    ToolAdapters,
+    conversation_for,
+    json_safe,
+    log_preview,
+    validation_error_summary,
+)
 
 logger = logging.getLogger(__name__)
-
-# The `open` tool's targets.  This is the last central item-kind table left in the AI layer;
-# `telegram/screens.py` holds the other half of it, and the two fold into one screen
-# registry when the Telegram adapters move into their features.
-OPENABLE_MODELS: dict[str, Any] = {
-    "card": Card,
-    "check": Check,
-    "tag": Tag,
-    "value": Value,
-    "request": SavedRequest,
-    "diary": DiaryEntry,
-}
 
 OPEN_TOOL: dict[str, Any] = {
     "type": "function",
@@ -140,10 +122,6 @@ SAFWA_TOOLS = (QUERY_SAFWA_TOOL, OPEN_TOOL)
 # Tools that run during the turn instead of becoming a proposal the owner approves.
 IMMEDIATE_TOOLS = frozenset({"query_safwa", "route", "open", "call_helper"})
 
-# What a helper is: it reads, it answers with rows, and it cannot open a screen. `route`
-# is the other half — a subagent that writes, and whose screen suspends the whole chain.
-Helper = Callable[..., Awaitable[dict[str, Any]]]
-
 # The one line an interrupted session reads about what happened to it. It has to say the
 # owner wrote *instead* of deciding: on "rejected" alone the session reads its own record
 # and proposes the same thing again.
@@ -152,34 +130,6 @@ REFUSED_AND_WROTE = (
     "newest message in the conversation. Read them, then propose what they ask for now. "
     "Never propose the refused change again."
 )
-
-
-
-def _mutation_repair_details(
-    tool: MutationToolSpec | None, arguments: dict[str, Any]
-) -> dict[str, Any]:
-    """Give the model a compact valid shape instead of a raw validator traceback."""
-    if tool is None:
-        return {}
-    schema = tool_json_schema(tool.input_model)
-    details: dict[str, Any] = {
-        "expected_schema": {
-            "required": schema.get("required", []),
-            "allowed_properties": list(schema.get("properties", {})),
-        }
-    }
-    if tool.repair is not None:
-        details.update(tool.repair(arguments))
-    return details
-
-
-def _validation_error_summary(error: ValidationError) -> str:
-    messages: list[str] = []
-    for issue in error.errors(include_url=False, include_input=False):
-        location = ".".join(str(item) for item in issue.get("loc", ()))
-        message = str(issue.get("msg", "Invalid value"))
-        messages.append(f"{location}: {message}" if location else message)
-    return "; ".join(messages) or "Invalid tool arguments"
 
 
 class AIOutcomeKind(StrEnum):
@@ -262,7 +212,7 @@ class AgentSession:
         """Everything the session needs to continue once the owner has decided."""
         return {
             "dialogue": self.dialogue,
-            "transcript": _json_safe(self.transcript),
+            "transcript": json_safe(self.transcript),
             "tool_count": self.tool_count,
             "repair_rounds": self.repair_rounds,
             "result_summaries": self.result_summaries,
@@ -316,42 +266,6 @@ class AgentLoopResult:
     # Set when a subagent this session routed to opened a screen: the whole chain waits
     # for the owner, and this is what they see meanwhile.
     suspended: AIOutcome | None = None
-
-
-def failure_reason(error: Exception, limit: int = 160) -> str:
-    """One short owner-readable clause; the traceback stays in the log."""
-    text = " ".join(str(error).split()) or type(error).__name__
-    return text if len(text) <= limit else text[: limit - 1] + "…"
-
-
-def _log_preview(content: str, limit: int = 500) -> str:
-    compact = " ".join(content.split())
-    return compact if len(compact) <= limit else compact[: limit - 3] + "..."
-
-
-def _json_safe(value: Any) -> Any:
-    return json.loads(json.dumps(value, ensure_ascii=False, default=str))
-
-
-def _conversation_for(dialogue: list[dict[str, Any]]) -> str:
-    """The tail of the conversation as data, for anyone who is not its assistant."""
-    return conversation_block(
-        [
-            DialogueMessage(role=str(item["role"]), content=str(item["content"]))
-            for item in dialogue[-SUBAGENT_HISTORY_LAST_MESSAGES:]
-        ]
-    )
-
-
-def _add_notice(rows: list[dict[str, Any]], text: str) -> None:
-    """Attach a notice to a result, joining one that is already the last row.
-
-    Two notice rows would be two instructions, and this model follows the last one it read.
-    """
-    if rows and set(rows[-1]) == {"notice"}:
-        rows[-1] = {"notice": f"{rows[-1]['notice']} {text}"}
-        return
-    rows.append({"notice": text})
 
 
 def _system_note(content: str) -> dict[str, Any]:
@@ -469,18 +383,18 @@ def _log_provider_request(messages: list[dict[str, Any]]) -> None:
             )
         elif message.get("role") == "tool":
             content = f"{message.get('name')}: {content}"
-        lines.append(f"  {message['role']:<9} {_log_preview(content)}")
+        lines.append(f"  {message['role']:<9} {log_preview(content)}")
     logger.info("AI REQUEST ->\n%s\n%s", "\n".join(lines), "-" * 72)
 
 
 def _log_provider_response(turn: CompletionTurn) -> None:
     if turn.tool_calls:
         details = "\n".join(
-            f"  tool {call.name}({_log_preview(call.arguments_json, 700)})"
+            f"  tool {call.name}({log_preview(call.arguments_json, 700)})"
             for call in turn.tool_calls
         )
     else:
-        details = "  " + _log_preview(turn.content, 1_000)
+        details = "  " + log_preview(turn.content, 1_000)
     if turn.usage is not None:
         usage = turn.usage
         cost = "" if usage.cost is None else f" cost={usage.cost}"
@@ -519,14 +433,7 @@ class AIAdvisor:
         self.provider_name = provider_name
         self.cache_breakpoints = cache_breakpoints
         self.subagents = {routed.name: routed for routed in subagents}
-        self.helpers = dict(helpers or {})
-        # Built once: the offer is the whole of what the model is ever told about helpers,
-        # so it has to name the tool in the shape the tool actually takes.
-        self.helper_offer = (
-            "This read is complex. call_helper("
-            + " or ".join(f'"{name}"' for name in self.helpers)
-            + ', "<your question in words>") writes the query and hands back its result.'
-        )
+        self.adapters = ToolAdapters(sessions, query_runner, proposals, helpers)
         self.autoapproval = autoapproval
         # Every review this process still owes an answer to. It is memory, not a table: a
         # restart is what ends them, and nothing outside this process ever reads one.
@@ -886,7 +793,7 @@ class AIAdvisor:
             async with self.sessions() as session:
                 context = await board_context(session)
             _append_user_message(messages, f"[System]: Current board state:\n{context.state}")
-        conversation = _conversation_for(dialogue)
+        conversation = conversation_for(dialogue)
         if conversation:
             _append_user_message(
                 messages,
@@ -997,13 +904,13 @@ class AIAdvisor:
                         if suspended is not None:
                             return AgentLoopResult(message="", suspended=suspended)
                     elif call.name == "query_safwa":
-                        result = await self._execute_query_tool(agent, call)
+                        result = await self.adapters.query(agent, call)
                     elif call.name == "open":
-                        result = await self._execute_open_tool(agent, call)
+                        result = await self.adapters.open(agent, call)
                     elif call.name == "call_helper":
-                        result = await self._execute_call_helper_tool(agent, call)
+                        result = await self.adapters.call_helper(agent, call)
                     elif call.name in agent.read_specs:
-                        result = await self._execute_read_tool(agent, call)
+                        result = await self.adapters.read(agent, call)
                     elif has_reads and has_mutations:
                         result = {
                             "status": ToolResultStatus.ERROR.value,
@@ -1017,7 +924,7 @@ class AIAdvisor:
                             "retryable": True,
                         }
                     else:
-                        change, result = await self._execute_mutation_tool(agent, call)
+                        change, result = await self.adapters.mutation(agent, call)
                     pending_tools.append(PendingTool(call=call, result=result, change=change))
                     messages.append(
                         {
@@ -1090,7 +997,7 @@ class AIAdvisor:
                 "status": ToolResultStatus.ERROR.value,
                 "code": "invalid_arguments",
                 "error": (
-                    _validation_error_summary(error)
+                    validation_error_summary(error)
                     if isinstance(error, ValidationError)
                     else str(error)
                 ),
@@ -1131,295 +1038,6 @@ class AIAdvisor:
         agent.display_result_summaries.extend(str(line) for line in receipt.get("did") or [])
         return receipt, None
 
-    async def _execute_call_helper_tool(
-        self, agent: AgentSession, call: ToolCall
-    ) -> dict[str, Any]:
-        """Ask a helper one question and hand its rows back. Nothing suspends.
-
-        The helper reads and answers with data, so this session keeps its turn: there is no
-        screen to wait for and no receipt to compose.
-        """
-        try:
-            payload = CallHelperInput.model_validate(json.loads(call.arguments_json or "{}"))
-        except (ValidationError, json.JSONDecodeError, TypeError, ValueError) as error:
-            return {
-                "status": ToolResultStatus.ERROR.value,
-                "code": "invalid_arguments",
-                "error": (
-                    _validation_error_summary(error)
-                    if isinstance(error, ValidationError)
-                    else str(error)
-                ),
-                "hint": (
-                    f'Send {{"name": "<helper>", "request": "<your question>"}}. '
-                    f"One of: {', '.join(self.helpers)}."
-                ),
-                "retryable": True,
-            }
-        helper = self.helpers.get(payload.name.strip())
-        if helper is None:
-            return {
-                "status": ToolResultStatus.ERROR.value,
-                "code": "unknown_helper",
-                "error": f"There is no helper named {payload.name!r}.",
-                "hint": f"Call one of: {', '.join(self.helpers) or 'none'}.",
-                "retryable": True,
-            }
-        async with self.sessions() as session:
-            session.add(
-                AgentStep(
-                    run_id=agent.run_id,
-                    position=agent.tool_count,
-                    kind="helper",
-                    metadata_json={
-                        "tool_call_id": call.id,
-                        "helper": payload.name,
-                        "request": payload.request,
-                    },
-                )
-            )
-            await session.commit()
-        logger.info("HELPER -> %s %s", payload.name, _log_preview(payload.request, 200))
-        try:
-            return await helper(
-                conversation=_conversation_for(agent.dialogue), request=payload.request
-            )
-        except Exception as error:
-            # A helper is an optimisation. Losing the turn because one broke would be worse
-            # than the answer the Advisor can still give from what it read itself.
-            logger.exception("Helper %s failed", payload.name)
-            return {
-                "helper": payload.name,
-                "status": ToolResultStatus.ERROR.value,
-                "error": failure_reason(error),
-                "hint": "Answer the owner with what you already have.",
-            }
-
-    def _should_offer_helper(
-        self, agent: AgentSession, sql: str, rows: list[dict[str, Any]]
-    ) -> bool:
-        """Whether this read earned the model a helper it was not already carrying.
-
-        A read that failed does not: its `hint` already says to repair that one SELECT, and
-        a second instruction in the same result is the one this model would follow.
-        """
-        if not self.helpers or agent.kind != "advisor" or not sql:
-            return False
-        if rows and rows[0].get("status") == ToolResultStatus.ERROR:
-            return False
-        capped = bool(rows) and set(rows[-1]) == {"notice"}
-        return capped or is_complex_read(sql)
-
-    async def _execute_read_tool(
-        self, agent: AgentSession, call: ToolCall
-    ) -> Any:
-        """Run one of this session's own read tools and record that it ran."""
-        result = await agent.read_specs[call.name].run(call)
-        async with self.sessions() as session:
-            session.add(
-                AgentStep(
-                    run_id=agent.run_id,
-                    position=agent.tool_count,
-                    kind="read",
-                    metadata_json={
-                        "tool_call_id": call.id,
-                        "tool": call.name,
-                        "arguments": call.arguments_json,
-                    },
-                )
-            )
-            await session.commit()
-        logger.info("AI TOOL %s(%s)", call.name, _log_preview(call.arguments_json, 200))
-        return result
-
-    async def _execute_query_tool(
-        self, agent: AgentSession, call: ToolCall
-    ) -> list[dict[str, Any]]:
-        if call.name != "query_safwa":
-            rows: list[dict[str, Any]] = [
-                {
-                    "status": ToolResultStatus.ERROR.value,
-                    "code": "unknown_tool",
-                    "error": f"Unknown tool: {call.name}",
-                    "hint": (
-                        "Call one of: query_safwa, card, check, value, tag, request, reminder, "
-                        "remove."
-                    ),
-                    "retryable": True,
-                }
-            ]
-            sql = ""
-        else:
-            try:
-                arguments = json.loads(call.arguments_json)
-                query = QueryToolInput.model_validate(arguments)
-                sql = query.sql
-                outcome = await self.query_runner.run(sql)
-                rows = outcome.as_tool_result()
-                if outcome.notice:
-                    logger.info("AI TOOL query_safwa capped: %s", outcome.notice)
-            # ``UnsafeQueryError`` is a ``ValueError``, so it has to be caught before the
-            # argument-shape clause or a rejected SELECT is reported as a bad argument and
-            # the model rewrites the call instead of the query.
-            except (UnsafeQueryError, sqlite3.Error, TimeoutError, OSError) as error:
-                # A rejected or broken read is the model's to repair. Raising here would
-                # end the whole request, including any mutation queued alongside it.
-                rows = [
-                    {
-                        "status": ToolResultStatus.ERROR.value,
-                        "code": "unsafe_query"
-                        if isinstance(error, UnsafeQueryError)
-                        else "query_failed",
-                        "error": str(error),
-                        "hint": (
-                            "Fix only this SELECT and call query_safwa again. One read-only "
-                            "SELECT or WITH … SELECT over the ai_* views, no other statement. "
-                            "This failure changed nothing: every step of the request already "
-                            "resolved above still stands, so do not restart the request."
-                        ),
-                        "retryable": True,
-                    }
-                ]
-            except (KeyError, TypeError, ValueError, ValidationError, json.JSONDecodeError) as error:
-                sql = ""
-                rows = [
-                    {
-                        "status": ToolResultStatus.ERROR.value,
-                        "code": "invalid_arguments",
-                        "error": (
-                            _validation_error_summary(error)
-                            if isinstance(error, ValidationError)
-                            else str(error)
-                        ),
-                        "hint": (
-                            'Send exactly one string argument, e.g. {"sql": "SELECT id, title '
-                            'FROM ai_cards LIMIT 20"}, and call query_safwa again.'
-                        ),
-                        "retryable": True,
-                    }
-                ]
-        if self._should_offer_helper(agent, sql, rows):
-            agent.offer_helper()
-            _add_notice(rows, self.helper_offer)
-        logger.info(
-            "AI TOOL query_safwa -> rows=%d sql=%s",
-            len(rows),
-            _log_preview(sql, 700),
-        )
-        async with self.sessions() as session:
-            session.add(
-                AgentStep(
-                    run_id=agent.run_id,
-                    position=agent.tool_count,
-                    kind="read_query",
-                    metadata_json={
-                        "tool_call_id": call.id,
-                        "tool": call.name,
-                        "arguments": call.arguments_json,
-                        "sql": sql,
-                        "row_count": len(rows),
-                        "columns": list(rows[0]) if rows else [],
-                        "result": _json_safe(rows),
-                    },
-                )
-            )
-            await session.commit()
-        return rows
-
-    async def _execute_open_tool(
-        self, agent: AgentSession, call: ToolCall
-    ) -> dict[str, Any]:
-        """Resolve the item to show and hand it to the session that writes to the chat."""
-        try:
-            request = OpenInput.model_validate(json.loads(call.arguments_json or "{}"))
-        except (ValidationError, json.JSONDecodeError, TypeError, ValueError) as error:
-            return {
-                "status": ToolResultStatus.ERROR.value,
-                "code": "invalid_arguments",
-                "error": (
-                    _validation_error_summary(error)
-                    if isinstance(error, ValidationError)
-                    else str(error)
-                ),
-                "hint": 'Send {"item_type": "card", "id": 12}.',
-                "retryable": True,
-            }
-        async with self.sessions() as session:
-            item = await session.get(OPENABLE_MODELS[request.item_type], request.id)
-            if item is None:
-                return {
-                    "status": ToolResultStatus.ERROR.value,
-                    "code": "not_found",
-                    "error": f"There is no {request.item_type} #{request.id}.",
-                    "hint": "Find the id with query_safwa, then call open again.",
-                    "retryable": True,
-                }
-            item_id = item.id
-        agent.open_item = citation_payload(request.item_type, item_id)
-        logger.info("AI TOOL open -> %s", agent.open_item)
-        return {
-            "status": ToolResultStatus.OK.value,
-            "opened": {"item_type": request.item_type, "id": item_id},
-            "next": "The screen follows your message. Answer in one short line.",
-        }
-
-    async def _execute_mutation_tool(
-        self, agent: AgentSession, call: ToolCall
-    ) -> tuple[AgentChange | None, dict[str, Any]]:
-        arguments: Any = None
-        try:
-            arguments = json.loads(call.arguments_json)
-            if not isinstance(arguments, dict):
-                raise ValueError("Tool arguments must be an object")
-            change = self.proposals.change_from_tool(call.name, arguments)
-        except (ValueError, ValidationError, json.JSONDecodeError) as error:
-            logger.info("AI TOOL %s rejected: %s", call.name, error)
-            error_text = (
-                _validation_error_summary(error)
-                if isinstance(error, ValidationError)
-                else str(error)
-            )
-            result = {
-                "status": ToolResultStatus.ERROR.value,
-                "code": "invalid_arguments",
-                "error": error_text,
-                "hint": (
-                    "Retry only this unfinished tool call using expected_arguments and the "
-                    "argument_rules below; do not repeat successful calls."
-                ),
-                "retryable": True,
-            }
-            if isinstance(arguments, dict):
-                result.update(
-                    _mutation_repair_details(self.proposals.tools.get(call.name), arguments)
-                )
-            return None, result
-        logger.info("AI TOOL %s prepared %s.%s", call.name, change.entity, change.action)
-        async with self.sessions() as session:
-            session.add(
-                AgentStep(
-                    run_id=agent.run_id,
-                    position=agent.tool_count,
-                    kind="mutation_intent",
-                    metadata_json={
-                        "tool_call_id": call.id,
-                        "arguments": call.arguments_json,
-                        "tool": call.name,
-                        "entity": change.entity,
-                        "action": change.action,
-                        "id": change.id,
-                    },
-                )
-            )
-            await session.commit()
-        return change, {
-            "status": ToolResultStatus.PREPARED.value,
-            "entity": change.entity,
-            "action": change.action,
-            "id": change.id,
-            "next": "Wait for the user's review or approval; do not say it is complete.",
-        }
-
     async def describe_proposal(
         self, session: AsyncSession, proposal_id: int
     ) -> ProposalDescription:
@@ -1434,7 +1052,7 @@ class AIAdvisor:
         if not result.pending_tools:
             return self._answer(agent, result.message)
         mutation_tools = [tool for tool in result.pending_tools if tool.change is not None]
-        preparation_results = {tool.call.id: _json_safe(tool.result) for tool in result.pending_tools}
+        preparation_results = {tool.call.id: json_safe(tool.result) for tool in result.pending_tools}
         failed_call_ids = {
             tool.call.id
             for tool in result.pending_tools
@@ -1508,7 +1126,7 @@ class AIAdvisor:
                                 "entity": tool.change.entity,
                                 "action": tool.change.action,
                                 "id": tool.change.id,
-                                "values": _json_safe(tool.change.values),
+                                "values": json_safe(tool.change.values),
                             }
                             if tool.change is not None
                             else None
@@ -1541,7 +1159,7 @@ class AIAdvisor:
                         "I could not prepare the requested change after five repair attempts. "
                         "No unfinished operation was applied.",
                     )
-                messages = _json_safe(agent.messages)
+                messages = json_safe(agent.messages)
                 results_by_id = {tool["id"]: tool["result"] for tool in tool_results}
                 for message in messages:
                     if message.get("role") != "tool":
