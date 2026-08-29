@@ -1781,7 +1781,7 @@ scenarios for the first time.
 | # | What | Kind | State |
 |---|---|---|---|
 | 7.a | Both scenario packets and the behaviour they fix: 21 scenarios into `tests/brd/agents.feature`, and words typed over a screen resume the request that opened it — the one-turn grace and the four mechanisms around it deleted | business | done |
-| 7.b | `agent_runtime`: the frozen `RunState` and its `reduce`, the loop, the store port, suspension on an opaque reference, `examples/plain_chat_bot/`, and what is left of `ai/service.py` as Safwa's host | technical | planned |
+| 7.b | The §12.5 cut, finished: `agent_runtime` takes the session and the loop behind its ports, the rest of `ai/service.py` lands in four named files, `ai/service.py` is deleted, and `examples/plain_chat_bot/` proves the border | technical | planned |
 
 The split is the one the phase actually has. A business batch needs the owner before its tests are
 written; a technical batch needs nobody. Cutting either half smaller only creates states where an
@@ -1797,32 +1797,141 @@ package. That is the other reason they are one batch.
 
 ### What 7.b has to end with
 
-Not sub-batches — one list the batch report answers.
+**`src/safwa/ai/service.py` does not exist when the batch is over.** Not "is smaller", not "is under
+900" — the plan's §12.5 cuts it into parts, and the parts have addresses. An earlier draft of this
+section restated DoD #3's escape hatch instead, which would have let the hardest file in the
+codebase survive the phase intact. It does not survive it.
+
+§12.5 has five rows. Two are already landed — the prompts went to `features/*/agent.py` in Phases
+3–5, and `ProposalService` with its `_apply_*` went to `features/proposals/use_cases.py` in Phase 6.
+Three are this batch. §12.5 was written against the 3062-line version and names no home for three
+regions that outlived it, so those are given addresses here.
+
+Every function in the file, by destination. Line counts are today's.
+
+| Destination | What moves | ≈ |
+|---|---|---|
+| `agent_runtime/` | `AgentSession`, `AgentLoopResult`, `_run_agent_loop`, `_provider_turn`, `_run_child`, `_deliver_to_parent`, `_execute_route_tool`, `_resumed_transcript`, `_claim_session`, `_finish_run`, `_root_run`, `_close_unfinished_children`, `_resume_interrupted_child`, the two provider loggers, `failure_reason`, `_json_safe`, `_flatten_content`, `_log_preview`, `_system_note`, `_append_user_message`, `_cache_breakpoint`, and the start-or-resume half of `handle` / `_resume_interrupted_turn` | 787 |
+| `ai/advisor.py` | `AIAdvisor.__init__`, `_tools_for`, `_read_specs_for`, `_answer`, `_answer_or_deliver`, `resolve_approval`, `cancel_approval_for_proposal`, `has_pending_approval`, `_context_messages`, `_routed_context`, `_session_messages`, the Safwa half of `handle`, and the tool-schema constants | 380 |
+| `ai/tools.py` | `_execute_query_tool`, `_execute_open_tool`, `_execute_read_tool`, `_execute_call_helper_tool`, `_should_offer_helper`, `_execute_mutation_tool`, `_mutation_repair_details`, `_validation_error_summary`, `_add_notice`, `OPENABLE_MODELS` | 315 |
+| `ai/materialize.py` | `_materialize`, `_autoapproval_candidate`, `_advance_autoapprovals`, `PendingTool` | 208 |
+| `features/proposals/render.py` | `_approval_change_label`, `_approval_results_summary`, `_safe_approval_results_summary`, `_compose_display_outcome`, `_with_queued_siblings`, `_resolved_tool_result`, `_raw_details`, `_proposal_display_line`, `describe_proposal`, `_proposal_result_details`, `_only_change`, `_RESULT_RECEIPTS`, `AUTOAPPROVED`, `_DECISION_NEXT_STEPS` | 280 |
+
+Four decisions the table encodes, each of which could have gone the other way:
+
+- **The tool adapters cannot go into the package.** `_execute_query_tool` knows the `ai_*` views,
+  `_execute_open_tool` knows Safwa's item kinds, `_execute_mutation_tool` knows what a proposal is.
+  Rule F forbids all three inside `agent_runtime`. They are the host's side of the tool port, and
+  `ai/tools.py` is where a host keeps them.
+- **The receipt rendering goes to the feature that owns a review.** Phase 6 left it in
+  `ai/service.py` on the reasoning that "the labels belong to the session layer". The session layer
+  is leaving for a package that must never learn what a proposal is, so the reasoning expires with
+  it. New file rather than `features/proposals/api.py`, which is already 606 lines. It takes plain
+  dicts and imports nothing from `ai/`, or the graph gains a cycle.
+- **`_route_receipt` splits.** The *shape* a child hands its caller — `subagent`, `outcome`, `did`,
+  `text`, `error` — is the runtime's, because every host needs one. What fills `did` is
+  Safwa's proposal rendering, handed in.
+- **`AIOutcome` and `AIOutcomeKind` stay in `ai/advisor.py` for now.** They are a turn's result, and
+  §12.4 gives turns their own package in Phase 8 (`features/turn/`). Moving them twice is worse than
+  moving them late.
+
+`_context_messages` is the one §12.5 row that is half right: it says the context builders go to
+`agent_runtime/context.py`, but `_context_messages` assembles Safwa's board state and memory. What
+crosses is the **ordering mechanism** — `_system_note`, `_append_user_message`, `_cache_breakpoint`,
+and the rule that only `messages[0]` is a system message. What the blocks contain stays in
+`ai/advisor.py`.
+
+Target shape of the package, using file names the rules actually scan:
 
 ```text
 agent_runtime/
   model.py       AgentDefinition, the frozen RunState / RunAction / RunEffect unions,
-                 InteractionRef, and the tool outcome union
+                 InteractionRef, the tool outcome union, and the receipt shape
   reducer.py     reduce(state, action) -> (state, effects), no I/O
   loop.py        the provider-and-tools loop, driven by the ports
+  manager.py     start-or-resume, the claim, suspension, and the routed chain
   ports.py       SessionStore, ToolRunner, ContextBuilder
+  context.py     the block order and the cache breakpoint
   testing.py     InMemorySessionStore
 ```
 
-- The provider comes from `llm_gateway`. Nothing here imports `safwa`, aiogram, SQLAlchemy or
-  Pydantic, and Rule F says so on every run — it already names `agent_runtime`, so the guard is
-  armed the moment the package exists.
-- `agent_runs` becomes Safwa's adapter for the store port. `proposal_id` stops crossing the
-  boundary: the runtime stops on an opaque reference and resumes on `(reference, value)`.
-- `examples/plain_chat_bot/` runs the runtime on `ScriptedProvider` and the in-memory store, with no
-  Safwa import — DoD #8.
-- What is left of `ai/service.py` is Safwa's host: prompts, tools, context, receipts.
-- The three questions below are answered in the batch report.
+The provider comes from `llm_gateway`. Nothing here imports `safwa`, aiogram, SQLAlchemy or Pydantic,
+and Rule F says so on every run — it already names `agent_runtime`, so the guard is armed the moment
+the package exists.
 
 Two rules in today's loop go different ways, and the split is the test of the boundary.
 `route_is_not_shared` is the runtime's: a suspended response cannot carry results for its siblings,
 whatever the host is. `mixed_read_and_mutation_tools` is Safwa's: it is a statement about proposals,
-and the runtime does not know what one is.
+so it becomes a decision the tool port hands back.
+
+### The order 7.b is done in, and why
+
+A phase ends in a state that can be kept, and no step may leave an old path running beside a new
+one. These five are each green on their own.
+
+1. **`features/proposals/render.py`** — a pure move of leaf functions. Nothing calls back into `ai/`.
+2. **`ai/tools.py`** — a pure move. The adapters already take `(agent, call)` and return a result.
+3. **`ai/materialize.py`** — a pure move of the proposal seam.
+4. **`agent_runtime/` and `ai/advisor.py` together.** What is left in `service.py` after 1–3 is the
+   session and the loop plus the host around them, and they separate in one step: the package gets
+   the loop behind its ports, `advisor.py` gets the host. This is the step that cannot be cut
+   smaller — cutting it leaves two loops running at once.
+5. **`ai/service.py` is deleted**, and the three production importers and twelve test modules are
+   repointed. `examples/plain_chat_bot/` lands here, because until the imports are clean the package
+   is not provably standalone.
+
+**Run `tests/test_architecture.py --snapshot-update`-free after every step, not at the end.** Each of
+the five touches message assembly, and §12.5's own extra constraint is that `messages[0]` and the
+context blocks do not move by a single byte. A prefix that drifts in step 2 is cheap to find and
+expensive to find in step 5.
+
+### Exit criteria, all of them checkable
+
+| # | Criterion | How it is checked |
+|---|---|---|
+| 1 | `src/safwa/ai/service.py` does not exist | the file is gone; no import of it remains anywhere |
+| 2 | No module under `src/agent_runtime/` imports `safwa` | Rule F, already armed |
+| 3 | No public name in the package mentions `Proposal`, `proposal_id`, `aiogram` or `sqlalchemy` | a test that reads `agent_runtime/model.py` and `ports.py` |
+| 4 | The runtime starts on `ScriptedProvider` and an in-memory store | `examples/plain_chat_bot/` runs, imports no Safwa — DoD #8 |
+| 5 | No general loop is left in Safwa | `ai/advisor.py` calls the manager and holds no `while True` over provider turns |
+| 6 | Largest Safwa module ≤ 400 lines | `scripts/architecture_metrics.py` |
+| 7 | DoD #3 falls 6 → 5 | the same; `telegram/callbacks.py`, `telegram/cards.py`, `features/cards/use_cases.py`, `history.py` and `features/proposals/api.py` are Phases 8–9 |
+| 8 | Rule H 25 → 24 | `service.py:1218`'s branch on `card` dies with the loop; `OPENABLE_MODELS` does not, and folds with `telegram/screens.py` in Phase 8 |
+| 9 | Cycles stay 0 | the same |
+| 10 | `prompt_prefix.json` byte-identical | Rule I, run after every step |
+| 11 | `schema.json` unchanged unless `agent_steps` is decided out | Rule J |
+| 12 | All 21 `AG` scenarios still cited and green | `tests/test_brd_traceability.py` |
+| 13 | The two E2E suites are added to, never traded | review of the diff |
+
+### Three risks named before the batch opens
+
+- **`state_json` is a wire format.** `AgentSession.state()` and `restore()` read and write the keys
+  in `agent_runs.state_json`. When the runtime owns that shape the keys must not drift, or a session
+  suspended before the change cannot be resumed after it. Pre-release this costs the owner one
+  recreated database, which is acceptable — but it has to be a decision, not a surprise.
+- **The prefix is the fragile thing, not the loop.** Every step reassembles messages. Criterion 10
+  is the one most likely to fail, and it fails silently in behaviour and loudly only in the snapshot.
+- **`features/proposals/render.py` must not import `ai/`.** It renders from plain dicts the caller
+  hands it. An import the other way turns a clean move into the first cycle this codebase has had.
+
+### Three questions 7.b answers, with the recommendation
+
+- **`agent_steps`: a runtime observer port, or gone?** Nothing under `src/` reads it and it costs
+  five commits a turn, which argues for deleting it. Against that, it is the only record of the SQL
+  a local model wrote and the rows it got back. Recommendation: keep the trail, make it one optional
+  observer the runtime calls and Safwa implements, and write it once at the end of a turn instead of
+  five times inside it. It is the only reason `schema.json` may move in this phase.
+- **`ai/mini.py`: one loop or two?** A mini session is the same loop with no suspension and terminal
+  tools instead of an answer. SUBAGENTS_PLAN ruled it stays narrow rather than being made resumable,
+  and that ruling predates there being a runtime to fold it into; §12.4 already sends its
+  `ReadToolSpec` to `agent_runtime/model.py`. Recommendation: fold it as an `AgentDefinition` that
+  declares no interaction; if that costs more than the duplication, keep two loops and name why.
+- **`AgentRunStatus` has seven members, and `claimed_at` has one reader left.** `agent_runs` is
+  durable and recovery reads its status, so unlike a proposal it keeps one — but `cancelled` stopped
+  being written in 7.a, and `abandoned` and `interrupted` are now written by recovery and by the
+  turn that ends its own children. Same reading for `claimed_at`: nothing contends for it, and what
+  is left is one boolean the Cue gate reads. Phase 6's rule decides both — a vocabulary keeps only
+  the members something writes and something reads.
 
 ### Facts checked before the phase opened, so they are not checked again
 
@@ -1857,25 +1966,6 @@ and the runtime does not know what one is.
   never learns what a proposal is, and it does not import Telegram. It can stop with a reference and
   be resumed with `(reference, value)`; the host owns the mapping. That is what makes it a package
   rather than Safwa with different imports.
-
-### Three questions 7.b answers, with the recommendation
-
-- **`agent_steps`: a runtime observer port, or gone?** Nothing reads it and it costs five commits a
-  turn, which argues for deleting it. Against that, it is the only record of the SQL a local model
-  wrote and the rows it got back. Recommendation: keep the trail, make it one optional observer the
-  runtime calls and Safwa implements, and write it once at the end of a turn instead of five times
-  inside it. It is the only reason `schema.json` may move in this phase.
-- **`ai/mini.py`: one loop or two?** A mini session is the same loop with no suspension and terminal
-  tools instead of an answer. SUBAGENTS_PLAN ruled it stays narrow rather than being made resumable,
-  and that ruling predates there being a runtime to fold it into. Recommendation: try it as an
-  `AgentDefinition` that declares no interaction; if the fold costs more than the duplication, keep
-  two loops and name the reason.
-- **`AgentRunStatus` has seven members, and `claimed_at` has one reader left.** `agent_runs` is
-  durable and recovery reads its status, so unlike a proposal it keeps one — but `cancelled` stops
-  being written when 7.a lands, and `abandoned` and `interrupted` would then be written only by
-  recovery. Same reading for `claimed_at`: after 7.a nothing contends for it, and what is left is one
-  boolean the Cue gate reads. Phase 6's rule decides both: a vocabulary keeps only the members
-  something writes and something reads.
 
 ### What Phase 7.a delivered
 
@@ -1935,15 +2025,13 @@ prompt prefix and the schema all held still. 773 tests pass, 3 skipped.
 
 ### What the numbers should do
 
-`ai/service.py` 2100 lines, target under 900 or a named reason; DoD #3 from 6 to 5. Rule H from 25 to
-24: `service.py:1218` branches on `card` only to make a sentence read "the Card proposal", which is a
-cosmetic string carrying an entity name, and it dies with the loop. `service.py:89`
-(`OPENABLE_MODELS`) does **not** go here — its other half is `telegram/screens.py`, and the two fold
-together in Phase 8.
+7.a moved `ai/service.py` from 2100 lines to 2193; 7.b deletes it. Every number the phase is held
+to is in "Exit criteria, all of them checkable" above, because a target with an escape hatch is what
+nearly let the largest file in the codebase survive the phase.
 
-**`prompt_prefix.json` must not move.** Neither batch declares a prompt rewrite, and 6.c already made
-the one prompt change the phase depends on. `schema.json` moves only in 7.b, and only if
-`agent_steps` goes.
+**`prompt_prefix.json` must not move.** Neither batch declares a prompt rewrite, 6.c already made the
+one prompt change the phase depends on, and §12.5 makes byte-stability an explicit constraint on the
+cut. `schema.json` moves only in 7.b, and only if `agent_steps` goes.
 
 `tests/e2e/test_advisor_flow_e2e.py` and `tests/e2e/test_subagent_e2e.py` are the insurance for this
 phase. They are added to, never traded for a faster unit test.
