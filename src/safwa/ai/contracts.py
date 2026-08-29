@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+from enum import StrEnum
 from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
+
+from ..features.proposals.model import ChangeAction
 
 _NULLISH_STRINGS = frozenset({"null", "none", "nil", "undefined"})
 _CONTENT_STRING_FIELDS = frozenset(
@@ -121,6 +124,15 @@ def tool_json_schema(model: type[BaseModel]) -> dict[str, Any]:
     return _without_titles(model.model_json_schema())
 
 
+class ToolResultStatus(StrEnum):
+    """How a tool call ended before any screen. A queued one ends as a `BatchDecision`."""
+
+    OK = "ok"
+    ERROR = "error"
+    # Prepared and waiting: the owner has the screen, and the result comes with the answer.
+    PREPARED = "prepared"
+
+
 class ToolInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     semantic_null_fields: ClassVar[frozenset[str]] = frozenset()
@@ -146,23 +158,12 @@ class QueryToolInput(ToolInput):
 
 
 class AgentChange(BaseModel):
-    """One command intent. Every mutation tool's `mode` is one of these actions, spelled the same."""
+    """One command intent, before it becomes a proposal."""
 
     # The entity name is whatever feature owns it; the registry is what rejects an
     # unknown one, so this stays a plain string.
     entity: str
-    action: Literal[
-        "create",
-        "update",
-        "move",
-        "complete",
-        "cancel",
-        "reopen",
-        "archive",
-        "delete",
-        "link",
-        "unlink",
-    ]
+    action: ChangeAction
     id: PositiveInt | None = None
     values: dict[str, Any] = Field(default_factory=dict)
 

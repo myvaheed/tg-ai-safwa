@@ -203,7 +203,7 @@ No behaviour changes.
 - `tests/brd/screens.feature` is created for SC-LIVE-001, and `SC` is added to the prefix table in
   [tests/brd/README.md](../../tests/brd/README.md), which `test_every_scenario_prefix_is_declared_in_the_readme`
   requires.
-- `cancel_approval_for_target` and `resolve_approval` are each two jobs in one function: what
+- `cancel_approval_for_proposal` and `resolve_approval` are each two jobs in one function: what
   happens to the batch, and what happens to the paused turn. The first half moves into
   [features/proposals/use_cases.py](../../src/safwa/features/proposals/use_cases.py) beside
   `approve_proposal`, over the reducer that already decides these transitions. The second half stays
@@ -217,7 +217,7 @@ No behaviour changes.
 Seven scenarios, twelve citations on tests that already stood, four new tests for the branches
 nothing covered, and `tests/brd/screens.feature` with the `SC` prefix declared beside it.
 
-The batch half of `resolve_approval` and `cancel_approval_for_target` is now `decide_batch_item`
+The batch half of `resolve_approval` and `cancel_approval_for_proposal` is now `decide_batch_item`
 and `interrupt_batch` in [features/proposals/use_cases.py](../../src/safwa/features/proposals/use_cases.py),
 with `_refresh_queued_proposal` moved beside them. What the model reads back is still rendered in
 [ai/service.py](../../src/safwa/ai/service.py) and handed in, because the labels belong to the

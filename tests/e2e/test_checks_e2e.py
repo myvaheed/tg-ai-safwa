@@ -23,7 +23,7 @@ from safwa.domain import (
 from safwa.enums import MessageKind
 from safwa.features.cards.model import CardStage
 from safwa.features.checks.model import CheckOutcome
-from safwa.models import CallbackToken, Card, ChangeProposal, Check, TelegramMessage
+from safwa.models import CallbackToken, Card, Check, TelegramMessage
 from safwa.telegram import (
     GenerationGuard,
     callback_token_handler,
@@ -201,7 +201,7 @@ async def test_answering_checks_by_proposal_then_completing(e2e_harness):
 
     await _claim(e2e_harness, "proposal_approve", message, services, id=outcome.proposal_id)
     async with e2e_harness.sessions() as session:
-        assert (await session.get(ChangeProposal, outcome.proposal_id)).status == "approved"
+        assert advisor.reviews.proposal(outcome.proposal_id) is None
         first = await session.get(Check, check_ids[0])
         assert first.outcome == CheckOutcome.PASSED.value
         assert first.resolved_by == "ai"

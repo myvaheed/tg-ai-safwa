@@ -35,12 +35,6 @@ CONTEXT_CRITICAL_CARD_LIMIT = 10
 # --- AI agent loop --------------------------------------------------------
 MAX_TOOL_CALLS = 64
 MAX_REPAIR_ROUNDS = 5
-# A screen the owner never answered stops being saveable after this long: it was prepared
-# against a board that has had a day to move without it.
-PROPOSAL_EXPIRY_HOURS = 24
-# A session waiting on a screen is abandoned once its proposal can no longer be acted on;
-# the proposal expires in a day, so two is past every screen the owner could still answer.
-SESSION_IDLE_DAYS = 2
 
 # --- Subagents ------------------------------------------------------------
 # A subagent blocks the advisor's turn, so the clock bounds it instead of a call count.
@@ -72,15 +66,6 @@ SUMMARY_CONTEXT_MESSAGE_LIMIT = 20
 HISTORY_SCAN_LIMIT = 2_000
 # Bot API and Telethon disagree on message IDs; correlate by timestamp within this window.
 MESSAGE_CORRELATION_SECONDS = 15
-# The interface owns the Saved/Discarded/Failed line.  History replays it as a tool result
-# instead of as words Safwa said, so each prefix says what it meant.
-RECEIPT_MEANINGS = {
-    "✅ Saved": "applied",
-    "⚡ Auto-saved": "applied",
-    "🗑 Discarded": "not applied, the user rejected it",
-    "⚠️ Failed": "not applied, it failed",
-}
-
 # --- Summaries and memory -------------------------------------------------
 MEMORY_TOKEN_BUDGET = 4_000
 # A tokenizer splits Latin at roughly 4 characters and Cyrillic at roughly 2, so a mixed

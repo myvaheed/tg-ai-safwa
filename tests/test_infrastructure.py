@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, inspect, select, update
+from sqlalchemy import create_engine, inspect, select
 
 from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
-from safwa.constants import SESSION_IDLE_DAYS
 from safwa.foundation.database import Database, upgrade_database
-from safwa.models import AgentRun, ApprovalBatch, Base, Card, CardTag, Tag
+from safwa.models import AgentRun, Base, Card, CardTag, Tag
 from safwa.recovery import recover_startup
 
 
@@ -46,30 +45,17 @@ async def test_startup_releases_the_claim_of_an_interrupted_session(sessions):
     assert restored.claimed_at is None
 
 
-async def test_startup_closes_a_session_left_waiting_past_its_screens(sessions):
-    stale = datetime.now(UTC) - timedelta(days=SESSION_IDLE_DAYS + 1)
+async def test_startup_closes_every_session_waiting_on_a_process_local_screen(sessions):
     async with sessions() as session:
-        abandoned = AgentRun(provider="test", model="test", status="awaiting_approval")
         waiting = AgentRun(provider="test", model="test", status="awaiting_approval")
-        session.add_all([abandoned, waiting])
-        await session.flush()
-        session.add(
-            ApprovalBatch(run_id=abandoned.id, status="pending", queue=[], tool_calls=[])
-        )
-        await session.commit()
-        await session.execute(
-            update(AgentRun).where(AgentRun.id == abandoned.id).values(updated_at=stale)
-        )
+        session.add(waiting)
         await session.commit()
 
         await recover_startup(session)
         await session.commit()
 
-        batch = await session.scalar(select(ApprovalBatch))
-        assert (await session.get(AgentRun, abandoned.id)).status == "abandoned"
-        assert (await session.get(AgentRun, waiting.id)).status == "awaiting_approval"
-    # The batch goes with the session: it is what a stray press would resolve into.
-    assert batch.status == "cancelled"
+        # The screens that session was waiting on went with the process that opened them.
+        assert (await session.get(AgentRun, waiting.id)).status == "abandoned"
 
 
 async def test_read_only_query_runner_reads_only_ai_views(tmp_path):

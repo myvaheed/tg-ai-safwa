@@ -17,7 +17,8 @@ from ..constants import (
 )
 from ..enums import CardKind, Category, EnergyType, Priority
 from ..features.cards.model import CardStage
-from ..models import Card, ProposalChange
+from ..features.proposals.model import BatchDecision, ProposalChange
+from ..models import Card
 
 _KIND_EMOJIS = {
     CardKind.GOAL.value: "🎯",
@@ -176,9 +177,9 @@ def proposal_change_summary(change: ProposalChange) -> str:
 
 
 PROPOSAL_OUTCOME_HEADINGS = {
-    "approved": "✅ Saved",
-    "discarded": "🗑 Discarded",
-    "failed": "⚠️ Failed",
+    BatchDecision.APPROVED: "✅ Saved",
+    BatchDecision.DISCARDED: "🗑 Discarded",
+    BatchDecision.FAILED: "⚠️ Failed",
 }
 
 
@@ -189,7 +190,7 @@ def _carries_a_value(field: str) -> bool:
 
 
 def proposal_outcome_text(
-    decision: str,
+    decision: BatchDecision,
     summary: str,
     fields: list[str] | None = None,
     *,

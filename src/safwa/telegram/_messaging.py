@@ -23,12 +23,12 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..constants import CALLBACK_TOKEN_TTL_HOURS, TOAST_SECONDS
-from ..enums import MessageKind, ProposalStatus
+from ..enums import MessageKind
 from ..features.continuity.use_cases import record_summary
+from ..features.proposals.model import BatchDecision
 from ..history import mark_kind, mark_message, register_message
 from ..models import (
     CallbackToken,
-    ChangeProposal,
     TelegramMessage,
     UiSession,
 )
@@ -307,38 +307,32 @@ async def dismiss_prior_ui(message: Message, services: Services) -> None:
 
     for screen in screens:
         replacement: str | None = None
-        if screen.kind == MessageKind.APPROVAL.value and screen.related_id:
+        advisor = getattr(services, "advisor", None)
+        review = (
+            advisor.reviews.proposal(screen.related_id)
+            if advisor is not None and screen.kind == MessageKind.APPROVAL.value
+            else None
+        )
+        if review is not None:
             async with services.sessions() as session:
-                proposal = await session.get(ChangeProposal, screen.related_id)
-                if proposal is not None and proposal.status == "pending":
-                    advisor = getattr(services, "advisor", None)
-                    description = (
-                        await advisor.describe_proposal(session, proposal.id)
-                        if advisor is not None
-                        else None
-                    )
-                    proposal.status = ProposalStatus.REJECTED.value
-                    await session.commit()
-                    progress = (
-                        await advisor.cancel_approval_for_target("proposal", proposal.id)
-                        if advisor is not None
-                        else None
-                    )
-                    if progress:
-                        # Earlier items in the queue may already be saved, and this frozen
-                        # screen becomes assistant history.  Report the whole request.
-                        replacement = (
-                            "<b>Request interrupted</b>\n"
-                            "You continued the conversation, so the remaining proposals were "
-                            "discarded.\n\n" + html.escape(progress)
-                        )
-                    else:
-                        replacement = proposal_outcome_text(
-                            "discarded",
-                            description.summary if description else "",
-                            description.fields if description else None,
-                            notice="You continued the conversation without saving it.",
-                        )
+                description = await advisor.describe_proposal(session, review.id)
+            advisor.reviews.end_proposal(review.id)
+            progress = await advisor.cancel_approval_for_proposal(review.id)
+            if progress:
+                # Earlier items in the queue may already be saved, and this frozen screen
+                # becomes assistant history.  Report the whole request.
+                replacement = (
+                    "<b>Request interrupted</b>\n"
+                    "You continued the conversation, so the remaining proposals were "
+                    "discarded.\n\n" + html.escape(progress)
+                )
+            else:
+                replacement = proposal_outcome_text(
+                    BatchDecision.DISCARDED,
+                    description.summary,
+                    description.fields,
+                    notice="You continued the conversation without saving it.",
+                )
         if replacement is not None:
             try:
                 await message.bot.edit_message_text(

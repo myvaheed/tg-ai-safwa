@@ -9,11 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...ai.contracts import AgentChange
 from ...foundation.references import resolve_references
-from ...models import (
-    Check,
-    ProposalChange,
-)
+from ...models import Check
 from ..proposals.api import (
+    ChangeAction,
+    ProposalChange,
     ProposalScreen,
     detail_label,
     detail_lines,
@@ -25,7 +24,8 @@ from ..proposals.api import (
     reference_names,
     result_value,
 )
-from .model import CHECK_ANSWER_ACTIONS, CHECK_OUTCOME_LABELS
+from .model import CHECK_OUTCOME_LABELS
+from .proposal import CHECK_ANSWER_ACTIONS
 from .references import CHECK_VALUE_REFERENCE
 from .use_cases import check_value_ids
 
@@ -46,21 +46,21 @@ class CheckProposalPresenter:
         self, session: AsyncSession, change: ProposalChange, fallback: AgentChange | None
     ) -> list[str]:
         values = dict(change.values)
-        if change.action in {"link", "unlink"}:
+        if change.action in {ChangeAction.LINK, ChangeAction.UNLINK}:
             verb = change.action.title()
             groups = await reference_groups(session, values, (CHECK_VALUE_REFERENCE,))
             return [f"{verb}: {group}" for group in groups]
         proposed = {name: values[name] for name in ("title", "repeatable") if name in values}
-        if change.action in {"complete", "cancel"}:
+        if change.action in {ChangeAction.COMPLETE, ChangeAction.CANCEL}:
             proposed["outcome"] = CHECK_ANSWER_ACTIONS[change.action]
         check = (
             await session.get(Check, change.entity_id)
             if change.entity_id is not None
             else None
         )
-        if change.action == "create" or check is None:
+        if change.action is ChangeAction.CREATE or check is None:
             return detail_lines(proposed)
-        if change.action == "archive":
+        if change.action is ChangeAction.ARCHIVE:
             return [f"Check: #{check.id} “{result_value(check.title)}”"]
         before = {
             "title": check.title,
@@ -76,7 +76,7 @@ class CheckProposalPresenter:
     async def summary(
         self, session: AsyncSession, change: ProposalChange, details: list[str]
     ) -> str:
-        if change.action in {"complete", "cancel"}:
+        if change.action in {ChangeAction.COMPLETE, ChangeAction.CANCEL}:
             check = (
                 await session.get(Check, change.entity_id)
                 if change.entity_id is not None
@@ -106,21 +106,21 @@ class CheckProposalPresenter:
                 }
         payload = {k: v for k, v in change.values.items() if not k.startswith("value_")}
         proposed = {**current, **payload}
-        if change.action in {"link", "unlink"}:
+        if change.action in {ChangeAction.LINK, ChangeAction.UNLINK}:
             resolved = await resolve_references(session, CHECK_VALUE_REFERENCE, change.values)
             target = resolved.ids | set(resolved.unknown_ids)
             after = (
                 set(linked_ids) | target
-                if change.action == "link"
+                if change.action is ChangeAction.LINK
                 else set(linked_ids) - target
             )
             proposed["values"] = await _value_names(session, list(after))
         if change.action in CHECK_ANSWER_ACTIONS:
             proposed["status"] = CHECK_OUTCOME_LABELS[CHECK_ANSWER_ACTIONS[change.action]]
-        if change.action in {"archive", "delete"}:
+        if change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
             current["status"] = "Archived" if archived else "Active"
-            proposed["status"] = "Archived" if change.action == "archive" else "Deleted"
-        if change.action == "create":
+            proposed["status"] = "Archived" if change.action is ChangeAction.ARCHIVE else "Deleted"
+        if change.action is ChangeAction.CREATE:
             mode = "Create"
         elif change.action in CHECK_ANSWER_ACTIONS:
             mode = "Answer"

@@ -186,6 +186,10 @@ def _is_orm_entity(node: ast.ClassDef) -> bool:
     return any(ast.unparse(base) == "Base" for base in node.bases)
 
 
+def _is_enum(node: ast.ClassDef) -> bool:
+    return any(ast.unparse(base).endswith("Enum") for base in node.bases)
+
+
 def rule_c() -> list[Violation]:
     """Process state is frozen, and the writer never leaves the Manager."""
     out = []
@@ -194,7 +198,8 @@ def rule_c() -> list[Violation]:
             if isinstance(node, ast.ClassDef) and node.name.endswith(("State", "Action", "Effect")):
                 # A persisted row is durable state, not the process state this rule means:
                 # it is mutable by definition, and its truth is the table, not a union.
-                if _is_orm_entity(node):
+                # An enum is a closed vocabulary, and its members are already immutable.
+                if _is_orm_entity(node) or _is_enum(node):
                     continue
                 if not _is_frozen_dataclass(node):
                     out.append(

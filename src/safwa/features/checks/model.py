@@ -23,12 +23,6 @@ CHECK_OUTCOME_LABELS = {
     CheckOutcome.PASSED.value: "Passed",
     CheckOutcome.MISSED.value: "Missed",
 }
-# A Check is answered with the Card lifecycle verbs: complete is Passed, cancel is Missed.
-CHECK_ANSWER_ACTIONS = {
-    "complete": CheckOutcome.PASSED.value,
-    "cancel": CheckOutcome.MISSED.value,
-}
-
 
 class Check(Base, TimestampMixin):
     """One state observation: "did this hold?", answered once and then replaced.

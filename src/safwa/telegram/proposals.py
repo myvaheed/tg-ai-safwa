@@ -6,12 +6,11 @@ from typing import Any
 
 from aiogram.enums import ChatAction
 from aiogram.types import InlineKeyboardMarkup, Message
-from sqlalchemy import select
 
 from ..ai.service import AIOutcome, failure_reason
 from ..domain import DomainError
 from ..enums import MessageKind
-from ..models import ChangeProposal, ProposalChange
+from ..features.proposals.model import DECISION_RECEIPTS, BatchDecision
 from ._core import Services
 from ._messaging import edit_registered_message, send_registered, token_button
 from ._presentation import markdown_to_telegram_html, proposal_change_summary
@@ -29,17 +28,11 @@ async def render_proposal(
     notice: str | None = None,
     event_id: str | None = None,
 ) -> None:
+    proposal = services.advisor.reviews.proposal(proposal_id)
+    if proposal is None:
+        raise DomainError("Proposal is no longer pending")
     async with services.sessions() as session:
-        proposal = await session.get(ChangeProposal, proposal_id)
-        if proposal is None or proposal.status != "pending":
-            raise DomainError("Proposal is no longer pending")
-        changes = list(
-            await session.scalars(
-                select(ProposalChange)
-                .where(ProposalChange.proposal_id == proposal.id)
-                .order_by(ProposalChange.position)
-            )
-        )
+        changes = proposal.changes
         text_parts = ["<b>Review proposal</b>"]
         if notice:
             text_parts.append(html.escape(notice))
@@ -130,22 +123,18 @@ async def render_ai_outcome(
 async def continue_agent_approval(
     message: Message,
     services: Services,
-    target_type: str,
-    target_id: int,
+    proposal_id: int,
     *,
-    decision: str,
+    decision: BatchDecision,
     result: dict[str, Any],
 ) -> bool:
-    """Advance a persisted approval queue, resuming the model only after its last item."""
+    """Advance an open approval queue, resuming the model only after its last item."""
     if getattr(services, "advisor", None) is None or getattr(services, "history", None) is None:
         return False
-    if not await services.advisor.has_pending_approval(target_type, target_id):
+    if not services.advisor.has_pending_approval(proposal_id):
         return False
-    resolved_text = {
-        "approved": "✅ Saved.",
-        "discarded": "🗑 Discarded.",
-        "failed": "⚠️ Failed.",
-    }.get(decision, "Resolved.")
+    resolved_text = f"{DECISION_RECEIPTS[decision]}."
+
     await send_registered(
         message,
         services,
@@ -156,10 +145,7 @@ async def continue_agent_approval(
         await services.guard.acquire(message.message_id)
     except Exception:
         logger.exception(
-            "Could not acquire continuation lease after %s %s #%s",
-            decision,
-            target_type,
-            target_id,
+            "Could not acquire continuation lease after %s #%s", decision, proposal_id
         )
         await send_registered(
             message,
@@ -174,17 +160,13 @@ async def continue_agent_approval(
         try:
             await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
             outcome = await services.advisor.resolve_approval(
-                target_type,
-                target_id,
+                proposal_id,
                 decision=decision,
                 result=result,
             )
         except Exception as error:
             logger.exception(
-                "AI continuation failed after %s %s #%s",
-                decision,
-                target_type,
-                target_id,
+                "AI continuation failed after %s #%s", decision, proposal_id
             )
             await send_registered(
                 message,

@@ -16,12 +16,14 @@ from ...enums import (
     EnergyType,
 )
 from ...foundation.errors import DomainError, StaleStateError
-from ...models import Card, CardCategory, CardEnergyType, ProposalChange
+from ...models import Card, CardCategory, CardEnergyType
 from ..checks.api import unobserved_series
 from ..proposals.api import (
     ApplyContext,
+    ChangeAction,
     PreparationContext,
     PreparedChange,
+    ProposalChange,
     ToolPreparationError,
     named_ids,
     reject_closed_repeat,
@@ -53,7 +55,9 @@ PARENT_HINT = (
 )
 
 
-STAGE_ACTIONS = frozenset({"move", "complete", "cancel", "reopen"})
+STAGE_ACTIONS = frozenset(
+    {ChangeAction.MOVE, ChangeAction.COMPLETE, ChangeAction.CANCEL, ChangeAction.REOPEN}
+)
 
 
 ACTION_ONLY_FIELDS = (
@@ -190,8 +194,8 @@ async def _guard_pending_checks(
     The error is model-visible and retryable, and it carries the titles so the model
     does not have to spend a `query_safwa` round discovering them.
     """
-    completing = change.action == "complete" or (
-        change.action in {"move", "update"} and values.get("stage") == CardStage.DONE.value
+    completing = change.action is ChangeAction.COMPLETE or (
+        change.action in {ChangeAction.MOVE, ChangeAction.UPDATE} and values.get("stage") == CardStage.DONE.value
     )
     if not completing or change.id is None:
         return
@@ -277,6 +281,8 @@ async def _apply_card_links(
 class CardProposalHandler:
     entity = "card"
     version_model: type[Any] | None = Card
+    # Deleting a Card takes its whole subtree and that subtree's historical contribution.
+    destructive_actions = frozenset({ChangeAction.DELETE})
 
     async def prepare(
         self, context: PreparationContext, change: Any
@@ -286,7 +292,7 @@ class CardProposalHandler:
             await reject_closed_repeat(context.session, card, change.entity)
         values = dict(change.values)
         proposed_kind = (
-            values.get("kind") if change.action == "create" else getattr(card, "kind", None)
+            values.get("kind") if change.action is ChangeAction.CREATE else getattr(card, "kind", None)
         )
         if proposed_kind != CardKind.ACTION.value:
             if change.action in STAGE_ACTIONS or "stage" in values:
@@ -306,7 +312,7 @@ class CardProposalHandler:
                     "A Goal is always root-level and cannot take a parent.",
                     "Drop the parent from this call, or propose an Idea or Action instead.",
                 )
-            if change.action == "update" and not values:
+            if change.action is ChangeAction.UPDATE and not values:
                 raise DomainError("The Card proposal contains no applicable fields")
         await _resolve_parent_reference(context, values, str(proposed_kind))
         for spec in CARD_REFERENCE_SPECS:
@@ -317,7 +323,7 @@ class CardProposalHandler:
     async def apply(self, context: ApplyContext, change: ProposalChange) -> list[int]:
         session = context.session
         values = dict(change.values)
-        if change.action == "create":
+        if change.action is ChangeAction.CREATE:
             card = await create_card(
                 session,
                 kind=values["kind"],
@@ -344,17 +350,17 @@ class CardProposalHandler:
         card = await session.get(Card, change.entity_id) if change.entity_id else None
         if card is None or card.version != change.expected_version:
             raise StaleStateError("A Card changed; refresh this proposal")
-        if change.action == "move":
+        if change.action is ChangeAction.MOVE:
             await _apply_stage_change(session, card, CardStage(change.values["stage"]))
-        elif change.action == "complete":
+        elif change.action is ChangeAction.COMPLETE:
             await finish_action(session, card.id, CardStage.DONE, actor=ActorType.AI)
-        elif change.action == "cancel":
+        elif change.action is ChangeAction.CANCEL:
             await finish_action(session, card.id, CardStage.CANCELLED, actor=ActorType.AI)
-        elif change.action == "reopen":
+        elif change.action is ChangeAction.REOPEN:
             await _apply_stage_change(
                 session, card, CardStage(change.values.get("stage", CardStage.BACKLOG.value))
             )
-        elif change.action == "update":
+        elif change.action is ChangeAction.UPDATE:
             scalar_fields = {
                 name: value
                 for name, value in change.values.items()
@@ -369,15 +375,15 @@ class CardProposalHandler:
             if "stage" in change.values:
                 await _apply_stage_change(session, card, CardStage(change.values["stage"]))
             await _replace_card_sets(session, card, change.values)
-        elif change.action == "archive":
+        elif change.action is ChangeAction.ARCHIVE:
             await archive_subtree(session, card.id)
-        elif change.action == "delete":
+        elif change.action is ChangeAction.DELETE:
             if not context.allow_destructive:
                 raise DomainError("Permanent deletion needs a second confirmation")
             await delete_subtree(session, card.id)
-        elif change.action in {"link", "unlink"}:
+        elif change.action in {ChangeAction.LINK, ChangeAction.UNLINK}:
             await _apply_card_links(
-                session, card, change.values, linked=change.action == "link"
+                session, card, change.values, linked=change.action is ChangeAction.LINK
             )
         else:
             raise DomainError(f"Unsupported approved Card action: {change.action}")

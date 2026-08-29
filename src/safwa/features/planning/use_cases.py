@@ -27,7 +27,7 @@ from ...foundation.workspace import require_workspace
 from ..cards.api import CardStage, action_titles, planned_actions
 from ..profile.api import sprint_length_days as _profile_sprint_length_days
 from ..reminders.api import create_sprint_reminder, delete_sprint_reminders
-from .model import Sprint, SprintCommitment
+from .model import Sprint, SprintCommitment, SprintStatus
 
 # How many unfinished Actions the end-of-Sprint summary names before it counts the rest.
 SUMMARY_OPEN_TITLES = 5
@@ -152,7 +152,7 @@ async def finish_sprint(session: AsyncSession, *, reason: str = "finished") -> S
         raise DomainError("Active Sprint is missing")
     # Its own end reminders have nothing left to announce.
     await delete_sprint_reminders(session, sprint.id)
-    sprint.status = "finished"
+    sprint.status = SprintStatus.FINISHED.value
     sprint.finish_reason = reason
     sprint.actual_ended_at = utcnow()
     workspace.mode = WorkspaceMode.PLANNING.value

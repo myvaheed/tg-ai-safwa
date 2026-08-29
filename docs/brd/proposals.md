@@ -6,8 +6,9 @@ Batch: Phase 6.a and 6.b
 Sources: `CLAUDE.md` §"AI mutations are always proposals";
 `archived_docs/ARCHITECTURE.md` §"AI advisor" (the "The model never mutates" bullet and the two
 bullets after it) and §Subagents; current code —
-[ai/service.py](../../src/safwa/ai/service.py) `_execute_mutation_tool`, `_create_proposal`,
-`_materialize`, `resolve_approval`, `ProposalService`;
+[ai/service.py](../../src/safwa/ai/service.py) `_execute_mutation_tool`, `_materialize`,
+`resolve_approval`; [features/proposals/use_cases.py](../../src/safwa/features/proposals/use_cases.py)
+`prepare_proposal`, `approve_proposal`, `ProposalStore.end_proposal`;
 [telegram/proposals.py](../../src/safwa/telegram/proposals.py);
 [telegram/callbacks.py](../../src/safwa/telegram/callbacks.py) `_on_proposal_approve`,
 `_on_proposal_delete_confirm`, `_on_proposal_reject`, `_resume_failed_approval`;
@@ -135,7 +136,7 @@ And no other proposal asks twice
 ### PR-QUEUE-005 — Whatever Safwa proposes at once is one screen
 
 Status: approved
-Sources: `_create_proposal` — "Every mutation call gets its own proposal screen"; one tool call
+Sources: `prepare_proposal` — "Every mutation call gets its own proposal screen"; one tool call
 becomes one `AgentChange` whose `values` carry every field it set
 
 ```gherkin
@@ -195,15 +196,15 @@ And the third one is still saveable after that
 ### PR-SAVE-009 — Save writes through the same operations the manual screens use
 
 Status: approved
-Sources: CLAUDE.md §"AI mutations are always proposals" — "`ProposalService.apply` calls the *same*
-`domain.py` functions the manual UI calls"
+Sources: CLAUDE.md §"AI mutations are always proposals"; `approve_proposal` and each feature's
+`ProposalHandler.apply`
 
 ```gherkin
 Given a proposal to move an Action to Done
 When the owner saves it
 Then the Action moves exactly as it would if the owner had pressed Done on its own screen
 And everything that follows from that follows too, its Card tree and its Sprint included
-And the proposal is recorded as saved, and its screen can no longer be acted on
+And the review is over, and its screen can no longer be acted on
 When a proposal holds more than one edit
 Then they are applied in the order the review screen listed them
 ```
@@ -211,13 +212,13 @@ Then they are applied in the order the review screen listed them
 ### PR-SAVE-010 — Discard writes nothing, and the rest of the request goes on
 
 Status: approved
-Sources: `_on_proposal_reject` → `ProposalService.reject`; `_DECISION_NEXT_STEPS["discarded"]`
+Sources: `_on_proposal_reject` → `ProposalStore.end_proposal`; `_DECISION_NEXT_STEPS[BatchDecision.DISCARDED]`
 
 ```gherkin
 Given a proposal is on screen and two more from the same request are queued behind it
 When the owner discards it
 Then nothing about that item changed
-And the proposal is recorded as discarded, and its screen can no longer be acted on
+And the review is over, and its screen can no longer be acted on
 And the two behind it are still queued and still shown in turn
 ```
 
@@ -239,7 +240,7 @@ And for the discarded one it is told that it did not happen
 ### PR-STALE-012 — A proposal is refused once the board has moved on without it
 
 Status: approved
-Sources: `ProposalService.apply` compares `Workspace.revision` before anything is applied;
+Sources: `approve_proposal` compares `Workspace.revision` before anything is applied;
 `StaleStateError`; the `proposal_` branch of the callback error handler
 
 A Sprint closes itself once it passes its planned end date, on a background poll with nobody
@@ -257,25 +258,22 @@ And the owner is told the board has moved on since Safwa proposed this, and it h
 And the screen cannot be acted on any more
 ```
 
-### PR-STALE-013 — A proposal too old to save says so when Save is pressed
+### PR-STALE-013 — A proposal lives for one running process
 
 Status: approved
-Sources: `_create_proposal` sets `expires_at` one day ahead; `recover_startup` turns an expired
-pending proposal stale
-**Behaviour change, ruled by the owner on 2026-08-28 (Q1).** Today nothing looks at a proposal's age
-when Save is pressed, so the owner can press it and never learn that nothing was saved. The refusal
-takes the same path as PR-STALE-012, which also releases a request left waiting on that screen.
+**Behaviour change, ruled by the owner on 2026-08-29.** A proposal has no age limit while the
+process that created it is still running. A restart ends every unanswered proposal review and takes
+its buttons with it, so an old button answers like any dead screen. A resolved proposal and its
+stored changes are deleted after their result has moved into the approval batch.
 
 ```gherkin
-Given a proposal was made more than a day ago and was never answered
-  (PROPOSAL_EXPIRY_HOURS = 24)
-When the owner presses Save
-Then nothing is written
-And the owner is told the proposal is too old to save and has to be proposed again
-And the screen cannot be acted on any more
-When Safwa restarts instead, with such a proposal still unanswered
-Then it is already too old to save before the owner touches anything
-And a proposal made 23 hours ago is left alone and is still answerable
+Given a proposal was made in the current running process and was never answered
+When the owner presses Save, however long that process has stayed alive
+Then the proposal is applied normally
+And the review is over
+When Safwa restarts instead before the owner answers another proposal
+Then its review, its queue and its buttons are all gone
+And pressing the old Save button writes nothing and says the screen has to be reopened
 ```
 
 ### PR-FAIL-014 — A proposal that fails while it is being saved takes nothing else with it
@@ -327,29 +325,29 @@ And whatever it did get right in the same request is untouched
 
 ---
 
-## What the owner ruled, 2026-08-28
+## What the owner ruled, 2026-08-28; amended 2026-08-29
 
-### Q1 — Pressing Save on a proposal that is too old has to say so
+### Q1 — A proposal is valid for exactly one running process
 
-`expires_at` is written on the proposal one day ahead, and until now exactly one piece of code read
-it: the startup sweep. So a bot running for a week expired nothing, and the owner could press Save
-on an old proposal and never learn that nothing had been saved.
+Proposal rows are active review state, not history. While the process that created a proposal is
+running, its Save and Discard buttons remain valid without an age limit. Proposal callback actions
+therefore ignore the generic callback-token TTL; single-use claiming still prevents a double press.
 
-What hid it is that the button dies first. Telegram has no expiry of its own — an inline button
-stays pressable forever as far as Telegram is concerned. Safwa expires it: every button is a row in
-`callback_tokens` with `expires_at` at `CALLBACK_TOKEN_TTL_HOURS = 24` and a `consumed_at` that
-makes it single-use, and a press after that answers "This action expired. Reopen the screen." That
-tells the owner the button is gone, not that their proposal was never saved. A screen re-rendered
-later — after a failed Save, for instance — takes a fresh button and can outlive its own proposal.
+At startup Safwa deletes every unanswered proposal and approval batch, deletes the buttons those
+reviews left in the chat, and abandons every run that was waiting on one. An old button then answers
+"This action expired. Reopen the screen." like any other dead screen. SQLite proposal IDs use
+`AUTOINCREMENT`, so a consumed button or a stored screen that still names a resolved proposal can
+never reach a later one.
 
-**Ruled:** Save reads the age and refuses in words the owner can act on. PR-STALE-013 is written
-about that, with the startup sweep as its second branch.
+**Ruled:** there is no proposal expiry by age. Save, Discard, stale refusal and interruption delete
+the review; a completed or interrupted approval batch is closed once its result has moved to the
+agent transcript.
 
 ### Q2 — A proposal may hold several edits, and the screen shows all of them
 
-`proposal_changes` is a list: one proposal may have many rows, ordered by `position`. Applying walks
-that list, and the review screen has a second branch that lists every row when there is more than
-one. Nothing in production writes a second row, so that branch has never run.
+`ChangeProposal.changes` is a list: one proposal may hold many edits, in order. Applying walks that
+list, and the review screen has a second branch that lists every one when there is more than one.
+Nothing in production adds a second, so that branch has never run.
 
 **Ruled: keep it.** If a proposal ever holds several edits, the owner sees all of them before
 deciding. The column, the ordered walk and the second screen branch all stay, and PR-SCREEN-003 and
@@ -383,23 +381,22 @@ and the ones marked `missing` are written in the batch.
 | PR-SAVE-010 | `test_advisor_flow_e2e.py::test_discarded_proposal_result_is_returned_with_later_approval`, `::test_discarding_the_last_queued_proposal_still_reports_saved_siblings` | business_valid | cite | — | approved |
 | PR-RESULT-011 | `test_advisor_flow_e2e.py::test_resumed_request_replays_its_own_intermediate_steps`, `::test_a_resolved_proposal_leaves_one_readable_line_in_the_dialogue` | business_valid | cite | — | approved |
 | PR-STALE-012 | `test_advisor_flow_e2e.py::test_ai_request_update_is_rejected_when_the_request_becomes_stale` | business_valid | cite | 1 integration test on the workspace check itself | approved |
-| PR-STALE-013 | none | missing | write; behaviour change (Q1) | 2 tests: Save refused on an over-age proposal, and the startup sweep | approved |
+| PR-STALE-013 | `test_proposals.py::test_a_proposal_does_not_expire_while_its_process_is_running`, `::test_startup_discards_every_unanswered_proposal_review`; `test_advisor_flow_e2e.py::test_proposal_save_ignores_button_age_while_the_process_is_running`, `::test_restart_invalidates_an_unanswered_proposal_button` | business_valid | cite; behaviour change (Q1) | no-age Save, startup invalidation of the review and its buttons, and non-reused IDs | approved |
 | PR-FAIL-014 | `test_advisor_flow_e2e.py::test_single_proposal_save_error_is_reported_and_resolved`, `::test_proposal_ui_queues_mutations_and_reports_dependency_failure`, `::test_child_proposal_fails_cleanly_when_earlier_parent_is_discarded` | business_valid | cite | 1 for the branch with no waiting request | approved |
 | PR-REPAIR-015 | `test_advisor_flow_e2e.py::test_invalid_create_returns_minimal_repair_arguments_to_the_model`, `::test_failed_call_result_states_that_its_siblings_are_still_queued`, `::test_new_tag_and_dependent_card_link_use_one_repair_round` | business_valid | cite | — | approved |
 | PR-REPAIR-016 | `test_advisor_flow_e2e.py::test_mutation_repair_loop_stops_after_five_rounds` | business_valid | cite | — | approved |
 
-Two gaps this packet found by reading, with no failing test behind either: the final confirmation on
-a Card deletion proposed by Safwa is never exercised, and nothing at all covers a proposal expiring.
+Two gaps this packet originally found by reading were the final confirmation on a Card deletion and
+proposal lifetime. Both now have executable scenarios; lifetime is process-bound rather than timed.
 
 ## What the batch changes besides tests
 
-- `PROPOSAL_EXPIRY_HOURS = 24` is added to [constants.py](../../src/safwa/constants.py). Today the
-  day is written inline as `timedelta(hours=24)` while the two limits either side of it —
-  `CALLBACK_TOKEN_TTL_HOURS = 24` and `SESSION_IDLE_DAYS = 2` — are named. A scenario has to be able
-  to name the constant its test reads.
-- **Save reads the proposal's age and refuses when it is over that limit (Q1).** The refusal takes
-  the path PR-STALE-012 already uses, so the owner gets words rather than silence and a request
-  waiting on that screen is released rather than left hanging.
+- Proposal age and session-idle expiry are removed. Proposal actions ignore the generic callback
+  TTL while their creating process is alive.
+- Reviews and approval batches live in `ProposalStore`, so a restart has already ended them.
+  Startup deletes the proposal buttons they left, clears the `related_id` of their screens, and
+  abandons every run waiting on one.
+- Proposal IDs are never reused by SQLite, so an old Telegram button cannot alias a new proposal.
 - Nothing is removed for Q2: the `position` column, the ordered walk and the screen's second branch
   all stay, and gain the tests that say what they do.
 
@@ -415,7 +412,7 @@ Measured after 6.a and 6.b.
 | Modules over 600 lines (DoD #3) | 5 | 5 |
 | Import cycles | 0 (638 edges) | 0 (656 edges) |
 | `prompt_prefix.json` | must not move | unchanged |
-| `schema.json` | moves on the tables that migrate | `approval_batches` added |
+| `schema.json` | moves on the tables that migrate | the three proposal tables removed |
 
 Rules C and D were vacuous at 0 because nothing in the codebase was a reducer. They now read
 seven frozen classes in `proposals/model.py` and the one `reduce` in `proposals/reducer.py`, and
@@ -425,15 +422,16 @@ still report 0.
 
 - `ChangeProposal` and `ProposalChange` moved to
   [features/proposals/model.py](../../src/safwa/features/proposals/model.py), and `ApprovalBatch`
-  joined them: the batch is a table with a `status` column instead of an `AgentStep` row whose
-  status lived in JSON. `SUSPENDED_BATCH_LOOKUP_LIMIT` is gone with the scan it bounded.
+  joined them: the batch is a table of its own instead of an `AgentStep` row whose status lived in
+  JSON. `SUSPENDED_BATCH_LOOKUP_LIMIT` is gone with the scan it bounded, and neither row carries a
+  status: existence is pending, and a batch is over when no screen is still waiting.
 - [reducer.py](../../src/safwa/features/proposals/reducer.py) decides every transition of a batch,
   reads nothing and writes nothing, and is covered by a transition table in
   [tests/test_proposal_batch.py](../../tests/test_proposal_batch.py).
-- `ProposalService` is gone. `prepare_proposal`, `approve_proposal` and `reject_proposal` are use
-  cases in [use_cases.py](../../src/safwa/features/proposals/use_cases.py), called by both the
-  callbacks and the agent.
-- `PROPOSAL_EXPIRY_HOURS = 24` is named, `expires_at` reads back as UTC, and Save refuses an
-  over-age proposal in words instead of writing nothing silently.
+- `ProposalService` is gone. `prepare_proposal` and `approve_proposal` are use cases in
+  [use_cases.py](../../src/safwa/features/proposals/use_cases.py), called by both the callbacks and
+  the agent; ending a review is `ProposalStore.end_proposal`.
+- Proposal reviews are process-bound working state: no age expiry, terminal rows are deleted, and
+  startup invalidates every unanswered review together with its buttons.
 - Both stale refusals now say what happened in the owner's words rather than "Planning state
   changed", which named the mode with no Sprint rather than the board.

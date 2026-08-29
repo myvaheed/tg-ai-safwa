@@ -8,8 +8,10 @@ import pytest
 
 from llm_gateway import CompletionTurn, ToolCall
 from safwa.ai.context import DialogueMessage
+from safwa.ai.service import AIOutcomeKind
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.use_cases import create_card
+from safwa.features.proposals.model import BatchDecision
 from safwa.features.proposals.use_cases import approve_proposal
 
 QUESTION = "Как у меня с подтягиваниями?"
@@ -164,7 +166,7 @@ async def test_han_ask_007_the_rows_come_back_and_the_advisor_answers(e2e_harnes
     assert handed_back["rows"] == [{"status": "passed", "n": 12}, {"status": "missed", "n": 3}]
     assert handed_back["sql"] == "SELECT 1"
     # No screen: the turn ends in the Advisor's own words.
-    assert outcome.kind == "answer"
+    assert outcome.kind is AIOutcomeKind.ANSWER
     assert outcome.proposal_id is None
     assert outcome.message == "Подтянулся 12 раз, пропустил 3."
 
@@ -275,17 +277,16 @@ async def test_han_offer_005_the_offer_outlives_a_screen(e2e_harness) -> None:
         helpers={"heavy_analyzer": recording_helper([])},
     )
     first = await advisor.handle(QUESTION)
-    assert first.kind == "proposal"
+    assert first.kind is AIOutcomeKind.PROPOSAL
 
     async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(session, PROPOSALS, first.proposal_id)
+        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, first.proposal_id)
         await session.commit()
     provider.responses.extend(["Переименовал.", "Готово."])
 
     await advisor.resolve_approval(
-        "proposal",
         first.proposal_id,
-        decision="approved",
+        decision=BatchDecision.APPROVED,
         result={"affected_ids": affected},
     )
 

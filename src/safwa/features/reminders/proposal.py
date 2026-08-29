@@ -12,11 +12,12 @@ from zoneinfo import ZoneInfo
 
 from ...foundation.errors import DomainError, StaleStateError
 from ...foundation.models import Workspace
-from ...models import ProposalChange
 from ..proposals.api import (
     ApplyContext,
+    ChangeAction,
     PreparationContext,
     PreparedChange,
+    ProposalChange,
     ToolPreparationError,
     require_target,
 )
@@ -81,7 +82,7 @@ class ReminderProposalHandler:
         tz = ZoneInfo(workspace.timezone if workspace else "UTC")
         values = dict(change.values)
         payload = values.get("schedule")
-        if change.action == "create":
+        if change.action is ChangeAction.CREATE:
             if payload is None:
                 raise DomainError("A new Reminder needs a schedule")
             reminder = await create_reminder(
@@ -94,10 +95,10 @@ class ReminderProposalHandler:
         if change.entity_id is None:
             raise DomainError("This Reminder change has no target")
         # `remove` may only send archive for a Reminder, and a Reminder has no archive.
-        if change.action in {"delete", "archive"}:
+        if change.action in {ChangeAction.DELETE, ChangeAction.ARCHIVE}:
             await delete_reminder(session, change.entity_id)
             return [change.entity_id]
-        if change.action != "update":
+        if change.action is not ChangeAction.UPDATE:
             raise DomainError(f"Unsupported approved Reminder action: {change.action}")
         reminder = await session.get(Reminder, change.entity_id)
         if reminder is None or reminder.version != change.expected_version:

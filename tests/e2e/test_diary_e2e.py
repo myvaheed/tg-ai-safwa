@@ -9,6 +9,7 @@ from test_subagent_e2e import diary_subagent
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
+from safwa.ai.service import AIOutcomeKind
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.diary.model import DiaryEntry
 from safwa.features.diary.use_cases import create_diary_entry
@@ -37,7 +38,7 @@ def write(date_value: str, pov: str, **extra: object) -> ProviderTurn:
 async def _save(harness, advisor, proposal_id: int) -> tuple[list[int], object]:
     async with harness.sessions() as session:
         description = await advisor.describe_proposal(session, proposal_id)
-        affected = await approve_proposal(session, PROPOSALS, proposal_id)
+        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, proposal_id)
         await session.commit()
     return affected, description
 
@@ -55,7 +56,7 @@ async def test_di_write_008_routed_write_is_saved_through_proposal(e2e_harness):
 
     outcome = await advisor.handle("Запиши, как прошёл день")
 
-    assert outcome.kind == "proposal"
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
     affected, description = await _save(e2e_harness, advisor, outcome.proposal_id)
 
     async with e2e_harness.sessions() as session:
@@ -202,7 +203,7 @@ async def test_a_correction_reaches_the_session_that_wrote_the_refused_day(e2e_h
 
     # The owner answers with words instead of a button: the screen freezes, and the
     # Diary session stays waiting while the Advisor takes the words.
-    await advisor.cancel_approval_for_target("proposal", first.proposal_id)
+    await advisor.cancel_approval_for_proposal(first.proposal_id)
     async with e2e_harness.sessions() as session:
         diary_run = await session.scalar(
             select(AgentRun).where(AgentRun.kind == "diary").order_by(AgentRun.id.desc())
@@ -247,7 +248,7 @@ async def test_words_over_a_screen_end_the_caller_but_not_the_draft(e2e_harness)
     )
     first = await advisor.handle("Запиши день")
 
-    await advisor.cancel_approval_for_target("proposal", first.proposal_id)
+    await advisor.cancel_approval_for_proposal(first.proposal_id)
 
     async with e2e_harness.sessions() as session:
         runs = list(await session.scalars(select(AgentRun).order_by(AgentRun.id)))
@@ -265,7 +266,7 @@ async def test_a_refused_day_is_over_once_the_advisor_answers_something_else(e2e
         subagents=(subagent,),
     )
     first = await advisor.handle("Запиши день")
-    await advisor.cancel_approval_for_target("proposal", first.proposal_id)
+    await advisor.cancel_approval_for_proposal(first.proposal_id)
 
     # The owner's words turned out to be about something else, so the Advisor answers them.
     advisor, _ = e2e_harness.advisor(["Сегодня вторник."], subagents=(subagent,))
@@ -343,7 +344,7 @@ async def test_di_read_006_advisor_reads_and_cites_day(e2e_harness):
 
     outcome = await advisor.handle("Что я писал вчера?")
 
-    assert outcome.kind == "answer"
+    assert outcome.kind is AIOutcomeKind.ANSWER
     assert f"(diary:{entry_id})" in outcome.message
     # The turn stayed with the Advisor: no hand-over, and the day came back through the view.
     async with e2e_harness.sessions() as session:

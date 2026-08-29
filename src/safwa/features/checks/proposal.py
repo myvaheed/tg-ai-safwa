@@ -6,17 +6,19 @@ from typing import Any
 
 from ...enums import ActorType
 from ...foundation.errors import DomainError, StaleStateError
-from ...models import Check, ProposalChange
+from ...models import Check
 from ..proposals.api import (
     ApplyContext,
+    ChangeAction,
     PreparationContext,
     PreparedChange,
+    ProposalChange,
     named_ids,
     reject_closed_repeat,
     require_target,
     validate_named_references,
 )
-from .model import CHECK_ANSWER_ACTIONS
+from .model import CheckOutcome
 from .references import CHECK_VALUE_REFERENCE
 from .use_cases import (
     archive_check,
@@ -26,6 +28,11 @@ from .use_cases import (
     update_check_fields,
 )
 
+# A Check is answered with the Card lifecycle verbs: complete is Passed, cancel is Missed.
+CHECK_ANSWER_ACTIONS = {
+    ChangeAction.COMPLETE: CheckOutcome.PASSED.value,
+    ChangeAction.CANCEL: CheckOutcome.MISSED.value,
+}
 
 class CheckProposalHandler:
     entity = "check"
@@ -43,7 +50,7 @@ class CheckProposalHandler:
     async def apply(self, context: ApplyContext, change: ProposalChange) -> list[int]:
         session = context.session
         values = dict(change.values)
-        if change.action == "create":
+        if change.action is ChangeAction.CREATE:
             created = await create_check(
                 session,
                 title=str(values["title"]),
@@ -53,7 +60,7 @@ class CheckProposalHandler:
         check = await session.get(Check, change.entity_id) if change.entity_id else None
         if check is None or check.version != change.expected_version:
             raise StaleStateError("A Check changed; refresh this proposal")
-        if change.action == "update":
+        if change.action is ChangeAction.UPDATE:
             scalar_fields = {
                 name: value for name, value in values.items() if name in {"title", "repeatable"}
             }
@@ -63,15 +70,15 @@ class CheckProposalHandler:
             await resolve_check(
                 session, check.id, CHECK_ANSWER_ACTIONS[change.action], actor=ActorType.AI
             )
-        elif change.action == "archive":
+        elif change.action is ChangeAction.ARCHIVE:
             await archive_check(session, check.id)
-        elif change.action == "delete":
+        elif change.action is ChangeAction.DELETE:
             await delete_check(session, check.id)
-        elif change.action in {"link", "unlink"}:
+        elif change.action in {ChangeAction.LINK, ChangeAction.UNLINK}:
             spec = CHECK_VALUE_REFERENCE
             for value_id in sorted(await named_ids(session, values, spec)):
                 exists = await session.get(spec.link_model, spec.link_key(check.id, value_id))
-                if (change.action == "link") != (exists is not None):
+                if (change.action is ChangeAction.LINK) != (exists is not None):
                     await spec.toggle(session, check.id, value_id, actor=ActorType.AI)
         else:
             raise DomainError(f"Unsupported Check action: {change.action}")

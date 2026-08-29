@@ -6,16 +6,17 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
-from sqlalchemy import select
 
 from safwa.ai.context import DialogueMessage, board_context
-from safwa.ai.service import AIOutcome
+from safwa.ai.service import AIOutcome, AIOutcomeKind
 from safwa.constants import REMINDER_CATCHUP_GRACE_MINUTES
 from safwa.cues.runtime import CueRuntime
 from safwa.domain import (
     DomainError,
 )
-from safwa.enums import MessageKind, ProposalStatus, ScheduleKind
+from safwa.enums import MessageKind, ScheduleKind
+from safwa.features.proposals.store import ProposalStore
+from safwa.features.proposals.use_cases import open_batch
 from safwa.features.reminders.background import Firing, format_cue
 from safwa.features.reminders.schedule import (
     resolve,
@@ -33,8 +34,6 @@ from safwa.features.reminders.use_cases import (
 )
 from safwa.models import (
     AgentRun,
-    ApprovalBatch,
-    ChangeProposal,
     Reminder,
     TelegramMessage,
     Workspace,
@@ -365,12 +364,13 @@ async def test_reminder_advisor_receives_canonical_dialogue(sessions, monkeypatc
 
     class Advisor:
         calls: list[tuple[str, list[DialogueMessage]]] = []
+        reviews = ProposalStore()
 
         async def handle(
             self, text: str, *, dialogue: list[DialogueMessage]
         ) -> AIOutcome:
             self.calls.append((text, dialogue))
-            return AIOutcome("answer", "Reminder answer")
+            return AIOutcome(AIOutcomeKind.ANSWER, "Reminder answer")
 
     history = History()
     advisor = Advisor()
@@ -427,20 +427,22 @@ async def test_a_registered_cue_event_is_not_generated_twice(sessions):
 
 async def test_a_cue_render_failure_releases_its_pending_proposal(sessions, monkeypatch):
     """RM-FIRE-013 — tests/brd/reminders.feature"""
-    cancelled: list[tuple[str, int]] = []
+    cancelled: list[int] = []
 
     class History:
         async def dialogue(self, _chat_id: int) -> list[DialogueMessage]:
             return []
 
     class Advisor:
+        reviews = ProposalStore()
+
         async def handle(
             self, _text: str, *, dialogue: list[DialogueMessage]
         ) -> AIOutcome:
-            return AIOutcome("proposal", "Review this", proposal_id=17)
+            return AIOutcome(AIOutcomeKind.PROPOSAL, "Review this", proposal_id=17)
 
-        async def cancel_approval_for_target(self, target_type: str, target_id: int) -> None:
-            cancelled.append((target_type, target_id))
+        async def cancel_approval_for_proposal(self, proposal_id: int) -> None:
+            cancelled.append(proposal_id)
 
     async def failed_render(*_args, **_kwargs):
         raise RuntimeError("Telegram unavailable")
@@ -459,7 +461,7 @@ async def test_a_cue_render_failure_releases_its_pending_proposal(sessions, monk
     assert await runtime.speak("c" * 32, "Try me again.") is False
     runtime.release()
 
-    assert cancelled == [("proposal", 17)]
+    assert cancelled == [17]
 
 
 async def test_cancelling_a_foreground_lease_aborts_its_task() -> None:
@@ -516,7 +518,7 @@ def _gate_runtime(sessions) -> CueRuntime:
     services = SimpleNamespace(
         sessions=sessions,
         history=None,
-        advisor=None,
+        advisor=SimpleNamespace(reviews=ProposalStore()),
         guard=GenerationGuard(),
     )
     return CueRuntime(services, object(), owner_id=42)
@@ -532,30 +534,22 @@ async def test_an_open_question_of_any_shape_closes_the_gate(sessions):
     assert await runtime.can_speak() is False
     runtime.services.guard.release(7)
 
-    async with sessions() as session:
-        proposal = ChangeProposal(
-            message="Create Reminder", status=ProposalStatus.PENDING.value, workspace_revision=1
-        )
-        session.add(proposal)
-        await session.commit()
+    reviews = runtime.services.advisor.reviews
+    proposal = reviews.open_proposal(
+        message="Create Reminder", workspace_revision=1, changes=[]
+    )
     assert await runtime.can_speak() is False
-    async with sessions() as session:
-        (await session.get(ChangeProposal, proposal.id)).status = (
-            ProposalStatus.APPROVED.value
-        )
-        await session.commit()
+    reviews.end_proposal(proposal.id)
 
     async with sessions() as session:
         run = AgentRun(status="running", provider="scripted", model="test")
         session.add(run)
-        await session.flush()
-        session.add(ApprovalBatch(run_id=run.id, status="pending", queue=[], tool_calls=[]))
         await session.commit()
+    reviews.open_batch(
+        open_batch(run_id=run.id, items=(), tool_calls=[], repair_exhausted=False)
+    )
     assert await runtime.can_speak() is False
-    async with sessions() as session:
-        batch = await session.scalar(select(ApprovalBatch))
-        batch.status = "completed"
-        await session.commit()
+    reviews.close_batch(reviews.open_batches[0])
 
     async with sessions() as session:
         (await session.get(AgentRun, run.id)).claimed_at = datetime.now(UTC)

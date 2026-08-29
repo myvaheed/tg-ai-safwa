@@ -10,11 +10,12 @@ from typing import Any
 
 from ...ai.sql import RequestQueryError, normalize_request_sql
 from ...foundation.errors import DomainError, StaleStateError
-from ...models import ProposalChange
 from ..proposals.api import (
     ApplyContext,
+    ChangeAction,
     PreparationContext,
     PreparedChange,
+    ProposalChange,
     ToolPreparationError,
     require_target,
 )
@@ -49,7 +50,7 @@ class RequestProposalHandler:
         request = (
             await session.get(SavedRequest, change.entity_id) if change.entity_id else None
         )
-        if change.action == "create":
+        if change.action is ChangeAction.CREATE:
             request = await create_saved_request(
                 session,
                 str(change.values["name"]),
@@ -59,7 +60,7 @@ class RequestProposalHandler:
             )
         elif request is None or request.version != change.expected_version:
             raise StaleStateError("A Request changed; refresh this proposal")
-        elif change.action == "update":
+        elif change.action is ChangeAction.UPDATE:
             request = await update_saved_request(
                 session,
                 request.id,
@@ -72,7 +73,7 @@ class RequestProposalHandler:
                 query_sql=change.values.get("query_sql"),
                 views=context.views,
             )
-        elif change.action == "delete":
+        elif change.action is ChangeAction.DELETE:
             request = await delete_saved_request(session, request.id)
         else:
             raise DomainError(f"Unsupported Request action: {change.action}")

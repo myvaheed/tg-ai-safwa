@@ -20,11 +20,12 @@ from ...models import (
     CardEnergyType,
     CardTag,
     CardValue,
-    ProposalChange,
 )
 from ...telegram import card_overview_text, category_expression, energy_expression
 from ..proposals.api import (
     ACTION_VERBS,
+    ChangeAction,
+    ProposalChange,
     ProposalScreen,
     detail_label,
     detail_lines,
@@ -164,15 +165,15 @@ async def _card_state(
                     )
                 )
     proposed = {**current, **dict(change.values)}
-    if change.action == "complete":
+    if change.action is ChangeAction.COMPLETE:
         proposed["stage"] = CardStage.DONE.value
-    elif change.action == "cancel":
+    elif change.action is ChangeAction.CANCEL:
         proposed["stage"] = CardStage.CANCELLED.value
-    elif change.action == "reopen":
+    elif change.action is ChangeAction.REOPEN:
         proposed["stage"] = change.values.get("stage", CardStage.BACKLOG.value)
-    elif change.action in {"archive", "delete"}:
+    elif change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
         current["status"] = "Archived" if archived else "Active"
-        proposed["status"] = "Archived" if change.action == "archive" else "Deleted"
+        proposed["status"] = "Archived" if change.action is ChangeAction.ARCHIVE else "Deleted"
 
     unresolved_references: list[tuple[str, str]] = []
     for spec in CARD_REFERENCE_SPECS:
@@ -182,9 +183,9 @@ async def _card_state(
         target_ids = resolved.ids | set(resolved.unknown_ids)
         unresolved_references.extend((spec.label, name) for name in resolved.unresolved)
         existing = set(current.get(spec.plural_key, []))
-        if change.action == "link":
+        if change.action is ChangeAction.LINK:
             proposed[spec.plural_key] = sorted(existing | target_ids)
-        elif change.action == "unlink":
+        elif change.action is ChangeAction.UNLINK:
             proposed[spec.plural_key] = sorted(existing - target_ids)
         else:
             proposed[spec.plural_key] = sorted(target_ids)
@@ -265,14 +266,14 @@ class CardProposalPresenter:
 
     def raw_details(self, change: AgentChange) -> list[str]:
         return detail_lines(
-            normalized_card_details(dict(change.values), creating=change.action == "create")
+            normalized_card_details(dict(change.values), creating=change.action is ChangeAction.CREATE)
         )
 
     async def details(
         self, session: AsyncSession, change: ProposalChange, fallback: AgentChange | None
     ) -> list[str]:
         values = dict(change.values)
-        if change.action == "create":
+        if change.action is ChangeAction.CREATE:
             return detail_lines(normalized_card_details(values, creating=True))
         card = (
             await session.get(Card, change.entity_id)
@@ -285,23 +286,23 @@ class CardProposalPresenter:
                 normalized_card_details(values, creating=False)
             )
         before = await _card_detail_snapshot(session, card)
-        if change.action in {"link", "unlink"}:
+        if change.action in {ChangeAction.LINK, ChangeAction.UNLINK}:
             relationship = normalized_card_details(values, creating=False)
-            verb = "Link" if change.action == "link" else "Unlink"
+            verb = "Link" if change.action is ChangeAction.LINK else "Unlink"
             return [
                 f"{verb} {detail_label(field)}: {detail_value(value)}"
                 for field, value in relationship.items()
             ]
         proposed = normalized_card_details(values, creating=False)
-        if change.action == "move":
+        if change.action is ChangeAction.MOVE:
             proposed = {"stage": values.get("stage")}
-        elif change.action == "complete":
+        elif change.action is ChangeAction.COMPLETE:
             proposed = {"stage": CardStage.DONE.value}
-        elif change.action == "cancel":
+        elif change.action is ChangeAction.CANCEL:
             proposed = {"stage": CardStage.CANCELLED.value}
-        elif change.action == "reopen":
+        elif change.action is ChangeAction.REOPEN:
             proposed = {"stage": values.get("stage", CardStage.BACKLOG.value)}
-        elif change.action in {"archive", "delete"}:
+        elif change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
             return [f"Card: {card.kind.title()} #{card.id} “{card.title}”"]
         return [
             f"{detail_label(field)}: {detail_value(before.get(field))} → {detail_value(value)}"
@@ -328,14 +329,14 @@ class CardProposalPresenter:
             if values.get("parent_id")
             else None
         )
-        if action in {"link", "unlink"}:
+        if action in {ChangeAction.LINK, ChangeAction.UNLINK}:
             joined = " · ".join(
                 await reference_groups(session, values, CARD_REFERENCE_SPECS)
             )
-            preposition = "to" if action == "link" else "from"
+            preposition = "to" if action is ChangeAction.LINK else "from"
             return f"{verb} {joined} {preposition} {head}" if joined else f"{verb} {head}"
         parts: list[str] = []
-        if action == "create":
+        if action is ChangeAction.CREATE:
             # Only what was actually chosen: the defaults a new Card lands on say
             # nothing, and a receipt naming them buries the fields that do.
             stage = str(values.get("stage") or CardStage.BACKLOG.value)
@@ -356,9 +357,9 @@ class CardProposalPresenter:
             if values.get("blocked"):
                 parts.append("Blocked")
             parts.extend(await reference_groups(session, values, CARD_REFERENCE_SPECS))
-        elif action in {"move", "reopen"} and values.get("stage"):
+        elif action in {ChangeAction.MOVE, ChangeAction.REOPEN} and values.get("stage"):
             parts.append(str(values["stage"]).title())
-        elif action == "update":
+        elif action is ChangeAction.UPDATE:
             parts.extend(detail for detail in details if not detail.startswith("Parent ID:"))
         if parent is not None:
             head += f" under {parent.kind.title()} “{result_value(parent.title)}”"
@@ -372,10 +373,10 @@ class CardProposalPresenter:
         # The Card screen is the overview itself; a field diff repeats it only when the
         # Card already exists.
         diffs = (
-            await _card_diffs(session, current, proposed) if change.action != "create" else ()
+            await _card_diffs(session, current, proposed) if change.action is not ChangeAction.CREATE else ()
         )
         return ProposalScreen(
-            mode="Create" if change.action == "create" else "Edit",
+            mode="Create" if change.action is ChangeAction.CREATE else "Edit",
             item="Card",
             blocks=(card_overview_text(display, heading="Card overview"),),
             diffs=diffs,

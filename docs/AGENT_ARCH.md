@@ -134,7 +134,7 @@ sequenceDiagram
     participant O as Owner
     A->>B: route("board")
     B->>B: query_safwa, then one mutation tool per change
-    B->>S: proposal rows → review screen
+    B->>S: open review → review screen
     Note over A,B: whole chain suspends, status awaiting_approval
     O->>S: Save / Discard
     S->>B: resume
@@ -153,7 +153,7 @@ sequenceDiagram
   blocks the Advisor's turn.
 
 **Words typed over a screen** do not resume the subagent: every pending proposal in that batch is
-rejected, the session is saved, and the Advisor takes the words — so a correction reaches the session
+discarded and deleted, the session is saved, and the Advisor takes the words — so a correction reaches the session
 that wrote the refused proposal. The saved session is kept for **one Advisor turn**: a `route` back
 on that turn restores it, anything else abandons it. A caller interrupted mid-route is cancelled
 with the words that interrupted it.
@@ -195,12 +195,12 @@ flowchart LR
 flowchart LR
     T[mutation tool call] --> C[Pydantic contract]
     C --> P[ChangePreparer.prepare against live data]
-    P --> R[(proposal rows)]
+    P --> R[open review in ProposalStore]
     R --> AUTO{autoapproval?}
     AUTO -->|allowlisted and approved| APPLY
     AUTO -->|no, or any doubt| SCREEN[review screen · Save / Discard]
-    SCREEN -->|Save| APPLY[ProposalService.apply]
-    SCREEN -->|Discard| REJ[rejected]
+    SCREEN -->|Save| APPLY[approve_proposal]
+    SCREEN -->|Discard| REJ[end the review]
     APPLY --> DOM[the same use cases the manual UI calls]
 ```
 
@@ -211,10 +211,15 @@ flowchart LR
   wrong screen.
 - Autoapproval decides only whether a screen is shown. It never bypasses proposal persistence, and
   any doubt or failure leaves the pending screen untouched.
-- `ProposalService.apply` checks `workspace.revision` before any handler runs; `StaleStateError` is
+- `approve_proposal` checks `workspace.revision` before any handler runs; `StaleStateError` is
   the expected failure.
 - Several mutation calls in one turn queue as independent screens; the model resumes only after the
   last one resolves, each result handed back as a tool result.
+- A review and its approval batch are process state, not rows: `ProposalStore` holds both, they
+  carry neither a status nor an age, and a batch is over when no screen is still waiting. Nothing
+  survives a restart, so startup only clears what pointed at a review — the buttons, and the
+  `related_id` of the screens in the chat. Review ids only ever go up, so a screen that still names
+  one cannot reach a later review.
 - Anything the model must know across an approval belongs in a **tool result**, not in a receipt.
 
 ## Cues — what Safwa is given to say when nobody asked
@@ -315,7 +320,8 @@ flowchart LR
   survival is the evidence.
 - Words that never reached the chat as owner text — a voice transcript, a drained queue — are posted
   back as a bot message of the owner's kind, or the Advisor never sees them.
-- A receipt line is replayed as a **tool result** rather than as words Safwa said (`RECEIPT_MEANINGS`),
+- A receipt line is replayed as a **tool result** rather than as words Safwa said
+  (`RECEIPT_MEANINGS`, beside the decision it reports),
   so `✅ Saved` reads as `applied` rather than as something the persona claimed.
 
 ## Memory

@@ -20,7 +20,7 @@ from pydantic import BaseModel, ValidationError
 from llm_gateway import CompletionRequest, LlmProvider, ToolCall
 
 from ..constants import MINI_SESSION_REPAIR_ROUNDS
-from .contracts import QueryToolInput, tool_json_schema
+from .contracts import QueryToolInput, ToolResultStatus, tool_json_schema
 from .sql import ReadOnlyQueryRunner, UnsafeQueryError
 
 logger = logging.getLogger(__name__)
@@ -149,7 +149,7 @@ async def run_mini_session(
                     messages,
                     call,
                     {
-                        "status": "error",
+                        "status": ToolResultStatus.ERROR.value,
                         "code": "unknown_tool",
                         "error": f"Unknown tool: {call.name}",
                         "hint": f"Call exactly one of: {', '.join(by_name)}.",
@@ -165,7 +165,7 @@ async def run_mini_session(
                     messages,
                     call,
                     {
-                        "status": "error",
+                        "status": ToolResultStatus.ERROR.value,
                         "code": "invalid_arguments",
                         "error": str(error),
                         "hint": f"Fix the arguments and call {call.name} again.",
@@ -228,7 +228,7 @@ def query_read_tool(query_runner: ReadOnlyQueryRunner) -> ReadToolSpec:
         ) as error:
             return [
                 {
-                    "status": "error",
+                    "status": ToolResultStatus.ERROR.value,
                     "code": "query_failed",
                     "error": str(error),
                     "hint": (

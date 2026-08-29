@@ -191,8 +191,9 @@ turn; `telegram_messages` stores event metadata, never persona text.
 ### AI mutations are always proposals
 
 The model never mutates and never writes mutation SQL. A mutation tool call becomes a Pydantic
-contract, then `ChangePreparer.prepare` against live data, then proposal rows, then a review screen,
-and `ProposalService.apply` calls the *same* `domain.py` functions the manual UI calls.
+contract, then `ChangePreparer.prepare` against live data, then an open review, then a review
+screen, and `approve_proposal` calls the *same* `domain.py` functions the manual UI calls.
+A review is process state, never a row: `ProposalStore` holds it, and a restart ends every one.
 
 - **Every mutation tool belongs to a subagent, never to the Advisor.** `board` owns the board —
   Cards, Checks, Values, Tags, Requests, Reminders — and `diary` owns the Diary. Preparation runs where the change was authored.

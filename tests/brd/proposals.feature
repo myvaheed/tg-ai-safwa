@@ -96,16 +96,14 @@ Feature: Proposals
       proposed again
     And the screen cannot be acted on any more
 
-  Scenario: PR-STALE-013 — A proposal too old to save says so when Save is pressed
-    Given a proposal was made more than a day ago and was never answered
-      (PROPOSAL_EXPIRY_HOURS = 24)
-    When the owner presses Save
-    Then nothing is written
-    And the owner is told the proposal is too old to save and has to be proposed again
-    And the screen cannot be acted on any more
-    When Safwa restarts instead, with such a proposal still unanswered
-    Then it is already too old to save before the owner touches anything
-    And a proposal made 23 hours ago is left alone and is still answerable
+  Scenario: PR-STALE-013 — A proposal lives for one running process
+    Given a proposal was made in the current running process and was never answered
+    When the owner presses Save, however long that process has stayed alive
+    Then the proposal is applied normally
+    And the review is over
+    When Safwa restarts instead before the owner answers another proposal
+    Then its review, its queue and its buttons are all gone
+    And pressing the old Save button writes nothing and says the screen has to be reopened
 
   Scenario: PR-FAIL-014 — A proposal that fails while it is being saved takes nothing else with it
     Given three proposals from one request are queued and the second one cannot be applied

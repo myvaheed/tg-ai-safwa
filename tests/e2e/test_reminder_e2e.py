@@ -10,14 +10,14 @@ from sqlalchemy import select
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.context import DialogueMessage
+from safwa.ai.service import AIOutcomeKind
 from safwa.bootstrap.modules import PROPOSALS
-from safwa.enums import ProposalStatus
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.proposals.use_cases import approve_proposal
 from safwa.features.reminders.schedule import schedule_of
 from safwa.foundation.clock import SystemClock
-from safwa.models import CallbackToken, ChangeProposal, ProposalChange, Reminder
+from safwa.models import CallbackToken, Reminder
 from safwa.telegram import GenerationGuard, callback_token_handler, render_proposal
 
 TZ = ZoneInfo("Europe/Istanbul")
@@ -58,9 +58,9 @@ async def test_a_reminder_reaches_a_proposal_and_save_creates_the_row(e2e_harnes
 
     outcome = await advisor.handle("remind me each weekday morning", source_message_id=1)
 
-    assert outcome.kind == "proposal"
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
     async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(session, PROPOSALS, outcome.proposal_id)
+        affected = await approve_proposal(session, e2e_harness.reviews, PROPOSALS, outcome.proposal_id)
         await session.commit()
 
     async with e2e_harness.sessions() as session:
@@ -86,8 +86,7 @@ async def test_discarding_the_proposal_leaves_no_reminder(e2e_harness):
     outcome = await advisor.handle("nudge me about posture", source_message_id=1)
 
     async with e2e_harness.sessions() as session:
-        proposal = await session.get(ChangeProposal, outcome.proposal_id)
-        proposal.status = ProposalStatus.REJECTED.value
+        advisor.reviews.end_proposal(outcome.proposal_id)
         await session.commit()
         assert list(await session.scalars(select(Reminder))) == []
 
@@ -104,14 +103,11 @@ async def test_the_proposal_carries_the_resolved_schedule_not_the_words(e2e_harn
 
     outcome = await advisor.handle("nudge me about posture", source_message_id=1)
 
-    async with e2e_harness.sessions() as session:
-        change = await session.scalar(
-            select(ProposalChange).where(ProposalChange.proposal_id == outcome.proposal_id)
-        )
-        values = dict(change.values)
-        assert "when" not in values  # the free text does not survive into the proposal
-        assert values["schedule"]["interval_minutes"] == 120
-        assert values["schedule_text"] == "every 2 hours except 22:00–09:00"
+    change = e2e_harness.reviews.proposal(outcome.proposal_id).changes[0]
+    values = dict(change.values)
+    assert "when" not in values  # the free text does not survive into the proposal
+    assert values["schedule"]["interval_minutes"] == 120
+    assert values["schedule_text"] == "every 2 hours except 22:00–09:00"
 
 
 async def test_an_unresolvable_phrase_becomes_a_retryable_tool_error(e2e_harness):
@@ -158,7 +154,7 @@ async def test_editing_a_reminder_without_when_never_touches_the_schedule(e2e_ha
     )
     outcome = await setup.handle("nudge me", source_message_id=1)
     async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(session, PROPOSALS, outcome.proposal_id)
+        affected = await approve_proposal(session, e2e_harness.reviews, PROPOSALS, outcome.proposal_id)
         await session.commit()
     reminder_id = affected[0]
     async with e2e_harness.sessions() as session:
@@ -181,7 +177,7 @@ async def test_editing_a_reminder_without_when_never_touches_the_schedule(e2e_ha
     )
     outcome = await advisor.handle("reword that reminder", source_message_id=2)
     async with e2e_harness.sessions() as session:
-        await approve_proposal(session, PROPOSALS, outcome.proposal_id)
+        await approve_proposal(session, e2e_harness.reviews, PROPOSALS, outcome.proposal_id)
         await session.commit()
 
     async with e2e_harness.sessions() as session:
@@ -202,7 +198,7 @@ async def test_ai_reminders_view_is_readable(e2e_harness):
     )
     outcome = await advisor.handle("nudge me", source_message_id=1)
     async with e2e_harness.sessions() as session:
-        await approve_proposal(session, PROPOSALS, outcome.proposal_id)
+        await approve_proposal(session, e2e_harness.reviews, PROPOSALS, outcome.proposal_id)
         await session.commit()
 
     reader = advisor.query_runner
@@ -321,7 +317,7 @@ async def test_the_model_removes_a_reminder_with_one_save(e2e_harness):
     )
     outcome = await setup.handle("nudge me", source_message_id=1)
     async with e2e_harness.sessions() as session:
-        reminder_id = (await approve_proposal(session, PROPOSALS, outcome.proposal_id))[0]
+        reminder_id = (await approve_proposal(session, e2e_harness.reviews, PROPOSALS, outcome.proposal_id))[0]
         await session.commit()
 
     advisor, _provider = e2e_harness.advisor(

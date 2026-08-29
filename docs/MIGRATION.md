@@ -57,7 +57,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 3 | Pilot: Diary | business | **done** |
 | 4 | Leaf business batches | business | **done** — 4.a Continuity and Profile, 4.b Reminders, 4.c Saved Requests, 4.d Values and Tags |
 | 5 | Cards, Checks and the Sprint | business | **done** — 5.0 the board package (technical), 5.a Cards, 5.b stages, 5.c Checks, 5.d archiving, 5.e the archive as a mark, 5.f the heavy analyzer, 5.g a repeat's Values, 5.h Planning and the plan screen |
-| 6 | Proposals and the first reactive process | business | **done** — 6.a the typed batch and the reducer, 6.b the proposal use cases, 6.c interruption and autoapproval, 6.d the startup sweeps |
+| 6 | Proposals and the first reactive process | business | **done** — 6.a the typed batch and the reducer, 6.b the proposal use cases, 6.c interruption and autoapproval, 6.d the startup sweeps, 6.e–6.g no status, no tables, no stringly vocabularies |
 | 7 | `agent_runtime` | technical + business | not started |
 | 8 | `telegram_llm` and `TurnManager` | technical | not started |
 | 9 | Packages and cleanup | technical | not started |
@@ -120,8 +120,8 @@ deliberately empty screen, so whoever builds it inherits a link that already wor
 
 `foundation/clock.py` has no consumer yet — `domain.utcnow` is still what production calls. Its
 first consumer is the Diary pilot in Phase 3, which is where the first use case starts taking
-time as a dependency. The `state_flow` operators are unconsumed for the same reason: the first
-Manager arrives in Phase 6.
+time as a dependency. The `state_flow` operators are unconsumed for the same reason: Phase 6
+delivered the reducer without one, and the first subscriber arrives in Phase 8.
 
 `map` and `combine` return a `StateFlow`, because a derived value that both sides can always
 answer still has a `current`. `filter` and `merge` return a plain `AsyncIterator`: a filtered
@@ -651,9 +651,9 @@ and the test audit live in [brd/saved_requests.md](brd/saved_requests.md).
 - **A proposal applying against state that moved.** It has no reachable trigger for a Request. A
   screen is never something the owner comes back to — a UI message is only ever the last message in
   the chat and never moves back up, so anything done below a proposal interrupts it and
-  `cancel_approval_for_target` sets every pending proposal in that batch to `REJECTED`. Inside one
+  `cancel_approval_for_proposal` discards every pending proposal in that batch. Inside one
   batch `_refresh_queued_proposal` re-snapshots the expected version and the workspace revision
-  together; a Reminder cannot escalate over a pending proposal at all; and `ProposalService.apply`
+  together; a Reminder cannot escalate over a pending proposal at all; and `approve_proposal`
   checks `workspace.revision` before any handler runs, while every Request write bumps it. The
   per-entity version check would need a writer that moves a Request's version without moving the
   workspace revision, and there is none. The generic rule is Phase 6's.
@@ -1614,9 +1614,10 @@ That is `GenerationGuard` from §9.3, durable. The Manager is justified.
   module under `src/`. The subscriber appears in Phase 8, where the host translates a proposal state
   into a `TurnAction`; a published flow with no reader until then is flexibility nobody asked for.
   Phase 6 delivers the frozen union state and a pure `reduce`, and Phase 8 adds `as_state_flow()`.
-- **The batch gets its own table.** `AgentStep` is the agent's transcript log, and a batch is not a
-  step of a transcript — it is the process that suspends one. `approval_batches` carries `status` in
-  a column, which is what removes the JSON scan and its magic limit.
+- **Superseded on 2026-08-29: the batch is not a row at all.** It was given its own table to get it
+  out of `AgentStep`, which removed the JSON scan and its magic limit. Nothing then read it across a
+  restart, so it moved into `ProposalStore` with the review it suspends, and the scan is gone with
+  the table.
 - **Two scenario packets, not one.** `docs/brd/proposals.md` covers the lifecycle; the interruption
   and autoapproval rules are their own packet. Each is approved on its own.
 
@@ -1625,8 +1626,8 @@ That is `GenerationGuard` from §9.3, durable. The Manager is justified.
 `resolve_approval` is two functions in one, and the batch that blurs the line has swerved into
 Phase 7.
 
-- **Phase 6 owns** the batch record, the decision reducer, `prepare`, `approve`, `reject`, the stale
-  check, the expiry sweep, and finding a batch by its target.
+- **Phase 6 owns** the batch record, the decision reducer, `prepare`, `approve`, `delete`, the
+  stale check, process-start cleanup, and finding a batch by its target.
 - **Phase 7 owns** `_claim_session`, `AgentSession.restore`, `_resumed_transcript`,
   `_run_agent_loop` and `_finish_run`.
 
@@ -1643,20 +1644,27 @@ touches `AgentSession` has crossed the seam.
 | # | What | Kind | State |
 |---|---|---|---|
 | 6.a | Packet one; the models move; the batch becomes a typed record; frozen state, `reduce`, table-driven transition tests | business | done |
-| 6.b | `prepare_proposal`, `approve_proposal`, `reject_proposal` as use cases; `ProposalService` deleted; `callbacks.py` and `_materialize` call them | business | done |
+| 6.b | `prepare_proposal`, `approve_proposal` and ending a review as use cases; `ProposalService` deleted; `callbacks.py` and `_materialize` call them | business | done |
 | 6.c | Packet two; interruption and autoapproval over the same reducer; `decide_batch_item` and `interrupt_batch` cut at the seam | business | done |
-| 6.d | `expire_stale_proposals` and `cancel_batches_for_runs`, so `recovery.py` stops writing to the feature's own tables | technical | done |
+| 6.d | startup invalidates process-local proposal state without writing the feature's tables directly | technical | done |
+| 6.e | Neither row carries a status: existence is pending, closing is `state.head is None`, and the enums reach the adapters instead of being coerced from strings | technical | done |
+| 6.f | `ProposalStore`: a review and its batch are process state, so the three tables go and startup only clears what pointed at them | technical | done |
+| 6.g | The vocabularies are closed: `ChangeAction` replaces the action strings, `BatchTargetType` and `BatchToolStatus` go as dead generality, and one table spells the receipt line | technical | done |
 
 Target shape, using the file names the rules actually scan:
 
 ```text
 features/proposals/
-  model.py       ChangeProposal, ProposalChange, ApprovalBatch, and the frozen BatchState,
-                 QueueItem, BatchAction and BatchEffect unions   (Rule C reads this file)
+  model.py       ChangeProposal, ProposalChange, ApprovalBatch as values, and the frozen
+                 BatchState, QueueItem, BatchAction and BatchEffect unions  (Rule C reads this)
   reducer.py     reduce(state, action) -> (state, effects), no I/O   (Rule D reads this file)
-  use_cases.py   prepare, approve, reject, open, cancel, expire, load and save the batch
-  api.py         unchanged
+  store.py       the reviews and batches this process still owes an answer to
+  use_cases.py   prepare, approve, open, interrupt, number and refresh the queue
+  api.py         unchanged, plus ProposalChange for the features that handle one
 ```
+
+There is no `manager.py`: nothing subscribes to this state, so the writer half of Rules C and D
+scans no file here. It starts biting when Phase 8 adds the subscriber.
 
 ### Rules C and D stop being vacuous
 
@@ -1680,12 +1688,11 @@ traded for a faster unit test.
 [brd/proposals.md](brd/proposals.md) is packet one, written and ruled on 2026-08-28. Two things
 changed with it, and one was withdrawn.
 
-- **Save reads a proposal's age.** `expires_at` was written a day ahead and read by nothing but the
-  startup sweep, so the owner could press Save on an old proposal and never learn that nothing was
-  saved — the button's own 24-hour lifetime was doing a business rule's job. PR-STALE-013 makes the
-  refusal something the owner reads.
-- **A proposal keeps the right to hold several edits.** `proposal_changes` is an ordered list and
-  the screen has a branch that lists every row; nothing writes a second row today. Kept, because if
+- **Superseded on 2026-08-29:** proposal age is not a business rule. A proposal remains valid for
+  the lifetime of its creating process, then startup invalidates every unanswered review. Proposal
+  callback actions ignore generic token age while that process lives.
+- **A proposal keeps the right to hold several edits.** `ChangeProposal.changes` is an ordered list
+  and the screen has a branch that lists every one; nothing adds a second today. Kept, because if
   one ever holds several the owner has to see all of them before deciding.
 - **Withdrawn:** every screen in a queue repeating Safwa's prose for the whole request. That prose
   is the plan, and seeing it again shows what is still left.
@@ -1701,25 +1708,57 @@ in the morning, waiting on a board that moved without it.
 `features/proposals/` owns the whole of a proposal now: `model.py` holds `ChangeProposal`,
 `ProposalChange` and the `ApprovalBatch` row beside the frozen `BatchState`, `QueueItem` and the
 action and effect unions; `reducer.py` holds `reduce` and its two transitions; `use_cases.py` holds
-prepare, approve, reject, opening a batch, the two batch resolutions, the queued-proposal snapshot
-and the two startup sweeps. Rule C reads seven frozen classes in `model.py`, and Rule D every
+prepare, approve, delete, opening a batch, the two batch resolutions, the queued-proposal snapshot
+and startup cleanup. Rule C reads the frozen classes in `model.py`, and Rule D every
 function in `reducer.py` — a transition behind a private name is checked like the rest.
 
-An effect is a row to write, never a reading of the state returned beside it, so `reduce` emits
-`ResolveCallsEffect` and `RejectPendingEffect` and nothing else: which screen comes next is
-`state.head`, and the batch closing is `state.status`. `decide_batch_item` hands that state on
-instead of a flattened target, which is what keeps closing decided in one place.
+Neither carries a status. A proposal exists exactly while it is pending, and so does its batch:
+both end where they end, and a restart ends whatever a crash left. A batch is therefore over exactly
+when no screen is still waiting, which is `state.head is None` — the one reading, in
+`decide_batch_item`, that decides whether it closes.
 
-`recovery.py` stopped writing to the feature's own tables and calls `expire_stale_proposals` and
-`cancel_batches_for_runs` instead. `_materialize` opens its batch through `open_batch` and heads its
-queue through `number_queued_proposals`; `callbacks.py` records a refused screen through
-`mark_proposal_stale`. Nothing outside the package writes a proposal or a batch.
+Then the tables went too. A review was never read by anything but the process that opened it: no
+recovery restored one, and the owner-facing rule is that a restart ends every unanswered screen. So
+`change_proposals`, `proposal_changes` and `approval_batches` are gone, and `ProposalStore` holds a
+`ChangeProposal` with its ordered `changes` and an `ApprovalBatch` with its `BatchState`. `AIAdvisor`
+owns one (a caller may inject a shared one), which is what makes `advisor.reviews` the one place a
+screen, a callback and the Cue gate all ask.
+
+An effect is a row to write, never a reading of the state returned beside it, so `reduce` emits
+`ResolveCallsEffect` and `RejectPendingEffect` and nothing else: which screen comes next, and
+whether the batch closed, are both `state.head`. `decide_batch_item` hands that state on instead of
+a flattened target, which is what keeps closing decided in one place.
+
+`recovery.py` has no proposal table left to clear. What it does clear is what a review left in the
+database: the buttons that would still claim — nothing else would remove them, because a proposal
+button is exempt from the callback-token age — and the `related_id` of the `APPROVAL` screens, which
+would otherwise name a review the new process makes later. `_materialize` opens its batch through
+`open_batch` and heads its queue through `number_queued_proposals`. Nothing outside the package
+opens or ends a review.
+
+`BatchDecision` and `ChangeAction` are what the adapters and the handlers pass, not strings each
+site spells out: `resolve_approval`, `has_pending_approval` and `continue_agent_approval` take a
+decision, and every `if change.action == "create"` is a member comparison. `AgentChange.action` is
+`ChangeAction`, so a change carries the enum from the tool call to the write; a tool still declares
+its own `mode` literals, which is how a tool offers only the actions its entity has.
+
+`BatchTargetType` is gone. Its second value was `draft_bundle`, and the module that wrote one was
+deleted long before this phase: a queue item is a proposal id. `BatchToolStatus` went with it — the
+`status` on a recorded tool call was written twice and read nowhere, because `QueueItem.decision` is
+where a screen's answer lives. So is the `"rejected"` result status, which nothing had written since
+`ProposalStatus` was removed.
+
+Which changes need a second confirmation moved to the feature that owns them —
+`CardProposalHandler.destructive_actions`, read through `ProposalRegistry.needs_confirmation` — so
+`callbacks.py` no longer spells out `("card", "delete")`. The Saved/Discarded/Failed line is written
+once, in `DECISION_RECEIPTS` beside the decision it reports, and `RECEIPT_MEANINGS` is built from the
+same four constants instead of repeating them in `constants.py`.
 
 The seam with Phase 7 held: `decide_batch_item` and `interrupt_batch` return what happened to the
 batch, and claiming and resuming the paused session stayed in `ai/service.py`.
 
-`ai/service.py` went from 2286 lines to 2088 across the phase, the module graph from 656 edges to
-655, and cycles stayed at 0. **Two of the phase's targets were missed**: `ai/service.py` is not
+`ai/service.py` went from 2286 lines to 2100 across the phase, the module graph from 656 edges to
+651, and cycles stayed at 0. **Two of the phase's targets were missed**: `ai/service.py` is not
 under 1800, and DoD #3 is still 5. Both are `AIAdvisor`, which is the god-class §9.2 meant, and
 Phases 7 and 8 are the ones that take it apart.
 
@@ -1739,7 +1778,7 @@ that opened it and one does not, and that is the whole defect.
 
 - **Typed words resume the Advisor's turn.** They never start a new one, and they never reach a
   subagent first: only the Advisor can tell whether they correct the proposal or change the subject.
-  `cancel_approval_for_target` stops setting the Advisor's run to `cancelled`.
+  `cancel_approval_for_proposal` stops setting the Advisor's run to `cancelled`.
 - The order is unchanged and stays below the model: the Telegram handler rejects the pending
   proposals, closes the batch and freezes the screen into a report before anything is generated.
   What changes is only what happens to the two suspended sessions afterwards.

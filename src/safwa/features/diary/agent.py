@@ -12,7 +12,7 @@ from pydantic import Field, field_validator, model_validator
 
 from llm_gateway import ToolCall
 
-from ...ai.contracts import ToolInput
+from ...ai.contracts import ToolInput, ToolResultStatus
 from ...ai.mini import ReadToolSpec, query_read_tool
 from ...bootstrap.module_manifest import AgentContext, AgentSpec
 from ...constants import WEEKDAY_NAMES
@@ -152,7 +152,7 @@ def day_read_tool(
             day = date.fromisoformat(raw) if raw else current_clock.now().astimezone(tz).date()
         except ValueError:
             return {
-                "status": "error",
+                "status": ToolResultStatus.ERROR.value,
                 "code": "invalid_arguments",
                 "error": f"{raw!r} is not a calendar date.",
                 "hint": 'Retry read_day with {"date": "YYYY-MM-DD"}, or no arguments.',

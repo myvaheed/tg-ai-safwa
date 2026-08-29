@@ -7,6 +7,7 @@ import sqlite3
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any
 
 from pydantic import ValidationError
@@ -18,7 +19,6 @@ from llm_gateway import CompletionRequest, CompletionTurn, LlmProvider, ToolCall
 from ..constants import (
     MAX_REPAIR_ROUNDS,
     MAX_TOOL_CALLS,
-    RECEIPT_MEANINGS,
     SUBAGENT_DEADLINE_SECONDS,
     SUBAGENT_HISTORY_LAST_MESSAGES,
 )
@@ -36,25 +36,31 @@ from ..features.proposals.api import (
     detail_lines,
     result_value,
 )
-from ..features.proposals.model import BatchStatus, QueueItem
+from ..features.proposals.model import (
+    AUTO_SAVED_RECEIPT,
+    DECISION_RECEIPTS,
+    RECEIPT_MEANINGS,
+    BatchDecision,
+    ChangeAction,
+    ProposalChange,
+    QueueItem,
+)
 from ..features.proposals.reducer import INTERRUPTED
+from ..features.proposals.store import ProposalStore
 from ..features.proposals.use_cases import (
     decide_batch_item,
     interrupt_batch,
-    live_batch_for_target,
     number_queued_proposals,
     open_batch,
     prepare_proposal,
-    state_of,
 )
 from ..history import citation_payload, conversation_block
 from ..models import (
     AgentRun,
+    AgentRunStatus,
     AgentStep,
-    ApprovalBatch,
     Card,
     Check,
-    ProposalChange,
     SavedRequest,
     Tag,
     Value,
@@ -67,6 +73,7 @@ from .contracts import (
     OpenInput,
     QueryToolInput,
     RouteInput,
+    ToolResultStatus,
     tool_json_schema,
 )
 from .mini import QUERY_SAFWA_TOOL, ReadToolSpec
@@ -162,9 +169,14 @@ def _validation_error_summary(error: ValidationError) -> str:
     return "; ".join(messages) or "Invalid tool arguments"
 
 
+class AIOutcomeKind(StrEnum):
+    ANSWER = "answer"
+    PROPOSAL = "proposal"
+
+
 @dataclass
 class AIOutcome:
-    kind: str
+    kind: AIOutcomeKind
     message: str
     proposal_id: int | None = None
     did: list[str] = field(default_factory=list)
@@ -392,6 +404,17 @@ def _approval_change_label(tool: dict[str, Any]) -> str:
     return label
 
 
+# What the owner reads under a resolved call. A decision has its own line; a call that
+# never reached a screen failed before one, and reads the same as one that failed on Save.
+_RESULT_RECEIPTS = {
+    **{decision.value: receipt for decision, receipt in DECISION_RECEIPTS.items()},
+    ToolResultStatus.ERROR.value: DECISION_RECEIPTS[BatchDecision.FAILED],
+}
+
+# The reviewer saved it, so "you decided this" would be wrong in the reply.
+AUTOAPPROVED = "auto"
+
+
 def _approval_results_summary(
     tools: list[dict[str, Any]],
     *,
@@ -411,22 +434,16 @@ def _approval_results_summary(
         # turn stores its rows as a list, which must not be read as an outcome.
         stored_result = tool.get("result")
         result = stored_result if isinstance(stored_result, dict) else {}
-        if not include_preparation_errors and not tool.get("target"):
+        if not include_preparation_errors and not tool.get("proposal_id"):
             continue
-        if not tool.get("target") and (
-            not tool.get("change") or result.get("status") not in {"error", "rejected"}
+        if not tool.get("proposal_id") and (
+            not tool.get("change") or result.get("status") != ToolResultStatus.ERROR
         ):
             continue
-        status = str(result.get("status", "failed"))
-        prefix = {
-            "approved": "✅ Saved",
-            "discarded": "🗑 Discarded",
-            "rejected": "🗑 Discarded",
-            "failed": "⚠️ Failed",
-            "error": "⚠️ Failed",
-        }.get(status, f"⚠️ {status.title()}")
-        if status == "approved" and result.get("approval_source") == "auto":
-            prefix = "⚡ Auto-saved"
+        status = str(result.get("status", BatchDecision.FAILED))
+        prefix = _RESULT_RECEIPTS.get(status, f"⚠️ {status.title()}")
+        if status == BatchDecision.APPROVED and result.get("approval_source") == AUTOAPPROVED:
+            prefix = AUTO_SAVED_RECEIPT
         if for_display:
             line = f"{prefix} — " + (
                 str(tool.get("display") or "") or _approval_change_label(tool)
@@ -434,7 +451,7 @@ def _approval_results_summary(
         else:
             line = f"{prefix} — {_approval_change_label(tool)}"
             affected_ids = result.get("affected_ids") or []
-            if status == "approved" and affected_ids:
+            if status == BatchDecision.APPROVED and affected_ids:
                 line += " [result ID" + ("s" if len(affected_ids) != 1 else "") + ": "
                 line += ", ".join(f"#{item}" for item in affected_ids) + "]"
         error = result.get("error")
@@ -537,7 +554,7 @@ def _with_queued_siblings(result: Any, queued: int) -> Any:
     One failed preparation never cancels its siblings, and the model has to know that
     before it retries.  Saying it here keeps it off a request that has no failures.
     """
-    if not queued or not isinstance(result, dict) or result.get("status") != "error":
+    if not queued or not isinstance(result, dict) or result.get("status") != ToolResultStatus.ERROR:
         return result
     return {
         **result,
@@ -549,15 +566,15 @@ def _with_queued_siblings(result: Any, queued: int) -> Any:
 
 
 _DECISION_NEXT_STEPS = {
-    "approved": (
+    BatchDecision.APPROVED: (
         "This change is saved. Do not propose it again. Continue with the parts of the "
         "user's request that are still unfinished, then answer."
     ),
-    "discarded": (
+    BatchDecision.DISCARDED: (
         "The user rejected this change, so it does not exist. Do not retry it unless the "
         "user asks again. Continue with the rest of the request, then answer."
     ),
-    "failed": (
+    BatchDecision.FAILED: (
         "Applying this change failed, so nothing was written for it. Read `error`, fix only "
         "this call, and retry it once; every other resolved call in this request stands."
     ),
@@ -565,14 +582,14 @@ _DECISION_NEXT_STEPS = {
 
 
 def _resolved_tool_result(
-    tool: dict[str, Any], decision: str, result: dict[str, Any]
+    tool: dict[str, Any], decision: BatchDecision, result: dict[str, Any]
 ) -> dict[str, Any]:
     """Describe one resolved queue item in the tool message the model reads back.
 
     A bare ``{"status": "approved", "affected_ids": [9]}`` says nothing about *what* was
     saved, which is how a resumed turn ends up repeating or misreporting its own work.
     """
-    payload: dict[str, Any] = {"status": decision, **_json_safe(result)}
+    payload: dict[str, Any] = {"status": decision.value, **_json_safe(result)}
     change = dict(tool.get("change") or {})
     if change.get("entity"):
         payload["entity"] = change["entity"]
@@ -588,7 +605,7 @@ def _resolved_tool_result(
     payload["next"] = _DECISION_NEXT_STEPS.get(
         decision, "Continue with the rest of the user's request."
     )
-    if decision == "approved" and result.get("approval_source") == "auto":
+    if decision is BatchDecision.APPROVED and result.get("approval_source") == AUTOAPPROVED:
         # The user pressed nothing, so "you saved it" would be wrong in the reply.
         payload["next"] = "Safwa saved this one itself; the user did not decide. " + payload["next"]
     return payload
@@ -673,6 +690,7 @@ class AIAdvisor:
         subagents: tuple[RoutedSubagent, ...] = (),
         helpers: Mapping[str, Helper] | None = None,
         autoapproval: AutoApprovalReviewer | None = None,
+        reviews: ProposalStore | None = None,
     ) -> None:
         self.sessions = sessions
         self.provider = provider
@@ -693,6 +711,9 @@ class AIAdvisor:
             + ', "<your question in words>") writes the query and hands back its result.'
         )
         self.autoapproval = autoapproval
+        # Every review this process still owes an answer to. It is memory, not a table: a
+        # restart is what ends them, and nothing outside this process ever reads one.
+        self.reviews = reviews if reviews is not None else ProposalStore()
         self.preparer = ChangePreparer(provider, query_runner, proposals)
         # An empty roster means there is nothing to route to, so the tool is not offered.
         self.tools = (*SAFWA_TOOLS, ROUTE_TOOL) if subagents else SAFWA_TOOLS
@@ -724,7 +745,7 @@ class AIAdvisor:
             kind="advisor",
             provider=self.provider_name,
             model=self.model_name,
-            status="running",
+            status=AgentRunStatus.RUNNING.value,
             source_message_id=source_message_id,
         )
         async with self.sessions() as session:
@@ -751,10 +772,14 @@ class AIAdvisor:
             if result.suspended is not None:
                 # A subagent opened a screen, so this session waits for its receipt.
                 await self._suspend_for_child(agent)
-                await self._finish_run(run.id, "awaiting_approval", started)
+                await self._finish_run(run.id, AgentRunStatus.AWAITING_APPROVAL, started)
                 return result.suspended
             outcome = await self._materialize(agent, result)
-            status = "awaiting_approval" if outcome.kind == "proposal" else "completed"
+            status = (
+                AgentRunStatus.AWAITING_APPROVAL
+                if outcome.kind is AIOutcomeKind.PROPOSAL
+                else AgentRunStatus.COMPLETED
+            )
             await self._finish_run(run.id, status, started)
             # The turn is over, so a saved subagent session it never routed back into has
             # missed its one chance.
@@ -762,7 +787,9 @@ class AIAdvisor:
             return outcome
         except Exception as error:
             logger.exception("AI advisor run failed")
-            await self._finish_run(run.id, "failed", started, type(error).__name__)
+            await self._finish_run(
+                run.id, AgentRunStatus.FAILED, started, type(error).__name__
+            )
             raise
 
     @staticmethod
@@ -774,10 +801,10 @@ class AIAdvisor:
         place that has to guarantee the owner is never left with nothing.
         """
         if agent.parent_run_id is not None:
-            return AIOutcome("answer", message)
+            return AIOutcome(AIOutcomeKind.ANSWER, message)
         composed = _compose_display_outcome(message, agent.display_result_summaries)
         return AIOutcome(
-            "answer",
+            AIOutcomeKind.ANSWER,
             composed or "⚠️ Safwa had nothing to say about that. You can ask again.",
             open_item=agent.open_item,
         )
@@ -800,7 +827,7 @@ class AIAdvisor:
             return delivered
         # The caller is already resuming elsewhere; the owner still gets the receipts.
         return AIOutcome(
-            "answer",
+            AIOutcomeKind.ANSWER,
             _compose_display_outcome(outcome.message, agent.display_result_summaries)
             or "✅ Done.",
         )
@@ -846,13 +873,17 @@ class AIAdvisor:
             result = await self._run_agent_loop(parent)
             if result.suspended is not None:
                 await self._suspend_for_child(parent)
-                await self._finish_run(parent.run_id, "awaiting_approval", started)
+                await self._finish_run(
+                    parent.run_id, AgentRunStatus.AWAITING_APPROVAL, started
+                )
                 return result.suspended
             outcome = await self._materialize(parent, result)
-            if outcome.kind == "proposal":
-                await self._finish_run(parent.run_id, "awaiting_approval", started)
+            if outcome.kind is AIOutcomeKind.PROPOSAL:
+                await self._finish_run(
+                    parent.run_id, AgentRunStatus.AWAITING_APPROVAL, started
+                )
                 return outcome
-            await self._finish_run(parent.run_id, "completed", started)
+            await self._finish_run(parent.run_id, AgentRunStatus.COMPLETED, started)
             if parent.parent_run_id is None:
                 await self._close_lapsed_sessions()
                 return outcome
@@ -882,7 +913,7 @@ class AIAdvisor:
                     kind=name,
                     provider=self.provider_name,
                     model=self.model_name,
-                    status="running",
+                    status=AgentRunStatus.RUNNING.value,
                     claimed_at=utcnow(),
                     parent_run_id=parent.run_id,
                 )
@@ -916,10 +947,10 @@ class AIAdvisor:
                 self._run_agent_loop(agent), timeout=SUBAGENT_DEADLINE_SECONDS
             )
             outcome = await self._materialize(agent, result)
-            if outcome.kind == "proposal":
-                await self._finish_run(run_id, "awaiting_approval", started)
+            if outcome.kind is AIOutcomeKind.PROPOSAL:
+                await self._finish_run(run_id, AgentRunStatus.AWAITING_APPROVAL, started)
                 return outcome, None
-            await self._finish_run(run_id, "completed", started)
+            await self._finish_run(run_id, AgentRunStatus.COMPLETED, started)
             # The materialized outcome, not the raw loop result: a repair round answers again.
             return outcome, _route_receipt(
                 name,
@@ -929,8 +960,8 @@ class AIAdvisor:
             )
         except TimeoutError:
             logger.warning("SUBAGENT %s timed out after %.0fs", name, SUBAGENT_DEADLINE_SECONDS)
-            await self._finish_run(run_id, "failed", started, "timeout")
-            return AIOutcome("answer", ""), _route_receipt(
+            await self._finish_run(run_id, AgentRunStatus.FAILED, started, "timeout")
+            return AIOutcome(AIOutcomeKind.ANSWER, ""), _route_receipt(
                 name,
                 "",
                 [],
@@ -938,8 +969,10 @@ class AIAdvisor:
             )
         except Exception as error:
             logger.exception("Routed subagent %s failed", name)
-            await self._finish_run(run_id, "failed", started, type(error).__name__)
-            return AIOutcome("answer", ""), _route_receipt(
+            await self._finish_run(
+                run_id, AgentRunStatus.FAILED, started, type(error).__name__
+            )
+            return AIOutcome(AIOutcomeKind.ANSWER, ""), _route_receipt(
                 name, "", [], error=failure_reason(error)
             )
 
@@ -960,32 +993,20 @@ class AIAdvisor:
                 await session.scalars(
                     select(AgentRun).where(
                         AgentRun.kind != "advisor",
-                        AgentRun.status == "awaiting_approval",
+                        AgentRun.status == AgentRunStatus.AWAITING_APPROVAL.value,
                         AgentRun.claimed_at.is_(None),
                     )
                 )
             )
             closed = 0
             for run in saved:
-                if await self._live_batch(session, run.id):
+                if self.reviews.batch_for_run(run.id) is not None:
                     continue
-                run.status = "abandoned"
+                run.status = AgentRunStatus.ABANDONED.value
                 closed += 1
             if closed:
                 await session.commit()
                 logger.info("Closed %d subagent session(s) the turn did not resume", closed)
-
-    @staticmethod
-    async def _live_batch(session: AsyncSession, run_id: int) -> bool:
-        """Whether this session still has a screen the owner could answer."""
-        return (
-            await session.scalar(
-                select(ApprovalBatch.id).where(
-                    ApprovalBatch.run_id == run_id,
-                    ApprovalBatch.status == BatchStatus.PENDING.value,
-                )
-            )
-        ) is not None
 
     async def _resume_suspended(self, session: AsyncSession, name: str) -> AgentRun | None:
         """Claim this subagent's newest saved session, if it left one behind."""
@@ -993,7 +1014,7 @@ class AIAdvisor:
             select(AgentRun.id)
             .where(
                 AgentRun.kind == name,
-                AgentRun.status == "awaiting_approval",
+                AgentRun.status == AgentRunStatus.AWAITING_APPROVAL.value,
                 AgentRun.claimed_at.is_(None),
             )
             .order_by(AgentRun.id.desc())
@@ -1134,7 +1155,7 @@ class AIAdvisor:
                                 "name": call.name,
                                 "content": json.dumps(
                                     {
-                                        "status": "error",
+                                        "status": ToolResultStatus.ERROR.value,
                                         "code": "route_is_not_shared",
                                         "error": "route must be the only tool call in a response.",
                                         "next": "Send route alone, then use what it hands back.",
@@ -1168,7 +1189,7 @@ class AIAdvisor:
                         result = await self._execute_read_tool(agent, call)
                     elif has_reads and has_mutations:
                         result = {
-                            "status": "error",
+                            "status": ToolResultStatus.ERROR.value,
                             "code": "mixed_read_and_mutation_tools",
                             "error": (
                                 "Mutation tools cannot share a response with a read tool or route."
@@ -1194,7 +1215,7 @@ class AIAdvisor:
                     card_creates = [
                         change
                         for change in changes
-                        if change.entity == "card" and change.action == "create"
+                        if change.entity == "card" and change.action is ChangeAction.CREATE
                     ]
                     if card_creates and len(card_creates) == len(changes):
                         message = "I prepared the Card proposal for your review."
@@ -1249,7 +1270,7 @@ class AIAdvisor:
             name = RouteInput.model_validate(json.loads(call.arguments_json or "{}")).name.strip()
         except (ValidationError, json.JSONDecodeError, TypeError, ValueError) as error:
             return {
-                "status": "error",
+                "status": ToolResultStatus.ERROR.value,
                 "code": "invalid_arguments",
                 "error": (
                     _validation_error_summary(error)
@@ -1261,7 +1282,7 @@ class AIAdvisor:
             }, None
         if name not in self.subagents:
             return {
-                "status": "error",
+                "status": ToolResultStatus.ERROR.value,
                 "code": "unknown_subagent",
                 "error": f"There is no subagent named {name!r}.",
                 "hint": f"Route to one of: {', '.join(self.subagents) or 'none'}.",
@@ -1305,7 +1326,7 @@ class AIAdvisor:
             payload = CallHelperInput.model_validate(json.loads(call.arguments_json or "{}"))
         except (ValidationError, json.JSONDecodeError, TypeError, ValueError) as error:
             return {
-                "status": "error",
+                "status": ToolResultStatus.ERROR.value,
                 "code": "invalid_arguments",
                 "error": (
                     _validation_error_summary(error)
@@ -1321,7 +1342,7 @@ class AIAdvisor:
         helper = self.helpers.get(payload.name.strip())
         if helper is None:
             return {
-                "status": "error",
+                "status": ToolResultStatus.ERROR.value,
                 "code": "unknown_helper",
                 "error": f"There is no helper named {payload.name!r}.",
                 "hint": f"Call one of: {', '.join(self.helpers) or 'none'}.",
@@ -1352,7 +1373,7 @@ class AIAdvisor:
             logger.exception("Helper %s failed", payload.name)
             return {
                 "helper": payload.name,
-                "status": "error",
+                "status": ToolResultStatus.ERROR.value,
                 "error": failure_reason(error),
                 "hint": "Answer the owner with what you already have.",
             }
@@ -1367,7 +1388,7 @@ class AIAdvisor:
         """
         if not self.helpers or agent.kind != "advisor" or not sql:
             return False
-        if rows and rows[0].get("status") == "error":
+        if rows and rows[0].get("status") == ToolResultStatus.ERROR:
             return False
         capped = bool(rows) and set(rows[-1]) == {"notice"}
         return capped or is_complex_read(sql)
@@ -1400,7 +1421,7 @@ class AIAdvisor:
         if call.name != "query_safwa":
             rows: list[dict[str, Any]] = [
                 {
-                    "status": "error",
+                    "status": ToolResultStatus.ERROR.value,
                     "code": "unknown_tool",
                     "error": f"Unknown tool: {call.name}",
                     "hint": (
@@ -1428,7 +1449,7 @@ class AIAdvisor:
                 # end the whole request, including any mutation queued alongside it.
                 rows = [
                     {
-                        "status": "error",
+                        "status": ToolResultStatus.ERROR.value,
                         "code": "unsafe_query"
                         if isinstance(error, UnsafeQueryError)
                         else "query_failed",
@@ -1446,7 +1467,7 @@ class AIAdvisor:
                 sql = ""
                 rows = [
                     {
-                        "status": "error",
+                        "status": ToolResultStatus.ERROR.value,
                         "code": "invalid_arguments",
                         "error": (
                             _validation_error_summary(error)
@@ -1496,7 +1517,7 @@ class AIAdvisor:
             request = OpenInput.model_validate(json.loads(call.arguments_json or "{}"))
         except (ValidationError, json.JSONDecodeError, TypeError, ValueError) as error:
             return {
-                "status": "error",
+                "status": ToolResultStatus.ERROR.value,
                 "code": "invalid_arguments",
                 "error": (
                     _validation_error_summary(error)
@@ -1510,7 +1531,7 @@ class AIAdvisor:
             item = await session.get(OPENABLE_MODELS[request.item_type], request.id)
             if item is None:
                 return {
-                    "status": "error",
+                    "status": ToolResultStatus.ERROR.value,
                     "code": "not_found",
                     "error": f"There is no {request.item_type} #{request.id}.",
                     "hint": "Find the id with query_safwa, then call open again.",
@@ -1520,7 +1541,7 @@ class AIAdvisor:
         agent.open_item = citation_payload(request.item_type, item_id)
         logger.info("AI TOOL open -> %s", agent.open_item)
         return {
-            "status": "ok",
+            "status": ToolResultStatus.OK.value,
             "opened": {"item_type": request.item_type, "id": item_id},
             "next": "The screen follows your message. Answer in one short line.",
         }
@@ -1542,7 +1563,7 @@ class AIAdvisor:
                 else str(error)
             )
             result = {
-                "status": "error",
+                "status": ToolResultStatus.ERROR.value,
                 "code": "invalid_arguments",
                 "error": error_text,
                 "hint": (
@@ -1575,7 +1596,7 @@ class AIAdvisor:
             )
             await session.commit()
         return change, {
-            "status": "prepared",
+            "status": ToolResultStatus.PREPARED.value,
             "entity": change.entity,
             "action": change.action,
             "id": change.id,
@@ -1603,9 +1624,7 @@ class AIAdvisor:
         The model still gets `details`; this line trades their IDs for the names the
         owner recognises, so a receipt says which Tag landed on which Card.
         """
-        change = await session.scalar(
-            select(ProposalChange).where(ProposalChange.proposal_id == proposal_id)
-        )
+        change = self._only_change(proposal_id)
         if change is None:
             return _approval_change_label(
                 {
@@ -1651,9 +1670,7 @@ class AIAdvisor:
         proposal_id: int,
         fallback: AgentChange | None,
     ) -> list[str]:
-        change = await session.scalar(
-            select(ProposalChange).where(ProposalChange.proposal_id == proposal_id)
-        )
+        change = self._only_change(proposal_id)
         if change is None:
             return self._raw_details(fallback)
         presenter = self.proposals.presenter(change.entity)
@@ -1661,9 +1678,10 @@ class AIAdvisor:
             return self._raw_details(fallback) or detail_lines(dict(change.values))
         return await presenter.details(session, change, fallback)
 
-    @staticmethod
-    def _target_outcome(message: str, target: dict[str, Any]) -> AIOutcome:
-        return AIOutcome("proposal", message, proposal_id=int(target["id"]))
+    def _only_change(self, proposal_id: int) -> ProposalChange | None:
+        """The change a review holds. Nothing writes a second one, and a receipt reads one."""
+        proposal = self.reviews.proposal(proposal_id)
+        return proposal.changes[0] if proposal is not None and proposal.changes else None
 
     async def _materialize(
         self,
@@ -1673,7 +1691,6 @@ class AIAdvisor:
         if not result.pending_tools:
             return self._answer(agent, result.message)
         mutation_tools = [tool for tool in result.pending_tools if tool.change is not None]
-        targets: list[tuple[int, dict[str, Any], list[PendingTool]]] = []
         preparation_results = {tool.call.id: _json_safe(tool.result) for tool in result.pending_tools}
         failed_call_ids = {
             tool.call.id
@@ -1682,11 +1699,14 @@ class AIAdvisor:
         }
         proposal_details: dict[str, list[str]] = {}
         proposal_displays: dict[str, str] = {}
+        # In the order the model made the calls, which is the order the owner reviews them in.
+        queued_proposal_ids: dict[str, int] = {}
         async with self.sessions() as session:
             for tool in mutation_tools:
                 try:
                     proposal = await prepare_proposal(
                         session,
+                        self.reviews,
                         self.preparer,
                         message=result.message,
                         change=tool.change,
@@ -1716,46 +1736,30 @@ class AIAdvisor:
                 proposal_displays[tool.call.id] = await self._proposal_display_line(
                     session, proposal.id, tool.change, proposal_details[tool.call.id]
                 )
-                targets.append(
-                    (
-                        result.pending_tools.index(tool),
-                        {"type": "proposal", "id": proposal.id},
-                        [tool],
-                    )
-                )
-            targets.sort(key=lambda item: item[0])
-            tool_targets: dict[str, dict[str, Any]] = {}
-            queue: list[QueueItem] = []
-            for _index, target, tools in targets:
-                call_ids = [tool.call.id for tool in tools]
-                queue.append(
-                    QueueItem(
-                        target_type=str(target["type"]),
-                        target_id=int(target["id"]),
-                        call_ids=tuple(call_ids),
-                    )
-                )
-                for call_id in call_ids:
-                    tool_targets[call_id] = target
-            await number_queued_proposals(session, queue, result.message)
+                queued_proposal_ids[tool.call.id] = proposal.id
+            queue = [
+                QueueItem(proposal_id=proposal_id, call_ids=(call_id,))
+                for call_id, proposal_id in queued_proposal_ids.items()
+            ]
+            number_queued_proposals(self.reviews, queue, result.message)
             tool_results = []
             for tool in result.pending_tools:
-                target = tool_targets.get(tool.call.id)
+                queued_id = queued_proposal_ids.get(tool.call.id)
                 tool_results.append(
                     {
                         "id": tool.call.id,
                         "name": tool.call.name,
                         "arguments": tool.call.arguments_json,
-                        "status": "pending" if target else "resolved",
+                        # A call still on screen has no result yet; that is what waiting is.
                         "result": None
-                        if target
+                        if queued_id
                         else _with_queued_siblings(
-                            preparation_results[tool.call.id], len(targets)
+                            preparation_results[tool.call.id], len(queue)
                         ),
                         "details": proposal_details.get(tool.call.id)
                         or self._raw_details(tool.change),
                         "display": proposal_displays.get(tool.call.id),
-                        "target": target,
+                        "proposal_id": queued_id,
                         "change": (
                             {
                                 "entity": tool.change.entity,
@@ -1768,13 +1772,13 @@ class AIAdvisor:
                         ),
                     }
                 )
-            if targets:
+            if queue:
                 repair_exhausted = bool(
                     failed_call_ids and agent.repair_rounds >= MAX_REPAIR_ROUNDS
                 )
                 if failed_call_ids:
                     agent.repair_rounds += 1
-                session.add(
+                self.reviews.open_batch(
                     open_batch(
                         run_id=agent.run_id,
                         items=queue,
@@ -1786,11 +1790,11 @@ class AIAdvisor:
                 if run is not None:
                     run.state_json = agent.state()
             await session.commit()
-        if not targets:
+        if not queue:
             if failed_call_ids:
                 if agent.repair_rounds >= MAX_REPAIR_ROUNDS:
                     return AIOutcome(
-                        "answer",
+                        AIOutcomeKind.ANSWER,
                         "I could not prepare the requested change after five repair attempts. "
                         "No unfinished operation was applied.",
                     )
@@ -1810,24 +1814,20 @@ class AIAdvisor:
                 return await self._materialize(agent, repaired)
             return self._answer(agent, result.message)
         return await self._advance_autoapprovals(
-            self._target_outcome(result.message, targets[0][1]),
+            AIOutcome(AIOutcomeKind.PROPOSAL, result.message, proposal_id=queue[0].proposal_id),
             held_run_id=agent.run_id,
         )
 
-    async def _autoapproval_candidate(
-        self, proposal_id: int
-    ) -> tuple[int, AutoApprovalCandidate] | None:
+    async def _autoapproval_candidate(self, proposal_id: int) -> AutoApprovalCandidate | None:
         """Build the reviewer's request-only view for the active head of one batch."""
         async with self.sessions() as session:
-            batch = await live_batch_for_target(session, "proposal", proposal_id)
+            batch = self.reviews.batch_for_proposal(proposal_id)
             if batch is None:
                 return None
-            head = state_of(batch).head
-            if head is None or head.target != ("proposal", proposal_id):
+            head = batch.state.head
+            if head is None or head.proposal_id != proposal_id:
                 return None
-            change = await session.scalar(
-                select(ProposalChange).where(ProposalChange.proposal_id == proposal_id)
-            )
+            change = self._only_change(proposal_id)
             if change is None:
                 return None
             description = await self.describe_proposal(session, proposal_id)
@@ -1840,7 +1840,7 @@ class AIAdvisor:
                 ),
                 "",
             ) if run is not None else ""
-            return batch.id, AutoApprovalCandidate(
+            return AutoApprovalCandidate(
                 user_request=request,
                 entity=change.entity,
                 action=change.action,
@@ -1854,22 +1854,24 @@ class AIAdvisor:
         self, outcome: AIOutcome, *, held_run_id: int | None = None
     ) -> AIOutcome:
         """Auto-save one eligible head; resolving it advances and checks the next head."""
-        if self.autoapproval is None or outcome.kind != "proposal" or outcome.proposal_id is None:
+        if (
+            self.autoapproval is None
+            or outcome.kind is not AIOutcomeKind.PROPOSAL
+            or outcome.proposal_id is None
+        ):
             return outcome
-        loaded = await self._autoapproval_candidate(outcome.proposal_id)
-        if loaded is None:
+        candidate = await self._autoapproval_candidate(outcome.proposal_id)
+        if candidate is None:
             return outcome
-        _batch_id, candidate = loaded
         verdict = await self.autoapproval.review(candidate)
         if not verdict.approved:
             return outcome
         try:
             advanced = await self.resolve_approval(
-                "proposal",
                 outcome.proposal_id,
-                decision="approved",
+                decision=BatchDecision.APPROVED,
                 result={
-                    "approval_source": "auto",
+                    "approval_source": AUTOAPPROVED,
                     "autoapproval_reason": verdict.reason,
                 },
                 apply_proposal=True,
@@ -1884,33 +1886,33 @@ class AIAdvisor:
                 error,
             )
             return outcome
-        return advanced or AIOutcome("answer", "⚡ Auto-saved the proposed change.")
+        return advanced or AIOutcome(
+            AIOutcomeKind.ANSWER, f"{AUTO_SAVED_RECEIPT} the proposed change."
+        )
 
-    async def has_pending_approval(self, target_type: str, target_id: int) -> bool:
-        """Return whether a UI target belongs to a suspended agent turn."""
-        async with self.sessions() as session:
-            return await live_batch_for_target(session, target_type, target_id) is not None
+    def has_pending_approval(self, proposal_id: int) -> bool:
+        """Return whether this screen belongs to a suspended agent turn."""
+        return self.reviews.batch_for_proposal(proposal_id) is not None
 
     async def resolve_approval(
         self,
-        target_type: str,
-        target_id: int,
+        proposal_id: int,
         *,
-        decision: str,
+        decision: BatchDecision,
         result: dict[str, Any],
         dialogue: list[DialogueMessage] | None = None,
         apply_proposal: bool = False,
         held_run_id: int | None = None,
     ) -> AIOutcome | None:
-        """Resolve one queued UI target and resume the suspended tool turn once complete."""
+        """Resolve one queued screen and resume the suspended tool turn once complete."""
         started = time.monotonic()
         next_outcome: AIOutcome | None = None
         async with self.sessions() as session:
             decided = await decide_batch_item(
                 session,
+                self.reviews,
                 self.proposals,
-                target_type,
-                target_id,
+                proposal_id,
                 decision=decision,
                 apply_change=apply_proposal,
                 render=lambda tool, affected: _resolved_tool_result(
@@ -1925,9 +1927,10 @@ class AIAdvisor:
             head = decided.state.head
             if head is not None:
                 await session.commit()
-                next_outcome = self._target_outcome(
+                next_outcome = AIOutcome(
+                    AIOutcomeKind.PROPOSAL,
                     "Review the next proposed change.",
-                    {"type": head.target_type, "id": head.target_id},
+                    proposal_id=head.proposal_id,
                 )
             else:
                 # The queue is empty, so the batch has done its whole job.  Closing it and
@@ -1969,7 +1972,7 @@ class AIAdvisor:
                 "attempts. No unfinished operation was applied."
             )
             if repair_exhausted:
-                await self._finish_run(run_id, "completed", started)
+                await self._finish_run(run_id, AgentRunStatus.COMPLETED, started)
                 outcome = await self._answer_or_deliver(agent, self._answer(agent, exhausted))
                 outcome.did.extend(display_summary.splitlines())
                 return outcome
@@ -1980,23 +1983,25 @@ class AIAdvisor:
             loop_result = await self._run_agent_loop(agent)
             if loop_result.suspended is not None:
                 await self._suspend_for_child(agent)
-                await self._finish_run(run_id, "awaiting_approval", started)
+                await self._finish_run(run_id, AgentRunStatus.AWAITING_APPROVAL, started)
                 return loop_result.suspended
             outcome = await self._materialize(agent, loop_result)
-            if outcome.kind == "proposal":
-                await self._finish_run(run_id, "awaiting_approval", started)
+            if outcome.kind is AIOutcomeKind.PROPOSAL:
+                await self._finish_run(run_id, AgentRunStatus.AWAITING_APPROVAL, started)
                 return outcome
-            await self._finish_run(run_id, "completed", started)
+            await self._finish_run(run_id, AgentRunStatus.COMPLETED, started)
             outcome = await self._answer_or_deliver(agent, outcome)
             outcome.did.extend(display_summary.splitlines())
             return outcome
         except Exception as error:
             logger.exception("AI continuation failed after the approval queue was resolved")
-            await self._finish_run(run_id, "failed", started, type(error).__name__)
+            await self._finish_run(
+                run_id, AgentRunStatus.FAILED, started, type(error).__name__
+            )
             result_summary = _safe_approval_results_summary(tools, for_display=True)
             if result_summary:
                 return AIOutcome(
-                    "answer",
+                    AIOutcomeKind.ANSWER,
                     _compose_display_outcome(
                         f"⚠️ Safwa could not generate its follow-up ({failure_reason(error)}). "
                         "You can continue with a new message.",
@@ -2005,11 +2010,11 @@ class AIAdvisor:
                 )
             raise
 
-    async def cancel_approval_for_target(self, target_type: str, target_id: int) -> str | None:
-        """Freeze a suspended batch when new dialogue supersedes its active UI.
+    async def cancel_approval_for_proposal(self, proposal_id: int) -> str | None:
+        """Freeze a suspended batch when new dialogue supersedes its active screen.
 
         Returns the consolidated result of the interrupted request, or ``None`` when the
-        target does not belong to a suspended batch.  The caller needs that text because
+        screen does not belong to a suspended batch.  The caller needs that text because
         earlier items in the queue may already be saved: freezing the screen as a plain
         "discarded" notice would tell both the owner and the model something untrue.
 
@@ -2019,17 +2024,17 @@ class AIAdvisor:
         results are folded into its transcript first, so it resumes on a settled record.
         """
         async with self.sessions() as session:
-            batch = await interrupt_batch(session, target_type, target_id, reason=INTERRUPTED)
-            if batch is None:
+            interrupted = interrupt_batch(self.reviews, proposal_id, reason=INTERRUPTED)
+            if interrupted is None:
                 return None
-            tools = [dict(item) for item in batch.tool_calls or []]
-            run = await session.get(AgentRun, batch.run_id)
+            tools = interrupted.tool_calls
+            run = await session.get(AgentRun, interrupted.run_id)
             prior_summaries: list[str] = []
             if run is not None:
                 state = dict(run.state_json or {})
                 prior_summaries = list(state.get("display_result_summaries") or [])
                 if run.kind == "advisor":
-                    run.status = "cancelled"
+                    run.status = AgentRunStatus.CANCELLED.value
                 else:
                     state["transcript"] = _resumed_transcript(
                         [dict(item) for item in state.get("transcript") or []], tools
@@ -2041,9 +2046,12 @@ class AIAdvisor:
                 caller_id = run.parent_run_id
                 while caller_id is not None:
                     caller = await session.get(AgentRun, caller_id)
-                    if caller is None or caller.status != "awaiting_approval":
+                    if (
+                        caller is None
+                        or caller.status != AgentRunStatus.AWAITING_APPROVAL.value
+                    ):
                         break
-                    caller.status = "cancelled"
+                    caller.status = AgentRunStatus.CANCELLED.value
                     caller_id = caller.parent_run_id
             await session.commit()
         summaries = [
@@ -2069,18 +2077,22 @@ class AIAdvisor:
         claimed = await session.scalar(
             update(AgentRun)
             .where(AgentRun.id == run_id, AgentRun.claimed_at.is_(None))
-            .values(claimed_at=utcnow(), status="running")
+            .values(claimed_at=utcnow(), status=AgentRunStatus.RUNNING.value)
             .returning(AgentRun.id)
         )
         return None if claimed is None else await session.get(AgentRun, run_id)
 
     async def _finish_run(
-        self, run_id: int, status: str, started: float, error_code: str | None = None
+        self,
+        run_id: int,
+        status: AgentRunStatus,
+        started: float,
+        error_code: str | None = None,
     ) -> None:
         async with self.sessions() as session:
             run = await session.get(AgentRun, run_id)
             if run:
-                run.status = status
+                run.status = status.value
                 run.duration_ms = int((time.monotonic() - started) * 1000)
                 run.error_code = error_code
                 # The turn is over either way, so the session is free for the next resume.

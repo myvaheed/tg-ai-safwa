@@ -7,7 +7,7 @@ from typing import Any
 
 from aiogram import F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain import (
@@ -35,17 +35,13 @@ from ..enums import MessageKind
 from ..features.cards.model import CardStage
 from ..features.checks.model import CheckOutcome
 from ..features.checks.use_cases import toggle_check_value
-from ..features.proposals.use_cases import (
-    approve_proposal,
-    mark_proposal_stale,
-    reject_proposal,
-)
+from ..features.proposals.model import BatchDecision
+from ..features.proposals.use_cases import approve_proposal
 from ..features.reminders.use_cases import delete_reminder
 from ..models import (
     CallbackToken,
     Card,
     Check,
-    ProposalChange,
     UiSession,
     Workspace,
 )
@@ -993,16 +989,13 @@ async def _on_reminder_delete_confirm(context: CallbackContext) -> None:
 async def _on_proposal_approve(context: CallbackContext) -> None:
     proposal_id = context.payload["id"]
     async with context.sessions() as session:
-        # Only a Card deletion needs the extra confirmation: it takes a whole subtree and
-        # its historical contribution with it.
-        destructive = await session.scalar(
-            select(ProposalChange.id).where(
-                ProposalChange.proposal_id == proposal_id,
-                ProposalChange.action == "delete",
-                ProposalChange.entity == "card",
-            )
-        )
-        if destructive:
+        # Which changes need a second confirmation is the owning feature's rule, not this
+        # screen's: a Card deletion takes a whole subtree and its historical contribution.
+        advisor = context.services.advisor
+        review = advisor.reviews.proposal(proposal_id)
+        if review is not None and any(
+            advisor.proposals.needs_confirmation(change) for change in review.changes
+        ):
             confirm = await token_button(
                 session,
                 context.owner_id,
@@ -1024,22 +1017,21 @@ async def _on_proposal_approve(context: CallbackContext) -> None:
         # state, which the apply is about to become.
         description = await context.services.advisor.describe_proposal(session, proposal_id)
         affected = await approve_proposal(
-            session, context.services.advisor.proposals, proposal_id
+            session, advisor.reviews, advisor.proposals, proposal_id
         )
         await session.commit()
     if await continue_agent_approval(
         context.message,
         context.services,
-        "proposal",
         proposal_id,
-        decision="approved",
+        decision=BatchDecision.APPROVED,
         result={"affected_ids": affected},
     ):
         return
     await send_registered(
         context.message,
         context.services,
-        proposal_outcome_text("approved", description.summary, description.fields),
+        proposal_outcome_text(BatchDecision.APPROVED, description.summary, description.fields),
         kind=MessageKind.DIALOGUE_ASSISTANT,
     )
 
@@ -1049,15 +1041,18 @@ async def _on_proposal_delete_confirm(context: CallbackContext) -> None:
     async with context.sessions() as session:
         description = await context.services.advisor.describe_proposal(session, proposal_id)
         affected = await approve_proposal(
-            session, context.services.advisor.proposals, proposal_id, allow_destructive=True
+            session,
+            context.services.advisor.reviews,
+            context.services.advisor.proposals,
+            proposal_id,
+            allow_destructive=True,
         )
         await session.commit()
     if await continue_agent_approval(
         context.message,
         context.services,
-        "proposal",
         proposal_id,
-        decision="approved",
+        decision=BatchDecision.APPROVED,
         result={"affected_ids": affected, "destructive": True},
     ):
         return
@@ -1065,7 +1060,7 @@ async def _on_proposal_delete_confirm(context: CallbackContext) -> None:
         context.message,
         context.services,
         proposal_outcome_text(
-            "approved",
+            BatchDecision.APPROVED,
             description.summary,
             description.fields,
             notice=f"Permanently deleted {len(affected)} item(s).",
@@ -1078,21 +1073,19 @@ async def _on_proposal_reject(context: CallbackContext) -> None:
     proposal_id = context.payload["id"]
     async with context.sessions() as session:
         description = await context.services.advisor.describe_proposal(session, proposal_id)
-        await reject_proposal(session, proposal_id)
-        await session.commit()
+    context.services.advisor.reviews.end_proposal(proposal_id)
     if await continue_agent_approval(
         context.message,
         context.services,
-        "proposal",
         proposal_id,
-        decision="discarded",
+        decision=BatchDecision.DISCARDED,
         result={"message": "The user discarded this proposed change."},
     ):
         return
     await send_registered(
         context.message,
         context.services,
-        proposal_outcome_text("discarded", description.summary, description.fields),
+        proposal_outcome_text(BatchDecision.DISCARDED, description.summary, description.fields),
         kind=MessageKind.DIALOGUE_ASSISTANT,
     )
 
@@ -1171,15 +1164,20 @@ CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     **dict.fromkeys(CARD_RELATION_TOGGLES, _on_card_toggle_relation),
 }
 
+# These are adapter registry keys, not domain states. Deriving the complete proposal
+# subset beside the registry keeps its exceptional token lifetime in one place: a proposal
+# button outlives the generic TTL and dies with the process that made it, and `recovery`
+# reads this same tuple to delete those buttons at the next start.
+PROPOSAL_CALLBACK_ACTIONS = tuple(
+    action for action in CALLBACK_ACTIONS if action.startswith("proposal_")
+)
+PROPOSAL_APPLY_CALLBACK_ACTIONS = frozenset({"proposal_approve", "proposal_delete_confirm"})
+
 
 async def _report_callback_failure(
     context: CallbackContext, *, notice: str, fallback: str
 ) -> None:
-    """Keep a still-pending proposal reviewable, otherwise state what failed.
-
-    A failed approval leaves the proposal pending, so the owner needs its screen back
-    rather than a bare error above a dead message.
-    """
+    """Restore a still-pending screen when possible, otherwise state what failed."""
     if context.action.startswith("proposal_") and context.payload.get("id"):
         try:
             await render_proposal(
@@ -1198,14 +1196,13 @@ async def _report_callback_failure(
 
 async def _resume_failed_approval(context: CallbackContext, error: Exception) -> bool:
     """Let a suspended agent turn observe an approval that could not be applied."""
-    if context.action not in {"proposal_approve", "proposal_delete_confirm"}:
+    if context.action not in PROPOSAL_APPLY_CALLBACK_ACTIONS:
         return False
     return await continue_agent_approval(
         context.message,
         context.services,
-        "proposal",
         context.payload["id"],
-        decision="failed",
+        decision=BatchDecision.FAILED,
         result={"error": str(error)},
     )
 
@@ -1223,7 +1220,10 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
                 .where(
                     CallbackToken.token == token_value,
                     CallbackToken.owner_id == services.owner_id,
-                    CallbackToken.expires_at >= now,
+                    or_(
+                        CallbackToken.expires_at >= now,
+                        CallbackToken.action.in_(PROPOSAL_CALLBACK_ACTIONS),
+                    ),
                     CallbackToken.consumed_at.is_(None),
                 )
                 .values(consumed_at=now)
@@ -1235,9 +1235,9 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
             return
         action, payload = claimed
         await session.commit()
-    await callback.answer()
 
     context = CallbackContext(callback, services, action, dict(payload or {}))
+    await callback.answer()
     handler = CALLBACK_ACTIONS.get(action)
     if handler is None:
         logger.warning("Unknown Telegram callback action: %s", action)
@@ -1252,10 +1252,7 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
     try:
         await handler(context)
     except StaleStateError as error:
-        if action.startswith("proposal_") and payload.get("id"):
-            async with services.sessions() as session:
-                await mark_proposal_stale(session, payload["id"])
-                await session.commit()
+        # The refusal already ended the review, so the screen is unanswerable by then.
         if await _resume_failed_approval(context, error):
             return
         await send_registered(

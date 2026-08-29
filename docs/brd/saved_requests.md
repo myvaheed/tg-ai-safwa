@@ -42,11 +42,11 @@ Out, and why:
 - **A proposal applying against state that moved.** This was drafted as a Request scenario and
   withdrawn: for a Request it has no reachable trigger. A screen is never something the owner comes
   back to — **a UI message can only be the last message in the chat and never moves back up**, so
-  anything the owner does below a proposal interrupts it, and `cancel_approval_for_target` sets every
-  pending proposal in that batch to `REJECTED` before the words reach the Advisor. Inside one batch
+  anything the owner does below a proposal interrupts it, and `cancel_approval_for_proposal` discards
+  and deletes every pending proposal in that batch before the words reach the Advisor. Inside one batch
   `_refresh_queued_proposal` re-snapshots the expected version and the workspace revision together,
   and a Reminder cannot escalate over a pending proposal at all. On top of that,
-  `ProposalService.apply` checks `workspace.revision` before any handler runs, and every Request
+  `approve_proposal` checks `workspace.revision` before any handler runs, and every Request
   write bumps it — so `RequestProposalHandler`'s own version check would need a writer that moves a
   Request's version without moving the workspace revision, and there is none. The generic rule
   (a proposal applies against the state it was prepared on, or refuses) is Phase 6's, and
@@ -147,9 +147,9 @@ Sources: `RequestProposalHandler.prepare`; ARCHITECTURE §"Tool call → … →
 ```gherkin
 Given the board subagent calls `request` with a `sql` field
 When the change is prepared
-Then the normalized statement is what the proposal row carries and the review screen prints
+Then the normalized statement is what the proposal carries and the review screen prints
 And SQL that does not pass comes back as an `unsafe_query` tool error the model can retry
-And no proposal row and no Request exist for the refused call
+And no open review and no Request exist for the refused call
 ```
 
 ### SR-AI-009 — A Request is archived, never deleted

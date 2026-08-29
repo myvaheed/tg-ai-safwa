@@ -9,11 +9,14 @@ from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.autoapproval import AutoApprovalReviewer
 from safwa.ai.context import DialogueMessage
+from safwa.ai.service import AIOutcomeKind
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.domain import create_card, create_tag, create_value
-from safwa.enums import ProposalStatus
+from safwa.features.proposals.model import (
+    BatchDecision,
+)
 from safwa.features.proposals.use_cases import approve_proposal
-from safwa.models import ApprovalBatch, Card, CardTag, ChangeProposal, Tag, Value
+from safwa.models import Card, CardTag, Tag, Value
 
 pytestmark = pytest.mark.e2e
 
@@ -67,7 +70,7 @@ async def test_an_exact_allowlisted_edit_is_autoapproved(e2e_harness):
 
     outcome = await advisor.handle(request)
 
-    assert outcome.kind == "answer"
+    assert outcome.kind is AIOutcomeKind.ANSWER
     assert outcome.proposal_id is None
     assert "⚡ Auto-saved" in outcome.message
     assert len(provider.calls) == 3
@@ -93,9 +96,9 @@ async def test_an_exact_allowlisted_edit_is_autoapproved(e2e_harness):
     assert resolved["next"].startswith("Safwa saved this one itself")
     async with e2e_harness.sessions() as session:
         stored = await session.get(Card, card.id)
-        proposal = await session.scalar(select(ChangeProposal))
+        proposal = next(iter(e2e_harness.reviews.open_proposals), None)
         assert stored is not None and stored.title == "Buy oat milk"
-        assert proposal is not None and proposal.status == ProposalStatus.APPROVED.value
+        assert proposal is None
 
 
 async def test_creation_is_never_autoapproved(e2e_harness):
@@ -119,7 +122,7 @@ async def test_creation_is_never_autoapproved(e2e_harness):
 
     outcome = await advisor.handle("Create an Action named Buy milk with effort 1")
 
-    assert outcome.kind == "proposal"
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
     # The reviewer is not even consulted: creation is not on the allowlist.
     assert len(provider.calls) == 1
     async with e2e_harness.sessions() as session:
@@ -141,13 +144,13 @@ async def test_reviewer_doubt_leaves_the_original_proposal_pending(e2e_harness):
 
     outcome = await advisor.handle("Give the work tag a better name")
 
-    assert outcome.kind == "proposal"
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
     assert outcome.proposal_id is not None
     assert len(provider.calls) == 2
     async with e2e_harness.sessions() as session:
         assert (await session.get(Tag, tag.id)).name == "Work"
-        proposal = await session.get(ChangeProposal, outcome.proposal_id)
-        assert proposal is not None and proposal.status == ProposalStatus.PENDING.value
+        proposal = advisor.reviews.proposal(outcome.proposal_id)
+        assert proposal is not None
 
 
 async def test_batch_is_reviewed_head_first_without_a_bulk_block(e2e_harness):
@@ -170,15 +173,15 @@ async def test_batch_is_reviewed_head_first_without_a_bulk_block(e2e_harness):
 
     outcome = await advisor.handle("Rename the Work tag to Career and the Freedom value")
 
-    assert outcome.kind == "proposal"
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
     assert outcome.proposal_id is not None
     assert len(provider.calls) == 3
     async with e2e_harness.sessions() as session:
         assert (await session.get(Tag, tag.id)).name == "Career"
         assert (await session.get(Value, value.id)).name == "Freedom"
-        batch = await session.scalar(select(ApprovalBatch))
+        batch = next(iter(advisor.reviews.open_batches), None)
         assert batch is not None
-        assert [item["status"] for item in batch.queue] == [
+        assert [item.decision for item in batch.state.items] == [
             "approved",
             "pending",
         ]
@@ -206,18 +209,17 @@ async def test_next_head_is_autoapproved_after_a_manual_save(e2e_harness):
     first = await advisor.handle("Rename the Work tag and the Freedom value")
     assert first.proposal_id is not None
     async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(session, PROPOSALS, first.proposal_id)
+        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, first.proposal_id)
         await session.commit()
 
     outcome = await advisor.resolve_approval(
-        "proposal",
         first.proposal_id,
-        decision="approved",
+        decision=BatchDecision.APPROVED,
         result={"affected_ids": affected},
         dialogue=[DialogueMessage(role="user", content="Rename the two items")],
     )
 
-    assert outcome is not None and outcome.kind == "answer"
+    assert outcome is not None and outcome.kind is AIOutcomeKind.ANSWER
     assert "⚡ Auto-saved" in outcome.message
     assert len(provider.calls) == 4
     async with e2e_harness.sessions() as session:
@@ -245,7 +247,7 @@ async def test_multi_step_request_can_be_autoapproved_one_proposal_at_a_time(e2e
 
     outcome = await advisor.handle(request)
 
-    assert outcome.kind == "answer"
+    assert outcome.kind is AIOutcomeKind.ANSWER
     assert len(provider.calls) == 5
     for call_index in (1, 3):
         context = json.loads(str(provider.calls[call_index][1]["content"]))
@@ -266,7 +268,7 @@ async def test_non_allowlisted_operation_does_not_call_the_reviewer(e2e_harness)
 
     outcome = await advisor.handle("Move Buy milk to Today")
 
-    assert outcome.kind == "proposal"
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
     assert len(provider.calls) == 1
     async with e2e_harness.sessions() as session:
         stored = await session.get(Card, card.id)
@@ -292,13 +294,13 @@ async def test_autoapproval_that_cannot_decide_leaves_the_screen_standing(e2e_ha
 
     outcome = await advisor.handle("Rename Buy milk to Buy oat milk")
 
-    assert outcome.kind == "proposal"
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
     assert outcome.proposal_id is not None
     assert len(provider.calls) == 1
     async with e2e_harness.sessions() as session:
         assert (await session.get(Card, card.id)).title == "Buy milk"
-        proposal = await session.get(ChangeProposal, outcome.proposal_id)
-        assert proposal is not None and proposal.status == ProposalStatus.PENDING.value
+        proposal = advisor.reviews.proposal(outcome.proposal_id)
+        assert proposal is not None
 
 
 async def test_the_third_in_a_queue_is_not_read_while_the_second_is_on_screen(e2e_harness):
@@ -323,13 +325,13 @@ async def test_the_third_in_a_queue_is_not_read_while_the_second_is_on_screen(e2
 
     outcome = await advisor.handle("Rename the Work tag, the Freedom value and Buy milk")
 
-    assert outcome.kind == "proposal"
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
     # One mutation turn and two reviews: the third was never put in front of autoapproval.
     assert len(provider.calls) == 3
     async with e2e_harness.sessions() as session:
         assert (await session.get(Tag, tag.id)).name == "Career"
         assert (await session.get(Value, value.id)).name == "Freedom"
         assert (await session.get(Card, card.id)).title == "Buy milk"
-        batch = await session.scalar(select(ApprovalBatch))
+        batch = next(iter(advisor.reviews.open_batches), None)
         assert batch is not None
-        assert [item["status"] for item in batch.queue] == ["approved", "pending", "pending"]
+        assert [item.decision for item in batch.state.items] == ["approved", "pending", "pending"]

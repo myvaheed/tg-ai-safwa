@@ -5,8 +5,9 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...ai.contracts import AgentChange
-from ...models import ProposalChange, SavedRequest
+from ...models import SavedRequest
 from ..proposals.api import (
+    ProposalChange,
     ProposalScreen,
     detail_lines,
     named_details,

@@ -69,14 +69,6 @@ class ActorType(StrEnum):
     AI = "ai"
 
 
-class ProposalStatus(StrEnum):
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-    STALE = "stale"
-    FAILED = "failed"
-
-
 class MessageKind(StrEnum):
     DIALOGUE_USER = "dialogue_user"
     DIALOGUE_ASSISTANT = "dialogue_assistant"

@@ -15,7 +15,6 @@ from .model import (
     BatchDecision,
     BatchEffect,
     BatchState,
-    BatchStatus,
     DecideAction,
     InterruptAction,
     RejectPendingEffect,
@@ -36,12 +35,10 @@ def reduce(state: BatchState, action: BatchAction) -> tuple[BatchState, tuple[Ba
 def _decide(
     state: BatchState, action: DecideAction
 ) -> tuple[BatchState, tuple[BatchEffect, ...]]:
-    item = state.item_for(action.target_type, action.target_id)
-    # A batch that is over, and a screen already answered, both mean the press arrived
-    # after the fact: there is nothing left to decide and nothing to tell the model.
+    item = state.item_for(action.proposal_id)
+    # A screen already answered, and a batch whose screens all are, both mean the press
+    # arrived after the fact: nothing left to decide and nothing to tell the model.
     if item is None or item.decision is not BatchDecision.PENDING:
-        return state, ()
-    if state.status is not BatchStatus.PENDING:
         return state, ()
     decided = replace(
         state,
@@ -50,10 +47,7 @@ def _decide(
             for candidate in state.items
         ),
     )
-    effects: tuple[BatchEffect, ...] = (ResolveCallsEffect(item.call_ids, action.decision),)
-    if decided.head is not None:
-        return decided, effects
-    return replace(decided, status=BatchStatus.COMPLETED), effects
+    return decided, (ResolveCallsEffect(item.call_ids, action.decision),)
 
 
 def _interrupt(
@@ -66,7 +60,7 @@ def _interrupt(
     )
     effects: list[BatchEffect] = []
     if pending:
-        effects.append(RejectPendingEffect(tuple(item.target for item in pending)))
+        effects.append(RejectPendingEffect(tuple(item.proposal_id for item in pending)))
         effects.append(
             ResolveCallsEffect(
                 tuple(call_id for item in pending for call_id in item.call_ids),
@@ -74,4 +68,4 @@ def _interrupt(
                 action.reason,
             )
         )
-    return replace(state, status=BatchStatus.CANCELLED, items=items), tuple(effects)
+    return replace(state, items=items), tuple(effects)

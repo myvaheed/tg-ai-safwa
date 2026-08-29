@@ -11,9 +11,10 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...ai.contracts import AgentChange
-from ...models import ProposalChange
 from ..proposals.api import (
     ACTION_VERBS,
+    ChangeAction,
+    ProposalChange,
     ProposalScreen,
     detail_lines,
     result_value,
@@ -49,7 +50,7 @@ class ReminderProposalPresenter:
         # A Reminder has no archive, so the only removal `remove` can send reads as one.
         verb = (
             "Delete"
-            if change.action == "archive"
+            if change.action is ChangeAction.ARCHIVE
             else ACTION_VERBS.get(change.action, change.action.title())
         )
         schedule = values.get("schedule_text")

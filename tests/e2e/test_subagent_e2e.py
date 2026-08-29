@@ -10,6 +10,7 @@ from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.context import DialogueMessage
 from safwa.ai.mini import query_read_tool
+from safwa.ai.service import AIOutcomeKind
 from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.ai.subagents import RoutedSubagent
 from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS
@@ -18,8 +19,9 @@ from safwa.enums import CardKind
 from safwa.features.cards.model import CardStage
 from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
 from safwa.features.diary.model import DiaryEntry
+from safwa.features.proposals.model import BatchDecision
 from safwa.features.proposals.use_cases import approve_proposal
-from safwa.models import AgentRun, AgentStep, ApprovalBatch, Card
+from safwa.models import AgentRun, AgentStep, Card
 
 TODAY = date.today().isoformat()
 
@@ -104,7 +106,7 @@ async def test_a_routed_subagent_hands_its_words_back_and_the_advisor_speaks(e2e
     outcome = await advisor.handle("Запиши восьмое в дневник")
 
     # The owner reads the Advisor; the subagent's sentence reached it as a receipt.
-    assert outcome.kind == "answer"
+    assert outcome.kind is AIOutcomeKind.ANSWER
     assert outcome.message == "Готово — [08.03.2026](diary:4)."
     # It read under its own prompt, not the Advisor's.
     assert str(provider.calls[1][0]["content"]).startswith("# Safwa")
@@ -154,7 +156,7 @@ async def test_an_autoapproved_board_route_hands_back_its_receipt(e2e_harness):
 
     outcome = await advisor.handle("Переименуй Купить молоко в Купить овсяное молоко")
 
-    assert outcome.kind == "answer"
+    assert outcome.kind is AIOutcomeKind.ANSWER
     assert [message["role"] for message in provider.calls[1]] == ["system", "user"]
     receipt = next(receipt for receipt in route_receipts(provider) if receipt["subagent"] == "board")
     assert receipt["did"] == [
@@ -202,14 +204,12 @@ async def test_a_routed_subagent_proposes_for_itself(e2e_harness):
 
     outcome = await advisor.handle("Запиши, как прошёл день")
 
-    assert outcome.kind == "proposal"
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
     # The Advisor's own context never carried the day: it handed the turn over first.
     assert "Закрыл рынок" not in json.dumps(provider.calls[0], ensure_ascii=False)
     async with e2e_harness.sessions() as session:
         runs = list(await session.scalars(select(AgentRun).order_by(AgentRun.id)))
-        batch = await session.scalar(
-            select(ApprovalBatch)
-        )
+    batch = next(iter(e2e_harness.reviews.open_batches), None)
     # The Diary session waits for the screen, and the Advisor waits for the Diary.
     assert [(run.kind, run.status, run.parent_run_id) for run in runs] == [
         ("advisor", "awaiting_approval", None),
@@ -276,7 +276,7 @@ async def test_the_board_owns_every_mutation_tool(e2e_harness):
 
     outcome = await advisor.handle("Сделай цель Быть здоровым")
 
-    assert outcome.kind == "proposal"
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
     # The Advisor has no way to describe a change instead of routing it: it has no tool.
     advisor_tools = {tool["function"]["name"] for tool in provider.options[0]["tools"]}
     assert advisor_tools == {"query_safwa", "open", "route"}
@@ -372,11 +372,11 @@ async def test_two_domains_in_one_request_are_both_finished(e2e_harness):
     first = await advisor.handle(
         "Переименуй действие в Приготовить пиццу и запиши вчерашний день в дневник"
     )
-    assert first.kind == "proposal"
+    assert first.kind is AIOutcomeKind.PROPOSAL
 
     # Saving resumes the board, whose receipt resumes the Advisor, which routes on.
     async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(session, PROPOSALS, first.proposal_id)
+        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, first.proposal_id)
         await session.commit()
     provider.responses.extend(
         [
@@ -390,14 +390,13 @@ async def test_two_domains_in_one_request_are_both_finished(e2e_harness):
         ]
     )
     second = await advisor.resolve_approval(
-        "proposal",
         first.proposal_id,
-        decision="approved",
+        decision=BatchDecision.APPROVED,
         result={"affected_ids": affected},
     )
 
     # The Diary half is reached, and it is a screen of its own.
-    assert second.kind == "proposal"
+    assert second.kind is AIOutcomeKind.PROPOSAL
     assert second.proposal_id != first.proposal_id
     async with e2e_harness.sessions() as session:
         runs = list(await session.scalars(select(AgentRun).order_by(AgentRun.id)))
@@ -469,7 +468,7 @@ async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
     )
     first = await advisor.handle("Переименуй действие и запиши день")
     async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(session, PROPOSALS, first.proposal_id)
+        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, first.proposal_id)
         await session.commit()
     provider.responses.extend(
         [
@@ -480,9 +479,8 @@ async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
     )
 
     await advisor.resolve_approval(
-        "proposal",
         first.proposal_id,
-        decision="approved",
+        decision=BatchDecision.APPROVED,
         result={"affected_ids": affected},
     )
 

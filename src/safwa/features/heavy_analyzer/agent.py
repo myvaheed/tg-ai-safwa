@@ -16,7 +16,7 @@ from pydantic import Field
 
 from llm_gateway import LlmProvider, ToolCall
 
-from ...ai.contracts import ToolInput
+from ...ai.contracts import ToolInput, ToolResultStatus
 from ...ai.mini import (
     MiniSessionError,
     ReadToolSpec,
@@ -115,7 +115,7 @@ class _LastRead:
 
 
 def _is_error(rows: list[Any]) -> bool:
-    return bool(rows) and isinstance(rows[0], dict) and rows[0].get("status") == "error"
+    return bool(rows) and isinstance(rows[0], dict) and rows[0].get("status") == ToolResultStatus.ERROR
 
 
 def _recording_read_tool(runner: ReadOnlyQueryRunner, last: _LastRead) -> ReadToolSpec:
@@ -177,7 +177,7 @@ def build(
 def _failed(error: str) -> dict[str, Any]:
     return {
         "helper": NAME,
-        "status": "error",
+        "status": ToolResultStatus.ERROR.value,
         "error": error,
         "hint": "Answer the owner with what you already have, or say you could not work it out.",
     }

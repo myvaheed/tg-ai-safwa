@@ -10,11 +10,12 @@ from datetime import date as calendar_date
 from typing import Any
 
 from ...foundation.errors import DomainError, StaleStateError
-from ...models import ProposalChange
 from ..proposals.api import (
     ApplyContext,
+    ChangeAction,
     PreparationContext,
     PreparedChange,
+    ProposalChange,
     ToolPreparationError,
     require_target,
 )
@@ -48,7 +49,7 @@ class DiaryProposalHandler:
                 "Retry the diary call with the day you meant, written as YYYY-MM-DD.",
             ) from error
         saved = await diary_entry_for(context.session, entry_date)
-        if change.action == "delete":
+        if change.action is ChangeAction.DELETE:
             if saved is None:
                 raise ToolPreparationError(
                     "target_not_found",
@@ -58,7 +59,7 @@ class DiaryProposalHandler:
             change.id = saved.id
             change.values = {"entry_date": entry_date.isoformat()}
             return
-        change.action = "update" if saved is not None else "create"
+        change.action = ChangeAction.UPDATE if saved is not None else ChangeAction.CREATE
         change.id = saved.id if saved is not None else None
         values = dict(change.values)
         score = values.get("feeling_score")
@@ -80,7 +81,7 @@ class DiaryProposalHandler:
         values = dict(change.values)
         entry_date = calendar_date.fromisoformat(str(values["entry_date"]))
         feeling_score = values.get("feeling_score")
-        if change.action == "create":
+        if change.action is ChangeAction.CREATE:
             entry = await create_diary_entry(
                 session,
                 entry_date=entry_date,
@@ -88,13 +89,13 @@ class DiaryProposalHandler:
                 feeling_score=feeling_score,
             )
             return [entry.id]
-        if change.action not in {"update", "delete"}:
+        if change.action not in {ChangeAction.UPDATE, ChangeAction.DELETE}:
             raise DomainError(f"Unsupported approved Diary action: {change.action}")
         entry = await session.get(DiaryEntry, change.entity_id) if change.entity_id else None
         if entry is None or entry.version != change.expected_version:
             raise StaleStateError("The Diary entry changed; refresh this proposal")
         entry_id = entry.id
-        if change.action == "delete":
+        if change.action is ChangeAction.DELETE:
             await delete_diary_entry(session, entry_id)
         else:
             await update_diary_entry(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest_asyncio
@@ -26,6 +26,7 @@ from safwa.domain import bootstrap_workspace
 from safwa.features.board.agent import BOARD_TOOLS
 from safwa.features.continuity.memory import MemoryFileStore
 from safwa.features.heavy_analyzer import agent as heavy_analyzer
+from safwa.features.proposals.store import ProposalStore
 from safwa.foundation.database import Database, upgrade_database
 
 
@@ -114,6 +115,8 @@ class E2EHarness:
     database: Database
     database_path: Path
     memory: MemoryFileStore
+    # One harness is one running bot: the reviews it opens outlive each advisor it builds.
+    reviews: ProposalStore = field(default_factory=ProposalStore)
 
     def board(self) -> RoutedSubagent:
         """The real board subagent: every mutation tool lives behind `route("board")`."""
@@ -140,6 +143,7 @@ class E2EHarness:
     ) -> tuple[AIAdvisor, ScriptedProvider]:
         subagents = (self.board(),) if subagents is None else subagents
         provider = ScriptedProvider(responses)
+        # One harness is one running bot, so every advisor it builds shares its reviews.
         advisor = AIAdvisor(
             self.sessions,
             provider,
@@ -152,6 +156,7 @@ class E2EHarness:
             autoapproval=AutoApprovalReviewer(provider) if autoapprove else None,
             subagents=subagents,
             helpers=helpers,
+            reviews=self.reviews,
         )
         return advisor, provider
 

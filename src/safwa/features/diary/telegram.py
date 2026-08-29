@@ -12,11 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...ai.contracts import AgentChange
 from ...enums import MessageKind
 from ...foundation.errors import DomainError
-from ...models import ProposalChange
 from ...telegram._core import Services
 from ...telegram._messaging import send_registered
 from ..proposals.api import (
     ACTION_VERBS,
+    ChangeAction,
+    ProposalChange,
     ProposalScreen,
     detail_lines,
 )
@@ -93,7 +94,7 @@ def _day_lines(change: ProposalChange) -> list[str]:
     """
     values = dict(change.values)
     lines = [f"Date: {values.get('entry_date', '')}"]
-    if change.action == "delete":
+    if change.action is ChangeAction.DELETE:
         lines.append("Entry: removed")
     else:
         lines.append(f"Entry: {len(str(values.get('body') or ''))} characters")
@@ -131,17 +132,17 @@ class DiaryProposalPresenter:
             if entry is not None:
                 current = {"body": entry.body, "feeling_score": entry.feeling_score}
         proposed = {**current, **dict(change.values)}
-        shown = current if change.action == "delete" else proposed
+        shown = current if change.action is ChangeAction.DELETE else proposed
         heading = f"Date: {html.escape(str(proposed.get('entry_date') or ''))}"
         if shown.get("feeling_score") is not None:
             score = int(shown["feeling_score"])
             heading += f"\nFeeling: {score} {FEELING_SCORE_EMOJI[score]}"
-        if change.action == "update":
+        if change.action is ChangeAction.UPDATE:
             heading += "\nThis replaces the entry already saved for that day."
-        elif change.action == "delete":
+        elif change.action is ChangeAction.DELETE:
             heading += "\nThis removes that day's entry for good."
         blocks = [heading]
-        if change.action == "delete":
+        if change.action is ChangeAction.DELETE:
             blocks.append(html.escape(str(current.get("body") or "")))
         else:
             blocks.append(html.escape(str(proposed.get("body") or "")))
@@ -150,9 +151,9 @@ class DiaryProposalPresenter:
         return ProposalScreen(
             mode=(
                 "Create"
-                if change.action == "create"
+                if change.action is ChangeAction.CREATE
                 else "Remove"
-                if change.action == "delete"
+                if change.action is ChangeAction.DELETE
                 else "Edit"
             ),
             item="Diary entry",

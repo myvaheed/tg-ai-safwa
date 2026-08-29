@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from enum import StrEnum
 
 from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...foundation.models import Base, TimestampMixin
+
+
+class SprintStatus(StrEnum):
+    ACTIVE = "active"
+    FINISHED = "finished"
 
 
 class Sprint(Base, TimestampMixin):
@@ -19,7 +25,7 @@ class Sprint(Base, TimestampMixin):
     actual_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     actual_ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     success_criteria: Mapped[str] = mapped_column(Text, default="")
-    status: Mapped[str] = mapped_column(String(20), default="active")
+    status: Mapped[str] = mapped_column(String(20), default=SprintStatus.ACTIVE.value)
     finish_reason: Mapped[str | None] = mapped_column(String(100))
 
 

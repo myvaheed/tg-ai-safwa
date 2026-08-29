@@ -70,7 +70,7 @@ Given the owner says "remind me every morning"
 When the setup session runs
 Then it answers that the phrase does not determine a schedule, with one question to ask
 And that question comes back to the model as a retryable tool error
-And no proposal row and no Reminder exist
+And no open review and no Reminder exist
 ```
 
 ### RM-SCHEDULE-003 — A date is always a start date; a time is a fire clock only next to weekdays

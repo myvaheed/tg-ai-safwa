@@ -14,9 +14,8 @@ from aiogram.types import Chat, Message, User
 from sqlalchemy import func, select
 
 from ..ai.context import DialogueMessage
-from ..enums import MessageKind, ProposalStatus
-from ..features.proposals.model import BatchStatus
-from ..models import AgentRun, ApprovalBatch, ChangeProposal, TelegramMessage
+from ..enums import MessageKind
+from ..models import AgentRun, TelegramMessage
 from ..telegram._core import BACKGROUND_SOURCE_ID, Services
 from ..telegram.proposals import render_ai_outcome
 
@@ -40,26 +39,15 @@ class CueRuntime:
         """
         if self.services.guard.active:
             return False
+        if self.services.advisor.reviews.busy:
+            return False
         async with self.services.sessions() as session:
-            pending = await session.scalar(
-                select(func.count(ChangeProposal.id)).where(
-                    ChangeProposal.status == ProposalStatus.PENDING.value
-                )
-            )
-            if pending:
-                return False
             # "Resolved completely" includes the model's continuation after the last queue
             # item: that runs with the batch already closed and the session claimed.
-            suspended = await session.scalar(
-                select(func.count(ApprovalBatch.id)).where(
-                    ApprovalBatch.status == BatchStatus.PENDING.value
-                )
+            claimed = await session.scalar(
+                select(func.count(AgentRun.id)).where(AgentRun.claimed_at.is_not(None))
             )
-            if not suspended:
-                suspended = await session.scalar(
-                    select(func.count(AgentRun.id)).where(AgentRun.claimed_at.is_not(None))
-                )
-            if suspended:
+            if claimed:
                 return False
         if not self.services.guard.reserve_background():
             return False
@@ -122,8 +110,8 @@ class CueRuntime:
                     # A proposal is committed before its Telegram screen is rendered. If
                     # rendering failed, close that unanswered batch so it cannot hold the
                     # Cue gate shut forever; the Cue remains and retries the whole turn.
-                    await self.services.advisor.cancel_approval_for_target(
-                        "proposal", outcome.proposal_id
+                    await self.services.advisor.cancel_approval_for_proposal(
+                        outcome.proposal_id
                     )
                 except Exception:
                     logger.exception("Could not release a failed Cue proposal")

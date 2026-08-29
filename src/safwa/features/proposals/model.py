@@ -1,65 +1,61 @@
-"""What one proposal is on disk, the batch of screens that suspends a turn, and the
-frozen state that batch moves through."""
+"""What one proposal is while the owner is looking at it, the batch of screens that
+suspends a turn, and the frozen state that batch moves through.
+
+None of this is stored. A review exists while the process that opened it is running and
+the owner has not answered it; a restart is what ends every one of them. What survives is
+what the review *did*: the rows its handlers wrote, and the turn's own `agent_runs` record.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
 
-from ...enums import ProposalStatus
-from ...foundation.models import Base, TimestampMixin, UtcDateTime
+class ChangeAction(StrEnum):
+    """What one change does. Every mutation tool's `mode` is one of these, spelled the same.
 
-
-class ChangeProposal(Base, TimestampMixin):
-    __tablename__ = "change_proposals"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    message: Mapped[str] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(20), default=ProposalStatus.PENDING.value)
-    workspace_revision: Mapped[int] = mapped_column(Integer)
-    expires_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
-
-
-class ProposalChange(Base):
-    __tablename__ = "proposal_changes"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    proposal_id: Mapped[int] = mapped_column(
-        ForeignKey("change_proposals.id", ondelete="CASCADE"), index=True
-    )
-    position: Mapped[int] = mapped_column(Integer)
-    entity: Mapped[str] = mapped_column(String(30))
-    action: Mapped[str] = mapped_column(String(30))
-    entity_id: Mapped[int | None] = mapped_column(Integer)
-    expected_version: Mapped[int | None] = mapped_column(Integer)
-    values: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-
-
-class ApprovalBatch(Base, TimestampMixin):
-    """The screens one suspended turn opened, and what has been decided about them.
-
-    The batch is the process, not a line of the agent's transcript: `status` is a column
-    so finding the live one is a query rather than a walk through stored JSON.  `queue`
-    holds the ordered targets and `tool_calls` the model's calls with their results; what
-    the session must remember in order to continue lives on its own row.
+    The tools declare their own subset, so a tool offers only the actions its entity has.
     """
 
-    __tablename__ = "approval_batches"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"), index=True)
-    status: Mapped[str] = mapped_column(String(20), index=True)
-    repair_exhausted: Mapped[bool] = mapped_column(Boolean, default=False)
-    queue: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
-    tool_calls: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    CREATE = "create"
+    UPDATE = "update"
+    MOVE = "move"
+    COMPLETE = "complete"
+    CANCEL = "cancel"
+    REOPEN = "reopen"
+    ARCHIVE = "archive"
+    DELETE = "delete"
+    LINK = "link"
+    UNLINK = "unlink"
 
 
-class BatchStatus(StrEnum):
-    PENDING = "pending"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
+@dataclass(slots=True)
+class ProposalChange:
+    """One validated edit, resolved against live data and waiting to be applied."""
+
+    # The entity name is whatever feature owns it; the registry is what rejects an
+    # unknown one, so this stays a plain string.
+    entity: str
+    action: ChangeAction
+    entity_id: int | None = None
+    expected_version: int | None = None
+    values: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ChangeProposal:
+    """One review the owner still has open, and the edits Save would carry out.
+
+    `changes` is an ordered list because a proposal keeps the right to hold several edits;
+    nothing writes a second one today, and the screen already lists them all.
+    """
+
+    id: int
+    message: str
+    workspace_revision: int
+    changes: list[ProposalChange] = field(default_factory=list)
 
 
 class BatchDecision(StrEnum):
@@ -69,30 +65,49 @@ class BatchDecision(StrEnum):
     FAILED = "failed"
 
 
+# The interface owns this line, never the model. History replays it as a tool result
+# rather than as words Safwa said, so each one also says what it meant.
+SAVED_RECEIPT = "✅ Saved"
+AUTO_SAVED_RECEIPT = "⚡ Auto-saved"
+DISCARDED_RECEIPT = "🗑 Discarded"
+FAILED_RECEIPT = "⚠️ Failed"
+
+DECISION_RECEIPTS = {
+    BatchDecision.APPROVED: SAVED_RECEIPT,
+    BatchDecision.DISCARDED: DISCARDED_RECEIPT,
+    BatchDecision.FAILED: FAILED_RECEIPT,
+}
+
+RECEIPT_MEANINGS = {
+    SAVED_RECEIPT: "applied",
+    AUTO_SAVED_RECEIPT: "applied",
+    DISCARDED_RECEIPT: "not applied, the user rejected it",
+    FAILED_RECEIPT: "not applied, it failed",
+}
+
+
 @dataclass(frozen=True, slots=True)
 class QueueItem:
     """One screen the owner still has, or the decision that closed it."""
 
-    target_type: str
-    target_id: int
+    proposal_id: int
     call_ids: tuple[str, ...]
     decision: BatchDecision = BatchDecision.PENDING
-
-    @property
-    def target(self) -> tuple[str, int]:
-        return self.target_type, self.target_id
 
 
 @dataclass(frozen=True, slots=True)
 class BatchState:
-    """Where the batch stands: its screens, in the order Safwa opened them."""
+    """Where the batch stands: its screens, in the order Safwa opened them.
 
-    status: BatchStatus
+    There is no separate status: a batch is over exactly when no screen is still waiting,
+    which is `head is None`.
+    """
+
     items: tuple[QueueItem, ...]
     repair_exhausted: bool = False
 
-    def item_for(self, target_type: str, target_id: int) -> QueueItem | None:
-        return next((item for item in self.items if item.target == (target_type, target_id)), None)
+    def item_for(self, proposal_id: int) -> QueueItem | None:
+        return next((item for item in self.items if item.proposal_id == proposal_id), None)
 
     @property
     def head(self) -> QueueItem | None:
@@ -101,12 +116,25 @@ class BatchState:
         )
 
 
+@dataclass(slots=True)
+class ApprovalBatch:
+    """The screens one suspended turn opened, and what has been decided about them.
+
+    `state` is replaced whole rather than edited, so a transition is one assignment of what
+    `reduce` returned. `tool_calls` are the model's calls with their results, and they are
+    the one part of a batch that outlives it: they are folded into the session's own record.
+    """
+
+    run_id: int
+    tool_calls: list[dict[str, Any]]
+    state: BatchState
+
+
 @dataclass(frozen=True, slots=True)
 class DecideAction:
     """The owner answered one screen: saved it, discarded it, or it could not be applied."""
 
-    target_type: str
-    target_id: int
+    proposal_id: int
     decision: BatchDecision
 
 
@@ -133,9 +161,9 @@ class ResolveCallsEffect:
 class RejectPendingEffect:
     """The screens that lost their answer, to be recorded as discarded."""
 
-    targets: tuple[tuple[str, int], ...]
+    proposal_ids: tuple[int, ...]
 
 
-# An effect is a row to write, never a reading of the state returned beside it: which
-# screen comes next is `head` and whether the batch closed is `status`.
+# An effect is a review to end, never a reading of the state returned beside it: which
+# screen comes next, and whether the batch closed, are both `head`.
 BatchEffect = ResolveCallsEffect | RejectPendingEffect

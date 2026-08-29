@@ -32,7 +32,7 @@ from safwa.features.diary.use_cases import (
     update_diary_entry,
 )
 from safwa.features.profile.use_cases import sync_diary_reminder
-from safwa.features.proposals.api import ToolPreparationError
+from safwa.features.proposals.api import ChangeAction, ToolPreparationError
 from safwa.features.reminders.schedule import resolve
 from safwa.features.reminders.use_cases import (
     delete_reminder,
@@ -192,7 +192,7 @@ async def test_di_delete_005_existing_day_is_targeted(sessions) -> None:
 async def test_di_receipt_009_result_omits_day_text(sessions) -> None:
     """DI-RECEIPT-009 — tests/brd/diary.feature"""
     change = SimpleNamespace(
-        action="create",
+        action=ChangeAction.CREATE,
         values={
             "entry_date": "2026-08-16",
             "body": "День.",

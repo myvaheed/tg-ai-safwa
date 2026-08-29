@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import (
@@ -32,9 +33,6 @@ from .features.diary.model import DiaryEntry as DiaryEntry
 from .features.planning.model import Sprint as Sprint
 from .features.planning.model import SprintCommitment as SprintCommitment
 from .features.profile.model import UserProfile as UserProfile
-from .features.proposals.model import ApprovalBatch as ApprovalBatch
-from .features.proposals.model import ChangeProposal as ChangeProposal
-from .features.proposals.model import ProposalChange as ProposalChange
 from .features.reminders.model import Reminder as Reminder
 from .features.saved_requests.model import SavedRequest as SavedRequest
 from .features.tags.model import CardTag as CardTag
@@ -44,6 +42,16 @@ from .features.values.model import CheckValue as CheckValue
 from .features.values.model import Value as Value
 from .foundation.models import Base, TimestampMixin
 from .foundation.models import Workspace as Workspace
+
+
+class AgentRunStatus(StrEnum):
+    RUNNING = "running"
+    AWAITING_APPROVAL = "awaiting_approval"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    INTERRUPTED = "interrupted"
+    CANCELLED = "cancelled"
+    ABANDONED = "abandoned"
 
 
 class AgentRun(Base, TimestampMixin):

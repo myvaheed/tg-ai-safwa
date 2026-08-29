@@ -18,7 +18,7 @@ import safwa.features.profile.screens as profile_screens_source
 import safwa.telegram as telegram_source
 import safwa.telegram.plan as plan_module
 from safwa.ai.context import DialogueMessage
-from safwa.ai.service import AIOutcome, ProposalDescription
+from safwa.ai.service import AIOutcome, AIOutcomeKind, ProposalDescription
 from safwa.ai.sql import create_ai_views
 from safwa.asr import TranscriptionError, TranscriptionResult
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS
@@ -59,6 +59,8 @@ from safwa.features.profile.use_cases import (
     DIARY_REMINDER_INSTRUCTION,
     set_profile_field,
 )
+from safwa.features.proposals.model import ChangeAction, ProposalChange
+from safwa.features.proposals.store import ProposalStore
 from safwa.features.proposals.use_cases import approve_proposal
 from safwa.features.reminders.schedule import resolve
 from safwa.features.reminders.use_cases import create_reminder
@@ -80,10 +82,8 @@ from safwa.models import (
     CardEnergyType,
     CardTag,
     CardValue,
-    ChangeProposal,
     Check,
     Cue,
-    ProposalChange,
     Reminder,
     SavedRequest,
     Sprint,
@@ -334,21 +334,28 @@ class StubAdvisor:
 
     proposals = PROPOSALS
 
+    def __init__(self, reviews: ProposalStore | None = None) -> None:
+        self.reviews = reviews if reviews is not None else ProposalStore()
+
     async def describe_proposal(self, _session, _proposal_id) -> ProposalDescription:
         return ProposalDescription(summary="Rename Tag “Family”", fields=["Name: Home → Family"])
 
-    async def cancel_approval_for_target(self, _target_type, _target_id) -> str | None:
+    async def cancel_approval_for_proposal(self, _proposal_id) -> str | None:
         return None
 
 
-def services_for(sessions, *, advisor=None, transcriber=None):
+def services_for(sessions, *, advisor=None, reviews=None, transcriber=None):
     return SimpleNamespace(
         sessions=sessions,
         owner_id=42,
         guard=GenerationGuard(),
         views=ALLOWED_VIEWS,
         bot_username="safwa_ai_bot",
-        advisor=advisor if advisor is not None else SimpleNamespace(proposals=PROPOSALS),
+        advisor=advisor
+        if advisor is not None
+        else SimpleNamespace(
+            proposals=PROPOSALS, reviews=reviews if reviews is not None else ProposalStore()
+        ),
         transcriber=transcriber,
     )
 
@@ -421,33 +428,30 @@ async def test_messages_are_queued_with_placeholders_and_restored_as_one_turn(
 
 
 async def test_proposal_ui_releases_generation_guard_before_continuity_work(sessions) -> None:
+    store = ProposalStore()
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
-        proposal = ChangeProposal(
+        proposal = store.open_proposal(
             message="Create VrWalk",
             workspace_revision=workspace.revision,
-            status="pending",
-        )
-        session.add(proposal)
-        await session.flush()
-        session.add(
-            ProposalChange(
-                proposal_id=proposal.id,
-                position=0,
-                entity="tag",
-                action="create",
-                values={"name": "VrWalk"},
-            )
+            changes=[
+                ProposalChange(
+                    entity="tag",
+                    action=ChangeAction.CREATE,
+                    values={"name": "VrWalk"},
+                )
+            ],
         )
         await session.commit()
         proposal_id = proposal.id
 
     class Advisor:
+        reviews = store
         proposals = PROPOSALS
 
         async def handle(self, *_args, **_kwargs):
             return AIOutcome(
-                "proposal",
+                AIOutcomeKind.PROPOSAL,
                 "I prepared the proposed changes for your approval.",
                 proposal_id=proposal_id,
             )
@@ -493,25 +497,21 @@ async def test_proposal_ui_releases_generation_guard_before_continuity_work(sess
 
 async def test_new_dialogue_discards_and_freezes_pending_proposal(sessions) -> None:
     """PR-INTERRUPT-017 — tests/brd/proposals.feature"""
+    store = ProposalStore()
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
-        proposal = ChangeProposal(
+        proposal = store.open_proposal(
             message="Rename the Tag",
             workspace_revision=workspace.revision,
-            status="pending",
-        )
-        session.add(proposal)
-        await session.flush()
-        session.add(
-            ProposalChange(
-                proposal_id=proposal.id,
-                position=0,
-                entity="tag",
-                action="update",
-                entity_id=9,
-                expected_version=1,
-                values={"name": "Family"},
-            )
+            changes=[
+                ProposalChange(
+                    entity="tag",
+                    action=ChangeAction.UPDATE,
+                    entity_id=9,
+                    expected_version=1,
+                    values={"name": "Family"},
+                )
+            ],
         )
         session.add_all(
             [
@@ -535,7 +535,7 @@ async def test_new_dialogue_discards_and_freezes_pending_proposal(sessions) -> N
 
     bot = FakeBot()
     incoming = FakeMessage(11, text="Another question", bot_message=False, bot=bot)
-    await dismiss_prior_ui(incoming, services_for(sessions, advisor=StubAdvisor()))
+    await dismiss_prior_ui(incoming, services_for(sessions, reviews=store, advisor=StubAdvisor(store)))
 
     assert bot.deleted == [9]
     assert bot.edits[0][0] == 10
@@ -544,8 +544,8 @@ async def test_new_dialogue_discards_and_freezes_pending_proposal(sessions) -> N
     assert "Rename Tag “Family”" in bot.edits[0][1]
     assert "• Name: Home → Family" in bot.edits[0][1]
     async with sessions() as session:
-        proposal = await session.get(ChangeProposal, proposal_id)
-        assert proposal.status == "rejected"
+        proposal = store.proposal(proposal_id)
+        assert proposal is None
         frozen = await session.scalar(
             select(TelegramMessage).where(TelegramMessage.message_id == 10)
         )
@@ -583,7 +583,8 @@ async def test_a_command_dismisses_every_other_screen(sessions) -> None:
         await session.commit()
 
     bot = FakeBot()
-    services = services_for(sessions, advisor=StubAdvisor())
+    store = ProposalStore()
+    services = services_for(sessions, reviews=store, advisor=StubAdvisor(store))
     handled: list[str] = []
 
     async def handler(event, _data):
@@ -610,25 +611,21 @@ async def test_the_screen_the_owner_walked_into_is_left_alone(sessions) -> None:
     The selector is every *other* screen, so the one the event belongs to is redrawn in
     place rather than taken away underneath the owner.
     """
+    store = ProposalStore()
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
-        proposal = ChangeProposal(
+        proposal = store.open_proposal(
             message="Rename the Tag",
             workspace_revision=workspace.revision,
-            status="pending",
-        )
-        session.add(proposal)
-        await session.flush()
-        session.add(
-            ProposalChange(
-                proposal_id=proposal.id,
-                position=0,
-                entity="tag",
-                action="update",
-                entity_id=9,
-                expected_version=1,
-                values={"name": "Family"},
-            )
+            changes=[
+                ProposalChange(
+                    entity="tag",
+                    action=ChangeAction.UPDATE,
+                    entity_id=9,
+                    expected_version=1,
+                    values={"name": "Family"},
+                )
+            ],
         )
         session.add_all(
             [
@@ -651,7 +648,7 @@ async def test_the_screen_the_owner_walked_into_is_left_alone(sessions) -> None:
 
     bot = FakeBot()
     dashboard = FakeMessage(9, bot_message=True, bot=bot)
-    await dismiss_prior_ui(dashboard, services_for(sessions, advisor=StubAdvisor()))
+    await dismiss_prior_ui(dashboard, services_for(sessions, reviews=store, advisor=StubAdvisor(store)))
 
     assert bot.deleted == []
     assert bot.edits[0][0] == 10
@@ -663,25 +660,21 @@ async def test_typed_words_end_the_review_and_are_then_answered(sessions) -> Non
 
     Ending the review is half of it. The words that ended it are the next request.
     """
+    store = ProposalStore()
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
-        proposal = ChangeProposal(
+        proposal = store.open_proposal(
             message="Rename the Tag",
             workspace_revision=workspace.revision,
-            status="pending",
-        )
-        session.add(proposal)
-        await session.flush()
-        session.add(
-            ProposalChange(
-                proposal_id=proposal.id,
-                position=0,
-                entity="tag",
-                action="update",
-                entity_id=9,
-                expected_version=1,
-                values={"name": "Family"},
-            )
+            changes=[
+                ProposalChange(
+                    entity="tag",
+                    action=ChangeAction.UPDATE,
+                    entity_id=9,
+                    expected_version=1,
+                    values={"name": "Family"},
+                )
+            ],
         )
         session.add(
             TelegramMessage(
@@ -700,7 +693,7 @@ async def test_typed_words_end_the_review_and_are_then_answered(sessions) -> Non
     class Advisor(StubAdvisor):
         async def handle(self, text, *_args, **_kwargs):
             asked.append(text)
-            return AIOutcome("answer", "Called it Home instead.")
+            return AIOutcome(AIOutcomeKind.ANSWER, "Called it Home instead.")
 
     class History:
         async def dialogue(self, *_args, **_kwargs):
@@ -715,7 +708,7 @@ async def test_typed_words_end_the_review_and_are_then_answered(sessions) -> Non
         sessions=sessions,
         owner_id=42,
         guard=GenerationGuard(),
-        advisor=Advisor(),
+        advisor=Advisor(store),
         history=History(),
         continuity=Continuity(),
     )
@@ -727,7 +720,7 @@ async def test_typed_words_end_the_review_and_are_then_answered(sessions) -> Non
     assert bot.edits[0][0] == 10
     assert "🗑 Discarded" in bot.edits[0][1]
     async with sessions() as session:
-        assert (await session.get(ChangeProposal, proposal_id)).status == "rejected"
+        assert store.proposal(proposal_id) is None
 
 
 async def test_tag_field_input_reuses_editor_message_and_deletes_input(sessions) -> None:
@@ -1239,7 +1232,7 @@ async def test_ai_markdown_is_rendered_as_safe_html_around_live_citations(sessio
         message,
         services_for(sessions),
         AIOutcome(
-            "answer",
+            AIOutcomeKind.ANSWER,
             f"Это **важно**: **[цель](card:{goal_id})**; *курсив*, ~~нет~~, "
             "`x < y` и <script>.",
         ),
@@ -1945,34 +1938,30 @@ async def test_pl_criteria_003_the_planning_screen_refuses_an_empty_plan(session
 
 
 async def test_item_proposal_shows_diffs_and_only_save_discard_footer(sessions) -> None:
+    store = ProposalStore()
     async with sessions() as session:
         tag = Tag(name="Family", description="Old description")
         session.add(tag)
         await session.flush()
         workspace = await session.get(Workspace, 1)
-        proposal = ChangeProposal(
+        proposal = store.open_proposal(
             message="Improve the Family Tag",
             workspace_revision=workspace.revision,
-            status="pending",
-        )
-        session.add(proposal)
-        await session.flush()
-        session.add(
-            ProposalChange(
-                proposal_id=proposal.id,
-                position=0,
-                entity="tag",
-                action="update",
-                entity_id=tag.id,
-                expected_version=tag.version,
-                values={"description": "Relationships and home"},
-            )
+            changes=[
+                ProposalChange(
+                    entity="tag",
+                    action=ChangeAction.UPDATE,
+                    entity_id=tag.id,
+                    expected_version=tag.version,
+                    values={"description": "Relationships and home"},
+                )
+            ],
         )
         await session.commit()
         proposal_id = proposal.id
 
     message = FakeMessage(60, bot_message=True)
-    await render_proposal(message, services_for(sessions), proposal_id)
+    await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, markup = message.edits[-1]
     assert "Old description" in text
     assert "Relationships and home" in text
@@ -1983,6 +1972,7 @@ async def test_item_proposal_shows_diffs_and_only_save_discard_footer(sessions) 
 
 
 async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions) -> None:
+    store = ProposalStore()
     async with sessions() as session:
         card = Card(
             kind="action",
@@ -1994,32 +1984,27 @@ async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions) ->
         await session.flush()
         session.add(CardCategory(card_id=card.id, category="self"))
         workspace = await session.get(Workspace, 1)
-        proposal = ChangeProposal(
+        proposal = store.open_proposal(
             message="Change the Action's energy profile",
             workspace_revision=workspace.revision,
-            status="pending",
-        )
-        session.add(proposal)
-        await session.flush()
-        session.add(
-            ProposalChange(
-                proposal_id=proposal.id,
-                position=0,
-                entity="card",
-                action="update",
-                entity_id=card.id,
-                expected_version=card.version,
-                values={
+            changes=[
+                ProposalChange(
+                    entity="card",
+                    action=ChangeAction.UPDATE,
+                    entity_id=card.id,
+                    expected_version=card.version,
+                    values={
                     "categories": ["contribution", "rest"],
                     "energy_types": ["physical", "social"],
-                },
-            )
+                    },
+                )
+            ],
         )
         await session.commit()
         proposal_id = proposal.id
 
     message = FakeMessage(61, bot_message=True)
-    await render_proposal(message, services_for(sessions), proposal_id)
+    await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, markup = message.edits[-1]
 
     assert "Card overview" in text
@@ -2034,33 +2019,29 @@ async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions) ->
 
 
 async def test_card_check_link_proposal_shows_the_check_in_overview_and_diff(sessions) -> None:
+    store = ProposalStore()
     async with sessions() as session:
         card = await create_card(session, kind="goal", title="Be healthy")
         check = await create_check(session, title="Walk upright")
         workspace = await session.get(Workspace, 1)
-        proposal = ChangeProposal(
+        proposal = store.open_proposal(
             message="Link the Check to the Goal",
             workspace_revision=workspace.revision,
-            status="pending",
-        )
-        session.add(proposal)
-        await session.flush()
-        session.add(
-            ProposalChange(
-                proposal_id=proposal.id,
-                position=0,
-                entity="card",
-                action="link",
-                entity_id=card.id,
-                expected_version=card.version,
-                values={"check_ids": [check.id]},
-            )
+            changes=[
+                ProposalChange(
+                    entity="card",
+                    action=ChangeAction.LINK,
+                    entity_id=card.id,
+                    expected_version=card.version,
+                    values={"check_ids": [check.id]},
+                )
+            ],
         )
         await session.commit()
         proposal_id = proposal.id
 
     message = FakeMessage(64, bot_message=True)
-    await render_proposal(message, services_for(sessions), proposal_id)
+    await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, _ = message.edits[-1]
 
     assert "Checks: Walk upright" in text
@@ -2070,36 +2051,32 @@ async def test_card_check_link_proposal_shows_the_check_in_overview_and_diff(ses
 async def test_diary_proposal_shows_the_entry_itself_and_only_save_or_discard(
     sessions,
 ) -> None:
+    store = ProposalStore()
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
-        proposal = ChangeProposal(
+        proposal = store.open_proposal(
             message="Save today's Diary entry",
             workspace_revision=workspace.revision,
-            status="pending",
-        )
-        session.add(proposal)
-        await session.flush()
-        session.add(
-            ProposalChange(
-                proposal_id=proposal.id,
-                position=0,
-                entity="diary",
-                action="update",
-                entity_id=7,
-                expected_version=1,
-                values={
+            changes=[
+                ProposalChange(
+                    entity="diary",
+                    action=ChangeAction.UPDATE,
+                    entity_id=7,
+                    expected_version=1,
+                    values={
                     "entry_date": "2026-08-15",
                     "body": "Сходил на рынок, вечером стало легче.",
                     "feeling_score": 6,
                     "remark": "A day that ended better than it began.",
-                },
-            )
+                    },
+                )
+            ],
         )
         await session.commit()
         proposal_id = proposal.id
 
     message = FakeMessage(65, bot_message=True)
-    await render_proposal(message, services_for(sessions), proposal_id)
+    await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, markup = message.edits[-1]
 
     assert "<b>Edit Diary entry · AI proposal</b>" in text
@@ -2115,34 +2092,30 @@ async def test_diary_proposal_shows_the_entry_itself_and_only_save_or_discard(
 
 
 async def test_diary_removal_shows_the_entry_it_would_delete(sessions) -> None:
+    store = ProposalStore()
     async with sessions() as session:
         entry = await create_diary_entry(
             session, entry_date=date(2026, 8, 14), body="День, который уходит."
         )
         workspace = await session.get(Workspace, 1)
-        proposal = ChangeProposal(
+        proposal = store.open_proposal(
             message="Remove that day's Diary entry",
             workspace_revision=workspace.revision,
-            status="pending",
-        )
-        session.add(proposal)
-        await session.flush()
-        session.add(
-            ProposalChange(
-                proposal_id=proposal.id,
-                position=0,
-                entity="diary",
-                action="delete",
-                entity_id=entry.id,
-                expected_version=entry.version,
-                values={"stamp": "abc123", "entry_date": "2026-08-14", "body": "", "remark": ""},
-            )
+            changes=[
+                ProposalChange(
+                    entity="diary",
+                    action=ChangeAction.DELETE,
+                    entity_id=entry.id,
+                    expected_version=entry.version,
+                    values={"stamp": "abc123", "entry_date": "2026-08-14", "body": "", "remark": ""},
+                )
+            ],
         )
         await session.commit()
         proposal_id = proposal.id
 
     message = FakeMessage(66, bot_message=True)
-    await render_proposal(message, services_for(sessions), proposal_id)
+    await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, markup = message.edits[-1]
 
     assert "<b>Remove Diary entry · AI proposal</b>" in text
@@ -2153,34 +2126,30 @@ async def test_diary_removal_shows_the_entry_it_would_delete(sessions) -> None:
 
 
 async def test_card_creation_proposal_has_no_proposed_changes_section(sessions) -> None:
+    store = ProposalStore()
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
-        proposal = ChangeProposal(
+        proposal = store.open_proposal(
             message="Create a walking Action",
             workspace_revision=workspace.revision,
-            status="pending",
-        )
-        session.add(proposal)
-        await session.flush()
-        session.add(
-            ProposalChange(
-                proposal_id=proposal.id,
-                position=0,
-                entity="card",
-                action="create",
-                values={
+            changes=[
+                ProposalChange(
+                    entity="card",
+                    action=ChangeAction.CREATE,
+                    values={
                     "kind": "action",
                     "title": "Evening walk",
                     "effort_points": 3,
                     "categories": ["self"],
-                },
-            )
+                    },
+                )
+            ],
         )
         await session.commit()
         proposal_id = proposal.id
 
     message = FakeMessage(62, bot_message=True)
-    await render_proposal(message, services_for(sessions), proposal_id)
+    await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, markup = message.edits[-1]
 
     assert "Card overview" in text
@@ -2192,34 +2161,30 @@ async def test_card_creation_proposal_has_no_proposed_changes_section(sessions) 
 
 
 async def test_move_proposal_exposes_only_stage_control(sessions) -> None:
+    store = ProposalStore()
     async with sessions() as session:
         card = Card(kind="action", title="Evening walk", effort_points=3)
         session.add(card)
         await session.flush()
         workspace = await session.get(Workspace, 1)
-        proposal = ChangeProposal(
+        proposal = store.open_proposal(
             message="Move the Action to Today",
             workspace_revision=workspace.revision,
-            status="pending",
-        )
-        session.add(proposal)
-        await session.flush()
-        session.add(
-            ProposalChange(
-                proposal_id=proposal.id,
-                position=0,
-                entity="card",
-                action="move",
-                entity_id=card.id,
-                expected_version=card.version,
-                values={"stage": "today"},
-            )
+            changes=[
+                ProposalChange(
+                    entity="card",
+                    action=ChangeAction.MOVE,
+                    entity_id=card.id,
+                    expected_version=card.version,
+                    values={"stage": "today"},
+                )
+            ],
         )
         await session.commit()
         proposal_id = proposal.id
 
     message = FakeMessage(63, bot_message=True)
-    await render_proposal(message, services_for(sessions), proposal_id)
+    await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, markup = message.edits[-1]
 
     assert "Stage: Backlog → Today" in text
@@ -2227,6 +2192,7 @@ async def test_move_proposal_exposes_only_stage_control(sessions) -> None:
 
 
 async def test_saving_card_proposal_applies_every_editable_field(sessions) -> None:
+    store = ProposalStore()
     async with sessions() as session:
         parent = Card(kind="goal", title="Be healthy")
         card = Card(kind="action", title="Walk", effort_points=2)
@@ -2241,22 +2207,16 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
             ]
         )
         workspace = await session.get(Workspace, 1)
-        proposal = ChangeProposal(
+        proposal = store.open_proposal(
             message="Update the Action",
             workspace_revision=workspace.revision,
-            status="pending",
-        )
-        session.add(proposal)
-        await session.flush()
-        session.add(
-            ProposalChange(
-                proposal_id=proposal.id,
-                position=0,
-                entity="card",
-                action="update",
-                entity_id=card.id,
-                expected_version=card.version,
-                values={
+            changes=[
+                ProposalChange(
+                    entity="card",
+                    action=ChangeAction.UPDATE,
+                    entity_id=card.id,
+                    expected_version=card.version,
+                    values={
                     "priority": "critical",
                     "hard_time": True,
                     "blocked": True,
@@ -2267,15 +2227,16 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
                     "energy_types": ["physical", "social"],
                     "value_ids": [value.id],
                     "tag_ids": [tag.id],
-                },
-            )
+                    },
+                )
+            ],
         )
         await session.commit()
         proposal_id = proposal.id
         card_id = card.id
 
     async with sessions() as session:
-        affected = await approve_proposal(session, PROPOSALS, proposal_id)
+        affected = await approve_proposal(session, store, PROPOSALS, proposal_id)
         await session.commit()
 
     assert affected == [card_id]
@@ -2638,7 +2599,7 @@ class TurnAdvisor:
         async with self.sessions() as session:
             await set_sprint_success_criteria(session, "Ship the release")
             await session.commit()
-        return AIOutcome("answer", "⚡ Auto-saved the proposed change.")
+        return AIOutcome(AIOutcomeKind.ANSWER, "⚡ Auto-saved the proposed change.")
 
 
 def turn_services(sessions):

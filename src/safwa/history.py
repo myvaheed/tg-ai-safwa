@@ -22,11 +22,11 @@ from .config import Settings
 from .constants import (
     HISTORY_SCAN_LIMIT,
     MESSAGE_CORRELATION_SECONDS,
-    RECEIPT_MEANINGS,
     SUMMARY_CONTEXT_MESSAGE_LIMIT,
     SUMMARY_TRIGGER_TOKENS,
 )
 from .enums import MessageKind
+from .features.proposals.model import RECEIPT_MEANINGS
 from .foundation.tokens import estimate_tokens
 from .models import TelegramMessage
 

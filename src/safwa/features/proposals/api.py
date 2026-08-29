@@ -10,7 +10,7 @@ One registration, three responsibilities, and they are three different layers:
   review screen.
 
 Generic proposal code holds the orchestration: the workspace and its revision, the batch
-and proposal rows, the optimistic lock. Loading the entity, `archived_at`, the closed
+and its open reviews, the optimistic lock. Loading the entity, `archived_at`, the closed
 repeat and `target_not_found` belong to the feature that owns the entity.
 """
 
@@ -27,11 +27,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_gateway import LlmProvider
 
-from ...ai.contracts import AgentChange, tool_json_schema
+from ...ai.contracts import AgentChange, ToolResultStatus, tool_json_schema
 from ...ai.sql import ReadOnlyQueryRunner
 from ...foundation.errors import DomainError
 from ...foundation.references import ReferenceSpec, resolve_references
-from ...models import Card, Check, ProposalChange, Workspace
+from ...models import Card, Check, Workspace
 from ..cards.api import (
     is_closed_repeat as is_closed_card_repeat,
 )
@@ -44,6 +44,7 @@ from ..checks.api import (
 from ..checks.api import (
     live_repeat_instance_id as live_check_repeat_instance_id,
 )
+from .model import ChangeAction, ProposalChange
 
 
 class ToolPreparationError(DomainError):
@@ -56,7 +57,7 @@ class ToolPreparationError(DomainError):
 
     def as_tool_result(self) -> dict[str, Any]:
         return {
-            "status": "error",
+            "status": ToolResultStatus.ERROR.value,
             "code": self.code,
             "error": str(self),
             "hint": self.hint,
@@ -66,7 +67,7 @@ class ToolPreparationError(DomainError):
 
 @dataclass(frozen=True)
 class PreparedChange:
-    """What a proposal row needs: the resolved values and the version they assume."""
+    """What a proposal needs: the resolved values and the version they assume."""
 
     values: dict[str, Any]
     expected_version: int | None
@@ -100,6 +101,10 @@ class ProposalHandler(Protocol):
     # The model a requeued proposal re-reads its expected version from, or None to leave
     # the recorded version alone.
     version_model: type[Any] | None
+    # Actions this feature will not let a single Save carry out. The review screen asks
+    # again for these, and `ApplyContext.allow_destructive` is what that answer sets.
+    # Optional: a handler that declares nothing has nothing a second press could add.
+    destructive_actions: frozenset[ChangeAction]
 
     async def prepare(
         self, context: PreparationContext, change: AgentChange
@@ -243,6 +248,12 @@ class ProposalRegistry:
     def presenter(self, entity: str) -> ProposalPresenter | None:
         return self.presenters.get(entity)
 
+    def needs_confirmation(self, change: ProposalChange) -> bool:
+        """Whether the owning feature refuses this change without a second confirmation."""
+        handler = self.handlers.get(change.entity)
+        declared = getattr(handler, "destructive_actions", frozenset())
+        return change.action in declared
+
     def change_from_tool(self, name: str, arguments: dict[str, Any]) -> AgentChange:
         """Validate a model tool call and convert it into an application command intent."""
         tool = self.tools.get(name)
@@ -256,16 +267,16 @@ class ProposalRegistry:
 # The receipt renders one line under any outcome, so the verb stays imperative:
 # "🗑 Discarded — New Tag “X”" cannot be misread as a Tag that now exists.
 ACTION_VERBS = {
-    "create": "New",
-    "update": "Edit",
-    "move": "Move",
-    "complete": "Complete",
-    "cancel": "Cancel",
-    "reopen": "Reopen",
-    "archive": "Archive",
-    "delete": "Delete",
-    "link": "Link",
-    "unlink": "Unlink",
+    ChangeAction.CREATE: "New",
+    ChangeAction.UPDATE: "Edit",
+    ChangeAction.MOVE: "Move",
+    ChangeAction.COMPLETE: "Complete",
+    ChangeAction.CANCEL: "Cancel",
+    ChangeAction.REOPEN: "Reopen",
+    ChangeAction.ARCHIVE: "Archive",
+    ChangeAction.DELETE: "Delete",
+    ChangeAction.LINK: "Link",
+    ChangeAction.UNLINK: "Unlink",
 }
 
 DETAIL_LABELS = {
@@ -369,7 +380,7 @@ async def named_summary(
     )
     label = change.entity.title()
     head = f"{label} “{result_value(name)}”" if name else f"{label} #{change.entity_id}"
-    tail = [] if change.action == "create" else list(details)
+    tail = [] if change.action is ChangeAction.CREATE else list(details)
     verb = ACTION_VERBS.get(change.action, change.action.title())
     return f"{verb} {head}" + (f" ({' · '.join(tail)})" if tail else "")
 
@@ -382,14 +393,14 @@ async def named_details(
     model: type[Any],
 ) -> list[str]:
     """Field lines for an item whose committed row is what the proposal diffs against."""
-    if change.action == "create":
+    if change.action is ChangeAction.CREATE:
         return fallback_lines or detail_lines(dict(change.values))
     entity = (
         await session.get(model, change.entity_id) if change.entity_id is not None else None
     )
     if entity is None:
         return fallback_lines or detail_lines(dict(change.values))
-    if change.action in {"archive", "delete"}:
+    if change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
         label = getattr(entity, "name", f"#{entity.id}")
         return [f"Item: {result_value(label)}"]
     return [
@@ -580,11 +591,11 @@ class NamedItemPresenter:
                 archived = getattr(item, "archived_at", None) is not None
                 current = self._current(item)
         proposed = {**current, **dict(change.values)}
-        if change.action in {"archive", "delete"}:
+        if change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
             current["status"] = "Archived" if archived else "Active"
-            proposed["status"] = "Archived" if change.action == "archive" else "Deleted"
+            proposed["status"] = "Archived" if change.action is ChangeAction.ARCHIVE else "Deleted"
         return ProposalScreen(
-            mode="Create" if change.action == "create" else "Edit",
+            mode="Create" if change.action is ChangeAction.CREATE else "Edit",
             item=self.label,
             blocks=(
                 f"Name: {html.escape(display_diff_value(proposed.get('name')))}\n"

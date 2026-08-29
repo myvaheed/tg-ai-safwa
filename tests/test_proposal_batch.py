@@ -12,7 +12,6 @@ import pytest
 from safwa.features.proposals.model import (
     BatchDecision,
     BatchState,
-    BatchStatus,
     DecideAction,
     InterruptAction,
     QueueItem,
@@ -27,117 +26,101 @@ DISCARDED = BatchDecision.DISCARDED
 FAILED = BatchDecision.FAILED
 
 
-def item(target_id: int, decision: BatchDecision = PENDING) -> QueueItem:
+def item(proposal_id: int, decision: BatchDecision = PENDING) -> QueueItem:
     return QueueItem(
-        target_type="proposal",
-        target_id=target_id,
-        call_ids=(f"call-{target_id}",),
+        proposal_id=proposal_id,
+        call_ids=(f"call-{proposal_id}",),
         decision=decision,
     )
 
 
-def batch(*items: QueueItem, status: BatchStatus = BatchStatus.PENDING, exhausted: bool = False):
-    return BatchState(status=status, items=items, repair_exhausted=exhausted)
+def batch(*items: QueueItem, exhausted: bool = False):
+    return BatchState(items=items, repair_exhausted=exhausted)
 
 
 @pytest.mark.parametrize(
-    ("state", "action", "expected_status", "expected_decisions", "expected_effects"),
+    ("state", "action", "expected_decisions", "expected_effects"),
     [
         (
             batch(item(1)),
-            DecideAction("proposal", 1, APPROVED),
-            BatchStatus.COMPLETED,
+            DecideAction(1, APPROVED),
             [APPROVED],
             (ResolveCallsEffect(("call-1",), APPROVED),),
         ),
         (
             batch(item(1), item(2)),
-            DecideAction("proposal", 1, APPROVED),
-            BatchStatus.PENDING,
+            DecideAction(1, APPROVED),
             [APPROVED, PENDING],
             (ResolveCallsEffect(("call-1",), APPROVED),),
         ),
         (
             batch(item(1), item(2)),
-            DecideAction("proposal", 1, DISCARDED),
-            BatchStatus.PENDING,
+            DecideAction(1, DISCARDED),
             [DISCARDED, PENDING],
             (ResolveCallsEffect(("call-1",), DISCARDED),),
         ),
         (
             batch(item(1, APPROVED), item(2)),
-            DecideAction("proposal", 2, FAILED),
-            BatchStatus.COMPLETED,
+            DecideAction(2, FAILED),
             [APPROVED, FAILED],
             (ResolveCallsEffect(("call-2",), FAILED),),
         ),
         (
             batch(item(1, APPROVED), item(2), exhausted=True),
-            DecideAction("proposal", 2, APPROVED),
-            BatchStatus.COMPLETED,
+            DecideAction(2, APPROVED),
             [APPROVED, APPROVED],
             (ResolveCallsEffect(("call-2",), APPROVED),),
         ),
         (
             batch(item(1, APPROVED), item(2)),
-            DecideAction("proposal", 1, DISCARDED),
-            BatchStatus.PENDING,
+            DecideAction(1, DISCARDED),
             [APPROVED, PENDING],
             (),
         ),
         (
             batch(item(1)),
-            DecideAction("proposal", 99, APPROVED),
-            BatchStatus.PENDING,
-            [PENDING],
-            (),
-        ),
-        (
-            batch(item(1), status=BatchStatus.CANCELLED),
-            DecideAction("proposal", 1, APPROVED),
-            BatchStatus.CANCELLED,
+            DecideAction(99, APPROVED),
             [PENDING],
             (),
         ),
         (
             batch(item(1), item(2)),
             InterruptAction(INTERRUPTED),
-            BatchStatus.CANCELLED,
             [DISCARDED, DISCARDED],
             (
-                RejectPendingEffect((("proposal", 1), ("proposal", 2))),
+                RejectPendingEffect((1, 2)),
                 ResolveCallsEffect(("call-1", "call-2"), DISCARDED, INTERRUPTED),
             ),
         ),
         (
             batch(item(1, APPROVED), item(2)),
             InterruptAction(INTERRUPTED),
-            BatchStatus.CANCELLED,
             [APPROVED, DISCARDED],
             (
-                RejectPendingEffect((("proposal", 2),)),
+                RejectPendingEffect((2,)),
                 ResolveCallsEffect(("call-2",), DISCARDED, INTERRUPTED),
             ),
         ),
         (
             batch(item(1, APPROVED)),
             InterruptAction(INTERRUPTED),
-            BatchStatus.CANCELLED,
             [APPROVED],
             (),
         ),
     ],
 )
 def test_a_batch_moves_only_the_way_the_table_says(
-    state, action, expected_status, expected_decisions, expected_effects
+    state, action, expected_decisions, expected_effects
 ):
     updated, effects = reduce(state, action)
 
-    assert updated.status is expected_status
     assert [candidate.decision for candidate in updated.items] == expected_decisions
     assert effects == expected_effects
     # Which screen comes next and whether the batch closed are read off the state, so an
     # effect never repeats them; what the batch was told about its repairs is carried.
+    assert (updated.head is None) is all(
+        decision is not PENDING for decision in expected_decisions
+    )
     assert updated.repair_exhausted == state.repair_exhausted
 
 
@@ -146,7 +129,9 @@ def test_the_head_is_the_first_screen_still_waiting_for_an_answer():
 
     assert state.head == item(2)
 
-    decided, _effects = reduce(state, DecideAction("proposal", 2, DISCARDED))
+    decided, _effects = reduce(
+        state, DecideAction(2, DISCARDED)
+    )
 
     assert decided.head == item(3)
 
