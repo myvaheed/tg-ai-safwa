@@ -20,7 +20,7 @@ docs/brd/
   cards.md  checks.md  planning.md
   reminders.md  saved_requests.md  values_tags.md
   proposals.md  proposals_interrupted.md
-  agents.md  telegram_history.md
+  agents.md  agents_interrupted.md  telegram_history.md
 ```
 
 The approved scenarios themselves live in `tests/brd/<feature>.feature`, next to the tests that

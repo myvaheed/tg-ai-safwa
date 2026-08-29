@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import date
 
@@ -9,7 +10,7 @@ from sqlalchemy import select
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.context import DialogueMessage
-from safwa.ai.mini import query_read_tool
+from safwa.ai.mini import ReadToolSpec, query_read_tool
 from safwa.ai.service import AIOutcomeKind
 from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.ai.subagents import RoutedSubagent
@@ -93,6 +94,7 @@ def diary_subagent(
 
 
 async def test_a_routed_subagent_hands_its_words_back_and_the_advisor_speaks(e2e_harness):
+    """AG-RECEIPT-006 — tests/brd/agents.feature"""
     advisor, provider = e2e_harness.advisor(
         [
             turn(("route", {"name": "diary"})),
@@ -134,6 +136,7 @@ async def test_a_routed_subagent_hands_its_words_back_and_the_advisor_speaks(e2e
 
 
 async def test_an_autoapproved_board_route_hands_back_its_receipt(e2e_harness):
+    """AG-RECEIPT-006 — tests/brd/agents.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_card(
             session, kind=CardKind.ACTION, title="Купить молоко", effort_points=1
@@ -170,6 +173,7 @@ async def test_an_autoapproved_board_route_hands_back_its_receipt(e2e_harness):
 
 
 async def test_a_routed_subagent_proposes_for_itself(e2e_harness):
+    """AG-ROUTE-001 — tests/brd/agents.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_card(
             session, kind=CardKind.ACTION, title="Сходить на рынок", effort_points=2
@@ -250,7 +254,7 @@ async def test_an_unknown_route_target_is_repaired_in_the_next_response(e2e_harn
 
 
 async def test_a_routed_subagent_is_offered_only_its_own_tools(e2e_harness):
-    """PR-WRITE-002 — tests/brd/proposals.feature"""
+    """AG-ROUTE-004 — tests/brd/agents.feature"""
     advisor, provider = e2e_harness.advisor(
         [turn(("route", {"name": "diary"})), "Записал.", "Готово."],
         subagents=(diary_subagent(e2e_harness),),
@@ -300,6 +304,7 @@ async def test_the_board_owns_every_mutation_tool(e2e_harness):
 
 
 async def test_a_subagent_reads_the_tail_of_the_conversation_as_tagged_data(e2e_harness):
+    """AG-ROUTE-002 — tests/brd/agents.feature"""
     dialogue = [
         DialogueMessage(role="user", content=f"[User]: сообщение {index}")
         if index % 2 == 0
@@ -326,6 +331,7 @@ async def test_a_subagent_reads_the_tail_of_the_conversation_as_tagged_data(e2e_
 
 
 async def test_a_subagent_is_required_to_open_with_a_tool_call(e2e_harness):
+    """AG-ANSWER-014 — tests/brd/agents.feature"""
     advisor, provider = e2e_harness.advisor(
         [turn(("tag", {"mode": "create", "name": "VrWalk"}))],
         subagents=(e2e_harness.board(),),
@@ -335,6 +341,77 @@ async def test_a_subagent_is_required_to_open_with_a_tool_call(e2e_harness):
 
     # The Advisor may answer in words; the session routed to for the work may not.
     assert provider.options[0]["tool_choice"] == "required"
+
+
+async def test_route_cannot_share_its_response_with_another_call(e2e_harness):
+    """AG-ROUTE-005 — tests/brd/agents.feature"""
+    advisor, provider = e2e_harness.advisor(
+        [
+            turn(("route", {"name": "diary"}), ("query_safwa", {"sql": "SELECT 1"})),
+            turn(("route", {"name": "diary"})),
+            "Записал.",
+            "Готово.",
+        ],
+        subagents=(diary_subagent(e2e_harness),),
+    )
+
+    outcome = await advisor.handle("Запиши, как прошёл день")
+
+    assert outcome.message == "Готово."
+    refused = [
+        json.loads(str(item["content"]))
+        for item in provider.calls[1]
+        if item.get("role") == "tool"
+    ]
+    # Neither call ran: a suspended response cannot carry a result for its sibling.
+    assert {entry["code"] for entry in refused} == {"route_is_not_shared"}
+    assert all(entry["retryable"] for entry in refused)
+    async with e2e_harness.sessions() as session:
+        assert await session.scalar(select(DiaryEntry)) is None
+
+
+async def test_a_subagent_that_runs_too_long_is_stopped_by_the_clock(e2e_harness, monkeypatch):
+    """AG-BUDGET-012 — tests/brd/agents.feature"""
+    monkeypatch.setattr("safwa.ai.service.SUBAGENT_DEADLINE_SECONDS", 0.05)
+
+    async def never_returns_in_time(_call):
+        await asyncio.sleep(1.0)
+        return {"status": "ok"}
+
+    slow = RoutedSubagent(
+        name="diary",
+        purpose="the Diary",
+        instructions=DIARY_PROMPT,
+        read_tools=(
+            ReadToolSpec(
+                schema={
+                    "type": "function",
+                    "function": {
+                        "name": "read_day",
+                        "description": "Read the day.",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                },
+                run=never_returns_in_time,
+            ),
+        ),
+        mutation_tools=("diary",),
+    )
+    advisor, provider = e2e_harness.advisor(
+        [turn(("route", {"name": "diary"})), turn(("read_day", {}), prefix="diary"), "Готово."],
+        subagents=(slow,),
+    )
+
+    outcome = await advisor.handle("Запиши, как прошёл день")
+
+    assert outcome.kind is AIOutcomeKind.ANSWER
+    assert route_receipts(provider)[0]["error"].startswith("diary did not finish within")
+    async with e2e_harness.sessions() as session:
+        runs = list(await session.scalars(select(AgentRun).order_by(AgentRun.id)))
+    assert [(run.kind, run.status, run.error_code) for run in runs] == [
+        ("advisor", "completed", None),
+        ("diary", "failed", "timeout"),
+    ]
 
 
 async def test_route_is_not_offered_without_a_roster(e2e_harness):
@@ -352,7 +429,7 @@ async def test_route_is_not_offered_without_a_roster(e2e_harness):
 
 
 async def test_two_domains_in_one_request_are_both_finished(e2e_harness):
-    """The whole point: a subagent finishing is not the turn finishing."""
+    """AG-ROUTE-003 — tests/brd/agents.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_card(
             session, kind=CardKind.ACTION, title="Приготовить еду", effort_points=2
@@ -415,6 +492,7 @@ async def test_two_domains_in_one_request_are_both_finished(e2e_harness):
 
 
 async def test_a_failed_subagent_comes_back_as_an_error_the_advisor_reports(e2e_harness):
+    """AG-RECEIPT-007 — tests/brd/agents.feature"""
     class ExplodingReader:
         async def day_transcript(self, *_args, **_kwargs):
             raise RuntimeError("history is unreachable")
@@ -450,6 +528,7 @@ async def test_a_failed_subagent_comes_back_as_an_error_the_advisor_reports(e2e_
 
 
 async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
+    """AG-ROUTE-003 — tests/brd/agents.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_card(
             session, kind=CardKind.ACTION, title="Приготовить еду", effort_points=2
@@ -492,3 +571,186 @@ async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
     conversation = context[context.index("<Conversation>") :]
     assert "<User>Переименуй действие и запиши день</User>" in conversation
     assert context.index("[System]: Already saved") > context.index(conversation)
+
+
+DIARY_DRAFT = {
+    "mode": "update",
+    "date": TODAY,
+    "pov": "Закрыл рынок, хоть и поздно.",
+    "remark": "One thing finished is still a finished day.",
+    "feeling_score": 6,
+}
+
+
+async def _interrupted_diary(e2e_harness, *, then: list):
+    """Run to a Diary screen, then have the owner write over it instead of deciding.
+
+    Returns the advisor, the provider, and the text the frozen screen is rewritten with.
+    """
+    advisor, provider = e2e_harness.advisor(
+        [
+            turn(("route", {"name": "diary"})),
+            turn(("read_day", {}), prefix="diary"),
+            turn(("diary", DIARY_DRAFT), prefix="diary"),
+            *then,
+        ],
+        subagents=(diary_subagent(e2e_harness),),
+    )
+    proposal = await advisor.handle("Запиши, как прошёл день")
+    assert proposal.kind is AIOutcomeKind.PROPOSAL
+    assert proposal.proposal_id is not None
+    advisor.reviews.end_proposal(proposal.proposal_id)
+    frozen = await advisor.cancel_approval_for_proposal(proposal.proposal_id)
+    return advisor, provider, frozen
+
+
+async def test_words_over_a_screen_continue_the_request_that_opened_it(e2e_harness):
+    """AG-WORDS-016 — tests/brd/agents.feature"""
+    advisor, provider, frozen = await _interrupted_diary(
+        e2e_harness, then=["Понял, перепишу короче."]
+    )
+    async with e2e_harness.sessions() as session:
+        before = list(await session.scalars(select(AgentRun.id).order_by(AgentRun.id)))
+
+    outcome = await advisor.handle("то же, но короче")
+
+    assert outcome.kind is AIOutcomeKind.ANSWER
+    assert outcome.message == "Понял, перепишу короче."
+    assert "🗑 Discarded" in frozen
+    async with e2e_harness.sessions() as session:
+        runs = list(await session.scalars(select(AgentRun).order_by(AgentRun.id)))
+    # No second request was opened: the same Advisor run answered the words.
+    assert [run.id for run in runs] == before
+    assert [(run.kind, run.status) for run in runs] == [
+        ("advisor", "completed"),
+        ("diary", "abandoned"),
+    ]
+
+
+async def test_the_resumed_request_is_told_what_was_proposed_and_what_was_refused(e2e_harness):
+    """AG-WORDS-017 — tests/brd/agents.feature"""
+    advisor, provider, _frozen = await _interrupted_diary(
+        e2e_harness, then=["Понял, перепишу короче."]
+    )
+
+    await advisor.handle("то же, но короче")
+
+    receipt = route_receipts(provider)[0]
+    assert receipt["subagent"] == "diary"
+    assert receipt["outcome"] == "error"
+    # What became of every change, and that the owner answered with words instead.
+    assert any("Discarded" in line for line in receipt["did"])
+    assert "wrote to Safwa instead" in receipt["error"]
+    # Those words are the newest thing the resumed request reads.
+    assert "то же, но короче" in json.dumps(provider.calls[3], ensure_ascii=False)
+
+
+async def test_a_correction_reaches_the_session_that_wrote_the_refused_proposal(e2e_harness):
+    """AG-WORDS-018 — tests/brd/agents.feature"""
+    advisor, provider, _frozen = await _interrupted_diary(
+        e2e_harness,
+        then=[
+            turn(("route", {"name": "diary"}), prefix="again"),
+            turn(("diary", {**DIARY_DRAFT, "pov": "Закрыл рынок."}), prefix="fix"),
+        ],
+    )
+    async with e2e_harness.sessions() as session:
+        diary_run_id = await session.scalar(
+            select(AgentRun.id).where(AgentRun.kind == "diary")
+        )
+
+    outcome = await advisor.handle("то же, но короче")
+
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
+    async with e2e_harness.sessions() as session:
+        runs = list(await session.scalars(select(AgentRun).order_by(AgentRun.id)))
+    # The very same session, not a fresh one that would rewrite the day from scratch.
+    assert [(run.id, run.kind) for run in runs] == [(1, "advisor"), (diary_run_id, "diary")]
+    # It resumed holding the draft it had already written.
+    drafted = [
+        json.loads(call["function"]["arguments"])["pov"]
+        for message in provider.calls[4]
+        for call in message.get("tool_calls") or []
+        if call["function"]["name"] == "diary"
+    ]
+    assert drafted == ["Закрыл рынок, хоть и поздно."]
+
+
+async def test_the_interrupted_session_reads_that_the_owner_wrote_instead(e2e_harness):
+    """AG-WORDS-019 — tests/brd/agents.feature"""
+    advisor, provider, _frozen = await _interrupted_diary(
+        e2e_harness,
+        then=[
+            turn(("route", {"name": "diary"}), prefix="again"),
+            turn(("diary", {**DIARY_DRAFT, "pov": "Закрыл рынок."}), prefix="fix"),
+        ],
+    )
+
+    async with e2e_harness.sessions() as session:
+        run = await session.scalar(select(AgentRun).where(AgentRun.kind == "diary"))
+    notice = json.dumps(run.state_json["transcript"], ensure_ascii=False)
+    assert "did not decide this" in notice
+    assert "wrote to Safwa instead" in notice
+    assert "Never propose the refused change again" in notice
+
+    await advisor.handle("то же, но короче")
+
+    # It read that notice on the way back in, so it corrects instead of repeating itself.
+    assert "wrote to Safwa instead" in json.dumps(provider.calls[4], ensure_ascii=False)
+
+
+async def test_unfinished_work_ends_with_the_request_that_started_it(e2e_harness):
+    """AG-WORDS-020 — tests/brd/agents.feature"""
+    advisor, _provider, _frozen = await _interrupted_diary(
+        e2e_harness, then=["Хорошо, забудем про день."]
+    )
+    async with e2e_harness.sessions() as session:
+        assert (
+            await session.scalar(select(AgentRun.status).where(AgentRun.kind == "diary"))
+        ) == "interrupted"
+
+    await advisor.handle("забудь, лучше расскажи про спринт")
+
+    async with e2e_harness.sessions() as session:
+        assert (
+            await session.scalar(select(AgentRun.status).where(AgentRun.kind == "diary"))
+        ) == "abandoned"
+
+
+async def test_saving_finishes_the_subagent_and_the_next_route_starts_fresh(e2e_harness):
+    """AG-WORDS-021 — tests/brd/agents.feature"""
+    advisor, provider = e2e_harness.advisor(
+        [
+            turn(("route", {"name": "diary"})),
+            turn(("diary", DIARY_DRAFT), prefix="diary"),
+            "Записал день.",
+            turn(("route", {"name": "diary"}), prefix="again"),
+            turn(("diary", {**DIARY_DRAFT, "pov": "И ещё одно."}), prefix="second"),
+        ],
+        subagents=(diary_subagent(e2e_harness),),
+    )
+    proposal = await advisor.handle("Запиши день")
+    assert proposal.proposal_id is not None
+    async with e2e_harness.sessions() as session:
+        affected = await approve_proposal(
+            session, advisor.reviews, PROPOSALS, proposal.proposal_id
+        )
+        await session.commit()
+
+    outcome = await advisor.resolve_approval(
+        proposal.proposal_id,
+        decision=BatchDecision.APPROVED,
+        result={"affected_ids": affected},
+        dialogue=[DialogueMessage(role="user", content="Запиши день")],
+    )
+
+    assert outcome is not None and outcome.kind is AIOutcomeKind.PROPOSAL
+    async with e2e_harness.sessions() as session:
+        diary_runs = list(
+            await session.scalars(
+                select(AgentRun).where(AgentRun.kind == "diary").order_by(AgentRun.id)
+            )
+        )
+    # Save finished the first one, so routing back inside the same request opened a second.
+    assert [run.status for run in diary_runs] == ["completed", "awaiting_approval"]
+    assert len(diary_runs) == 2

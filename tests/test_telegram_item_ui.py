@@ -386,6 +386,7 @@ async def test_every_command_is_deleted_and_still_dispatched(sessions, monkeypat
 async def test_messages_are_queued_with_placeholders_and_restored_as_one_turn(
     sessions, monkeypatch
 ) -> None:
+    """AG-TURN-010 — tests/brd/agents.feature"""
     import safwa.telegram._core as core_module
 
     monkeypatch.setattr(core_module, "Message", FakeMessage)

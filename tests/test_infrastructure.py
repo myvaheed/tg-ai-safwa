@@ -25,6 +25,7 @@ def test_startup_bootstraps_a_new_database_from_the_models(tmp_path, monkeypatch
 
 
 async def test_startup_releases_the_claim_of_an_interrupted_session(sessions):
+    """AG-SESSION-009 — tests/brd/agents.feature"""
     async with sessions() as session:
         run = AgentRun(
             provider="test",
@@ -46,6 +47,7 @@ async def test_startup_releases_the_claim_of_an_interrupted_session(sessions):
 
 
 async def test_startup_closes_every_session_waiting_on_a_process_local_screen(sessions):
+    """AG-SESSION-009 — tests/brd/agents.feature"""
     async with sessions() as session:
         waiting = AgentRun(provider="test", model="test", status="awaiting_approval")
         session.add(waiting)

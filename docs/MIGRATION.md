@@ -58,7 +58,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 4 | Leaf business batches | business | **done** — 4.a Continuity and Profile, 4.b Reminders, 4.c Saved Requests, 4.d Values and Tags |
 | 5 | Cards, Checks and the Sprint | business | **done** — 5.0 the board package (technical), 5.a Cards, 5.b stages, 5.c Checks, 5.d archiving, 5.e the archive as a mark, 5.f the heavy analyzer, 5.g a repeat's Values, 5.h Planning and the plan screen |
 | 6 | Proposals and the first reactive process | business | **done** — 6.a the typed batch and the reducer, 6.b the proposal use cases, 6.c interruption and autoapproval, 6.d the startup sweeps, 6.e–6.g no status, no tables, no stringly vocabularies |
-| 7 | `agent_runtime` | technical + business | not started |
+| 7 | `agent_runtime` | technical + business | **planned** — two scenario packets drafted, seven batches; see "Before starting Phase 7" |
 | 8 | `telegram_llm` and `TurnManager` | technical | not started |
 | 9 | Packages and cleanup | technical | not started |
 
@@ -1765,6 +1765,188 @@ Phases 7 and 8 are the ones that take it apart.
 Two scenario packets were approved: [brd/proposals.md](brd/proposals.md) and
 [brd/proposals_interrupted.md](brd/proposals_interrupted.md), 22 scenarios in
 `tests/brd/proposals.feature` and one in the new `tests/brd/screens.feature`.
+
+## Before starting Phase 7
+
+Phase 6 closed on the seam it declared: the batch belongs to `features/proposals`, and claiming and
+resuming a paused session are Phase 7's. This section is what Phase 7 starts from; the interruption
+decisions themselves are in §"Phase 7 notes" below and are not derived a second time.
+
+Phase 7 in one line: the agent loop stops being Safwa's and becomes `agent_runtime`, a package that
+runs a model session for any host — and the rules that loop has been keeping become approved
+scenarios for the first time.
+
+### Two batches, split where approval is
+
+| # | What | Kind | State |
+|---|---|---|---|
+| 7.a | Both scenario packets and the behaviour they fix: 21 scenarios into `tests/brd/agents.feature`, and words typed over a screen resume the request that opened it — the one-turn grace and the four mechanisms around it deleted | business | done |
+| 7.b | `agent_runtime`: the frozen `RunState` and its `reduce`, the loop, the store port, suspension on an opaque reference, `examples/plain_chat_bot/`, and what is left of `ai/service.py` as Safwa's host | technical | planned |
+
+The split is the one the phase actually has. A business batch needs the owner before its tests are
+written; a technical batch needs nobody. Cutting either half smaller only creates states where an
+old path runs beside a new one, which §15.1 forbids anyway — so 7.b is one move, and a 7.b that
+cannot be finished is rolled back whole rather than merged half-done.
+
+**7.a goes first.** It **deletes** five mechanisms. Doing it first means 7.b moves code that has
+settled; doing it last means moving the wrong shape into a package that was meant to be finished,
+and fixing it there.
+
+Both packets write into the same `tests/brd/agents.feature`, because one `.feature` file is one
+package. That is the other reason they are one batch.
+
+### What 7.b has to end with
+
+Not sub-batches — one list the batch report answers.
+
+```text
+agent_runtime/
+  model.py       AgentDefinition, the frozen RunState / RunAction / RunEffect unions,
+                 InteractionRef, and the tool outcome union
+  reducer.py     reduce(state, action) -> (state, effects), no I/O
+  loop.py        the provider-and-tools loop, driven by the ports
+  ports.py       SessionStore, ToolRunner, ContextBuilder
+  testing.py     InMemorySessionStore
+```
+
+- The provider comes from `llm_gateway`. Nothing here imports `safwa`, aiogram, SQLAlchemy or
+  Pydantic, and Rule F says so on every run — it already names `agent_runtime`, so the guard is
+  armed the moment the package exists.
+- `agent_runs` becomes Safwa's adapter for the store port. `proposal_id` stops crossing the
+  boundary: the runtime stops on an opaque reference and resumes on `(reference, value)`.
+- `examples/plain_chat_bot/` runs the runtime on `ScriptedProvider` and the in-memory store, with no
+  Safwa import — DoD #8.
+- What is left of `ai/service.py` is Safwa's host: prompts, tools, context, receipts.
+- The three questions below are answered in the batch report.
+
+Two rules in today's loop go different ways, and the split is the test of the boundary.
+`route_is_not_shared` is the runtime's: a suspended response cannot carry results for its siblings,
+whatever the host is. `mixed_read_and_mutation_tools` is Safwa's: it is a statement about proposals,
+and the runtime does not know what one is.
+
+### Facts checked before the phase opened, so they are not checked again
+
+- `agent_steps` is written five times a turn — `route`, `helper`, `read`, `read_query`,
+  `mutation_intent` — each in its own transaction, and read by no module under `src/`. Only two
+  tests read it.
+- `recover_startup` already ends every session at boot: `running` becomes `interrupted`,
+  `awaiting_approval` becomes `abandoned`, and the claim is released. So SUBAGENTS_PLAN's "session
+  clock" is the process lifetime, exactly as a review's has been since Phase 6. There is no age to
+  write and no sweep to build.
+- "A subagent opens with a tool call" is `tool_choice="required"` on the first turn only
+  (`_provider_turn`), and `Settings.ai_tool_choice_required` switches it off for a provider that
+  cannot take it.
+- `MAX_TOOL_CALLS = 64` and `repair_rounds` ride in `state_json` and come back through
+  `AgentSession.restore`, so the budget already survives a suspension. Nothing new is needed for it.
+- **The claim guards a race nothing can cause.** Two answers to one screen cannot arrive at once: a
+  button is a single-use `CallbackToken`, and a callback is refused outright while `guard.active`.
+  The one path that could contend is `_resume_suspended` racing a Save on the same session — and
+  7.a deletes it. `claimed_at` is still read elsewhere, by `CueRuntime.can_speak` as "a session is
+  running right now", so the column has a second reader either way.
+- The assumption §"Phase 7 notes" said to measure is already mitigated: 6.c added a line to the
+  `board` and `diary` prompts telling them to say what they are about to do before calling a tool.
+  Measure it in 7.a anyway, before declaring it holds.
+- `foundation/state_flow.py` is still imported by no module under `src/`.
+
+### Two decisions taken before the phase opened
+
+- **The frozen `RunState` union and its `reduce` are built; `as_state_flow()` is not.** The same call
+  as Phase 6 made for proposals, for the same reason: the subscriber arrives in Phase 8, where the
+  host turns a run's state into a `TurnAction`. The loop is the reader that justifies the union now.
+- **The runtime suspends on an opaque reference and nothing more.** It has no interaction port, it
+  never learns what a proposal is, and it does not import Telegram. It can stop with a reference and
+  be resumed with `(reference, value)`; the host owns the mapping. That is what makes it a package
+  rather than Safwa with different imports.
+
+### Three questions 7.b answers, with the recommendation
+
+- **`agent_steps`: a runtime observer port, or gone?** Nothing reads it and it costs five commits a
+  turn, which argues for deleting it. Against that, it is the only record of the SQL a local model
+  wrote and the rows it got back. Recommendation: keep the trail, make it one optional observer the
+  runtime calls and Safwa implements, and write it once at the end of a turn instead of five times
+  inside it. It is the only reason `schema.json` may move in this phase.
+- **`ai/mini.py`: one loop or two?** A mini session is the same loop with no suspension and terminal
+  tools instead of an answer. SUBAGENTS_PLAN ruled it stays narrow rather than being made resumable,
+  and that ruling predates there being a runtime to fold it into. Recommendation: try it as an
+  `AgentDefinition` that declares no interaction; if the fold costs more than the duplication, keep
+  two loops and name the reason.
+- **`AgentRunStatus` has seven members, and `claimed_at` has one reader left.** `agent_runs` is
+  durable and recovery reads its status, so unlike a proposal it keeps one — but `cancelled` stops
+  being written when 7.a lands, and `abandoned` and `interrupted` would then be written only by
+  recovery. Same reading for `claimed_at`: after 7.a nothing contends for it, and what is left is one
+  boolean the Cue gate reads. Phase 6's rule decides both: a vocabulary keeps only the members
+  something writes and something reads.
+
+### What Phase 7.a delivered
+
+`tests/brd/agents.feature` carries 21 approved scenarios under the `AG` prefix — the first time the
+rules the agent loop has been keeping were written down anywhere a test can cite. Eleven were
+already held by tests that stood without a scenario to point at, and those were cited where they
+were; ten needed a test, and six of those needed the behaviour to change first.
+
+**The owner's words now continue the request they were typed over.** An interruption used to throw
+that request away and start a second one from the same words, and five mechanisms existed to soften
+it. All five are gone:
+
+- `_resume_suspended`'s reach — any saved session of that kind, from any earlier turn — is now
+  `_resume_interrupted_child`, this run's own unfinished child of that kind. The one-turn window was
+  the mechanism; being the caller is the property that replaced it.
+- `_close_lapsed_sessions` is `_close_unfinished_children(run_id)`, called at the moment the turn
+  answers or fails rather than swept for on the next turn.
+- `cancel_approval_for_proposal` no longer sets the running request to `cancelled`, and no longer
+  walks the chain cancelling every caller above the interrupted subagent. Nothing is cancelled: the
+  batch ends, the screen freezes, and the request keeps its turn.
+- The hint that would have warned the next turn about a proposal it never saw has nothing to warn.
+
+`handle` decides start-or-resume itself, the way `route` already decided start-or-restore: a root
+session left with an unanswered `route` and an interruption recorded on it is claimed and continued,
+and its pending call is answered with what was proposed, what was refused, what was already saved,
+and the owner's words. A subagent is left `interrupted` — unfinished rather than waiting, because no
+screen is open on it — and its transcript gains one line saying the owner refused **and wrote
+instead**. On "rejected" alone it reads its own record and proposes the same thing again.
+
+**Two scenarios were dropped while the packets were being read, both duplicates.** "The same paused
+work is never picked up twice" described a race nothing can cause: a button is a single-use record
+and a callback is refused outright while a request is running, so the claim guards nothing the owner
+can observe. `test_a_session_can_only_be_claimed_once` stays as an invariant test, and whether
+`claimed_at` survives at all is a question for 7.b. "What was already saved is still saved" was
+PR-INTERRUPT-017 and PR-INTERRUPT-018 word for word.
+
+**Two the owner asked for were added.** AG-TURN-010 — one request at a time, words that arrive
+during one join it, `/cancel` the one thing always available — and AG-TURN-015, the Cue gate. That
+gate had been reached only through a stub: the `PL-END-015` tests drive a `Recorder` whose gate is a
+boolean, so nothing had ever asked `CueRuntime.can_speak` its three questions.
+
+Two tests carried the old design and were decided rather than edited quietly:
+`test_words_over_a_screen_end_the_caller_but_not_the_draft` asserted the cancelled request and was
+deleted as `contradictory`; `test_a_correction_reaches_the_session_that_wrote_the_refused_day` kept
+its rule and was rewritten to the new flow.
+
+`ai/service.py` went from 2100 lines to 2193 — resuming an interrupted turn is a path that did not
+exist, and what it replaced was smaller. The module graph, the cycles, the rule violations, the
+prompt prefix and the schema all held still. 773 tests pass, 3 skipped.
+
+### The seam with Phase 8
+
+- **Phase 7 owns** the session, the loop, the budget, the claim, suspension on an opaque reference,
+  and the store port.
+- **Phase 8 owns** `as_state_flow()`, `TurnManager`, and everything the chat does with a run's state.
+- A Phase 7 module that names a Telegram message, a `MessageKind` or `GenerationGuard` has crossed it.
+
+### What the numbers should do
+
+`ai/service.py` 2100 lines, target under 900 or a named reason; DoD #3 from 6 to 5. Rule H from 25 to
+24: `service.py:1218` branches on `card` only to make a sentence read "the Card proposal", which is a
+cosmetic string carrying an entity name, and it dies with the loop. `service.py:89`
+(`OPENABLE_MODELS`) does **not** go here — its other half is `telegram/screens.py`, and the two fold
+together in Phase 8.
+
+**`prompt_prefix.json` must not move.** Neither batch declares a prompt rewrite, and 6.c already made
+the one prompt change the phase depends on. `schema.json` moves only in 7.b, and only if
+`agent_steps` goes.
+
+`tests/e2e/test_advisor_flow_e2e.py` and `tests/e2e/test_subagent_e2e.py` are the insurance for this
+phase. They are added to, never traded for a faster unit test.
 
 ## Phase 7 notes: how an interruption is meant to work
 

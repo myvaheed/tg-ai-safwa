@@ -238,12 +238,16 @@ subagent has no `route`, so there is no recursion.
   again, bounded by the repair rounds. The session that writes to the chat is what guarantees the
   owner sees something — the receipts, or one `⚠️` line.
 - Approve and Discard resume that session directly. Words typed over the screen do not: every pending
-  proposal in that batch is rejected, the session is saved, and the Advisor takes the words — so a
-  correction reaches the session that wrote the refused proposal. A screen is never something the
-  owner comes back to: a UI message is only ever the last message in the chat and never moves back
-  up, so anything done below one interrupts it. It is saved for **one Advisor turn**: a `route` back on that turn
-  restores it, and anything else the Advisor does abandons it. The grace is the subagent's alone — a
-  caller interrupted mid-route is cancelled with the words that interrupted it.
+  proposal in that batch is rejected, and the words **resume the turn that opened the screen** rather
+  than starting a second one — its pending `route` is answered with what was proposed, what was
+  refused, what was already saved, and the words themselves. A screen is never something the owner
+  comes back to: a UI message is only ever the last message in the chat and never moves back up, so
+  anything done below one interrupts it.
+- An interruption leaves the subagent **unfinished, not finished**, so a `route` back on that same
+  turn resumes it with its own plan — which is what makes "the same, but capitalise the name" a
+  correction rather than a rewrite. Its own record says the owner refused *and wrote instead*, or it
+  proposes the same thing again. The turn that routed there is the outer bound: when it answers or
+  fails, it ends whatever it left unfinished.
 - The routing rules in `SYSTEM_PROMPT` are generated from the roster, so a subagent is routed to
   exactly when its `AgentSpec` is in `MODULES`; its `purpose` **is** the prompt line.
 - A subagent **owns the writes** of its feature, never the reads. The Advisor reads every `ai_*`

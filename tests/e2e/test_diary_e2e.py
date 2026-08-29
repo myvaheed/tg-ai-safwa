@@ -192,35 +192,32 @@ async def test_di_delete_005_missing_day_is_retryable(e2e_harness):
 
 
 async def test_a_correction_reaches_the_session_that_wrote_the_refused_day(e2e_harness):
-    """The whole point of a resumable subagent: "the same, but capitalise the name"."""
-    subagent = diary_subagent(e2e_harness)
-    advisor, _ = e2e_harness.advisor(
-        [turn(("route", {"name": "diary"})), write(TODAY, "встретил ахмета на рынке.")],
-        subagents=(subagent,),
+    """AG-WORDS-018 — tests/brd/agents.feature"""
+    advisor, provider = e2e_harness.advisor(
+        [
+            turn(("route", {"name": "diary"})),
+            write(TODAY, "встретил ахмета на рынке."),
+            turn(("route", {"name": "diary"})),
+            write(TODAY, "Встретил Ахмета на рынке."),
+        ],
+        subagents=(diary_subagent(e2e_harness),),
     )
     first = await advisor.handle("Запиши день")
     assert first.proposal_id is not None
 
-    # The owner answers with words instead of a button: the screen freezes, and the
-    # Diary session stays waiting while the Advisor takes the words.
+    # The owner answers with words instead of a button: the screen freezes, the Diary
+    # session stays unfinished, and the request that routed to it takes the words.
     await advisor.cancel_approval_for_proposal(first.proposal_id)
     async with e2e_harness.sessions() as session:
         diary_run = await session.scalar(
             select(AgentRun).where(AgentRun.kind == "diary").order_by(AgentRun.id.desc())
         )
-        assert diary_run.status == "awaiting_approval"
+        assert diary_run.status == "interrupted"
 
-    advisor, provider = e2e_harness.advisor(
-        [
-            turn(("route", {"name": "diary"})),
-            write(TODAY, "Встретил Ахмета на рынке."),
-        ],
-        subagents=(subagent,),
-    )
     second = await advisor.handle("Всё нравится, но имя напиши с заглавной")
+
     assert second.proposal_id is not None
     affected, _ = await _save(e2e_harness, advisor, second.proposal_id)
-
     async with e2e_harness.sessions() as session:
         entries = list(await session.scalars(select(DiaryEntry)))
         diary_runs = list(
@@ -234,32 +231,14 @@ async def test_a_correction_reaches_the_session_that_wrote_the_refused_day(e2e_h
     assert len(diary_runs) == 1
     assert diary_runs[0].status == "awaiting_approval"
     # It resumed on a settled record: its refused proposal came back as a tool result.
-    replayed = [item for item in provider.calls[1] if item.get("role") == "tool"]
+    replayed = [item for item in provider.calls[3] if item.get("role") == "tool"]
     assert [json.loads(str(item["content"]))["status"] for item in replayed] == ["discarded"]
     # The day itself never entered the conversation the Advisor reads.
     assert "Ахмета" not in json.dumps(provider.calls[0], ensure_ascii=False)
 
 
-async def test_words_over_a_screen_end_the_caller_but_not_the_draft(e2e_harness):
-    """The draft keeps its one turn of grace; the session waiting on it does not."""
-    advisor, _ = e2e_harness.advisor(
-        [turn(("route", {"name": "diary"})), write(TODAY, "встретил ахмета.")],
-        subagents=(diary_subagent(e2e_harness),),
-    )
-    first = await advisor.handle("Запиши день")
-
-    await advisor.cancel_approval_for_proposal(first.proposal_id)
-
-    async with e2e_harness.sessions() as session:
-        runs = list(await session.scalars(select(AgentRun).order_by(AgentRun.id)))
-    assert [(run.kind, run.status) for run in runs] == [
-        ("advisor", "cancelled"),
-        ("diary", "awaiting_approval"),
-    ]
-
-
 async def test_a_refused_day_is_over_once_the_advisor_answers_something_else(e2e_harness):
-    """A saved session is restorable for one Advisor turn, and for no turn after it."""
+    """AG-WORDS-020 — tests/brd/agents.feature"""
     subagent = diary_subagent(e2e_harness)
     advisor, _ = e2e_harness.advisor(
         [turn(("route", {"name": "diary"})), write(TODAY, "встретил ахмета на рынке.")],
@@ -268,7 +247,8 @@ async def test_a_refused_day_is_over_once_the_advisor_answers_something_else(e2e
     first = await advisor.handle("Запиши день")
     await advisor.cancel_approval_for_proposal(first.proposal_id)
 
-    # The owner's words turned out to be about something else, so the Advisor answers them.
+    # The owner's words turned out to be about something else, so the request that routed
+    # to the Diary answers them itself and ends — and the unfinished draft ends with it.
     advisor, _ = e2e_harness.advisor(["Сегодня вторник."], subagents=(subagent,))
     await advisor.handle("Какой сегодня день недели?")
 
@@ -296,7 +276,7 @@ async def test_a_refused_day_is_over_once_the_advisor_answers_something_else(e2e
     assert [entry.body for entry in entries] == ["Спокойный день."]
     assert affected == [entries[0].id]
     assert [run.status for run in diary_runs] == ["abandoned", "awaiting_approval"]
-    # The new session started from an empty transcript, not from the abandoned draft.
+    # A later route therefore starts clean: an ended session is nobody's to resume.
     assert "ахмета" not in json.dumps(provider.calls[1], ensure_ascii=False)
 
 

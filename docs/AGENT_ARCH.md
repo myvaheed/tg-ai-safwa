@@ -62,7 +62,7 @@ row. The row is what survives a suspension:
 | `parent_run_id` | who routed here; null for the Advisor |
 | `state_json` | dialogue, transcript, tool count, repair rounds, receipts, `open_item`, `helper_offered` |
 | `claimed_at` | the atomic claim that stops two resumes of one session |
-| `status` | `running`, `awaiting_approval`, `completed`, `failed` |
+| `status` | `running`, `awaiting_approval`, `interrupted`, `completed`, `failed`, `abandoned` |
 
 `AgentSession.restore` rebuilds a suspended run from its own row. The context prefix is **not**
 restored — it is rebuilt from live state, so the board and the clock are current while the session's
@@ -152,11 +152,16 @@ sequenceDiagram
 - `SUBAGENT_DEADLINE_SECONDS = 300` bounds a subagent by the clock, not by a call count, because it
   blocks the Advisor's turn.
 
-**Words typed over a screen** do not resume the subagent: every pending proposal in that batch is
-discarded and deleted, the session is saved, and the Advisor takes the words — so a correction reaches the session
-that wrote the refused proposal. The saved session is kept for **one Advisor turn**: a `route` back
-on that turn restores it, anything else abandons it. A caller interrupted mid-route is cancelled
-with the words that interrupted it.
+**Words typed over a screen** resume the turn that opened it. Every pending proposal in that batch is
+discarded, the screen is frozen into an account of what the request did, and only then is anything
+generated: the Advisor's pending `route` is answered with what was proposed, what was refused, what
+was already saved, and the owner's words.
+
+The subagent is left `interrupted` — unfinished rather than waiting — so a `route` back on that same
+turn resumes it holding its own plan, and a correction reaches the session that wrote the refused
+proposal. Its transcript carries one line saying the owner refused *and wrote instead*; on
+"rejected" alone it would propose the same thing again. The turn that routed there is the outer
+bound: when it answers or fails, `_close_unfinished_children` ends what it left behind.
 
 The routing rules in `SYSTEM_PROMPT` are generated from the roster, so a subagent is routed to
 exactly when its `AgentSpec` is in `MODULES`; its `purpose` **is** the prompt line.

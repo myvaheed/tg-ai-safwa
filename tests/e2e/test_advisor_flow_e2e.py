@@ -513,6 +513,7 @@ async def test_ai_read_query_round_trip_uses_safe_view(e2e_harness):
 
 
 async def test_a_turn_that_stops_without_words_is_asked_again(e2e_harness):
+    """AG-ANSWER-013 — tests/brd/agents.feature"""
     query_response = ProviderTurn(
         content="",
         tool_calls=(
@@ -537,6 +538,7 @@ async def test_a_turn_that_stops_without_words_is_asked_again(e2e_harness):
 
 
 async def test_a_turn_that_never_finds_words_still_reaches_the_owner(e2e_harness):
+    """AG-ANSWER-013 — tests/brd/agents.feature"""
     advisor, provider = e2e_harness.advisor([""] * 6)
     outcome = await advisor.handle("What is isha?")
 
@@ -1539,8 +1541,9 @@ async def test_new_dialogue_cancels_every_unresolved_item_in_suspended_batch(e2e
         assert proposals == []
         assert batch is None
         # The screen is frozen, but the session that wrote it stays resumable: the owner's
-        # next words may well be a correction to exactly these two changes.
-        assert (run.kind, run.status) == ("board", "awaiting_approval")
+        # next words may well be a correction to exactly these two changes.  Unfinished
+        # rather than waiting, because no screen is open on it any more.
+        assert (run.kind, run.status) == ("board", "interrupted")
 
 
 async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_harness):
@@ -2345,6 +2348,7 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
 
 
 async def test_suspended_batch_persists_the_request_dialogue_and_transcript(e2e_harness):
+    """AG-SESSION-008 — tests/brd/agents.feature"""
     advisor, _provider = e2e_harness.advisor(
         [mutation_turn(("tag", {"mode": "create", "name": "VrWalk"}))]
     )
@@ -2366,6 +2370,7 @@ async def test_suspended_batch_persists_the_request_dialogue_and_transcript(e2e_
 
 
 async def test_the_tool_call_budget_is_carried_across_an_approval(e2e_harness):
+    """AG-BUDGET-011 — tests/brd/agents.feature"""
     advisor, _provider = e2e_harness.advisor(
         [
             mutation_turn(("tag", {"mode": "create", "name": "Budget"})),

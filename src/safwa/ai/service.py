@@ -140,6 +140,15 @@ IMMEDIATE_TOOLS = frozenset({"query_safwa", "route", "open", "call_helper"})
 # is the other half — a subagent that writes, and whose screen suspends the whole chain.
 Helper = Callable[..., Awaitable[dict[str, Any]]]
 
+# The one line an interrupted session reads about what happened to it. It has to say the
+# owner wrote *instead* of deciding: on "rejected" alone the session reads its own record
+# and proposes the same thing again.
+REFUSED_AND_WROTE = (
+    "The user did not decide this. They wrote to Safwa instead, and their words are the "
+    "newest message in the conversation. Read them, then propose what they ask for now. "
+    "Never propose the refused change again."
+)
+
 
 
 def _mutation_repair_details(
@@ -741,6 +750,17 @@ class AIAdvisor:
         dialogue: list[DialogueMessage] | None = None,
     ) -> AIOutcome:
         started = time.monotonic()
+        turn_dialogue = (
+            [{"role": item.role, "content": item.content} for item in dialogue]
+            if dialogue
+            else [{"role": "user", "content": text}]
+        )
+        # Words typed over a screen are an answer to the request that opened it, so that
+        # request continues rather than being replaced by a second one.
+        resumed = await self._resume_interrupted_turn(turn_dialogue)
+        if resumed is not None:
+            return resumed
+
         run = AgentRun(
             kind="advisor",
             provider=self.provider_name,
@@ -753,11 +773,6 @@ class AIAdvisor:
             await session.commit()
 
         try:
-            turn_dialogue = (
-                [{"role": item.role, "content": item.content} for item in dialogue]
-                if dialogue
-                else [{"role": "user", "content": text}]
-            )
             messages = await self._context_messages(
                 dialogue or [DialogueMessage(role="user", content=text)]
             )
@@ -781,15 +796,15 @@ class AIAdvisor:
                 else AgentRunStatus.COMPLETED
             )
             await self._finish_run(run.id, status, started)
-            # The turn is over, so a saved subagent session it never routed back into has
-            # missed its one chance.
-            await self._close_lapsed_sessions()
+            if status is AgentRunStatus.COMPLETED:
+                await self._close_unfinished_children(run.id)
             return outcome
         except Exception as error:
             logger.exception("AI advisor run failed")
             await self._finish_run(
                 run.id, AgentRunStatus.FAILED, started, type(error).__name__
             )
+            await self._close_unfinished_children(run.id)
             raise
 
     @staticmethod
@@ -885,7 +900,7 @@ class AIAdvisor:
                 return outcome
             await self._finish_run(parent.run_id, AgentRunStatus.COMPLETED, started)
             if parent.parent_run_id is None:
-                await self._close_lapsed_sessions()
+                await self._close_unfinished_children(parent.run_id)
                 return outcome
             receipt = _route_receipt(
                 parent.kind, outcome.message, parent.display_result_summaries
@@ -907,7 +922,7 @@ class AIAdvisor:
         routed = self.subagents[name]
         started = time.monotonic()
         async with self.sessions() as session:
-            run = await self._resume_suspended(session, name)
+            run = await self._resume_interrupted_child(session, name, parent.run_id)
             if run is None:
                 run = AgentRun(
                     kind=name,
@@ -976,45 +991,38 @@ class AIAdvisor:
                 name, "", [], error=failure_reason(error)
             )
 
-    async def _close_lapsed_sessions(self) -> None:
-        """End every saved subagent session this Advisor turn did not route back into.
+    async def _close_unfinished_children(self, run_id: int) -> None:
+        """End the sessions this turn routed to and never finished.
 
-        Called once, when a turn ends without suspending.  A session this turn did route
-        into is `completed` by then, so what is left is exactly the drafts from earlier
-        turns: the owner's words either came straight back to one — the correction case —
-        or they were about something else, and then it is over rather than waiting for a
-        later `route` that would answer the wrong question.
-
-        A session whose screen is still live is left alone: the owner can still press Save,
-        and that resumes it without the Advisor being involved at all.
+        The turn that routed to a subagent is its outer bound.  An interruption leaves it
+        unfinished so the same turn can route back into it with a correction; when that
+        turn answers the owner, or fails, there is nothing left for it to correct.
         """
         async with self.sessions() as session:
-            saved = list(
-                await session.scalars(
-                    select(AgentRun).where(
-                        AgentRun.kind != "advisor",
-                        AgentRun.status == AgentRunStatus.AWAITING_APPROVAL.value,
-                        AgentRun.claimed_at.is_(None),
-                    )
+            closed = await session.scalars(
+                update(AgentRun)
+                .where(
+                    AgentRun.parent_run_id == run_id,
+                    AgentRun.status == AgentRunStatus.INTERRUPTED.value,
                 )
+                .values(status=AgentRunStatus.ABANDONED.value, claimed_at=None)
+                .returning(AgentRun.id)
             )
-            closed = 0
-            for run in saved:
-                if self.reviews.batch_for_run(run.id) is not None:
-                    continue
-                run.status = AgentRunStatus.ABANDONED.value
-                closed += 1
-            if closed:
-                await session.commit()
-                logger.info("Closed %d subagent session(s) the turn did not resume", closed)
+            count = len(list(closed))
+            await session.commit()
+        if count:
+            logger.info("Closed %d unfinished subagent session(s) with the turn", count)
 
-    async def _resume_suspended(self, session: AsyncSession, name: str) -> AgentRun | None:
-        """Claim this subagent's newest saved session, if it left one behind."""
+    async def _resume_interrupted_child(
+        self, session: AsyncSession, name: str, parent_run_id: int
+    ) -> AgentRun | None:
+        """Claim this turn's own unfinished session of that subagent, if it left one."""
         run_id = await session.scalar(
             select(AgentRun.id)
             .where(
                 AgentRun.kind == name,
-                AgentRun.status == AgentRunStatus.AWAITING_APPROVAL.value,
+                AgentRun.parent_run_id == parent_run_id,
+                AgentRun.status == AgentRunStatus.INTERRUPTED.value,
                 AgentRun.claimed_at.is_(None),
             )
             .order_by(AgentRun.id.desc())
@@ -2011,17 +2019,17 @@ class AIAdvisor:
             raise
 
     async def cancel_approval_for_proposal(self, proposal_id: int) -> str | None:
-        """Freeze a suspended batch when new dialogue supersedes its active screen.
+        """End the batch behind a screen the owner wrote over, and record what it did.
 
         Returns the consolidated result of the interrupted request, or ``None`` when the
         screen does not belong to a suspended batch.  The caller needs that text because
         earlier items in the queue may already be saved: freezing the screen as a plain
         "discarded" notice would tell both the owner and the model something untrue.
 
-        The Advisor's session is superseded by the message that arrived, but a subagent's
-        stays waiting: the owner's words go to the Advisor, and "the same, but capitalise
-        the name" has to reach the session that wrote the refused proposal.  Its own
-        results are folded into its transcript first, so it resumes on a settled record.
+        Nothing is cancelled.  The session that wrote the refused proposal keeps its own
+        plan, so "the same, but capitalise the name" reaches the session that wrote it,
+        and the request that routed there keeps its turn: those words are its answer, and
+        `handle` resumes it with them rather than starting a second request over the top.
         """
         async with self.sessions() as session:
             interrupted = interrupt_batch(self.reviews, proposal_id, reason=INTERRUPTED)
@@ -2030,37 +2038,122 @@ class AIAdvisor:
             tools = interrupted.tool_calls
             run = await session.get(AgentRun, interrupted.run_id)
             prior_summaries: list[str] = []
+            summary = _safe_approval_results_summary(
+                tools, include_preparation_errors=False, for_display=True
+            )
             if run is not None:
                 state = dict(run.state_json or {})
                 prior_summaries = list(state.get("display_result_summaries") or [])
-                if run.kind == "advisor":
-                    run.status = AgentRunStatus.CANCELLED.value
-                else:
-                    state["transcript"] = _resumed_transcript(
+                state["transcript"] = [
+                    *_resumed_transcript(
                         [dict(item) for item in state.get("transcript") or []], tools
-                    )
-                    run.state_json = state
-                # The subagent's draft is kept for one Advisor turn; the callers waiting on
-                # it are not.  Their plan was made before these words arrived, and the turn
-                # those words start is what decides what happens now.
-                caller_id = run.parent_run_id
-                while caller_id is not None:
-                    caller = await session.get(AgentRun, caller_id)
-                    if (
-                        caller is None
-                        or caller.status != AgentRunStatus.AWAITING_APPROVAL.value
-                    ):
-                        break
-                    caller.status = AgentRunStatus.CANCELLED.value
-                    caller_id = caller.parent_run_id
+                    ),
+                    _system_note(REFUSED_AND_WROTE),
+                ]
+                run.state_json = state
+                # Unfinished rather than waiting: no screen is open on it any more.  It
+                # stays for a `route` back on this same turn, and the turn that routed to
+                # it is what closes it.
+                run.status = AgentRunStatus.INTERRUPTED.value
+                root = await self._root_run(session, run)
+                if root is not None and root.id != run.id:
+                    root_state = dict(root.state_json or {})
+                    root_state["interruption"] = summary
+                    root.state_json = root_state
             await session.commit()
-        summaries = [
-            *prior_summaries,
-            _safe_approval_results_summary(
-                tools, include_preparation_errors=False, for_display=True
-            ),
-        ]
-        return _compose_display_outcome("", [summary for summary in summaries if summary])
+        return _compose_display_outcome(
+            "", [line for line in (*prior_summaries, summary) if line]
+        )
+
+    async def _root_run(self, session: AsyncSession, run: AgentRun) -> AgentRun | None:
+        """The session at the top of this chain — the one that answers the owner."""
+        current = run
+        while current.parent_run_id is not None:
+            parent = await session.get(AgentRun, current.parent_run_id)
+            if parent is None:
+                break
+            current = parent
+        return current
+
+    async def _resume_interrupted_turn(
+        self, dialogue: list[dict[str, Any]]
+    ) -> AIOutcome | None:
+        """Continue the request the owner wrote over, instead of starting a new one.
+
+        `None` means there was nothing to continue, and the caller starts a fresh turn.
+        """
+        started = time.monotonic()
+        async with self.sessions() as session:
+            candidate = await session.scalar(
+                select(AgentRun)
+                .where(
+                    AgentRun.parent_run_id.is_(None),
+                    AgentRun.status == AgentRunStatus.AWAITING_APPROVAL.value,
+                    AgentRun.claimed_at.is_(None),
+                )
+                .order_by(AgentRun.id.desc())
+                .limit(1)
+            )
+            if candidate is None:
+                return None
+            state = dict(candidate.state_json or {})
+            if "interruption" not in state or not state.get("awaiting_route"):
+                return None
+            run = await self._claim_session(session, candidate.id, held_run_id=None)
+            if run is None:
+                return None
+            summary = str(state.pop("interruption") or "")
+            run.state_json = state
+            agent, transcript = AgentSession.restore(
+                run, self._tools_for(run.kind), self._read_specs_for(run.kind)
+            )
+            await session.commit()
+
+        run_id = agent.run_id
+        waiting = dict(agent.awaiting_route or {})
+        agent.awaiting_route = None
+        agent.dialogue = dialogue
+        try:
+            receipt = _route_receipt(
+                str(waiting.get("subagent", "")),
+                "",
+                [summary] if summary else [],
+                error=REFUSED_AND_WROTE,
+            )
+            messages = await self._session_messages(agent)
+            agent.prefix_len = len(messages)
+            messages.extend(transcript)
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": str(waiting.get("call_id", "")),
+                    "name": "route",
+                    "content": json.dumps(receipt, ensure_ascii=False, default=str),
+                }
+            )
+            agent.messages = messages
+            result = await self._run_agent_loop(agent)
+            if result.suspended is not None:
+                await self._suspend_for_child(agent)
+                await self._finish_run(run_id, AgentRunStatus.AWAITING_APPROVAL, started)
+                return result.suspended
+            outcome = await self._materialize(agent, result)
+            status = (
+                AgentRunStatus.AWAITING_APPROVAL
+                if outcome.kind is AIOutcomeKind.PROPOSAL
+                else AgentRunStatus.COMPLETED
+            )
+            await self._finish_run(run_id, status, started)
+            if status is AgentRunStatus.COMPLETED:
+                await self._close_unfinished_children(run_id)
+            return outcome
+        except Exception as error:
+            logger.exception("The interrupted request could not be resumed")
+            await self._finish_run(
+                run_id, AgentRunStatus.FAILED, started, type(error).__name__
+            )
+            await self._close_unfinished_children(run_id)
+            raise
 
     async def _claim_session(
         self, session: AsyncSession, run_id: int, *, held_run_id: int | None
