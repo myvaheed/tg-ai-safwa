@@ -126,8 +126,7 @@ What each feature plugs into the application is declared once, in
 The codebase is moving from flat layers to vertical features. A feature owns its model, use cases,
 agent contract and Telegram adapter, and its AI and UI mutation paths call the same operations —
 [features/diary](src/safwa/features/diary) is the shape to copy. What has not moved yet lives in
-[domain.py](src/safwa/domain.py), [telegram/](src/safwa/telegram) and
-[ai/service.py](src/safwa/ai/service.py) until its declared phase.
+[domain.py](src/safwa/domain.py) and [telegram/](src/safwa/telegram) until its declared phase.
 
 ### Board and Planning are not the same word
 
@@ -212,7 +211,7 @@ A review is process state, never a row: `ProposalStore` holds it, and a restart 
 
 ### A session is the unit, and `route` hands one turn to another
 
-The Advisor is a session ([`AgentSession`](src/safwa/ai/service.py)); a subagent is a session of the
+The Advisor is a session ([`AgentSession`](src/agent_runtime/model.py)); a subagent is a session of the
 same shape, reading the same conversation under its own prompt and its own tools. `route(name)` is a
 call that returns: the subagent runs, its proposal is the screen, and what comes back to the caller
 is a receipt — `did`, `text`, `error`. Only the Advisor writes to the chat, and the turn ends only
@@ -283,12 +282,12 @@ records why instead of failing the turn — the budget bounds what is read as we
 
 ### The prompt prefix must stay byte-stable
 
-`_context_messages` ([ai/service.py](src/safwa/ai/service.py)) orders context blocks by how often
+`ContextBuilder` ([ai/messages.py](src/safwa/ai/messages.py)) orders context blocks by how often
 they change, so a remote provider can cache the prefix. **New volatile context goes after the
 dialogue, never into a system block** — one timestamp in `messages[0]` costs every cache hit and
 scatters OpenRouter's sticky provider routing.
 
-Only `messages[0]` is a system message. Any other context block goes through `_system_note`, which
+Only `messages[0]` is a system message. Any other context block goes through `system_note`, which
 sends it as a user message prefixed `[System]: ` — the Qwen3.5 chat template raises on a second
 system message.
 

@@ -390,7 +390,7 @@ async def test_ai_can_create_and_read_checks(e2e_harness):
         created_id = created.id
 
     # ai_checks must be reachable, since it is the only route to a Check with no Card.
-    rows = await advisor.query_runner.run(
+    rows = await advisor.adapters.query_runner.run(
         "SELECT id, title, status, repeatable FROM ai_checks ORDER BY id"
     )
     assert rows.rows[0]["status"] == "pending"
@@ -414,7 +414,7 @@ async def test_ai_can_create_and_read_checks(e2e_harness):
 
     # One place answers which Checks are on a Card, so the same fact is never counted
     # twice in two places that can disagree.
-    standing = await advisor.query_runner.run(
+    standing = await advisor.adapters.query_runner.run(
         f"SELECT title, status FROM ai_checks WHERE card_id = {card_id}"
     )
     assert standing.rows == [{"title": "Posture straight?", "status": "pending"}]

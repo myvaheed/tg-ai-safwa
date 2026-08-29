@@ -82,7 +82,7 @@ sequenceDiagram
     participant P as Provider
     O->>G: message
     G->>A: acquire(source_id)
-    A->>A: _context_messages()
+    A->>A: ContextBuilder.messages_for()
     loop until a turn calls no tool
         A->>P: messages + tools
         P-->>A: tool calls or prose
@@ -103,7 +103,7 @@ the mutations and the model retries them once it has seen the read.
 
 ## Context, and why its order is fixed
 
-`_context_messages` builds the request in order of how often each block changes, so a remote provider
+`ContextBuilder` builds the request in order of how often each block changes, so a remote provider
 can cache the stable prefix:
 
 ```text
@@ -113,7 +113,7 @@ messages[1]  user     [System]: memory + board state
 messages[-1] user     [System]: the clock            ← volatile, always last
 ```
 
-Only `messages[0]` is a system message. Every other context block goes through `_system_note`, which
+Only `messages[0]` is a system message. Every other context block goes through `system_note`, which
 sends it as a user message prefixed `[System]: ` — the Qwen3.5 chat template raises on a second
 system message.
 

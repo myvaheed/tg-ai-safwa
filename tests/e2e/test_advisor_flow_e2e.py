@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.context import DialogueMessage
-from safwa.ai.service import AIOutcome, AIOutcomeKind
+from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS, SYSTEM_PROMPT
 from safwa.constants import MAX_TOOL_CALLS
 from safwa.domain import (
@@ -2409,10 +2409,12 @@ async def test_a_session_can_only_be_claimed_once(e2e_harness):
 
     async with e2e_harness.sessions() as session:
         run = await session.scalar(select(AgentRun).order_by(AgentRun.id.desc()))
-        assert await advisor._claim_session(session, run.id, held_run_id=None) is not None
-        assert await advisor._claim_session(session, run.id, held_run_id=None) is None
+        assert await advisor.store.claim_within(session, run.id) is not None
+        assert await advisor.store.claim_within(session, run.id) is None
         # The turn that already holds the session continues inside its own claim.
-        assert await advisor._claim_session(session, run.id, held_run_id=run.id) is not None
+        assert (
+            await advisor.store.claim_within(session, run.id, held_run_id=run.id) is not None
+        )
 
 
 async def _standalone_tag_proposal(e2e_harness, advisor, name: str) -> int:

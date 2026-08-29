@@ -19,8 +19,8 @@ from pathlib import Path
 import pytest
 from sqlalchemy import UniqueConstraint, inspect
 
-from safwa.ai.service import CALL_HELPER_TOOL, OPEN_TOOL, QUERY_SAFWA_TOOL, ROUTE_TOOL
 from safwa.ai.subagents import PERSONA
+from safwa.ai.tools import CALL_HELPER_TOOL, OPEN_TOOL, QUERY_SAFWA_TOOL, ROUTE_TOOL
 from safwa.bootstrap.modules import AGENTS, HEAVY_ANALYZER_PROMPT, PROPOSALS, SYSTEM_PROMPT
 from safwa.models import Base
 from scripts.architecture_metrics import RULES, allowlist, cycles, violations

@@ -8,8 +8,8 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.ai.service import SAFWA_TOOLS
 from safwa.ai.subagents import PERSONA, RoutedSubagent
+from safwa.ai.tools import SAFWA_TOOLS
 from safwa.bootstrap.modules import PROPOSALS, SYSTEM_PROMPT
 from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
 

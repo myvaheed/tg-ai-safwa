@@ -9,7 +9,7 @@ from test_subagent_e2e import diary_subagent
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.ai.service import AIOutcomeKind
+from safwa.ai.outcome import AIOutcomeKind
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.diary.model import DiaryEntry
 from safwa.features.diary.use_cases import create_diary_entry

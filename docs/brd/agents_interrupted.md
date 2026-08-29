@@ -5,7 +5,7 @@ Batch: Phase 7.a, together with [agents.md](agents.md) — both packets write in
 `tests/brd/agents.feature`, because one `.feature` file is one package.
 Sources: [MIGRATION.md](../MIGRATION.md) §"Phase 7 notes: how an interruption is meant to work",
 ruled 2026-08-28; `archived_docs/SUBAGENTS_PLAN.md` rules 9 and 10, read for intent;
-current code — [ai/service.py](../../src/safwa/ai/service.py) (`cancel_approval_for_proposal`,
+current code — `ai/service.py` (`cancel_approval_for_proposal`,
 `_close_lapsed_sessions`, `_resume_suspended`, `_resumed_transcript`),
 [telegram/_messaging.py](../../src/safwa/telegram/_messaging.py) `dismiss_prior_ui`.
 Supersedes nothing. PR-INTERRUPT-017, PR-INTERRUPT-018 and SC-LIVE-001 in

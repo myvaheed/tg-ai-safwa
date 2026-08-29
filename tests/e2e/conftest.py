@@ -9,9 +9,9 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
+from safwa.ai.advisor import AIAdvisor
 from safwa.ai.autoapproval import AutoApprovalReviewer
 from safwa.ai.mini import query_read_tool
-from safwa.ai.service import AIAdvisor
 from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from safwa.ai.subagents import RoutedSubagent
 from safwa.bootstrap.modules import (

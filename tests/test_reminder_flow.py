@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from safwa.ai.context import DialogueMessage, board_context
-from safwa.ai.service import AIOutcome, AIOutcomeKind
+from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.constants import REMINDER_CATCHUP_GRACE_MINUTES
 from safwa.cues.runtime import CueRuntime
 from safwa.domain import (

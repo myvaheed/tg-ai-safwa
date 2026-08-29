@@ -5,7 +5,7 @@ Batch: Phase 7.a, together with [agents_interrupted.md](agents_interrupted.md) �
 into the same `tests/brd/agents.feature`, because one `.feature` file is one package.
 Sources: `CLAUDE.md` §"A session is the unit, and `route` hands one turn to another";
 [docs/AGENT_ARCH.md](../AGENT_ARCH.md); `archived_docs/SUBAGENTS_PLAN.md` rules 1–19, read for intent
-and checked against the code; current code — [ai/service.py](../../src/safwa/ai/service.py)
+and checked against the code; current code — `ai/service.py`
 (`handle`, `_run_agent_loop`, `_execute_route_tool`, `_run_child`, `_provider_turn`),
 [ai/subagents.py](../../src/safwa/ai/subagents.py), [cues/runtime.py](../../src/safwa/cues/runtime.py),
 [telegram/dialogue.py](../../src/safwa/telegram/dialogue.py),

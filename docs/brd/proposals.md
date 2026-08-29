@@ -6,7 +6,7 @@ Batch: Phase 6.a and 6.b
 Sources: `CLAUDE.md` §"AI mutations are always proposals";
 `archived_docs/ARCHITECTURE.md` §"AI advisor" (the "The model never mutates" bullet and the two
 bullets after it) and §Subagents; current code —
-[ai/service.py](../../src/safwa/ai/service.py) `_execute_mutation_tool`, `_materialize`,
+`ai/service.py` `_execute_mutation_tool`, `_materialize`,
 `resolve_approval`; [features/proposals/use_cases.py](../../src/safwa/features/proposals/use_cases.py)
 `prepare_proposal`, `approve_proposal`, `ProposalStore.end_proposal`;
 [telegram/proposals.py](../../src/safwa/telegram/proposals.py);

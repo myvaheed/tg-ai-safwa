@@ -5,8 +5,8 @@ result *is* — a read over the `ai_*` views, an item on the screen, a helper's 
 prepared change — is Safwa's, and none of it can live in a package that must work without
 Safwa. So the loop asks, and this module answers.
 
-`ToolSession` is the whole of what an adapter may touch on the session that called it.
-Naming it here rather than importing the session keeps the dependency pointing one way.
+`ToolAdapters` is the runtime's `ToolRunner`: it says what each kind of session may call,
+runs one call, and supplies the few sentences the loop has to say about tools.
 """
 
 from __future__ import annotations
@@ -15,11 +15,12 @@ import json
 import logging
 import sqlite3
 from collections.abc import Awaitable, Callable, Mapping
-from typing import Any, Protocol
+from typing import Any
 
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from agent_runtime import AgentDefinition, AgentSession, ToolOutcome, json_safe, log_preview
 from llm_gateway import ToolCall
 
 from ..constants import SUBAGENT_HISTORY_LAST_MESSAGES
@@ -34,11 +35,13 @@ from .contracts import (
     CallHelperInput,
     OpenInput,
     QueryToolInput,
+    RouteInput,
     ToolResultStatus,
     tool_json_schema,
 )
-from .mini import ReadToolSpec
+from .mini import QUERY_SAFWA_TOOL
 from .sql import ReadOnlyQueryRunner, UnsafeQueryError, is_complex_read
+from .subagents import RoutedSubagent
 
 logger = logging.getLogger(__name__)
 
@@ -59,13 +62,51 @@ OPENABLE_MODELS: dict[str, Any] = {
 Helper = Callable[..., Awaitable[dict[str, Any]]]
 
 
-def json_safe(value: Any) -> Any:
-    return json.loads(json.dumps(value, ensure_ascii=False, default=str))
+OPEN_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "open",
+        "description": (
+            "Put one item on the screen, exactly as the user opening it by hand. Call it only "
+            "when the user asked to see or open one single item. Otherwise cite the item in "
+            "your answer instead."
+        ),
+        "parameters": tool_json_schema(OpenInput),
+    },
+}
+ROUTE_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "route",
+        "description": (
+            "Hand this turn to a subagent. It reads this same conversation, does the work, "
+            "and comes back with a receipt of what it did. You write the message the user "
+            "sees. You just pass the name of the subagent."
+        ),
+        "parameters": tool_json_schema(RouteInput),
+    },
+}
+CALL_HELPER_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "call_helper",
+        "description": (
+            "Ask a helper a question one simple read could not answer. It writes the query "
+            "and hands back its result. You keep the turn and you write the answer."
+        ),
+        "parameters": tool_json_schema(CallHelperInput),
+    },
+}
+# The Advisor reads and routes. Every mutation tool belongs to the subagent that owns that
+# feature, so judging *which* change to propose happens where the change is authored.
+SAFWA_TOOLS = (QUERY_SAFWA_TOOL, OPEN_TOOL)
+# Tools that run during the turn instead of becoming a proposal the owner approves.
+IMMEDIATE_TOOLS = frozenset({"query_safwa", "route", "open", "call_helper"})
 
-
-def log_preview(content: str, limit: int = 500) -> str:
-    compact = " ".join(content.split())
-    return compact if len(compact) <= limit else compact[: limit - 3] + "..."
+REPAIR_EXHAUSTED = (
+    "I could not prepare the requested change after five repair attempts. "
+    "No unfinished operation was applied."
+)
 
 
 def conversation_for(dialogue: list[dict[str, Any]]) -> str:
@@ -116,20 +157,6 @@ def mutation_repair_details(
     return details
 
 
-class ToolSession(Protocol):
-    """What a tool call may read and write on the session that made it."""
-
-    run_id: int
-    tool_count: int
-    kind: str
-    dialogue: list[dict[str, Any]]
-    read_specs: dict[str, ReadToolSpec]
-    open_item: str | None
-
-    def offer_helper(self) -> None:
-        """Put `call_helper` on this session's tools, once."""
-
-
 class ToolAdapters:
     """One method per tool Safwa answers. Each takes the calling session and its call."""
 
@@ -139,10 +166,14 @@ class ToolAdapters:
         query_runner: ReadOnlyQueryRunner,
         proposals: ProposalRegistry,
         helpers: Mapping[str, Helper] | None = None,
+        subagents: Mapping[str, RoutedSubagent] | None = None,
     ) -> None:
         self.sessions = sessions
         self.query_runner = query_runner
         self.proposals = proposals
+        self.subagents = dict(subagents or {})
+        # An empty roster means there is nothing to route to, so the tool is not offered.
+        self.advisor_tools = (*SAFWA_TOOLS, ROUTE_TOOL) if self.subagents else SAFWA_TOOLS
         self.helpers = dict(helpers or {})
         # Built once: the offer is the whole of what the model is ever told about helpers,
         # so it has to name the tool in the shape the tool actually takes.
@@ -152,7 +183,85 @@ class ToolAdapters:
             + ', "<your question in words>") writes the query and hands back its result.'
         )
 
-    async def call_helper(self, agent: ToolSession, call: ToolCall) -> dict[str, Any]:
+    # ------------------------------------------------------------- the tool port
+
+    def definition(self, kind: str) -> AgentDefinition:
+        """What a session of this kind may call. The Advisor reads and routes; a subagent
+        gets its own reads and the mutation tools of the features it owns."""
+        routed = self.subagents.get(kind)
+        if routed is None:
+            return AgentDefinition(
+                kind=kind, tools=self.advisor_tools, helper_tool=CALL_HELPER_TOOL
+            )
+        return AgentDefinition(
+            kind=kind,
+            tools=(
+                *(spec.schema for spec in routed.read_tools),
+                *(self.proposals.tools[name].schema() for name in routed.mutation_tools),
+            ),
+            read_specs={spec.name: spec for spec in routed.read_tools},
+            helper_tool=CALL_HELPER_TOOL,
+        )
+
+    def is_immediate(self, agent: AgentSession, name: str) -> bool:
+        return name in IMMEDIATE_TOOLS or name in agent.read_specs
+
+    async def run(self, agent: AgentSession, call: ToolCall) -> ToolOutcome:
+        """Run one call. Anything that is not a read is a change waiting for the owner."""
+        if call.name == "query_safwa":
+            return ToolOutcome(result=await self.query(agent, call))
+        if call.name == "open":
+            return ToolOutcome(result=await self.open(agent, call))
+        if call.name == "call_helper":
+            return ToolOutcome(result=await self.call_helper(agent, call))
+        if call.name in agent.read_specs:
+            return ToolOutcome(result=await self.read(agent, call))
+        change, result = await self.mutation(agent, call)
+        return ToolOutcome(result=result, change=change)
+
+    def route_target(self, call: ToolCall) -> tuple[str | None, dict[str, Any] | None]:
+        try:
+            name = RouteInput.model_validate(json.loads(call.arguments_json or "{}")).name.strip()
+        except (ValidationError, json.JSONDecodeError, TypeError, ValueError) as error:
+            return None, {
+                "status": ToolResultStatus.ERROR.value,
+                "code": "invalid_arguments",
+                "error": (
+                    validation_error_summary(error)
+                    if isinstance(error, ValidationError)
+                    else str(error)
+                ),
+                "hint": f'Send {{"name": "<subagent>"}}. One of: {", ".join(self.subagents)}.',
+                "retryable": True,
+            }
+        if name not in self.subagents:
+            return None, {
+                "status": ToolResultStatus.ERROR.value,
+                "code": "unknown_subagent",
+                "error": f"There is no subagent named {name!r}.",
+                "hint": f"Route to one of: {', '.join(self.subagents) or 'none'}.",
+                "retryable": True,
+            }
+        return name, None
+
+    def refuse_mixed(self) -> dict[str, Any]:
+        return {
+            "status": ToolResultStatus.ERROR.value,
+            "code": "mixed_read_and_mutation_tools",
+            "error": "Mutation tools cannot share a response with a read tool or route.",
+            "next": "Use the read result, then retry this mutation in the next response.",
+            "retryable": True,
+        }
+
+    def prepared_message(self) -> str:
+        return "I prepared the proposed changes for your approval."
+
+    def repair_exhausted_message(self) -> str:
+        return REPAIR_EXHAUSTED
+
+    # ---------------------------------------------------------------- the tools
+
+    async def call_helper(self, agent: AgentSession, call: ToolCall) -> dict[str, Any]:
         """Ask a helper one question and hand its rows back. Nothing suspends.
 
         The helper reads and answers with data, so this session keeps its turn: there is no
@@ -215,7 +324,7 @@ class ToolAdapters:
             }
 
     def _should_offer_helper(
-        self, agent: ToolSession, sql: str, rows: list[dict[str, Any]]
+        self, agent: AgentSession, sql: str, rows: list[dict[str, Any]]
     ) -> bool:
         """Whether this read earned the model a helper it was not already carrying.
 
@@ -229,7 +338,7 @@ class ToolAdapters:
         capped = bool(rows) and set(rows[-1]) == {"notice"}
         return capped or is_complex_read(sql)
 
-    async def read(self, agent: ToolSession, call: ToolCall) -> Any:
+    async def read(self, agent: AgentSession, call: ToolCall) -> Any:
         """Run one of this session's own read tools and record that it ran."""
         result = await agent.read_specs[call.name].run(call)
         async with self.sessions() as session:
@@ -249,7 +358,7 @@ class ToolAdapters:
         logger.info("AI TOOL %s(%s)", call.name, log_preview(call.arguments_json, 200))
         return result
 
-    async def query(self, agent: ToolSession, call: ToolCall) -> list[dict[str, Any]]:
+    async def query(self, agent: AgentSession, call: ToolCall) -> list[dict[str, Any]]:
         if call.name != "query_safwa":
             rows: list[dict[str, Any]] = [
                 {
@@ -341,7 +450,7 @@ class ToolAdapters:
             await session.commit()
         return rows
 
-    async def open(self, agent: ToolSession, call: ToolCall) -> dict[str, Any]:
+    async def open(self, agent: AgentSession, call: ToolCall) -> dict[str, Any]:
         """Resolve the item to show and hand it to the session that writes to the chat."""
         try:
             request = OpenInput.model_validate(json.loads(call.arguments_json or "{}"))
@@ -377,7 +486,7 @@ class ToolAdapters:
         }
 
     async def mutation(
-        self, agent: ToolSession, call: ToolCall
+        self, agent: AgentSession, call: ToolCall
     ) -> tuple[AgentChange | None, dict[str, Any]]:
         arguments: Any = None
         try:

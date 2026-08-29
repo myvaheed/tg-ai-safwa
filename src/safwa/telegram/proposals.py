@@ -7,7 +7,7 @@ from typing import Any
 from aiogram.enums import ChatAction
 from aiogram.types import InlineKeyboardMarkup, Message
 
-from ..ai.service import AIOutcome
+from ..ai.outcome import AIOutcome
 from ..domain import DomainError
 from ..enums import MessageKind
 from ..features.proposals.model import DECISION_RECEIPTS, BatchDecision

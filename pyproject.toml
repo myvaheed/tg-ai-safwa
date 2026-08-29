@@ -46,7 +46,7 @@ safwa-backup = "safwa.backup:backup_main"
 safwa-restore = "safwa.backup:restore_main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/safwa", "src/llm_gateway"]
+packages = ["src/safwa", "src/llm_gateway", "src/agent_runtime"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -18,7 +18,7 @@ import safwa.features.profile.screens as profile_screens_source
 import safwa.telegram as telegram_source
 import safwa.telegram.plan as plan_module
 from safwa.ai.context import DialogueMessage
-from safwa.ai.service import AIOutcome, AIOutcomeKind, ProposalDescription
+from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.ai.sql import create_ai_views
 from safwa.asr import TranscriptionError, TranscriptionResult
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS
@@ -59,6 +59,7 @@ from safwa.features.profile.use_cases import (
     DIARY_REMINDER_INSTRUCTION,
     set_profile_field,
 )
+from safwa.features.proposals.api import ProposalDescription
 from safwa.features.proposals.model import ChangeAction, ProposalChange
 from safwa.features.proposals.store import ProposalStore
 from safwa.features.proposals.use_cases import approve_proposal

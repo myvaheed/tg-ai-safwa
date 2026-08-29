@@ -8,7 +8,7 @@ import pytest
 
 from llm_gateway import CompletionTurn, ToolCall
 from safwa.ai.context import DialogueMessage
-from safwa.ai.service import AIOutcomeKind
+from safwa.ai.outcome import AIOutcomeKind
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.use_cases import create_card
 from safwa.features.proposals.model import BatchDecision
@@ -97,7 +97,7 @@ async def test_han_offer_003_a_result_that_was_cut_offers_the_helper(e2e_harness
         helpers={"heavy_analyzer": recording_helper([])},
     )
     # One flat read, so nothing but the cap can offer the helper here.
-    advisor.query_runner.row_limit = 1
+    advisor.adapters.query_runner.row_limit = 1
 
     await advisor.handle(QUESTION)
 

@@ -12,8 +12,8 @@ from aiogram.enums import ParseMode
 
 from llm_gateway import OpenAICompatibleConfig, OpenAICompatibleProvider
 
+from .ai.advisor import AIAdvisor
 from .ai.autoapproval import AutoApprovalReviewer
-from .ai.service import AIAdvisor
 from .ai.sql import ReadOnlyQueryRunner, create_ai_views
 from .asr import build_transcriber
 from .bootstrap.module_manifest import AgentContext, BackgroundContext

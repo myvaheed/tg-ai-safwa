@@ -9,7 +9,7 @@ from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.autoapproval import AutoApprovalReviewer
 from safwa.ai.context import DialogueMessage
-from safwa.ai.service import AIOutcomeKind
+from safwa.ai.outcome import AIOutcomeKind
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.domain import create_card, create_tag, create_value
 from safwa.features.proposals.model import (
@@ -290,7 +290,7 @@ async def test_autoapproval_that_cannot_decide_leaves_the_screen_standing(e2e_ha
         async def complete(self, _request):
             raise RuntimeError("the reviewer is unreachable")
 
-    advisor.autoapproval = AutoApprovalReviewer(UnreachableProvider())
+    advisor.materializer.autoapproval = AutoApprovalReviewer(UnreachableProvider())
 
     outcome = await advisor.handle("Rename Buy milk to Buy oat milk")
 

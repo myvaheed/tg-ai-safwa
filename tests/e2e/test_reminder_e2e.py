@@ -10,7 +10,7 @@ from sqlalchemy import select
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.context import DialogueMessage
-from safwa.ai.service import AIOutcomeKind
+from safwa.ai.outcome import AIOutcomeKind
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
@@ -201,7 +201,7 @@ async def test_ai_reminders_view_is_readable(e2e_harness):
         await approve_proposal(session, e2e_harness.reviews, PROPOSALS, outcome.proposal_id)
         await session.commit()
 
-    reader = advisor.query_runner
+    reader = advisor.adapters.query_runner
     result = await reader.run(
         "SELECT id, instruction, schedule_kind, next_fire_at_local FROM ai_reminders"
     )
@@ -355,7 +355,7 @@ async def test_the_diary_reminder_is_invisible_to_the_model(e2e_harness):
         await session.commit()
     advisor, _provider = e2e_harness.advisor([])
 
-    result = await advisor.query_runner.run("SELECT id FROM ai_reminders")
+    result = await advisor.adapters.query_runner.run("SELECT id FROM ai_reminders")
 
     assert result.as_tool_result() == []
     async with e2e_harness.sessions() as session:

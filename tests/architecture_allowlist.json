@@ -7,7 +7,6 @@
     },
     "Rule H": {
       "Rule H|safwa/ai/contracts.py|collection over card, check, diary, request, tag, value": 1,
-      "Rule H|safwa/ai/service.py|branches on card": 1,
       "Rule H|safwa/ai/tools.py|dict over card, check, diary, request, tag, value": 1,
       "Rule H|safwa/history.py|collection over card, check, diary, request, tag, value": 1,
       "Rule H|safwa/telegram/_core.py|dict over tag, value": 1,

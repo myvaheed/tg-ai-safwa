@@ -11,7 +11,7 @@ from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.context import DialogueMessage
 from safwa.ai.mini import ReadToolSpec, query_read_tool
-from safwa.ai.service import AIOutcomeKind
+from safwa.ai.outcome import AIOutcomeKind
 from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.ai.subagents import RoutedSubagent
 from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS
@@ -372,7 +372,7 @@ async def test_route_cannot_share_its_response_with_another_call(e2e_harness):
 
 async def test_a_subagent_that_runs_too_long_is_stopped_by_the_clock(e2e_harness, monkeypatch):
     """AG-BUDGET-012 — tests/brd/agents.feature"""
-    monkeypatch.setattr("safwa.ai.service.SUBAGENT_DEADLINE_SECONDS", 0.05)
+    monkeypatch.setattr("safwa.ai.advisor.SUBAGENT_DEADLINE_SECONDS", 0.05)
 
     async def never_returns_in_time(_call):
         await asyncio.sleep(1.0)

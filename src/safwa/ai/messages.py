@@ -72,7 +72,7 @@ class ContextBuilder:
         self.subagents = subagents
         self.cache_breakpoints = cache_breakpoints
 
-    async def for_session(
+    async def messages_for(
         self,
         kind: str,
         dialogue: list[dict[str, Any]],

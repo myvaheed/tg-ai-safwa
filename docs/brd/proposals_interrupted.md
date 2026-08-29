@@ -3,7 +3,7 @@
 Status: **approved** by the owner on 2026-08-28.
 Batch: Phase 6.c
 Sources: `CLAUDE.md` §"AI mutations are always proposals"; current code —
-[ai/service.py](../../src/safwa/ai/service.py) `_advance_autoapprovals`,
+`ai/service.py` `_advance_autoapprovals`,
 `_autoapproval_candidate`; [ai/autoapproval.py](../../src/safwa/ai/autoapproval.py);
 [telegram/_messaging.py](../../src/safwa/telegram/_messaging.py) `dismiss_prior_ui`;
 [telegram/dialogue.py](../../src/safwa/telegram/dialogue.py); and the E2E suite named in the audit
@@ -207,7 +207,7 @@ No behaviour changes.
   happens to the batch, and what happens to the paused turn. The first half moves into
   [features/proposals/use_cases.py](../../src/safwa/features/proposals/use_cases.py) beside
   `approve_proposal`, over the reducer that already decides these transitions. The second half stays
-  in [ai/service.py](../../src/safwa/ai/service.py) for Phase 7, which owns claiming and resuming a
+  in `ai/service.py` for Phase 7, which owns claiming and resuming a
   turn — and which rewrites it.
 - That is the seam [MIGRATION.md](../MIGRATION.md) draws for Phase 6: a batch that reaches into a
   running turn has crossed it.
@@ -220,7 +220,7 @@ nothing covered, and `tests/brd/screens.feature` with the `SC` prefix declared b
 The batch half of `resolve_approval` and `cancel_approval_for_proposal` is now `decide_batch_item`
 and `interrupt_batch` in [features/proposals/use_cases.py](../../src/safwa/features/proposals/use_cases.py),
 with `_refresh_queued_proposal` moved beside them. What the model reads back is still rendered in
-[ai/service.py](../../src/safwa/ai/service.py) and handed in, because the labels belong to the
+`ai/service.py` and handed in, because the labels belong to the
 session layer. Claiming and resuming a turn stayed there for Phase 7.
 
 **The bonus the owner asked for, outside the scenarios:** the `board` and `diary` prompts now say to

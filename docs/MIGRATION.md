@@ -58,7 +58,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 4 | Leaf business batches | business | **done** — 4.a Continuity and Profile, 4.b Reminders, 4.c Saved Requests, 4.d Values and Tags |
 | 5 | Cards, Checks and the Sprint | business | **done** — 5.0 the board package (technical), 5.a Cards, 5.b stages, 5.c Checks, 5.d archiving, 5.e the archive as a mark, 5.f the heavy analyzer, 5.g a repeat's Values, 5.h Planning and the plan screen |
 | 6 | Proposals and the first reactive process | business | **done** — 6.a the typed batch and the reducer, 6.b the proposal use cases, 6.c interruption and autoapproval, 6.d the startup sweeps, 6.e–6.g no status, no tables, no stringly vocabularies |
-| 7 | `agent_runtime` | technical + business | **planned** — two scenario packets drafted, seven batches; see "Before starting Phase 7" |
+| 7 | `agent_runtime` | technical + business | **done** — 21 scenarios approved, `ai/service.py` deleted; see "What Phase 7.b delivered" |
 | 8 | `telegram_llm` and `TurnManager` | technical | not started |
 | 9 | Packages and cleanup | technical | not started |
 
@@ -1594,7 +1594,7 @@ Reminder firing-history columns.
 ## Before starting Phase 6
 
 The plan's §9.2 names `ProposalService` the god-class and cites `service.py:2663`. That reference is
-stale: `ProposalService` is 46 lines at [ai/service.py](../src/safwa/ai/service.py), and
+stale: `ProposalService` was 46 lines in the since-deleted `ai/service.py`, and
 the god-class is `AIAdvisor`. Read this section instead of that row.
 
 ### The process, and where its identity is stored
@@ -1781,7 +1781,7 @@ scenarios for the first time.
 | # | What | Kind | State |
 |---|---|---|---|
 | 7.a | Both scenario packets and the behaviour they fix: 21 scenarios into `tests/brd/agents.feature`, and words typed over a screen resume the request that opened it — the one-turn grace and the four mechanisms around it deleted | business | done |
-| 7.b | The §12.5 cut, finished: `agent_runtime` takes the session and the loop behind its ports, the rest of `ai/service.py` lands in four named files, `ai/service.py` is deleted, and `examples/plain_chat_bot/` proves the border | technical | planned |
+| 7.b | The §12.5 cut, finished: `agent_runtime` takes the session and the loop behind its ports, the rest of `ai/service.py` lands in five named files, `ai/service.py` is deleted, and `examples/plain_chat_bot/` proves the border | technical | done |
 
 The split is the one the phase actually has. A business batch needs the owner before its tests are
 written; a technical batch needs nobody. Cutting either half smaller only creates states where an
@@ -2037,6 +2037,84 @@ its rule and was rewritten to the new flow.
 `ai/service.py` went from 2100 lines to 2193 — resuming an interrupted turn is a path that did not
 exist, and what it replaced was smaller. The module graph, the cycles, the rule violations, the
 prompt prefix and the schema all held still. 773 tests pass, 3 skipped.
+
+### What Phase 7.b delivered
+
+**`src/safwa/ai/service.py` does not exist.** It was 2193 lines when the batch opened and it was
+deleted in five steps, each green on its own.
+
+| Step | What moved | `ai/service.py` after |
+|---|---|---|
+| v6.2 | `features/proposals/render.py` — the receipt rendering | 1928 |
+| v6.3 | `ai/tools.py` — the tool adapters, and the tool port | 1546 |
+| v6.4 | `ai/messages.py` — the context prefix, as `ContextBuilder` | 1445 |
+| v6.5 | `agent_runtime/`, `ai/advisor.py`, `ai/materialize.py`, `ai/runs.py`, `ai/outcome.py` | gone |
+
+`src/agent_runtime/` is 1239 lines across seven modules: `model.py` (the session, the run record,
+the receipt), `ports.py` (four protocols and one optional observer), `loop.py`, `manager.py`,
+`context.py`, `testing.py` and the package's `__init__.py`. Rule F is 0, and
+`tests/test_agent_runtime.py` adds the check Rule F cannot make: no public name in `model.py` or
+`ports.py` may say `proposal`, `aiogram`, `sqlalchemy`, `safwa`, `telegram` or `pydantic`.
+
+**The ports are four questions, and the runtime asks nothing else.** Where a session's state lives
+(`SessionStore`); what a kind of session may call and what happens when it does (`ToolRunner`); what
+it reads before its own steps (`ContextSource`); and what a finished turn means (`Materializer`).
+`Observer` is the fifth and the only optional one — a host that keeps a trail implements it, and
+`agent_steps` is Safwa's implementation of it rather than a table the runtime knows about.
+
+**One shape replaced five copies of it.** `handle`, `_deliver_to_parent`, `_run_child`,
+`_resume_interrupted_turn` and `resolve_approval` each ran the loop and then repeated the same
+sequence: store what a suspended session needs, stamp the record, materialize, and decide whether the
+turn is over. That is `AgentManager._complete`, once.
+
+**The repair round became a fact about the loop instead of a recursion.** `_materialize` used to call
+`_run_agent_loop` and then call itself. `Materializer.materialize` now answers `None` for "I corrected
+this turn's tool results, run it again", and the manager loops. The cycle between the seam and the
+loop is gone, and with it the two-phase construction that would have been needed to cut them apart.
+
+**`examples/plain_chat_bot/bot.py` is the proof the border holds.** A note keeper in 180 lines: a
+search that runs inside the turn, a note that waits for a person, and a resume — on `ScriptedProvider`
+and `InMemorySessionStore`, importing no Safwa. It is run by a test, so it cannot rot.
+
+Three things the batch decided that the plan had left open:
+
+- **`agent_steps` stays, as the `Observer` port.** It is the only record of the SQL a local model
+  wrote and the rows it got back. Writing it once at the end of a turn instead of five times inside
+  one was considered and deferred: it is a behaviour change, not a move, and `schema.json` did not
+  have to move for it.
+- **`ai/mini.py` keeps its own loop.** Folding it in would mean giving the runtime a second ending —
+  a terminal tool call rather than words — for one caller. `ReadToolSpec` stays in `ai/mini.py`; the
+  runtime only ever needs the names, so `AgentDefinition.read_specs` is `Mapping[str, Any]`.
+- **`AgentRunStatus` became `agent_runtime.RunStatus` with six members**, all of them written and
+  read. `claimed_at` keeps its one reader in `CueRuntime.can_speak` and its one writer in the claim.
+
+Two destinations moved off the plan's map, each recorded above: `failure_reason` went to
+`foundation/errors.py` rather than the runtime (the runtime keeps its own, because it cannot import
+Safwa), and the context blocks went to `ai/messages.py` rather than `ai/advisor.py`.
+
+| Exit criterion | Result |
+|---|---|
+| 1 `ai/service.py` does not exist | met — no import of it remains |
+| 2 Rule F | 0 |
+| 3 no application word in the package's public names | met, and tested |
+| 4 the runtime starts on a scripted provider and an in-memory store | met — the example runs |
+| 5 no general loop left in Safwa | met — `ai/advisor.py` calls the manager |
+| 6 largest Safwa module ≤ 400 | **missed** — `ai/tools.py` is 543 |
+| 7 DoD #3 6 → 5 | met |
+| 8 Rule H 25 → 24 | met |
+| 9 cycles 0 | met |
+| 10 `prompt_prefix.json` byte-identical | met, checked after every step |
+| 11 `schema.json` unchanged | met |
+| 12 all 21 `AG` scenarios cited and green | met |
+| 13 the two E2E suites added to, never traded | met |
+
+Criterion 6 was read too literally when it was written: `telegram/callbacks.py` is 1278 lines and
+belongs to Phase 8, so no batch here could have met it as stated. Read as "the modules this batch
+produced", it is met except for `ai/tools.py` at 543 — everything Safwa does about a tool, in the
+file named for it. It stays under DoD #3's 600 and is not split for the sake of a number.
+
+777 tests pass, 3 skipped. The module graph is 173 modules and 710 edges, cycles 0, 27 rule
+violations. The largest Safwa module is now `telegram/callbacks.py`, which is Phase 8's.
 
 ### The seam with Phase 8
 
