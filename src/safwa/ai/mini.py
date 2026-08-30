@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -20,8 +19,8 @@ from pydantic import BaseModel, ValidationError
 from llm_gateway import CompletionRequest, LlmProvider, ToolCall
 
 from ..constants import MINI_SESSION_REPAIR_ROUNDS
-from .contracts import QueryToolInput, ToolResultStatus, tool_json_schema
-from .sql import ReadOnlyQueryRunner, UnsafeQueryError
+from .contracts import ToolResultStatus, tool_json_schema
+from .sql import QUERY_SAFWA_TOOL, ReadOnlyQueryRunner, read_query
 
 logger = logging.getLogger(__name__)
 
@@ -191,51 +190,14 @@ def _reply(messages: list[dict[str, Any]], call: ToolCall, content: Any) -> None
     )
 
 
-QUERY_SAFWA_TOOL: dict[str, Any] = {
-    "type": "function",
-    "function": {
-        "name": "query_safwa",
-        "description": (
-            "Read Safwa's current data with one read-only SELECT over the ai_* views listed "
-            "in your instructions. Use it before you answer or propose anything."
-        ),
-        "parameters": tool_json_schema(QueryToolInput),
-    },
-}
-
-
 def query_read_tool(query_runner: ReadOnlyQueryRunner) -> ReadToolSpec:
-    """`query_safwa` as a plain read tool, for a session that declares its own tools.
+    """`query_safwa` as a read tool a mini session declares for itself.
 
-    The runner and its caps are shared, so a read costs the same wherever it is called from.
+    A mini session never runs through `ToolAdapters`, so this is how it reaches the same
+    door: the runner, its caps and its wording are `ai/sql.py`'s for every reader.
     """
 
     async def read(call: ToolCall) -> list[dict[str, Any]]:
-        try:
-            query = QueryToolInput.model_validate(json.loads(call.arguments_json or "{}"))
-            outcome = await query_runner.run(query.sql)
-            return outcome.as_tool_result()
-        except (
-            UnsafeQueryError,
-            sqlite3.Error,
-            TimeoutError,
-            OSError,
-            ValidationError,
-            json.JSONDecodeError,
-            TypeError,
-            ValueError,
-        ) as error:
-            return [
-                {
-                    "status": ToolResultStatus.ERROR.value,
-                    "code": "query_failed",
-                    "error": str(error),
-                    "hint": (
-                        "Fix only this SELECT and call query_safwa again. One read-only "
-                        "SELECT or WITH … SELECT over the ai_* views."
-                    ),
-                    "retryable": True,
-                }
-            ]
+        return (await read_query(query_runner, call)).rows
 
     return ReadToolSpec(QUERY_SAFWA_TOOL, read)

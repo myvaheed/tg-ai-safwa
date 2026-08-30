@@ -113,7 +113,7 @@ class AgentSession:
     repair_rounds: int = 0
     result_summaries: list[str] = field(default_factory=list)
     display_result_summaries: list[str] = field(default_factory=list)
-    # The session this one routed to, and the `route` call still waiting for its receipt.
+    # Who routed here, and this session's own `route` call that has not been answered yet.
     parent_run_id: int | None = None
     awaiting_route: dict[str, Any] | None = None
     # What this turn had already saved when the caller routed here.

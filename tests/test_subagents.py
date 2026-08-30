@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from llm_gateway import ToolCall as ProviderToolCall
+from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.ai.subagents import PERSONA, RoutedSubagent
-from safwa.ai.tools import SAFWA_TOOLS
-from safwa.bootstrap.modules import PROPOSALS, SYSTEM_PROMPT
+from safwa.ai.tools import IMMEDIATE_TOOLS, SAFWA_TOOLS
+from safwa.bootstrap.module_manifest import AgentContext
+from safwa.bootstrap.modules import AGENTS, ALLOWED_VIEWS, PROPOSALS, SYSTEM_PROMPT
 from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
 
 
@@ -107,3 +110,24 @@ def test_the_clock_is_the_only_volatile_line_a_diary_session_gets() -> None:
     today = current.astimezone(ZoneInfo("Europe/Istanbul")).date().isoformat()
     assert clock.startswith(f"Today is {today}")
     assert today not in DIARY_PROMPT
+
+
+def test_no_subagent_declares_a_read_tool_the_adapters_already_answer(tmp_path) -> None:
+    """`query_safwa` is Safwa's one read door, published to every session by `ToolAdapters`.
+
+    A subagent that declared it again would be shadowed — the adapters answer their own
+    names before they look at a session's read tools — and its schema would be sent twice.
+    """
+    context = AgentContext(
+        settings=SimpleNamespace(telegram_owner_id=42, timezone="Europe/Istanbul"),
+        query_runner=ReadOnlyQueryRunner(tmp_path / "safwa.db", ALLOWED_VIEWS),
+        history=StubDayReader(""),
+    )
+    declared = {
+        spec.name
+        for agent in AGENTS
+        if agent.read_tools is not None
+        for spec in agent.read_tools(context)
+    }
+
+    assert not declared & IMMEDIATE_TOOLS

@@ -10,11 +10,11 @@ from sqlalchemy import select
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.context import DialogueMessage
-from safwa.ai.mini import ReadToolSpec, query_read_tool
+from safwa.ai.mini import ReadToolSpec
 from safwa.ai.outcome import AIOutcomeKind
-from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.ai.subagents import RoutedSubagent
-from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS
+from safwa.ai.tools import IMMEDIATE_TOOLS
+from safwa.bootstrap.modules import PROPOSALS
 from safwa.domain import create_card, finish_action
 from safwa.enums import CardKind
 from safwa.features.cards.model import CardStage
@@ -86,7 +86,6 @@ def diary_subagent(
             day_read_tool(
                 StubDayReader(transcript), chat_id=42, timezone="Europe/Istanbul"
             ),
-            query_read_tool(ReadOnlyQueryRunner(harness.database_path, ALLOWED_VIEWS)),
         ),
         mutation_tools=("diary",),
         clock=lambda: diary_clock("Europe/Istanbul"),
@@ -762,3 +761,19 @@ async def test_saving_finishes_the_subagent_and_the_next_route_starts_fresh(e2e_
     # Save finished the first one, so routing back inside the same request opened a second.
     assert [run.status for run in diary_runs] == ["completed", "awaiting_approval"]
     assert len(diary_runs) == 2
+
+
+async def test_every_session_reads_through_the_one_door_and_no_one_declares_it_twice(
+    e2e_harness,
+) -> None:
+    """`query_safwa` comes from the adapters, so the Advisor and a subagent share one door."""
+    advisor, _ = e2e_harness.advisor(
+        ["Готово."], subagents=(e2e_harness.board(), diary_subagent(e2e_harness))
+    )
+
+    for kind in ("advisor", "board", "diary"):
+        definition = advisor.adapters.definition(kind)
+        names = [tool["function"]["name"] for tool in definition.tools]
+        assert names.count("query_safwa") == 1, kind
+        # A session's own read tools are its own: none of them is a name the adapters answer.
+        assert not set(definition.read_specs) & IMMEDIATE_TOOLS, kind

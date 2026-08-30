@@ -11,6 +11,7 @@ from typing import Any
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import aliased
 
 from agent_runtime import RunRecord, RunStatus
 
@@ -191,15 +192,32 @@ class AgentRunStore:
             await session.commit()
 
     async def close_unfinished_children(self, run_id: int) -> int:
+        """End everything left unfinished anywhere below this session.
+
+        The walk is here rather than in the caller: a session ends the whole branch it
+        started, so the depth of the chain is this statement's business and nobody else's.
+        `parent_run_id` is written once, at creation, and always names an older row, so the
+        recursion terminates.
+        """
         async with self.sessions() as session:
+            branch = (
+                select(AgentRun.id)
+                .where(AgentRun.parent_run_id == run_id)
+                .cte("branch", recursive=True)
+            )
+            deeper = aliased(AgentRun)
+            branch = branch.union_all(
+                select(deeper.id).join(branch, deeper.parent_run_id == branch.c.id)
+            )
             closed = await session.scalars(
                 update(AgentRun)
                 .where(
-                    AgentRun.parent_run_id == run_id,
+                    AgentRun.id.in_(select(branch.c.id)),
                     AgentRun.status == RunStatus.INTERRUPTED.value,
                 )
                 .values(status=RunStatus.ABANDONED.value, claimed_at=None)
                 .returning(AgentRun.id)
+                .execution_options(synchronize_session=False)
             )
             count = len(list(closed))
             await session.commit()

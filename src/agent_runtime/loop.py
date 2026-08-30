@@ -27,9 +27,6 @@ from .ports import ToolRunner
 
 logger = logging.getLogger(__name__)
 
-# A subagent was routed to for the work, so its first move is the work. Only the first:
-# the loop ends on a turn that calls no tool, and a session that must always call one
-# never ends.
 RouteHandler = Callable[[AgentSession, ToolCall], Awaitable[tuple[dict[str, Any], TurnOutcome | None]]]
 
 _ROUTE_IS_NOT_SHARED = {
@@ -86,6 +83,9 @@ async def run_loop(
     """
     messages = agent.messages
     while True:
+        # A subagent was routed to for the work, so its first move is the work. Only the
+        # first: the loop ends on a turn that calls no tool, and a session that must always
+        # call one never ends.
         turn = await provider_turn(
             agent, provider, first_call_required=agent.kind in routed_kinds
         )

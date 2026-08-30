@@ -70,7 +70,12 @@ class SessionStore(Protocol):
     async def take_interrupted_root(self) -> tuple[RunRecord, str] | None:
         """The root session a person wrote over, claimed, with what it had already done."""
 
-    async def close_unfinished_children(self, run_id: int) -> int: ...
+    async def close_unfinished_children(self, run_id: int) -> int:
+        """End everything left unfinished anywhere below this session, however deep.
+
+        The whole branch, not one level: a session is the outer bound of everything it
+        started, and the store is what knows the shape of the chain.
+        """
 
 
 class ToolRunner(Protocol):

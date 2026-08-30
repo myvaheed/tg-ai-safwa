@@ -173,13 +173,12 @@ class AgentManager:
         await self._close_unfinished_children(run_id)
 
     async def _close_unfinished_children(self, run_id: int) -> None:
-        """End the sessions this session routed to and never finished.
+        """End everything this session started and never finished.
 
         The session that routed to a subagent is its outer bound.  An interruption leaves it
         unfinished so the same session can route back into it with a correction; once that
-        session has answered, or failed, there is nothing left for it to correct.  Every
-        level does this for its own children, so a chain closes from the bottom up however
-        deep it is.
+        session has answered, or failed, there is nothing left for it to correct.  The store
+        ends the whole branch, so how deep the chain went is not this method's business.
         """
         count = await self.store.close_unfinished_children(run_id)
         if count:
@@ -484,9 +483,9 @@ class AgentManager:
     ) -> TurnOutcome | None:
         """Answer the `route` call that started this session, and run its caller on.
 
-        Returns ``None`` when there is no caller — the session was the root of its turn.
         The walk covers the whole chain, so the turn ends only when a session with no
-        parent answers.
+        parent answers. ``None`` means a caller could not be taken because something else
+        is already resuming it.
         """
         agent = child
         while agent.parent_run_id is not None:

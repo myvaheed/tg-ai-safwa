@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.ai.advisor import AIAdvisor
 from safwa.ai.autoapproval import AutoApprovalReviewer
-from safwa.ai.mini import query_read_tool
 from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from safwa.ai.subagents import RoutedSubagent
 from safwa.bootstrap.modules import (
@@ -130,9 +129,7 @@ class E2EHarness:
             purpose="every change to the planning data",
             # The instructions as assembled, `{views}` filled in: what the application runs.
             instructions=next(agent.instructions for agent in AGENTS if agent.name == "board"),
-            read_tools=(
-                query_read_tool(ReadOnlyQueryRunner(self.database_path, ALLOWED_VIEWS, timezone=TIMEZONE)),
-            ),
+            # No read tool of its own: `query_safwa` is published by the adapters.
             mutation_tools=BOARD_TOOLS,
             board_state=True,
         )

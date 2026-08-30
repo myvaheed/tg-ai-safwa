@@ -10,6 +10,8 @@ from sqlalchemy import select
 
 from llm_gateway import ToolCall
 from safwa.ai.prepare import ChangePreparer
+from safwa.ai.subagents import RoutedSubagent
+from safwa.ai.tools import ToolAdapters
 from safwa.bootstrap.module_manifest import AgentContext
 from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS, SYSTEM_PROMPT
 from safwa.features.diary.agent import (
@@ -316,16 +318,29 @@ async def test_di_date_012_read_day_defaults_to_the_local_day() -> None:
 
 
 def test_di_read_013_the_subagent_reads_both_sources() -> None:
-    """DI-READ-013 — tests/brd/diary.feature"""
+    """DI-READ-013 — tests/brd/diary.feature
+
+    What the session is given, not what the feature declares: `read_day` is the Diary's
+    own, and `query_safwa` is the one read door the adapters publish to every session.
+    """
     context = AgentContext(
         settings=SimpleNamespace(telegram_owner_id=42, timezone="Europe/Istanbul"),
         query_runner=SimpleNamespace(),
         history=RecordingDayReader(),
     )
+    routed = RoutedSubagent(
+        name="diary",
+        purpose=DIARY_AGENT.purpose,
+        instructions=DIARY_AGENT.instructions,
+        read_tools=DIARY_AGENT.read_tools(context),
+        mutation_tools=DIARY_AGENT.mutation_tools,
+    )
+    # Nothing here runs a call, so the adapters need nothing but their roster.
+    adapters = ToolAdapters(None, None, PROPOSALS, None, subagents={"diary": routed})
 
-    names = {spec.schema["function"]["name"] for spec in DIARY_AGENT.read_tools(context)}
+    offered = {tool["function"]["name"] for tool in adapters.definition("diary").tools}
 
-    assert names == {"read_day", "query_safwa"}
+    assert offered - set(DIARY_AGENT.mutation_tools) == {"read_day", "query_safwa"}
 
 
 async def test_di_read_015_a_silent_day_reads_as_empty() -> None:

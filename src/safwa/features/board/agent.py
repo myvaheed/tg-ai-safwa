@@ -7,8 +7,7 @@ the features that own those entities publish.
 
 from __future__ import annotations
 
-from ...ai.mini import ReadToolSpec, query_read_tool
-from ...bootstrap.module_manifest import AgentContext, AgentSpec
+from ...bootstrap.module_manifest import AgentSpec
 
 BOARD_TOOLS = ("card", "check", "value", "tag", "request", "reminder", "remove")
 
@@ -73,10 +72,6 @@ IDs are small integers. Never ask the user for one you can find yourself.
 - Propose only what was asked. When the choice is the user's, cite the item instead of guessing it."""
 
 
-def _board_read_tools(context: AgentContext) -> tuple[ReadToolSpec, ...]:
-    return (query_read_tool(context.query_runner),)
-
-
 BOARD_AGENT = AgentSpec(
     name="board",
     purpose=(
@@ -97,5 +92,4 @@ BOARD_AGENT = AgentSpec(
     ),
     mutation_tools=BOARD_TOOLS,
     board_state=True,
-    read_tools=_board_read_tools,
 )

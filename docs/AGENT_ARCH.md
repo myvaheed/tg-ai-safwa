@@ -65,7 +65,7 @@ row. The row is what survives a suspension:
 |---|---|
 | `kind` | `advisor`, or the subagent's name |
 | `parent_run_id` | who routed here; null for the Advisor |
-| `state_json` | dialogue, transcript, tool count, repair rounds, receipts, `open_item`, `helper_offered`, `interaction_token` |
+| `state_json` | dialogue, transcript, tool count, repair rounds, receipts, `host_state`, `helper_offered`, `interaction_token` |
 | `claimed_at` | the atomic claim that stops two resumes of one session |
 | `status` | `running`, `awaiting_approval`, `interrupted`, `completed`, `failed`, `abandoned` |
 
@@ -113,7 +113,9 @@ sequenceDiagram
     A-->>O: one message, citations rendered
 ```
 
-`IMMEDIATE_TOOLS` are `query_safwa`, `route`, `open` and `call_helper` — they run inside the turn.
+`IMMEDIATE_TOOLS` are `query_safwa`, `route`, `open` and `call_helper` — the tools `ToolAdapters`
+answers itself, and they run inside the turn. `query_safwa` is published to every session it runs,
+the Advisor's and a subagent's alike, so a feature declares only its own readers.
 The Advisor holds no mutation tool: every write is a proposal authored by a subagent.
 
 An immediate tool and mutation tools must not arrive in one provider response; the runtime rejects

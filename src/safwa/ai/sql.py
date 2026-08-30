@@ -3,11 +3,16 @@
 The view catalogue is data, not a constant here. Each feature owns its `SqlView`, the
 composition root collects them, and both the allowlist and `CREATE VIEW` come from that
 one source — so a new view is never registered twice.
+
+`query_safwa` is that surface as a tool, and every session that may read comes through
+`read_query`: one door, and one wording for a read that was refused.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import re
 import sqlite3
 import time
@@ -18,6 +23,10 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from pydantic import ValidationError
+
+from llm_gateway import ToolCall
+
 from ..constants import (
     DEFAULT_CELL_LIMIT,
     DEFAULT_CHAR_BUDGET,
@@ -27,6 +36,14 @@ from ..constants import (
     REPEAT_LIVE,
     REPEAT_MARKER,
 )
+from .contracts import (
+    QueryToolInput,
+    ToolResultStatus,
+    tool_json_schema,
+    validation_error_summary,
+)
+
+logger = logging.getLogger(__name__)
 
 # The marks `domain.title_marks` renders, as SQLite format strings: one wording, so a row
 # reads the same whether the model queried it or the owner tapped a citation.
@@ -375,3 +392,86 @@ class ReadOnlyQueryRunner:
 
     async def run(self, sql: str) -> QueryOutcome:
         return await asyncio.wait_for(asyncio.to_thread(self._run, sql), timeout=self.timeout)
+
+
+QUERY_SAFWA_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "query_safwa",
+        "description": (
+            "Read Safwa's current data with one read-only SELECT over the ai_* views listed "
+            "in your instructions. Use it before you answer or propose anything."
+        ),
+        "parameters": tool_json_schema(QueryToolInput),
+    },
+}
+
+
+@dataclass
+class QueryRead:
+    """One `query_safwa` call: the SQL it asked for, and the rows the model reads back.
+
+    `sql` is empty when the call never named one, which is how a caller tells a refused
+    SELECT from a call whose arguments were not a query at all.
+    """
+
+    sql: str
+    rows: list[dict[str, Any]]
+
+
+async def read_query(runner: ReadOnlyQueryRunner, call: ToolCall) -> QueryRead:
+    """Answer one `query_safwa` call. Every session that may read comes through here.
+
+    A rejected or broken read is the model's to repair, so it comes back as a retryable
+    tool result rather than an exception: raising would end the whole request, including
+    any change queued alongside it.
+    """
+    sql = ""
+    try:
+        query = QueryToolInput.model_validate(json.loads(call.arguments_json))
+        sql = query.sql
+        outcome = await runner.run(sql)
+        if outcome.notice:
+            logger.info("AI TOOL query_safwa capped: %s", outcome.notice)
+        return QueryRead(sql, outcome.as_tool_result())
+    # ``UnsafeQueryError`` is a ``ValueError``, so it has to be caught before the
+    # argument-shape clause or a rejected SELECT is reported as a bad argument and the
+    # model rewrites the call instead of the query.
+    except (UnsafeQueryError, sqlite3.Error, TimeoutError, OSError) as error:
+        return QueryRead(
+            sql,
+            [
+                {
+                    "status": ToolResultStatus.ERROR.value,
+                    "code": "unsafe_query" if isinstance(error, UnsafeQueryError) else "query_failed",
+                    "error": str(error),
+                    "hint": (
+                        "Fix only this SELECT and call query_safwa again. One read-only "
+                        "SELECT or WITH … SELECT over the ai_* views, no other statement. "
+                        "This failure changed nothing: every step of the request already "
+                        "resolved above still stands, so do not restart the request."
+                    ),
+                    "retryable": True,
+                }
+            ],
+        )
+    except (KeyError, TypeError, ValueError, ValidationError, json.JSONDecodeError) as error:
+        return QueryRead(
+            "",
+            [
+                {
+                    "status": ToolResultStatus.ERROR.value,
+                    "code": "invalid_arguments",
+                    "error": (
+                        validation_error_summary(error)
+                        if isinstance(error, ValidationError)
+                        else str(error)
+                    ),
+                    "hint": (
+                        'Send exactly one string argument, e.g. {"sql": "SELECT id, title '
+                        'FROM ai_cards LIMIT 20"}, and call query_safwa again.'
+                    ),
+                    "retryable": True,
+                }
+            ],
+        )

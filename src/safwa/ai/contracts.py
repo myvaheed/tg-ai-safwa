@@ -4,7 +4,15 @@ import json
 from enum import StrEnum
 from typing import Any, ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PositiveInt,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from ..features.proposals.model import ChangeAction
 
@@ -122,6 +130,16 @@ def tool_json_schema(model: type[BaseModel]) -> dict[str, Any]:
     A `title` carries no such reason: it is the property name written a second way, so it goes.
     """
     return _without_titles(model.model_json_schema())
+
+
+def validation_error_summary(error: ValidationError) -> str:
+    """One line per rejected field, for a model that cannot read a validator traceback."""
+    messages: list[str] = []
+    for issue in error.errors(include_url=False, include_input=False):
+        location = ".".join(str(item) for item in issue.get("loc", ()))
+        message = str(issue.get("msg", "Invalid value"))
+        messages.append(f"{location}: {message}" if location else message)
+    return "; ".join(messages) or "Invalid tool arguments"
 
 
 class ToolResultStatus(StrEnum):

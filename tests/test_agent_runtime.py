@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_runtime import InteractionRef, Resumption, RunStatus
+from agent_runtime import InMemorySessionStore, InteractionRef, Resumption, RunStatus
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "src" / "agent_runtime"
@@ -193,3 +193,18 @@ async def test_a_reference_no_one_minted_resumes_nothing() -> None:
     # Refused before anything is taken: the session is still waiting for its real answer.
     assert store.status(proposed.ref.run_id) is RunStatus.AWAITING_APPROVAL
     assert notebook.notes == ["Bread, milk, coffee"]
+
+
+async def test_the_in_memory_store_closes_a_branch_the_way_the_real_one_does() -> None:
+    """One port, one contract: everything unfinished below a session ends with it."""
+    store = InMemorySessionStore()
+    root = await store.create(kind="advisor")
+    child = await store.create(kind="board", parent_run_id=root.id)
+    grandchild = await store.create(kind="diary", parent_run_id=child.id)
+    for run in (child, grandchild):
+        await store.leave_interrupted(run.id, {}, "left unfinished")
+
+    assert await store.close_unfinished_children(root.id) == 2
+
+    assert store.status(child.id) is RunStatus.ABANDONED
+    assert store.status(grandchild.id) is RunStatus.ABANDONED

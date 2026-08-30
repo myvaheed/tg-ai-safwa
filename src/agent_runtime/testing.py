@@ -118,9 +118,17 @@ class InMemorySessionStore:
         return candidate, summary
 
     async def close_unfinished_children(self, run_id: int) -> int:
+        branch = {run_id}
+        # `parent_run_id` always names an older record, so one pass in id order reaches
+        # every descendant however deep the chain went.
+        for child_id in sorted(self._records):
+            record = self._records[child_id]
+            if record.parent_run_id not in branch:
+                continue
+            branch.add(child_id)
         closed = 0
-        for child_id, record in self._records.items():
-            if record.parent_run_id == run_id and self._status.get(child_id) is RunStatus.INTERRUPTED:
+        for child_id in branch - {run_id}:
+            if self._status.get(child_id) is RunStatus.INTERRUPTED:
                 self._status[child_id] = RunStatus.ABANDONED
                 self._claimed.discard(child_id)
                 closed += 1

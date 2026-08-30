@@ -1829,7 +1829,8 @@ Four decisions the table encodes, each of which could have gone the other way:
   `ai/service.py` on the reasoning that "the labels belong to the session layer". The session layer
   is leaving for a package that must never learn what a proposal is, so the reasoning expires with
   it. New file rather than `features/proposals/api.py`, which is already 606 lines. It takes plain
-  dicts and imports nothing from `ai/`, or the graph gains a cycle.
+  dicts, and the only `ai/` module it may name is `ai/contracts.py` — the shared change vocabulary
+  every feature already imports — or the graph gains a cycle.
 - **`_route_receipt` splits.** The *shape* a child hands its caller — `subagent`, `outcome`, `did`,
   `text`, `error` — is the runtime's, because every host needs one. What fills `did` is
   Safwa's proposal rendering, handed in.
@@ -1933,8 +1934,9 @@ expensive to find in step 5.
   recreated database, which is acceptable — but it has to be a decision, not a surprise.
 - **The prefix is the fragile thing, not the loop.** Every step reassembles messages. Criterion 10
   is the one most likely to fail, and it fails silently in behaviour and loudly only in the snapshot.
-- **`features/proposals/render.py` must not import `ai/`.** It renders from plain dicts the caller
-  hands it. An import the other way turns a clean move into the first cycle this codebase has had.
+- **`features/proposals/render.py` must not import a session module.** It renders from plain dicts
+  the caller hands it, and names only `ai/contracts.py`. An import the other way turns a clean move
+  into the first cycle this codebase has had.
 
 ### Three questions 7.b answers, with the recommendation
 
@@ -2193,12 +2195,45 @@ unfinished it was a record no turn could reach.
 `diff_lines` in `features/proposals/api.py` had no caller and took the file under 600 with it.
 `prompt_prefix.json` and `schema.json` did not move.
 
+### What the review of the phase changed
+
+Three things the phase left, found by reading the delivered code against its own claims.
+
+- **`query_safwa` existed twice.** `ToolAdapters.query` and `ai/mini.query_read_tool` were two
+  implementations of one tool, with different error codes and different words for a refused SELECT,
+  and three places declared it by hand. Worse, `ToolAdapters.run` answers its own names before it
+  looks at a session's read tools, so a subagent that declared `query_safwa` was silently running the
+  Advisor's copy. `ai/sql.py` now owns the whole read surface — the schema, `read_query`, and one
+  wording for a refused read — `ToolAdapters` publishes the tool to every session it runs, and a
+  feature declares only its own readers. `ai/tools.py` fell 533 to 476.
+- **`close_unfinished_children` closed one level.** The claim that a chain ends however deep it goes
+  held only because a routed subagent has no `route`. The store now walks the branch, so the depth of
+  a chain is the store's business and not its caller's.
+- **Three comments said the opposite of the code**: `parent_run_id` described as the session this one
+  routed *to*, `_deliver_to_parent` documenting a `None` it never returns, and the rule about a
+  subagent's first tool call sitting on an unrelated type alias.
+
+783 tests pass, 3 skipped. The module graph, the cycles, the rule violations, `prompt_prefix.json`
+and `schema.json` all held still.
+
 ### The seam with Phase 8
 
 - **Phase 7 owns** the session, the loop, the budget, the claim, suspension on an opaque reference,
   and the store port.
 - **Phase 8 owns** `as_state_flow()`, `TurnManager`, and everything the chat does with a run's state.
 - A Phase 7 module that names a Telegram message, a `MessageKind` or `GenerationGuard` has crossed it.
+- **One defect is Phase 8's**, because it lives in that seam: a review whose screen could not be drawn
+  is never closed, and it holds the Cue gate shut until a restart. `ProposalMaterializer.materialize`
+  opens the batch in `ProposalStore` — memory, not the transaction — before anything is rendered, so
+  a `render_proposal` that raises leaves the batch open. `dismiss_prior_ui` finds an open review by
+  its registered `APPROVAL` message, and the message that failed to send left no row, so the owner's
+  next words close nothing. `reviews.busy` stays true, `CueRuntime.can_speak` stays false, and every
+  Reminder and Sprint end goes unsaid. Nothing is lost — the `cues` rows are durable and wait — which
+  is what makes it silent. The Cue path already guards itself: `CueRuntime.speak` calls
+  `cancel_approval_for_proposal` in its own `except` for exactly this reason. The foreground path in
+  `telegram/dialogue.py` does not, and that asymmetry is the whole bug.
+- **`foundation/state_flow.py` is imported by no module under `src/`.** 230 lines waiting for the
+  subscriber Phase 8 brings. Named here rather than deleted, because it is Phase 8's to use or drop.
 
 ### What the numbers should do
 

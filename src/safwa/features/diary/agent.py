@@ -13,7 +13,7 @@ from pydantic import Field, field_validator, model_validator
 from llm_gateway import ToolCall
 
 from ...ai.contracts import ToolInput, ToolResultStatus
-from ...ai.mini import ReadToolSpec, query_read_tool
+from ...ai.mini import ReadToolSpec
 from ...bootstrap.module_manifest import AgentContext, AgentSpec
 from ...constants import WEEKDAY_NAMES
 from ...foundation.clock import Clock, SystemClock
@@ -189,7 +189,6 @@ def _diary_read_tools(context: AgentContext) -> tuple[ReadToolSpec, ...]:
             chat_id=context.settings.telegram_owner_id,
             timezone=context.settings.timezone,
         ),
-        query_read_tool(context.query_runner),
     )
 
 

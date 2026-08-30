@@ -2392,6 +2392,30 @@ async def test_a_session_can_only_be_claimed_once(e2e_harness):
         assert await advisor.store.claim_within(session, run.id) is None
 
 
+async def test_ending_a_session_ends_every_unfinished_one_below_it(e2e_harness):
+    """AG-WORDS-020 — tests/brd/agents.feature
+
+    A subagent holds no `route`, so nothing routes three deep today. The store closes the
+    branch whole anyway: the depth of a chain is its business, not its caller's.
+    """
+    advisor, _provider = e2e_harness.advisor(["Готово."])
+    root = await advisor.store.create(kind="advisor")
+    child = await advisor.store.create(kind="board", parent_run_id=root.id)
+    grandchild = await advisor.store.create(kind="diary", parent_run_id=child.id)
+    for run in (child, grandchild):
+        await advisor.store.leave_interrupted(run.id, {}, "left unfinished")
+
+    assert await advisor.store.close_unfinished_children(root.id) == 2
+
+    async with e2e_harness.sessions() as session:
+        status = {
+            run.id: (run.status, run.claimed_at)
+            for run in await session.scalars(select(AgentRun))
+        }
+    assert status[child.id] == ("abandoned", None)
+    assert status[grandchild.id] == ("abandoned", None)
+
+
 async def _standalone_tag_proposal(e2e_harness, advisor, name: str) -> int:
     """A proposal with no live approval batch, which is the plain receipt path."""
     outcome = await advisor.handle(f"Create a {name} tag")

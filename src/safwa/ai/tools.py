@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
@@ -41,13 +40,12 @@ from .contracts import (
     AgentChange,
     CallHelperInput,
     OpenInput,
-    QueryToolInput,
     RouteInput,
     ToolResultStatus,
     tool_json_schema,
+    validation_error_summary,
 )
-from .mini import QUERY_SAFWA_TOOL
-from .sql import ReadOnlyQueryRunner, UnsafeQueryError, is_complex_read
+from .sql import QUERY_SAFWA_TOOL, ReadOnlyQueryRunner, is_complex_read, read_query
 from .subagents import RoutedSubagent
 
 logger = logging.getLogger(__name__)
@@ -107,7 +105,9 @@ CALL_HELPER_TOOL: dict[str, Any] = {
 # The Advisor reads and routes. Every mutation tool belongs to the subagent that owns that
 # feature, so judging *which* change to propose happens where the change is authored.
 SAFWA_TOOLS = (QUERY_SAFWA_TOOL, OPEN_TOOL)
-# Tools that run during the turn instead of becoming a proposal the owner approves.
+# The tools the adapters answer themselves, and the ones that run during the turn instead
+# of becoming a proposal the owner approves. A session's own read tools are immediate too,
+# but they are its own: a subagent that named one of these would never be heard.
 IMMEDIATE_TOOLS = frozenset({"query_safwa", "route", "open", "call_helper"})
 
 REPAIR_EXHAUSTED = (
@@ -135,15 +135,6 @@ def add_notice(rows: list[dict[str, Any]], text: str) -> None:
         rows[-1] = {"notice": f"{rows[-1]['notice']} {text}"}
         return
     rows.append({"notice": text})
-
-
-def validation_error_summary(error: ValidationError) -> str:
-    messages: list[str] = []
-    for issue in error.errors(include_url=False, include_input=False):
-        location = ".".join(str(item) for item in issue.get("loc", ()))
-        message = str(issue.get("msg", "Invalid value"))
-        messages.append(f"{location}: {message}" if location else message)
-    return "; ".join(messages) or "Invalid tool arguments"
 
 
 def mutation_repair_details(
@@ -197,20 +188,27 @@ class ToolAdapters:
 
     def definition(self, kind: str) -> AgentDefinition:
         """What a session of this kind may call. The Advisor reads and routes; a subagent
-        gets its own reads and the mutation tools of the features it owns."""
+        gets its own reads and the mutation tools of the features it owns.
+
+        `query_safwa` is Safwa's one read door rather than any feature's read tool, so it
+        is published here to every session. `IMMEDIATE_TOOLS` is the whole set the adapters
+        answer themselves, and a subagent declares none of them.
+        """
         routed = self.subagents.get(kind)
         if routed is None:
             return AgentDefinition(
                 kind=kind, tools=self.advisor_tools, helper_tool=CALL_HELPER_TOOL
             )
+        # No helper tool: a helper is offered by a complex read, and only the Advisor's
+        # reads are ever offered one.
         return AgentDefinition(
             kind=kind,
             tools=(
+                QUERY_SAFWA_TOOL,
                 *(spec.schema for spec in routed.read_tools),
                 *(self.proposals.tools[name].schema() for name in routed.mutation_tools),
             ),
             read_specs={spec.name: spec for spec in routed.read_tools},
-            helper_tool=CALL_HELPER_TOOL,
         )
 
     def is_immediate(self, agent: AgentSession, name: str) -> bool:
@@ -357,69 +355,14 @@ class ToolAdapters:
         return result
 
     async def query(self, agent: AgentSession, call: ToolCall) -> list[dict[str, Any]]:
-        if call.name != "query_safwa":
-            rows: list[dict[str, Any]] = [
-                {
-                    "status": ToolResultStatus.ERROR.value,
-                    "code": "unknown_tool",
-                    "error": f"Unknown tool: {call.name}",
-                    "hint": (
-                        "Call one of: query_safwa, card, check, value, tag, request, reminder, "
-                        "remove."
-                    ),
-                    "retryable": True,
-                }
-            ]
-            sql = ""
-        else:
-            try:
-                arguments = json.loads(call.arguments_json)
-                query = QueryToolInput.model_validate(arguments)
-                sql = query.sql
-                outcome = await self.query_runner.run(sql)
-                rows = outcome.as_tool_result()
-                if outcome.notice:
-                    logger.info("AI TOOL query_safwa capped: %s", outcome.notice)
-            # ``UnsafeQueryError`` is a ``ValueError``, so it has to be caught before the
-            # argument-shape clause or a rejected SELECT is reported as a bad argument and
-            # the model rewrites the call instead of the query.
-            except (UnsafeQueryError, sqlite3.Error, TimeoutError, OSError) as error:
-                # A rejected or broken read is the model's to repair. Raising here would
-                # end the whole request, including any mutation queued alongside it.
-                rows = [
-                    {
-                        "status": ToolResultStatus.ERROR.value,
-                        "code": "unsafe_query"
-                        if isinstance(error, UnsafeQueryError)
-                        else "query_failed",
-                        "error": str(error),
-                        "hint": (
-                            "Fix only this SELECT and call query_safwa again. One read-only "
-                            "SELECT or WITH … SELECT over the ai_* views, no other statement. "
-                            "This failure changed nothing: every step of the request already "
-                            "resolved above still stands, so do not restart the request."
-                        ),
-                        "retryable": True,
-                    }
-                ]
-            except (KeyError, TypeError, ValueError, ValidationError, json.JSONDecodeError) as error:
-                sql = ""
-                rows = [
-                    {
-                        "status": ToolResultStatus.ERROR.value,
-                        "code": "invalid_arguments",
-                        "error": (
-                            validation_error_summary(error)
-                            if isinstance(error, ValidationError)
-                            else str(error)
-                        ),
-                        "hint": (
-                            'Send exactly one string argument, e.g. {"sql": "SELECT id, title '
-                            'FROM ai_cards LIMIT 20"}, and call query_safwa again.'
-                        ),
-                        "retryable": True,
-                    }
-                ]
+        """Safwa's one read door, for every session the adapters run.
+
+        The read itself is `ai/sql.py`'s. What is here is the session's half of it: the
+        helper a complex read earns, and the trail that keeps the SQL a local model wrote
+        beside the rows it got back.
+        """
+        read = await read_query(self.query_runner, call)
+        sql, rows = read.sql, read.rows
         if self._should_offer_helper(agent, sql, rows):
             agent.offer_helper()
             add_notice(rows, self.helper_offer)
