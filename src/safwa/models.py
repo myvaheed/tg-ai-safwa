@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import (
@@ -42,16 +41,6 @@ from .features.values.model import CheckValue as CheckValue
 from .features.values.model import Value as Value
 from .foundation.models import Base, TimestampMixin
 from .foundation.models import Workspace as Workspace
-
-
-class AgentRunStatus(StrEnum):
-    RUNNING = "running"
-    AWAITING_APPROVAL = "awaiting_approval"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    INTERRUPTED = "interrupted"
-    CANCELLED = "cancelled"
-    ABANDONED = "abandoned"
 
 
 class AgentRun(Base, TimestampMixin):

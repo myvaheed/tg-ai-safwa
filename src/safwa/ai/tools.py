@@ -20,7 +20,14 @@ from typing import Any
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from agent_runtime import AgentDefinition, AgentSession, ToolOutcome, json_safe, log_preview
+from agent_runtime import (
+    AgentDefinition,
+    AgentSession,
+    Observer,
+    ToolOutcome,
+    json_safe,
+    log_preview,
+)
 from llm_gateway import ToolCall
 
 from ..constants import SUBAGENT_HISTORY_LAST_MESSAGES
@@ -28,7 +35,7 @@ from ..features.diary.model import DiaryEntry
 from ..features.proposals.api import MutationToolSpec, ProposalRegistry
 from ..foundation.errors import failure_reason
 from ..history import citation_payload, conversation_block
-from ..models import AgentStep, Card, Check, SavedRequest, Tag, Value
+from ..models import Card, Check, SavedRequest, Tag, Value
 from .context import DialogueMessage
 from .contracts import (
     AgentChange,
@@ -165,12 +172,15 @@ class ToolAdapters:
         sessions: async_sessionmaker[AsyncSession],
         query_runner: ReadOnlyQueryRunner,
         proposals: ProposalRegistry,
+        trail: Observer,
         helpers: Mapping[str, Helper] | None = None,
         subagents: Mapping[str, RoutedSubagent] | None = None,
     ) -> None:
         self.sessions = sessions
         self.query_runner = query_runner
         self.proposals = proposals
+        # The same trail the runtime writes `route` to: one record of what a session did.
+        self.trail = trail
         self.subagents = dict(subagents or {})
         # An empty roster means there is nothing to route to, so the tool is not offered.
         self.advisor_tools = (*SAFWA_TOOLS, ROUTE_TOOL) if self.subagents else SAFWA_TOOLS
@@ -293,20 +303,12 @@ class ToolAdapters:
                 "hint": f"Call one of: {', '.join(self.helpers) or 'none'}.",
                 "retryable": True,
             }
-        async with self.sessions() as session:
-            session.add(
-                AgentStep(
-                    run_id=agent.run_id,
-                    position=agent.tool_count,
-                    kind="helper",
-                    metadata_json={
-                        "tool_call_id": call.id,
-                        "helper": payload.name,
-                        "request": payload.request,
-                    },
-                )
-            )
-            await session.commit()
+        await self.trail.step(
+            agent.run_id,
+            agent.tool_count,
+            "helper",
+            {"tool_call_id": call.id, "helper": payload.name, "request": payload.request},
+        )
         logger.info("HELPER -> %s %s", payload.name, log_preview(payload.request, 200))
         try:
             return await helper(
@@ -341,20 +343,16 @@ class ToolAdapters:
     async def read(self, agent: AgentSession, call: ToolCall) -> Any:
         """Run one of this session's own read tools and record that it ran."""
         result = await agent.read_specs[call.name].run(call)
-        async with self.sessions() as session:
-            session.add(
-                AgentStep(
-                    run_id=agent.run_id,
-                    position=agent.tool_count,
-                    kind="read",
-                    metadata_json={
-                        "tool_call_id": call.id,
-                        "tool": call.name,
-                        "arguments": call.arguments_json,
-                    },
-                )
-            )
-            await session.commit()
+        await self.trail.step(
+            agent.run_id,
+            agent.tool_count,
+            "read",
+            {
+                "tool_call_id": call.id,
+                "tool": call.name,
+                "arguments": call.arguments_json,
+            },
+        )
         logger.info("AI TOOL %s(%s)", call.name, log_preview(call.arguments_json, 200))
         return result
 
@@ -430,24 +428,20 @@ class ToolAdapters:
             len(rows),
             log_preview(sql, 700),
         )
-        async with self.sessions() as session:
-            session.add(
-                AgentStep(
-                    run_id=agent.run_id,
-                    position=agent.tool_count,
-                    kind="read_query",
-                    metadata_json={
-                        "tool_call_id": call.id,
-                        "tool": call.name,
-                        "arguments": call.arguments_json,
-                        "sql": sql,
-                        "row_count": len(rows),
-                        "columns": list(rows[0]) if rows else [],
-                        "result": json_safe(rows),
-                    },
-                )
-            )
-            await session.commit()
+        await self.trail.step(
+            agent.run_id,
+            agent.tool_count,
+            "read_query",
+            {
+                "tool_call_id": call.id,
+                "tool": call.name,
+                "arguments": call.arguments_json,
+                "sql": sql,
+                "row_count": len(rows),
+                "columns": list(rows[0]) if rows else [],
+                "result": json_safe(rows),
+            },
+        )
         return rows
 
     async def open(self, agent: AgentSession, call: ToolCall) -> dict[str, Any]:
@@ -477,8 +471,8 @@ class ToolAdapters:
                     "retryable": True,
                 }
             item_id = item.id
-        agent.open_item = citation_payload(request.item_type, item_id)
-        logger.info("AI TOOL open -> %s", agent.open_item)
+        agent.host_state["open_item"] = citation_payload(request.item_type, item_id)
+        logger.info("AI TOOL open -> %s", agent.host_state["open_item"])
         return {
             "status": ToolResultStatus.OK.value,
             "opened": {"item_type": request.item_type, "id": item_id},
@@ -517,23 +511,19 @@ class ToolAdapters:
                 )
             return None, result
         logger.info("AI TOOL %s prepared %s.%s", call.name, change.entity, change.action)
-        async with self.sessions() as session:
-            session.add(
-                AgentStep(
-                    run_id=agent.run_id,
-                    position=agent.tool_count,
-                    kind="mutation_intent",
-                    metadata_json={
-                        "tool_call_id": call.id,
-                        "arguments": call.arguments_json,
-                        "tool": call.name,
-                        "entity": change.entity,
-                        "action": change.action,
-                        "id": change.id,
-                    },
-                )
-            )
-            await session.commit()
+        await self.trail.step(
+            agent.run_id,
+            agent.tool_count,
+            "mutation_intent",
+            {
+                "tool_call_id": call.id,
+                "arguments": call.arguments_json,
+                "tool": call.name,
+                "entity": change.entity,
+                "action": change.action,
+                "id": change.id,
+            },
+        )
         return change, {
             "status": ToolResultStatus.PREPARED.value,
             "entity": change.entity,

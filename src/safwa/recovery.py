@@ -6,10 +6,11 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent_runtime import RunStatus
+
 from .enums import MessageKind
 from .models import (
     AgentRun,
-    AgentRunStatus,
     CallbackToken,
     TelegramMessage,
     UiSession,
@@ -28,15 +29,16 @@ async def recover_startup(
     now = datetime.now(UTC)
     for hook in hooks:
         await hook(session)
+    # Both end the same way, so both are recorded the same way.  `interrupted` is the one
+    # a later turn may pick up, and nothing after a restart can be its caller.
     await session.execute(
         update(AgentRun)
-        .where(AgentRun.status == AgentRunStatus.RUNNING.value)
-        .values(status=AgentRunStatus.INTERRUPTED.value, claimed_at=None)
-    )
-    await session.execute(
-        update(AgentRun)
-        .where(AgentRun.status == AgentRunStatus.AWAITING_APPROVAL.value)
-        .values(status=AgentRunStatus.ABANDONED.value, claimed_at=None)
+        .where(
+            AgentRun.status.in_(
+                (RunStatus.RUNNING.value, RunStatus.AWAITING_APPROVAL.value)
+            )
+        )
+        .values(status=RunStatus.ABANDONED.value, claimed_at=None)
     )
     # Proposal reviews live in the running process, so a restart has already ended every
     # one of them.  What is left in the database is what pointed at them: a button that

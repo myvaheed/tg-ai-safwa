@@ -8,7 +8,6 @@ from sqlalchemy import func, select
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.autoapproval import AutoApprovalReviewer
-from safwa.ai.context import DialogueMessage
 from safwa.ai.outcome import AIOutcomeKind
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.domain import create_card, create_tag, create_value
@@ -216,7 +215,6 @@ async def test_next_head_is_autoapproved_after_a_manual_save(e2e_harness):
         first.proposal_id,
         decision=BatchDecision.APPROVED,
         result={"affected_ids": affected},
-        dialogue=[DialogueMessage(role="user", content="Rename the two items")],
     )
 
     assert outcome is not None and outcome.kind is AIOutcomeKind.ANSWER

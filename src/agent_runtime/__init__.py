@@ -7,21 +7,21 @@ change is, and where the state is kept are the application's, through `ports`.
 from __future__ import annotations
 
 from .context import append_user_message, cache_breakpoint, system_note
-from .loop import ToolBudgetExceeded, run_loop
-from .manager import AgentManager, failure_reason
+from .loop import ToolBudgetExceeded
+from .manager import AgentManager
 from .model import (
     AgentDefinition,
     AgentLoopResult,
     AgentSession,
+    InteractionRef,
     PendingTool,
+    Resumption,
     RunRecord,
     RunStatus,
     ToolOutcome,
     TurnOutcome,
     json_safe,
     log_preview,
-    resumed_transcript,
-    route_receipt,
 )
 from .ports import ContextSource, Materializer, Observer, SessionStore, ToolRunner
 from .testing import InMemorySessionStore
@@ -33,9 +33,11 @@ __all__ = [
     "AgentSession",
     "ContextSource",
     "InMemorySessionStore",
+    "InteractionRef",
     "Materializer",
     "Observer",
     "PendingTool",
+    "Resumption",
     "RunRecord",
     "RunStatus",
     "SessionStore",
@@ -45,11 +47,7 @@ __all__ = [
     "TurnOutcome",
     "append_user_message",
     "cache_breakpoint",
-    "failure_reason",
     "json_safe",
     "log_preview",
-    "resumed_transcript",
-    "route_receipt",
-    "run_loop",
     "system_note",
 ]

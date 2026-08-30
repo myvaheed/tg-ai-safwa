@@ -43,7 +43,7 @@ class SessionStore(Protocol):
 
     async def save_state(self, run_id: int, state: dict[str, Any]) -> None: ...
 
-    async def claim(self, run_id: int, *, held_run_id: int | None = None) -> RunRecord | None: ...
+    async def claim(self, run_id: int) -> RunRecord | None: ...
 
     async def finish(
         self,
@@ -53,6 +53,15 @@ class SessionStore(Protocol):
         duration_ms: int,
         error_code: str | None = None,
     ) -> None: ...
+
+    async def leave_interrupted(
+        self, run_id: int, state: dict[str, Any], summary: str
+    ) -> None:
+        """Store an unfinished session, and tell its chain's root what it was left with.
+
+        One write: the root's note is what a later turn looks for, so a session stored
+        without it is one nothing can find its way back into.
+        """
 
     async def adopt_interrupted_child(
         self, *, kind: str, parent_run_id: int

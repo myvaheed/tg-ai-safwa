@@ -34,7 +34,8 @@ Before implementing:
 State your assumptions explicitly. If uncertain, ask.
 If multiple interpretations exist, present them - don't pick silently.
 If a simpler approach exists, say so. Push back when warranted.
-If something is unclear, stop. Name what's confusing. Ask.
+If something is unclear, name what's confusing. Ask when the answer changes what you build;
+otherwise state the assumption and keep going.
 2. Simplicity First
 Minimum code that solves the problem. Nothing speculative.
 
@@ -51,14 +52,12 @@ Touch only what you must. Clean up only your own mess.
 When editing existing code:
 
 Don't "improve" adjacent code, comments, or formatting.
-Don't refactor things that aren't broken.
-Match existing style, even if you'd do it differently.
-If you notice unrelated dead code, mention it - don't delete it.
-When your changes create orphans:
-
-Remove imports/variables/functions that YOUR changes made unused.
-Don't remove pre-existing dead code unless asked.
-The test: Every changed line should trace directly to the user's request.
+Match the surrounding style, unless replacing it is the change you were asked for.
+Remove imports/variables/functions your changes made unused.
+The test: every changed line traces to the request — and for a declared refactoring batch, to that
+batch's stated scope. A batch declared to replace a mechanism deletes the old one, the workarounds
+that compensated for it, and the vocabulary only it read. Dead code outside that scope is named,
+not deleted.
 
 4. Goal-Driven Execution
 Define success criteria. Loop until verified.
@@ -220,7 +219,10 @@ subagent has no `route`, so there is no recursion.
 
 - A session is its `agent_runs` row. `state_json` carries the dialogue, transcript, budget and
   receipts, so a suspended turn resumes from its own record rather than from the screen that
-  suspended it, and `claimed_at` is what stops two resumes of the same session.
+  suspended it. A suspension hands back an opaque `InteractionRef`, and both halves of it guard the
+  resume: `claimed_at` stops two resumes at once, and the token — minted at the checkpoint, cleared
+  when it is taken — stops one screen being answered twice. Suspend, `resume` and `interrupt` all
+  belong to `AgentManager`; Safwa keeps only the mapping from a screen to its reference.
 - A subagent reads that conversation as **data**: the newest `SUBAGENT_HISTORY_LAST_MESSAGES` come
   as one `<Conversation>` block, a tag per author, so nothing it did not write reaches it in the
   `assistant` slot — prose there demonstrates answering in prose. The Advisor is that conversation's

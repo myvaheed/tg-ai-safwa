@@ -8,6 +8,7 @@ suspension. What a change *is* belongs to whoever implements the ports.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -27,6 +28,36 @@ class RunStatus(StrEnum):
     FAILED = "failed"
     # Interrupted, and then the turn that owned it ended without coming back.
     ABANDONED = "abandoned"
+
+
+@dataclass(frozen=True)
+class InteractionRef:
+    """What a session that stopped on a person is resumed with.
+
+    Opaque on purpose: the runtime never learns what the person was shown. The token is
+    minted when the session is checkpointed and cleared when it is answered, so a decision
+    about a suspension the session has already left is refused instead of being spliced
+    into a turn it does not belong to.
+    """
+
+    run_id: int
+    token: str
+
+
+@dataclass(frozen=True)
+class Resumption:
+    """What the person decided, in the shape the suspended session was waiting for.
+
+    `results` answer that session's own unfinished tool calls, one per call id. `notes` are
+    what the model reads back about the decision and `display_notes` what the person reads.
+    `answer` ends the session with fixed words instead of running it on, for a host that
+    already knows there is nothing left to ask.
+    """
+
+    results: Mapping[str, Any] = field(default_factory=dict)
+    notes: tuple[str, ...] = ()
+    display_notes: tuple[str, ...] = ()
+    answer: str | None = None
 
 
 @dataclass(frozen=True)
@@ -87,8 +118,11 @@ class AgentSession:
     awaiting_route: dict[str, Any] | None = None
     # What this turn had already saved when the caller routed here.
     prior_receipts: list[str] = field(default_factory=list)
-    # The item a tool resolved for the screen, kept until the session answers the owner.
-    open_item: str | None = None
+    # Whatever the application needs this session to still know after a suspension. The
+    # runtime carries it and never reads it.
+    host_state: dict[str, Any] = field(default_factory=dict)
+    # Set while this session is stopped on a person: the token half of its `InteractionRef`.
+    interaction_token: str | None = None
     # Whether a read in this session was complex enough to be offered a helper. The tool
     # is added when that happens, and `tools` is rebuilt from the kind on a resume — so a
     # session that routed a change and came back would lose a tool it had been shown.
@@ -123,8 +157,9 @@ class AgentSession:
             "display_result_summaries": self.display_result_summaries,
             "awaiting_route": self.awaiting_route,
             "prior_receipts": self.prior_receipts,
-            "open_item": self.open_item,
+            "host_state": self.host_state,
             "helper_offered": self.helper_offered,
+            "interaction_token": self.interaction_token,
         }
 
     @classmethod
@@ -173,7 +208,8 @@ class AgentSession:
             parent_run_id=record.parent_run_id,
             awaiting_route=state.get("awaiting_route") or None,
             prior_receipts=list(state.get("prior_receipts") or []),
-            open_item=state.get("open_item") or None,
+            host_state=dict(state.get("host_state") or {}),
+            interaction_token=state.get("interaction_token") or None,
             helper_tool=definition.helper_tool,
         )
         if state.get("helper_offered"):
@@ -186,14 +222,14 @@ class TurnOutcome:
     """What the host made of one finished turn.
 
     ``waiting`` means a person now has something to decide, so the session stays open and
-    the chain stops here. ``payload`` is the host's own answer object; the runtime carries
-    it back untouched.
+    the chain stops here, and ``ref`` is what resumes it. ``payload`` is the host's own
+    answer object; the runtime carries it back untouched.
     """
 
     message: str
     waiting: bool = False
-    did: list[str] = field(default_factory=list)
     payload: Any = None
+    ref: InteractionRef | None = None
 
 
 @dataclass
@@ -235,19 +271,18 @@ def route_receipt(
     message: str,
     summaries: list[str],
     *,
-    did: list[str] | None = None,
     error: str | None = None,
     receipt_prefixes: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """What a finished subagent hands back to whoever routed to it.
 
-    `did` is the same set of lines the person reads, so there is one shape of receipt in
-    the system.  `text` is the subagent's own words with its own citations — real ids the
-    caller can reuse — and never the body of what it proposed.  `receipt_prefixes` are the
-    host's receipt openings, so a line the model echoed is not counted twice.
+    `did` is the same set of lines the person reads, taken from the summaries this session
+    accumulated, so there is one shape of receipt in the system.  `text` is the subagent's
+    own words with its own citations — real ids the caller can reuse — and never the body
+    of what it proposed.  `receipt_prefixes` are the host's receipt openings, so a line the
+    model echoed is not counted twice.
     """
     receipt_lines = [line for summary in summaries for line in summary.splitlines() if line.strip()]
-    receipt_lines.extend(line for line in did or [] if line.strip())
     receipt: dict[str, Any] = {
         "subagent": name,
         "outcome": "error" if error else "done",
@@ -262,34 +297,3 @@ def route_receipt(
     if error:
         receipt["error"] = error
     return receipt
-
-
-def resumed_transcript(
-    transcript: list[dict[str, Any]],
-    tools: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Replay this request's own assistant/tool exchanges with the decisions filled in.
-
-    No separate progress digest is injected here: every step of the request is present as
-    its own call and result, each carrying its status and what to do next.  Restating them
-    in an assistant message would duplicate the request once per approval.
-    """
-    results_by_id = {str(tool["id"]): tool.get("result") for tool in tools if tool.get("id")}
-    replayed = [dict(message) for message in transcript]
-    last_assistant = max(
-        (index for index, message in enumerate(replayed) if message.get("role") == "assistant"),
-        default=None,
-    )
-    if last_assistant is None:
-        return replayed
-    # Only the suspended turn's own results are unresolved; every earlier tool message
-    # already carries its final content and must be replayed untouched.
-    for message in replayed[last_assistant + 1 :]:
-        if message.get("role") != "tool":
-            continue
-        tool_call_id = str(message.get("tool_call_id"))
-        if tool_call_id in results_by_id:
-            message["content"] = json.dumps(
-                results_by_id[tool_call_id], ensure_ascii=False, default=str
-            )
-    return replayed

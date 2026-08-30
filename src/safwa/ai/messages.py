@@ -1,9 +1,8 @@
-"""The message prefix a session reads, rebuilt from live state on every turn.
+"""What a session reads before its own steps: the blocks, and what each one says.
 
-Two rules govern this file and nothing else does. Only ``messages[0]`` is a system message,
-because the Qwen3.5 chat template raises on a second one. And the blocks are ordered by how
-often each changes, so the stable head stays byte-identical between turns and a remote
-provider can cache it — which is why anything volatile goes after the dialogue.
+The two rules about *where* a block may go — only ``messages[0]`` is a system message, and
+the order is by how often each block changes so a remote provider can cache the head — are
+`agent_runtime.context`'s, and this file uses them. What the blocks contain is Safwa's.
 """
 
 from __future__ import annotations
@@ -12,46 +11,12 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from agent_runtime import append_user_message, cache_breakpoint, system_note
+
 from ..features.continuity.memory import MemoryFileStore
 from .context import DialogueMessage, board_context, ordered_owner_context
 from .subagents import RoutedSubagent
 from .tools import conversation_for
-
-
-def system_note(content: str) -> dict[str, Any]:
-    """Carry a system block as owner text.
-
-    Only ``messages[0]`` may be a system message: the Qwen3.5 chat template raises
-    ``System message must be at the beginning`` on any later one.
-    """
-
-    return {"role": "user", "content": f"[System]: {content}"}
-
-
-def _append_user_message(messages: list[dict[str, Any]], content: str) -> None:
-    """Append user-side context without creating adjacent user turns."""
-    if messages and messages[-1].get("role") == "user":
-        messages[-1]["content"] += "\n" + content
-        return
-    messages.append({"role": "user", "content": content})
-
-
-def _cache_breakpoint(message: dict[str, Any]) -> dict[str, Any]:
-    """Mark the end of a reusable prefix.
-
-    OpenRouter accepts the Anthropic form and converts it to OpenAI's
-    ``prompt_cache_breakpoint`` for GPT-5.6 and newer, so one marker is portable.
-    """
-
-    content = message.get("content")
-    if not isinstance(content, str) or not content:
-        return message
-    return {
-        **message,
-        "content": [
-            {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
-        ],
-    }
 
 
 class ContextBuilder:
@@ -103,14 +68,14 @@ class ContextBuilder:
         # The history source has already bounded the window by its token budget.
         for item in dialogue:
             if item.role == "user":
-                _append_user_message(messages, item.content)
+                append_user_message(messages, item.content)
             else:
                 messages.append({"role": item.role, "content": item.content})
-        _append_user_message(messages, f"[System]: {context.clock}")
+        append_user_message(messages, f"[System]: {context.clock}")
         if self.cache_breakpoints:
-            messages[0] = _cache_breakpoint(messages[0])
+            messages[0] = cache_breakpoint(messages[0])
             if len(messages) > 2:
-                messages[-2] = _cache_breakpoint(messages[-2])
+                messages[-2] = cache_breakpoint(messages[-2])
         return messages
 
     async def routed(
@@ -130,21 +95,21 @@ class ContextBuilder:
         if routed.board_state:
             async with self.sessions() as session:
                 context = await board_context(session)
-            _append_user_message(messages, f"[System]: Current board state:\n{context.state}")
+            append_user_message(messages, f"[System]: Current board state:\n{context.state}")
         conversation = conversation_for(dialogue)
         if conversation:
-            _append_user_message(
+            append_user_message(
                 messages,
                 "[System]: The conversation so far, newest last. None of it is yours: read it "
                 f"for what the owner wants changed.\n{conversation}",
             )
         if self.cache_breakpoints:
-            messages[0] = _cache_breakpoint(messages[0])
+            messages[0] = cache_breakpoint(messages[0])
         lines = [line for line in prior_receipts or [] if line.strip()]
         if lines:
-            _append_user_message(
+            append_user_message(
                 messages, "[System]: Already saved in this request:\n" + "\n".join(lines)
             )
         if routed.clock is not None:
-            _append_user_message(messages, f"[System]: {routed.clock()}")
+            append_user_message(messages, f"[System]: {routed.clock()}")
         return messages

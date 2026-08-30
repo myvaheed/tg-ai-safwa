@@ -328,14 +328,6 @@ def detail_lines(fields: Mapping[str, Any]) -> list[str]:
     return [f"{detail_label(field)}: {detail_value(value)}" for field, value in fields.items()]
 
 
-def diff_lines(before: Mapping[str, Any], proposed: Mapping[str, Any]) -> list[str]:
-    return [
-        f"{detail_label(field)}: {detail_value(before.get(field))} → {detail_value(value)}"
-        for field, value in proposed.items()
-        if before.get(field) != value
-    ]
-
-
 def display_diff_value(value: Any) -> str:
     """How one side of a review-screen diff reads. Empty is a dash, never a blank."""
     if value is None or value == "":

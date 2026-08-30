@@ -24,7 +24,7 @@ def test_startup_bootstraps_a_new_database_from_the_models(tmp_path, monkeypatch
     engine.dispose()
 
 
-async def test_startup_releases_the_claim_of_an_interrupted_session(sessions):
+async def test_startup_ends_the_session_a_crash_left_running(sessions):
     """AG-SESSION-009 — tests/brd/agents.feature"""
     async with sessions() as session:
         run = AgentRun(
@@ -40,9 +40,9 @@ async def test_startup_releases_the_claim_of_an_interrupted_session(sessions):
         await session.commit()
 
         restored = await session.get(AgentRun, run.id)
-    # A crash mid-resume leaves the claim behind; releasing it is what makes one more
-    # press enough, instead of a session nobody can ever take again.
-    assert restored.status == "interrupted"
+    # Nothing can pick it up: only the turn that routed to a session adopts it, and that
+    # turn died with the process.  The claim goes with it so no row is left held forever.
+    assert restored.status == "abandoned"
     assert restored.claimed_at is None
 
 

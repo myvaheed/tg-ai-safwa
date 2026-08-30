@@ -109,12 +109,14 @@ def open_batch(
     items: Sequence[QueueItem],
     tool_calls: list[dict[str, Any]],
     repair_exhausted: bool,
+    request: str = "",
 ) -> ApprovalBatch:
     """The batch a suspended turn opens, with its screens in the order Safwa made them."""
     return ApprovalBatch(
         run_id=run_id,
         tool_calls=tool_calls,
         state=BatchState(items=tuple(items), repair_exhausted=repair_exhausted),
+        request=request,
     )
 
 
@@ -146,6 +148,7 @@ class BatchDecisionOutcome:
     run_id: int
     tool_calls: list[dict[str, Any]]
     state: BatchState
+    interaction_token: str = ""
 
 
 @dataclass(frozen=True)
@@ -154,6 +157,7 @@ class BatchInterruption:
 
     run_id: int
     tool_calls: list[dict[str, Any]]
+    interaction_token: str = ""
 
 
 def interrupt_batch(
@@ -178,7 +182,9 @@ def interrupt_batch(
                             "reason": effect.reason,
                         }
     store.close_batch(batch)
-    return BatchInterruption(run_id=batch.run_id, tool_calls=tools)
+    return BatchInterruption(
+        run_id=batch.run_id, tool_calls=tools, interaction_token=batch.interaction_token
+    )
 
 
 async def decide_batch_item(
@@ -226,7 +232,12 @@ async def decide_batch_item(
     if state.head is None:
         # The batch has done its whole job, and a stray press has nothing left to reach.
         store.close_batch(batch)
-    return BatchDecisionOutcome(run_id=batch.run_id, tool_calls=tools, state=state)
+    return BatchDecisionOutcome(
+        run_id=batch.run_id,
+        tool_calls=tools,
+        state=state,
+        interaction_token=batch.interaction_token,
+    )
 
 
 async def refresh_queued_proposal(

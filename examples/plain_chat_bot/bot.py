@@ -1,7 +1,9 @@
 """A whole application on the agent runtime, in one file and with no Safwa in it.
 
 A note keeper. The model may search the notes, which happens inside the turn, and it may
-write one, which does not: a written note waits for a person to say yes. That is the same
+write one, which does not: a written note waits for a person to say yes. The turn stops
+there and hands back an `InteractionRef`; when the person says yes, `resume` answers the
+call the session was waiting on and it carries on to its own last word. That is the same
 suspension Safwa uses for its review screens, and it is the reason the runtime is a package
 rather than part of Safwa — nothing here is a database, a chat client, or a proposal.
 
@@ -20,6 +22,7 @@ from agent_runtime import (
     AgentManager,
     AgentSession,
     InMemorySessionStore,
+    Resumption,
     ToolOutcome,
     TurnOutcome,
 )
@@ -58,11 +61,15 @@ class Notebook:
     def __init__(self) -> None:
         self.notes: list[str] = []
         self.waiting: str | None = None
+        # The call the person is being asked about. The runtime knows it only as an id.
+        self.waiting_call: str = ""
 
-    def approve(self) -> None:
-        if self.waiting is not None:
-            self.notes.append(self.waiting)
-            self.waiting = None
+    def approve(self) -> tuple[str, str]:
+        """Keep the note that was shown, and say which call that answers."""
+        call, note = self.waiting_call, self.waiting or ""
+        self.notes.append(note)
+        self.waiting, self.waiting_call = None, ""
+        return call, note
 
 
 class NoteTools:
@@ -125,11 +132,12 @@ class NoteReview:
     async def materialize(
         self, agent: AgentSession, result: AgentLoopResult
     ) -> TurnOutcome | None:
-        changes = [tool.change for tool in result.pending_tools if tool.change is not None]
-        if not changes:
+        written = [tool for tool in result.pending_tools if tool.change is not None]
+        if not written:
             return TurnOutcome(message=result.message)
-        self.notebook.waiting = changes[0]
-        return TurnOutcome(message=result.message, waiting=True, payload=changes[0])
+        self.notebook.waiting = written[0].change
+        self.notebook.waiting_call = written[0].call.id
+        return TurnOutcome(message=result.message, waiting=True, payload=written[0].change)
 
 
 def _call(name: str, **arguments: Any) -> CompletionTurn:
@@ -149,6 +157,7 @@ async def main() -> None:
             _call("search_notes", word="coffee"),
             CompletionTurn(content="You already have one about coffee: Bread, milk, coffee."),
             _call("write_note", text="Ask about the roast"),
+            CompletionTurn(content="Kept it, next to the coffee one."),
         ]
     )
     runtime = AgentManager(
@@ -169,7 +178,14 @@ async def main() -> None:
     print("bot:", proposed.message, "->", proposed.payload)
     print("waiting for a yes:", notebook.waiting)
 
-    notebook.approve()
+    # The person says yes. The runtime is handed back the reference it stopped on and the
+    # result the note-writing call was waiting for, and the same session carries on.
+    call, note = notebook.approve()
+    assert proposed.ref is not None
+    answered = await runtime.resume(
+        proposed.ref, Resumption(results={call: {"status": "kept", "note": note}})
+    )
+    print("bot:", answered.message if answered else "(nothing to resume)")
     print("notes:", notebook.notes)
 
 

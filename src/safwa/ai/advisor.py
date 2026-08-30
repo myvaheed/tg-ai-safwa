@@ -9,7 +9,6 @@ decision on an open review (`resolve_approval`).
 from __future__ import annotations
 
 import logging
-import time
 from collections.abc import Mapping
 from typing import Any
 
@@ -17,11 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agent_runtime import (
     AgentManager,
-    AgentSession,
-    RunStatus,
+    InteractionRef,
+    Resumption,
     TurnOutcome,
-    resumed_transcript,
-    route_receipt,
 )
 from llm_gateway import LlmProvider
 
@@ -42,8 +39,8 @@ from ..foundation.errors import failure_reason
 from .autoapproval import AutoApprovalReviewer
 from .context import DialogueMessage
 from .materialize import ProposalMaterializer
-from .messages import ContextBuilder, system_note
-from .outcome import AIOutcome, AIOutcomeKind, as_turn
+from .messages import ContextBuilder
+from .outcome import AIOutcome, AIOutcomeKind
 from .prepare import ChangePreparer
 from .runs import AgentRunStore, AgentStepTrail
 from .sql import ReadOnlyQueryRunner
@@ -95,8 +92,11 @@ class AIAdvisor:
         self.store = AgentRunStore(
             sessions, provider_name=provider_name, model_name=model_name
         )
+        # One trail for the whole turn: the runtime writes `route` to it and the adapters
+        # write every other call, so `agent_steps` has a single writer.
+        self.trail = AgentStepTrail(sessions)
         self.adapters = ToolAdapters(
-            sessions, query_runner, proposals, helpers, subagents=self.subagents
+            sessions, query_runner, proposals, self.trail, helpers, subagents=self.subagents
         )
         self.context = ContextBuilder(
             sessions,
@@ -113,7 +113,6 @@ class AIAdvisor:
             self.review_view,
             self.preparer,
             self.adapters,
-            self.store,
             resolve=self.resolve_approval,
             autoapproval=autoapproval,
         )
@@ -129,7 +128,7 @@ class AIAdvisor:
             child_deadline_seconds=SUBAGENT_DEADLINE_SECONDS,
             receipt_prefixes=tuple(RECEIPT_MEANINGS),
             interrupted_note=REFUSED_AND_WROTE,
-            observer=AgentStepTrail(sessions),
+            observer=self.trail,
         )
 
     async def handle(
@@ -149,7 +148,20 @@ class AIAdvisor:
         outcome = await self.runtime.handle(
             turn_dialogue, source_message_id=source_message_id
         )
-        return outcome.payload
+        return await self._decide_or_show(outcome)
+
+    async def _decide_or_show(self, outcome: TurnOutcome) -> AIOutcome:
+        """A turn that stopped on the owner is offered to autoapproval before it is drawn.
+
+        The turn is over by the time this runs: its session is stored and released, so an
+        automatic Save resumes it exactly the way the owner's press would.
+        """
+        answer: AIOutcome = outcome.payload
+        if not outcome.waiting or outcome.ref is None:
+            return answer
+        # The screens this turn opened are answered by naming the session it suspended.
+        self.reviews.wait_on(outcome.ref.run_id, outcome.ref.token)
+        return await self.materializer.advance_autoapprovals(answer)
 
     async def describe_proposal(
         self, session: AsyncSession, proposal_id: int
@@ -167,12 +179,9 @@ class AIAdvisor:
         *,
         decision: BatchDecision,
         result: dict[str, Any],
-        dialogue: list[DialogueMessage] | None = None,
         apply_proposal: bool = False,
-        held_run_id: int | None = None,
     ) -> AIOutcome | None:
-        """Resolve one queued screen and resume the suspended tool turn once complete."""
-        started = time.monotonic()
+        """Resolve one queued screen, and resume the suspended session once the queue empties."""
         async with self.sessions() as session:
             decided = await decide_batch_item(
                 session,
@@ -189,72 +198,38 @@ class AIAdvisor:
             )
             if decided is None:
                 return None
-            tools = decided.tool_calls
-            head = decided.state.head
-            if head is not None:
-                await session.commit()
-                return await self.materializer.advance_autoapprovals(
-                    AIOutcome(
-                        AIOutcomeKind.PROPOSAL,
-                        "Review the next proposed change.",
-                        proposal_id=head.proposal_id,
-                    ),
-                    held_run_id=held_run_id,
-                )
-            # The queue is empty, so the batch has done its whole job.  Closing it and
-            # claiming the session in the same commit is what makes a crash here cost
-            # nothing: no half-open batch is left to route a later press into, and the
-            # session is left plainly interrupted.
-            record = await self.store.claim_within(
-                session, decided.run_id, held_run_id=held_run_id
-            )
-            if record is None:
-                logger.warning("Session #%s is already resuming", decided.run_id)
-                await session.commit()
-                return None
-            repair_exhausted = decided.state.repair_exhausted
-            agent, stored_transcript = self.runtime.restore(record)
-            if not agent.dialogue:
-                agent.dialogue = [
-                    {"role": item.role, "content": item.content} for item in dialogue or []
-                ]
             await session.commit()
-
-        try:
-            result_summary = results_summary(tools)
-            if result_summary:
-                agent.result_summaries.append(result_summary)
-            display_summary = results_summary(
-                tools, include_preparation_errors=False, for_display=True
+        tools = decided.tool_calls
+        head = decided.state.head
+        if head is not None:
+            return await self.materializer.advance_autoapprovals(
+                AIOutcome(
+                    AIOutcomeKind.PROPOSAL,
+                    "Review the next proposed change.",
+                    proposal_id=head.proposal_id,
+                )
             )
-            if display_summary:
-                agent.display_result_summaries.append(display_summary)
-            if repair_exhausted:
-                await self.store.finish(
-                    agent.run_id,
-                    status=RunStatus.COMPLETED,
-                    duration_ms=int((time.monotonic() - started) * 1000),
-                )
-                answered = self.materializer.answer(agent, REPAIR_EXHAUSTED_ON_RESUME)
-                outcome = await self._answer_or_deliver(agent, answered)
-            else:
-                outcome = await self.runtime.continue_session(
-                    agent, resumed_transcript(stored_transcript, tools), started
-                )
-                if outcome.waiting:
-                    return outcome.payload
-                outcome = await self._answer_or_deliver(agent, outcome)
-            answer: AIOutcome = outcome.payload
-            answer.did.extend(display_summary.splitlines())
-            return answer
+        # The batch has done its whole job, so the session it suspended is answered with
+        # what every one of its calls came back with.
+        display_summary = results_summary(
+            tools, include_preparation_errors=False, for_display=True
+        )
+        try:
+            outcome = await self.runtime.resume(
+                InteractionRef(decided.run_id, decided.interaction_token),
+                Resumption(
+                    results=_call_results(tools),
+                    notes=_lines(results_summary(tools)),
+                    display_notes=_lines(display_summary),
+                    answer=(
+                        REPAIR_EXHAUSTED_ON_RESUME
+                        if decided.state.repair_exhausted
+                        else None
+                    ),
+                ),
+            )
         except Exception as error:
             logger.exception("AI continuation failed after the approval queue was resolved")
-            await self.store.finish(
-                agent.run_id,
-                status=RunStatus.FAILED,
-                duration_ms=int((time.monotonic() - started) * 1000),
-                error_code=type(error).__name__,
-            )
             result_summary = results_summary(tools, for_display=True)
             if result_summary:
                 return AIOutcome(
@@ -266,30 +241,14 @@ class AIAdvisor:
                     ),
                 )
             raise
-
-    async def _answer_or_deliver(
-        self, agent: AgentSession, outcome: TurnOutcome
-    ) -> TurnOutcome:
-        """End a resumed session: hand its receipt to its caller, or answer the owner."""
-        if agent.parent_run_id is None:
-            return outcome
-        receipt = route_receipt(
-            agent.kind,
-            outcome.message,
-            agent.display_result_summaries,
-            receipt_prefixes=tuple(RECEIPT_MEANINGS),
-        )
-        delivered = await self.runtime.deliver_to_parent(agent, receipt)
-        if delivered is not None:
-            return delivered
-        # The caller is already resuming elsewhere; the owner still gets the receipts.
-        return as_turn(
-            AIOutcome(
-                AIOutcomeKind.ANSWER,
-                compose_display_outcome(outcome.message, agent.display_result_summaries)
-                or "✅ Done.",
-            )
-        )
+        if outcome is None:
+            # Nothing was resumed, so nothing was generated and nothing is said over the
+            # top of whoever is resuming it. The interface writes its own receipt for the
+            # decision, the same one a proposal outside a batch gets.
+            return None
+        if outcome.waiting:
+            return await self._decide_or_show(outcome)
+        return outcome.payload
 
     async def cancel_approval_for_proposal(self, proposal_id: int) -> str | None:
         """End the batch behind a screen the owner wrote over, and record what it did.
@@ -309,27 +268,20 @@ class AIAdvisor:
             return None
         tools = interrupted.tool_calls
         summary = results_summary(tools, include_preparation_errors=False, for_display=True)
-        prior_summaries = await self._leave_unfinished(interrupted.run_id, tools, summary)
+        prior_summaries = await self.runtime.interrupt(
+            InteractionRef(interrupted.run_id, interrupted.interaction_token),
+            _call_results(tools),
+            summary=summary,
+        )
         return compose_display_outcome(
-            "", [line for line in (*prior_summaries, summary) if line]
+            "", [line for line in (*(prior_summaries or ()), summary) if line]
         )
 
-    async def _leave_unfinished(
-        self, run_id: int, tools: list[dict[str, Any]], summary: str
-    ) -> list[str]:
-        """Store what the refused session knows, and tell its chain's root it was written over.
 
-        Unfinished rather than waiting: no screen is open on it any more.  It stays for a
-        `route` back on this same turn, and the turn that routed to it is what closes it.
-        """
-        record = await self.store.get(run_id)
-        if record is None:
-            return []
-        state = dict(record.state)
-        prior_summaries = list(state.get("display_result_summaries") or [])
-        state["transcript"] = [
-            *resumed_transcript([dict(item) for item in state.get("transcript") or []], tools),
-            system_note(REFUSED_AND_WROTE),
-        ]
-        await self.store.leave_interrupted(run_id, state, summary)
-        return prior_summaries
+def _call_results(tools: list[dict[str, Any]]) -> dict[str, Any]:
+    """What each of the suspended session's own calls came back with, by call id."""
+    return {str(tool["id"]): tool.get("result") for tool in tools if tool.get("id")}
+
+
+def _lines(summary: str) -> tuple[str, ...]:
+    return (summary,) if summary else ()

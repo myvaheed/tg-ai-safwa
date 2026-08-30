@@ -52,7 +52,16 @@ class ProposalStore:
         return None
 
     def batch_for_run(self, run_id: int) -> ApprovalBatch | None:
-        return next((batch for batch in self._batches if batch.run_id == run_id), None)
+        """The newest batch this session opened, the same way a screen finds its own."""
+        return next(
+            (batch for batch in reversed(self._batches) if batch.run_id == run_id), None
+        )
+
+    def wait_on(self, run_id: int, token: str) -> None:
+        """Record what the session these screens suspended is resumed with."""
+        batch = self.batch_for_run(run_id)
+        if batch is not None:
+            batch.interaction_token = token
 
     def close_batch(self, batch: ApprovalBatch) -> None:
         if batch in self._batches:

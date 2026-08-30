@@ -657,7 +657,6 @@ async def test_multiple_ai_card_creations_are_reviewed_sequentially(e2e_harness)
             proposal_ids[-1],
             decision=BatchDecision.APPROVED,
             result={"affected_ids": affected},
-            dialogue=[DialogueMessage(role="user", content="[Initial request]: Create cards")],
         )
         assert current is not None
         if len(proposal_ids) == 1:
@@ -745,7 +744,6 @@ async def test_current_request_progress_includes_current_card_update_diffs(e2e_h
         proposal.proposal_id,
         decision=BatchDecision.APPROVED,
         result={"affected_ids": affected},
-        dialogue=[DialogueMessage(role="user", content="[Initial request]: Update my walk")],
     )
 
     assert outcome is not None and outcome.kind is AIOutcomeKind.ANSWER
@@ -787,7 +785,6 @@ async def test_child_proposal_fails_cleanly_when_earlier_parent_is_discarded(e2e
         first.proposal_id,
         decision=BatchDecision.DISCARDED,
         result={},
-        dialogue=[DialogueMessage(role="user", content="[Initial request]: Create cards")],
     )
 
     assert second is not None and second.kind is AIOutcomeKind.ANSWER
@@ -832,7 +829,6 @@ async def test_new_tag_and_dependent_card_link_use_one_repair_round(e2e_harness)
         tag_proposal.proposal_id,
         decision=BatchDecision.APPROVED,
         result={"affected_ids": tag_ids},
-        dialogue=[DialogueMessage(role="user", content="[Initial request]: Create and link tag")],
     )
     assert card_proposal is not None and card_proposal.proposal_id is not None
     async with e2e_harness.sessions() as session:
@@ -843,7 +839,6 @@ async def test_new_tag_and_dependent_card_link_use_one_repair_round(e2e_harness)
         card_proposal.proposal_id,
         decision=BatchDecision.APPROVED,
         result={"affected_ids": affected},
-        dialogue=[DialogueMessage(role="user", content="[Initial request]: Create and link tag")],
     )
 
     assert outcome is not None and outcome.kind is AIOutcomeKind.ANSWER
@@ -1008,7 +1003,6 @@ async def test_ai_create_tag_and_links_are_reviewed_as_separate_proposals(e2e_ha
             proposal_ids[-1],
             decision=BatchDecision.APPROVED,
             result={"affected_ids": affected},
-            dialogue=[DialogueMessage(role="user", content="[Initial request]: Link recent cards")],
         )
         assert current is not None
 
@@ -1050,7 +1044,6 @@ async def test_ai_create_value_and_link_are_reviewed_as_separate_proposals(e2e_h
         first.proposal_id,
         decision=BatchDecision.APPROVED,
         result={"affected_ids": first_ids},
-        dialogue=[DialogueMessage(role="user", content="[Initial request]: Create Health")],
     )
     assert second is not None and second.proposal_id is not None
     assert second.proposal_id != first.proposal_id
@@ -1063,7 +1056,6 @@ async def test_ai_create_value_and_link_are_reviewed_as_separate_proposals(e2e_h
         second.proposal_id,
         decision=BatchDecision.APPROVED,
         result={"affected_ids": second_ids},
-        dialogue=[DialogueMessage(role="user", content="[Initial request]: Create Health")],
     )
 
     assert final is not None and "Health is resolved." in final.message
@@ -1398,12 +1390,6 @@ async def test_mixed_query_and_mutation_resumes_only_after_approval(e2e_harness)
         outcome.proposal_id,
         decision=BatchDecision.APPROVED,
         result={"affected_ids": affected},
-        dialogue=[
-            DialogueMessage(
-                role="user",
-                content="[Initial request]: Create VrWalk and tag my recent cards",
-            )
-        ],
     )
 
     assert resumed is not None and resumed.kind is AIOutcomeKind.ANSWER
@@ -1449,7 +1435,6 @@ async def test_independent_mutations_are_reviewed_in_order_before_one_resume(e2e
         first.proposal_id,
         decision=BatchDecision.APPROVED,
         result={"affected_ids": first_ids},
-        dialogue=[DialogueMessage(role="user", content="[Initial request]: Create both")],
     )
 
     assert second is not None and second.proposal_id is not None
@@ -1462,7 +1447,6 @@ async def test_independent_mutations_are_reviewed_in_order_before_one_resume(e2e
         second.proposal_id,
         decision=BatchDecision.APPROVED,
         result={"affected_ids": second_ids},
-        dialogue=[DialogueMessage(role="user", content="[Initial request]: Create both")],
     )
 
     assert final is not None and "Both decisions are resolved." in final.message
@@ -1493,7 +1477,6 @@ async def test_discarded_proposal_result_is_returned_with_later_approval(e2e_har
         first.proposal_id,
         decision=BatchDecision.DISCARDED,
         result={"message": "The user discarded this proposed change."},
-        dialogue=[DialogueMessage(role="user", content="[Initial request]: Prepare changes")],
     )
     assert second is not None and second.proposal_id is not None
 
@@ -1504,7 +1487,6 @@ async def test_discarded_proposal_result_is_returned_with_later_approval(e2e_har
         second.proposal_id,
         decision=BatchDecision.APPROVED,
         result={"affected_ids": affected},
-        dialogue=[DialogueMessage(role="user", content="[Initial request]: Prepare changes")],
     )
 
     assert final is not None and "I kept only the Value." in final.message
@@ -1594,7 +1576,6 @@ async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_h
         first.proposal_id,
         decision=BatchDecision.APPROVED,
         result={"affected_ids": created_tag_ids},
-        dialogue=[DialogueMessage(role="user", content="[Initial request]: Tag recent cards")],
     )
     assert first_link is not None and first_link.proposal_id is not None
     assert len(provider.calls) == 3
@@ -1606,7 +1587,6 @@ async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_h
         first_link.proposal_id,
         decision=BatchDecision.APPROVED,
         result={"affected_ids": first_link_ids},
-        dialogue=[DialogueMessage(role="user", content="[Initial request]: Tag recent cards")],
     )
     assert second_link is not None and second_link.proposal_id is not None
     assert len(provider.calls) == 3
@@ -1618,7 +1598,6 @@ async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_h
         second_link.proposal_id,
         decision=BatchDecision.APPROVED,
         result={"affected_ids": second_link_ids},
-        dialogue=[DialogueMessage(role="user", content="[Initial request]: Tag recent cards")],
     )
     assert final is not None and final.kind is AIOutcomeKind.ANSWER
     assert len(provider.calls) == 4
@@ -2411,10 +2390,6 @@ async def test_a_session_can_only_be_claimed_once(e2e_harness):
         run = await session.scalar(select(AgentRun).order_by(AgentRun.id.desc()))
         assert await advisor.store.claim_within(session, run.id) is not None
         assert await advisor.store.claim_within(session, run.id) is None
-        # The turn that already holds the session continues inside its own claim.
-        assert (
-            await advisor.store.claim_within(session, run.id, held_run_id=run.id) is not None
-        )
 
 
 async def _standalone_tag_proposal(e2e_harness, advisor, name: str) -> int:

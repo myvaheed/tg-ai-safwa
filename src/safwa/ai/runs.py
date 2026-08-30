@@ -1,9 +1,8 @@
 """Where a session's record lives: the `agent_runs` table, behind the runtime's store port.
 
-`claim` is the whole guard against two resumes of one session, so it is one conditional
-update rather than a read followed by a write. `claim_within` is the same claim on a
-transaction the caller already owns — an approval closes its batch and claims the session
-it belongs to together, so a crash between the two cannot leave a half-open batch.
+`claim` is the guard against two resumes of one session, so it is one conditional update
+rather than a read followed by a write. `claim_within` is that update on a transaction this
+store already holds: finding a session to take and taking it are one decision.
 """
 
 from __future__ import annotations
@@ -77,24 +76,14 @@ class AgentRunStore:
                 run.state_json = state
             await session.commit()
 
-    async def claim(self, run_id: int, *, held_run_id: int | None = None) -> RunRecord | None:
+    async def claim(self, run_id: int) -> RunRecord | None:
         async with self.sessions() as session:
-            record = await self.claim_within(session, run_id, held_run_id=held_run_id)
+            record = await self.claim_within(session, run_id)
             await session.commit()
             return record
 
-    async def claim_within(
-        self, session: AsyncSession, run_id: int, *, held_run_id: int | None = None
-    ) -> RunRecord | None:
-        """Take a suspended session for this resume, or report that it is already taken.
-
-        ``held_run_id`` is the session the caller is already running inside — an
-        autoapproval resolves the screen its own turn just opened, which is that turn
-        continuing, not a second one.
-        """
-        if held_run_id == run_id:
-            run = await session.get(AgentRun, run_id)
-            return None if run is None else _record(run)
+    async def claim_within(self, session: AsyncSession, run_id: int) -> RunRecord | None:
+        """Take a suspended session for this resume, or report that it is already taken."""
         claimed = await session.scalar(
             update(AgentRun)
             .where(AgentRun.id == run_id, AgentRun.claimed_at.is_(None))
@@ -186,6 +175,9 @@ class AgentRunStore:
                 return
             run.state_json = state
             run.status = RunStatus.INTERRUPTED.value
+            # Unfinished, and free: an unfinished session that stayed claimed is one nothing
+            # could adopt again.
+            run.claimed_at = None
             root = run
             while root.parent_run_id is not None:
                 parent = await session.get(AgentRun, root.parent_run_id)

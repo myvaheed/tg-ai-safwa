@@ -3,7 +3,7 @@
 A session gets its own system prompt, its own context, its own read tools, and a set of
 terminal tools of which exactly one must be called — the call *is* the answer, so prose is
 never accepted.  It touches no proposal and no approval queue, and it cannot continue after
-its one answer: anything that has to suspend and resume is a session in `service.py`.
+its one answer: anything that has to suspend and resume is an `agent_runtime` session.
 """
 
 from __future__ import annotations
@@ -207,8 +207,7 @@ QUERY_SAFWA_TOOL: dict[str, Any] = {
 def query_read_tool(query_runner: ReadOnlyQueryRunner) -> ReadToolSpec:
     """`query_safwa` as a plain read tool, for a session that declares its own tools.
 
-    The runner and its caps are shared; the session executes it through the same path
-    the Advisor uses, so its steps are recorded the same way.
+    The runner and its caps are shared, so a read costs the same wherever it is called from.
     """
 
     async def read(call: ToolCall) -> list[dict[str, Any]]:

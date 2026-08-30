@@ -58,7 +58,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 4 | Leaf business batches | business | **done** — 4.a Continuity and Profile, 4.b Reminders, 4.c Saved Requests, 4.d Values and Tags |
 | 5 | Cards, Checks and the Sprint | business | **done** — 5.0 the board package (technical), 5.a Cards, 5.b stages, 5.c Checks, 5.d archiving, 5.e the archive as a mark, 5.f the heavy analyzer, 5.g a repeat's Values, 5.h Planning and the plan screen |
 | 6 | Proposals and the first reactive process | business | **done** — 6.a the typed batch and the reducer, 6.b the proposal use cases, 6.c interruption and autoapproval, 6.d the startup sweeps, 6.e–6.g no status, no tables, no stringly vocabularies |
-| 7 | `agent_runtime` | technical + business | **done** — 21 scenarios approved, `ai/service.py` deleted; see "What Phase 7.b delivered" |
+| 7 | `agent_runtime` | technical + business | **done** — 7.a 21 scenarios approved, 7.b `ai/service.py` deleted, 7.c the interaction contract |
 | 8 | `telegram_llm` and `TurnManager` | technical | not started |
 | 9 | Packages and cleanup | technical | not started |
 
@@ -1981,9 +1981,12 @@ expensive to find in step 5.
 
 ### Two decisions taken before the phase opened
 
-- **The frozen `RunState` union and its `reduce` are built; `as_state_flow()` is not.** The same call
-  as Phase 6 made for proposals, for the same reason: the subscriber arrives in Phase 8, where the
-  host turns a run's state into a `TurnAction`. The loop is the reader that justifies the union now.
+- **Neither the frozen `RunState` union nor `as_state_flow()` is built.** The plan asked for both;
+  7.c dropped the union too, after looking for its reader and not finding one. The loop reads a
+  mutable `AgentSession` and the host reads a `TurnOutcome`, so eight state classes, a `RunAction`
+  set and a reducer would be an abstraction with no caller — the one thing CLAUDE.md's "Simplicity
+  First" forbids outright. `InteractionRef` is the part of that design that does have a reader, and
+  it is built. Phase 8 revisits the rest when the subscriber exists.
 - **The runtime suspends on an opaque reference and nothing more.** It has no interaction port, it
   never learns what a proposal is, and it does not import Telegram. It can stop with a reference and
   be resumed with `(reference, value)`; the host owns the mapping. That is what makes it a package
@@ -2085,8 +2088,9 @@ Three things the batch decided that the plan had left open:
 - **`ai/mini.py` keeps its own loop.** Folding it in would mean giving the runtime a second ending —
   a terminal tool call rather than words — for one caller. `ReadToolSpec` stays in `ai/mini.py`; the
   runtime only ever needs the names, so `AgentDefinition.read_specs` is `Mapping[str, Any]`.
-- **`AgentRunStatus` became `agent_runtime.RunStatus` with six members**, all of them written and
-  read. `claimed_at` keeps its one reader in `CueRuntime.can_speak` and its one writer in the claim.
+- **`agent_runtime.RunStatus` was written with six members**, and `safwa.models.AgentRunStatus` was
+  left standing beside it with seven — 7.c deleted the duplicate. `claimed_at` keeps its one reader
+  in `CueRuntime.can_speak` and its one writer in the claim.
 
 Two destinations moved off the plan's map, each recorded above: `failure_reason` went to
 `foundation/errors.py` rather than the runtime (the runtime keeps its own, because it cannot import
@@ -2108,13 +2112,86 @@ Safwa), and the context blocks went to `ai/messages.py` rather than `ai/advisor.
 | 12 all 21 `AG` scenarios cited and green | met |
 | 13 the two E2E suites added to, never traded | met |
 
-Criterion 6 was read too literally when it was written: `telegram/callbacks.py` is 1278 lines and
-belongs to Phase 8, so no batch here could have met it as stated. Read as "the modules this batch
-produced", it is met except for `ai/tools.py` at 543 — everything Safwa does about a tool, in the
-file named for it. It stays under DoD #3's 600 and is not split for the sake of a number.
+Criterion 6 was written wrong. `telegram/callbacks.py` is 1278 lines and belongs to Phase 8, so no
+batch here could ever have met "largest Safwa module ≤ 400"; what it should have said is that the
+modules this batch *produces* stay under it. It does not fully hold even so: `ai/tools.py` is 543 —
+everything Safwa does about a tool, in the file named for it. It stays under DoD #3's 600, and it is
+not split for the sake of a number.
 
 777 tests pass, 3 skipped. The module graph is 173 modules and 710 edges, cycles 0, 27 rule
 violations. The largest Safwa module is now `telegram/callbacks.py`, which is Phase 8's.
+
+### What Phase 7.c delivered
+
+7.b moved the loop out of Safwa and left the reason it exists behind. A session could stop on a
+person; nothing in the package could answer one. Resuming was a recipe the host assembled out of six
+exported parts — claim, restore, replay the transcript, continue, build a receipt, walk it up the
+chain — and leaving a session unfinished was a store method the port did not declare, so
+`InMemorySessionStore` could not do it and the example could not resume. The border test could not
+see any of that: no public name says a foreign word, and the package still could not be used by a
+second host without rewriting its main obligation.
+
+**One defect fell out of that on the way, and it was live.** `ProposalMaterializer.materialize`
+called `advance_autoapprovals` from inside the session it was materializing. An automatic Save
+claimed that same session, resumed it, and — for a routed subagent — delivered its receipt to a
+caller still suspended in `_run_child`; when the child returned, the Advisor ran a second time.
+Six provider calls for five scripted turns, and both runs stamped `completed` twice. The e2e harness
+answers a sixth call itself, out of `calls`, so every test stayed green. `provider.total` is the
+counter that would have said so, and `test_an_autoapproved_board_route_hands_back_its_receipt` now
+asserts on it.
+
+| Step | What changed |
+|---|---|
+| v7.1 | a screen is decided after the turn ends: `materialize` only reports waiting, `AgentManager._suspend` checkpoints, and the Advisor offers the screen to autoapproval from outside. `held_run_id` and `ProposalMaterializer`'s run store go with it |
+| v7.2 | `InteractionRef`, `Resumption`, and `AgentManager.resume` / `interrupt`; `SessionStore.leave_interrupted`; the example and its test drive suspend and resume, and Safwa's e2e drives the interruption |
+| v7.3 | `safwa.models.AgentRunStatus` deleted; recovery reads `RunStatus`, and a crashed session is `abandoned` rather than `interrupted` |
+
+**The reference is the whole of the state machine that was built.** The plan asked for a frozen
+`RunState` union, `RunAction`, `RunEffect` and a reducer. They were dropped after looking for their
+reader: the loop reads a mutable `AgentSession` and the host reads a `TurnOutcome`, so eight state
+classes and a reducer would be an abstraction with no caller. `InteractionRef` is the part that has
+one — an opaque run id and a minted token, checked before a resume and cleared when it is taken. It
+is what replaced the transaction that used to close the batch and claim the session together.
+
+**`resolve_approval` is one decide and one resume.** Its `dialogue=` parameter is gone; nothing under
+`src/` ever passed it, and a restored session carries its own. `AIAdvisor` no longer knows
+`RunStatus`, `resumed_transcript`, `route_receipt` or `AgentManager.restore` — 335 lines to 287,
+against `agent_runtime/manager.py` at 543.
+
+**A resume that resumed nothing says nothing.** `resume` answers `None` for all three ways
+that happens — the reference names a suspension the session has left, the session is already being
+resumed, or its caller could not be taken because something else is resuming *it*. All three mean the
+same thing to the interface: no words were generated, so the callback writes its own receipt, the
+one a proposal outside a batch already gets. The words a subagent wrote in the third case were for
+its caller, and only the session with no caller speaks to the chat — putting them in as an assistant
+message is what the old fallback did, and it is the one thing that could have reached the dialogue
+history looking like something the Advisor said.
+
+**The recovery vocabulary means one thing per member.** `interrupted` is "left unfinished, and the
+turn that routed here may come back for it", and after a restart there is no such turn — so a
+restart records `abandoned` for both a running and a waiting session, which is what AG-SESSION-009
+already said happens to them. `docs/AGENT_ARCH.md` said the opposite and was corrected.
+
+**The review of the batch found three mechanisms that exist twice, and the cut finished.** §12.5
+said the block-ordering helpers cross into the package and the block contents stay; v6.4 copied them
+instead, so `ai/messages.py` carried its own `system_note`, `_append_user_message` and
+`_cache_breakpoint` while the package's were exported and imported by nobody. `agent_steps` had two
+writers — the `Observer` port for `route`, and four hand-rolled `AgentStep` inserts in `ai/tools.py`
+— so `ToolAdapters` now takes the same trail the runtime does. `failure_reason` is deliberately
+duplicated, because the runtime cannot import Safwa and Telegram must not import the runtime, but the
+package no longer exports the copy nobody takes.
+
+**`close_children` was the mechanism, and the property replaced it.** A session closed the sessions
+it routed to only when it was the root of its turn, so a chain deeper than two would have leaked and
+a root resumed by its own reference closed nothing at all. The flag is gone: every session closes its
+own unfinished children when it finishes, and the chain ends from the bottom up however deep it is.
+`_fail` is the same shape for the five places a session dies. **And `interrupt` on a session nothing
+routed to now ends it** — its caller is the person, their words are its next request, and left
+unfinished it was a record no turn could reach.
+
+779 tests pass, 3 skipped. 173 modules, 712 edges, cycles 0, 27 rule violations, Rule F 0, DoD #3 4 —
+`diff_lines` in `features/proposals/api.py` had no caller and took the file under 600 with it.
+`prompt_prefix.json` and `schema.json` did not move.
 
 ### The seam with Phase 8
 

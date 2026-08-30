@@ -44,8 +44,13 @@ class ScriptedProvider:
         self.responses = deque(responses)
         self.calls: list[list[dict[str, object]]] = []
         self.options: list[dict[str, object]] = []
+        # Every request the application made, synthetic hand-offs included. A turn that runs
+        # twice is invisible in ``calls`` — the harness answers the repeat itself — and shows
+        # up here.
+        self.total = 0
 
     async def complete(self, request: CompletionRequest) -> CompletionTurn:
+        self.total += 1
         messages = request.messages
         offered = {tool["function"]["name"] for tool in request.tools}
         handover = self._handover(self.responses[0], offered) if self.responses else None

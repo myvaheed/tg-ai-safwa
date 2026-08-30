@@ -167,9 +167,18 @@ async def test_an_autoapproved_board_route_hands_back_its_receipt(e2e_harness):
         "(Title: Купить молоко → Купить овсяное молоко)"
     ]
     assert receipt["text"] == "Переименовал чек."
+    # Five turns are scripted and five are made. An automatic Save resolves a screen that is
+    # already suspended, so resuming the board session and then the Advisor is the only way
+    # either of them runs again — not a second pass through the turn that opened it.
+    assert provider.total == 5
     async with e2e_harness.sessions() as session:
         stored = await session.get(Card, card.id)
+        runs = list(await session.scalars(select(AgentRun).order_by(AgentRun.id)))
     assert stored is not None and stored.title == "Купить овсяное молоко"
+    assert [(run.kind, run.status, run.parent_run_id) for run in runs] == [
+        ("advisor", "completed", None),
+        ("board", "completed", 1),
+    ]
 
 
 async def test_a_routed_subagent_proposes_for_itself(e2e_harness):
@@ -741,7 +750,6 @@ async def test_saving_finishes_the_subagent_and_the_next_route_starts_fresh(e2e_
         proposal.proposal_id,
         decision=BatchDecision.APPROVED,
         result={"affected_ids": affected},
-        dialogue=[DialogueMessage(role="user", content="Запиши день")],
     )
 
     assert outcome is not None and outcome.kind is AIOutcomeKind.PROPOSAL

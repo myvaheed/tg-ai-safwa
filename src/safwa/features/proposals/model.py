@@ -128,6 +128,12 @@ class ApprovalBatch:
     run_id: int
     tool_calls: list[dict[str, Any]]
     state: BatchState
+    # The owner's own last words that this batch answers. Autoapproval reads them to judge
+    # whether a change is exactly what was asked for.
+    request: str = ""
+    # The token half of the suspended session's reference, filled in once the turn that
+    # opened these screens has stopped. It is what a decision is carried back on.
+    interaction_token: str = ""
 
 
 @dataclass(frozen=True, slots=True)

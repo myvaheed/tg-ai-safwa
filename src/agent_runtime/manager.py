@@ -1,11 +1,17 @@
-"""Starting a session, resuming one, and the chain of sessions a turn routes through.
+"""Starting a session, stopping one on a person, resuming it, and the chain it routes through.
 
 One turn may run several sessions: a caller routes to another, which may route on. Only the
 session with no caller answers the person, so the turn ends when that one answers — or
 when something in the chain opens a screen, and every session in it waits.
 
-`_complete` is the shape all of that shares: store what a suspended session needs, stamp
-the record, and hand the loop's result to the host to make sense of.
+Three things happen to a session that stops on a person, and all three are here. It is
+checkpointed and handed back an `InteractionRef` (`_suspend`); it is answered and runs on
+(`resume`); or the person writes instead of deciding, and it is left for the session that
+routed to it to come back to — or ended, when nothing routed to it (`interrupt`). A host
+that had to assemble any of those out of parts would be reimplementing the package.
+
+`_complete` is the shape they share: store what a suspended session needs, stamp the record,
+and hand the loop's result to the host to make sense of.
 """
 
 from __future__ import annotations
@@ -14,15 +20,19 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
+from uuid import uuid4
 
 from llm_gateway import LlmProvider, ToolCall
 
+from .context import system_note
 from .loop import run_loop
 from .model import (
     AgentLoopResult,
     AgentSession,
+    InteractionRef,
+    Resumption,
     RunRecord,
     RunStatus,
     TurnOutcome,
@@ -87,39 +97,59 @@ class AgentManager:
             max_repair_rounds=self.max_repair_rounds,
         )
 
-    def restore(self, record: RunRecord) -> tuple[AgentSession, list[dict[str, Any]]]:
+    def _restore(self, record: RunRecord) -> tuple[AgentSession, list[dict[str, Any]]]:
         """A stored session, with the transcript it left behind."""
         return AgentSession.restore(record, self.tools.definition(record.kind))
 
+    def _receipt(
+        self, name: str, message: str, summaries: list[str], *, error: str | None = None
+    ) -> dict[str, Any]:
+        """One receipt, in this host's wording. Every hand-back in the chain uses it."""
+        return route_receipt(
+            name, message, summaries, error=error, receipt_prefixes=self.receipt_prefixes
+        )
+
     async def _complete(
-        self,
-        agent: AgentSession,
-        result: AgentLoopResult,
-        started: float,
-        *,
-        close_children: bool = False,
+        self, agent: AgentSession, result: AgentLoopResult, started: float
     ) -> TurnOutcome:
         """Store, stamp and materialize one finished loop run.
 
         The host may hand back nothing, which means it corrected this turn's tool results
         and the session runs again. That is bounded by the host, not here: it is the same
         session, so its own repair budget is what ends the exchange.
+
+        A session that stops on a person is checkpointed here and nowhere else, before the
+        record says it is waiting. Whatever the host does about that wait — draw a screen,
+        answer it itself — happens after the turn has ended, on a session that is stored
+        and released, never on one that is still running.
         """
         while True:
             if result.suspended is not None:
-                await self.store.save_state(agent.run_id, agent.state())
-                await self._finish(agent.run_id, RunStatus.AWAITING_APPROVAL, started)
-                return result.suspended
+                return await self._suspend(agent, result.suspended, started)
             outcome = await self.materializer.materialize(agent, result)
             if outcome is not None:
                 break
             result = await self.run(agent)
         if outcome.waiting:
-            await self._finish(agent.run_id, RunStatus.AWAITING_APPROVAL, started)
-            return outcome
+            return await self._suspend(agent, outcome, started)
         await self._finish(agent.run_id, RunStatus.COMPLETED, started)
-        if close_children:
-            await self._close_unfinished_children(agent.run_id)
+        await self._close_unfinished_children(agent.run_id)
+        return outcome
+
+    async def _suspend(
+        self, agent: AgentSession, outcome: TurnOutcome, started: float
+    ) -> TurnOutcome:
+        """Store what this session needs to continue, then say it is waiting on a person.
+
+        Only the session the person was actually stopped by mints a reference: the callers
+        above it in the chain are checkpointed too, but they are resumed by the receipt
+        coming back up, never by anyone naming them.
+        """
+        if outcome.ref is None:
+            agent.interaction_token = uuid4().hex
+            outcome.ref = InteractionRef(agent.run_id, agent.interaction_token)
+        await self.store.save_state(agent.run_id, agent.state())
+        await self._finish(agent.run_id, RunStatus.AWAITING_APPROVAL, started)
         return outcome
 
     async def _finish(
@@ -132,12 +162,24 @@ class AgentManager:
             error_code=error_code,
         )
 
-    async def _close_unfinished_children(self, run_id: int) -> None:
-        """End the sessions this turn routed to and never finished.
+    async def _fail(self, run_id: int, started: float, error: Exception | str) -> None:
+        """End a session that could not finish, and whatever it left unfinished."""
+        await self._finish(
+            run_id,
+            RunStatus.FAILED,
+            started,
+            error if isinstance(error, str) else type(error).__name__,
+        )
+        await self._close_unfinished_children(run_id)
 
-        The turn that routed to a subagent is its outer bound.  An interruption leaves it
-        unfinished so the same turn can route back into it with a correction; when that
-        turn answers, or fails, there is nothing left for it to correct.
+    async def _close_unfinished_children(self, run_id: int) -> None:
+        """End the sessions this session routed to and never finished.
+
+        The session that routed to a subagent is its outer bound.  An interruption leaves it
+        unfinished so the same session can route back into it with a correction; once that
+        session has answered, or failed, there is nothing left for it to correct.  Every
+        level does this for its own children, so a chain closes from the bottom up however
+        deep it is.
         """
         count = await self.store.close_unfinished_children(run_id)
         if count:
@@ -173,11 +215,10 @@ class AgentManager:
             agent.messages = messages
             agent.prefix_len = len(messages)
             result = await self.run(agent)
-            return await self._complete(agent, result, started, close_children=True)
+            return await self._complete(agent, result, started)
         except Exception as error:
             logger.exception("Session %s failed", kind)
-            await self._finish(record.id, RunStatus.FAILED, started, type(error).__name__)
-            await self._close_unfinished_children(record.id)
+            await self._fail(record.id, started, error)
             raise
 
     async def resume_interrupted(self, dialogue: list[dict[str, Any]]) -> TurnOutcome | None:
@@ -190,28 +231,108 @@ class AgentManager:
         if taken is None:
             return None
         record, summary = taken
-        agent, transcript = self.restore(record)
+        agent, transcript = self._restore(record)
         waiting = dict(agent.awaiting_route or {})
         agent.awaiting_route = None
         agent.dialogue = dialogue
-        receipt = route_receipt(
+        receipt = self._receipt(
             str(waiting.get("subagent", "")),
             "",
             [summary] if summary else [],
             error=self.interrupted_note,
-            receipt_prefixes=self.receipt_prefixes,
         )
         try:
             await self._replay(agent, transcript, receipt, str(waiting.get("call_id", "")))
             result = await self.run(agent)
-            return await self._complete(agent, result, started, close_children=True)
+            return await self._complete(agent, result, started)
         except Exception as error:
             logger.exception("The interrupted request could not be resumed")
-            await self._finish(agent.run_id, RunStatus.FAILED, started, type(error).__name__)
-            await self._close_unfinished_children(agent.run_id)
+            await self._fail(agent.run_id, started, error)
             raise
 
-    async def continue_session(
+    # ----------------------------------------------------- answering a person
+
+    async def resume(self, ref: InteractionRef, value: Resumption) -> TurnOutcome | None:
+        """Answer what a suspended session stopped on, and run the chain on from there.
+
+        ``None`` means the reference resumed nothing: the session is already being resumed,
+        or it has left the suspension this reference names. The person still has to be told
+        something, and the host is what knows what — it has the decision they just made.
+        """
+        started = self.clock()
+        # Read before claiming: a reference to a suspension the session has already left
+        # must change nothing at all, and a claim would have to be put back.
+        stored = await self.store.get(ref.run_id)
+        if stored is None or stored.state.get("interaction_token") != ref.token:
+            logger.warning("Session #%s is not waiting on that decision", ref.run_id)
+            return None
+        record = await self.store.claim(ref.run_id)
+        if record is None:
+            logger.warning("Session #%s is already resuming", ref.run_id)
+            return None
+        agent, transcript = self._restore(record)
+        agent.interaction_token = None
+        # Taking the reference is durable, so a second answer to the same screen resumes
+        # nothing even after this turn has ended and released its claim.
+        await self.store.save_state(ref.run_id, {**record.state, "interaction_token": None})
+        agent.result_summaries.extend(value.notes)
+        agent.display_result_summaries.extend(value.display_notes)
+        try:
+            if value.answer is not None:
+                # The host already knows what is left to say, so the session is ended with
+                # those words rather than being asked for its own.
+                outcome = await self._complete(agent, AgentLoopResult(value.answer), started)
+            else:
+                outcome = await self._continue(
+                    agent, _resumed_transcript(transcript, value.results), started
+                )
+            if outcome.waiting:
+                return outcome
+            return await self._hand_up(agent, outcome)
+        except Exception as error:
+            logger.exception("Session %s could not be resumed", agent.kind)
+            await self._fail(agent.run_id, started, error)
+            raise
+
+    async def interrupt(
+        self, ref: InteractionRef, results: Mapping[str, Any], *, summary: str
+    ) -> list[str] | None:
+        """End this session's wait because the person wrote instead of deciding.
+
+        A routed session is left **unfinished**: no screen is open on it any more, but it
+        keeps its own plan, so a route back on the same turn reaches the session that wrote
+        the refused proposal, and the session that routed there is what closes it.
+
+        A session with no caller has nothing that can route back into it — the person is its
+        caller, and their words are its next request — so it is **ended** instead. Left
+        unfinished it would be a record no turn could ever reach.
+
+        Either way its own calls are answered in its transcript first, so what it stopped on
+        is recorded rather than left half-said. Returns what the session had already told the
+        person before it stopped, so the host can say the whole of what happened. ``None``
+        means the reference names nothing.
+        """
+        started = self.clock()
+        record = await self.store.get(ref.run_id)
+        if record is None or record.state.get("interaction_token") != ref.token:
+            return None
+        state = dict(record.state)
+        state["interaction_token"] = None
+        prior = [str(line) for line in state.get("display_result_summaries") or []]
+        state["transcript"] = [
+            *_resumed_transcript(
+                [dict(item) for item in state.get("transcript") or []], results
+            ),
+            system_note(self.interrupted_note),
+        ]
+        if record.parent_run_id is None:
+            await self.store.save_state(ref.run_id, state)
+            await self._finish(ref.run_id, RunStatus.ABANDONED, started)
+            return prior
+        await self.store.leave_interrupted(ref.run_id, state, summary)
+        return prior
+
+    async def _continue(
         self,
         agent: AgentSession,
         transcript: list[dict[str, Any]],
@@ -226,6 +347,20 @@ class AgentManager:
         agent.messages = messages
         result = await self.run(agent)
         return await self._complete(agent, result, started)
+
+    async def _hand_up(self, agent: AgentSession, outcome: TurnOutcome) -> TurnOutcome | None:
+        """Hand a finished session's receipt to whoever routed to it, and run them on.
+
+        A session with no caller is the end of its turn and answers as it is. ``None`` means
+        the caller could not be taken because something else is already resuming it — that
+        flow is what will answer, so this one says nothing over the top of it. The words
+        this session wrote were for its caller in any case: only the session with no caller
+        speaks to the person.
+        """
+        if agent.parent_run_id is None:
+            return outcome
+        receipt = self._receipt(agent.kind, outcome.message, agent.display_result_summaries)
+        return await self._deliver_to_parent(agent, receipt)
 
     async def _replay(
         self,
@@ -304,7 +439,7 @@ class AgentManager:
             )
             transcript: list[dict[str, Any]] = []
         else:
-            agent, transcript = self.restore(record)
+            agent, transcript = self._restore(record)
         agent.dialogue = parent.dialogue
         agent.prior_receipts = list(parent.display_result_summaries)
         try:
@@ -321,39 +456,30 @@ class AgentManager:
             if outcome.waiting:
                 return outcome, None
             # The materialized outcome, not the raw loop result: a repair round answers again.
-            return outcome, route_receipt(
-                name,
-                outcome.message,
-                agent.display_result_summaries,
-                did=outcome.did,
-                receipt_prefixes=self.receipt_prefixes,
+            return outcome, self._receipt(
+                name, outcome.message, agent.display_result_summaries
             )
         except TimeoutError:
             logger.warning(
                 "SUBAGENT %s timed out after %.0fs", name, self.child_deadline_seconds
             )
-            await self._finish(agent.run_id, RunStatus.FAILED, started, "timeout")
-            return TurnOutcome(message=""), route_receipt(
+            await self._fail(agent.run_id, started, "timeout")
+            return TurnOutcome(message=""), self._receipt(
                 name,
                 "",
                 [],
                 error=(
                     f"{name} did not finish within {self.child_deadline_seconds:.0f} seconds."
                 ),
-                receipt_prefixes=self.receipt_prefixes,
             )
         except Exception as error:
             logger.exception("Routed subagent %s failed", name)
-            await self._finish(agent.run_id, RunStatus.FAILED, started, type(error).__name__)
-            return TurnOutcome(message=""), route_receipt(
-                name,
-                "",
-                [],
-                error=failure_reason(error),
-                receipt_prefixes=self.receipt_prefixes,
+            await self._fail(agent.run_id, started, error)
+            return TurnOutcome(message=""), self._receipt(
+                name, "", [], error=failure_reason(error)
             )
 
-    async def deliver_to_parent(
+    async def _deliver_to_parent(
         self, child: AgentSession, receipt: dict[str, Any]
     ) -> TurnOutcome | None:
         """Answer the `route` call that started this session, and run its caller on.
@@ -369,7 +495,7 @@ class AgentManager:
             if record is None:
                 logger.warning("Session #%s is already resuming", agent.parent_run_id)
                 return None
-            parent, transcript = self.restore(record)
+            parent, transcript = self._restore(record)
             waiting = dict(parent.awaiting_route or {})
             parent.awaiting_route = None
             parent.display_result_summaries.extend(
@@ -377,18 +503,41 @@ class AgentManager:
             )
             await self._replay(parent, transcript, receipt, str(waiting.get("call_id", "")))
             result = await self.run(parent)
-            outcome = await self._complete(
-                parent, result, started, close_children=parent.parent_run_id is None
-            )
-            if result.suspended is not None or outcome.waiting:
+            outcome = await self._complete(parent, result, started)
+            if outcome.waiting or parent.parent_run_id is None:
                 return outcome
-            if parent.parent_run_id is None:
-                return outcome
-            receipt = route_receipt(
-                parent.kind,
-                outcome.message,
-                parent.display_result_summaries,
-                receipt_prefixes=self.receipt_prefixes,
+            receipt = self._receipt(
+                parent.kind, outcome.message, parent.display_result_summaries
             )
             agent = parent
         return None
+
+
+def _resumed_transcript(
+    transcript: list[dict[str, Any]],
+    results: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Replay this request's own assistant/tool exchanges with the decisions filled in.
+
+    No separate progress digest is injected here: every step of the request is present as
+    its own call and result, each carrying its status and what to do next.  Restating them
+    in an assistant message would duplicate the request once per approval.
+    """
+    replayed = [dict(message) for message in transcript]
+    last_assistant = max(
+        (index for index, message in enumerate(replayed) if message.get("role") == "assistant"),
+        default=None,
+    )
+    if last_assistant is None:
+        return replayed
+    # Only the suspended turn's own results are unresolved; every earlier tool message
+    # already carries its final content and must be replayed untouched.
+    for message in replayed[last_assistant + 1 :]:
+        if message.get("role") != "tool":
+            continue
+        tool_call_id = str(message.get("tool_call_id"))
+        if tool_call_id in results:
+            message["content"] = json.dumps(
+                results[tool_call_id], ensure_ascii=False, default=str
+            )
+    return replayed

@@ -15,6 +15,9 @@ flowchart TB
         GUARD[GenerationGuard]
         SCREENS[screens · proposals · renderers]
     end
+    subgraph RT[agent_runtime]
+        MGR[AgentManager · the loop, the routed chain, suspend and resume]
+    end
     subgraph AI[ai]
         ADV[Advisor session]
         SUB[Routed subagent session]
@@ -34,7 +37,9 @@ flowchart TB
     MEM[(data/memory.md)]
     DB[(SQLite · ai_* views)]
 
-    OWNER --> HANDLERS --> GUARD --> ADV
+    OWNER --> HANDLERS --> GUARD --> MGR
+    MGR --> ADV
+    SCREENS -.->|Save resumes the session| MGR
     ADV -->|route| SUB
     ADV -->|call_helper| MINI
     SUB --> PREP --> SCREENS --> OWNER
@@ -60,13 +65,26 @@ row. The row is what survives a suspension:
 |---|---|
 | `kind` | `advisor`, or the subagent's name |
 | `parent_run_id` | who routed here; null for the Advisor |
-| `state_json` | dialogue, transcript, tool count, repair rounds, receipts, `open_item`, `helper_offered` |
+| `state_json` | dialogue, transcript, tool count, repair rounds, receipts, `open_item`, `helper_offered`, `interaction_token` |
 | `claimed_at` | the atomic claim that stops two resumes of one session |
 | `status` | `running`, `awaiting_approval`, `interrupted`, `completed`, `failed`, `abandoned` |
 
 `AgentSession.restore` rebuilds a suspended run from its own row. The context prefix is **not**
 restored — it is rebuilt from live state, so the board and the clock are current while the session's
 own steps come only from its record.
+
+Three things happen to a session that stops on a person, and `AgentManager` owns all three:
+
+| | |
+|---|---|
+| suspend | checkpoint the session and hand back an `InteractionRef` — its run id and a minted token |
+| `resume(ref, value)` | claim by that reference, answer the calls it stopped on, run it on, hand its receipt up the chain |
+| `interrupt(ref, results, summary)` | leave it unfinished with those results and the note that the owner wrote instead of deciding |
+
+The reference is opaque: the runtime never learns what the person was shown, and Safwa keeps the
+mapping — the approval batch carries the token, so a Save resolves the screen and names the session
+in one step. The token is minted at the checkpoint and cleared when it is taken, which is what makes
+one answer to one screen resume exactly one turn.
 
 A session runs until it answers in words. A turn that stops with nothing is told so and asked again,
 bounded by the repair rounds. A session with no parent is the one that guarantees the owner sees
@@ -424,6 +442,10 @@ root starts them and cancels them in the polling `finally`. A feature that needs
 ## Recovery
 
 `recover_startup` reconciles interrupted work on every boot: each feature contributes a `recover`
-callable through its `FeatureModule`. A session left `running` by a crash is not resumed by a screen
-that no longer exists — it is resumed from its own `agent_runs` record, and `claimed_at` is what
-stops two resumes of one session.
+callable through its `FeatureModule`.
+
+**A restart ends every session.** One left `running` and one left `awaiting_approval` are both
+recorded `abandoned`, and their claims are released. Nothing picks either up: a screen is process
+state and died with the process, and an unfinished session is only ever adopted by the turn that
+routed to it, which died with it. What startup clears is what still pointed at a review — the
+buttons, and the `related_id` of the screens in the chat.

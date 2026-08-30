@@ -32,7 +32,6 @@ from ..foundation.errors import DomainError
 from .autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
 from .outcome import AIOutcome, AIOutcomeKind, as_turn
 from .prepare import ChangePreparer
-from .runs import AgentRunStore
 from .tools import REPAIR_EXHAUSTED, ToolAdapters
 
 logger = logging.getLogger(__name__)
@@ -51,7 +50,6 @@ class ProposalMaterializer:
         renderer: ProposalRenderer,
         preparer: ChangePreparer,
         adapters: ToolAdapters,
-        store: AgentRunStore,
         *,
         resolve: ResolveApproval,
         autoapproval: AutoApprovalReviewer | None = None,
@@ -62,7 +60,6 @@ class ProposalMaterializer:
         self.renderer = renderer
         self.preparer = preparer
         self.adapters = adapters
-        self.store = store
         self.resolve = resolve
         self.autoapproval = autoapproval
 
@@ -80,7 +77,7 @@ class ProposalMaterializer:
             AIOutcome(
                 AIOutcomeKind.ANSWER,
                 composed or "⚠️ Safwa had nothing to say about that. You can ask again.",
-                open_item=agent.open_item,
+                open_item=agent.host_state.get("open_item"),
             )
         )
 
@@ -190,13 +187,10 @@ class ProposalMaterializer:
                         items=queue,
                         tool_calls=tool_results,
                         repair_exhausted=repair_exhausted,
+                        request=_owner_request(agent.dialogue),
                     )
                 )
             await session.commit()
-        if queue:
-            # The session is waiting on the owner now, so what it needs to resume is stored
-            # before the screen is drawn rather than after the owner has pressed anything.
-            await self.store.save_state(agent.run_id, agent.state())
         if not queue:
             if failed_call_ids:
                 if agent.repair_rounds >= MAX_REPAIR_ROUNDS:
@@ -205,18 +199,13 @@ class ProposalMaterializer:
                 agent.repair_rounds += 1
                 return None
             return self.answer(agent, result.message)
+        # Waiting, and nothing more. Whether the owner ever sees this screen is decided once
+        # the turn has been stored and released — never from inside the session it suspends.
         return as_turn(
-            await self.advance_autoapprovals(
-                AIOutcome(
-                    AIOutcomeKind.PROPOSAL, result.message, proposal_id=queue[0].proposal_id
-                ),
-                held_run_id=agent.run_id,
-            )
+            AIOutcome(AIOutcomeKind.PROPOSAL, result.message, proposal_id=queue[0].proposal_id)
         )
 
-    async def advance_autoapprovals(
-        self, outcome: AIOutcome, *, held_run_id: int | None = None
-    ) -> AIOutcome:
+    async def advance_autoapprovals(self, outcome: AIOutcome) -> AIOutcome:
         """Auto-save one eligible head; resolving it advances and checks the next head."""
         if (
             self.autoapproval is None
@@ -239,7 +228,6 @@ class ProposalMaterializer:
                     "autoapproval_reason": verdict.reason,
                 },
                 apply_proposal=True,
-                held_run_id=held_run_id,
             )
         except Exception as error:
             # `approve_proposal` and the batch decision share one transaction. A failure
@@ -268,7 +256,7 @@ class ProposalMaterializer:
                 return None
             description = await self.renderer.describe(session, proposal_id)
             return AutoApprovalCandidate(
-                user_request=await self._request_of(batch.run_id),
+                user_request=batch.request,
                 entity=change.entity,
                 action=change.action,
                 entity_id=change.entity_id,
@@ -277,19 +265,16 @@ class ProposalMaterializer:
                 fields=tuple(description.fields),
             )
 
-    async def _request_of(self, run_id: int) -> str:
-        """The owner's own last words in the session that proposed this."""
-        record = await self.store.get(run_id)
-        if record is None:
-            return ""
-        return next(
-            (
-                str(item.get("content", ""))
-                for item in reversed(record.state.get("dialogue") or [])
-                if item.get("role") == "user"
-            ),
-            "",
-        )
+def _owner_request(dialogue: list[dict[str, Any]]) -> str:
+    """The owner's own last words in the session that proposed this."""
+    return next(
+        (
+            str(item.get("content", ""))
+            for item in reversed(dialogue)
+            if item.get("role") == "user"
+        ),
+        "",
+    )
 
 
 def _fill_in_results(agent: AgentSession, tool_results: list[dict[str, Any]]) -> None:
