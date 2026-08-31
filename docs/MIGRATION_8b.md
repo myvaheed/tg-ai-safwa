@@ -142,7 +142,7 @@ rolling back 4500 lines and seventy callback actions as one piece is not a safet
 | 4d | `FeatureModule` grows `text_inputs` | 7 flow branches gone | **done** |
 | 5a | The shell: `src/safwa/shell/`; the host is built once and owns its own state | criterion 17 | **done** |
 | 5b | Cards and Checks | criterion 17 | **done** |
-| 5c | Planning and the Sprint | | |
+| 5c | Planning and the Sprint | Rule E gains its second door | **done** |
 | 5d | Values, Tags, Requests, Reminders, Profile | | |
 | 5e | Proposals; `src/safwa/telegram/` does not exist | criterion 8 | |
 | 6 | `domain.py`, `history.py`, `main.py`; Rule G; Rule L; `CARD_EDITOR` → `EDITOR` | criteria 11, 12, 19 | |
@@ -486,6 +486,36 @@ because it draws one, not because someone remembered to list it.
 **CLAUDE.md's Telegram layering paragraph was corrected.** It described `_core.py` ←
 `_presentation.py` ← `_messaging.py` ← `text_input.py`, none of which is in that package any more —
 5a made it false and 5b removed the last two names in it.
+
+### What step 5c landed
+
+795 passed, 3 skipped; `ruff check .` clean; 197 modules; cycles 0; no rule count moved.
+`src/safwa/telegram/` is 3,329 lines to 2,621. `features/planning/telegram/` is `sprint.py` (317 —
+Today, the running Sprint, Planning, the retro and the Success-criteria flow), `plan.py` (376) and
+`state.py` (87), and the old `features/planning/telegram.py` folded into `sprint.py`: one flow and a
+citation label belong beside the screen they redraw, and only Cards had enough of them to earn a
+`text_input.py`.
+
+**Rule E was amended, by the owner's decision, to name two doors.** Moving these screens made three
+edges into Cards that `cards/api.py` cannot carry: `render_card`, `card_list_rows` and
+`card_list_text` are screens, and `move_card` is a write. `cards/api.py` importing
+`cards/use_cases.py` closes a cycle through `planning/api.py` — a stage write syncs a Sprint
+commitment, which is the design and is what its docstring already says. The direct edge
+`planning.telegram -> cards.telegram` is acyclic; only the rule forbade it.
+
+- **`features.<other>.telegram` is a door.** A screen is public already: `FeatureModule.screens`
+  hands `render_card` to the composition root.
+- **`features.<other>.use_cases` is a door for an adapter only** — a module named `telegram.py` or
+  inside a feature's `telegram/` package. That is what carries `move_card` to the plan screen.
+
+This was not 5c's problem alone. `features/values/telegram.py`, `features/tags/telegram.py` and
+`features/reminders/telegram.py` all reach a screen in `telegram/` today, legally only because that
+screen is outside `features/`. Every one of those becomes a Rule E edge in 5d and 5e, and the
+amendment is what lets them move at all. **Rule E stayed 0.**
+
+**`plan.py` shed its state.** `state.py` is what the plan screen remembers between taps — the page,
+the picked Requests, the screen's own message id and the Requests' resolution — and `plan.py` is the
+screen and its handlers. The cut is one-way and it is what keeps the screen under 400.
 
 ### Step 6 — the last flat modules
 

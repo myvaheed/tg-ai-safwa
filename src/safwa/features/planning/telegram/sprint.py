@@ -5,35 +5,43 @@ generic Backlog list.  Planning is what stands in for the Sprint before one star
 carries the Success criteria and the shape of the plan, and it offers Start only once it
 has both, because a Sprint that begins without either is a Sprint nobody can close against
 anything.  The plan itself is built one screen further in, in `plan.py`.
+
+The retro a finished Sprint left behind is here too: it is the same Sprint, read after it
+closed, and it is what a `retro:` citation opens.
 """
 
 from __future__ import annotations
 
 import html
+from collections.abc import Mapping
 from datetime import timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from aiogram.types import InlineKeyboardMarkup, Message
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..domain import DomainError, sprint_length_days, sprint_metrics
-from ..enums import MessageKind
-from ..features.cards.api import actions_on_stages
-from ..features.cards.model import CardStage
-from ..features.cards.telegram import card_list_rows, card_list_text
-from ..features.profile.api import capacity_effort_points
-from ..foundation.clock import utcnow
-from ..models import Card, Sprint, Workspace
-from ..shell import (
+from ....enums import MessageKind
+from ....foundation.clock import utcnow
+from ....foundation.errors import DomainError
+from ....foundation.screens import TextInputFlow
+from ....models import Card, Sprint, Workspace
+from ....shell import (
     Services,
     TextInputScreen,
     edit_registered_message,
     menu_row,
     paging_row,
     render_text_input,
+    required_text,
     send_registered,
     token_button,
     with_notice,
 )
+from ...cards.api import CardStage, actions_on_stages
+from ...cards.telegram import card_list_rows, card_list_text
+from ...profile.api import capacity_effort_points
+from ..use_cases import set_sprint_success_criteria, sprint_length_days, sprint_metrics
 
 _PROMPT_TTL = timedelta(minutes=30)
 
@@ -272,3 +280,38 @@ async def render_sprint_retro(message: Message, services: Services, sprint_id: i
         kind=MessageKind.DASHBOARD,
         markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )
+
+
+async def retro_citation_label(session: AsyncSession, services: Any, sprint: Sprint) -> str:
+    return f"📊 Sprint {sprint.number} retro"
+
+
+async def open_sprint_retro(
+    message: Any, services: Any, item_id: int, *, replace: bool | None = None
+) -> None:
+    """The retro is always its own message: it is what a finished Sprint left behind."""
+    await render_sprint_retro(message, services, item_id)
+
+
+async def _apply_success_criteria(
+    session: AsyncSession, services: Any, state: Mapping[str, Any], value: str
+) -> None:
+    del services, state
+    await set_sprint_success_criteria(session, value)
+
+
+async def _render_sprint(
+    message: Any, services: Any, state: Mapping[str, Any], value: str
+) -> None:
+    del value
+    await render_sprint(
+        message, services, replace_message_id=int(state["text_input"]["message_id"])
+    )
+
+
+TEXT_INPUT = TextInputFlow(
+    name="sprint",
+    validator=lambda _state: required_text("Success criteria"),
+    apply=_apply_success_criteria,
+    render=_render_sprint,
+)

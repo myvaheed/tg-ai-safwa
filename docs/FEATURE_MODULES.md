@@ -68,7 +68,7 @@ safwa/features/<feature>/
   module.py     # MODULE = FeatureModule(...)
   model.py      # feature-owned ORM entities, their field enums and value constants
   use_cases.py  # business operations shared by every adapter
-  api.py        # what another feature may call; Rule E allows no other door
+  api.py        # what another feature may call for business
   references.py # ReferenceSpec per named relationship the feature carries
   views.py      # SqlView per ai_* view
   agent.py      # MutationToolSpec, and an AgentSpec if it owns a subagent
@@ -106,6 +106,15 @@ transaction, the way `handle_text_input` owns the editor's.
 `api.py` **defines** what it publishes. It exists only when another feature actually calls in, and
 it hands over the answer rather than the row: `scheduled_memory_time(session)`, not `UserProfile`.
 A module that only re-exports is counted as a leftover path by Definition of Done #13.
+
+**Rule E has two doors, and `api.py` is only one of them.** A feature reaches another feature's
+business through `api.py`, and another feature's **screens** through its `telegram` adapter: a screen
+is public already, because `FeatureModule.screens` hands `render_card` to the composition root, and
+Planning draws its Sprint list with the rows Cards draws. An **adapter** may additionally call
+another feature's `use_cases`, because Cards has no write door and cannot be given one —
+`cards/api.py` importing `cards/use_cases.py` closes a cycle through `planning/api.py`, and that
+coupling, where writing a stage syncs a Sprint commitment, is the design. Business modules keep the
+single door.
 
 `references.py` declares one [`ReferenceSpec`](../src/safwa/foundation/references.py) per named
 relationship — a Card carries Values, Tags and Checks, a Check carries Values — so a payload key,

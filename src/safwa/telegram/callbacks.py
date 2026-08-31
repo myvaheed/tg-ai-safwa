@@ -58,6 +58,19 @@ from ..features.checks.telegram import (
     render_checks,
 )
 from ..features.checks.use_cases import toggle_check_value
+from ..features.planning.telegram import (
+    PLAN_UI_KIND,
+    on_plan_card,
+    on_plan_filter_toggle,
+    on_plan_filters,
+    on_plan_move,
+    on_plan_open,
+    on_plan_page,
+    render_plan,
+    render_sprint,
+    render_sprint_criteria_prompt,
+    render_today,
+)
 from ..features.proposals.model import BatchDecision
 from ..features.proposals.render import proposal_outcome_text
 from ..features.proposals.use_cases import approve_proposal
@@ -95,16 +108,6 @@ from .items import (
     render_item_text_prompt,
     render_saved_request,
 )
-from .plan import (
-    PLAN_UI_KIND,
-    on_plan_card,
-    on_plan_filter_toggle,
-    on_plan_filters,
-    on_plan_move,
-    on_plan_open,
-    on_plan_page,
-    render_plan,
-)
 from .proposals import continue_agent_approval, render_proposal
 from .reminders import (
     render_reminder,
@@ -112,7 +115,6 @@ from .reminders import (
     render_reminder_text_prompt,
     render_reminders,
 )
-from .sprint import render_sprint, render_sprint_criteria_prompt, render_today
 
 logger = logging.getLogger(__name__)
 

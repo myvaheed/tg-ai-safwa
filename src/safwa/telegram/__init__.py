@@ -13,7 +13,6 @@ from .commands import SHELL_COMMANDS, register_commands, sync_bot_commands
 from .dialogue import ordinary_text, voice_message
 from .items import render_item_editor, render_item_text_prompt
 from .proposals import render_ai_outcome, render_proposal
-from .sprint import render_sprint, render_today
 
 __all__ = [
     "SHELL_CALLBACK_ACTIONS",
@@ -24,9 +23,7 @@ __all__ = [
     "render_item_editor",
     "render_item_text_prompt",
     "render_proposal",
-    "render_sprint",
     "register_commands",
-    "render_today",
     "sync_bot_commands",
     "voice_message",
 ]

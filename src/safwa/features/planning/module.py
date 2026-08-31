@@ -6,8 +6,8 @@ from ...bootstrap.module_manifest import FeatureModule
 from ...foundation.screens import ScreenCommand, ScreenSpec
 from ...models import Sprint
 from ...telegram.callbacks import PLANNING_CALLBACK_ACTIONS
-from ...telegram.sprint import render_sprint, render_today
 from . import background, telegram, views
+from .telegram import render_sprint, render_today
 
 MODULE = FeatureModule(
     name="planning",

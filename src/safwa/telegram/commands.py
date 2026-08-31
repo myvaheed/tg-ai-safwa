@@ -19,6 +19,12 @@ from ..enums import MessageKind
 from ..features.continuity.memory import MemoryFileError
 from ..features.continuity.persona import MemoryMaintenanceResult
 from ..features.continuity.use_cases import record_memory_run
+from ..features.planning.telegram import (
+    handle_plan_start,
+    is_plan_link,
+    render_sprint,
+    render_today,
+)
 from ..foundation.screens import ScreenCommand
 from ..models import (
     SavedRequest,
@@ -41,9 +47,7 @@ from ..shell import (
     start_payload,
     token_button,
 )
-from .plan import handle_plan_start, is_plan_link
 from .reminders import render_reminders
-from .sprint import render_sprint, render_today
 
 logger = logging.getLogger(__name__)
 

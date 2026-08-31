@@ -16,29 +16,21 @@ from __future__ import annotations
 import html
 import re
 from collections import deque
-from datetime import UTC, datetime, timedelta
 from time import monotonic
-from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..constants import (
+from ....constants import (
     PLAN_LINK_BURST_SECONDS,
     PLAN_LINK_BURST_TAPS,
     SPRINT_PLAN_PAGE_SIZE,
     SPRINT_PLAN_TITLE_LIMIT,
 )
-from ..domain import move_card
-from ..enums import MessageKind
-from ..features.cards.api import actions_on_stages
-from ..features.cards.model import CardStage
-from ..features.cards.telegram import render_card
-from ..features.profile.api import capacity_effort_points
-from ..features.saved_requests.use_cases import request_cards
-from ..models import Card, SavedRequest, TelegramMessage, UiSession
-from ..shell import (
+from ....enums import MessageKind
+from ....models import Card, SavedRequest
+from ....shell import (
     CallbackContext,
     Page,
     Services,
@@ -49,10 +41,19 @@ from ..shell import (
     start_payload,
     token_button,
 )
+from ...cards.api import CardStage, actions_on_stages
+from ...cards.telegram import render_card
+from ...cards.use_cases import move_card
+from ...profile.api import capacity_effort_points
 from .sprint import plan_cost
+from .state import (
+    load_plan_state,
+    plan_back,
+    plan_screen_id,
+    resolve_filters,
+    store_state,
+)
 
-PLAN_UI_KIND = "sprint_plan"
-_PLAN_TTL = timedelta(hours=24)
 _RETURN = "↩️ Return"
 _INTO_SPRINT = "📥 Into Sprint"
 # The state is in the `UiSession`, so a payload only has to name the Card and say whether
@@ -90,71 +91,6 @@ def is_plan_link(text: str | None) -> bool:
         return False
     return bool(_OPEN_PAYLOAD.fullmatch(payload) or _RETURN_PAYLOAD.fullmatch(payload))
 
-
-def plan_back(state: dict[str, Any]) -> dict[str, Any]:
-    """What a Card opened from the plan has to be handed to come back to it."""
-    return {
-        "kind": PLAN_UI_KIND,
-        "page": int(state.get("page", 0)),
-        "filters": list(state.get("filters", [])),
-    }
-
-
-async def load_plan_state(session: AsyncSession, owner_id: int) -> dict[str, Any]:
-    ui = await session.scalar(
-        select(UiSession).where(
-            UiSession.owner_id == owner_id, UiSession.kind == PLAN_UI_KIND
-        )
-    )
-    return dict(ui.state) if ui is not None else {}
-
-
-async def _store_state(session: AsyncSession, owner_id: int, state: dict[str, Any]) -> None:
-    await session.execute(delete(UiSession).where(UiSession.owner_id == owner_id))
-    session.add(
-        UiSession(
-            owner_id=owner_id,
-            kind=PLAN_UI_KIND,
-            state=state,
-            expires_at=datetime.now(UTC) + _PLAN_TTL,
-        )
-    )
-
-
-async def _screen_id(session: AsyncSession, chat_id: int, state: dict[str, Any]) -> int | None:
-    """The plan screen this tap belongs to, or None when it is no longer in the chat."""
-    message_id = state.get("message_id")
-    if message_id is None:
-        return None
-    known = await session.scalar(
-        select(TelegramMessage.message_id).where(
-            TelegramMessage.chat_id == chat_id,
-            TelegramMessage.message_id == int(message_id),
-            TelegramMessage.kind == MessageKind.DASHBOARD.value,
-        )
-    )
-    return known
-
-
-async def _resolve_filters(
-    session: AsyncSession, filters: list[int], views: frozenset[str]
-) -> tuple[list[int], set[int] | None]:
-    """The picked Requests that still exist, and the Card ids all of them return.
-
-    None is "nothing is picked", which is not the same as an empty intersection.
-    """
-    live: list[int] = []
-    matched: set[int] | None = None
-    for request_id in filters:
-        request = await session.get(SavedRequest, request_id)
-        if request is None:
-            continue
-        live.append(request_id)
-        ids = {
-            card.id for card in await request_cards(session, request.query_sql, views)
-        }
-        matched = ids if matched is None else matched & ids
-    return live, matched
 
 
 def _link(services: Services, text: str, payload: str) -> str:
@@ -274,7 +210,7 @@ async def render_plan(
     async with services.sessions() as session:
         stored = await load_plan_state(session, services.owner_id)
         picked = list(stored.get("filters", [])) if filters is None else list(filters)
-        live, matched = await _resolve_filters(session, picked, services.views)
+        live, matched = await resolve_filters(session, picked, services.views)
         planned = await actions_on_stages(session, CardStage.SPRINT, CardStage.TODAY)
         backlog = await actions_on_stages(session, CardStage.BACKLOG)
         planned.sort(key=lambda card: card.id)
@@ -313,7 +249,7 @@ async def render_plan(
         )
         screen_id = sent.message_id
     async with services.sessions() as session:
-        await _store_state(
+        await store_state(
             session,
             services.owner_id,
             {"message_id": screen_id, "page": shown.index, "filters": live},
@@ -371,7 +307,7 @@ async def handle_plan_start(message: Message, services: Services, payload: str) 
         return False
     async with services.sessions() as session:
         state = await load_plan_state(session, services.owner_id)
-        screen_id = await _screen_id(session, message.chat.id, state)
+        screen_id = await plan_screen_id(session, message.chat.id, state)
     if returned is not None:
         async with services.sessions() as session:
             card = await session.get(Card, int(returned[1]))
@@ -433,7 +369,7 @@ async def on_plan_filter_toggle(context: CallbackContext) -> None:
         else:
             picked.append(request_id)
         # A different Backlog is a different page count, so the page cannot survive.
-        await _store_state(
+        await store_state(
             session, context.owner_id, {**state, "filters": picked, "page": 0}
         )
         await session.commit()

@@ -26,7 +26,7 @@ from ui_harness import (
     ui_sources,
 )
 
-import safwa.telegram.plan as plan_module
+import safwa.features.planning.telegram.plan as plan_module
 from safwa.ai.contracts import OpenInput
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.ai.sql import create_ai_views
@@ -61,6 +61,8 @@ from safwa.enums import MessageKind
 from safwa.features.cards.model import CardStage
 from safwa.features.continuity.model import SUMMARY_HEADER, SummaryState
 from safwa.features.diary.use_cases import create_diary_entry
+from safwa.features.planning.telegram import render_sprint, render_today
+from safwa.features.planning.telegram.plan import handle_plan_start, is_plan_link, render_plan
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.screens import command_settings
 from safwa.features.profile.use_cases import (
@@ -119,13 +121,10 @@ from safwa.telegram import (
     render_item_editor,
     render_item_text_prompt,
     render_proposal,
-    render_sprint,
-    render_today,
     voice_message,
 )
 from safwa.telegram.commands import command_requests, command_start, register_commands
 from safwa.telegram.dialogue import run_dialogue_turn
-from safwa.telegram.plan import handle_plan_start, is_plan_link, render_plan
 from safwa.telegram.reminders import render_reminder, render_reminders
 from safwa.turn import TurnManager
 from telegram_llm import (
