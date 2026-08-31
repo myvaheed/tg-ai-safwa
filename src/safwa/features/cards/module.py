@@ -5,10 +5,15 @@ from __future__ import annotations
 from ...bootstrap.module_manifest import FeatureModule, ProposalContribution
 from ...foundation.screens import ScreenCommand, ScreenSpec
 from ...telegram.callbacks import CARD_CALLBACK_ACTIONS
-from ...telegram.cards import render_card
-from ...telegram.commands import command_add, command_backlog
 from . import agent, proposal, telegram, views
 from .model import Card
+from .telegram import (
+    CARD_TEXT_INPUTS,
+    card_citation_label,
+    command_backlog,
+    render_card,
+    start_manual_card_creation,
+)
 
 MODULE = FeatureModule(
     name="cards",
@@ -25,7 +30,7 @@ MODULE = FeatureModule(
             item_type="card",
             model=Card,
             open=render_card,
-            label=telegram.card_citation_label,
+            label=card_citation_label,
         ),
     ),
     commands=(
@@ -36,8 +41,8 @@ MODULE = FeatureModule(
             nav="backlog",
         ),
         # Add is a menu button and nothing else: a Card is created on a screen.
-        ScreenCommand(handler=command_add, nav="add"),
+        ScreenCommand(handler=start_manual_card_creation, nav="add"),
     ),
     callback_actions=CARD_CALLBACK_ACTIONS,
-    text_inputs=telegram.CARD_TEXT_INPUTS,
+    text_inputs=CARD_TEXT_INPUTS,
 )

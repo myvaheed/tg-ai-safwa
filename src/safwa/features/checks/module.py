@@ -5,9 +5,9 @@ from __future__ import annotations
 from ...bootstrap.module_manifest import FeatureModule, ProposalContribution
 from ...foundation.screens import ScreenSpec
 from ...telegram.callbacks import CHECK_CALLBACK_ACTIONS
-from ...telegram.checks import render_check
 from . import agent, proposal, telegram, views
 from .model import Check
+from .telegram import render_check
 
 MODULE = FeatureModule(
     name="checks",

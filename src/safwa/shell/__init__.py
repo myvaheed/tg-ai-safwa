@@ -44,6 +44,7 @@ from .screens import (
     render_citations,
     report_open_failure,
 )
+from .selector import choice_rows, choice_screen
 from .services import (
     CallbackContext,
     CallbackHandler,
@@ -76,6 +77,8 @@ __all__ = [
     "TextInputScreen",
     "TextValidator",
     "audio_payload",
+    "choice_rows",
+    "choice_screen",
     "delete_screen",
     "delete_text_input",
     "discard_stale_status",

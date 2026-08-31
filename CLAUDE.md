@@ -159,9 +159,10 @@ its two sets now live in [features/cards/model.py](src/safwa/features/cards/mode
 `CheckOutcome` in [features/checks/model.py](src/safwa/features/checks/model.py). `CardKind` and
 `WorkspaceMode` still wait in `enums.py`; `WorkspaceMode` belongs to Planning.
 
-The `telegram` package is layered and imports run one way only: `_core.py` ← `_presentation.py` ←
-`_messaging.py` ← `text_input.py` ← the feature renderers ← `screens.py` / `proposals.py` ← the
-handlers. Only [commands.py](src/safwa/telegram/commands.py),
+[shell/](src/safwa/shell) is what a feature's Telegram adapter imports besides `telegram_llm`:
+the container, the router, the chat verbs, the layout, the editor and the shared selector. The
+shell never imports [telegram/](src/safwa/telegram), which is what is left to empty into the
+features. Only [commands.py](src/safwa/telegram/commands.py),
 [callbacks.py](src/safwa/telegram/callbacks.py) and [dialogue.py](src/safwa/telegram/dialogue.py)
 register `@router` handlers, and [__init__.py](src/safwa/telegram/__init__.py) imports them for that
 side effect — dropping one silently unregisters its handlers. A leading underscore means

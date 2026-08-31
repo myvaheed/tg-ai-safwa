@@ -17,12 +17,15 @@ rule imports it.
 | `proposals` | a `ProposalContribution` per entity: handler, mutation tool, presenter |
 | `mutation_tools` | a mutation tool whose change lands on an entity another feature owns (`remove`) |
 | `views` | the `ai_*` views this feature publishes |
+| `screens` | a `ScreenSpec` per item type the owner can be taken to, and how it reads when cited |
+| `commands` | a `ScreenCommand` per screen the owner opens by name: a slash command, a menu button, or both |
+| `callback_actions` | the inline-button actions this feature's screens draw |
+| `text_inputs` | a `TextInputFlow` per editor field the owner types a value into |
 | `recover` | one hook `recover_startup` runs before the run machinery is reconciled |
 | `background` | tasks the polling loop starts and cancels |
 
 A capability does not get a field here by default. It first gets its own mechanism, and only a
-capability several features plug into earns a contribution. Routers and bot commands are not in the
-manifest yet: they join it in the phase that moves the Telegram handlers into their features.
+capability several features plug into earns a contribution.
 
 ## The three proposal responsibilities
 
@@ -33,8 +36,8 @@ One registration, three layers, bound only in the feature's `module.py`:
   entity, `archived_at`, the closed repeat and `target_not_found` live here, not in generic code.
 - **`MutationToolSpec`** (`features/<f>/agent.py`) — the Pydantic input model, the one-line
   description, and the conversion into a neutral `AgentChange`.
-- **`ProposalPresenter`** (`features/<f>/telegram.py`) — the receipt lines and the review screen.
-  `screen()` may return `None`, which falls back to the generic change list.
+- **`ProposalPresenter`** (the feature's Telegram adapter) — the receipt lines and the review
+  screen. `screen()` may return `None`, which falls back to the generic change list.
 
 Rule K keeps them apart: `proposal.py` carries no user-facing wording and no aiogram, and `agent.py`
 neither commits nor calls the domain.
@@ -70,13 +73,35 @@ safwa/features/<feature>/
   views.py      # SqlView per ai_* view
   agent.py      # MutationToolSpec, and an AgentSpec if it owns a subagent
   proposal.py   # ProposalHandler
-  telegram.py   # ProposalPresenter
+  telegram.py   # the Telegram adapter: screens, editors, the review screen, the citation label
   reducer.py    # reduce(state, action) -> (state, effects), when the feature has a process
 ```
 
 These names are the whole vocabulary. A feature that wants a file outside this list is saying its
 contents belong to a role the list does not have yet, which is a question for the batch, not a new
 word.
+
+**The adapter is a package where it is big**, and the rest of Safwa writes `from .telegram import
+...` either way — a feature whose adapter is one screen keeps it one file, and the import does not
+say which it is. Inside the package the names are the feature's own, because there is no shared
+vocabulary of screens to hold them to:
+
+```text
+safwa/features/cards/telegram/
+  __init__.py      # what the adapter publishes, behind __all__
+  presentation.py  # labels, the overview text, list order, the citation
+  selectors.py     # which relationships a Card offers, and the two screens that offer them
+  creation.py      # the draft
+  lists.py         # every screen showing several Cards
+  screens.py       # the Card itself
+  text_input.py    # the typed-value flows
+  review.py        # ProposalPresenter
+```
+
+Rule B reads file names, so an adapter split this way is not scanned for the transaction it opens.
+Every screen commits by construction: it mints its single-use `CallbackToken` rows through
+`token_button` before it sends. Rule B widens to the package when a screen driver owns that
+transaction, the way `handle_text_input` owns the editor's.
 
 `api.py` **defines** what it publishes. It exists only when another feature actually calls in, and
 it hands over the answer rather than the row: `scheduled_memory_time(session)`, not `UserProfile`.
@@ -112,8 +137,10 @@ The Diary is the pilot for the complete shape. Its proposal handler and Telegram
 feature. Reads are deliberately asymmetric: the Advisor reads and opens `ai_diary` directly, while
 writes route to the Diary subagent and remain proposals until Save.
 
-## Why `__init__.py` is empty
+## Why the feature's `__init__.py` is empty
 
 `module.py` reaches aiogram, the domain and the Telegram adapters. `views.py` and `api.py` are
 leaves that low-level modules import. Keeping the package `__init__` empty is what stops importing a
-leaf from executing the manifest, which is how the import graph stays acyclic.
+leaf from executing the manifest, which is how the import graph stays acyclic. The adapter package's
+own `__init__.py` is the exception and the reason: nothing imports one of its files to reach a leaf,
+so it is free to be the facade that makes a package and a module read the same from outside.

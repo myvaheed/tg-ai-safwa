@@ -7,12 +7,12 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...ai.contracts import AgentChange
-from ...foundation.marks import title_marks
-from ...foundation.references import resolve_references
-from ...models import Check
-from ...shell import short_citation_title
-from ..proposals.api import (
+from ....ai.contracts import AgentChange
+from ....foundation.marks import title_marks
+from ....foundation.references import resolve_references
+from ....models import Check
+from ....shell import short_citation_title
+from ...proposals.api import (
     ChangeAction,
     ProposalChange,
     ProposalScreen,
@@ -26,10 +26,10 @@ from ..proposals.api import (
     reference_names,
     result_value,
 )
-from .model import CHECK_OUTCOME_LABELS
-from .proposal import CHECK_ANSWER_ACTIONS
-from .references import CHECK_VALUE_REFERENCE
-from .use_cases import check_value_ids
+from ..model import CHECK_OUTCOME_LABELS
+from ..proposal import CHECK_ANSWER_ACTIONS
+from ..references import CHECK_VALUE_REFERENCE
+from ..use_cases import check_value_ids
 
 
 async def _value_names(session: AsyncSession, value_ids: list[int]) -> str:

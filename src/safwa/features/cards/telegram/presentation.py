@@ -1,4 +1,4 @@
-"""Pure rendering: text, labels, markup and paging that touch neither a session nor the bot."""
+"""How a Card reads: its labels, its overview text, its order in a list and its citation."""
 
 from __future__ import annotations
 
@@ -6,10 +6,15 @@ import html
 from datetime import datetime
 from typing import Any
 
-from ..enums import CardKind, Category, EnergyType, Priority
-from ..features.cards.model import CardStage
-from ..models import Card
-from ..shell import Page, paginate
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ....enums import CardKind, Category, EnergyType, Priority
+from ....foundation.marks import title_marks
+from ....models import Card, CardCategory, CardEnergyType
+from ....shell import Page, paginate, short_citation_title, with_citation_fields
+from ..model import CardStage
+from ..use_cases import card_progress
 
 _KIND_EMOJIS = {
     CardKind.GOAL.value: "🎯",
@@ -143,3 +148,43 @@ def card_overview_text(state: dict[str, Any], *, heading: str = "Card") -> str:
     if state.get("check_names"):
         lines.append(f"Checks: {html.escape(', '.join(state['check_names']))}")
     return f"<b>{html.escape(heading)}</b>\n" + "\n".join(lines)
+
+
+def _emoji_group(values: list[str], emojis: dict[str, str]) -> str:
+    """Render a set of existing field icons in the product's established order."""
+    present = set(values)
+    return "".join(emoji for field, emoji in emojis.items() if field in present)
+
+
+async def card_citation_label(session: AsyncSession, services: Any, card: Card) -> str:
+    """A Card is named by its own metadata, so a citation never restates what Safwa knows."""
+    marker = await title_marks(session, card)
+    leading = f"{kind_emoji(card.kind)} {short_citation_title(card.title)}{marker}"
+    if card.kind in {CardKind.GOAL.value, CardKind.IDEA.value}:
+        progress = await card_progress(session, card.id)
+        return with_citation_fields(
+            leading, [f"⚡{progress['completed_effort']}/{card.effort_points or 0}"]
+        )
+    if card.kind != CardKind.ACTION.value:
+        return leading
+
+    categories = list(
+        await session.scalars(
+            select(CardCategory.category).where(CardCategory.card_id == card.id)
+        )
+    )
+    energy_types = list(
+        await session.scalars(
+            select(CardEnergyType.energy_type).where(CardEnergyType.card_id == card.id)
+        )
+    )
+    fields = [
+        group
+        for group in (
+            _emoji_group(energy_types, ENERGY_EMOJIS),
+            _emoji_group(categories, CATEGORY_EMOJIS),
+            f"⚡{card.effort_points}" if card.effort_points is not None else "",
+        )
+        if group
+    ]
+    return with_citation_fields(leading, fields)

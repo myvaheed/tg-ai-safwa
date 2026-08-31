@@ -478,7 +478,7 @@ async def test_manual_check_screens_only_repeat_and_answer(e2e_harness):
     message = _TestMessage()
     services = _services(e2e_harness, advisor)
 
-    from safwa.telegram.checks import render_check, render_checks
+    from safwa.features.checks.telegram import render_check, render_checks
 
     back = {"kind": "card", "id": card_id}
     await render_checks(message, services, card_id, back=back)
@@ -512,7 +512,7 @@ async def test_manual_done_button_opens_the_resolution_screen(e2e_harness):
     message = _TestMessage()
     services = _services(e2e_harness, advisor)
 
-    from safwa.telegram.checks import render_check_resolution
+    from safwa.features.checks.telegram import render_check_resolution
 
     await render_check_resolution(
         message, services, card_id, back={"kind": "card", "id": card_id}

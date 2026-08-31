@@ -18,6 +18,7 @@ from .model import is_closed_repeat as is_closed_repeat
 from .references import CHECK_VALUE_REFERENCE as CHECK_VALUE_REFERENCE
 from .use_cases import apply_check_outcome, check_resolutions, drop_pending_checks, pending_checks
 from .use_cases import archive_settled_checks as archive_settled_checks
+from .use_cases import card_checks as card_checks
 from .use_cases import check_card_id as check_card_id
 from .use_cases import clone_checks_for_successor as clone_checks_for_successor
 from .use_cases import delete_checks_of_cards as delete_checks_of_cards

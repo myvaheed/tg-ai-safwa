@@ -34,6 +34,7 @@ from ..domain import move_card
 from ..enums import MessageKind
 from ..features.cards.api import actions_on_stages
 from ..features.cards.model import CardStage
+from ..features.cards.telegram import render_card
 from ..features.profile.api import capacity_effort_points
 from ..features.saved_requests.use_cases import request_cards
 from ..models import Card, SavedRequest, TelegramMessage, UiSession
@@ -48,7 +49,6 @@ from ..shell import (
     start_payload,
     token_button,
 )
-from .cards import render_card
 from .sprint import plan_cost
 
 PLAN_UI_KIND = "sprint_plan"

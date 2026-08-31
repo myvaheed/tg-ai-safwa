@@ -3,9 +3,6 @@ from __future__ import annotations
 import ast
 import asyncio
 import html
-import importlib
-import inspect
-import pkgutil
 import re
 from datetime import UTC, date, datetime, time
 from types import SimpleNamespace
@@ -18,9 +15,17 @@ from aiogram import Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
 from sqlalchemy import select, text
+from ui_harness import (
+    CALLBACK_ACTIONS,
+    FakeBot,
+    FakeCallback,
+    FakeMessage,
+    StubAdvisor,
+    button_texts,
+    services_for,
+    ui_sources,
+)
 
-import safwa.features.profile.screens as profile_screens_source
-import safwa.telegram as telegram_source
 import safwa.telegram.plan as plan_module
 from safwa.ai.contracts import OpenInput
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
@@ -28,7 +33,6 @@ from safwa.ai.sql import create_ai_views
 from safwa.bootstrap.modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
-    FEATURE_CALLBACK_ACTIONS,
     FEATURE_COMMANDS,
     FEATURE_TEXT_INPUTS,
     PROPOSALS,
@@ -39,30 +43,22 @@ from safwa.constants import (
     DIARY_TIME_DEFAULT,
     PLAN_LINK_BURST_TAPS,
     REQUEST_RESULT_LIMIT,
-    SELECTOR_PAGE_SIZE,
 )
 from safwa.domain import (
     DomainError,
-    archive_check,
-    archive_subtree,
     create_card,
     create_check,
     create_tag,
     create_value,
     delete_tag,
-    finish_action,
-    resolve_check,
     set_sprint_success_criteria,
     start_sprint,
-    toggle_card_check,
     toggle_card_tag,
     toggle_card_value,
     toggle_check_value,
 )
 from safwa.enums import MessageKind
 from safwa.features.cards.model import CardStage
-from safwa.features.cards.use_cases import EFFORT_POINTS
-from safwa.features.checks.model import CheckOutcome
 from safwa.features.continuity.model import SUMMARY_HEADER, SummaryState
 from safwa.features.diary.use_cases import create_diary_entry
 from safwa.features.profile.model import ProfileField
@@ -71,7 +67,6 @@ from safwa.features.profile.use_cases import (
     DIARY_REMINDER_INSTRUCTION,
     set_profile_field,
 )
-from safwa.features.proposals.api import ProposalDescription
 from safwa.features.proposals.model import ChangeAction, ProposalChange
 from safwa.features.proposals.store import ProposalStore
 from safwa.features.proposals.use_cases import approve_proposal
@@ -90,7 +85,6 @@ from safwa.models import (
     CardEnergyType,
     CardTag,
     CardValue,
-    Check,
     Cue,
     Reminder,
     SavedRequest,
@@ -118,17 +112,10 @@ from safwa.shell.chat import (
 )
 from safwa.shell.layout import menu_markup, menu_row, start_payload
 from safwa.telegram import (
-    SHELL_CALLBACK_ACTIONS,
     SHELL_COMMANDS,
     callback_token_handler,
-    handle_card_creation_chooser,
     ordinary_text,
     render_ai_outcome,
-    render_card,
-    render_card_choices,
-    render_card_creation,
-    render_children,
-    render_dashboard,
     render_item_editor,
     render_item_text_prompt,
     render_proposal,
@@ -136,7 +123,6 @@ from safwa.telegram import (
     render_today,
     voice_message,
 )
-from safwa.telegram.checks import render_check
 from safwa.telegram.commands import command_requests, command_start, register_commands
 from safwa.telegram.dialogue import run_dialogue_turn
 from safwa.telegram.plan import handle_plan_start, is_plan_link, render_plan
@@ -153,20 +139,7 @@ from telegram_llm import (
 
 
 def _telegram_module_trees() -> list[ast.Module]:
-    """Every module that emits Telegram buttons or registers their actions.
-
-    The inline-button invariants were single-module when the UI lived in one file;
-    they now include feature-owned screens as well as the Telegram adapter package.
-    """
-    trees: list[ast.Module] = [ast.parse(inspect.getsource(profile_screens_source))]
-    for info in pkgutil.iter_modules(telegram_source.__path__):
-        module = importlib.import_module(f"{telegram_source.__name__}.{info.name}")
-        trees.append(ast.parse(inspect.getsource(module)))
-    return trees
-
-
-# What the composition root puts together, which is what a live Safwa answers with.
-CALLBACK_ACTIONS = {**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS}
+    return [ast.parse(path.read_text(encoding="utf-8")) for path in ui_sources()]
 
 
 def _callback_action_groups(trees: list[ast.Module]) -> list[ast.AST]:
@@ -228,15 +201,6 @@ def test_no_individually_registered_handler_is_unreachable() -> None:
     assert spelled_out <= referenced
 
 
-def test_every_card_relationship_is_wired_to_both_selector_surfaces() -> None:
-    """Adding a relationship to the table must not leave half the screens unreachable."""
-    for field, relation in telegram_source.RELATION_CHOICES.items():
-        assert f"card_choose_{field}" in CALLBACK_ACTIONS
-        assert f"card_create_choose_{field}" in CALLBACK_ACTIONS
-        assert f"card_toggle_{relation.singular}" in CALLBACK_ACTIONS
-        assert f"card_create_toggle_{relation.singular}" in CALLBACK_ACTIONS
-
-
 def test_every_recorded_text_input_flow_has_a_declared_handler() -> None:
     """A flow no feature declares is an editor that swallows what the owner types."""
     recorded: set[str] = set()
@@ -266,167 +230,6 @@ def test_every_recorded_text_input_flow_has_a_declared_handler() -> None:
 
     assert recorded, "no literal text input flow was found to check"
     assert recorded <= set(FEATURE_TEXT_INPUTS)
-
-
-class FakeBot:
-    def __init__(self) -> None:
-        self.id = 999
-        self.downloads: list[str] = []
-        self.audio_bytes = b"OggS-fake-audio"
-        self.edits: list[tuple[int, str, object | None]] = []
-        self.deleted: list[int] = []
-        self.deleted_batches: list[list[int]] = []
-        self.cleared_markup: list[int] = []
-        self.published_commands: list[list[str]] = []
-
-    async def edit_message_text(
-        self,
-        text: str | None = None,
-        *,
-        chat_id: int,
-        message_id: int,
-        reply_markup=None,
-        parse_mode=None,
-        rich_message=None,
-    ) -> None:
-        del chat_id, parse_mode
-        body = text if rich_message is None else rich_message.html
-        self.edits.append((message_id, body, reply_markup))
-
-    async def delete_message(self, chat_id: int, message_id: int) -> None:
-        del chat_id
-        self.deleted.append(message_id)
-
-    async def delete_messages(self, *, chat_id: int, message_ids: list[int]) -> None:
-        del chat_id
-        self.deleted_batches.append(message_ids)
-
-    async def edit_message_reply_markup(
-        self, *, chat_id: int, message_id: int, reply_markup=None
-    ) -> None:
-        del chat_id, reply_markup
-        self.cleared_markup.append(message_id)
-
-    async def send_chat_action(self, chat_id: int, action) -> None:
-        del chat_id, action
-
-    async def download(self, file_id: str, destination):
-        self.downloads.append(file_id)
-        destination.write(self.audio_bytes)
-        return destination
-
-    async def set_my_commands(self, commands) -> None:
-        self.published_commands.append([command.command for command in commands])
-
-
-class FakeMessage:
-    def __init__(
-        self,
-        message_id: int,
-        *,
-        text: str = "",
-        bot_message: bool,
-        bot: FakeBot | None = None,
-        chat_id: int = 700,
-        answer_as_new: bool = False,
-        voice: SimpleNamespace | None = None,
-    ) -> None:
-        self.message_id = message_id
-        self.text = text
-        self.voice = voice
-        self.audio = None
-        self.video_note = None
-        self.bot = bot or FakeBot()
-        self.chat = SimpleNamespace(id=chat_id, type="private")
-        self.from_user = SimpleNamespace(id=42, is_bot=bot_message, full_name="Name Surname")
-        self.date = datetime.now(UTC)
-        self.edits: list[tuple[str, object | None]] = []
-        self.answers: list[str] = []
-        self.answer_markups: list[object | None] = []
-        self.was_deleted = False
-        self.answer_as_new = answer_as_new
-        self.sent_messages: list[FakeMessage] = []
-
-    async def edit_text(
-        self, text: str | None = None, *, reply_markup=None, parse_mode=None, rich_message=None
-    ):
-        del parse_mode
-        self.edits.append((text if rich_message is None else rich_message.html, reply_markup))
-        return self
-
-    async def answer(self, text: str, *, reply_markup=None, parse_mode=None):
-        del parse_mode
-        self.answers.append(text)
-        self.answer_markups.append(reply_markup)
-        if self.answer_as_new:
-            # Telegram hands out a fresh id per message; a repeated one would collapse
-            # several registrations into one row.
-            sent = FakeMessage(
-                self.message_id + 1_000 + len(self.sent_messages),
-                text=text,
-                bot_message=True,
-                bot=self.bot,
-                chat_id=self.chat.id,
-            )
-            self.sent_messages.append(sent)
-            return sent
-        return self
-
-    async def answer_rich(self, *, rich_message, reply_markup=None):
-        return await self.answer(rich_message.html, reply_markup=reply_markup)
-
-    async def delete(self) -> None:
-        self.was_deleted = True
-
-
-class FakeCallback:
-    def __init__(self, token: str, message: FakeMessage) -> None:
-        self.data = f"cb:{token}"
-        self.message = message
-        self.answers: list[tuple[str | None, bool]] = []
-
-    async def answer(self, text: str | None = None, *, show_alert: bool = False) -> None:
-        self.answers.append((text, show_alert))
-
-
-class StubAdvisor:
-    """Only the hooks a dismissed proposal screen reaches for, plus the real registry."""
-
-    proposals = PROPOSALS
-
-    def __init__(self, reviews: ProposalStore | None = None) -> None:
-        self.reviews = reviews if reviews is not None else ProposalStore()
-
-    async def describe_proposal(self, _session, _proposal_id) -> ProposalDescription:
-        return ProposalDescription(summary="Rename Tag “Family”", fields=["Name: Home → Family"])
-
-    async def cancel_approval_for_proposal(self, _proposal_id) -> str | None:
-        return None
-
-
-def services_for(sessions, *, advisor=None, reviews=None, transcriber=None):
-    return SimpleNamespace(
-        sessions=sessions,
-        owner_id=42,
-        turn=TurnManager(),
-        screens=SCREENS,
-        chat=ChatHost(TelegramNotes(sessions), MARKS),
-        commands=(*SHELL_COMMANDS, *FEATURE_COMMANDS),
-        callback_actions=CALLBACK_ACTIONS,
-        text_inputs=FEATURE_TEXT_INPUTS,
-        views=ALLOWED_VIEWS,
-        bot_username="safwa_ai_bot",
-        advisor=advisor
-        if advisor is not None
-        else SimpleNamespace(
-            proposals=PROPOSALS, reviews=reviews if reviews is not None else ProposalStore()
-        ),
-        transcriber=transcriber,
-    )
-
-
-def button_texts(markup) -> list[str]:
-    return [button.text for row in markup.inline_keyboard for button in row]
 
 
 async def test_every_command_is_deleted_and_still_dispatched(sessions, monkeypatch) -> None:
@@ -932,133 +735,6 @@ async def test_manual_tag_and_value_delete_unlinks_cards(sessions) -> None:
         assert await session.get(CardValue, {"card_id": card.id, "value_id": value_id}) is None
 
 
-async def test_card_note_input_updates_same_creation_message(sessions) -> None:
-    async with sessions() as session:
-        session.add(
-            UiSession(
-                owner_id=42,
-                    kind="text_input",
-                    state={
-                        "flow": "card_create",
-                    "kind": "action",
-                    "title": "Run",
-                    "note": "",
-                    "stage": "backlog",
-                    "priority": "medium",
-                    "hard_time": False,
-                    "blocked": False,
-                    "blocked_description": "",
-                    "effort_points": 2,
-                    "repeatable": False,
-                    "categories": [],
-                    "energy_types": [],
-                    "value_ids": [],
-                    "tag_ids": [],
-                        "input_field": "note",
-                        "text_input": {
-                            "message_id": 40,
-                            "title": "Edit Card Note",
-                            "current_value": "",
-                            "instruction": "Send the new note.",
-                            "back_action": "card_create_view",
-                            "back_payload": {},
-                            "related_id": None,
-                            "ttl_seconds": 1800,
-                            "extra_actions": [],
-                        },
-                },
-                expires_at=datetime.now(UTC).replace(year=2030),
-            )
-        )
-        await session.commit()
-
-    bot = FakeBot()
-    user_input = FakeMessage(41, text="Weekdays", bot_message=False, bot=bot)
-    await ordinary_text(user_input, services_for(sessions))
-
-    assert user_input.was_deleted is True
-    assert bot.edits[-1][0] == 40
-    assert "Note: Weekdays" in bot.edits[-1][1]
-    async with sessions() as session:
-        editor = await session.scalar(select(UiSession).where(UiSession.owner_id == 42))
-        assert editor.kind == "card_create"
-        assert editor.state["note"] == "Weekdays"
-
-
-async def test_dashboard_paging_walks_between_pages(sessions) -> None:
-    async with sessions() as session:
-        for index in range(7):
-            await create_card(
-                session, kind="action", title=f"Task {index}", stage="backlog", effort_points=1
-            )
-        await session.commit()
-
-    services = services_for(sessions)
-    message = FakeMessage(95, bot_message=True)
-    await render_dashboard(message, services, CardStage.BACKLOG, title="Backlog")
-
-    text, markup = message.edits[-1]
-    assert "page 1/2" in text
-    assert "◀ Previous" not in button_texts(markup)
-    nxt = next(button for row in markup.inline_keyboard for button in row if button.text == "Next ▶")
-
-    await callback_token_handler(FakeCallback(nxt.callback_data.split(":", 1)[1], message), services)
-
-    text, markup = message.edits[-1]
-    assert "page 2/2" in text
-    assert "◀ Previous" in button_texts(markup)
-    assert "Next ▶" not in button_texts(markup)
-
-
-async def test_tag_selector_pages_instead_of_truncating(sessions) -> None:
-    """TA-PICK-007 — tests/brd/tags.feature"""
-    overflow = SELECTOR_PAGE_SIZE + 2
-    async with sessions() as session:
-        card = await create_card(session, kind="action", title="Pick tags", effort_points=1)
-        for index in range(overflow):
-            await create_tag(session, f"Tag {index:02d}")
-        await session.commit()
-        card_id = card.id
-
-    services = services_for(sessions)
-    message = FakeMessage(96, bot_message=True)
-    await render_card_choices(message, services, "card_choose_tags", card_id)
-
-    text, markup = message.edits[-1]
-    names = [name for name in button_texts(markup) if name.startswith("Tag ")]
-    assert "page 1/2" in text
-    assert names == [f"Tag {index:02d}" for index in range(SELECTOR_PAGE_SIZE)]
-
-    nxt = next(button for row in markup.inline_keyboard for button in row if button.text == "Next ▶")
-    await callback_token_handler(FakeCallback(nxt.callback_data.split(":", 1)[1], message), services)
-
-    text, markup = message.edits[-1]
-    names = [name for name in button_texts(markup) if name.startswith("Tag ")]
-    # The last Tags used to be unreachable: the selector stopped at a hard limit with no paging.
-    assert "page 2/2" in text
-    assert names == [f"Tag {index:02d}" for index in range(SELECTOR_PAGE_SIZE, overflow)]
-
-    # Ticking one on page 2 used to redraw page 1, which undid the paging on every tap.
-    last = next(
-        button
-        for row in markup.inline_keyboard
-        for button in row
-        if button.text == f"Tag {overflow - 1:02d}"
-    )
-    await callback_token_handler(
-        FakeCallback(last.callback_data.split(":", 1)[1], message), services
-    )
-    text, markup = message.edits[-1]
-    assert "page 2/2" in text
-    assert f"✓ Tag {overflow - 1:02d}" in button_texts(markup)
-
-    back = next(
-        button for row in markup.inline_keyboard for button in row if button.text == "↩️ Back"
-    )
-    await callback_token_handler(FakeCallback(back.callback_data.split(":", 1)[1], message), services)
-    assert "Pick tags" in message.edits[-1][0]
-
-
 async def test_the_tag_screen_counts_its_cards_and_has_no_focus(sessions) -> None:
     """TA-LINK-001 — tests/brd/tags.feature"""
     async with sessions() as session:
@@ -1116,78 +792,6 @@ async def test_the_value_screen_counts_cards_and_checks_and_flips_focus(sessions
     assert focus.text == "💎 Focus: Off"
     await callback_token_handler(FakeCallback(focus.callback_data.split(":", 1)[1], message), services)
     assert "💎 Focus: On" in button_texts(message.edits[-1][1])
-
-
-async def test_moving_a_blocked_card_shows_its_warning_on_the_card_screen(sessions) -> None:
-    async with sessions() as session:
-        card = await create_card(
-            session,
-            kind="action",
-            title="Waiting",
-            stage="today",
-            effort_points=2,
-            blocked=True,
-            blocked_description="Need account access",
-        )
-        await session.commit()
-        card_id = card.id
-
-    services = services_for(sessions)
-    message = FakeMessage(90, bot_message=True)
-    await render_card(message, services, card_id)
-
-    stage = next(
-        button
-        for row in message.edits[-1][1].inline_keyboard
-        for button in row
-        if button.text == "📍 Stage"
-    )
-    await callback_token_handler(
-        FakeCallback(stage.callback_data.split(":", 1)[1], message), services
-    )
-    backlog = next(
-        button
-        for row in message.edits[-1][1].inline_keyboard
-        for button in row
-        if "Backlog" in button.text
-    )
-    await callback_token_handler(
-        FakeCallback(backlog.callback_data.split(":", 1)[1], message), services
-    )
-
-    # A callback replaces the current message, so the warning has to arrive as part of
-    # the destination screen rather than as a message the next render overwrites.
-    text = message.edits[-1][0]
-    assert "Need account access" in text
-    assert "Stage: Backlog" in text
-
-
-async def test_checks_button_is_on_the_card_only(sessions) -> None:
-    async with sessions() as session:
-        card = await create_card(session, kind="action", title="Card", effort_points=1)
-        value = await create_value(session, "Value")
-        tag = await create_tag(session, "Tag")
-        await session.commit()
-        card_id, value_id, tag_id = card.id, value.id, tag.id
-
-    services = services_for(sessions)
-    # The button appears only once a Check hangs on the Card. Tags and Values never carry it.
-    message = FakeMessage(card_id, bot_message=True)
-    await render_card(message, services, card_id)
-    assert not any("Checks" in text for text in button_texts(message.edits[-1][1]))
-    for entity, item_id in (("value", value_id), ("tag", tag_id)):
-        message = FakeMessage(item_id, bot_message=True)
-        await render_item_editor(message, services, entity, mode="view", item_id=item_id)
-        assert not any("Checks" in text for text in button_texts(message.edits[-1][1]))
-
-    async with sessions() as session:
-        linked = await create_check(session, title="Linked")
-        await toggle_card_check(session, card_id, linked.id)
-        await session.commit()
-
-    message = FakeMessage(card_id + 100, bot_message=True)
-    await render_card(message, services, card_id)
-    assert any("Checks (1/1)" in text for text in button_texts(message.edits[-1][1]))
 
 
 async def test_open_item_screen_renders_the_manual_screen_of_every_item(sessions) -> None:
@@ -1410,138 +1014,6 @@ def test_start_payload_reads_only_a_command_line() -> None:
     assert SCREENS.parse_payload("sprint-1") is None
 
 
-async def test_card_text_field_prompt_replaces_creation_message(sessions) -> None:
-    async with sessions() as session:
-        session.add(
-            UiSession(
-                owner_id=42,
-                kind="card_create",
-                state={"kind": "action", "title": "", "effort_points": None},
-                expires_at=datetime.now(UTC).replace(year=2030),
-            )
-        )
-        session.add(
-            CallbackToken(
-                token="card-title",
-                owner_id=42,
-                action="card_create_edit_text",
-                payload={"field": "title"},
-            )
-        )
-        await session.commit()
-
-    message = FakeMessage(45, bot_message=True)
-    await callback_token_handler(FakeCallback("card-title", message), services_for(sessions))
-
-    assert message.answers == []
-    prompt_id, prompt_text, prompt_markup = message.bot.edits[-1]
-    assert prompt_id == 45
-    assert "<b>Edit Card Title</b>" in prompt_text
-    assert "Current value:\n<pre>—</pre>" in prompt_text
-    assert button_texts(prompt_markup) == ["↩️ Back"]
-
-    blank = FakeMessage(46, text=" ", bot_message=False, bot=message.bot)
-    await ordinary_text(blank, services_for(sessions))
-
-    assert blank.was_deleted is True
-    assert "Card title cannot be empty" in message.bot.edits[-1][1]
-    async with sessions() as session:
-        assert (await session.scalar(select(UiSession))).kind == "text_input"
-
-
-async def test_a_closed_card_shows_when_it_closed_and_where_its_series_went(sessions) -> None:
-    async with sessions() as session:
-        card = await create_card(
-            session, kind="action", title="Run", stage="today", effort_points=1, repeatable=True
-        )
-        result = await finish_action(session, card.id, CardStage.DONE)
-        await session.commit()
-        card_id, live_id = card.id, result.successor_ids[0]
-
-    services = services_for(sessions)
-    message = FakeMessage(48, bot_message=True)
-    await render_card(message, services, card_id)
-
-    text, markup = message.edits[-1]
-    # One wording: the owner reads the same marks the model does, and the id in them is
-    # the open instance the series moved to.
-    assert f"Title: <b>Run [🔄1, live #{live_id}]</b>" in text
-    assert "Completed at: " in text
-    current = next(button for button in button_texts(markup) if button.startswith("🔄 Current"))
-    assert current == "🔄 Current: Run"
-
-    await callback_token_handler(
-        FakeCallback(
-            next(
-                button
-                for row in markup.inline_keyboard
-                for button in row
-                if button.text == current
-            ).callback_data.split(":", 1)[1],
-            message,
-        ),
-        services,
-    )
-    assert "Stage: Today" in message.edits[-1][0]
-    async with sessions() as session:
-        assert (await session.scalar(select(UiSession))).state["card_id"] == live_id
-
-
-async def test_card_text_and_blocked_reason_stay_on_one_validated_editor(sessions) -> None:
-    """CD-BLOCKED-010 — tests/brd/cards.feature"""
-    async with sessions() as session:
-        # An Action, because Blocked is an Action field and no other kind is offered it.
-        card = await create_card(session, kind="action", title="Original", effort_points=2)
-        await session.commit()
-        card_id = card.id
-
-    services = services_for(sessions)
-    message = FakeMessage(47, bot_message=True)
-    await render_card(message, services, card_id)
-
-    title_button = next(
-        button
-        for row in message.edits[-1][1].inline_keyboard
-        for button in row
-        if button.text == "✏️ Title"
-    )
-    await callback_token_handler(
-        FakeCallback(title_button.callback_data.split(":", 1)[1], message), services
-    )
-    assert "Current value:\n<pre>Original</pre>" in message.bot.edits[-1][1]
-
-    invalid_title = FakeMessage(48, text=" ", bot_message=False, bot=message.bot)
-    await ordinary_text(invalid_title, services)
-    assert "Card title cannot be empty" in message.bot.edits[-1][1]
-
-    valid_title = FakeMessage(49, text="Renamed", bot_message=False, bot=message.bot)
-    await ordinary_text(valid_title, services)
-    assert valid_title.was_deleted is True
-    assert "Renamed" in message.bot.edits[-1][1]
-
-    blocked_button = next(
-        button
-        for row in message.bot.edits[-1][2].inline_keyboard
-        for button in row
-        if button.text == "🚧 Blocked"
-    )
-    await callback_token_handler(
-        FakeCallback(blocked_button.callback_data.split(":", 1)[1], message), services
-    )
-    assert "Mark Card as blocked" in message.bot.edits[-1][1]
-
-    invalid_reason = FakeMessage(50, text=" ", bot_message=False, bot=message.bot)
-    await ordinary_text(invalid_reason, services)
-    assert "Blocked description cannot be empty" in message.bot.edits[-1][1]
-
-    valid_reason = FakeMessage(51, text="Waiting for API access", bot_message=False, bot=message.bot)
-    await ordinary_text(valid_reason, services)
-    async with sessions() as session:
-        card = await session.get(Card, card_id)
-        assert (card.blocked, card.blocked_description) == (True, "Waiting for API access")
-    assert "Waiting for API access" in message.bot.edits[-1][1]
-
-
 async def test_reminder_text_requires_a_value_and_restores_its_view(sessions) -> None:
     """RM-WRITE-009 — tests/brd/reminders.feature"""
     async with sessions() as session:
@@ -1627,242 +1099,6 @@ async def test_the_reminders_screen_lists_opens_and_confirms_a_delete(sessions) 
     assert button_texts(prompt_markup) == ["Delete Reminder", "↩️ Back"]
     async with sessions() as session:
         assert await session.get(Reminder, soon_id) is not None  # one confirmation, not none
-
-
-async def test_cd_tree_005_no_screen_can_change_a_cards_parent(sessions) -> None:
-    """CD-TREE-005 — tests/brd/cards.feature"""
-    async with sessions() as session:
-        goal = await create_card(session, title="Ship product", kind="goal")
-        child = await create_card(
-            session, title="Write announcement", kind="action", parent_id=goal.id, effort_points=5
-        )
-        session.add(
-            UiSession(
-                owner_id=42,
-                kind="card_create",
-                state={
-                    "kind": "action",
-                    "title": "Run",
-                    "effort_points": 2,
-                },
-                expires_at=datetime.now(UTC).replace(year=2030),
-            )
-        )
-        await session.commit()
-
-    message = FakeMessage(51, bot_message=True)
-    await render_card_creation(message, services_for(sessions))
-    buttons = button_texts(message.edits[-1][1])
-    assert "✅ Save" in buttons
-    assert "🗑 Discard" in buttons
-    assert not any(text.startswith("🌳 Parent") for text in buttons)
-
-    bot = FakeBot()
-    card_message = FakeMessage(52, bot_message=True, bot=bot)
-    await render_card(
-        card_message,
-        services_for(sessions),
-        child.id,
-        replace_message_id=card_message.message_id,
-    )
-    # The one Parent button on the Card screen opens the parent; it does not choose one.
-    parent_button = next(
-        button
-        for row in bot.edits[-1][2].inline_keyboard
-        for button in row
-        if button.text.startswith("🌳 Parent")
-    )
-    async with sessions() as session:
-        token = await session.get(
-            CallbackToken, parent_button.callback_data.removeprefix("cb:")
-        )
-        assert token is not None and token.action == "card_view"
-
-    # And no handler in the whole package writes one either.
-    for module in pkgutil.walk_packages(telegram_source.__path__, f"{telegram_source.__name__}."):
-        source = inspect.getsource(importlib.import_module(module.name))
-        assert "set_card_parent" not in source, module.name
-
-
-async def test_cd_field_007_a_goal_draft_is_not_offered_an_actions_controls(sessions) -> None:
-    """CD-FIELD-007 — tests/brd/cards.feature"""
-    action_only = {"🚧 Blocked", "🔢 Effort", "🔁 Repeat", "🏷 Categories", "⚡ Energy"}
-    async with sessions() as session:
-        editor = UiSession(
-            owner_id=42,
-            kind="card_create",
-            state={"kind": "action", "title": "Run", "effort_points": 2, "blocked": False},
-            expires_at=datetime.now(UTC).replace(year=2030),
-        )
-        session.add(editor)
-        await session.commit()
-
-    message = FakeMessage(53, bot_message=True)
-    await render_card_creation(message, services_for(sessions))
-    assert action_only <= set(button_texts(message.edits[-1][1]))
-
-    async with sessions() as session:
-        stored = await session.get(UiSession, editor.id)
-        stored.state = {**stored.state, "kind": "goal", "blocked": True}
-        await session.commit()
-
-    goal_message = FakeMessage(54, bot_message=True)
-    await render_card_creation(goal_message, services_for(goal_sessions := sessions))
-    goal_buttons = set(button_texts(goal_message.edits[-1][1]))
-    assert not (action_only & goal_buttons)
-    assert "📝 Blocked reason" not in goal_buttons
-
-    async with goal_sessions() as session:
-        stored = await session.get(UiSession, editor.id)
-        assert stored.state["blocked"] is False
-
-
-async def test_cd_effort_008_save_appears_only_once_the_draft_has_an_effort(sessions) -> None:
-    """CD-EFFORT-008 — tests/brd/cards.feature"""
-    async with sessions() as session:
-        editor = UiSession(
-            owner_id=42,
-            kind="card_create",
-            state={"kind": "action", "title": "Run", "effort_points": None},
-            expires_at=datetime.now(UTC).replace(year=2030),
-        )
-        session.add(editor)
-        await session.commit()
-
-    message = FakeMessage(55, bot_message=True)
-    await render_card_creation(message, services_for(sessions))
-    text, markup = message.edits[-1]
-    assert "✅ Save" not in button_texts(markup)
-    assert "An Action needs effort points" in text
-
-    async with sessions() as session:
-        stored = await session.get(UiSession, editor.id)
-        stored.state = {**stored.state, "effort_points": min(EFFORT_POINTS)}
-        await session.commit()
-
-    ready = FakeMessage(56, bot_message=True)
-    await render_card_creation(ready, services_for(sessions))
-    assert "✅ Save" in button_texts(ready.edits[-1][1])
-
-
-async def test_card_creation_choosers_show_kind_category_and_energy_emojis(sessions) -> None:
-    async with sessions() as session:
-        session.add(
-            UiSession(
-                owner_id=42,
-                kind="card_create",
-                state={
-                    "kind": "action",
-                    "title": "Run",
-                    "effort_points": 2,
-                    "categories": [],
-                    "energy_types": [],
-                },
-                expires_at=datetime.now(UTC).replace(year=2030),
-            )
-        )
-        await session.commit()
-
-    message = FakeMessage(52, bot_message=True)
-    services = services_for(sessions)
-
-    await handle_card_creation_chooser(message, services, "card_create_choose_kind")
-    assert {"🎯 Goal", "💡 Idea", "✓ ⭐️ Action"} <= set(button_texts(message.edits[-1][1]))
-
-    await handle_card_creation_chooser(message, services, "card_create_choose_categories")
-    assert {"🌱 Self", "❤️ Contribution", "💰 Work", "🔋 Rest"} <= set(
-        button_texts(message.edits[-1][1])
-    )
-
-    await handle_card_creation_chooser(message, services, "card_create_choose_energy")
-    assert {"💪 Physical", "🧠 Cognitive", "🤝 Social", "💎 Values"} <= set(
-        button_texts(message.edits[-1][1])
-    )
-
-
-async def test_card_overview_uses_derived_progress_and_relationship_navigation(sessions) -> None:
-    async with sessions() as session:
-        goal = await create_card(session, title="Ship product", kind="goal")
-        idea = await create_card(
-            session,
-            title="Prepare release",
-            kind="idea",
-            parent_id=goal.id,
-        )
-        done = await create_card(
-            session,
-            title="Publish build",
-            kind="action",
-            parent_id=idea.id,
-            effort_points=3,
-        )
-        remaining = await create_card(
-            session,
-            title="Write announcement",
-            kind="action",
-            parent_id=goal.id,
-            effort_points=5,
-        )
-        await finish_action(session, done.id, CardStage.DONE)
-        await session.commit()
-
-    bot = FakeBot()
-    goal_message = FakeMessage(70, bot_message=True, bot=bot)
-    await render_card(
-        goal_message,
-        services_for(sessions),
-        goal.id,
-        replace_message_id=goal_message.message_id,
-    )
-    goal_text, goal_markup = bot.edits[-1][1:]
-    assert "Kind: 🎯 Goal" in goal_text
-    assert "Stage: Backlog" in goal_text
-    assert "Effort: 3/8 EP" in goal_text
-    assert "Children: 1/2 completed" in goal_text
-    assert "Parent:" not in goal_text
-    assert "👥 Children" in button_texts(goal_markup)
-    assert not any(text.startswith("🌳 Parent:") for text in button_texts(goal_markup))
-
-    children_message = FakeMessage(73, bot_message=True)
-    await render_children(children_message, services_for(sessions), goal.id)
-    children_texts = button_texts(children_message.edits[-1][1])
-    assert any("💡 Idea · Prepare release" in text for text in children_texts)
-    assert any("⭐️ Action · Write announcement" in text for text in children_texts)
-    assert not any("Publish build" in text for text in children_texts)
-
-    child_message = FakeMessage(71, bot_message=True, bot=bot)
-    await render_card(
-        child_message,
-        services_for(sessions),
-        remaining.id,
-        replace_message_id=child_message.message_id,
-    )
-    child_text, child_markup = bot.edits[-1][1:]
-    assert "Kind: ⭐️ Action" in child_text
-    assert "Parent: Ship product" in child_text
-    assert "🌳 Parent: Ship product" in button_texts(child_markup)
-    assert "👥 Children" not in button_texts(child_markup)
-
-
-async def test_backlog_dashboard_lists_actions_only(sessions) -> None:
-    async with sessions() as session:
-        await create_card(session, title="Hidden Goal", kind="goal")
-        await create_card(session, title="Visible Action", kind="action", effort_points=2)
-        await session.commit()
-
-    message = FakeMessage(72, bot_message=True)
-    await render_dashboard(
-        message,
-        services_for(sessions),
-        CardStage.BACKLOG,
-        title="Backlog",
-    )
-
-    dashboard_text, dashboard_markup = message.edits[-1]
-    assert "⭐️ Action" in dashboard_text
-    assert "Visible Action" in dashboard_text
-    assert "Hidden Goal" not in dashboard_text
-    assert any("Visible Action" in text for text in button_texts(dashboard_markup))
 
 
 async def test_pl_mode_001_the_menu_offers_today_only_while_a_sprint_runs(sessions) -> None:
@@ -3363,182 +2599,6 @@ async def test_deleting_a_request_takes_it_off_every_surface(sessions) -> None:
     await render_plan(screen, services, filters=[request_id])
     labels = button_texts(screen.edits[-1][1])
     assert "Pick me (1)" in labels and "Skip me (2)" in labels
-
-
-async def test_no_screen_offers_a_goal_or_an_idea_a_stage_control(sessions) -> None:
-    """CD-STAGE-013 — tests/brd/cards.feature"""
-    async with sessions() as session:
-        goal = await create_card(session, kind="goal", title="Health")
-        idea = await create_card(session, kind="idea", title="Sleep better", parent_id=goal.id)
-        action = await create_card(
-            session, kind="action", title="Buy a pillow", effort_points=2, parent_id=idea.id
-        )
-        await session.commit()
-        ids = (goal.id, idea.id, action.id)
-
-    services = services_for(sessions)
-    for index, card_id in enumerate(ids, start=310):
-        message = FakeMessage(index, bot_message=True)
-        await render_card(message, services, card_id)
-        offered = "📍 Stage" in button_texts(message.edits[-1][1])
-        assert offered is (card_id == ids[2])
-
-    # The creation screen offers it for an Action alone, too.
-    async with sessions() as session:
-        editor = UiSession(
-            owner_id=42,
-            kind="card_create",
-            state={"kind": "action", "title": "Run", "effort_points": 2},
-            expires_at=datetime.now(UTC).replace(year=2030),
-        )
-        session.add(editor)
-        await session.commit()
-        editor_id = editor.id
-
-    message = FakeMessage(320, bot_message=True)
-    await render_card_creation(message, services)
-    assert "📍 Stage" in button_texts(message.edits[-1][1])
-
-    async with sessions() as session:
-        stored = await session.get(UiSession, editor_id)
-        stored.state = {**stored.state, "kind": "goal"}
-        await session.commit()
-
-    goal_message = FakeMessage(321, bot_message=True)
-    await render_card_creation(goal_message, services)
-    assert "📍 Stage" not in button_texts(goal_message.edits[-1][1])
-
-
-async def test_a_goal_screen_names_each_blocked_action_and_quotes_its_reason(sessions) -> None:
-    """CD-BLOCKED-019 — tests/brd/cards.feature"""
-    async with sessions() as session:
-        goal = await create_card(session, kind="goal", title="Health")
-        await create_card(
-            session,
-            kind="action",
-            title="Buy a pillow",
-            effort_points=2,
-            parent_id=goal.id,
-            blocked=True,
-            blocked_description="Shop is shut",
-        )
-        await session.commit()
-        goal_id = goal.id
-
-    services = services_for(sessions)
-    message = FakeMessage(330, bot_message=True)
-    await render_card(message, services, goal_id)
-
-    text = message.edits[-1][0]
-    assert "Blocked: Yes" in text
-    assert "Blocked by Buy a pillow: Shop is shut" in text
-    # A Goal has no reason of its own, so nothing asks for one.
-    assert "Blocked description" not in text
-    assert "🚧 Blocked" not in button_texts(message.edits[-1][1])
-
-
-async def test_cd_archive_027_an_archived_card_reads_as_archived(sessions) -> None:
-    """CD-ARCHIVE-027 — tests/brd/cards.feature"""
-    async with sessions() as session:
-        plain = await create_card(
-            session, kind="action", title="Walk", effort_points=2, stage="today"
-        )
-        await finish_action(session, plain.id, CardStage.DONE)
-        await archive_subtree(session, plain.id)
-        repeating = await create_card(
-            session, kind="action", title="Run", effort_points=2, stage="today", repeatable=True
-        )
-        await finish_action(session, repeating.id, CardStage.DONE)
-        await archive_subtree(session, repeating.id)
-        await session.commit()
-        plain_id, repeating_id = plain.id, repeating.id
-
-    services = services_for(sessions)
-    message = FakeMessage(500, bot_message=True)
-    await render_card(message, services, plain_id)
-    text, labels = message.edits[-1][0], button_texts(message.edits[-1][1])
-
-    assert "[📦]" in text
-    assert "♻️ Reopen" in labels
-    assert "Delete" in labels
-    # Nothing that would edit it: no field control, and no second trip to the archive.
-    assert "Archive" not in labels
-    assert not [label for label in labels if label in {"✏️ Title", "📍 Stage", "💎 Values"}]
-
-    # A closed repeat cannot be reopened, so Delete is the only way out of the archive.
-    message = FakeMessage(501, bot_message=True)
-    await render_card(message, services, repeating_id)
-    repeating_labels = button_texts(message.edits[-1][1])
-    assert "♻️ Reopen" not in repeating_labels
-    assert "Delete" in repeating_labels
-
-
-async def test_ch_archive_016_an_archived_check_keeps_its_answer(sessions) -> None:
-    """CH-ARCHIVE-016 — tests/brd/checks.feature"""
-    async with sessions() as session:
-        card = await create_card(
-            session, kind="action", title="Posture", effort_points=2, stage="today"
-        )
-        check = await create_check(session, title="Sat straight?", repeatable=True)
-        await toggle_card_check(session, card.id, check.id)
-        await resolve_check(session, check.id, CheckOutcome.PASSED)
-        await archive_check(session, check.id)
-        await session.commit()
-        check_id = check.id
-
-    services = services_for(sessions)
-    message = FakeMessage(600, bot_message=True)
-    await render_check(message, services, check_id)
-    text, labels = message.edits[-1][0], button_texts(message.edits[-1][1])
-
-    assert "[📦]" in text
-    assert "Status: ✅" in text
-    assert not [label for label in labels if "Passed" in label or "Missed" in label]
-    assert not [label for label in labels if "Repeat" in label or "Values" in label]
-    # The one thing it still offers is the way to the open instance of its series.
-    assert [label for label in labels if label.startswith("🔄 Current:")]
-
-
-async def test_ch_delete_014_the_owner_deletes_a_check_from_its_screen(sessions) -> None:
-    """CH-DELETE-014 — tests/brd/checks.feature"""
-    async with sessions() as session:
-        card = await create_card(
-            session, kind="action", title="Go to the market", effort_points=2, stage="today"
-        )
-        value = await create_value(session, "Health")
-        check = await create_check(session, title="Milk")
-        await toggle_card_check(session, card.id, check.id)
-        await toggle_check_value(session, check.id, value.id)
-        await session.commit()
-        card_id, check_id, value_id = card.id, check.id, value.id
-
-    services = services_for(sessions)
-    message = FakeMessage(700, bot_message=True)
-    await render_check(message, services, check_id, card_id=card_id)
-    remove = next(
-        button
-        for row in message.edits[-1][1].inline_keyboard
-        for button in row
-        if button.text == "🗑 Delete"
-    )
-    await callback_token_handler(
-        FakeCallback(remove.callback_data.split(":", 1)[1], message), services
-    )
-    confirm = next(
-        button
-        for row in message.edits[-1][1].inline_keyboard
-        for button in row
-        if button.text == "Permanently delete Check"
-    )
-    await callback_token_handler(
-        FakeCallback(confirm.callback_data.split(":", 1)[1], message), services
-    )
-
-    async with sessions() as session:
-        assert await session.get(Check, check_id) is None
-        # Its Card stays, and so does the Value it pointed at.
-        assert await session.get(Card, card_id) is not None
-        assert await session.get(Value, value_id) is not None
 
 
 async def test_pl_plan_018_the_plans_cost_is_shown_against_the_capacity(sessions) -> None:

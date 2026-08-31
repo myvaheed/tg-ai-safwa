@@ -6,12 +6,16 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from ..constants import REQUEST_RESULT_LIMIT
 from ..domain import DomainError
 from ..enums import MessageKind
+from ..features.cards.references import TAG_REFERENCE, VALUE_REFERENCE
+from ..features.cards.telegram import kind_label
+from ..features.checks.api import CHECK_VALUE_REFERENCE
 from ..features.saved_requests.use_cases import request_cards
+from ..foundation.references import ReferenceSpec
 from ..models import SavedRequest, Tag, UiSession, Value
 from ..shell import (
     Services,
@@ -22,11 +26,38 @@ from ..shell import (
     send_registered,
     token_button,
 )
-from ._core import ITEM_CARRIERS
-from ._presentation import kind_label
-from .cards import carrier_counts
 
 logger = logging.getLogger(__name__)
+
+# Tag and Value share one field-oriented item screen; the specs supply the differences.
+# Every spec of one item names the same model, and together they are what carries it: a
+# Value is on Checks as well as Cards, and the delete question has to count both.
+ITEM_CARRIERS = {
+    "tag": (TAG_REFERENCE,),
+    "value": (VALUE_REFERENCE, CHECK_VALUE_REFERENCE),
+}
+
+
+async def link_count(session, spec: ReferenceSpec, item_id: int) -> int:
+    return int(
+        await session.scalar(
+            select(func.count()).select_from(spec.link_model).where(spec.link_column == item_id)
+        )
+        or 0
+    )
+
+
+async def carrier_counts(
+    session, carriers: tuple[ReferenceSpec, ...], item_id: int
+) -> list[tuple[str, int]]:
+    """What carries this Tag or Value right now, one entry per kind of thing."""
+    return [(carrier.owner, await link_count(session, carrier, item_id)) for carrier in carriers]
+
+
+def carrier_phrase(counts: list[tuple[str, int]]) -> str:
+    """One wording for the delete question and for the receipt that answers it."""
+    parts = [f"{count} {label}{'' if count == 1 else 's'}" for label, count in counts if count]
+    return " and ".join(parts) or "nothing"
 
 
 

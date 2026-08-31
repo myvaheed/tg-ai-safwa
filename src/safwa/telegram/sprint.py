@@ -19,6 +19,7 @@ from ..domain import DomainError, sprint_length_days, sprint_metrics
 from ..enums import MessageKind
 from ..features.cards.api import actions_on_stages
 from ..features.cards.model import CardStage
+from ..features.cards.telegram import card_list_rows, card_list_text
 from ..features.profile.api import capacity_effort_points
 from ..foundation.clock import utcnow
 from ..models import Card, Sprint, Workspace
@@ -33,7 +34,6 @@ from ..shell import (
     token_button,
     with_notice,
 )
-from .cards import card_list_rows, card_list_text
 
 _PROMPT_TTL = timedelta(minutes=30)
 

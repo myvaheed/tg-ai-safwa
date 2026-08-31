@@ -72,7 +72,6 @@ class ActorType(StrEnum):
 class MessageKind(StrEnum):
     DIALOGUE_USER = "dialogue_user"
     DIALOGUE_ASSISTANT = "dialogue_assistant"
-    # Safwa speaking first: a Reminder that went off, a Sprint that ended.
     CUE = "cue"
     SUMMARY = "summary"
     COMMAND = "command"

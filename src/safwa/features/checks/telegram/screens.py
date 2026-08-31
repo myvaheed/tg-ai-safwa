@@ -1,35 +1,31 @@
+"""The Checks on a Card, one Check, and the Values it measures."""
+
 from __future__ import annotations
 
 import html
-from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
-from ..constants import CHECK_LIST_LIMIT, SELECTOR_PAGE_SIZE
-from ..domain import (
-    DomainError,
-    card_checks,
-    check_card_id,
-    check_value_ids,
-    is_closed_repeat,
-    live_repeat_instance_id,
-    title_marks,
-    unobserved_series,
-)
-from ..enums import MessageKind
-from ..features.checks.model import CHECK_OUTCOME_LABELS, CheckOutcome
-from ..models import Card, Check, UiSession, Value
-from ..shell import (
+from ....constants import CHECK_LIST_LIMIT, SELECTOR_PAGE_SIZE
+from ....enums import MessageKind
+from ....foundation.errors import DomainError
+from ....foundation.marks import is_closed_repeat, live_repeat_instance_id, title_marks
+from ....models import Check, Value
+from ....shell import (
     Services,
+    choice_rows,
+    choice_screen,
     edit_registered_message,
     paginate,
     send_registered,
     token_button,
     with_notice,
 )
-from .cards import choice_rows, choice_screen
+from ...cards.api import card_labels, card_title
+from ..model import CHECK_OUTCOME_LABELS, CheckOutcome
+from ..use_cases import card_checks, check_card_id, check_value_ids
 
 CHECK_STATUS_EMOJIS = {
     "pending": "⬜",
@@ -57,11 +53,36 @@ def outcome_button_label(outcome: str, title: str, *, current: str | None) -> st
     return f"{marker}{CHECK_STATUS_EMOJIS[outcome]} {title}"[:60]
 
 
-async def card_title(session, card_id: int) -> str:
-    card = await session.get(Card, card_id)
-    if card is None:
-        raise DomainError("Card does not exist")
-    return str(card.title)
+async def deliver(
+    message: Message,
+    services: Services,
+    text: str,
+    markup: InlineKeyboardMarkup,
+    replace_message_id: int | None,
+    *,
+    related_id: int | None,
+    replace: bool | None = None,
+) -> None:
+    if replace_message_id is not None:
+        await edit_registered_message(
+            message,
+            services,
+            replace_message_id,
+            text,
+            kind=MessageKind.DASHBOARD,
+            markup=markup,
+            related_id=related_id,
+        )
+        return
+    await send_registered(
+        message,
+        services,
+        text,
+        kind=MessageKind.DASHBOARD,
+        markup=markup,
+        related_id=related_id,
+        replace=replace,
+    )
 
 
 async def render_checks(
@@ -112,7 +133,7 @@ async def render_checks(
         )
     if len(checks) > len(shown):
         lines.append(f"Showing the first {CHECK_LIST_LIMIT} of {len(checks)} Checks.")
-    await _deliver(
+    await deliver(
         message,
         services,
         with_notice("\n".join(lines), notice),
@@ -226,12 +247,7 @@ async def render_check(
                 ),
             ]
         )
-        linked_cards = (
-            list(await session.scalars(select(Card).where(Card.id.in_(linked_card_ids))))
-            if linked_card_ids
-            else []
-        )
-        card_titles = [card.title + await title_marks(session, card) for card in linked_cards]
+        card_titles = await card_labels(session, linked_card_ids)
         check_marks = await title_marks(session, check)
         value_names = (
             [
@@ -254,7 +270,7 @@ async def render_check(
             f"Values: {html.escape(', '.join(value_names)) or '—'}",
         ]
     )
-    await _deliver(
+    await deliver(
         message,
         services,
         with_notice(body, notice),
@@ -303,136 +319,4 @@ async def render_check_values(
         choices,
         back=("↩️ Back", "check_view", payload),
         paging=(current, "check_choose_values", payload),
-    )
-
-
-async def render_check_resolution(
-    message: Message,
-    services: Services,
-    card_id: int,
-    *,
-    back: dict[str, Any],
-    outcomes: dict[str, str | None] | None = None,
-    replace_message_id: int | None = None,
-    notice: str | None = None,
-) -> None:
-    """The Done-gate screen: answer every unobserved Check, or go back and stay live.
-
-    A repeating series already answered on this Card is not asked again: its open instance
-    belongs to the next cycle. Nothing is written until Save, so leaving here cannot
-    half-finish the Card.
-    """
-    async with services.sessions() as session:
-        card = await session.get(Card, card_id)
-        if card is None or card.archived_at is not None:
-            raise DomainError("Card does not exist or is archived")
-        pending = await unobserved_series(session, card_id)
-        if not pending:
-            raise DomainError("This Card has no Pending Checks")
-        # Nothing is prefilled: the gate may only be cleared by an answer the user gave.
-        state_outcomes: dict[str, str | None] = {
-            str(check.id): (outcomes or {}).get(str(check.id)) for check in pending
-        }
-        await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
-        session.add(
-            UiSession(
-                owner_id=services.owner_id,
-                kind="check_resolve",
-                state={
-                    "card_id": card_id,
-                    "outcomes": state_outcomes,
-                    "back": back,
-                    "message_id": replace_message_id or message.message_id,
-                },
-                expires_at=datetime.now(UTC) + timedelta(minutes=30),
-            )
-        )
-        rows: list[list[InlineKeyboardButton]] = []
-        for check in pending:
-            current = state_outcomes[str(check.id)]
-            rows.append(
-                [
-                    await token_button(
-                        session,
-                        services.owner_id,
-                        outcome_button_label(outcome, check.title, current=current),
-                        "check_resolve_set",
-                        {"card_id": card_id, "check_id": check.id, "outcome": outcome},
-                    )
-                    for outcome in SETTABLE_OUTCOMES
-                ]
-            )
-        closing = []
-        if any(state_outcomes.values()):
-            closing.append(
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "✅ Save",
-                    "check_resolve_save",
-                    {"card_id": card_id},
-                )
-            )
-        closing.append(
-            await token_button(
-                session,
-                services.owner_id,
-                "↩️ Back",
-                "check_resolve_cancel",
-                {"id": card_id, "back": back},
-            )
-        )
-        rows.append(closing)
-        await session.commit()
-
-    lines = [
-        f"<b>Pending Checks — {html.escape(card.title)}</b>",
-        "Answer every Check before this Card is Done.",
-        "",
-        *[
-            f"{CHECK_STATUS_EMOJIS[state_outcomes[str(check.id)] or 'pending']}"
-            f" {html.escape(check.title)}"
-            f" — {CHECK_OUTCOME_LABELS[state_outcomes[str(check.id)] or 'pending']}"
-            for check in pending
-        ],
-    ]
-    await _deliver(
-        message,
-        services,
-        with_notice("\n".join(lines), notice),
-        InlineKeyboardMarkup(inline_keyboard=rows),
-        replace_message_id,
-        related_id=card_id,
-    )
-
-
-async def _deliver(
-    message: Message,
-    services: Services,
-    text: str,
-    markup: InlineKeyboardMarkup,
-    replace_message_id: int | None,
-    *,
-    related_id: int | None,
-    replace: bool | None = None,
-) -> None:
-    if replace_message_id is not None:
-        await edit_registered_message(
-            message,
-            services,
-            replace_message_id,
-            text,
-            kind=MessageKind.DASHBOARD,
-            markup=markup,
-            related_id=related_id,
-        )
-        return
-    await send_registered(
-        message,
-        services,
-        text,
-        kind=MessageKind.DASHBOARD,
-        markup=markup,
-        related_id=related_id,
-        replace=replace,
     )

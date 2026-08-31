@@ -33,7 +33,30 @@ from ..domain import (
 )
 from ..enums import MessageKind
 from ..features.cards.model import CardStage
+from ..features.cards.telegram import (
+    CARD_CHOICE_FIELDS,
+    CARD_DRAFT_CHOICE_FIELDS,
+    CARD_DRAFT_RELATIONS,
+    CARD_RELATION_TOGGLES,
+    RELATION_CHOICES,
+    card_creation_errors,
+    card_editor_back_state,
+    handle_card_creation_chooser,
+    render_card,
+    render_card_choices,
+    render_card_creation,
+    render_children,
+    render_dashboard,
+    require_card_draft,
+    sanitize_card_creation_state,
+)
 from ..features.checks.model import CheckOutcome
+from ..features.checks.telegram import (
+    render_check,
+    render_check_resolution,
+    render_check_values,
+    render_checks,
+)
 from ..features.checks.use_cases import toggle_check_value
 from ..features.proposals.model import BatchDecision
 from ..features.proposals.render import proposal_outcome_text
@@ -58,34 +81,6 @@ from ..shell import (
     token_button,
     with_notice,
 )
-from ._core import (
-    CARD_CHOICE_FIELDS,
-    CARD_DRAFT_CHOICE_FIELDS,
-    CARD_DRAFT_RELATIONS,
-    CARD_RELATION_TOGGLES,
-    ITEM_CARRIERS,
-    RELATION_CHOICES,
-)
-from .cards import (
-    card_creation_errors,
-    card_editor_back_state,
-    carrier_counts,
-    carrier_phrase,
-    handle_card_creation_chooser,
-    render_card,
-    render_card_choices,
-    render_card_creation,
-    render_children,
-    render_dashboard,
-    require_card_draft,
-    sanitize_card_creation_state,
-)
-from .checks import (
-    render_check,
-    render_check_resolution,
-    render_check_values,
-    render_checks,
-)
 from .commands import (
     command_start,
     command_tags,
@@ -93,6 +88,9 @@ from .commands import (
     sync_bot_commands,
 )
 from .items import (
+    ITEM_CARRIERS,
+    carrier_counts,
+    carrier_phrase,
     render_item_editor,
     render_item_text_prompt,
     render_saved_request,

@@ -16,7 +16,6 @@ from aiogram.types import (
 from sqlalchemy import delete, select
 
 from ..enums import MessageKind
-from ..features.cards.model import CardStage
 from ..features.continuity.memory import MemoryFileError
 from ..features.continuity.persona import MemoryMaintenanceResult
 from ..features.continuity.use_cases import record_memory_run
@@ -42,7 +41,6 @@ from ..shell import (
     start_payload,
     token_button,
 )
-from .cards import render_dashboard, start_manual_card_creation
 from .plan import handle_plan_start, is_plan_link
 from .reminders import render_reminders
 from .sprint import render_sprint, render_today
@@ -114,16 +112,8 @@ async def command_today(message: Message, services: Services) -> None:
     await render_today(message, services)
 
 
-async def command_backlog(message: Message, services: Services) -> None:
-    await render_dashboard(message, services, CardStage.BACKLOG, title="Backlog")
-
-
 async def command_sprint(message: Message, services: Services) -> None:
     await render_sprint(message, services)
-
-
-async def command_add(message: Message, services: Services) -> None:
-    await start_manual_card_creation(message, services)
 
 
 async def command_values(message: Message, services: Services) -> None:

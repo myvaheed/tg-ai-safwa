@@ -141,7 +141,7 @@ rolling back 4500 lines and seventy callback actions as one piece is not a safet
 | 4c | `FeatureModule` grows `callback_actions` | `CALLBACK_ACTIONS` gone | **done** |
 | 4d | `FeatureModule` grows `text_inputs` | 7 flow branches gone | **done** |
 | 5a | The shell: `src/safwa/shell/`; the host is built once and owns its own state | criterion 17 | **done** |
-| 5b | Cards and Checks | | |
+| 5b | Cards and Checks | criterion 17 | **done** |
 | 5c | Planning and the Sprint | | |
 | 5d | Values, Tags, Requests, Reminders, Profile | | |
 | 5e | Proposals; `src/safwa/telegram/` does not exist | criterion 8 | |
@@ -417,6 +417,75 @@ done here because leaving it behind would have made the shell import the package
 
 **`telegram/_core.py` is 112 lines and `telegram/_presentation.py` is 145.** What is left in both is
 the Card selector vocabulary and Card presentation, which move to `features/cards/` in 5b.
+
+### What step 5b landed
+
+795 passed, 3 skipped; `ruff check .` clean; 194 modules; cycles 0. **DoD #3 3 to 2** —
+`telegram/cards.py` is gone and `features/cards/use_cases.py` is the named one. Rule counts did not
+move: the allowlist was regenerated because `ITEM_CARRIERS` changed file, not because a count did.
+
+`src/safwa/telegram/` is 4,704 lines to 3,329, and `_core.py`, `_presentation.py`, `cards.py` and
+`checks.py` do not exist. **No module this step produced is over 400**: the largest are
+`features/cards/telegram.py` 374 and `features/cards/screens.py` 340.
+
+**A feature's Telegram adapter is a package where it is big.** `features/cards/telegram.py` became
+`features/cards/telegram/`, and the rest of Safwa still writes `from .telegram import ...` — a
+feature whose adapter is one screen keeps it one file, and the import does not say which it is.
+Inside, the names are free: `presentation.py` (190) is what a Card reads as — labels, the overview,
+list order, the citation; `selectors.py` (241) is which relationships a Card offers and the two
+screens that offer them; `creation.py` (249) is the draft; `lists.py` (214) is every screen showing
+several Cards; `screens.py` (340) is the Card itself; `text_input.py` (107) is the three typed-value
+flows; `review.py` (374) is the proposal screen. `features/checks/telegram/` is `screens.py` (322),
+`resolution.py` (114, the Done-gate) and `review.py` (154).
+
+**That costs Rule B its sight of these two features, and the loss is named rather than hidden.**
+Rule B reads file *names* — `process_modules("telegram.py", "agent.py")` — so `telegram/review.py`
+is not scanned. Widening it to a feature's `telegram/` package would report **15 commits**: every
+screen opens a session, mints its single-use `CallbackToken` rows through `token_button`, and
+commits before it sends. Those are real by the rule's wording and by design in the code, and they
+passed until now only because the screens lived outside `features/`. Paying them down means a screen
+driver that owns the transaction, the way `handle_text_input` came to own the editor's in 4d — which
+is 5e-sized work over roughly forty call sites. **The owner chose to leave Rule B name-based**: the
+rule describes a state the code has not reached, and putting a debt one named step will clear into
+the ratchet moves the counter instead of the code. `docs/FEATURE_MODULES.md` records the gap where
+the adapter package is described.
+
+**The choice screen went to the shell, not to Cards.** `choice_screen` and `choice_rows` were in
+`telegram/cards.py`, and `telegram/checks.py` imported them from there. Neither function knows what
+a Card is — a Card field, a Card relationship and a Check's Values are all chosen through them — so
+moving them with Cards would have made `features/checks` import `features/cards` for a screen shape.
+They are `shell/selector.py` (63), and `MessageKind.CARD_EDITOR` is the name step 6 corrects.
+
+**Three functions were added to `cards/api.py` and one to `checks/api.py`.** The Card screen counts
+the Checks that hang on it (`checks.api.card_checks`); the Check screens name the Card they hang on
+(`cards.api.card_title`, `live_card_title` for the Done-gate, which refuses an archived Card, and
+`card_labels`, which is a title with the marks it carries). That is the whole of the two features'
+new coupling, and Rule E stayed 0.
+
+**`ITEM_CARRIERS` did not die in 5b.** The plan had it move to `features/cards/telegram.py`, where
+Rule H would stop counting it. It is not Cards': it says what carries a Value or a Tag, and the
+answer includes Checks. Killing it needs each of those features to declare its own carriers, which
+is 5d. It moved to `telegram/items.py` instead — the one screen that serves both entities, beside
+the two functions that read it — and 5d moves the screen and the dict together. Rule H stays 8.
+
+**`command_add` was deleted rather than moved.** It was `await start_manual_card_creation(...)` and
+nothing else, so the menu button names that function directly. `command_backlog` moved to
+`features/cards/lists.py` with the dashboard it opens.
+
+**The test monolith lost its Card and Check share.** `tests/test_telegram_item_ui.py` is 3,579 lines
+to 2,662; `tests/test_cards_ui.py` (729) and `tests/test_checks_ui.py` (78) are the eighteen Card
+screen tests and the two Check ones, and `tests/ui_harness.py` (203) is what every screen test needs
+— the fakes, the container, and where the UI lives. The Card *proposal* tests stayed: they exercise
+the review screen, which is 5e's move.
+
+**The AST invariants stopped naming a package.** `_telegram_module_trees` walked
+`safwa.telegram` and had `features/profile/screens.py` added to it by hand. It now asks which
+modules under `features/`, `shell/` and `telegram/` reach for aiogram, so a new screen is scanned
+because it draws one, not because someone remembered to list it.
+
+**CLAUDE.md's Telegram layering paragraph was corrected.** It described `_core.py` ←
+`_presentation.py` ← `_messaging.py` ← `text_input.py`, none of which is in that package any more —
+5a made it false and 5b removed the last two names in it.
 
 ### Step 6 — the last flat modules
 

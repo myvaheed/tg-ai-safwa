@@ -13,6 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...enums import CardKind
+from ...foundation.errors import DomainError
+from ...foundation.marks import title_marks
 from .model import TERMINAL_STAGES as TERMINAL_STAGES
 from .model import Card as Card
 from .model import CardStage as CardStage
@@ -45,6 +47,33 @@ async def action_titles(session: AsyncSession, card_ids: Iterable[int]) -> list[
     if not wanted:
         return []
     return list(await session.scalars(select(Card.title).where(Card.id.in_(wanted))))
+
+
+async def card_title(session: AsyncSession, card_id: int) -> str:
+    """What one Card is called, for a screen that hangs off it."""
+    card = await session.get(Card, card_id)
+    if card is None:
+        raise DomainError("Card does not exist")
+    return str(card.title)
+
+
+async def live_card_title(session: AsyncSession, card_id: int) -> str:
+    """The same, refused when the Card is archived: an archived one is read, not answered."""
+    card = await session.get(Card, card_id)
+    if card is None or card.archived_at is not None:
+        raise DomainError("Card does not exist or is archived")
+    return str(card.title)
+
+
+async def card_labels(session: AsyncSession, card_ids: Iterable[int]) -> list[str]:
+    """What the named Cards are called, with the marks their titles carry."""
+    wanted = list(card_ids)
+    if not wanted:
+        return []
+    return [
+        card.title + await title_marks(session, card)
+        for card in await session.scalars(select(Card).where(Card.id.in_(wanted)))
+    ]
 
 
 async def live_repeat_instance_id(session: AsyncSession, card: Card) -> int | None:
