@@ -15,17 +15,12 @@ from ..domain import (
     StaleStateError,
     archive_subtree,
     create_card,
-    create_tag,
-    create_value,
     delete_check,
     delete_subtree,
-    delete_tag,
-    delete_value,
     finish_action,
     finish_sprint,
     move_card,
     resolve_check,
-    set_value_focus,
     start_sprint,
     unobserved_series,
     update_card_fields,
@@ -74,7 +69,7 @@ from ..features.planning.telegram import (
 from ..features.proposals.model import BatchDecision
 from ..features.proposals.render import proposal_outcome_text
 from ..features.proposals.use_cases import approve_proposal
-from ..features.reminders.use_cases import delete_reminder
+from ..features.saved_requests.telegram import render_saved_request
 from ..models import (
     CallbackToken,
     Card,
@@ -96,183 +91,15 @@ from ..shell import (
 )
 from .commands import (
     command_start,
-    command_tags,
-    command_values,
     sync_bot_commands,
 )
-from .items import (
-    ITEM_CARRIERS,
-    carrier_counts,
-    carrier_phrase,
-    render_item_editor,
-    render_item_text_prompt,
-    render_saved_request,
-)
 from .proposals import continue_agent_approval, render_proposal
-from .reminders import (
-    render_reminder,
-    render_reminder_delete_prompt,
-    render_reminder_text_prompt,
-    render_reminders,
-)
 
 logger = logging.getLogger(__name__)
 
 
 async def _clear_ui_sessions(session: AsyncSession, owner_id: int) -> None:
     await session.execute(delete(UiSession).where(UiSession.owner_id == owner_id))
-
-
-# --- Tag and Value item screens ------------------------------------------------
-
-
-async def _on_item_create_prompt(context: CallbackContext) -> None:
-    entity = "value" if context.action == "value_create_prompt" else "tag"
-    await render_item_editor(context.message, context.services, entity, mode="create")
-
-
-async def _on_item_view(context: CallbackContext) -> None:
-    await render_item_editor(
-        context.message,
-        context.services,
-        context.payload["entity"],
-        mode="view",
-        item_id=context.payload["id"],
-    )
-
-
-async def _on_item_edit_text(context: CallbackContext) -> None:
-    await render_item_text_prompt(
-        context.message,
-        context.services,
-        entity=context.payload["entity"],
-        mode=context.payload["mode"],
-        item_id=context.payload.get("id"),
-        field=context.payload["field"],
-    )
-
-
-async def _on_item_text_back(context: CallbackContext) -> None:
-    async with context.sessions() as session:
-        editor = await session.scalar(
-            select(UiSession).where(UiSession.owner_id == context.owner_id)
-        )
-        values = dict(editor.state.get("values", {})) if editor is not None else {}
-    await render_item_editor(
-        context.message,
-        context.services,
-        context.payload["entity"],
-        mode=context.payload["mode"],
-        item_id=context.payload.get("id"),
-        values=values,
-    )
-
-
-async def _on_item_create(context: CallbackContext) -> None:
-    async with context.sessions() as session:
-        editor = await session.scalar(
-            select(UiSession).where(UiSession.owner_id == context.owner_id)
-        )
-        if editor is None or editor.kind != "item_editor":
-            raise DomainError("Item editor expired")
-        values = dict(editor.state.get("values", {}))
-        create = create_value if context.payload["entity"] == "value" else create_tag
-        # A description box the owner never typed into is not a description they gave.
-        item = await create(
-            session, values.get("name", ""), values.get("description", "").strip() or None
-        )
-        await session.commit()
-    await render_item_editor(
-        context.message,
-        context.services,
-        context.payload["entity"],
-        mode="view",
-        item_id=item.id,
-    )
-
-
-async def _on_item_toggle_focus(context: CallbackContext) -> None:
-    async with context.sessions() as session:
-        await set_value_focus(session, context.payload["id"])
-        await session.commit()
-    await render_item_editor(
-        context.message,
-        context.services,
-        "value",
-        mode="view",
-        item_id=context.payload["id"],
-    )
-
-
-async def _on_item_delete_prompt(context: CallbackContext) -> None:
-    entity = context.payload["entity"]
-    carriers = ITEM_CARRIERS[entity]
-    async with context.sessions() as session:
-        item = await session.get(carriers[0].model, context.payload["id"])
-        if item is None:
-            raise DomainError(f"{entity.title()} does not exist")
-        carried_by = await carrier_counts(session, carriers, item.id)
-        confirm = await token_button(
-            session,
-            context.owner_id,
-            f"Delete {entity.title()}",
-            "item_delete_confirm",
-            {"entity": entity, "id": item.id},
-        )
-        back = await token_button(
-            session,
-            context.owner_id,
-            "↩️ Back",
-            "item_view",
-            {"entity": entity, "id": item.id},
-        )
-        await session.commit()
-    await send_registered(
-        context.message,
-        context.services,
-        f"<b>Delete {html.escape(entity.title())}?</b>\n"
-        f"{html.escape(item.name)} will be deleted and taken off "
-        f"{carrier_phrase(carried_by)}. Nothing it is on is deleted.",
-        kind=MessageKind.APPROVAL,
-        markup=InlineKeyboardMarkup(inline_keyboard=[[confirm], [back]]),
-        related_id=item.id,
-    )
-
-
-async def _on_item_delete_confirm(context: CallbackContext) -> None:
-    entity = context.payload["entity"]
-    async with context.sessions() as session:
-        remove = delete_tag if entity == "tag" else delete_value
-        item, removed = await remove(session, context.payload["id"])
-        await _clear_ui_sessions(session, context.owner_id)
-        back = await token_button(
-            session,
-            context.owner_id,
-            f"Back to {entity.title()}s",
-            "item_back",
-            {"entity": entity},
-        )
-        await session.commit()
-    await send_registered(
-        context.message,
-        context.services,
-        f"Deleted <b>{html.escape(item.name)}</b>. Taken off {removed} link(s).",
-        kind=MessageKind.RECEIPT,
-        markup=InlineKeyboardMarkup(inline_keyboard=[[back]]),
-        related_id=item.id,
-    )
-
-
-async def _on_item_back(context: CallbackContext) -> None:
-    async with context.sessions() as session:
-        await _clear_ui_sessions(session, context.owner_id)
-        await session.commit()
-    listing = command_values if context.payload["entity"] == "value" else command_tags
-    await listing(context.message, context.services)
-
-
-async def _on_request_view(context: CallbackContext) -> None:
-    await render_saved_request(context.message, context.services, context.payload["id"])
 
 
 # --- Transient manual Card draft -----------------------------------------------
@@ -942,58 +769,7 @@ async def _on_sprint_finish(context: CallbackContext) -> None:
     )
 
 
-# --- Settings ------------------------------------------------------------------
-
-
-async def _on_settings_edit(context: CallbackContext) -> None:
-    # Imported here, not above: the Settings screen lives in its feature and reaches back
-    # into this package, so a module-level import makes `features.profile.screens` the
-    # start of a cycle whenever it is the first thing imported. The import moves with the
-    # handlers in Phase 8.b.
-    from ..features.profile.screens import render_settings_field_prompt
-
-    await render_settings_field_prompt(
-        context.message, context.services, str(context.payload["field"])
-    )
-
-
-async def _on_settings_back(context: CallbackContext) -> None:
-    from ..features.profile.screens import command_settings
-
-    async with context.sessions() as session:
-        await _clear_ui_sessions(session, context.owner_id)
-        await session.commit()
-    await command_settings(context.message, context.services)
-
-
 # --- AI proposals --------------------------------------------------------------
-
-
-async def _on_reminders_page(context: CallbackContext) -> None:
-    await render_reminders(context.message, context.services, page=int(context.payload.get("page", 0)))
-
-
-async def _on_reminder_view(context: CallbackContext) -> None:
-    await render_reminder(context.message, context.services, int(context.payload["id"]))
-
-
-async def _on_reminder_text_prompt(context: CallbackContext) -> None:
-    await render_reminder_text_prompt(
-        context.message, context.services, int(context.payload["id"])
-    )
-
-
-async def _on_reminder_delete_prompt(context: CallbackContext) -> None:
-    await render_reminder_delete_prompt(
-        context.message, context.services, int(context.payload["id"])
-    )
-
-
-async def _on_reminder_delete_confirm(context: CallbackContext) -> None:
-    async with context.sessions() as session:
-        await delete_reminder(session, int(context.payload["id"]))
-        await session.commit()
-    await render_reminders(context.message, context.services)
 
 
 async def _on_proposal_approve(context: CallbackContext) -> None:
@@ -1150,14 +926,6 @@ CHECK_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "check_resolve_cancel": _on_check_resolve_cancel,
 }
 
-VALUE_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
-    "value_create_prompt": _on_item_create_prompt,
-}
-
-TAG_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
-    "tag_create_prompt": _on_item_create_prompt,
-}
-
 PLANNING_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "sprint_criteria_prompt": _on_sprint_criteria_prompt,
     "sprint_back": _on_sprint_back,
@@ -1171,40 +939,10 @@ PLANNING_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "plan_filter_toggle": on_plan_filter_toggle,
 }
 
-SETTINGS_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
-    "settings_edit": _on_settings_edit,
-    "settings_back": _on_settings_back,
-}
-
-REMINDER_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
-    "reminders_page": _on_reminders_page,
-    "reminder_view": _on_reminder_view,
-    "reminder_text_prompt": _on_reminder_text_prompt,
-    "reminder_delete_prompt": _on_reminder_delete_prompt,
-    "reminder_delete_confirm": _on_reminder_delete_confirm,
-}
-
-REQUEST_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
-    "request_view": _on_request_view,
-}
-
 PROPOSAL_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "proposal_approve": _on_proposal_approve,
     "proposal_delete_confirm": _on_proposal_delete_confirm,
     "proposal_reject": _on_proposal_reject,
-}
-
-# The Value and Tag editor is one screen over two entities, so its buttons belong to
-# neither feature until step 5d splits the screen itself.
-SHELL_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
-    "item_view": _on_item_view,
-    "item_edit_text": _on_item_edit_text,
-    "item_text_back": _on_item_text_back,
-    "item_create": _on_item_create,
-    "item_toggle_focus": _on_item_toggle_focus,
-    "item_delete_prompt": _on_item_delete_prompt,
-    "item_delete_confirm": _on_item_delete_confirm,
-    "item_back": _on_item_back,
 }
 
 PROPOSAL_APPLY_CALLBACK_ACTIONS = frozenset({"proposal_approve", "proposal_delete_confirm"})

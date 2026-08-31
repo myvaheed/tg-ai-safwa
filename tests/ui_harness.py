@@ -6,8 +6,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
+from sqlalchemy import select
+
 import safwa
+import safwa.features.planning.telegram.plan as plan_module
+from safwa.ai.sql import create_ai_views
 from safwa.bootstrap.modules import (
+    AI_VIEWS,
     ALLOWED_VIEWS,
     FEATURE_CALLBACK_ACTIONS,
     FEATURE_COMMANDS,
@@ -15,15 +20,17 @@ from safwa.bootstrap.modules import (
     PROPOSALS,
     SCREENS,
 )
+from safwa.domain import create_card
 from safwa.features.proposals.api import ProposalDescription
 from safwa.features.proposals.store import ProposalStore
 from safwa.history import MARKS, TelegramNotes
-from safwa.telegram import SHELL_CALLBACK_ACTIONS, SHELL_COMMANDS
+from safwa.models import UiSession
+from safwa.telegram import SHELL_COMMANDS
 from safwa.turn import TurnManager
 from telegram_llm import ChatHost
 
 # What the composition root puts together, which is what a live Safwa answers with.
-CALLBACK_ACTIONS = {**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS}
+CALLBACK_ACTIONS = FEATURE_CALLBACK_ACTIONS
 
 
 class FakeBot:
@@ -201,3 +208,33 @@ def ui_sources() -> list[Path]:
         for path in sorted((root / package).rglob("*.py"))
         if "aiogram" in path.read_text(encoding="utf-8")
     ]
+
+
+async def seed_plan(sessions) -> dict[str, int]:
+    # The link-tap counter is per process, so one test's taps would otherwise count in the next.
+    plan_module._link_taps.clear()
+    async with sessions() as session:
+        await (await session.connection()).run_sync(
+            lambda connection: create_ai_views(connection, AI_VIEWS)
+        )
+        ids = {
+            "sprint": (
+                await create_card(
+                    session, kind="action", title="Ship it", stage="sprint", effort_points=3
+                )
+            ).id,
+            "pick": (
+                await create_card(session, kind="action", title="Pick me", effort_points=1)
+            ).id,
+            "skip": (
+                await create_card(session, kind="action", title="Skip me", effort_points=2)
+            ).id,
+        }
+        await session.commit()
+    return ids
+
+
+async def plan_filters(sessions) -> list[int]:
+    async with sessions() as session:
+        ui = await session.scalar(select(UiSession).where(UiSession.kind == "sprint_plan"))
+        return list(ui.state["filters"])

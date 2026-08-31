@@ -9,15 +9,19 @@ from datetime import time
 from typing import Any
 
 from aiogram.types import InlineKeyboardMarkup, Message
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
-from ...enums import MessageKind
-from ...foundation.clock import SystemClock
-from ...foundation.errors import DomainError
-from ...foundation.models import Workspace
-from ...foundation.screens import TextInputFlow
-from ...shell import (
+from ....constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
+from ....enums import MessageKind
+from ....foundation.clock import SystemClock
+from ....foundation.errors import DomainError
+from ....foundation.models import Workspace
+from ....foundation.screens import TextInputFlow
+from ....models import UiSession
+from ....shell import (
+    CallbackContext,
+    CallbackHandler,
     Services,
     TextInputScreen,
     edit_registered_message,
@@ -27,9 +31,9 @@ from ...shell import (
     token_button,
     with_notice,
 )
-from ..reminders.api import parse_clock_or_off
-from .model import UserProfile
-from .use_cases import profile_field, set_profile_field
+from ...reminders.api import parse_clock_or_off
+from ..model import UserProfile
+from ..use_cases import profile_field, set_profile_field
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,3 +248,22 @@ TEXT_INPUT = TextInputFlow(
     apply=_apply_setting,
     render=_render_settings,
 )
+
+
+async def _on_edit(context: CallbackContext) -> None:
+    await render_settings_field_prompt(
+        context.message, context.services, str(context.payload["field"])
+    )
+
+
+async def _on_back(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        await session.execute(delete(UiSession).where(UiSession.owner_id == context.owner_id))
+        await session.commit()
+    await command_settings(context.message, context.services)
+
+
+SETTINGS_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
+    "settings_edit": _on_edit,
+    "settings_back": _on_back,
+}

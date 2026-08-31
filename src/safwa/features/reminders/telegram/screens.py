@@ -15,11 +15,12 @@ from zoneinfo import ZoneInfo
 from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import select
 
-from ..domain import DomainError
-from ..enums import MessageKind
-from ..features.reminders.schedule import describe, schedule_of
-from ..models import Reminder, Workspace
-from ..shell import (
+from ....enums import MessageKind
+from ....foundation.errors import DomainError
+from ....models import Reminder, Workspace
+from ....shell import (
+    CallbackContext,
+    CallbackHandler,
     Services,
     TextInputScreen,
     edit_registered_message,
@@ -30,6 +31,8 @@ from ..shell import (
     send_registered,
     token_button,
 )
+from ..schedule import describe, schedule_of
+from ..use_cases import delete_reminder
 
 _TEXT_PREVIEW = 40
 _PROMPT_TTL = timedelta(minutes=30)
@@ -198,3 +201,41 @@ def _detail_text(reminder: Reminder, *, tz: ZoneInfo, now: datetime) -> str:
         lines.append("Fires once, then deletes itself.")
     lines.extend(["", html.escape(reminder.instruction), "", "<i>Timing is set through your advisor.</i>"])
     return "\n".join(lines)
+
+
+async def _on_page(context: CallbackContext) -> None:
+    await render_reminders(
+        context.message, context.services, page=int(context.payload.get("page", 0))
+    )
+
+
+async def _on_view(context: CallbackContext) -> None:
+    await render_reminder(context.message, context.services, int(context.payload["id"]))
+
+
+async def _on_text_prompt(context: CallbackContext) -> None:
+    await render_reminder_text_prompt(
+        context.message, context.services, int(context.payload["id"])
+    )
+
+
+async def _on_delete_prompt(context: CallbackContext) -> None:
+    await render_reminder_delete_prompt(
+        context.message, context.services, int(context.payload["id"])
+    )
+
+
+async def _on_delete_confirm(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        await delete_reminder(session, int(context.payload["id"]))
+        await session.commit()
+    await render_reminders(context.message, context.services)
+
+
+REMINDER_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
+    "reminders_page": _on_page,
+    "reminder_view": _on_view,
+    "reminder_text_prompt": _on_text_prompt,
+    "reminder_delete_prompt": _on_delete_prompt,
+    "reminder_delete_confirm": _on_delete_confirm,
+}

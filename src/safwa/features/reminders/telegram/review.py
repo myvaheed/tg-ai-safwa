@@ -1,7 +1,7 @@
-"""How a Reminder reaches the owner: its proposal screen and its editor.
+"""How a proposed Reminder reads to the owner, and what the owner typing its text writes.
 
 A Reminder that goes off is handed to the Advisor as a Cue, and the Cue runtime is what
-runs that turn. This module registers no ``@router`` handlers.
+runs that turn.
 """
 
 from __future__ import annotations
@@ -12,11 +12,10 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...ai.contracts import AgentChange
-from ...foundation.screens import TextInputFlow
-from ...shell import required_text
-from ...telegram.reminders import render_reminder
-from ..proposals.api import (
+from ....ai.contracts import AgentChange
+from ....foundation.screens import TextInputFlow
+from ....shell import required_text
+from ...proposals.api import (
     ACTION_VERBS,
     ChangeAction,
     ProposalChange,
@@ -24,8 +23,9 @@ from ..proposals.api import (
     detail_lines,
     result_value,
 )
-from .model import Reminder
-from .use_cases import update_reminder_text
+from ..model import Reminder
+from ..use_cases import update_reminder_text
+from .screens import render_reminder
 
 logger = logging.getLogger(__name__)
 

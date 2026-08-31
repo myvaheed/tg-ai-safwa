@@ -143,7 +143,7 @@ rolling back 4500 lines and seventy callback actions as one piece is not a safet
 | 5a | The shell: `src/safwa/shell/`; the host is built once and owns its own state | criterion 17 | **done** |
 | 5b | Cards and Checks | criterion 17 | **done** |
 | 5c | Planning and the Sprint | Rule E gains its second door | **done** |
-| 5d | Values, Tags, Requests, Reminders, Profile | | |
+| 5d | Values, Tags, Requests, Reminders, Profile | Rule H 8 to 3 | **done** |
 | 5e | Proposals; `src/safwa/telegram/` does not exist | criterion 8 | |
 | 6 | `domain.py`, `history.py`, `main.py`; Rule G; Rule L; `CARD_EDITOR` → `EDITOR` | criteria 11, 12, 19 | |
 | 7 | Allowlist regenerated; `CLAUDE.md` and `README.md` corrected by deleting | criterion 18 | |
@@ -516,6 +516,43 @@ amendment is what lets them move at all. **Rule E stayed 0.**
 **`plan.py` shed its state.** `state.py` is what the plan screen remembers between taps — the page,
 the picked Requests, the screen's own message id and the Requests' resolution — and `plan.py` is the
 screen and its handlers. The cut is one-way and it is what keeps the screen under 400.
+
+### What step 5d landed
+
+795 passed, 3 skipped; `ruff check .` clean; 204 modules; cycles 0. **Rule H 8 to 3 and DoD #1 8 to
+3.** `src/safwa/telegram/` is 2,621 lines to 1,757 in five modules — `callbacks.py` (1,063),
+`commands.py` (243), `dialogue.py` (226), `proposals.py` (200) and `__init__.py` — and
+`callbacks.py` fell 1,325 to 1,063.
+
+**`ITEM_CARRIERS` died, and the shared item editor with it.** One screen served Tag and Value
+through an `entity` string, a dict of `ReferenceSpec`s and eight `item_*` actions that branched on
+which entity they had. Values and Tags now draw their own, in `features/values/telegram/screens.py`
+(398) and `features/tags/telegram/screens.py` (346), with `value_*` and `tag_*` actions of their own.
+The counts came for free: **`CardValue`, `CheckValue` and `CardTag` are owned by Values and Tags**,
+so each feature counts what carries it without asking anyone — `value_link_counts` already existed,
+and `tag_link_count` came out of `delete_tag`, which was computing it inline.
+
+**`SHELL_CALLBACK_ACTIONS` is gone.** Those eight actions were its only entries, so the composition
+root now hands `FEATURE_CALLBACK_ACTIONS` straight through: every inline button in Safwa belongs to
+a feature.
+
+**Five features took their handlers with their screens**, rather than leaving them for 5e. The
+handlers had to be rewritten anyway — split by entity, or repointed at a moved screen — and writing
+them in `callbacks.py` first would have meant writing them twice. Values, Tags, Requests, Reminders
+and Profile each declare their own `*_CALLBACK_ACTIONS` beside the screens that draw the buttons.
+
+**`features/profile/screens.py` became `features/profile/telegram/screens.py`.** It was the one
+adapter with a name outside the vocabulary, from before the vocabulary existed.
+
+**`command_reminders` was deleted rather than moved**, like `command_add` in 5b: it was
+`await render_reminders(message, services)` and nothing else, so the command names that function.
+
+**The test monolith gave up 5c's share as well as 5d's.** 5c moved the screens and left their tests
+behind; both are paid here. `tests/test_telegram_item_ui.py` is 2,635 lines to 1,718, and
+`test_planning_ui.py` (427), `test_requests_ui.py` (136), `test_reminders_ui.py` (131),
+`test_values_ui.py` (99), `test_settings_ui.py` (94) and `test_tags_ui.py` (88) are the screens'
+own. `seed_plan` and `plan_filters` went to `tests/ui_harness.py` and lost their underscores: two
+test modules build a plan, so the helper is no longer module-local.
 
 ### Step 6 — the last flat modules
 

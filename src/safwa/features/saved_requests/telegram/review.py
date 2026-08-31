@@ -1,4 +1,4 @@
-"""How a Request reads to the owner: its review screen, and the screen a citation opens."""
+"""How a proposed Request reads to the owner, and how a saved one reads when it is cited."""
 
 from __future__ import annotations
 
@@ -6,17 +6,17 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...ai.contracts import AgentChange
-from ...models import SavedRequest
-from ...shell import short_citation_title, with_citation_fields
-from ..proposals.api import (
+from ....ai.contracts import AgentChange
+from ....models import SavedRequest
+from ....shell import short_citation_title, with_citation_fields
+from ...proposals.api import (
     ProposalChange,
     ProposalScreen,
     detail_lines,
     named_details,
     named_summary,
 )
-from .use_cases import request_cards
+from ..use_cases import request_cards
 
 
 class RequestProposalPresenter:

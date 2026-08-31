@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from ...bootstrap.module_manifest import FeatureModule, ProposalContribution
 from ...foundation.screens import ScreenCommand, ScreenSpec
-from ...telegram.callbacks import TAG_CALLBACK_ACTIONS
-from ...telegram.commands import command_tags
 from . import agent, proposal, telegram, views
 from .model import Tag
+from .telegram import TAG_CALLBACK_ACTIONS, command_tags
 
 MODULE = FeatureModule(
     name="tags",

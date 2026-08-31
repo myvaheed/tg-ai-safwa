@@ -36,12 +36,14 @@ from safwa.features.cards.telegram import (
     render_dashboard,
 )
 from safwa.features.cards.use_cases import EFFORT_POINTS
+from safwa.features.tags.telegram import render_tag
+from safwa.features.values.telegram import render_value
 from safwa.models import (
     CallbackToken,
     Card,
     UiSession,
 )
-from safwa.telegram import callback_token_handler, ordinary_text, render_item_editor
+from safwa.telegram import callback_token_handler, ordinary_text
 
 
 def test_every_card_relationship_is_wired_to_both_selector_surfaces() -> None:
@@ -237,9 +239,9 @@ async def test_checks_button_is_on_the_card_only(sessions) -> None:
     message = FakeMessage(card_id, bot_message=True)
     await render_card(message, services, card_id)
     assert not any("Checks" in text for text in button_texts(message.edits[-1][1]))
-    for entity, item_id in (("value", value_id), ("tag", tag_id)):
+    for render, item_id in ((render_value, value_id), (render_tag, tag_id)):
         message = FakeMessage(item_id, bot_message=True)
-        await render_item_editor(message, services, entity, mode="view", item_id=item_id)
+        await render(message, services, mode="view", item_id=item_id)
         assert not any("Checks" in text for text in button_texts(message.edits[-1][1]))
 
     async with sessions() as session:

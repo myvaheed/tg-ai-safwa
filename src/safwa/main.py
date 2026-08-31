@@ -45,7 +45,6 @@ from .models import Workspace
 from .recovery import recover_startup
 from .shell import OwnerAndWritingMiddleware, Services, discard_stale_status, router
 from .telegram import (
-    SHELL_CALLBACK_ACTIONS,
     SHELL_COMMANDS,
     register_commands,
     sync_bot_commands,
@@ -194,7 +193,6 @@ async def run(settings: Settings) -> None:
     # One host for the process: it owns the edit lock and the live Toasts.
     chat = ChatHost(TelegramNotes(database.sessions), MARKS)
     commands = (*SHELL_COMMANDS, *FEATURE_COMMANDS)
-    callback_actions = {**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS}
     register_commands(router, commands)
     transcriber = build_transcriber(settings)
     if transcriber is not None:
@@ -215,7 +213,7 @@ async def run(settings: Settings) -> None:
         chat=chat,
         screens=SCREENS,
         commands=commands,
-        callback_actions=callback_actions,
+        callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
         views=ALLOWED_VIEWS,
         bot_username=settings.telegram_bot_username,

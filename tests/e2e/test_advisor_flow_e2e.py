@@ -56,7 +56,6 @@ from safwa.models import (
 from safwa.recovery import recover_startup
 from safwa.shell import dismiss_prior_ui
 from safwa.telegram import (
-    SHELL_CALLBACK_ACTIONS,
     callback_token_handler,
     render_ai_outcome,
     render_proposal,
@@ -1560,7 +1559,7 @@ async def test_a_review_whose_screen_could_not_be_sent_does_not_stay_open(
         turn=TurnManager(),
         screens=SCREENS,
         chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
-        callback_actions={**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS},
+        callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
 
@@ -1754,7 +1753,7 @@ async def test_single_tag_proposal_save_and_discard_callbacks_resume_agent(
         turn=TurnManager(),
         screens=SCREENS,
         chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
-        callback_actions={**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS},
+        callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
     await render_proposal(message, services, outcome.proposal_id)
@@ -1794,7 +1793,7 @@ async def test_restart_invalidates_an_unanswered_proposal_button(e2e_harness):
         turn=TurnManager(),
         screens=SCREENS,
         chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
-        callback_actions={**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS},
+        callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
     await render_proposal(message, services, outcome.proposal_id)
@@ -1845,7 +1844,7 @@ async def test_a_button_works_once(e2e_harness):
         turn=TurnManager(),
         screens=SCREENS,
         chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
-        callback_actions={**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS},
+        callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
     await render_proposal(message, services, outcome.proposal_id)
@@ -1900,7 +1899,7 @@ async def test_read_queries_beside_a_proposal_still_resume_the_agent(e2e_harness
         turn=TurnManager(),
         screens=SCREENS,
         chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
-        callback_actions={**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS},
+        callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
     await render_proposal(message, services, outcome.proposal_id)
@@ -1973,7 +1972,7 @@ async def test_discarding_the_last_queued_proposal_still_reports_saved_siblings(
         turn=TurnManager(),
         screens=SCREENS,
         chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
-        callback_actions={**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS},
+        callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
     await render_proposal(message, services, first.proposal_id)
@@ -2049,7 +2048,7 @@ async def test_new_message_discarding_a_queue_reports_what_was_already_saved(e2e
         turn=TurnManager(),
         screens=SCREENS,
         chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
-        callback_actions={**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS},
+        callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
     await render_proposal(screen, services, first.proposal_id)
@@ -2103,7 +2102,7 @@ async def test_proposal_ui_queues_mutations_and_reports_dependency_failure(e2e_h
         turn=TurnManager(),
         screens=SCREENS,
         chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
-        callback_actions={**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS},
+        callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
     await render_proposal(message, services, first.proposal_id)
@@ -2158,7 +2157,7 @@ async def test_single_proposal_save_error_is_reported_and_resolved(e2e_harness):
         turn=TurnManager(),
         screens=SCREENS,
         chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
-        callback_actions={**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS},
+        callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
     await render_proposal(message, services, outcome.proposal_id)
@@ -2214,7 +2213,7 @@ async def test_single_tag_callback_never_leaves_dead_buttons_when_follow_up_fail
         turn=TurnManager(),
         screens=SCREENS,
         chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
-        callback_actions={**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS},
+        callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
     await render_proposal(message, services, outcome.proposal_id)
@@ -2530,7 +2529,7 @@ async def test_a_resolved_proposal_leaves_one_readable_line_in_the_dialogue(
         turn=TurnManager(),
         screens=SCREENS,
         chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
-        callback_actions={**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS},
+        callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
     await render_proposal(message, services, proposal_id)
@@ -2566,7 +2565,7 @@ async def test_navigating_away_freezes_the_proposal_into_the_same_outcome_text(e
         turn=TurnManager(),
         screens=SCREENS,
         chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
-        callback_actions={**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS},
+        callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
     await render_proposal(message, services, proposal_id)
@@ -2595,7 +2594,7 @@ def _screen_services(e2e_harness, advisor) -> SimpleNamespace:
         turn=TurnManager(),
         screens=SCREENS,
         chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
-        callback_actions={**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS},
+        callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
 

@@ -23,7 +23,7 @@ from safwa.features.reminders.schedule import schedule_of
 from safwa.foundation.clock import SystemClock
 from safwa.history import MARKS, TelegramNotes
 from safwa.models import CallbackToken, Reminder
-from safwa.telegram import SHELL_CALLBACK_ACTIONS, callback_token_handler, render_proposal
+from safwa.telegram import callback_token_handler, render_proposal
 from safwa.turn import TurnManager
 from telegram_llm import ChatHost, DialogueMessage
 
@@ -288,7 +288,7 @@ def _services(harness, advisor) -> SimpleNamespace:
         turn=TurnManager(),
         screens=SCREENS,
         chat=ChatHost(TelegramNotes(harness.sessions), MARKS),
-        callback_actions={**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS},
+        callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
         bot_username="safwa_ai_bot",
     )

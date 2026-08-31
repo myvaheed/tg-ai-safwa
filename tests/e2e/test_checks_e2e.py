@@ -30,7 +30,6 @@ from safwa.features.checks.model import CheckOutcome
 from safwa.history import MARKS, TelegramNotes
 from safwa.models import CallbackToken, Card, Check, TelegramMessage
 from safwa.telegram import (
-    SHELL_CALLBACK_ACTIONS,
     callback_token_handler,
     render_ai_outcome,
     render_proposal,
@@ -120,7 +119,7 @@ def _services(harness, advisor) -> SimpleNamespace:
         turn=TurnManager(),
         screens=SCREENS,
         chat=ChatHost(TelegramNotes(harness.sessions), MARKS),
-        callback_actions={**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS},
+        callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
         bot_username="safwa_ai_bot",
     )

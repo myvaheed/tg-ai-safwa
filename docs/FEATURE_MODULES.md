@@ -81,10 +81,11 @@ These names are the whole vocabulary. A feature that wants a file outside this l
 contents belong to a role the list does not have yet, which is a question for the batch, not a new
 word.
 
-**The adapter is a package where it is big**, and the rest of Safwa writes `from .telegram import
-...` either way — a feature whose adapter is one screen keeps it one file, and the import does not
-say which it is. Inside the package the names are the feature's own, because there is no shared
-vocabulary of screens to hold them to:
+**The adapter is a package as soon as it draws a screen**, and the rest of Safwa writes
+`from .telegram import ...` either way — a feature that only presents proposals keeps one file, and
+the import does not say which it is. Two names recur inside: `screens.py` is what the owner is taken
+to, and `review.py` is the `ProposalPresenter` and the citation label. Everything else is the
+feature's own, because there is no shared vocabulary of screens to hold it to:
 
 ```text
 safwa/features/cards/telegram/
@@ -98,10 +99,11 @@ safwa/features/cards/telegram/
   review.py        # ProposalPresenter
 ```
 
-Rule B reads file names, so an adapter split this way is not scanned for the transaction it opens.
-Every screen commits by construction: it mints its single-use `CallbackToken` rows through
-`token_button` before it sends. Rule B widens to the package when a screen driver owns that
-transaction, the way `handle_text_input` owns the editor's.
+Rule B reads file names, so an adapter package is not scanned for the transaction it opens, and
+after Phase 8.b that leaves it watching `agent.py` alone. Every screen commits by construction: it
+mints its single-use `CallbackToken` rows through `token_button` before it sends. Rule B widens to
+the package when a screen driver owns that transaction, the way `handle_text_input` owns the
+editor's — until then the gap is this paragraph.
 
 `api.py` **defines** what it publishes. It exists only when another feature actually calls in, and
 it hands over the answer rather than the row: `scheduled_memory_time(session)`, not `UserProfile`.

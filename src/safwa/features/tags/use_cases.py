@@ -58,14 +58,17 @@ async def update_tag_fields(
     return tag
 
 
+async def tag_link_count(session: AsyncSession, tag_id: int) -> int:
+    """How many Cards carry this Tag right now."""
+    return len(list(await session.scalars(select(CardTag.card_id).where(CardTag.tag_id == tag_id))))
+
+
 async def delete_tag(session: AsyncSession, tag_id: int) -> tuple[Tag, int]:
     """Delete a Tag and take it off every Card in the same transaction."""
     tag = await session.get(Tag, tag_id)
     if tag is None:
         raise DomainError("Tag does not exist")
-    linked_count = len(
-        list(await session.scalars(select(CardTag.card_id).where(CardTag.tag_id == tag.id)))
-    )
+    linked_count = await tag_link_count(session, tag.id)
     await session.execute(delete(CardTag).where(CardTag.tag_id == tag.id))
     await session.delete(tag)
     await bump_workspace(session)

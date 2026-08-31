@@ -10,10 +10,9 @@ from aiogram.filters import Command
 from aiogram.types import (
     BotCommand,
     CallbackQuery,
-    InlineKeyboardMarkup,
     Message,
 )
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 
 from ..enums import MessageKind
 from ..features.continuity.memory import MemoryFileError
@@ -27,17 +26,13 @@ from ..features.planning.telegram import (
 )
 from ..foundation.screens import ScreenCommand
 from ..models import (
-    SavedRequest,
-    Tag,
     UiSession,
-    Value,
     Workspace,
 )
 from ..shell import (
     Services,
     dismiss_prior_ui,
     menu_markup,
-    menu_row,
     open_citation,
     remove_turn_notice,
     router,
@@ -45,9 +40,7 @@ from ..shell import (
     send_summary,
     sprint_is_active,
     start_payload,
-    token_button,
 )
-from .reminders import render_reminders
 
 logger = logging.getLogger(__name__)
 
@@ -120,102 +113,6 @@ async def command_sprint(message: Message, services: Services) -> None:
     await render_sprint(message, services)
 
 
-async def command_values(message: Message, services: Services) -> None:
-    async with services.sessions() as session:
-        values = list(
-            await session.scalars(
-                select(Value).order_by(Value.name)
-            )
-        )
-        rows = [
-            [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    f"{'✅' if value.active else '○'} {value.name}",
-                    "item_view",
-                    {"entity": "value", "id": value.id},
-                )
-            ]
-            for value in values
-        ]
-        rows.append(
-            [
-                await token_button(
-                    session, services.owner_id, "➕ Add Value", "value_create_prompt", {}
-                )
-            ]
-        )
-        await session.commit()
-    await send_registered(
-        message,
-        services,
-        "<b>Values in focus</b>\nActive Values are injected into the advisor context.",
-        kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=rows + [menu_row()]),
-    )
-
-
-async def command_tags(message: Message, services: Services) -> None:
-    async with services.sessions() as session:
-        tags = list(
-            await session.scalars(select(Tag).order_by(Tag.name))
-        )
-        rows = [
-            [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    tag.name,
-                    "item_view",
-                    {"entity": "tag", "id": tag.id},
-                )
-            ]
-            for tag in tags
-        ]
-        rows.append(
-            [await token_button(session, services.owner_id, "➕ Add Tag", "tag_create_prompt", {})]
-        )
-        await session.commit()
-    await send_registered(
-        message,
-        services,
-        "<b>Tags</b>\nUse Tags to group Cards independently of Values.",
-        kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=rows + [menu_row()]),
-    )
-
-
-async def command_requests(message: Message, services: Services) -> None:
-    """Show AI-authored saved queries; creation intentionally remains advisor-only."""
-    async with services.sessions() as session:
-        requests = list(
-            await session.scalars(
-                select(SavedRequest).order_by(SavedRequest.name)
-            )
-        )
-        rows = [
-            [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    request.name,
-                    "request_view",
-                    {"id": request.id},
-                )
-            ]
-            for request in requests
-        ]
-        await session.commit()
-    await send_registered(
-        message,
-        services,
-        "<b>Requests</b>\nSaved card queries created by your advisor.",
-        kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=rows + [menu_row()]),
-    )
-
-
 async def command_memory(message: Message, services: Services) -> None:
     snapshot = await services.memory.sync()
     text = f"<b>Persistent memory</b> · {snapshot.estimated_tokens}/4000 tokens\n" + (
@@ -269,11 +166,6 @@ async def command_remember(message: Message, services: Services) -> None:
         await send_registered(message, services, str(error), kind=MessageKind.ERROR)
         return
     await send_registered(message, services, "Remembered in memory.md.", kind=MessageKind.RECEIPT)
-
-
-async def command_reminders(message: Message, services: Services) -> None:
-    """Show the triggers the owner set; creation and timing stay advisor-only."""
-    await render_reminders(message, services)
 
 
 def register_commands(target: Router, commands: tuple[ScreenCommand, ...]) -> None:

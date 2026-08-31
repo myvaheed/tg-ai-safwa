@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from ...bootstrap.module_manifest import FeatureModule, ProposalContribution
 from ...foundation.screens import ScreenCommand, ScreenSpec
-from ...telegram.callbacks import REQUEST_CALLBACK_ACTIONS
-from ...telegram.commands import command_requests
-from ...telegram.items import render_saved_request
 from . import agent, proposal, telegram, views
 from .model import SavedRequest
+from .telegram import REQUEST_CALLBACK_ACTIONS, command_requests, render_saved_request
 
 MODULE = FeatureModule(
     name="saved_requests",

@@ -10,7 +10,7 @@ from safwa.ai.context import board_context, ordered_owner_context
 from safwa.bootstrap.modules import RECOVERY_HOOKS
 from safwa.domain import create_card, start_sprint
 from safwa.features.profile.model import ProfileField
-from safwa.features.profile.screens import SETTINGS_FIELDS
+from safwa.features.profile.telegram.screens import SETTINGS_FIELDS
 from safwa.features.profile.use_cases import profile_field, set_profile_field
 from safwa.features.reminders.schedule import resolve
 from safwa.features.reminders.use_cases import create_reminder

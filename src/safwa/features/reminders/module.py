@@ -13,10 +13,9 @@ from ...bootstrap.module_manifest import (
     ProposalContribution,
 )
 from ...foundation.screens import ScreenCommand
-from ...telegram.callbacks import REMINDER_CALLBACK_ACTIONS
-from ...telegram.commands import command_reminders
 from . import agent, proposal, telegram, views
 from .background import run_scheduler
+from .telegram import REMINDER_CALLBACK_ACTIONS, render_reminders
 from .use_cases import reconcile_reminders
 
 
@@ -44,7 +43,7 @@ MODULE = FeatureModule(
     background=(BackgroundTask("reminder-scheduler", _poll_due_reminders),),
     commands=(
         ScreenCommand(
-            handler=command_reminders,
+            handler=render_reminders,
             command="reminders",
             description="Your Reminders",
             nav="reminders",
