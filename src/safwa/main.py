@@ -21,6 +21,7 @@ from .bootstrap.modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
     BACKGROUND_TASKS,
+    FEATURE_COMMANDS,
     HEAVY_ANALYZER_PROMPT,
     PROPOSALS,
     RECOVERY_HOOKS,
@@ -40,9 +41,11 @@ from .history import TelegramHistorySource
 from .models import Workspace
 from .recovery import recover_startup
 from .telegram import (
+    SHELL_COMMANDS,
     OwnerAndWritingMiddleware,
     Services,
     discard_stale_status,
+    register_commands,
     router,
     sync_bot_commands,
 )
@@ -187,6 +190,8 @@ async def run(settings: Settings) -> None:
         chars_per_token=settings.token_chars_estimate,
     )
     turn = TurnManager()
+    commands = (*SHELL_COMMANDS, *FEATURE_COMMANDS)
+    register_commands(router, commands)
     transcriber = build_transcriber(settings)
     if transcriber is not None:
         logger.info(
@@ -204,6 +209,7 @@ async def run(settings: Settings) -> None:
         owner_id=settings.telegram_owner_id,
         turn=turn,
         screens=SCREENS,
+        commands=commands,
         views=ALLOWED_VIEWS,
         bot_username=settings.telegram_bot_username,
         transcriber=transcriber,
@@ -216,7 +222,7 @@ async def run(settings: Settings) -> None:
     async with database.sessions() as session:
         workspace = await session.get(Workspace, 1)
         sprint_active = bool(workspace and workspace.active_sprint_id)
-    await sync_bot_commands(bot, sprint_active=sprint_active)
+    await sync_bot_commands(bot, commands, sprint_active=sprint_active)
     await discard_stale_status(bot, services, settings.telegram_owner_id)
 
     background = BackgroundContext(

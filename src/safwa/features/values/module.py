@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from ...bootstrap.module_manifest import FeatureModule, ProposalContribution
-from ...foundation.screens import ScreenSpec
+from ...foundation.screens import ScreenCommand, ScreenSpec
+from ...telegram.commands import command_values
 from . import agent, proposal, telegram, views
 from .model import Value
 
@@ -23,6 +24,14 @@ MODULE = FeatureModule(
             model=Value,
             open=telegram.open_value,
             label=telegram.value_citation_label,
+        ),
+    ),
+    commands=(
+        ScreenCommand(
+            handler=command_values,
+            command="values",
+            description="Values in focus",
+            nav="values",
         ),
     ),
 )

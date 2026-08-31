@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from ...bootstrap.module_manifest import FeatureModule, ProposalContribution
-from ...foundation.screens import ScreenSpec
+from ...foundation.screens import ScreenCommand, ScreenSpec
+from ...telegram.commands import command_requests
 from ...telegram.items import render_saved_request
 from . import agent, proposal, telegram, views
 from .model import SavedRequest
@@ -24,6 +25,14 @@ MODULE = FeatureModule(
             model=SavedRequest,
             open=render_saved_request,
             label=telegram.request_citation_label,
+        ),
+    ),
+    commands=(
+        ScreenCommand(
+            handler=command_requests,
+            command="requests",
+            description="Saved AI Requests",
+            nav="requests",
         ),
     ),
 )

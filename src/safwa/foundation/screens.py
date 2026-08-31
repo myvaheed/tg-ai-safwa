@@ -1,8 +1,9 @@
-"""One item type the owner can be taken to, and how a citation to it is written.
+"""How a feature plugs into Safwa's Telegram interface.
 
-A screen is declared by the feature that owns the item, assembled by the composition root,
-and read by both the Telegram adapters and the `open` tool. It is a wiring DTO, so it lives
-where all three can reach it without any of them importing the others.
+An item that can be put on the screen and cited, and a screen the owner opens by name.
+Each is declared by the feature that owns it, assembled by the composition root, and read
+by the adapters and the `open` tool. These are wiring DTOs, so they live where all three
+can reach them without any of them importing the others.
 """
 
 from __future__ import annotations
@@ -73,3 +74,18 @@ class ScreenCatalogue:
         return (match.group(1), int(match.group(2))) if match else None
 
 
+
+
+@dataclass(frozen=True, slots=True)
+class ScreenCommand:
+    """One screen the owner opens by name: a slash command, a menu button, or both."""
+
+    # (message, services) -> None.
+    handler: Callable[..., Awaitable[None]]
+    # Published to Telegram as `/<command>`; None means this screen has no command line.
+    command: str | None = None
+    description: str = ""
+    # The `nav:<action>` a menu button carries; None means it is not in the menu.
+    nav: str | None = None
+    # Today is a real screen only while a Sprint is running.
+    needs_sprint: bool = False

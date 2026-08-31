@@ -79,6 +79,10 @@ class MiddlewareRegistrar:
 class Observer:
     def __init__(self) -> None:
         self.outer_middleware = MiddlewareRegistrar()
+        self.registered: list[tuple[object, ...]] = []
+
+    def register(self, handler, *filters) -> None:
+        self.registered.append((handler, *filters))
 
 
 class FakeRouter:

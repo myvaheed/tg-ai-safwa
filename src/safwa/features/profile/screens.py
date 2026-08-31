@@ -8,14 +8,13 @@ from dataclasses import dataclass
 from datetime import time
 from typing import Any
 
-from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, Message
 
 from ...constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ...enums import MessageKind
 from ...foundation.errors import DomainError
 from ...foundation.models import Workspace
-from ...telegram._core import Services, router
+from ...telegram._core import Services
 from ...telegram._messaging import edit_registered_message, send_registered, token_button
 from ...telegram._presentation import menu_row, with_notice
 from ...telegram.text_input import TextInputScreen, render_text_input
@@ -138,7 +137,6 @@ def settings_text(profile: UserProfile, timezone: str) -> str:
     return "\n".join(lines)
 
 
-@router.message(Command("settings"))
 async def command_settings(
     message: Message,
     services: Services,

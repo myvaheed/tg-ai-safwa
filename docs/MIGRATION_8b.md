@@ -137,7 +137,7 @@ rolling back 4500 lines and seventy callback actions as one piece is not a safet
 | 2 | The queue goes; `TurnManager` arrives in `src/safwa/turn/` | 3 scenarios | **done** |
 | 3 | `foundation/state_flow.py` deleted, the states kept | criterion 10 | **done** |
 | 4a | `FeatureModule` grows `screens`; the entity list collapses from four copies to one | Rule H 24 to 10 | **done** |
-| 4b | `FeatureModule` grows `commands` | `BOT_COMMANDS` gone | |
+| 4b | `FeatureModule` grows `commands` | `BOT_COMMANDS` gone | **done** |
 | 4c | `FeatureModule` grows `callback_actions` | `CALLBACK_ACTIONS` gone | |
 | 4d | `FeatureModule` grows `text_inputs` | 7 flow branches gone | |
 | 5a | The shell: `src/safwa/shell/`; `_messaging.py` dissolves into direct `ChatHost` calls | 189 call sites | |
@@ -271,6 +271,32 @@ linkable and is not an `open` target, and nothing but this test says so.
 
 `telegram/screens.py` is 228 lines to 93: `OPENABLE_MODELS`, `_citation_label` and
 `open_item_screen`'s six branches are all one lookup now.
+
+### What step 4b landed
+
+794 passed, 3 skipped; `ruff check .` clean. `BOT_COMMANDS`, the 15 `@router.message(Command(...))`
+decorators and the `navigation` dict are gone. A `ScreenCommand` carries the handler, the command
+line, the `nav:` action and whether it needs a Sprint; the shell keeps its own three — `/start`,
+`/status`, `/cancel` — and the composition root puts them in front of the features'.
+
+**The menu dict went with them.** `navigation` looked its ten handlers up in a dict of its own, over
+the same set. It reads `services.commands` now, which is also what removed the deferred import of
+`command_settings` that `features/profile/screens.py` needed.
+
+**Binding left import time, so two tests were written for what the decorators used to guarantee.**
+`register_commands(router, commands)` runs from the composition root, because the catalogue cannot
+be reached from inside `safwa/telegram/` without closing a cycle through the manifest. One test
+binds the catalogue into a fresh router and asserts every command line is there; the other asserts
+every menu button names a screen some feature declared.
+
+**`ordinary_text` refuses a slash command in its filter now**, not in its first two lines. Handlers
+are tried in registration order and the first match ends the event, so binding commands after
+`F.text` would have let the dialogue handler swallow every one of them. The guard it replaces was
+already in the body, so nothing changed but where it is read.
+
+**The published order follows the module order.** It was hand-written and grouped by hand —
+screens, then memory, then diagnostics. It is now the shell's three and then `MODULES`, the same
+order that already fixes the routing rules and the recovery hooks.
 
 ### Step 5 — the handlers move
 

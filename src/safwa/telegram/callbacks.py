@@ -913,7 +913,9 @@ async def _on_sprint_start(context: CallbackContext) -> None:
         await _clear_ui_sessions(session, context.owner_id)
         await session.commit()
         number, end_date = sprint.number, sprint.planned_end_date
-    await sync_bot_commands(context.message.bot, sprint_active=True)
+    await sync_bot_commands(
+        context.message.bot, context.services.commands, sprint_active=True
+    )
     await render_sprint(
         context.message,
         context.services,
@@ -926,7 +928,9 @@ async def _on_sprint_finish(context: CallbackContext) -> None:
         sprint = await finish_sprint(session, reason="finished_early")
         await session.commit()
         number = sprint.number
-    await sync_bot_commands(context.message.bot, sprint_active=False)
+    await sync_bot_commands(
+        context.message.bot, context.services.commands, sprint_active=False
+    )
     await render_sprint(
         context.message, context.services, notice=f"Sprint {number} finished early."
     )

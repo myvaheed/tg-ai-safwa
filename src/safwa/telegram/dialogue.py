@@ -50,10 +50,8 @@ from .text_input import reject_text_input, required_text, validate_text_input
 logger = logging.getLogger(__name__)
 
 
-@router.message(F.text)
+@router.message(F.text & ~F.text.startswith("/"))
 async def ordinary_text(message: Message, services: Services) -> None:
-    if not message.text or message.text.startswith("/"):
-        return
     async with services.sessions() as session:
         ui = await session.scalar(
             select(UiSession)

@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...bootstrap.module_manifest import FeatureModule
 from ...foundation.clock import SystemClock
+from ...foundation.screens import ScreenCommand
+from .screens import command_settings
 from .use_cases import sync_diary_reminder
 
 
@@ -14,4 +16,15 @@ async def _reconcile_diary_trigger(session: AsyncSession) -> None:
     await sync_diary_reminder(session, clock=SystemClock())
 
 
-MODULE = FeatureModule(name="profile", recover=_reconcile_diary_trigger)
+MODULE = FeatureModule(
+    name="profile",
+    recover=_reconcile_diary_trigger,
+    commands=(
+        ScreenCommand(
+            handler=command_settings,
+            command="settings",
+            description="Profile and reminders",
+            nav="settings",
+        ),
+    ),
+)

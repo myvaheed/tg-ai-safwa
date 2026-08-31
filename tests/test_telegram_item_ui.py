@@ -14,7 +14,9 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
+from aiogram import Router
 from aiogram.exceptions import TelegramAPIError
+from aiogram.filters import Command
 from sqlalchemy import select, text
 
 import safwa.features.profile.screens as profile_screens_source
@@ -23,7 +25,13 @@ import safwa.telegram.plan as plan_module
 from safwa.ai.contracts import OpenInput
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.ai.sql import create_ai_views
-from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS, SCREENS
+from safwa.bootstrap.modules import (
+    AI_VIEWS,
+    ALLOWED_VIEWS,
+    FEATURE_COMMANDS,
+    PROPOSALS,
+    SCREENS,
+)
 from safwa.constants import (
     ASR_MAX_DURATION_SECONDS,
     DIARY_TIME_DEFAULT,
@@ -94,6 +102,7 @@ from safwa.models import (
 )
 from safwa.telegram import (
     CALLBACK_ACTIONS,
+    SHELL_COMMANDS,
     OwnerAndWritingMiddleware,
     callback_token_handler,
     dismiss_prior_ui,
@@ -122,9 +131,9 @@ from safwa.telegram._messaging import (
     send_owner_turn,
     send_registered,
 )
-from safwa.telegram._presentation import start_payload
+from safwa.telegram._presentation import menu_markup, menu_row, start_payload
 from safwa.telegram.checks import render_check
-from safwa.telegram.commands import command_requests, command_start
+from safwa.telegram.commands import command_requests, command_start, register_commands
 from safwa.telegram.dialogue import run_dialogue_turn
 from safwa.telegram.plan import handle_plan_start, is_plan_link, render_plan
 from safwa.telegram.reminders import render_reminder, render_reminders
@@ -357,6 +366,7 @@ def services_for(sessions, *, advisor=None, reviews=None, transcriber=None):
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
+        commands=(*SHELL_COMMANDS, *FEATURE_COMMANDS),
         views=ALLOWED_VIEWS,
         bot_username="safwa_ai_bot",
         advisor=advisor
@@ -389,6 +399,32 @@ async def test_every_command_is_deleted_and_still_dispatched(sessions, monkeypat
         assert message.was_deleted is True
 
     assert handled == ["/start", "/mem remember this", "/cancel"]
+
+
+def test_every_declared_command_is_bound_to_its_command_line() -> None:
+    """Binding left import time with the catalogue, so something has to check it."""
+    commands = (*SHELL_COMMANDS, *FEATURE_COMMANDS)
+    target = Router(name="test-commands")
+    register_commands(target, commands)
+    bound = {
+        argument
+        for handler in target.message.handlers
+        for filter_ in handler.filters or ()
+        if isinstance(filter_.callback, Command)
+        for argument in filter_.callback.commands
+    }
+
+    assert bound == {screen.command for screen in commands if screen.command is not None}
+
+
+def test_every_menu_button_reaches_a_declared_screen() -> None:
+    """The menu named its handlers in a dict of its own until the features declared them."""
+    rows = [*menu_markup(sprint_active=True).inline_keyboard, menu_row()]
+    pressed = {button.callback_data.split(":", 1)[1] for row in rows for button in row}
+
+    assert pressed <= {
+        screen.nav for screen in (*SHELL_COMMANDS, *FEATURE_COMMANDS) if screen.nav is not None
+    }
 
 
 async def test_ag_turn_010_nothing_that_arrives_during_an_answer_joins_it(

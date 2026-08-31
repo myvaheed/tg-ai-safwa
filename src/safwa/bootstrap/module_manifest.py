@@ -24,7 +24,7 @@ from ..features.proposals.api import (
     ProposalHandler,
     ProposalPresenter,
 )
-from ..foundation.screens import ScreenSpec
+from ..foundation.screens import ScreenCommand, ScreenSpec
 from ..history import TelegramHistorySource
 from ..telegram import Services
 
@@ -104,6 +104,7 @@ class FeatureModule:
 
     # Telegram
     screens: tuple[ScreenSpec, ...] = ()
+    commands: tuple[ScreenCommand, ...] = ()
 
     # Lifecycle
     recover: Callable[[AsyncSession], Awaitable[None]] | None = None

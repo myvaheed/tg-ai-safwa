@@ -3,14 +3,30 @@
 from __future__ import annotations
 
 from ...bootstrap.module_manifest import FeatureModule
-from ...foundation.screens import ScreenSpec
+from ...foundation.screens import ScreenCommand, ScreenSpec
 from ...models import Sprint
+from ...telegram.sprint import render_sprint, render_today
 from . import background, telegram, views
 
 MODULE = FeatureModule(
     name="planning",
     views=views.VIEWS,
     background=(background.SPRINT_EXPIRY,),
+    commands=(
+        ScreenCommand(
+            handler=render_today,
+            command="today",
+            description="Today dashboard",
+            nav="today",
+            needs_sprint=True,
+        ),
+        ScreenCommand(
+            handler=render_sprint,
+            command="sprint",
+            description="Planning or Sprint",
+            nav="sprint",
+        ),
+    ),
     screens=(
         ScreenSpec(
             item_type="retro",

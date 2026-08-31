@@ -36,7 +36,7 @@ from ..features.reminders.module import MODULE as REMINDERS
 from ..features.saved_requests.module import MODULE as SAVED_REQUESTS
 from ..features.tags.module import MODULE as TAGS
 from ..features.values.module import MODULE as VALUES
-from ..foundation.screens import ScreenCatalogue, ScreenSpec
+from ..foundation.screens import ScreenCatalogue, ScreenCommand, ScreenSpec
 from .module_manifest import AgentContext, AgentSpec, BackgroundTask, FeatureModule
 
 # Order is what the routing rules and the recovery hooks follow, so it is fixed rather than
@@ -87,6 +87,13 @@ def _screens() -> ScreenCatalogue:
 # What can be opened and what can be cited are the same list, so the deep-link payload
 # and both citation patterns are derived from it rather than written out again.
 SCREENS: ScreenCatalogue = _screens()
+
+
+# The shell has commands of its own, so the composition root is what puts the two lists
+# together; the order here is the order Telegram publishes them in.
+FEATURE_COMMANDS: tuple[ScreenCommand, ...] = tuple(
+    command for module in MODULES for command in module.commands
+)
 
 
 def _proposals() -> ProposalRegistry:

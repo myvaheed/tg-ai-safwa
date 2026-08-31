@@ -5,7 +5,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from aiogram import Bot, F
+from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import (
     BotCommand,
@@ -20,6 +20,7 @@ from ..features.cards.model import CardStage
 from ..features.continuity.memory import MemoryFileError
 from ..features.continuity.persona import MemoryMaintenanceResult
 from ..features.continuity.use_cases import record_memory_run
+from ..foundation.screens import ScreenCommand
 from ..models import (
     SavedRequest,
     Tag,
@@ -48,26 +49,6 @@ from .sprint import render_sprint, render_today
 
 logger = logging.getLogger(__name__)
 
-# Published to Telegram by `sync_bot_commands`, which drops Today outside a Sprint.
-BOT_COMMANDS = [
-    BotCommand(command="start", description="Open Safwa"),
-    BotCommand(command="today", description="Today dashboard"),
-    BotCommand(command="sprint", description="Planning or Sprint"),
-    BotCommand(command="backlog", description="Backlog dashboard"),
-    BotCommand(command="values", description="Values in focus"),
-    BotCommand(command="tags", description="Manage Tags"),
-    BotCommand(command="requests", description="Saved AI Requests"),
-    BotCommand(command="reminders", description="Your Reminders"),
-    BotCommand(command="settings", description="Profile and reminders"),
-    BotCommand(command="syncmem", description="Sync Telegram dialogue into memory"),
-    BotCommand(command="mem", description="Add a durable memory fact"),
-    BotCommand(command="memory", description="Inspect memory.md"),
-    BotCommand(command="summarize", description="Summarize the dialogue now"),
-    BotCommand(command="status", description="Safwa diagnostics"),
-    BotCommand(command="cancel", description="Cancel generation"),
-]
-
-
 @router.message.middleware()
 async def dismiss_screens_before_a_command(
     handler: Callable[[Message, dict[str, Any]], Awaitable[Any]],
@@ -85,7 +66,6 @@ async def dismiss_screens_before_a_command(
     return await handler(event, data)
 
 
-@router.message(Command("start"))
 async def command_start(message: Message, services: Services) -> None:
     payload = start_payload(message.text)
     if payload is not None:
@@ -103,7 +83,6 @@ async def command_start(message: Message, services: Services) -> None:
     )
 
 
-@router.message(Command("summarize"))
 async def command_summarize(message: Message, services: Services) -> None:
     """Cut the context deliberately: post a Summary now instead of waiting for the budget."""
     written = await services.turn.run_background(
@@ -131,17 +110,14 @@ async def command_summarize(message: Message, services: Services) -> None:
         )
 
 
-@router.message(Command("today"))
 async def command_today(message: Message, services: Services) -> None:
     await render_today(message, services)
 
 
-@router.message(Command("backlog"))
 async def command_backlog(message: Message, services: Services) -> None:
     await render_dashboard(message, services, CardStage.BACKLOG, title="Backlog")
 
 
-@router.message(Command("sprint"))
 async def command_sprint(message: Message, services: Services) -> None:
     await render_sprint(message, services)
 
@@ -150,7 +126,6 @@ async def command_add(message: Message, services: Services) -> None:
     await start_manual_card_creation(message, services)
 
 
-@router.message(Command("values"))
 async def command_values(message: Message, services: Services) -> None:
     async with services.sessions() as session:
         values = list(
@@ -187,7 +162,6 @@ async def command_values(message: Message, services: Services) -> None:
     )
 
 
-@router.message(Command("tags"))
 async def command_tags(message: Message, services: Services) -> None:
     async with services.sessions() as session:
         tags = list(
@@ -218,7 +192,6 @@ async def command_tags(message: Message, services: Services) -> None:
     )
 
 
-@router.message(Command("requests"))
 async def command_requests(message: Message, services: Services) -> None:
     """Show AI-authored saved queries; creation intentionally remains advisor-only."""
     async with services.sessions() as session:
@@ -249,7 +222,6 @@ async def command_requests(message: Message, services: Services) -> None:
     )
 
 
-@router.message(Command("memory"))
 async def command_memory(message: Message, services: Services) -> None:
     snapshot = await services.memory.sync()
     text = f"<b>Persistent memory</b> · {snapshot.estimated_tokens}/4000 tokens\n" + (
@@ -259,7 +231,6 @@ async def command_memory(message: Message, services: Services) -> None:
     await send_registered(message, services, text, kind=MessageKind.DASHBOARD)
 
 
-@router.message(Command("syncmem"))
 async def command_syncmem(message: Message, services: Services) -> None:
     if (message.text or "").partition(" ")[2].strip():
         await send_registered(message, services, "Usage: /syncmem", kind=MessageKind.ERROR)
@@ -291,7 +262,6 @@ async def command_syncmem(message: Message, services: Services) -> None:
     await send_registered(message, services, text, kind=kind)
 
 
-@router.message(Command("mem"))
 async def command_remember(message: Message, services: Services) -> None:
     fact = (message.text or "").partition(" ")[2].strip()
     if not fact:
@@ -307,23 +277,35 @@ async def command_remember(message: Message, services: Services) -> None:
     await send_registered(message, services, "Remembered in memory.md.", kind=MessageKind.RECEIPT)
 
 
-@router.message(Command("reminders"))
 async def command_reminders(message: Message, services: Services) -> None:
     """Show the triggers the owner set; creation and timing stay advisor-only."""
     await render_reminders(message, services)
 
 
-async def sync_bot_commands(bot: Bot, *, sprint_active: bool) -> None:
+def register_commands(target: Router, commands: tuple[ScreenCommand, ...]) -> None:
+    """Bind every declared screen to its command line, once, when the application is built.
+
+    Registered before `dialogue.ordinary_text` would ever see the message, because that
+    handler declines anything starting with a slash in its own filter.
+    """
+    for screen in commands:
+        if screen.command is not None:
+            target.message.register(screen.handler, Command(screen.command))
+
+
+async def sync_bot_commands(
+    bot: Bot, commands: tuple[ScreenCommand, ...], *, sprint_active: bool
+) -> None:
     """Publish the command list. Today is dropped while the workspace is in Planning."""
-    commands = [
-        command
-        for command in BOT_COMMANDS
-        if sprint_active or command.command != "today"
-    ]
-    await bot.set_my_commands(commands)
+    await bot.set_my_commands(
+        [
+            BotCommand(command=screen.command, description=screen.description)
+            for screen in commands
+            if screen.command is not None and (sprint_active or not screen.needs_sprint)
+        ]
+    )
 
 
-@router.message(Command("status"))
 async def command_status(message: Message, services: Services) -> None:
     memory = await services.memory.sync()
     async with services.sessions() as session:
@@ -337,12 +319,20 @@ async def command_status(message: Message, services: Services) -> None:
     )
 
 
-@router.message(Command("cancel"))
 async def command_cancel(message: Message, services: Services) -> None:
     await remove_turn_notice(message, services, services.turn.cancel())
     await send_registered(
         message, services, "Current generation cancelled.", kind=MessageKind.RECEIPT
     )
+
+
+SHELL_COMMANDS: tuple[ScreenCommand, ...] = (
+    ScreenCommand(
+        handler=command_start, command="start", description="Open Safwa", nav="home"
+    ),
+    ScreenCommand(handler=command_status, command="status", description="Safwa diagnostics"),
+    ScreenCommand(handler=command_cancel, command="cancel", description="Cancel generation"),
+)
 
 
 @router.callback_query(F.data.startswith("nav:"))
@@ -351,25 +341,11 @@ async def navigation(callback: CallbackQuery, services: Services) -> None:
     if not callback.message:
         return
     action = callback.data.split(":", 1)[1]
-    # Imported here, not above: the Settings screen lives in its feature and reaches
-    # back into this package. It moves with the handlers in Phase 8.
-    from ..features.profile.screens import command_settings
-
     # Walking into the menu is an answer too: whatever else was open is refused.
     await dismiss_prior_ui(callback.message, services)
-    handlers = {
-        "home": command_start,
-        "today": command_today,
-        "sprint": command_sprint,
-        "backlog": command_backlog,
-        "add": command_add,
-        "values": command_values,
-        "tags": command_tags,
-        "requests": command_requests,
-        "reminders": command_reminders,
-        "settings": command_settings,
-    }
-    handler = handlers.get(action)
+    handler = next(
+        (screen.handler for screen in services.commands if screen.nav == action), None
+    )
     if handler is None:
         logger.warning("Unknown nav action: %s", action)
         await callback.answer("This action is no longer available.", show_alert=True)
