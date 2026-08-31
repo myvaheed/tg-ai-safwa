@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from ...bootstrap.module_manifest import FeatureModule, ProposalContribution
+from ...foundation.screens import ScreenSpec
 from . import agent, proposal, telegram, views
+from .model import DiaryEntry
 
 MODULE = FeatureModule(
     name="diary",
@@ -16,4 +18,12 @@ MODULE = FeatureModule(
         ),
     ),
     views=views.VIEWS,
+    screens=(
+        ScreenSpec(
+            item_type="diary",
+            model=DiaryEntry,
+            open=telegram.render_diary,
+            label=telegram.diary_citation_label,
+        ),
+    ),
 )

@@ -24,6 +24,7 @@ from .bootstrap.modules import (
     HEAVY_ANALYZER_PROMPT,
     PROPOSALS,
     RECOVERY_HOOKS,
+    SCREENS,
     SYSTEM_PROMPT,
     routed_subagents,
 )
@@ -151,7 +152,9 @@ async def run(settings: Settings) -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True),
     )
     me = await bot.get_me()
-    history = TelegramHistorySource.from_settings(settings, database.sessions, bot_user_id=me.id)
+    history = TelegramHistorySource.from_settings(
+        settings, database.sessions, bot_user_id=me.id, citation_types=SCREENS.types
+    )
     await history.start()
     # The advisor is built after the history source because a subagent reads through it.
     advisor = AIAdvisor(
@@ -160,6 +163,7 @@ async def run(settings: Settings) -> None:
         memory,
         query_runner,
         PROPOSALS,
+        screens=SCREENS,
         system_prompt=SYSTEM_PROMPT,
         model_name=settings.ai_model,
         provider_name=settings.ai_provider.value,
@@ -199,6 +203,7 @@ async def run(settings: Settings) -> None:
         continuity=continuity,
         owner_id=settings.telegram_owner_id,
         turn=turn,
+        screens=SCREENS,
         views=ALLOWED_VIEWS,
         bot_username=settings.telegram_bot_username,
         transcriber=transcriber,

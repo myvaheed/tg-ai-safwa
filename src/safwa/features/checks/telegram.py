@@ -1,4 +1,4 @@
-"""How a proposed Check reads to the owner."""
+"""How a Check reads to the owner: its review screen, and the screen a citation opens."""
 
 from __future__ import annotations
 
@@ -8,8 +8,10 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...ai.contracts import AgentChange
+from ...foundation.marks import title_marks
 from ...foundation.references import resolve_references
 from ...models import Check
+from ...telegram._presentation import short_citation_title
 from ..proposals.api import (
     ChangeAction,
     ProposalChange,
@@ -138,3 +140,15 @@ class CheckProposalPresenter:
             ),
             diffs=field_diffs(current, proposed),
         )
+
+
+async def check_citation_label(
+    session: AsyncSession, services: Any, check: Check
+) -> str | None:
+    """A live Check keeps the model's own words.
+
+    A closed repeat or an archived one has to carry its marks, or the link looks exactly
+    like the open one it was superseded by.
+    """
+    marker = await title_marks(session, check)
+    return f"{short_citation_title(check.title)}{marker}" if marker else None

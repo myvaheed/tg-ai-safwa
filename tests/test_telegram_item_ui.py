@@ -9,6 +9,7 @@ import pkgutil
 import re
 from datetime import UTC, date, datetime, time
 from types import SimpleNamespace
+from typing import get_args
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -19,9 +20,10 @@ from sqlalchemy import select, text
 import safwa.features.profile.screens as profile_screens_source
 import safwa.telegram as telegram_source
 import safwa.telegram.plan as plan_module
+from safwa.ai.contracts import OpenInput
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.ai.sql import create_ai_views
-from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS
+from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS, SCREENS
 from safwa.constants import (
     ASR_MAX_DURATION_SECONDS,
     DIARY_TIME_DEFAULT,
@@ -70,12 +72,7 @@ from safwa.features.saved_requests.use_cases import (
     delete_saved_request,
 )
 from safwa.foundation.clock import SystemClock
-from safwa.history import (
-    CITATION_TYPES,
-    HistoryEntry,
-    parse_citation_payload,
-    read_kind_mark,
-)
+from safwa.history import HistoryEntry, read_kind_mark
 from safwa.models import (
     CallbackToken,
     Card,
@@ -131,7 +128,6 @@ from safwa.telegram.commands import command_requests, command_start
 from safwa.telegram.dialogue import run_dialogue_turn
 from safwa.telegram.plan import handle_plan_start, is_plan_link, render_plan
 from safwa.telegram.reminders import render_reminder, render_reminders
-from safwa.telegram.screens import OPENABLE_MODELS
 from safwa.turn import TurnManager
 from telegram_llm import (
     TELEGRAM_TEXT_LIMIT,
@@ -360,6 +356,7 @@ def services_for(sessions, *, advisor=None, reviews=None, transcriber=None):
         sessions=sessions,
         owner_id=42,
         turn=TurnManager(),
+        screens=SCREENS,
         views=ALLOWED_VIEWS,
         bot_username="safwa_ai_bot",
         advisor=advisor
@@ -1308,10 +1305,12 @@ async def test_a_diary_citation_is_named_by_the_entry_and_opens_the_whole_day(se
     assert markup is None
 
 
-def test_citation_codec_matches_every_openable_item_screen() -> None:
-    expected = {"card", "check", "tag", "value", "request", "diary", "retro"}
-    assert set(CITATION_TYPES) == expected
-    assert set(OPENABLE_MODELS) == expected
+def test_the_screen_catalogue_is_the_one_list_of_openable_items() -> None:
+    """The features publish what can be opened; only the `open` tool's enum is by hand."""
+    assert set(SCREENS.types) == {"card", "check", "tag", "value", "request", "diary", "retro"}
+    # A tool's enum is prompt text and stays in ai/contracts.py, so it has to agree here.
+    literal = set(get_args(OpenInput.model_fields["item_type"].annotation))
+    assert literal == {name for name, spec in SCREENS.by_type.items() if spec.ai_openable}
 
 
 def test_start_payload_reads_only_a_command_line() -> None:
@@ -1320,8 +1319,8 @@ def test_start_payload_reads_only_a_command_line() -> None:
     assert start_payload("/start") is None
     # The menu's Home button hands command_start the bot's own screen, never a command.
     assert start_payload("<b>Card</b>: Pull ups") is None
-    assert parse_citation_payload("check-14") == ("check", 14)
-    assert parse_citation_payload("sprint-1") is None
+    assert SCREENS.parse_payload("check-14") == ("check", 14)
+    assert SCREENS.parse_payload("sprint-1") is None
 
 
 async def test_card_text_field_prompt_replaces_creation_message(sessions) -> None:

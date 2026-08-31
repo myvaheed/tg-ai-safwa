@@ -37,6 +37,7 @@ from ..features.proposals.render import (
 from ..features.proposals.store import ProposalStore
 from ..features.proposals.use_cases import decide_batch_item, interrupt_batch
 from ..foundation.errors import failure_reason
+from ..foundation.screens import ScreenCatalogue
 from .autoapproval import AutoApprovalReviewer
 from .materialize import ProposalMaterializer
 from .messages import ContextBuilder
@@ -73,6 +74,7 @@ class AIAdvisor:
         query_runner: ReadOnlyQueryRunner,
         proposals: ProposalRegistry,
         *,
+        screens: ScreenCatalogue,
         system_prompt: str,
         model_name: str,
         provider_name: str = "openai-compatible",
@@ -96,7 +98,13 @@ class AIAdvisor:
         # write every other call, so `agent_steps` has a single writer.
         self.trail = AgentStepTrail(sessions)
         self.adapters = ToolAdapters(
-            sessions, query_runner, proposals, self.trail, helpers, subagents=self.subagents
+            sessions,
+            query_runner,
+            proposals,
+            self.trail,
+            screens,
+            helpers,
+            subagents=self.subagents,
         )
         self.context = ContextBuilder(
             sessions,

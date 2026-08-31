@@ -6,11 +6,10 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import update
 from telethon.tl.types import MessageEntityTextUrl
 
+from safwa.bootstrap.modules import SCREENS
 from safwa.enums import MessageKind
 from safwa.features.continuity.model import SUMMARY_HEADER
 from safwa.history import (
-    CITATION_PATTERN,
-    CITATION_TYPES,
     MARKS,
     HistoryEntry,
     TelegramHistorySource,
@@ -88,7 +87,10 @@ async def test_surviving_owner_text_is_what_the_owner_said(sessions) -> None:
         FakeTelegramMessage(3, "An old message from the bot", bot_id, at - timedelta(hours=2)),
     ]
     source = TelegramHistorySource(
-        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+        FakeTelegramClient(messages), sessions,
+            bot_user_id=bot_id,
+            owner_id=owner_id,
+            citation_types=SCREENS.types,
     )
 
     entries = await source.recent(chat_id)
@@ -137,7 +139,10 @@ async def test_summary_is_pinned_first_with_twenty_prior_messages(sessions) -> N
         await register(sessions, chat_id, message.id, "in", MessageKind.DIALOGUE_USER)
     await backdate(sessions, chat_id, at)
     source = TelegramHistorySource(
-        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+        FakeTelegramClient(messages), sessions,
+            bot_user_id=bot_id,
+            owner_id=owner_id,
+            citation_types=SCREENS.types,
     )
 
     entries = await source.recent(chat_id)
@@ -177,7 +182,10 @@ async def test_the_window_is_cut_on_a_message_boundary_when_the_budget_runs_out(
         await register(sessions, chat_id, message.id, "in", MessageKind.DIALOGUE_USER)
     await backdate(sessions, chat_id, at)
     source = TelegramHistorySource(
-        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+        FakeTelegramClient(messages), sessions,
+            bot_user_id=bot_id,
+            owner_id=owner_id,
+            citation_types=SCREENS.types,
     )
 
     entries = await source.recent(chat_id, token_budget=250)
@@ -201,7 +209,10 @@ async def test_the_answered_message_is_not_read_twice(sessions) -> None:
         ),
     ]
     source = TelegramHistorySource(
-        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+        FakeTelegramClient(messages), sessions,
+            bot_user_id=bot_id,
+            owner_id=owner_id,
+            citation_types=SCREENS.types,
     )
     current = HistoryEntry(
         message_id=13,
@@ -262,7 +273,10 @@ async def test_kind_marks_rebuild_history_without_registrations(sessions) -> Non
         FakeTelegramMessage(11, "I want to stretch daily", owner_id, at + timedelta(minutes=1)),
     ]
     source = TelegramHistorySource(
-        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+        FakeTelegramClient(messages), sessions,
+            bot_user_id=bot_id,
+            owner_id=owner_id,
+            citation_types=SCREENS.types,
     )
 
     entries = await source.recent(chat_id)
@@ -292,7 +306,10 @@ async def test_the_read_reaches_past_every_note_safwa_kept(sessions) -> None:
     await register(sessions, chat_id, 900, "out", MessageKind.DASHBOARD)
     await backdate(sessions, chat_id, at + timedelta(minutes=1))
     source = TelegramHistorySource(
-        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+        FakeTelegramClient(messages), sessions,
+            bot_user_id=bot_id,
+            owner_id=owner_id,
+            citation_types=SCREENS.types,
     )
 
     entries = await source.recent(chat_id)
@@ -325,7 +342,10 @@ async def test_a_summary_too_long_for_one_message_reads_as_one(sessions) -> None
         FakeTelegramMessage(80, "Before the Summary", owner_id, at + timedelta(minutes=1)),
     ]
     source = TelegramHistorySource(
-        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+        FakeTelegramClient(messages), sessions,
+            bot_user_id=bot_id,
+            owner_id=owner_id,
+            citation_types=SCREENS.types,
     )
 
     entries = await source.recent(chat_id)
@@ -366,7 +386,10 @@ async def test_an_older_summary_with_only_a_screen_between_them_is_not_read(sess
         FakeTelegramMessage(90, "Before both", owner_id, at + timedelta(minutes=1)),
     ]
     source = TelegramHistorySource(
-        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+        FakeTelegramClient(messages), sessions,
+            bot_user_id=bot_id,
+            owner_id=owner_id,
+            citation_types=SCREENS.types,
     )
 
     entries = await source.recent(chat_id)
@@ -398,7 +421,10 @@ async def test_item_links_read_back_as_the_citations_the_model_wrote(sessions) -
         ),
     ]
     source = TelegramHistorySource(
-        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+        FakeTelegramClient(messages), sessions,
+            bot_user_id=bot_id,
+            owner_id=owner_id,
+            citation_types=SCREENS.types,
     )
 
     entries = await source.recent(chat_id)
@@ -408,18 +434,18 @@ async def test_item_links_read_back_as_the_citations_the_model_wrote(sessions) -
 
 def test_restore_citations_only_rewrites_safwa_deep_links() -> None:
     """TG-CITE-011 — tests/brd/telegram_history.feature"""
-    assert restore_citations("Milk", None, CITATION_TYPES) == "Milk"
+    assert restore_citations("Milk", None, SCREENS.types) == "Milk"
     assert (
         restore_citations(
             "Milk",
             [MessageEntityTextUrl(0, 4, "https://t.me/x?start=check-14")],
-            CITATION_TYPES,
+            SCREENS.types,
         )
         == "[Milk](check:14)"
     )
     # A link that is not an item link is left exactly as the user reads it.
     for url in ("https://t.me/x?start=sprint-1", "https://t.me/safwa_ai_bot", "https://ok.dev"):
-        assert restore_citations("Milk", [MessageEntityTextUrl(0, 4, url)], CITATION_TYPES) == "Milk"
+        assert restore_citations("Milk", [MessageEntityTextUrl(0, 4, url)], SCREENS.types) == "Milk"
 
 
 def test_a_compact_diary_label_round_trips_as_a_citation() -> None:
@@ -427,14 +453,14 @@ def test_a_compact_diary_label_round_trips_as_a_citation() -> None:
     restored = restore_citations(
         "Тот день: 4 марта · 🙂6.",
         [MessageEntityTextUrl(10, 13, "https://t.me/x?start=diary-12")],
-        CITATION_TYPES,
+        SCREENS.types,
     )
     assert restored == "Тот день: [4 марта · 🙂6](diary:12)."
-    match = CITATION_PATTERN.search(restored)
+    match = SCREENS.citation.search(restored)
     assert match is not None
     assert (match[1], match[2], match[3]) == ("4 марта · 🙂6", "diary", "12")
     # An unrelated bracket pair still does not swallow the citation next to it.
-    neighbour = CITATION_PATTERN.search("[note] and [Milk](check:14)")
+    neighbour = SCREENS.citation.search("[note] and [Milk](check:14)")
     assert neighbour is not None and neighbour[1] == "Milk"
 
 
@@ -504,7 +530,10 @@ async def test_unmarked_bot_prose_is_excluded(sessions) -> None:
         FakeTelegramMessage(22, "How does Safwa work?", owner_id, at + timedelta(minutes=1)),
     ]
     source = TelegramHistorySource(
-        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+        FakeTelegramClient(messages), sessions,
+            bot_user_id=bot_id,
+            owner_id=owner_id,
+            citation_types=SCREENS.types,
     )
 
     entries = await source.recent(chat_id)
@@ -558,7 +587,10 @@ async def test_screens_receipts_and_progress_notes_are_not_the_conversation(sess
         FakeTelegramMessage(31, "I want to stretch daily", owner_id, at + timedelta(minutes=1)),
     ]
     source = TelegramHistorySource(
-        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+        FakeTelegramClient(messages), sessions,
+            bot_user_id=bot_id,
+            owner_id=owner_id,
+            citation_types=SCREENS.types,
     )
 
     entries = await source.recent(chat_id)
@@ -581,7 +613,10 @@ async def test_a_command_left_standing_in_the_chat_is_still_not_the_conversation
         FakeTelegramMessage(42, "/today", owner_id, at + timedelta(minutes=2)),
     ]
     source = TelegramHistorySource(
-        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+        FakeTelegramClient(messages), sessions,
+            bot_user_id=bot_id,
+            owner_id=owner_id,
+            citation_types=SCREENS.types,
     )
 
     entries = await source.recent(chat_id)
@@ -626,7 +661,10 @@ async def test_the_answered_message_is_added_when_the_chat_read_has_not_caught_u
         ),
     ]
     source = TelegramHistorySource(
-        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+        FakeTelegramClient(messages), sessions,
+            bot_user_id=bot_id,
+            owner_id=owner_id,
+            citation_types=SCREENS.types,
     )
     current = HistoryEntry(
         message_id=52,
@@ -659,7 +697,10 @@ async def test_reading_one_named_day_reads_past_the_summary_inside_it(sessions) 
         FakeTelegramMessage(60, "The day before", owner_id, day - timedelta(hours=1)),
     ]
     source = TelegramHistorySource(
-        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+        FakeTelegramClient(messages), sessions,
+            bot_user_id=bot_id,
+            owner_id=owner_id,
+            citation_types=SCREENS.types,
     )
 
     transcript = await source.day_transcript(

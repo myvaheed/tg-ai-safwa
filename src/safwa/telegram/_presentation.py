@@ -15,6 +15,19 @@ from ..features.cards.model import CardStage
 from ..features.proposals.model import BatchDecision, ProposalChange
 from ..models import Card
 
+CITATION_TITLE_LIMIT = 25
+
+
+def short_citation_title(value: str) -> str:
+    """Keep a citation recognisable without letting it consume an advisor reply."""
+    title = value.strip()
+    return f"{title[: CITATION_TITLE_LIMIT - 1]}…" if len(title) > CITATION_TITLE_LIMIT else title
+
+
+def with_citation_fields(leading: str, fields: list[str]) -> str:
+    return f"{leading} · {'·'.join(fields)}" if fields else leading
+
+
 _KIND_EMOJIS = {
     CardKind.GOAL.value: "🎯",
     CardKind.IDEA.value: "💡",

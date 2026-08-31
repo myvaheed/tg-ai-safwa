@@ -9,7 +9,7 @@ from sqlalchemy import select
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.sql import ReadOnlyQueryRunner
-from safwa.bootstrap.modules import ALLOWED_VIEWS
+from safwa.bootstrap.modules import ALLOWED_VIEWS, SCREENS
 from safwa.domain import (
     check_card_id,
     create_card,
@@ -111,6 +111,7 @@ def _services(harness, advisor) -> SimpleNamespace:
         history=_TestHistory(),
         owner_id=42,
         turn=TurnManager(),
+        screens=SCREENS,
         bot_username="safwa_ai_bot",
     )
 

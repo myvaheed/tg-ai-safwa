@@ -10,7 +10,7 @@ from sqlalchemy import select
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.outcome import AIOutcomeKind
-from safwa.bootstrap.modules import PROPOSALS
+from safwa.bootstrap.modules import PROPOSALS, SCREENS
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.proposals.use_cases import approve_proposal
@@ -280,6 +280,7 @@ def _services(harness, advisor) -> SimpleNamespace:
         history=_TestHistory(),
         owner_id=42,
         turn=TurnManager(),
+        screens=SCREENS,
         bot_username="safwa_ai_bot",
     )
 

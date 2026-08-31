@@ -37,20 +37,15 @@ from .foundation.tokens import estimate_tokens
 from .models import TelegramMessage
 
 __all__ = [
-    "CITATION_MARKUP",
-    "CITATION_PATTERN",
-    "CITATION_TYPES",
     "MARKS",
     "DialogueMessage",
     "HistoryEntry",
     "TelegramHistorySource",
     "TelegramNotes",
     "auth_main",
-    "citation_payload",
     "conversation_block",
     "mark_kind",
     "mark_message",
-    "parse_citation_payload",
     "read_kind_mark",
     "register_message",
 ]
@@ -92,46 +87,16 @@ def read_kind_mark(text: str) -> tuple[str | None, str]:
     return kind, visible
 
 
-# The same reasoning as the kind mark: an item citation is written as Markdown, sent as a
-# link, and must read back as the Markdown the model wrote.
-CITATION_TYPES = ("card", "check", "tag", "value", "request", "diary", "retro")
-# A Diary day is labelled "04.03.2026 [6 🙂]", so one level of nesting is part of the shape
-# rather than a malformed citation.  The two branches cannot match the same character, so
-# the alternation stays linear.
-CITATION_PATTERN = re.compile(
-    r"\[((?:[^\[\]\n]|\[[^\[\]\n]*\]){1,120})\]\(("
-    + "|".join(CITATION_TYPES)
-    + r"):(\d{1,9})\)"
-)
-# The same shape with any target: a citation the model aimed at something that is not an id
-# still has to leave the chat as words rather than as raw Markdown.
-CITATION_MARKUP = re.compile(
-    r"\[((?:[^\[\]\n]|\[[^\[\]\n]*\]){1,120})\]\((?:"
-    + "|".join(CITATION_TYPES)
-    + r"):[^)\s]{0,64}\)"
-)
-# A deep-link start payload accepts only [A-Za-z0-9_-], so the type separator differs.
-_CITATION_PAYLOAD_RE = re.compile(r"^(" + "|".join(CITATION_TYPES) + r")-(\d{1,9})$")
-
-VOCABULARY = ChatVocabulary(
-    person=MessageKind.DIALOGUE_USER.value,
-    assistant=frozenset({MessageKind.DIALOGUE_ASSISTANT.value, MessageKind.CUE.value}),
-    summary=MessageKind.SUMMARY.value,
-    summary_header=SUMMARY_HEADER,
-    citation_types=CITATION_TYPES,
-    receipts=RECEIPT_MEANINGS,
-)
-
-
-def citation_payload(item_type: str, item_id: int) -> str:
-    return f"{item_type}-{item_id}"
-
-
-def parse_citation_payload(payload: str) -> tuple[str, int] | None:
-    match = _CITATION_PAYLOAD_RE.fullmatch(payload.strip())
-    if match is None:
-        return None
-    return match.group(1), int(match.group(2))
+def vocabulary(citation_types: tuple[str, ...]) -> ChatVocabulary:
+    """How the reader reads the chat back. The citation types are the features' own."""
+    return ChatVocabulary(
+        person=MessageKind.DIALOGUE_USER.value,
+        assistant=frozenset({MessageKind.DIALOGUE_ASSISTANT.value, MessageKind.CUE.value}),
+        summary=MessageKind.SUMMARY.value,
+        summary_header=SUMMARY_HEADER,
+        citation_types=citation_types,
+        receipts=RECEIPT_MEANINGS,
+    )
 
 
 # Who each line of the dialogue belongs to.  The keys are the labels the window writes;
@@ -297,13 +262,14 @@ class TelegramHistorySource(ChatWindow):
         *,
         bot_user_id: int,
         owner_id: int,
+        citation_types: tuple[str, ...] = (),
         timezone: str = "UTC",
     ) -> None:
         super().__init__(
             self if client is not None else None,
             TelegramNotes(sessions),
             MARKS,
-            VOCABULARY,
+            vocabulary(citation_types),
             bot_user_id=bot_user_id,
             owner_id=owner_id,
             count_tokens=estimate_tokens,
@@ -321,6 +287,7 @@ class TelegramHistorySource(ChatWindow):
         sessions: async_sessionmaker[AsyncSession],
         *,
         bot_user_id: int,
+        citation_types: tuple[str, ...] = (),
     ) -> TelegramHistorySource:
         client = None
         if settings.telegram_history_enabled:
@@ -334,6 +301,7 @@ class TelegramHistorySource(ChatWindow):
             sessions,
             bot_user_id=bot_user_id,
             owner_id=settings.telegram_owner_id,
+            citation_types=citation_types,
             timezone=settings.timezone,
         )
 

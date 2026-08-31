@@ -31,11 +31,10 @@ from llm_gateway import ToolCall
 from telegram_llm import DialogueMessage
 
 from ..constants import SUBAGENT_HISTORY_LAST_MESSAGES
-from ..features.diary.model import DiaryEntry
 from ..features.proposals.api import MutationToolSpec, ProposalRegistry
 from ..foundation.errors import failure_reason
-from ..history import citation_payload, conversation_block
-from ..models import Card, Check, SavedRequest, Tag, Value
+from ..foundation.screens import ScreenCatalogue
+from ..history import conversation_block
 from .contracts import (
     AgentChange,
     CallHelperInput,
@@ -49,18 +48,6 @@ from .sql import QUERY_SAFWA_TOOL, ReadOnlyQueryRunner, is_complex_read, read_qu
 from .subagents import RoutedSubagent
 
 logger = logging.getLogger(__name__)
-
-# The `open` tool's targets.  This is the last central item-kind table left in the AI layer;
-# `telegram/screens.py` holds the other half of it, and the two fold into one screen
-# registry when the Telegram adapters move into their features.
-OPENABLE_MODELS: dict[str, Any] = {
-    "card": Card,
-    "check": Check,
-    "tag": Tag,
-    "value": Value,
-    "request": SavedRequest,
-    "diary": DiaryEntry,
-}
 
 # What a helper is: it reads, it answers with rows, and it cannot open a screen. `route`
 # is the other half — a subagent that writes, and whose screen suspends the whole chain.
@@ -164,12 +151,15 @@ class ToolAdapters:
         query_runner: ReadOnlyQueryRunner,
         proposals: ProposalRegistry,
         trail: Observer,
+        screens: ScreenCatalogue,
         helpers: Mapping[str, Helper] | None = None,
         subagents: Mapping[str, RoutedSubagent] | None = None,
     ) -> None:
         self.sessions = sessions
         self.query_runner = query_runner
         self.proposals = proposals
+        # What `open` may put on the screen, and how its deep link is written.
+        self.screens = screens
         # The same trail the runtime writes `route` to: one record of what a session did.
         self.trail = trail
         self.subagents = dict(subagents or {})
@@ -404,7 +394,7 @@ class ToolAdapters:
                 "retryable": True,
             }
         async with self.sessions() as session:
-            item = await session.get(OPENABLE_MODELS[request.item_type], request.id)
+            item = await session.get(self.screens.by_type[request.item_type].model, request.id)
             if item is None:
                 return {
                     "status": ToolResultStatus.ERROR.value,
@@ -414,7 +404,7 @@ class ToolAdapters:
                     "retryable": True,
                 }
             item_id = item.id
-        agent.host_state["open_item"] = citation_payload(request.item_type, item_id)
+        agent.host_state["open_item"] = self.screens.payload(request.item_type, item_id)
         logger.info("AI TOOL open -> %s", agent.host_state["open_item"])
         return {
             "status": ToolResultStatus.OK.value,

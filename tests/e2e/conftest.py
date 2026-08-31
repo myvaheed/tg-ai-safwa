@@ -19,6 +19,7 @@ from safwa.bootstrap.modules import (
     ALLOWED_VIEWS,
     HEAVY_ANALYZER_PROMPT,
     PROPOSALS,
+    SCREENS,
     SYSTEM_PROMPT,
 )
 from safwa.domain import bootstrap_workspace
@@ -152,6 +153,7 @@ class E2EHarness:
             self.memory,
             ReadOnlyQueryRunner(self.database_path, ALLOWED_VIEWS, timezone=TIMEZONE),
             PROPOSALS,
+            screens=SCREENS,
             system_prompt=SYSTEM_PROMPT,
             model_name="e2e-scripted-model",
             cache_breakpoints=cache_breakpoints,

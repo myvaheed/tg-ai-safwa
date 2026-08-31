@@ -3,135 +3,16 @@ from __future__ import annotations
 import html
 import logging
 import re
-from typing import Any
 
 from aiogram.types import Message
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..domain import DomainError, card_progress, title_marks
-from ..enums import CardKind, MessageKind
-from ..features.diary.model import DiaryEntry
-from ..features.diary.telegram import diary_label, render_diary
-from ..features.saved_requests.use_cases import request_cards
-from ..history import (
-    CITATION_MARKUP,
-    CITATION_PATTERN,
-    citation_payload,
-    parse_citation_payload,
-)
-from ..models import (
-    Card,
-    CardCategory,
-    CardEnergyType,
-    Check,
-    SavedRequest,
-    Sprint,
-    Tag,
-    Value,
-)
+from ..enums import MessageKind
+from ..foundation.errors import DomainError
 from ._core import Services
 from ._messaging import send_registered
-from ._presentation import CATEGORY_EMOJIS, ENERGY_EMOJIS, kind_emoji
-from .cards import render_card
-from .checks import render_check
-from .items import render_item_editor, render_saved_request
-from .sprint import render_sprint_retro
 
 logger = logging.getLogger(__name__)
-
-OPENABLE_MODELS: dict[str, Any] = {
-    "card": Card,
-    "retro": Sprint,
-    "check": Check,
-    "tag": Tag,
-    "value": Value,
-    "request": SavedRequest,
-    "diary": DiaryEntry,
-}
-
-CITATION_TITLE_LIMIT = 25
-
-
-def _short_citation_title(value: str) -> str:
-    """Keep a citation recognisable without letting it consume an advisor reply."""
-    title = value.strip()
-    return f"{title[: CITATION_TITLE_LIMIT - 1]}…" if len(title) > CITATION_TITLE_LIMIT else title
-
-
-def _emoji_group(values: list[str], emojis: dict[str, str]) -> str:
-    """Render a set of existing field icons in the product's established order."""
-    present = set(values)
-    return "".join(emoji for field, emoji in emojis.items() if field in present)
-
-
-def _with_citation_fields(leading: str, fields: list[str]) -> str:
-    return f"{leading} · {'·'.join(fields)}" if fields else leading
-
-
-async def _card_citation_label(session: AsyncSession, card: Card) -> str:
-    marker = await title_marks(session, card)
-    leading = f"{kind_emoji(card.kind)} {_short_citation_title(card.title)}{marker}"
-    if card.kind in {CardKind.GOAL.value, CardKind.IDEA.value}:
-        progress = await card_progress(session, card.id)
-        return _with_citation_fields(
-            leading, [f"⚡{progress['completed_effort']}/{card.effort_points or 0}"]
-        )
-    if card.kind != CardKind.ACTION.value:
-        return leading
-
-    categories = list(
-        await session.scalars(
-            select(CardCategory.category).where(CardCategory.card_id == card.id)
-        )
-    )
-    energy_types = list(
-        await session.scalars(
-            select(CardEnergyType.energy_type).where(CardEnergyType.card_id == card.id)
-        )
-    )
-    fields = [
-        group
-        for group in (
-            _emoji_group(energy_types, ENERGY_EMOJIS),
-            _emoji_group(categories, CATEGORY_EMOJIS),
-            f"⚡{card.effort_points}" if card.effort_points is not None else "",
-        )
-        if group
-    ]
-    return _with_citation_fields(leading, fields)
-
-
-async def _check_citation_label(session: AsyncSession, check: Check) -> str | None:
-    """A live Check keeps the model's own words.
-
-    A closed repeat or an archived one has to carry its marks, or the link looks exactly
-    like the open one it was superseded by.
-    """
-    marker = await title_marks(session, check)
-    return f"{_short_citation_title(check.title)}{marker}" if marker else None
-
-
-async def _citation_label(
-    session: AsyncSession, services: Services, item_type: str, item: Any
-) -> str | None:
-    """Build the fixed, compact label for item types that own their presentation."""
-    if item_type == "card":
-        return await _card_citation_label(session, item)
-    if item_type == "check":
-        return await _check_citation_label(session, item)
-    if item_type == "tag":
-        return f"🏷 {_short_citation_title(item.name)}"
-    if item_type == "value":
-        return f"💎 {_short_citation_title(item.name)}"
-    if item_type == "request":
-        matches = await request_cards(session, item.query_sql, services.views)
-        return _with_citation_fields(f"💬 {_short_citation_title(item.name)}", [str(len(matches))])
-    if item_type == "diary":
-        return diary_label(item.entry_date, item.feeling_score)
-    if item_type == "retro":
-        return f"📊 Sprint {item.number} retro"
-    return None
 
 
 async def open_item_screen(
@@ -143,32 +24,15 @@ async def open_item_screen(
     replace: bool | None = None,
 ) -> None:
     """Show one item exactly as navigating to it manually would, buttons included."""
-    if item_type == "card":
-        await render_card(message, services, item_id, replace=replace)
-    elif item_type == "check":
-        await render_check(message, services, item_id, replace=replace)
-    elif item_type in {"tag", "value"}:
-        await render_item_editor(
-            message,
-            services,
-            item_type,
-            mode="view",
-            item_id=item_id,
-            replace=replace,
-        )
-    elif item_type == "request":
-        await render_saved_request(message, services, item_id, replace=replace)
-    elif item_type == "diary":
-        await render_diary(message, services, item_id, replace=replace)
-    elif item_type == "retro":
-        await render_sprint_retro(message, services, item_id)
-    else:
+    spec = services.screens.by_type.get(item_type)
+    if spec is None:
         raise DomainError(f"{item_type.title()} has no screen to open")
+    await spec.open(message, services, item_id, replace=replace)
 
 
 async def open_citation(message: Message, services: Services, payload: str) -> None:
     """Open the item a cited deep link points at, as its own message."""
-    target = parse_citation_payload(payload)
+    target = services.screens.parse_payload(payload)
     if target is None:
         await report_open_failure(message, services, DomainError("that link is not a Safwa item"))
         return
@@ -189,31 +53,32 @@ async def render_citations(session: AsyncSession, services: Services, text: str)
     Live Cards and saved item types are also named here rather than by the model.  That keeps
     every link compact and gives its metadata directly from the current saved item.
     """
-    matches = list(CITATION_PATTERN.finditer(text))
+    screens = services.screens
+    matches = list(screens.citation.finditer(text))
     if not matches:
-        return CITATION_MARKUP.sub(lambda match: match[1], text)
+        return screens.markup.sub(lambda match: match[1], text)
     live: dict[tuple[str, int], str | None] = {}
     if services.bot_username:
         for item_type, item_id in {(match[2], int(match[3])) for match in matches}:
-            item = await session.get(OPENABLE_MODELS[item_type], item_id)
+            spec = screens.by_type[item_type]
+            item = await session.get(spec.model, item_id)
             if item is None:
                 continue
-            live[(item_type, item_id)] = await _citation_label(
-                session, services, item_type, item
-            )
+            live[(item_type, item_id)] = await spec.label(session, services, item)
 
     def build(match: re.Match[str]) -> str:
         label, item_type, item_id = match[1], match[2], int(match[3])
         if (item_type, item_id) not in live:
             return label
-        link = f"https://t.me/{services.bot_username}?start={citation_payload(item_type, item_id)}"
+        payload = screens.payload(item_type, item_id)
+        link = f"https://t.me/{services.bot_username}?start={payload}"
         override = live[(item_type, item_id)]
         shown = html.escape(override) if override is not None else label
         return f'<a href="{link}">{shown}</a>'
 
     # A target that is not an id — a stamp, a date, an invented number — never reached the
     # pass above, and raw Markdown must not stay in a message the chat keeps for good.
-    return CITATION_MARKUP.sub(lambda match: match[1], CITATION_PATTERN.sub(build, text))
+    return screens.markup.sub(lambda match: match[1], screens.citation.sub(build, text))
 
 
 async def report_open_failure(

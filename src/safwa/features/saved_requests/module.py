@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from ...bootstrap.module_manifest import FeatureModule, ProposalContribution
+from ...foundation.screens import ScreenSpec
+from ...telegram.items import render_saved_request
 from . import agent, proposal, telegram, views
+from .model import SavedRequest
 
 MODULE = FeatureModule(
     name="saved_requests",
@@ -15,4 +18,12 @@ MODULE = FeatureModule(
         ),
     ),
     views=views.VIEWS,
+    screens=(
+        ScreenSpec(
+            item_type="request",
+            model=SavedRequest,
+            open=render_saved_request,
+            label=telegram.request_citation_label,
+        ),
+    ),
 )

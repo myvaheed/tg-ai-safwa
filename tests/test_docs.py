@@ -10,13 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from safwa.history import CITATION_TYPES
+from safwa.bootstrap.modules import SCREENS
 
 ROOT = Path(__file__).parent.parent
 
 LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 # `[16.08.2026](diary:12)` is a citation Safwa writes, quoted in docs as an example.
-CITATION = re.compile(rf"^({'|'.join(CITATION_TYPES)}):")
+CITATION = re.compile(rf"^({'|'.join(SCREENS.types)}):")
 
 CHECKED = [
     ROOT / "CLAUDE.md",

@@ -36,6 +36,7 @@ from ..features.reminders.module import MODULE as REMINDERS
 from ..features.saved_requests.module import MODULE as SAVED_REQUESTS
 from ..features.tags.module import MODULE as TAGS
 from ..features.values.module import MODULE as VALUES
+from ..foundation.screens import ScreenCatalogue, ScreenSpec
 from .module_manifest import AgentContext, AgentSpec, BackgroundTask, FeatureModule
 
 # Order is what the routing rules and the recovery hooks follow, so it is fixed rather than
@@ -69,6 +70,23 @@ def _views() -> tuple[SqlView, ...]:
 
 AI_VIEWS: tuple[SqlView, ...] = _views()
 ALLOWED_VIEWS: frozenset[str] = frozenset(view.name for view in AI_VIEWS)
+
+
+def _screens() -> ScreenCatalogue:
+    collected: list[ScreenSpec] = []
+    seen: set[str] = set()
+    for module in MODULES:
+        for spec in module.screens:
+            if spec.item_type in seen:
+                raise RuntimeError(f"Two features publish the {spec.item_type} screen")
+            seen.add(spec.item_type)
+            collected.append(spec)
+    return ScreenCatalogue.of(tuple(collected))
+
+
+# What can be opened and what can be cited are the same list, so the deep-link payload
+# and both citation patterns are derived from it rather than written out again.
+SCREENS: ScreenCatalogue = _screens()
 
 
 def _proposals() -> ProposalRegistry:

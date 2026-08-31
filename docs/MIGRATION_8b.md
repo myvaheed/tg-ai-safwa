@@ -136,7 +136,10 @@ rolling back 4500 lines and seventy callback actions as one piece is not a safet
 | 1 | `AG-TURN-010` amended, `AG-TURN-022` and `AG-TURN-023` written; the queue tests deleted by name | `test_brd_traceability` | **done** |
 | 2 | The queue goes; `TurnManager` arrives in `src/safwa/turn/` | 3 scenarios | **done** |
 | 3 | `foundation/state_flow.py` deleted, the states kept | criterion 10 | **done** |
-| 4 | `FeatureModule` grows commands, callback actions, text-input flows and the screen/citation catalogue | DoD #1 falls | |
+| 4a | `FeatureModule` grows `screens`; the entity list collapses from four copies to one | Rule H 24 to 10 | **done** |
+| 4b | `FeatureModule` grows `commands` | `BOT_COMMANDS` gone | |
+| 4c | `FeatureModule` grows `callback_actions` | `CALLBACK_ACTIONS` gone | |
+| 4d | `FeatureModule` grows `text_inputs` | 7 flow branches gone | |
 | 5a | The shell: `src/safwa/shell/`; `_messaging.py` dissolves into direct `ChatHost` calls | 189 call sites | |
 | 5b | Cards and Checks | | |
 | 5c | Planning and the Sprint | | |
@@ -225,6 +228,49 @@ coroutine that builds its citation label. Assembled at import time, like `MODULE
 
 The manifest's own rule applies and is worth restating: a capability does not get a field by
 default. Each of these four is plugged in by six features or more, which is what earns it one.
+
+**Step 4 lands as four commits, one per contribution.** The same argument that split step 5:
+each of the four is an independent mechanism, and the handlers they register are still in
+`src/safwa/telegram/` until step 5 moves them. A contribution declared in step 4 names a callable
+that has not moved yet, so `features/<name>/module.py` imports it out of `safwa/telegram/` for one
+step — one import line per feature, rewritten when the handler moves. The declaration itself is
+written once.
+
+### What step 4a landed
+
+792 passed, 3 skipped; `ruff check .` clean; 186 modules; **Rule H 24 to 10, DoD #1 24 to 10**;
+Rule G 2, Rule L 1, DoD #3 3; cycles 0. `prompt_prefix.json` and `schema.json` unmoved. The
+allowlist was regenerated here rather than in step 7, because a rule that starts passing has to
+reset its own ratchet in the batch that fixed it.
+
+**`ScreenSpec` and `ScreenCatalogue` live in `foundation/screens.py`, not in the manifest.** Putting
+them in `bootstrap/module_manifest.py` made `telegram/_core.py` import it, and the manifest imports
+`..telegram` for one annotation — a cycle `test_internal_imports_stay_acyclic` caught at once.
+Moving the annotations behind `TYPE_CHECKING` does not fix it: that test reads imports statically,
+and it is right to. Three modules need the catalogue — the delivery adapters, the `open` tool and
+the composition root — so it belongs under all three rather than beside one, next to
+`foundation/references.py`, which is the same kind of declaration.
+
+**`foundation/marks.py` was pulled forward from step 6.** Without it, `card` and `check` were the
+two screen specs whose citation label could not live in its own feature: both call `title_marks`,
+and `title_marks` was in `domain.py`, which Rule L forbids a feature from importing. The
+alternative was to leave those two labels in `telegram/screens.py` and have the feature modules
+import back out of the module the step exists to empty. `domain.py` re-exports the three moved
+functions and is 190 lines to 110. Step 6 keeps the `features/cards/model.py` duplicate to
+reconcile.
+
+**The catalogue carries the citation vocabulary, so `history.py` lost it.** `CITATION_TYPES` and
+the three regexes built from it are derived from `SCREENS` now; `ChatVocabulary` is built by
+`vocabulary(citation_types)` and the composition root passes `SCREENS.types`. `citation_payload`
+and `parse_citation_payload` are `SCREENS.payload` and `SCREENS.parse_payload`.
+
+The one list is checked against the one thing still written by hand:
+`test_the_screen_catalogue_is_the_one_list_of_openable_items` asserts the `open` tool's `Literal`
+equals the catalogue's `ai_openable` half. That is what protects decision 3 — `retro` is citable and
+linkable and is not an `open` target, and nothing but this test says so.
+
+`telegram/screens.py` is 228 lines to 93: `OPENABLE_MODELS`, `_citation_label` and
+`open_item_screen`'s six branches are all one lookup now.
 
 ### Step 5 — the handlers move
 

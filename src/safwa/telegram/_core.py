@@ -24,6 +24,7 @@ from ..features.cards.use_cases import (
 from ..features.checks.api import CHECK_VALUE_REFERENCE
 from ..features.continuity.memory import MemoryFileStore
 from ..features.continuity.persona import PersonaContinuity
+from ..foundation.screens import ScreenCatalogue
 from ..history import TelegramHistorySource
 from ..models import CardCategory, CardEnergyType, CardTag, CardValue, Workspace
 from ..turn import TurnManager
@@ -52,6 +53,8 @@ class Services:
     continuity: PersonaContinuity
     owner_id: int
     turn: TurnManager
+    # Every item type a feature publishes a screen for, and how one is cited.
+    screens: ScreenCatalogue
     # The `ai_*` views the features publish; a saved Request's SQL is validated against them.
     views: frozenset[str] = frozenset()
     # Loaded from Settings; item citations stay plain text when the username is omitted.

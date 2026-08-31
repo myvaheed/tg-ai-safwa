@@ -161,3 +161,7 @@ class DiaryProposalPresenter:
             # The Diary screen is the entry itself; a field diff would only repeat it.
             diffs=(),
         )
+
+
+async def diary_citation_label(session: AsyncSession, services: Any, entry: DiaryEntry) -> str:
+    return diary_label(entry.entry_date, entry.feeling_score)

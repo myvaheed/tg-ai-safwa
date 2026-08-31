@@ -13,7 +13,7 @@ from safwa.ai.prepare import ChangePreparer
 from safwa.ai.subagents import RoutedSubagent
 from safwa.ai.tools import ToolAdapters
 from safwa.bootstrap.module_manifest import AgentContext
-from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS, SYSTEM_PROMPT
+from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS, SCREENS, SYSTEM_PROMPT
 from safwa.features.diary.agent import (
     DIARY_AGENT,
     DIARY_PROMPT,
@@ -350,7 +350,9 @@ def test_di_read_013_the_subagent_reads_both_sources() -> None:
         mutation_tools=DIARY_AGENT.mutation_tools,
     )
     # Nothing here runs a call, so the adapters need nothing but their roster.
-    adapters = ToolAdapters(None, None, PROPOSALS, None, subagents={"diary": routed})
+    adapters = ToolAdapters(
+        None, None, PROPOSALS, None, SCREENS, subagents={"diary": routed}
+    )
 
     offered = {tool["function"]["name"] for tool in adapters.definition("diary").tools}
 
