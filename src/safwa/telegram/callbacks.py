@@ -1094,20 +1094,9 @@ async def _on_proposal_reject(context: CallbackContext) -> None:
     )
 
 
-CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
-    "value_create_prompt": _on_item_create_prompt,
-    "tag_create_prompt": _on_item_create_prompt,
-    "item_view": _on_item_view,
-    "item_edit_text": _on_item_edit_text,
-    "item_text_back": _on_item_text_back,
-    "check_choose_values": _on_check_choose_values,
-    "check_toggle_value": _on_check_toggle_value,
-    "item_create": _on_item_create,
-    "item_toggle_focus": _on_item_toggle_focus,
-    "item_delete_prompt": _on_item_delete_prompt,
-    "item_delete_confirm": _on_item_delete_confirm,
-    "item_back": _on_item_back,
-    "request_view": _on_request_view,
+# One group per feature that draws the buttons, named after it. The composition root puts
+# them together, so an action no feature declares is an action no screen can reach.
+CARD_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "card_create_view": _on_card_draft_view,
     "card_create_edit_text": _on_card_draft_edit_text,
     "card_create_toggle": _on_card_draft_toggle,
@@ -1127,18 +1116,43 @@ CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "card_delete_prompt": _on_card_delete_prompt,
     "card_delete_confirm": _on_card_delete_confirm,
     "card_finish": _on_card_finish,
+    "card_quick_move": _on_card_quick_move,
+    # The Card screen's own button into the Checks that hang on it.
     "card_checks": _on_check_list,
+    **{f"card_choose_{field}": _on_card_choices for field in CARD_CHOICE_FIELDS},
+    **{
+        f"card_create_choose_{field}": _on_card_draft_chooser
+        for field in CARD_DRAFT_CHOICE_FIELDS
+    },
+    **dict.fromkeys(CARD_DRAFT_RELATIONS, _on_card_draft_toggle_relation),
+    **dict.fromkeys(CARD_RELATION_TOGGLES, _on_card_toggle_relation),
+}
+
+CHECK_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
+    "check_choose_values": _on_check_choose_values,
+    "check_toggle_value": _on_check_toggle_value,
     "check_view": _on_check_view,
     "check_toggle_repeat": _on_check_toggle_repeat,
     "check_set_status": _on_check_set_status,
     "check_delete_prompt": _on_check_delete_prompt,
     "check_delete_confirm": _on_check_delete_confirm,
     "check_list_back": _on_check_list,
+    # A Check knows the Card it hangs on, so leaving it goes back to that Card.
     "check_back": _on_card_back,
     "check_resolve_set": _on_check_resolve_set,
     "check_resolve_save": _on_check_resolve_save,
     "check_resolve_cancel": _on_check_resolve_cancel,
-    "card_quick_move": _on_card_quick_move,
+}
+
+VALUE_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
+    "value_create_prompt": _on_item_create_prompt,
+}
+
+TAG_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
+    "tag_create_prompt": _on_item_create_prompt,
+}
+
+PLANNING_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "sprint_criteria_prompt": _on_sprint_criteria_prompt,
     "sprint_back": _on_sprint_back,
     "sprint_start": _on_sprint_start,
@@ -1149,23 +1163,42 @@ CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "plan_card": on_plan_card,
     "plan_filters": on_plan_filters,
     "plan_filter_toggle": on_plan_filter_toggle,
+}
+
+SETTINGS_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "settings_edit": _on_settings_edit,
     "settings_back": _on_settings_back,
+}
+
+REMINDER_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "reminders_page": _on_reminders_page,
     "reminder_view": _on_reminder_view,
     "reminder_text_prompt": _on_reminder_text_prompt,
     "reminder_delete_prompt": _on_reminder_delete_prompt,
     "reminder_delete_confirm": _on_reminder_delete_confirm,
+}
+
+REQUEST_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
+    "request_view": _on_request_view,
+}
+
+PROPOSAL_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "proposal_approve": _on_proposal_approve,
     "proposal_delete_confirm": _on_proposal_delete_confirm,
     "proposal_reject": _on_proposal_reject,
-    **{f"card_choose_{field}": _on_card_choices for field in CARD_CHOICE_FIELDS},
-    **{
-        f"card_create_choose_{field}": _on_card_draft_chooser
-        for field in CARD_DRAFT_CHOICE_FIELDS
-    },
-    **dict.fromkeys(CARD_DRAFT_RELATIONS, _on_card_draft_toggle_relation),
-    **dict.fromkeys(CARD_RELATION_TOGGLES, _on_card_toggle_relation),
+}
+
+# The Value and Tag editor is one screen over two entities, so its buttons belong to
+# neither feature until step 5d splits the screen itself.
+SHELL_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
+    "item_view": _on_item_view,
+    "item_edit_text": _on_item_edit_text,
+    "item_text_back": _on_item_text_back,
+    "item_create": _on_item_create,
+    "item_toggle_focus": _on_item_toggle_focus,
+    "item_delete_prompt": _on_item_delete_prompt,
+    "item_delete_confirm": _on_item_delete_confirm,
+    "item_back": _on_item_back,
 }
 
 PROPOSAL_APPLY_CALLBACK_ACTIONS = frozenset({"proposal_approve", "proposal_delete_confirm"})
@@ -1246,7 +1279,7 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
 
     context = CallbackContext(callback, services, action, dict(payload or {}))
     await callback.answer()
-    handler = CALLBACK_ACTIONS.get(action)
+    handler = services.callback_actions.get(action)
     if handler is None:
         logger.warning("Unknown Telegram callback action: %s", action)
         await send_registered(

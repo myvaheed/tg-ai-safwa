@@ -96,6 +96,19 @@ FEATURE_COMMANDS: tuple[ScreenCommand, ...] = tuple(
 )
 
 
+def _callback_actions() -> dict[str, Callable[..., Awaitable[None]]]:
+    actions: dict[str, Callable[..., Awaitable[None]]] = {}
+    for module in MODULES:
+        for name, handler in module.callback_actions.items():
+            if name in actions:
+                raise RuntimeError(f"Two features answer the callback {name}")
+            actions[name] = handler
+    return actions
+
+
+FEATURE_CALLBACK_ACTIONS: dict[str, Callable[..., Awaitable[None]]] = _callback_actions()
+
+
 def _proposals() -> ProposalRegistry:
     handlers: dict[str, ProposalHandler] = {}
     presenters: dict[str, ProposalPresenter] = {}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ...bootstrap.module_manifest import FeatureModule, ProposalContribution
 from ...foundation.screens import ScreenCommand, ScreenSpec
+from ...telegram.callbacks import CARD_CALLBACK_ACTIONS
 from ...telegram.cards import render_card
 from ...telegram.commands import command_add, command_backlog
 from . import agent, proposal, telegram, views
@@ -37,4 +38,5 @@ MODULE = FeatureModule(
         # Add is a menu button and nothing else: a Card is created on a screen.
         ScreenCommand(handler=command_add, nav="add"),
     ),
+    callback_actions=CARD_CALLBACK_ACTIONS,
 )

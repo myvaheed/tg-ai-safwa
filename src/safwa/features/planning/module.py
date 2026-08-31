@@ -5,6 +5,7 @@ from __future__ import annotations
 from ...bootstrap.module_manifest import FeatureModule
 from ...foundation.screens import ScreenCommand, ScreenSpec
 from ...models import Sprint
+from ...telegram.callbacks import PLANNING_CALLBACK_ACTIONS
 from ...telegram.sprint import render_sprint, render_today
 from . import background, telegram, views
 
@@ -37,4 +38,5 @@ MODULE = FeatureModule(
             ai_openable=False,
         ),
     ),
+    callback_actions=PLANNING_CALLBACK_ACTIONS,
 )

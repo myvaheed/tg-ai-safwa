@@ -21,6 +21,7 @@ from .bootstrap.modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
     BACKGROUND_TASKS,
+    FEATURE_CALLBACK_ACTIONS,
     FEATURE_COMMANDS,
     HEAVY_ANALYZER_PROMPT,
     PROPOSALS,
@@ -41,6 +42,7 @@ from .history import TelegramHistorySource
 from .models import Workspace
 from .recovery import recover_startup
 from .telegram import (
+    SHELL_CALLBACK_ACTIONS,
     SHELL_COMMANDS,
     OwnerAndWritingMiddleware,
     Services,
@@ -191,6 +193,7 @@ async def run(settings: Settings) -> None:
     )
     turn = TurnManager()
     commands = (*SHELL_COMMANDS, *FEATURE_COMMANDS)
+    callback_actions = {**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS}
     register_commands(router, commands)
     transcriber = build_transcriber(settings)
     if transcriber is not None:
@@ -210,6 +213,7 @@ async def run(settings: Settings) -> None:
         turn=turn,
         screens=SCREENS,
         commands=commands,
+        callback_actions=callback_actions,
         views=ALLOWED_VIEWS,
         bot_username=settings.telegram_bot_username,
         transcriber=transcriber,

@@ -138,7 +138,7 @@ rolling back 4500 lines and seventy callback actions as one piece is not a safet
 | 3 | `foundation/state_flow.py` deleted, the states kept | criterion 10 | **done** |
 | 4a | `FeatureModule` grows `screens`; the entity list collapses from four copies to one | Rule H 24 to 10 | **done** |
 | 4b | `FeatureModule` grows `commands` | `BOT_COMMANDS` gone | **done** |
-| 4c | `FeatureModule` grows `callback_actions` | `CALLBACK_ACTIONS` gone | |
+| 4c | `FeatureModule` grows `callback_actions` | `CALLBACK_ACTIONS` gone | **done** |
 | 4d | `FeatureModule` grows `text_inputs` | 7 flow branches gone | |
 | 5a | The shell: `src/safwa/shell/`; `_messaging.py` dissolves into direct `ChatHost` calls | 189 call sites | |
 | 5b | Cards and Checks | | |
@@ -297,6 +297,33 @@ already in the body, so nothing changed but where it is read.
 **The published order follows the module order.** It was hand-written and grouped by hand —
 screens, then memory, then diagnostics. It is now the shell's three and then `MODULES`, the same
 order that already fixes the routing rules and the recovery hooks.
+
+### What step 4c landed
+
+794 passed, 3 skipped; `ruff check .` clean. The 70-entry `CALLBACK_ACTIONS` dict is nine
+per-feature groups the features declare, plus one the shell keeps. `callback_token_handler` reads
+`services.callback_actions`, and the composition root is what puts the two halves together — 87
+actions once the generated selector families are counted, and the assembler refuses two features
+answering the same one.
+
+**The handlers stay in `callbacks.py` and the groups are declared there.** Every one of them is
+module-private (`_on_card_view`), and a feature importing those names across a package boundary is
+the convention this repo states outright. Declaring the groups beside the handlers keeps the names
+where they belong and makes step 5 a move of a group and its functions together, rather than
+seventy renames now and seventy moves later.
+
+**One group is the shell's: the eight `item_*` actions.** They are the Value and Tag editor, one
+screen over two entities, and it is the same `dict over tag, value` Rule H already reports in
+`_core.py`. Step 5d splits the screen, and the shell's group goes with it.
+
+**Two handlers are wired across features and are named here so 5b does not discover them.**
+`card_checks` is the Card screen's button into its Checks, and `check_back` is the Check screen's
+way back to its Card. Each belongs to the feature that draws the button; each calls the other
+feature's renderer, so both become calls through an `api` when the screens move.
+
+**The AST invariants were kept by widening, not by dropping.** `test_no_individually_registered_handler_is_unreachable`
+and `test_every_inline_button_action_has_a_registered_handler` read every `*_CALLBACK_ACTIONS`
+group now instead of the one dict, so an unreachable handler is still a failure.
 
 ### Step 5 — the handlers move
 

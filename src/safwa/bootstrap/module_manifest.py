@@ -10,8 +10,8 @@ and only a capability several features plug into earns a contribution.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass, field
 
 from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -105,6 +105,10 @@ class FeatureModule:
     # Telegram
     screens: tuple[ScreenSpec, ...] = ()
     commands: tuple[ScreenCommand, ...] = ()
+    # The inline buttons this feature's screens draw, by the action their token carries.
+    callback_actions: Mapping[str, Callable[..., Awaitable[None]]] = field(
+        default_factory=dict
+    )
 
     # Lifecycle
     recover: Callable[[AsyncSession], Awaitable[None]] | None = None

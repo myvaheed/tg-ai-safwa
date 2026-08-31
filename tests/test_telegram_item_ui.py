@@ -28,6 +28,7 @@ from safwa.ai.sql import create_ai_views
 from safwa.bootstrap.modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
+    FEATURE_CALLBACK_ACTIONS,
     FEATURE_COMMANDS,
     PROPOSALS,
     SCREENS,
@@ -101,7 +102,7 @@ from safwa.models import (
     Workspace,
 )
 from safwa.telegram import (
-    CALLBACK_ACTIONS,
+    SHELL_CALLBACK_ACTIONS,
     SHELL_COMMANDS,
     OwnerAndWritingMiddleware,
     callback_token_handler,
@@ -161,16 +162,24 @@ def _telegram_module_trees() -> list[ast.Module]:
     return trees
 
 
-def _callback_actions_registry(trees: list[ast.Module]) -> ast.AST:
-    for tree in trees:
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.AnnAssign)
-                and isinstance(node.target, ast.Name)
-                and node.target.id == "CALLBACK_ACTIONS"
-            ):
-                return node
-    raise AssertionError("CALLBACK_ACTIONS registry not found in any telegram submodule")
+# What the composition root puts together, which is what a live Safwa answers with.
+CALLBACK_ACTIONS = {**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS}
+
+
+def _callback_action_groups(trees: list[ast.Module]) -> list[ast.AST]:
+    """Every per-feature group of inline-button actions, as the source declares them."""
+    groups = [
+        node
+        for tree in trees
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.target.id.endswith("_CALLBACK_ACTIONS")
+        and isinstance(node.value, ast.Dict)
+    ]
+    if not groups:
+        raise AssertionError("no callback action group was found in any telegram submodule")
+    return groups
 
 
 def test_every_inline_button_action_has_a_registered_handler() -> None:
@@ -193,8 +202,8 @@ def test_every_inline_button_action_has_a_registered_handler() -> None:
 def test_no_individually_registered_handler_is_unreachable() -> None:
     """A handler no button can reach is dead code, like the removed value_toggle."""
     trees = _telegram_module_trees()
-    registry = _callback_actions_registry(trees)
-    registry_nodes = set(map(id, ast.walk(registry)))
+    groups = _callback_action_groups(trees)
+    registry_nodes = {id(node) for group in groups for node in ast.walk(group)}
     referenced = {
         node.value
         for tree in trees
@@ -207,7 +216,8 @@ def test_no_individually_registered_handler_is_unreachable() -> None:
     # families build their names from the same constants the buttons use.
     spelled_out = {
         key.value
-        for key in registry.value.keys
+        for group in groups
+        for key in group.value.keys
         if isinstance(key, ast.Constant) and isinstance(key.value, str)
     }
 
@@ -367,6 +377,7 @@ def services_for(sessions, *, advisor=None, reviews=None, transcriber=None):
         turn=TurnManager(),
         screens=SCREENS,
         commands=(*SHELL_COMMANDS, *FEATURE_COMMANDS),
+        callback_actions=CALLBACK_ACTIONS,
         views=ALLOWED_VIEWS,
         bot_username="safwa_ai_bot",
         advisor=advisor

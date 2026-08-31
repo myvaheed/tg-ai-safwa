@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ...bootstrap.module_manifest import FeatureModule, ProposalContribution
 from ...foundation.screens import ScreenSpec
+from ...telegram.callbacks import CHECK_CALLBACK_ACTIONS
 from ...telegram.checks import render_check
 from . import agent, proposal, telegram, views
 from .model import Check
@@ -26,4 +27,5 @@ MODULE = FeatureModule(
             label=telegram.check_citation_label,
         ),
     ),
+    callback_actions=CHECK_CALLBACK_ACTIONS,
 )

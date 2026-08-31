@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -57,6 +57,8 @@ class Services:
     screens: ScreenCatalogue
     # Every screen the owner opens by name, the shell's own first.
     commands: tuple[ScreenCommand, ...]
+    # What each inline button does, by the action its token carries.
+    callback_actions: Mapping[str, CallbackHandler]
     # The `ai_*` views the features publish; a saved Request's SQL is validated against them.
     views: frozenset[str] = frozenset()
     # Loaded from Settings; item citations stay plain text when the username is omitted.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ...bootstrap.module_manifest import FeatureModule, ProposalContribution
 from ...foundation.screens import ScreenCommand, ScreenSpec
+from ...telegram.callbacks import REQUEST_CALLBACK_ACTIONS
 from ...telegram.commands import command_requests
 from ...telegram.items import render_saved_request
 from . import agent, proposal, telegram, views
@@ -35,4 +36,5 @@ MODULE = FeatureModule(
             nav="requests",
         ),
     ),
+    callback_actions=REQUEST_CALLBACK_ACTIONS,
 )

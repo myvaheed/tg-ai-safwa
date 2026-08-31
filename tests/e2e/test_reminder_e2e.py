@@ -10,14 +10,18 @@ from sqlalchemy import select
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.outcome import AIOutcomeKind
-from safwa.bootstrap.modules import PROPOSALS, SCREENS
+from safwa.bootstrap.modules import FEATURE_CALLBACK_ACTIONS, PROPOSALS, SCREENS
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.proposals.use_cases import approve_proposal
 from safwa.features.reminders.schedule import schedule_of
 from safwa.foundation.clock import SystemClock
 from safwa.models import CallbackToken, Reminder
-from safwa.telegram import callback_token_handler, render_proposal
+from safwa.telegram import (
+    SHELL_CALLBACK_ACTIONS,
+    callback_token_handler,
+    render_proposal,
+)
 from safwa.turn import TurnManager
 from telegram_llm import DialogueMessage
 
@@ -281,6 +285,7 @@ def _services(harness, advisor) -> SimpleNamespace:
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
+        callback_actions={**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS},
         bot_username="safwa_ai_bot",
     )
 

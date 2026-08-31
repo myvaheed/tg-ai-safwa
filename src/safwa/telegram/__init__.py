@@ -17,7 +17,7 @@ from ._core import (
 )
 from ._messaging import discard_stale_status, dismiss_prior_ui, send_toast
 from ._presentation import card_overview_text, category_expression, energy_expression
-from .callbacks import CALLBACK_ACTIONS, callback_token_handler
+from .callbacks import SHELL_CALLBACK_ACTIONS, callback_token_handler
 from .cards import (
     handle_card_creation_chooser,
     render_card,
@@ -34,7 +34,7 @@ from .screens import open_citation, open_item_screen, render_citations
 from .sprint import render_sprint, render_today
 
 __all__ = [
-    "CALLBACK_ACTIONS",
+    "SHELL_CALLBACK_ACTIONS",
     "SHELL_COMMANDS",
     "CallbackContext",
     "OwnerAndWritingMiddleware",
