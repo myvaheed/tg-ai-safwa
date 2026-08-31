@@ -8,6 +8,7 @@ from ...bootstrap.module_manifest import FeatureModule
 from ...foundation.clock import SystemClock
 from ...foundation.screens import ScreenCommand
 from ...telegram.callbacks import SETTINGS_CALLBACK_ACTIONS
+from . import screens
 from .screens import command_settings
 from .use_cases import sync_diary_reminder
 
@@ -29,4 +30,5 @@ MODULE = FeatureModule(
         ),
     ),
     callback_actions=SETTINGS_CALLBACK_ACTIONS,
+    text_inputs=(screens.TEXT_INPUT,),
 )

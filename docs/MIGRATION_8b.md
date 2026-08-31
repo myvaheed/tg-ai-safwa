@@ -139,7 +139,7 @@ rolling back 4500 lines and seventy callback actions as one piece is not a safet
 | 4a | `FeatureModule` grows `screens`; the entity list collapses from four copies to one | Rule H 24 to 10 | **done** |
 | 4b | `FeatureModule` grows `commands` | `BOT_COMMANDS` gone | **done** |
 | 4c | `FeatureModule` grows `callback_actions` | `CALLBACK_ACTIONS` gone | **done** |
-| 4d | `FeatureModule` grows `text_inputs` | 7 flow branches gone | |
+| 4d | `FeatureModule` grows `text_inputs` | 7 flow branches gone | **done** |
 | 5a | The shell: `src/safwa/shell/`; `_messaging.py` dissolves into direct `ChatHost` calls | 189 call sites | |
 | 5b | Cards and Checks | | |
 | 5c | Planning and the Sprint | | |
@@ -324,6 +324,36 @@ feature's renderer, so both become calls through an `api` when the screens move.
 **The AST invariants were kept by widening, not by dropping.** `test_no_individually_registered_handler_is_unreachable`
 and `test_every_inline_button_action_has_a_registered_handler` read every `*_CALLBACK_ACTIONS`
 group now instead of the one dict, so an unreachable handler is still a failure.
+
+### What step 4d landed
+
+795 passed, 3 skipped; `ruff check .` clean. **Rule H 10 to 8, DoD #1 10 to 8.** `dialogue.py` is
+447 lines to 224, and it imports no feature at all: the seven `flow == "..."` branches are eight
+`TextInputFlow` declarations the features own.
+
+**A flow is three things, because the editor already is the rest of it.** `validator` says what this
+field accepts, `apply` writes the value, `render` redraws the screen the editor replaced. Validating,
+keeping the editor alive on a refusal, taking the typed message out of the chat and ending the
+editor's session were the same five lines in all seven branches, and they are the driver's now.
+
+**The driver owns the transaction, which Rule B is what settled.** The first version had each
+feature's `apply` open its own session and commit — six new Rule B violations, because an adapter
+does not open or close a business transaction. `apply` takes the session it is given, and the shell
+opens it, ends the editor's `UiSession` row in it and commits once. A draft that keeps editing adds
+its replacement row inside that same transaction.
+
+**The `item` flow became `value` and `tag`.** It was one flow branching on the entity to pick which
+`update_*_fields` to call, which is the same `dict over tag, value` Rule H reports in `_core.py`. The
+editor records the entity it was opened for as its flow name, so each feature answers its own and
+nothing branches. That is one of the two Rule H violations this step removed; the other was
+`dialogue.py` comparing a flow name to `"reminder"`.
+
+**One test replaces what the seven-branch chain guaranteed by construction:** every literal flow name
+written into a `UiSession` is a flow some feature declared.
+
+**`features/cards/telegram.py` is 532 lines and criterion 17 says 400.** It carries the proposal
+presenter, the citation label and three text-input flows, and step 5b moves `telegram/cards.py`'s 980
+lines in on top. It is split there, not here — named now so 5b does not treat it as one file.
 
 ### Step 5 — the handlers move
 

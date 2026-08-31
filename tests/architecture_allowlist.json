@@ -12,8 +12,6 @@
       "Rule H|safwa/telegram/callbacks.py|branches on request": 1,
       "Rule H|safwa/telegram/callbacks.py|branches on tag": 1,
       "Rule H|safwa/telegram/callbacks.py|branches on value": 2,
-      "Rule H|safwa/telegram/dialogue.py|branches on reminder": 1,
-      "Rule H|safwa/telegram/dialogue.py|branches on value": 1,
       "Rule H|safwa/telegram/items.py|branches on value": 1
     },
     "Rule L": {

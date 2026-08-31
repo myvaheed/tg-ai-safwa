@@ -10,7 +10,12 @@ from sqlalchemy import select
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.outcome import AIOutcomeKind
-from safwa.bootstrap.modules import FEATURE_CALLBACK_ACTIONS, PROPOSALS, SCREENS
+from safwa.bootstrap.modules import (
+    FEATURE_CALLBACK_ACTIONS,
+    FEATURE_TEXT_INPUTS,
+    PROPOSALS,
+    SCREENS,
+)
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.proposals.use_cases import approve_proposal
@@ -286,6 +291,7 @@ def _services(harness, advisor) -> SimpleNamespace:
         turn=TurnManager(),
         screens=SCREENS,
         callback_actions={**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS},
+        text_inputs=FEATURE_TEXT_INPUTS,
         bot_username="safwa_ai_bot",
     )
 

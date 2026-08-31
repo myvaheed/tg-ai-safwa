@@ -30,6 +30,7 @@ from safwa.bootstrap.modules import (
     ALLOWED_VIEWS,
     FEATURE_CALLBACK_ACTIONS,
     FEATURE_COMMANDS,
+    FEATURE_TEXT_INPUTS,
     PROPOSALS,
     SCREENS,
 )
@@ -234,6 +235,37 @@ def test_every_card_relationship_is_wired_to_both_selector_surfaces() -> None:
         assert f"card_create_toggle_{relation.singular}" in CALLBACK_ACTIONS
 
 
+def test_every_recorded_text_input_flow_has_a_declared_handler() -> None:
+    """A flow no feature declares is an editor that swallows what the owner types."""
+    recorded: set[str] = set()
+    for tree in _telegram_module_trees():
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Dict):
+                recorded |= {
+                    value.value
+                    for key, value in zip(node.keys, node.values, strict=True)
+                    if isinstance(key, ast.Constant)
+                    and key.value == "flow"
+                    and isinstance(value, ast.Constant)
+                    and isinstance(value.value, str)
+                }
+            elif (
+                isinstance(node, ast.Assign)
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
+                recorded |= {
+                    node.value.value
+                    for target in node.targets
+                    if isinstance(target, ast.Subscript)
+                    and isinstance(target.slice, ast.Constant)
+                    and target.slice.value == "flow"
+                }
+
+    assert recorded, "no literal text input flow was found to check"
+    assert recorded <= set(FEATURE_TEXT_INPUTS)
+
+
 class FakeBot:
     def __init__(self) -> None:
         self.id = 999
@@ -378,6 +410,7 @@ def services_for(sessions, *, advisor=None, reviews=None, transcriber=None):
         screens=SCREENS,
         commands=(*SHELL_COMMANDS, *FEATURE_COMMANDS),
         callback_actions=CALLBACK_ACTIONS,
+        text_inputs=FEATURE_TEXT_INPUTS,
         views=ALLOWED_VIEWS,
         bot_username="safwa_ai_bot",
         advisor=advisor

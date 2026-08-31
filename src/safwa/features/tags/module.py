@@ -36,4 +36,5 @@ MODULE = FeatureModule(
         ),
     ),
     callback_actions=TAG_CALLBACK_ACTIONS,
+    text_inputs=(telegram.TEXT_INPUT,),
 )

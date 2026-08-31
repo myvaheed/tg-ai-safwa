@@ -3,23 +3,27 @@
 from __future__ import annotations
 
 import html
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import time
 from typing import Any
 
 from aiogram.types import InlineKeyboardMarkup, Message
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ...enums import MessageKind
+from ...foundation.clock import SystemClock
 from ...foundation.errors import DomainError
 from ...foundation.models import Workspace
+from ...foundation.screens import TextInputFlow
 from ...telegram._core import Services
 from ...telegram._messaging import edit_registered_message, send_registered, token_button
 from ...telegram._presentation import menu_row, with_notice
 from ...telegram.text_input import TextInputScreen, render_text_input
 from ..reminders.api import parse_clock_or_off
 from .model import UserProfile
+from .use_cases import profile_field, set_profile_field
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,3 +202,39 @@ async def render_settings_field_prompt(
         state={"flow": "settings", "field": field_name},
         notice=notice,
     )
+
+
+def _settings_field(state: Mapping[str, Any]) -> SettingsField:
+    field = SETTINGS_FIELDS.get(str(state["field"]))
+    if field is None:
+        raise DomainError("That setting is no longer available.")
+    return field
+
+
+async def _apply_setting(
+    session: AsyncSession, services: Any, state: Mapping[str, Any], value: Any
+) -> None:
+    del services
+    await set_profile_field(
+        session, profile_field(str(state["field"])), value, clock=SystemClock()
+    )
+
+
+async def _render_settings(
+    message: Any, services: Any, state: Mapping[str, Any], value: Any
+) -> None:
+    del value
+    await command_settings(
+        message,
+        services,
+        notice=f"{_settings_field(state).title} updated.",
+        replace_message_id=int(state["text_input"]["message_id"]),
+    )
+
+
+TEXT_INPUT = TextInputFlow(
+    name="settings",
+    validator=lambda state: _settings_field(state).parse,
+    apply=_apply_setting,
+    render=_render_settings,
+)

@@ -24,7 +24,7 @@ from ..features.cards.use_cases import (
 from ..features.checks.api import CHECK_VALUE_REFERENCE
 from ..features.continuity.memory import MemoryFileStore
 from ..features.continuity.persona import PersonaContinuity
-from ..foundation.screens import ScreenCatalogue, ScreenCommand
+from ..foundation.screens import ScreenCatalogue, ScreenCommand, TextInputFlow
 from ..history import TelegramHistorySource
 from ..models import CardCategory, CardEnergyType, CardTag, CardValue, Workspace
 from ..turn import TurnManager
@@ -59,6 +59,8 @@ class Services:
     commands: tuple[ScreenCommand, ...]
     # What each inline button does, by the action its token carries.
     callback_actions: Mapping[str, CallbackHandler]
+    # What each text editor writes the owner's typed value to.
+    text_inputs: Mapping[str, TextInputFlow]
     # The `ai_*` views the features publish; a saved Request's SQL is validated against them.
     views: frozenset[str] = frozenset()
     # Loaded from Settings; item citations stay plain text when the username is omitted.

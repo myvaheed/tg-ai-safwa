@@ -9,7 +9,12 @@ from sqlalchemy import select
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.sql import ReadOnlyQueryRunner
-from safwa.bootstrap.modules import ALLOWED_VIEWS, FEATURE_CALLBACK_ACTIONS, SCREENS
+from safwa.bootstrap.modules import (
+    ALLOWED_VIEWS,
+    FEATURE_CALLBACK_ACTIONS,
+    FEATURE_TEXT_INPUTS,
+    SCREENS,
+)
 from safwa.domain import (
     check_card_id,
     create_card,
@@ -114,6 +119,7 @@ def _services(harness, advisor) -> SimpleNamespace:
         turn=TurnManager(),
         screens=SCREENS,
         callback_actions={**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS},
+        text_inputs=FEATURE_TEXT_INPUTS,
         bot_username="safwa_ai_bot",
     )
 

@@ -24,7 +24,7 @@ from ..features.proposals.api import (
     ProposalHandler,
     ProposalPresenter,
 )
-from ..foundation.screens import ScreenCommand, ScreenSpec
+from ..foundation.screens import ScreenCommand, ScreenSpec, TextInputFlow
 from ..history import TelegramHistorySource
 from ..telegram import Services
 
@@ -109,6 +109,7 @@ class FeatureModule:
     callback_actions: Mapping[str, Callable[..., Awaitable[None]]] = field(
         default_factory=dict
     )
+    text_inputs: tuple[TextInputFlow, ...] = ()
 
     # Lifecycle
     recover: Callable[[AsyncSession], Awaitable[None]] | None = None

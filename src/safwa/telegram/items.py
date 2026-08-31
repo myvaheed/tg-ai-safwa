@@ -235,7 +235,7 @@ async def render_item_text_prompt(
             raise DomainError("Item editor expired")
         state = dict(editor.state)
         state["field"] = field
-        state["flow"] = "item"
+        state["flow"] = entity
     current = str(state.get("values", {}).get(field, ""))
     await render_text_input(
         message,

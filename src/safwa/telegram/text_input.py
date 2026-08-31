@@ -12,6 +12,7 @@ from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import delete
 
 from ..enums import MessageKind
+from ..foundation.errors import DomainError
 from ..models import UiSession
 from ._core import Services
 from ._messaging import delete_text_input, edit_registered_message, token_button
@@ -191,3 +192,33 @@ async def reject_text_input(
 
     await delete_text_input(message, services)
     await rerender_text_input(message, services, state, notice)
+
+
+async def handle_text_input(
+    message: Message, services: Services, state: dict[str, Any]
+) -> bool:
+    """Take one typed value into the editor that asked for it.
+
+    The editor keeps itself alive on a refusal, and the typed message leaves the chat only
+    once the value is written: it is operational input, not something the owner said.
+    """
+    flow = services.text_inputs.get(str(state.get("flow", "")))
+    if flow is None:
+        return False
+    try:
+        value = validate_text_input(message.text or "", flow.validator(state))
+        async with services.sessions() as session:
+            # The editor's own session ends here whatever the flow writes; a draft
+            # that keeps editing opens a fresh one in its place.
+            await session.execute(
+                delete(UiSession).where(UiSession.owner_id == services.owner_id)
+            )
+            await flow.apply(session, services, state, value)
+            await session.commit()
+    except (DomainError, ValueError) as error:
+        await reject_text_input(message, services, state, str(error))
+        return True
+    await delete_text_input(message, services)
+    await flow.render(message, services, state, value)
+    return True
+

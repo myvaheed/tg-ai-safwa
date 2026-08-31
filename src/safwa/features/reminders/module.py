@@ -51,4 +51,5 @@ MODULE = FeatureModule(
         ),
     ),
     callback_actions=REMINDER_CALLBACK_ACTIONS,
+    text_inputs=(telegram.TEXT_INPUT,),
 )

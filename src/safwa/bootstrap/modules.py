@@ -36,7 +36,12 @@ from ..features.reminders.module import MODULE as REMINDERS
 from ..features.saved_requests.module import MODULE as SAVED_REQUESTS
 from ..features.tags.module import MODULE as TAGS
 from ..features.values.module import MODULE as VALUES
-from ..foundation.screens import ScreenCatalogue, ScreenCommand, ScreenSpec
+from ..foundation.screens import (
+    ScreenCatalogue,
+    ScreenCommand,
+    ScreenSpec,
+    TextInputFlow,
+)
 from .module_manifest import AgentContext, AgentSpec, BackgroundTask, FeatureModule
 
 # Order is what the routing rules and the recovery hooks follow, so it is fixed rather than
@@ -107,6 +112,19 @@ def _callback_actions() -> dict[str, Callable[..., Awaitable[None]]]:
 
 
 FEATURE_CALLBACK_ACTIONS: dict[str, Callable[..., Awaitable[None]]] = _callback_actions()
+
+
+def _text_inputs() -> dict[str, TextInputFlow]:
+    flows: dict[str, TextInputFlow] = {}
+    for module in MODULES:
+        for flow in module.text_inputs:
+            if flow.name in flows:
+                raise RuntimeError(f"Two features answer the {flow.name} text input")
+            flows[flow.name] = flow
+    return flows
+
+
+FEATURE_TEXT_INPUTS: dict[str, TextInputFlow] = _text_inputs()
 
 
 def _proposals() -> ProposalRegistry:

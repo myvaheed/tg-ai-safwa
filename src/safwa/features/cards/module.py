@@ -39,4 +39,5 @@ MODULE = FeatureModule(
         ScreenCommand(handler=command_add, nav="add"),
     ),
     callback_actions=CARD_CALLBACK_ACTIONS,
+    text_inputs=telegram.CARD_TEXT_INPUTS,
 )

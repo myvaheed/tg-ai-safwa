@@ -1,4 +1,4 @@
-"""How a Reminder reaches the owner: the proposal screen, and nothing else.
+"""How a Reminder reaches the owner: its proposal screen and its editor.
 
 A Reminder that goes off is handed to the Advisor as a Cue, and the Cue runtime is what
 runs that turn. This module registers no ``@router`` handlers.
@@ -7,10 +7,15 @@ runs that turn. This module registers no ``@router`` handlers.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...ai.contracts import AgentChange
+from ...foundation.screens import TextInputFlow
+from ...telegram.reminders import render_reminder
+from ...telegram.text_input import required_text
 from ..proposals.api import (
     ACTION_VERBS,
     ChangeAction,
@@ -20,6 +25,7 @@ from ..proposals.api import (
     result_value,
 )
 from .model import Reminder
+from .use_cases import update_reminder_text
 
 logger = logging.getLogger(__name__)
 
@@ -61,3 +67,29 @@ class ReminderProposalPresenter:
     ) -> ProposalScreen | None:
         # A Reminder is instruction plus timing; the generic change list already says both.
         return None
+
+
+async def _apply_reminder_text(
+    session: AsyncSession, services: Any, state: Mapping[str, Any], value: str
+) -> None:
+    del services
+    await update_reminder_text(session, int(state["reminder_id"]), value)
+
+
+async def _render_reminder(
+    message: Any, services: Any, state: Mapping[str, Any], value: str
+) -> None:
+    await render_reminder(
+        message,
+        services,
+        int(state["reminder_id"]),
+        replace_message_id=int(state["text_input"]["message_id"]),
+    )
+
+
+TEXT_INPUT = TextInputFlow(
+    name="reminder",
+    validator=lambda _state: required_text("Reminder text"),
+    apply=_apply_reminder_text,
+    render=_render_reminder,
+)

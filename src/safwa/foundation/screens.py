@@ -89,3 +89,23 @@ class ScreenCommand:
     nav: str | None = None
     # Today is a real screen only while a Sprint is running.
     needs_sprint: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class TextInputFlow:
+    """What happens when the owner types a value into one editor.
+
+    The editor itself is one screen: it validates, keeps itself alive on a refusal, and
+    takes the typed message out of the chat. A flow is only the three things that differ —
+    which validator this field wants, what the value is written to, and which screen the
+    editor gives way to afterwards.
+    """
+
+    # Matches the flow the editor recorded in its UiSession state.
+    name: str
+    # (state) -> the validator for this field, or None to accept any trimmed text.
+    validator: Callable[..., Any]
+    # (services, state, value) -> None. Writes the value and ends the editor's session.
+    apply: Callable[..., Awaitable[None]]
+    # (message, services, state, value) -> None. Redraws the screen the editor replaced.
+    render: Callable[..., Awaitable[None]]
