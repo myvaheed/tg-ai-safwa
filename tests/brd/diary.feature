@@ -111,3 +111,9 @@ Feature: Diary
     When the Diary reads that day
     Then it comes back saying that day's conversation holds nothing
     And it does not fail, so the planning data is still there to write the day from
+
+  Scenario: DI-READ-016 — Reading one named day reads the whole day
+    Given the Diary is asked to read one day, named by its date
+    When a Summary was written in the middle of that day
+    Then the whole day is read as it was spoken, and the Summary is not read at all
+    And the day runs from midnight to midnight in the owner's timezone

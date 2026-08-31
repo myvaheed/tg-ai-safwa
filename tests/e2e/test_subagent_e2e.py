@@ -9,7 +9,6 @@ from sqlalchemy import select
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.ai.context import DialogueMessage
 from safwa.ai.mini import ReadToolSpec
 from safwa.ai.outcome import AIOutcomeKind
 from safwa.ai.subagents import RoutedSubagent
@@ -23,6 +22,7 @@ from safwa.features.diary.model import DiaryEntry
 from safwa.features.proposals.model import BatchDecision
 from safwa.features.proposals.use_cases import approve_proposal
 from safwa.models import AgentRun, AgentStep, Card
+from telegram_llm import DialogueMessage
 
 TODAY = date.today().isoformat()
 

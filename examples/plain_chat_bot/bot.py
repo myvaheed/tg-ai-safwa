@@ -1,192 +1,141 @@
-"""A whole application on the agent runtime, in one file and with no Safwa in it.
+"""A bot that only talks, on `telegram_llm` and `llm_gateway`, with no Safwa in it.
 
-A note keeper. The model may search the notes, which happens inside the turn, and it may
-write one, which does not: a written note waits for a person to say yes. The turn stops
-there and hands back an `InteractionRef`; when the person says yes, `resume` answers the
-call the session was waiting on and it carries on to its own last word. That is the same
-suspension Safwa uses for its review screens, and it is the reason the runtime is a package
-rather than part of Safwa — nothing here is a database, a chat client, or a proposal.
+It remembers no conversation of its own. The chat is the conversation, and every turn is
+read back out of it — which is the whole claim of the package, and the reason it asks an
+application for only two things: somewhere to keep notes about its own messages, and a way
+to read the chat back. Neither has to be a database or a user session. Here one small class
+is both, because an aiogram bot already sees every message that passes through it.
 
-Run it: `uv run python examples/plain_chat_bot/bot.py`
+Run it: `BOT_TOKEN=... uv run python examples/plain_chat_bot/bot.py`
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
-from typing import Any
+import os
+from collections.abc import AsyncIterator, Collection, Sequence
+from dataclasses import replace
 
-from agent_runtime import (
-    AgentDefinition,
-    AgentLoopResult,
-    AgentManager,
-    AgentSession,
-    InMemorySessionStore,
-    Resumption,
-    ToolOutcome,
-    TurnOutcome,
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import Message
+
+from llm_gateway import (
+    CompletionRequest,
+    LlmProvider,
+    OpenAICompatibleConfig,
+    OpenAICompatibleProvider,
 )
-from llm_gateway import CompletionTurn, ScriptedProvider, ToolCall
+from telegram_llm import ChatHost, ChatMessage, ChatVocabulary, ChatWindow, KindMarks, Note
 
-SEARCH_NOTES = {
-    "type": "function",
-    "function": {
-        "name": "search_notes",
-        "description": "Find notes whose text contains a word.",
-        "parameters": {
-            "type": "object",
-            "properties": {"word": {"type": "string"}},
-            "required": ["word"],
-        },
-    },
-}
+# This bot has three kinds of message and they are all conversation. The codes are its own;
+# the package needs only that they are distinct and never change once a chat has used them.
+PERSON, BOT, SUMMARY = "person", "bot", "summary"
+MARKS = KindMarks({PERSON: 1, BOT: 2, SUMMARY: 3})
+VOCABULARY = ChatVocabulary(person=PERSON, assistant=frozenset({BOT}), summary=SUMMARY)
 
-WRITE_NOTE = {
-    "type": "function",
-    "function": {
-        "name": "write_note",
-        "description": "Write one note. The person has to say yes before it is kept.",
-        "parameters": {
-            "type": "object",
-            "properties": {"text": {"type": "string"}},
-            "required": ["text"],
-        },
-    },
-}
+SYSTEM = {"role": "system", "content": "You are a friendly bot. Keep answers short."}
 
 
-class Notebook:
-    """The application's own state. Everything a note is lives here and nowhere else."""
+class Chat:
+    """Both ports at once: notes about the bot's own messages, and the chat it can read."""
 
     def __init__(self) -> None:
-        self.notes: list[str] = []
-        self.waiting: str | None = None
-        # The call the person is being asked about. The runtime knows it only as an id.
-        self.waiting_call: str = ""
+        self.kept: dict[tuple[int, int], Note] = {}
+        self.seen: list[ChatMessage] = []
 
-    def approve(self) -> tuple[str, str]:
-        """Keep the note that was shown, and say which call that answers."""
-        call, note = self.waiting_call, self.waiting or ""
-        self.notes.append(note)
-        self.waiting, self.waiting_call = None, ""
-        return call, note
+    async def outgoing(
+        self, chat_id: int, *, kinds: Collection[str] | None = None
+    ) -> Sequence[Note]:
+        return sorted(
+            (
+                note
+                for note in self.kept.values()
+                if note.chat_id == chat_id
+                and note.direction == "out"
+                and (kinds is None or note.kind in kinds)
+            ),
+            key=lambda note: note.message_id,
+            reverse=True,
+        )
 
+    async def note(self, chat_id: int, message_id: int) -> Note | None:
+        return self.kept.get((chat_id, message_id))
 
-class NoteTools:
-    """The runtime's `ToolRunner`: what this application does when a session calls a tool."""
+    async def write(self, note: Note) -> None:
+        standing = self.kept.get((note.chat_id, note.message_id))
+        if standing is not None and note.event_id is None:
+            note = replace(note, event_id=standing.event_id)
+        self.kept[(note.chat_id, note.message_id)] = note
 
-    def __init__(self, notebook: Notebook) -> None:
-        self.notebook = notebook
+    async def forget(self, chat_id: int, message_id: int) -> None:
+        self.kept.pop((chat_id, message_id), None)
 
-    def definition(self, kind: str) -> AgentDefinition:
-        return AgentDefinition(kind=kind, tools=(SEARCH_NOTES, WRITE_NOTE))
+    async def messages(self, limit: int) -> AsyncIterator[ChatMessage]:
+        """The chat newest first, which is the order the window scans it in."""
+        for message in reversed(self.seen[-limit:]):
+            yield message
 
-    def is_immediate(self, agent: AgentSession, name: str) -> bool:
-        return name == "search_notes"
-
-    async def run(self, agent: AgentSession, call: ToolCall) -> ToolOutcome:
-        arguments = json.loads(call.arguments_json or "{}")
-        if call.name == "search_notes":
-            word = str(arguments.get("word", "")).lower()
-            found = [note for note in self.notebook.notes if word in note.lower()]
-            return ToolOutcome(result={"found": found})
-        text = str(arguments.get("text", "")).strip()
-        if not text:
-            return ToolOutcome(result={"error": "A note needs text."})
-        return ToolOutcome(result={"status": "waiting"}, change=text)
-
-    def route_target(self, call: ToolCall) -> tuple[str | None, dict[str, Any] | None]:
-        return None, {"error": "This bot has no subagents to route to."}
-
-    def refuse_mixed(self) -> dict[str, Any]:
-        return {"error": "Write a note on its own, after you have read what you need."}
-
-    def prepared_message(self) -> str:
-        return "I wrote a note for you to look at."
-
-    def repair_exhausted_message(self) -> str:
-        return "I could not write that note."
+    def saw(self, message: Message) -> None:
+        self.seen.append(
+            ChatMessage(
+                id=message.message_id,
+                text=message.text or "",
+                sender_id=message.from_user.id if message.from_user else None,
+                date=message.date,
+            )
+        )
 
 
-class OneSystemPrompt:
-    """The runtime's `ContextSource`: what a session reads before its own steps."""
+class Talker:
+    """One turn: read the chat, ask the model, put the answer back in the chat."""
 
-    def __init__(self, prompt: str) -> None:
-        self.prompt = prompt
+    def __init__(self, provider: LlmProvider, bot_user_id: int) -> None:
+        self.chat = Chat()
+        self.host = ChatHost(self.chat, MARKS)
+        self.provider = provider
+        self.bot_user_id = bot_user_id
 
-    async def messages_for(
-        self,
-        kind: str,
-        dialogue: list[dict[str, Any]],
-        prior_receipts: list[str] | None = None,
-    ) -> list[dict[str, Any]]:
-        return [{"role": "system", "content": self.prompt}, *dialogue]
+    def window(self, person_id: int) -> ChatWindow:
+        return ChatWindow(
+            self.chat,
+            self.chat,
+            MARKS,
+            VOCABULARY,
+            bot_user_id=self.bot_user_id,
+            owner_id=person_id,
+            count_tokens=lambda text: max(len(text) // 4, 1),
+            token_budget=4_000,
+            summary_context_limit=0,
+        )
 
-
-class NoteReview:
-    """The runtime's `Materializer`: a written note is something a person decides."""
-
-    def __init__(self, notebook: Notebook) -> None:
-        self.notebook = notebook
-
-    async def materialize(
-        self, agent: AgentSession, result: AgentLoopResult
-    ) -> TurnOutcome | None:
-        written = [tool for tool in result.pending_tools if tool.change is not None]
-        if not written:
-            return TurnOutcome(message=result.message)
-        self.notebook.waiting = written[0].change
-        self.notebook.waiting_call = written[0].call.id
-        return TurnOutcome(message=result.message, waiting=True, payload=written[0].change)
-
-
-def _call(name: str, **arguments: Any) -> CompletionTurn:
-    return CompletionTurn(
-        content="",
-        tool_calls=(
-            ToolCall(id=f"call-{name}", name=name, arguments_json=json.dumps(arguments)),
-        ),
-    )
+    async def answer(self, message: Message) -> None:
+        self.chat.saw(message)
+        person = message.from_user.id if message.from_user else message.chat.id
+        dialogue = await self.window(person).dialogue(message.chat.id)
+        turn = await self.provider.complete(
+            CompletionRequest(
+                messages=(SYSTEM, *({"role": m.role, "content": m.content} for m in dialogue))
+            )
+        )
+        self.chat.saw(await self.host.send_parts(message, turn.content, kind=BOT))
 
 
 async def main() -> None:
-    notebook = Notebook()
-    notebook.notes.append("Bread, milk, coffee")
-    provider = ScriptedProvider(
-        [
-            _call("search_notes", word="coffee"),
-            CompletionTurn(content="You already have one about coffee: Bread, milk, coffee."),
-            _call("write_note", text="Ask about the roast"),
-            CompletionTurn(content="Kept it, next to the coffee one."),
-        ]
+    bot = Bot(os.environ["BOT_TOKEN"])
+    provider = OpenAICompatibleProvider(
+        OpenAICompatibleConfig(
+            base_url=os.environ.get("LLM_URL", "http://localhost:1234/v1"),
+            api_key=os.environ.get("LLM_KEY", "not-needed"),
+            model=os.environ.get("LLM_MODEL", "local-model"),
+        )
     )
-    runtime = AgentManager(
-        InMemorySessionStore(),
-        provider,
-        NoteTools(notebook),
-        OneSystemPrompt("You keep notes for one person. Search before you write."),
-        NoteReview(notebook),
-        max_tool_calls=8,
-        max_repair_rounds=2,
-        child_deadline_seconds=30.0,
-    )
-
-    answered = await runtime.handle([{"role": "user", "content": "Do I have a note on coffee?"}])
-    print("bot:", answered.message)
-
-    proposed = await runtime.handle([{"role": "user", "content": "Note: ask about the roast"}])
-    print("bot:", proposed.message, "->", proposed.payload)
-    print("waiting for a yes:", notebook.waiting)
-
-    # The person says yes. The runtime is handed back the reference it stopped on and the
-    # result the note-writing call was waiting for, and the same session carries on.
-    call, note = notebook.approve()
-    assert proposed.ref is not None
-    answered = await runtime.resume(
-        proposed.ref, Resumption(results={call: {"status": "kept", "note": note}})
-    )
-    print("bot:", answered.message if answered else "(nothing to resume)")
-    print("notes:", notebook.notes)
+    talker = Talker(provider, (await bot.get_me()).id)
+    dispatcher = Dispatcher()
+    dispatcher.message.register(talker.answer, F.text)
+    try:
+        await dispatcher.start_polling(bot)
+    finally:
+        await provider.aclose()
 
 
 if __name__ == "__main__":

@@ -299,7 +299,8 @@ system message.
   rejected and owner text is queued, then processed as one turn. Background work verifies the
   revision before publishing or committing.
 - `OwnerAndWritingMiddleware` drops anything that is not the owner in a private chat.
-- Every inline button is a single-use `CallbackToken` row; `UiSession` holds transient editor state
+- Every inline button is a single-use `CallbackToken` row that dies with the run of Safwa that
+  drew it; `UiSession` holds transient editor state
   and manual creation persists nothing until Save.
 - Bot messages are HTML — escape any user or model text.
 - `recover_startup` ([recovery.py](src/safwa/recovery.py)) reconciles interrupted work on every boot.

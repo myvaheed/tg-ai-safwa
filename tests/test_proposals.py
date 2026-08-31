@@ -30,7 +30,6 @@ from safwa.features.proposals.api import ToolPreparationError
 from safwa.features.proposals.model import ChangeProposal
 from safwa.features.proposals.store import ProposalStore
 from safwa.features.proposals.use_cases import approve_proposal, prepare_proposal
-from safwa.foundation.clock import utcnow
 from safwa.models import AgentRun, CallbackToken, Card, TelegramMessage
 from safwa.recovery import recover_startup
 
@@ -168,7 +167,6 @@ async def test_startup_clears_what_an_unanswered_review_left_behind(sessions, re
                 owner_id=42,
                 action="proposal_approve",
                 payload={"id": 1},
-                expires_at=utcnow() + timedelta(hours=24),
             )
         )
         session.add(

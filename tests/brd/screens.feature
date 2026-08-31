@@ -17,3 +17,40 @@ Feature: Screens
     When the owner presses a button that only redraws the screen they are already on, such as
       turning its page
     Then no screen is ended by that
+
+  Scenario: SC-KEEP-002 — What Safwa puts in the chat stays, is replaced, or takes itself away
+    Given Safwa puts three kinds of thing in the chat: what is said, screens the owner acts on,
+      and short notes about what just happened
+    When the owner carries on
+    Then what was said stays in the chat for good
+    And a screen is redrawn in place, or taken out of the chat — never left standing beside a
+      second copy of itself
+    And a short note takes itself out of the chat after 5 seconds (TOAST_SECONDS = 5)
+
+  Scenario: SC-BUTTON-003 — A button works once
+    Given a screen with buttons on it
+    When the owner presses the same button twice
+    Then the work happens once, and the second press is told the action has expired
+
+  Scenario: SC-BUTTON-003 — A button dies with the run of Safwa that drew it
+    Given a screen the owner can still see, drawn before Safwa was last restarted
+    When they press a button on it
+    Then nothing happens to the item it named
+    And that screen is replaced by a line saying it is out of date, so nothing answerable is left
+      standing
+
+  Scenario: SC-SPLIT-004 — A message too long for Telegram arrives whole, in several parts
+    Given Safwa has more to say than 3900 characters fit (TELEGRAM_TEXT_LIMIT = 3900)
+    When it puts that in the chat — an answer, a Summary, or the owner's own relayed words
+    Then it arrives as several messages in order, and nothing is lost between them
+    And the split falls at a line break where there is one
+    And no bold, italic or code formatting is left open across a split
+    And the conversation reads it back as one turn, not as several
+
+  Scenario: SC-FAIL-005 — A review that could not be put on screen does not stay open
+    Given Safwa prepared a change and the review screen for it could not be put in the chat
+    When that happens
+    Then the review ends rather than staying open with nothing on screen
+    And the owner is told the change was not saved
+    And what Safwa was waiting to say unasked — a Reminder that came due, a Sprint that ended — is
+      said as soon as nothing of the owner's is open, rather than waiting for a restart

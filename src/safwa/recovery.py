@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Iterable
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, or_, update
+from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_runtime import RunStatus
@@ -15,7 +15,6 @@ from .models import (
     TelegramMessage,
     UiSession,
 )
-from .telegram.callbacks import PROPOSAL_CALLBACK_ACTIONS
 
 
 async def recover_startup(
@@ -49,16 +48,9 @@ async def recover_startup(
         .values(related_id=None)
         .execution_options(synchronize_session=False)
     )
-    await session.execute(
-        delete(CallbackToken)
-        .where(
-            or_(
-                CallbackToken.expires_at < now,
-                CallbackToken.action.in_(PROPOSAL_CALLBACK_ACTIONS),
-            )
-        )
-        .execution_options(synchronize_session=False)
-    )
+    # A screen is a view of state a running Safwa was holding, so a restart makes every
+    # one of them out of date and every button on them unanswerable.
+    await session.execute(delete(CallbackToken).execution_options(synchronize_session=False))
     await session.execute(
         delete(UiSession)
         .where(UiSession.expires_at < now)

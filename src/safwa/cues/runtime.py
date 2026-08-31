@@ -13,7 +13,8 @@ from aiogram import Bot
 from aiogram.types import Chat, Message, User
 from sqlalchemy import func, select
 
-from ..ai.context import DialogueMessage
+from telegram_llm import DialogueMessage
+
 from ..enums import MessageKind
 from ..models import AgentRun, TelegramMessage
 from ..telegram._core import BACKGROUND_SOURCE_ID, Services
@@ -84,7 +85,6 @@ class CueRuntime:
             # Telegram delivery was registered but the process stopped before the Cue row
             # was deleted. The next tick finishes that local half instead of saying it again.
             return True
-        outcome = None
         try:
             dialogue = await self.services.history.dialogue(self.owner_id)
             dialogue = [*dialogue, DialogueMessage(role="user", content=text)]
@@ -105,16 +105,8 @@ class CueRuntime:
             )
             return True
         except Exception:
-            if outcome is not None and outcome.proposal_id is not None:
-                try:
-                    # A proposal is committed before its Telegram screen is rendered. If
-                    # rendering failed, close that unanswered batch so it cannot hold the
-                    # Cue gate shut forever; the Cue remains and retries the whole turn.
-                    await self.services.advisor.cancel_approval_for_proposal(
-                        outcome.proposal_id
-                    )
-                except Exception:
-                    logger.exception("Could not release a failed Cue proposal")
+            # A review that could not be drawn was already ended by `render_ai_outcome`;
+            # the Cue row remains, and the next tick retries the whole turn.
             logger.exception("A Cue failed to reach the owner")
             return False
 

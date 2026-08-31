@@ -8,7 +8,6 @@ from sqlalchemy import select
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.ai.context import DialogueMessage
 from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.bootstrap.modules import ALLOWED_VIEWS
 from safwa.domain import (
@@ -31,6 +30,7 @@ from safwa.telegram import (
     render_proposal,
 )
 from safwa.telegram.commands import command_start
+from telegram_llm import DialogueMessage
 
 pytestmark = pytest.mark.e2e
 

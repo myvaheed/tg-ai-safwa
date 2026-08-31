@@ -7,12 +7,12 @@ from typing import Any
 import pytest
 
 from llm_gateway import CompletionTurn, ToolCall
-from safwa.ai.context import DialogueMessage
 from safwa.ai.outcome import AIOutcomeKind
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.use_cases import create_card
 from safwa.features.proposals.model import BatchDecision
 from safwa.features.proposals.use_cases import approve_proposal
+from telegram_llm import DialogueMessage
 
 QUESTION = "Как у меня с подтягиваниями?"
 

@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import safwa.asr as asr_module
-from safwa.asr import (
+import safwa.adapters.asr as asr_module
+from safwa.adapters.asr import (
     AudioClip,
     FasterWhisperTranscriber,
     OpenAITranscriber,

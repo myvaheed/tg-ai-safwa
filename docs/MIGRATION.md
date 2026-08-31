@@ -59,7 +59,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 5 | Cards, Checks and the Sprint | business | **done** — 5.0 the board package (technical), 5.a Cards, 5.b stages, 5.c Checks, 5.d archiving, 5.e the archive as a mark, 5.f the heavy analyzer, 5.g a repeat's Values, 5.h Planning and the plan screen |
 | 6 | Proposals and the first reactive process | business | **done** — 6.a the typed batch and the reducer, 6.b the proposal use cases, 6.c interruption and autoapproval, 6.d the startup sweeps, 6.e–6.g no status, no tables, no stringly vocabularies |
 | 7 | `agent_runtime` | technical + business | **done** — 7.a 21 scenarios approved, 7.b `ai/service.py` deleted, 7.c the interaction contract |
-| 8 | `telegram_llm` and `TurnManager` | technical | not started |
+| 8 | `telegram_llm` and `TurnManager` | business + technical | **in progress** — 8.a done, one exit criterion carried; 8.b the handlers go to the features |
 | 9 | Packages and cleanup | technical | not started |
 
 A phase ends in a state that can be kept forever: tests green, bot working, no old path running
@@ -1781,7 +1781,7 @@ scenarios for the first time.
 | # | What | Kind | State |
 |---|---|---|---|
 | 7.a | Both scenario packets and the behaviour they fix: 21 scenarios into `tests/brd/agents.feature`, and words typed over a screen resume the request that opened it — the one-turn grace and the four mechanisms around it deleted | business | done |
-| 7.b | The §12.5 cut, finished: `agent_runtime` takes the session and the loop behind its ports, the rest of `ai/service.py` lands in five named files, `ai/service.py` is deleted, and `examples/plain_chat_bot/` proves the border | technical | done |
+| 7.b | The §12.5 cut, finished: `agent_runtime` takes the session and the loop behind its ports, the rest of `ai/service.py` lands in five named files, `ai/service.py` is deleted, and `examples/note_keeper/` proves the border | technical | done |
 
 The split is the one the phase actually has. A business batch needs the owner before its tests are
 written; a technical batch needs nobody. Cutting either half smaller only creates states where an
@@ -1889,7 +1889,7 @@ one. These five are each green on their own.
    host, `materialize.py` gets the seam. This is the step that cannot be cut smaller — cutting it
    leaves two loops running at once.
 5. **`ai/service.py` is deleted**, and the three production importers and twelve test modules are
-   repointed. `examples/plain_chat_bot/` lands here, because until the imports are clean the package
+   repointed. `examples/note_keeper/` lands here, because until the imports are clean the package
    is not provably standalone.
 
 Steps 3 and 4 changed once the code was measured. The draft made `ai/materialize.py` step 3 and
@@ -1915,7 +1915,7 @@ expensive to find in step 5.
 | 1 | `src/safwa/ai/service.py` does not exist | the file is gone; no import of it remains anywhere |
 | 2 | No module under `src/agent_runtime/` imports `safwa` | Rule F, already armed |
 | 3 | No public name in the package mentions `Proposal`, `proposal_id`, `aiogram` or `sqlalchemy` | a test that reads `agent_runtime/model.py` and `ports.py` |
-| 4 | The runtime starts on `ScriptedProvider` and an in-memory store | `examples/plain_chat_bot/` runs, imports no Safwa — DoD #8 |
+| 4 | The runtime starts on `ScriptedProvider` and an in-memory store | `examples/note_keeper/` runs, imports no Safwa — DoD #8 |
 | 5 | No general loop is left in Safwa | `ai/advisor.py` calls the manager and holds no `while True` over provider turns |
 | 6 | Largest Safwa module ≤ 400 lines | `scripts/architecture_metrics.py` |
 | 7 | DoD #3 falls 6 → 5 | the same; `telegram/callbacks.py`, `telegram/cards.py`, `features/cards/use_cases.py`, `history.py` and `features/proposals/api.py` are Phases 8–9 |
@@ -2077,7 +2077,7 @@ turn is over. That is `AgentManager._complete`, once.
 this turn's tool results, run it again", and the manager loops. The cycle between the seam and the
 loop is gone, and with it the two-phase construction that would have been needed to cut them apart.
 
-**`examples/plain_chat_bot/bot.py` is the proof the border holds.** A note keeper in 180 lines: a
+**`examples/note_keeper/bot.py` is the proof the border holds.** A note keeper in 180 lines: a
 search that runs inside the turn, a note that waits for a person, and a resume — on `ScriptedProvider`
 and `InMemorySessionStore`, importing no Safwa. It is run by a test, so it cannot rot.
 
@@ -2336,3 +2336,511 @@ are about to do, then call the tool — which replays legally and costs a line.
   carries `content`, `tool_calls` and `usage`, and nothing parses a separate reasoning field. A
   session keeps a plan only as far as the model wrote it into `content` or into calls it already
   made.
+
+## Before starting Phase 8
+
+Phase 8 in one line: the chat stops being Safwa's and becomes `telegram_llm`, the turn stops being
+five loose fields and becomes named states, and the handlers stop living in one shared package and
+go to the features that own them.
+
+It is the largest batch of the migration by a wide margin, and it is the last one that moves
+production code. `src/safwa/telegram/` is 6668 lines across seventeen modules; `history.py` is
+another 653. Two of the four modules over 400 lines are in it, including the largest module left in
+the codebase. `CALLBACK_ACTIONS` is one dictionary of about seventy entries, and DoD #1 counts 24
+places outside `features/` that still fan out over entity names — nineteen of them are in
+`telegram/`.
+
+### The five things this phase owns
+
+1. **`telegram_llm`** — the four invariants of §13.2: every outgoing message registered and marked,
+   the chat as the canonical conversation, the single-use button, the temporary screen.
+2. **`TurnManager`** — `GenerationGuard`'s five fields become the union of §9.3.
+3. **The handler batch** — `FeatureModule` gains commands, callback actions and text-input flows, so
+   a feature's screen moves into the feature. This is the thing §"Do not move the screens" told
+   every Phase 4 batch to wait for.
+4. **The last flat modules** — `domain.py`'s remaining 190 lines, `asr.py` behind its Protocol, and
+   the two Rule G violations and one Rule L violation that go with them.
+5. **The defect the Phase 7 review handed over** — a review whose screen could not be drawn stays
+   open and holds the Cue gate shut until a restart. `SC-FAIL-005`.
+
+### The scenario packages, written before any code moves
+
+Four packets, eighteen new scenarios and one amendment, after two owner readings:
+
+| Packet | Scenarios | Writes into |
+|---|---|---|
+| [docs/brd/telegram_history.md](brd/telegram_history.md) | 11, prefix `TG` | `tests/brd/telegram_history.feature`, new |
+| [docs/brd/screens.md](brd/screens.md) | 4, prefix `SC` | `tests/brd/screens.feature`, beside `SC-LIVE-001` |
+| [docs/brd/agents_turn.md](brd/agents_turn.md) | 2 new, and `AG-TURN-010` amended | `tests/brd/agents.feature` |
+| [docs/brd/diary_day_read.md](brd/diary_day_read.md) | 1, `DI-READ-016` | `tests/brd/diary.feature` |
+
+That is what the reading produced, not a target. Each packet carries the table of rules it
+deliberately does not restate and where each of those already lives — the window's contents are
+`TG`, but the moment a Summary is written stays `CO-SUMMARY-001`.
+
+**Five of the nineteen are not green on current code**, and each says so in its packet:
+`SC-SPLIT-004`, `SC-BUTTON-003`'s second block, `SC-FAIL-005`, `TG-NOTES-007` and the amended
+`AG-TURN-010` with `AG-TURN-022` behind it. All five are changes the owner asked for, so 8.a is a
+business batch that changes behaviour, not a technical one that preserves it.
+
+### The two batches
+
+The phase is two batches, split by where the code ends up: **8.a sends the chat out of Safwa**,
+**8.b spreads what is left across the features that own it**. Each ends in a state that can be kept
+forever — tests green, bot working, no old path beside a new one — and each is landed as a series of
+steps that are green on their own, the way 7.b was landed in five.
+
+Every behaviour change the owner asked for is in the batch that owns the code it changes, so
+neither batch is a refactor carrying a surprise.
+
+#### 8.a — the chat becomes a package
+
+| Step | What |
+|---|---|
+| 1 | **Fix `SC-FAIL-005`**, before anything else. It is live: a review whose screen could not be drawn stays open, and every Reminder and Sprint end goes unsaid until a restart. `run_dialogue_turn` gains the failure handler `CueRuntime.speak` already has |
+| 2 | Approve the packets and write them into `tests/brd/telegram_history.feature` (new, 11 `TG`), `screens.feature` (+4 `SC`), `diary.feature` (+`DI-READ-016`). Cite the tests that already hold a rule |
+| 3 | **The notes stop feeding history.** Delete the floor, `_registered_message` and `MESSAGE_CORRELATION_SECONDS`; stop registering the owner's own messages. `TG-NOTES-007`, `TG-CURRENT-008` |
+| 4 | **One send that splits.** Anything over the Telegram limit goes out in parts with no formatting left open across a cut; `send_summary` and `send_registered` both go through it, and `record_summary` names the last part. `SC-SPLIT-004` |
+| 5 | **A button dies with the run that drew it.** `CALLBACK_TOKEN_TTL_HOURS` and `CallbackToken.expires_at` go; `recovery` clears every token; a press on a screen from before a restart replaces it with an out-of-date line. `SC-BUTTON-003` |
+| 6 | **Extract `src/telegram_llm/`**: `_messaging.py` becomes the host, `history.py` the window, `_presentation.py`'s HTML half the safe send, `screens.py`'s lifecycle, `_core.py`'s models, and `asr.py`'s Protocol. `RECEIPT_MEANINGS` and `CITATION_TYPES` become configuration the host is handed; citations become `features/*/citations.py`; the ASR implementation becomes `adapters/asr.py` |
+| 7 | **`examples/plain_chat_bot` on `telegram_llm` and `llm_gateway`** — about fifty lines, no Safwa import, run by a test the way the `agent_runtime` example already is |
+
+Steps 3 to 5 are behaviour changes and go before the extraction on purpose: each one deletes code,
+and moving less code is the cheapest way to move it. Step 5 is the only thing in the whole phase
+that touches the schema.
+
+#### 8.b — the handlers go to the features, and the turn gets a name
+
+| Step | What |
+|---|---|
+| 1 | Amend `AG-TURN-010` in `tests/brd/agents.feature` and add `AG-TURN-022`, `AG-TURN-023`; delete the queue tests by name |
+| 2 | **The queue goes and `TurnManager` arrives.** One message in the chat while an answer is written, with a tappable `/cancel`; anything else the owner sends is taken out of the chat and dropped. `GenerationGuard`'s five fields become the union of §9.3, minus `queued`, which this step deletes rather than models |
+| 3 | Settle `foundation/state_flow.py`: a production reader, or delete it. 230 lines have been waiting for this since Phase 0, and Phase 7.c already refused to build a union with no reader |
+| 4 | **`FeatureModule` grows** commands, callback actions and text-input flows — the mechanism §"Do not move the screens" told every Phase 4 batch to wait for |
+| 5 | **The handlers move**, one feature group per step: Cards and Checks; Planning and the Sprint; Values, Tags, Requests, Reminders and Profile; Proposals. `callbacks.py`, `cards.py`, `commands.py`, `plan.py`, `checks.py`, `items.py`, `sprint.py`, `reminders.py`, `screens.py`, `text_input.py`, `proposals.py`, `dialogue.py`, `_messaging.py`, `_presentation.py` and `_core.py` dissolve; `telegram/__init__.py` is deleted |
+| 6 | **The last flat modules**: `domain.py`'s remaining 190 lines to Cards, Checks, Planning and `foundation`; `main.py` to `bootstrap/`; Rule G's `adapters/asr.py` task; Rule L's `planning/background.py` import. `history.py` splits here too — the reader and the note table to `adapters/`, the citations to the features, which is what 8.a's criterion 3 was left waiting on |
+| 7 | Regenerate the allowlist and update `CLAUDE.md` and `README.md` by deleting what stopped being true |
+
+**Why this order.** The import cycle that cost Phase 4.a three deferred imports exists because a
+feature's screen needs the shared UI core and the shared handlers need the screen back. Once that
+core is a package which cannot import Safwa, the cycle is not possible to write — so 8.a has to
+land before a single screen moves. `TurnManager` comes before the handlers for the same kind of
+reason: handlers take and release the turn lease, and moving them against the old one means moving
+them twice.
+
+**Where `TurnManager` lives is still open**, and 8.b step 2 is where it has to be answered. §9.2
+says `features/turn/`; the owner's reading is that a turn is the same kind of thing as a Cue, and
+`src/safwa/cues/` is already a process living outside `features/` whose rules are written under the
+identifiers of the features it serves. That shape gives `src/safwa/turn/` with rules staying
+`AG-TURN-*` in `agents.feature`, and settles the conflict §9.2 creates with `tests/brd/README.md`.
+
+**8.b is the larger of the two and the one to watch.** About 4500 lines of handlers and seventy
+callback actions. Its steps are the safety: if step 5 cannot be finished, the batch rolls back
+whole rather than leaving half a registry, which is two registries.
+
+### Exit criteria, all of them checkable
+
+Per batch, so a miss is attributable rather than deferred.
+
+**8.a**
+
+| # | Criterion |
+|---|---|
+| 1 | `src/telegram_llm/` exists; Rule F covers it, and no public name in it says `card`, `sprint`, `proposal`, `diary` or `safwa` |
+| 2 | `examples/plain_chat_bot/` runs on `telegram_llm` and `llm_gateway` with no Safwa import, and a test runs it |
+| 3 | `src/safwa/history.py` and `src/safwa/telegram/_messaging.py` do not exist |
+| 4 | `_registered_message`, `MESSAGE_CORRELATION_SECONDS` and `CALLBACK_TOKEN_TTL_HOURS` do not exist |
+| 5 | 16 scenarios cited and green — the 11 `TG`, the 4 `SC`, and `DI-READ-016` |
+| 6 | no module produced by this batch is over 400 lines |
+| 7 | `prompt_prefix.json` byte-identical; `schema.json` moves exactly once, for `callback_tokens` |
+
+**8.b**
+
+| # | Criterion |
+|---|---|
+| 8 | `src/safwa/telegram/` does not exist, and neither does `GenerationGuard` |
+| 9 | no combination of turn state is legal that the type does not allow, and `QueuedMessage` does not exist |
+| 10 | `foundation/state_flow.py` has a production reader, or it is deleted |
+| 11 | DoD #1 24 → 1, and the one is `bootstrap/modules.py`; Rule H 24 → 0; Rule G 2 → 0; Rule L 1 → 0 |
+| 12 | DoD #3 4 → 0, and neither `domain.py` nor `history.py` exists |
+| 13 | `AG-TURN-010` amended, `AG-TURN-022` and `AG-TURN-023` green; the queue tests deleted by name |
+| 14 | `prompt_prefix.json` byte-identical; `schema.json` unchanged |
+
+**Both**
+
+| # | Criterion |
+|---|---|
+| 15 | `tests/e2e/test_advisor_flow_e2e.py` and `tests/e2e/test_subagent_e2e.py` added to, never traded |
+| 16 | the live Telegram suite passes: `uv run pytest tests\e2e\live --live-telegram -q` |
+
+Criterion 6 is written as "produced by this batch" on purpose: that is the shape criterion 6 of
+Phase 7 should have had, and it is the one it failed.
+
+Criterion 10 is there because of what Phase 7.c found. A frozen `RunState` union and a reducer were
+dropped after looking for their reader and finding none. `foundation/state_flow.py` is 230 lines
+with no import anywhere under `src/`, and `TurnManager` is the reason it was written. If the turn's
+state still has no second reader when 8.b step 2 is done, the honest move is to delete the flow and
+keep the states.
+
+### What the owner ruled on 2026-08-30, reading the first draft of the packets
+
+1. **Split every outgoing message.** `SC-SPLIT-004` is settled: one send in `telegram_llm` splits
+   anything over the Telegram limit and never leaves formatting open across a cut, and a Summary
+   goes through it like everything else. A Summary is allowed 2000 tokens
+   (`SUMMARY_TOKEN_CEILING = 2000`) and is sent whole today, so this is reachable rather than
+   theoretical.
+2. **Fix `SC-FAIL-005` first.** It is the first thing 8.a does, before the packets are written into
+   `.feature` files. It silences every Reminder and every Sprint end until a restart.
+3. **A button dies with the run of Safwa that drew it.** `CALLBACK_TOKEN_TTL_HOURS` and
+   `CallbackToken.expires_at` go; a press on a screen from before a restart replaces that screen
+   with an out-of-date line. `PR-STALE-013`'s exceptional lifetime for a proposal button stops
+   being an exception. See [docs/brd/screens.md](brd/screens.md) §"What the two changes touch".
+4. **Where `TurnManager` lives stays open**, and is not needed until 8.c. The owner's reading is
+   that it is the same kind of thing as a Cue. That is a usable precedent: `src/safwa/cues/` is
+   already a process that lives outside `features/` and whose rules are written under the
+   identifiers of the features it serves. The same shape would put the turn in `src/safwa/turn/`
+   with its rules staying `AG-TURN-*` in `agents.feature`, and would settle the conflict §9.2
+   creates with `tests/brd/README.md`. Not decided.
+
+8.a therefore changes behaviour rather than preserving it, and its gate is the approved packets.
+
+### What the owner ruled on 2026-08-30, second reading
+
+5. **The two id spaces stop mattering.** `_registered_message` and `MESSAGE_CORRELATION_SECONDS`
+   are deleted in 8.a step 3. The Bot API and a Telethon user session number the same message differently,
+   and about sixty lines of timestamp tie-breaking reconciled them for two jobs: reading an incoming
+   message's kind off its note, which `TG-OWNER-003` already settles, and not counting the message
+   being answered twice, which needs only the words Safwa already holds and the minute they were
+   sent. `TG-CURRENT-008` keeps its wording; only the mechanism shrinks.
+6. **Reading a named day is a Diary rule, not a window rule.** The second block of
+   `TG-SUMMARY-006` moved out to `DI-READ-016`, in
+   [docs/brd/diary_day_read.md](brd/diary_day_read.md). What that exposed — the Advisor has no way
+   to reach a named day at all, and a Summary cannot be made into an index because it is free text
+   with no dates of its own — is recorded in [docs/FUTURE_FEATURE.md](FUTURE_FEATURE.md) as a
+   feature to design after the migration.
+7. **Nothing queues behind a running answer.** While an answer is being written the chat carries
+   **one** message saying so, with a tappable `/cancel`, removed when the answer arrives or when the
+   owner cancels. Anything else the owner sends meanwhile is taken out of the chat and dropped — a
+   recording is not even transcribed. This amends the approved `AG-TURN-010`, adds `AG-TURN-022`,
+   and empties `Answering.queued` out of §9.3's union before it is built.
+   [docs/brd/agents_turn.md](brd/agents_turn.md) lists what it deletes.
+8. **Safwa reads the chat as far back as the budget allows.** The floor at the oldest note is
+   deleted with the rest, so the note table stops being an input to reading the conversation
+   entirely: `register_message` is no longer called for the owner's own messages, and the notes
+   become a record of Safwa's outgoing messages and the screens among them. `TG-START-007` is
+   rewritten as `TG-NOTES-007`.
+
+Nothing is open except where `TurnManager` lives, which 8.b step 2 answers. 8.a may start.
+
+### 8.a step 1 — a review that could not be drawn ends
+
+`SC-FAIL-005` is fixed and green. A review is committed before its screen is drawn, and the owner's
+path never closed one whose screen failed to send, so `ProposalStore.busy` stayed true and every
+Reminder and Sprint end went unsaid until a restart. `CueRuntime.speak` guarded its own path and
+was the only one that did.
+
+The guard moved to where all three callers pass through — `render_ai_outcome` ends the review when
+`render_proposal` raises, and re-raises so the caller still reports what failed. The duplicate in
+`CueRuntime.speak` is gone, and `continue_agent_approval`, which never had one, is covered by the
+same line. Two tests: an E2E over the real advisor asserting nothing is left open and nothing is
+left claimed, and one over the owner's turn asserting they are told.
+
+### 8.a step 2 — the scenarios that are already true
+
+`tests/brd/telegram_history.feature` is new and carries ten `TG` scenarios; `screens.feature` gains
+`SC-KEEP-002` beside the `SC-FAIL-005` step 1 wrote; `diary.feature` gains `DI-READ-016`. Sixteen
+existing tests were cited rather than rewritten, and seven were written: four for `TG-KIND-002`,
+`TG-OWNER-003`, `TG-SHAPE-010` and `TG-CURRENT-008`, two for `DI-READ-016`, one for `SC-KEEP-002`.
+
+**Three scenarios are held back on purpose**, each until the step that makes it true — writing one
+early would leave `test_every_approved_scenario_has_at_least_one_test` red between steps:
+`TG-NOTES-007` at step 3, `SC-SPLIT-004` at step 4, `SC-BUTTON-003` at step 5. `AG-TURN-010`'s
+amendment and `AG-TURN-022`/`AG-TURN-023` belong to 8.b step 2 for the same reason.
+
+**One correction to the approved text.** `TG-OWNER-003`'s third branch said a command Safwa failed
+to delete reads as a line the owner spoke. That is wrong in both directions: the code refuses any
+owner text opening with `/`, and it is right to — a failed deletion would otherwise put `/today` in
+the conversation as something the owner said. The branch now says so. The rest of the scenario is
+unchanged: deletion is still what classifies ordinary text, and that is still the point of it.
+
+### 8.a step 3 — the notes stop feeding history
+
+`recent` no longer reads a note about anything the owner sent. Gone: the floor at the oldest note,
+`_registered_message`'s sixty lines of timestamp correlation, `MESSAGE_CORRELATION_SECONDS`, and
+the `register_message` call on the owner's own text. The registry read narrowed to
+`direction == "out"`, matched on an event id Safwa minted itself. `TG-NOTES-007` is written in and
+green.
+
+The one thing that needed replacing is how the message being answered is recognised, and it splits
+into two cases that are genuinely different: a transcript Safwa posted carries its own note, so the
+event id is exact; the owner's own typed message carries none, so `_already_read` matches on the
+words and the minute.
+
+Three tests deleted rather than rewritten — `test_owner_text_older_than_every_registration_is_excluded`
+asserted the floor, and `test_private_chat_correlates_telethon_and_bot_api_message_ids` and
+`test_colliding_id_space_does_not_drop_the_newest_dialogue_message` existed only for the
+correlation. One written, two renamed to what they now say.
+
+**One consequence worth naming.** A value the owner typed into a field used to be recognised by its
+note even if it survived in the chat; now nothing distinguishes it from ordinary text, so a failed
+deletion puts it in the conversation. That is `TG-OWNER-003` as approved — deletion is the
+classification — and it is why a command is the one thing that does not rest on it.
+
+### 8.a step 4 — one send that splits
+
+`send_prose` is the one way words go into the chat: it splits, and each part is marked and
+registered on its own, so the window reads all of them and `dialogue` merges them back into the one
+turn they were. `send_owner_turn` is now that plus the owner's name, `send_summary` is that plus
+the cut place, and the Advisor's answer goes through it too. Only the first part may replace a
+screen; the rest are new messages below it.
+
+`split_telegram_text` prefers a line break, then a space, then the limit, moves the cut back out of
+any tag or entity it lands in, closes whatever is still open at the cut, and opens it again at the
+start of the next part.
+
+**Two things this exposed.** A Summary carries its header on its first message only, so a split one
+was recognised by nothing after that: `recent` now keys on the kind mark, which every part carries,
+and gathers consecutive parts back into the one Summary. And the cut place `record_summary` stores
+is the **last** part — the newest, which is where the backwards read meets it — or the window would
+cut back into the middle of a Summary.
+
+### 8.a step 5 — a button dies with the run that drew it
+
+`CALLBACK_TOKEN_TTL_HOURS` and `CallbackToken.expires_at` are gone, `recovery` deletes every token
+at start rather than the expired ones and the proposal ones, and `PROPOSAL_CALLBACK_ACTIONS` went
+with the exception it existed for — which also takes `recovery.py`'s import of
+`telegram/callbacks.py` with it.
+
+The two branches of `SC-BUTTON-003` are told apart by whether the token is still there. Still there
+and consumed is a second press: the alert, and the screen stays. Gone is a screen drawn by a run
+that has ended: the screen is replaced with an out-of-date line, buttons and all, so nothing
+answerable is left standing.
+
+`test_proposal_save_ignores_button_age_while_the_process_is_running` was deleted rather than
+rewritten — button age is the thing that stopped existing.
+
+`schema.json` moved exactly once, for `callback_tokens`, which is the whole of the schema change
+Phase 8 was allowed.
+
+### 8.a step 6 — `telegram_llm`
+
+The package a second bot could be built on, extracted in six green pieces.
+
+| Piece | What it holds | Lines |
+|---|---|---|
+| `text.py` | `markdown_to_telegram_html`, `split_telegram_text` and the Telegram limit | 126 |
+| `marking.py` | the invisible kind + event mark, over a host's own code table | 69 |
+| `notes.py` | what a note is, and the four things the package asks of a store | 50 |
+| `window.py` | the window, the layout into turns, receipts and citations | 415 |
+| `host.py` | the send, the redraw, the screen lifecycle and the Toast | 357 |
+| `voice.py` | `Transcriber`, and the clip and result it speaks in | 43 |
+
+`safwa/history.py` went from 612 lines to 404 and `telegram/_messaging.py` from 568 to 298.
+What is left in both is exactly what only Safwa can say: the Telethon reader, the
+`telegram_messages` table behind `NoteStore`, the append-only mark codes, the
+`ChatVocabulary`, its `MessageKind` values, its buttons, and what becomes of a review the
+owner walked away from.
+
+**The decisions worth recording.**
+
+`MessageKind` stayed in Safwa. Moving it would have put `CARD_EDITOR` in a package whose
+first exit criterion is that no public name in it says `card`. The package takes the kinds
+as strings and is told what they mean, which is a smaller thing to be told than the
+vocabulary itself.
+
+`TelegramHistorySource` **is** a `ChatWindow` rather than holding one. Only a Telethon user
+session can read a chat a bot is in, so the reader and the window are one object here; the
+alternative was three delegating methods, which is the shape the rest of this migration has
+been deleting.
+
+`DialogueMessage` moved into the package, out of `safwa/ai/context.py`. The conversation is
+what the package is about, and a turn of it is not an AI-context type.
+
+`dismiss_prior_ui` was the entangled one and split in two. `ChatHost.leave_one_screen` walks
+the screens and knows only that each has to stop being one; a `freeze` callback says what
+each should become, and `None` means take it away. Safwa's half answers for exactly one
+kind: a review is a question that was asked, so the chat has to keep saying it was asked and
+how it ended, and that reaches the Advisor. Every other screen is only a state and goes.
+
+`token_button` stayed in Safwa. A button is a row minted inside the transaction that draws
+its screen, so a package that owned it would own the table too — and the package docstring
+lost the line that claimed it.
+
+The 85 `send_registered` call sites did not move. `_messaging.py` keeps every name it
+published and each is now three lines over `ChatHost`, converting `MessageKind` to the
+string the package takes — the same adapter shape `history.py` kept for `mark_message`.
+
+`safwa/asr.py` became `safwa/adapters/asr.py`: with the Protocol in the package, what is
+left is the two engines behind it.
+
+**Not done in this step.** Citations are still `history.py`'s `CITATION_TYPES` rather than
+each feature's own. The move needs the treatment `SqlView` got — a catalogue the composition
+root assembles and hands out — because `CITATION_PATTERN` is compiled at import and
+`screens.py` reads it there. That is `FeatureModule` growth, which batch 8.b already opens.
+
+### 8.a step 7 — the example that proves the border
+
+`examples/plain_chat_bot/bot.py`: a bot that only talks, in 142 lines, importing
+`telegram_llm`, `llm_gateway` and aiogram and nothing else. `tests/test_telegram_llm.py`
+runs it against a `ScriptedProvider` and a fake Telegram, and asserts the thing the package
+exists for — the bot keeps no conversation of its own, so the second turn's request is the
+first turn read back out of the chat.
+
+The Phase 7 example was already at `examples/plain_chat_bot/` and is a note keeper, not a
+chat bot, so it moved to `examples/note_keeper/` and both names are now true.
+
+**What the example had to say out loud.** The window asks an application for two things: a
+place for notes about the bot's own messages, and a way to read the chat back. The example
+answers both with one class of forty lines — a dict, and the list of messages an aiogram bot
+has already seen. Safwa answers the same two with a SQLite table and a Telethon user
+session. Neither shape is in the package, which is what reusable had to mean here.
+`ChatVocabulary` takes the whole of what a host must say about its kinds, and the example
+fills it in three lines; its mark codes are 1, 2, 3, because nothing in the package knows
+Safwa's are append-only from 3 to 15.
+
+`test_the_vocabulary_of_the_package_belongs_to_no_application` reads every public name in
+every module of the package and rejects Safwa's nouns. It matches whole words rather than
+substrings: `discard_toast` is not about a Card.
+
+Exit criterion 6 then forced a seam that was worth having. `window.py` was 415 lines because
+it also held `restore_citations` and `split_receipts` — a citation that came back as a link,
+and a line the interface added rather than the model. Both are pure transformations of a
+message's text, which is what `text.py` already was in the other direction. `text.py` is 191
+lines and `window.py` 353, and the package's largest module is now `host.py` at 357.
+
+### 8.a — exit criteria
+
+| # | Criterion | |
+|---|---|---|
+| 1 | `src/telegram_llm/` exists, Rule F covers it, no public name says Safwa's nouns | met |
+| 2 | `examples/plain_chat_bot/` runs on the two packages with no Safwa import, and a test runs it | met |
+| 3 | `src/safwa/history.py` and `src/safwa/telegram/_messaging.py` do not exist | **missed** |
+| 4 | `_registered_message`, `MESSAGE_CORRELATION_SECONDS`, `CALLBACK_TOKEN_TTL_HOURS` do not exist | met |
+| 5 | 16 scenarios cited and green — 11 `TG`, 4 `SC`, `DI-READ-016` | met |
+| 6 | no module produced by this batch is over 400 lines | met |
+| 7 | `prompt_prefix.json` byte-identical, `schema.json` moved once for `callback_tokens` | met |
+
+**Criterion 3 is missed, and deliberately.** Both modules shrank to adapters — 612 lines to
+404 and 568 to 298 — and neither can be deleted by this batch.
+
+`_messaging.py` is 85 `send_registered` call sites and forty more across the other names, in
+the handler modules that 8.b step 5 dissolves. Deleting it now means editing every one of
+those call sites, and 8.b then edits them again when the handler moves to its feature. That
+is moving the same lines twice, which is the argument this phase's own ordering rests on.
+
+`history.py` cannot go to `adapters/` whole, because it is two things: the Telethon reader,
+the note table and the mark codes, which are an adapter — and `CITATION_TYPES`,
+`CITATION_PATTERN` and `conversation_block`, which are Safwa's semantics and are the
+deferred citations move. Splitting it is that move, not this batch.
+
+Both are carried into 8.b as named work rather than left as a claim that the batch is
+finished.
+
+## What Phase 8.a delivered
+
+The batch it was: three behaviour changes that delete code, then the extraction, then the
+example that says whether the border was drawn in the right place. Seven steps, seven green
+suites.
+
+| Step | Planned | Landed |
+|---|---|---|
+| 1 | Fix `SC-FAIL-005`: a review whose screen could not be drawn stays open | `render_ai_outcome` ends the review and re-raises. One choke point for all three callers, so `CueRuntime.speak`'s duplicate of it went |
+| 2 | Approve the packets; 11 `TG`, 4 `SC`, `DI-READ-016` | written, cited, green |
+| 3 | The notes stop feeding history | the floor, `_registered_message` and `MESSAGE_CORRELATION_SECONDS` deleted; the owner's own messages are no longer registered |
+| 4 | One send that splits | `send_prose`, and `send_owner_turn`, `send_summary` and the answer path all go through it. Found and fixed a read-back defect: only the first part of a split Summary carries the heading, so later parts were being dropped |
+| 5 | A button dies with the run that drew it | `CALLBACK_TOKEN_TTL_HOURS` and `CallbackToken.expires_at` gone; `recovery` clears every token; a press on a screen from before a restart replaces it |
+| 6 | Extract `src/telegram_llm/` | seven modules, 1125 lines: `text`, `marking`, `notes`, `window`, `host`, `voice` and the `__init__`. `history.py` 612 → 404, `_messaging.py` 568 → 298, `asr.py` → `adapters/asr.py` |
+| 7 | The example that proves the border | `examples/plain_chat_bot/bot.py`, 142 lines, two packages and aiogram; `tests/test_telegram_llm.py` runs it |
+
+**Numbers at the end of the batch.** 812 passed, 3 skipped; `ruff check .` clean; 181 modules;
+Rule F 0, Rule G 2, Rule H 24, Rule L 1; DoD #1 24. `prompt_prefix.json` byte-identical and
+`schema.json` moved exactly once, for `callback_tokens`.
+
+**What the batch changed that was not on the list.** Three, each small and each recorded with
+its step. The Summary read-back defect in step 4. `MessageKind` staying in Safwa rather than
+moving to the package, because `CARD_EDITOR` would have broken the package's first exit
+criterion and its stored value cannot be renamed under live rows. And `examples/plain_chat_bot/`
+was already taken by the Phase 7 note keeper, which moved to `examples/note_keeper/`.
+
+### What 8.a did not finish, and where it goes
+
+Exit criterion 3 — `history.py` and `_messaging.py` do not exist — is the one miss, and both
+halves are carried into 8.b by name rather than left as a claim.
+
+`_messaging.py` is 298 lines of adapter over `ChatHost`, called from 185 places in the handler
+modules that 8.b step 5 dissolves. Deleting it now edits every one of those call sites, and 8.b
+edits them again when the handler moves to its feature. 8.b criterion 8 already covers it: the
+whole of `src/safwa/telegram/` goes.
+
+`history.py` is 404 lines of two different things. The Telethon reader, the `telegram_messages`
+table behind `NoteStore` and the append-only mark codes are an adapter and belong beside
+`adapters/asr.py`. `CITATION_TYPES`, `CITATION_PATTERN` and `conversation_block` are Safwa's own
+semantics, and moving them is the deferred half of step 6: citations become each feature's, which
+needs the treatment `SqlView` already got — a catalogue the composition root assembles and hands
+out — because `CITATION_PATTERN` is compiled at import and `screens.py` reads it there. That is
+`FeatureModule` growth, which 8.b step 4 opens anyway. Both land in 8.b step 6, and criterion 12
+now names `history.py`.
+
+Nothing else was deferred. The rest of the phase's list is 8.b as written.
+
+## The 8.a review
+
+Read after the batch was green, against the exit criteria and the four packets. Nine things,
+landed together: 814 passed, 3 skipped; `ruff check .` clean; 181 modules; Rule F 0, G 2, H 24,
+L 1; DoD #1 24; `prompt_prefix.json` and `schema.json` unmoved.
+
+**Two defects, each with a test that fails without its fix.**
+
+A run of Summary parts was ended only by a message that is conversation, so two Summaries with
+nothing but a screen or a receipt between them were read back as one — against `TG-SUMMARY-006`,
+"an older Summary is never read". A run is now ended by any message at all.
+
+A caller's own delivery identifier went on the **first** part of a split send. `CueRuntime.speak`
+reads that identifier back to mean the owner has the words, so a send that failed halfway left the
+Cue row deleted and the answer truncated for good. It goes on the **last** part now, which is the
+same reasoning `record_summary` already followed, and a half-finished Cue is retried whole.
+
+**One thing that only accumulated.** `ChatHost.remove_screen` kept the note when Telegram refused
+the delete and only the buttons came off. A message with nothing left to press is not a screen, and
+one kept was walked and stripped again on every later event.
+
+**The border was one import short.** `telegram_llm/text.py` imported `telethon.helpers` for two
+UTF-16 conversions, so the package a second aiogram bot was supposed to be built on pulled in the
+user-session library, and the example's "no import but the two packages and aiogram" was false at
+run time. Both conversions are now six lines in `text.py`, and
+`test_no_module_in_the_package_imports_the_application` rejects `telethon` and `sqlalchemy` beside
+`safwa` — where the notes are kept and how the chat is read back are the two ports, so neither
+answer may be named inside the package.
+
+**Four leftovers deleted.** `history.py` re-exported `split_receipts`, which nothing outside the
+package used, and `restore_citations`, which only a test reached through it; `CONVERSATION_TAGS`
+was public and module-local; `read_message_mark` existed only for tests, which now read `MARKS`.
+`_messaging.clear_message_markup` had no caller at all. And `ai/context.py` had become a door for
+`telegram_llm`'s `DialogueMessage`, with thirteen importers going through it; they import it from
+the package now and the door is gone.
+
+**One string was written in two places.** `SUMMARY_HEADER` is what the window strips back off a
+Summary, and `persona.py` wrote the same characters by hand. It is
+`features/continuity/model.py`'s now, written and stripped from there — the shape
+`RECEIPT_MEANINGS` already had.
+
+**Comments.** The `_messaging.py` adapters restated `ChatHost`'s docstrings almost word for word,
+which puts the same rule in two places and neither says it is the copy. What is left in each is
+Safwa's own half: the `MessageKind` it chooses, and the cut place a Summary stores. Two comments
+promising a move "in Phase 8" now say 8.b.
+
+### What the review left for 8.b
+
+**Criterion 11 cannot be met as written.** Rule G is 2, and one of them is now
+`telegram_llm/host.py` — the Toast timer, which moved there with the rest of `_messaging.py`.
+`LIFECYCLE_MODULES` names only `safwa/main.py` and `safwa/bootstrap/main.py`, so a package that
+expires its own Toast violates the rule wherever it lives. Either 8.b step 6 gives the timer back
+to the host, or criterion 11 reads "Rule G 2 → 1, and the one is the package's Toast". Owner's call.
+
+**`_edit_lock` and `_toasts` are module globals in `host.py`**, so one process has one Toast slot
+whatever it is running. They cannot become `ChatHost` fields while `_messaging._host()` builds a
+fresh `ChatHost` on each of its 185 calls; the host gets a home when `_messaging.py` dissolves in
+8.b step 5, and the globals move with it.
+
+**Criterion 16 is unverified.** The live Telegram suite needs a second BotFather bot and the
+`SAFWA_QA_*` variables, so it was not run here.

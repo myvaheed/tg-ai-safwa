@@ -10,6 +10,10 @@ from sqlalchemy.sql import func
 
 from ...foundation.models import Base
 
+# Written on the first message of a Summary, for the owner. The window strips it back off,
+# so the model reads the words alone — one string, written and stripped from here.
+SUMMARY_HEADER = "📜 Summary"
+
 
 class SummaryState(Base):
     __tablename__ = "summary_state"

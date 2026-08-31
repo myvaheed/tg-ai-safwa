@@ -19,7 +19,7 @@ from agent_runtime import InMemorySessionStore, InteractionRef, Resumption, RunS
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "src" / "agent_runtime"
-EXAMPLE = ROOT / "examples" / "plain_chat_bot" / "bot.py"
+EXAMPLE = ROOT / "examples" / "note_keeper" / "bot.py"
 
 # What a public name in the runtime may never be about. Two are Safwa's vocabulary and two
 # are the delivery it must not know: a package that names any of them is not reusable.
@@ -68,7 +68,7 @@ def test_no_module_in_the_package_imports_the_application() -> None:
 
 
 def _load_example():
-    specification = importlib.util.spec_from_file_location("plain_chat_bot", EXAMPLE)
+    specification = importlib.util.spec_from_file_location("note_keeper", EXAMPLE)
     assert specification is not None and specification.loader is not None
     bot = importlib.util.module_from_spec(specification)
     specification.loader.exec_module(bot)

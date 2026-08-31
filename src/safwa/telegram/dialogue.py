@@ -11,7 +11,8 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import Message
 from sqlalchemy import delete, select
 
-from ..asr import AudioClip, TranscriptionError
+from telegram_llm import AudioClip, TranscriptionError
+
 from ..constants import ASR_MAX_DURATION_SECONDS, ASR_MAX_FILE_BYTES
 from ..domain import (
     DomainError,
@@ -25,7 +26,7 @@ from ..enums import MessageKind
 from ..features.profile.use_cases import profile_field, set_profile_field
 from ..features.reminders.use_cases import update_reminder_text
 from ..foundation.clock import SystemClock
-from ..history import HistoryEntry, register_message
+from ..history import HistoryEntry
 from ..models import UiSession
 from ._core import Services, audio_payload, queue_owner_text, router
 from ._messaging import (
@@ -136,7 +137,7 @@ async def ordinary_text(message: Message, services: Services) -> None:
             return
         if flow == "settings":
             # Imported here, not above: the Settings screen lives in its feature and
-            # reaches back into this package. It moves with the handlers in Phase 8.
+            # reaches back into this package. It moves with the handlers in Phase 8.b.
             from ..features.profile.screens import SETTINGS_FIELDS, command_settings
 
             field_name = str(ui_state["field"])
@@ -239,11 +240,6 @@ async def ordinary_text(message: Message, services: Services) -> None:
             return
 
     await dismiss_prior_ui(message, services)
-    async with services.sessions() as session:
-        await register_message(
-            session, message.chat.id, message.message_id, "in", MessageKind.DIALOGUE_USER
-        )
-        await session.commit()
     source = HistoryEntry(
         message_id=message.message_id,
         sender_id=message.from_user.id if message.from_user else None,

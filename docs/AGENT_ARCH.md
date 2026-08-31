@@ -424,7 +424,7 @@ stateDiagram-v2
   autoapproved change moves `workspace.revision`, which is a different question.
 - Background work verifies the revision before publishing or committing.
 - `OwnerAndWritingMiddleware` drops anything that is not the owner in a private chat.
-- Every inline button is a single-use `CallbackToken` row.
+- Every inline button is a single-use `CallbackToken` row, cleared at the next start.
 
 ## Background loops
 

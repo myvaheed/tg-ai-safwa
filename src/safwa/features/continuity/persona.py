@@ -32,7 +32,7 @@ from ...enums import MessageKind
 from ...foundation.tokens import estimate_tokens
 from .agent import MEMORY_PROMPT, RETELL_PROMPT, SUMMARY_PROMPT
 from .memory import MemoryFileError, MemoryFileStore
-from .model import MemorySyncState
+from .model import SUMMARY_HEADER, MemorySyncState
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +121,7 @@ class PersonaContinuity:
             logger.info("Discarding a stale automatic summary")
             return False
         covered_id = entries[-1].message_id
-        await send_summary("📜 Summary\n" + summary, covered_id)
+        await send_summary(f"{SUMMARY_HEADER}\n{summary}", covered_id)
         return True
 
     async def maintain_memory(

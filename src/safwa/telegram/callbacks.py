@@ -7,7 +7,7 @@ from typing import Any
 
 from aiogram import F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain import (
@@ -939,7 +939,7 @@ async def _on_settings_edit(context: CallbackContext) -> None:
     # Imported here, not above: the Settings screen lives in its feature and reaches back
     # into this package, so a module-level import makes `features.profile.screens` the
     # start of a cycle whenever it is the first thing imported. The import moves with the
-    # handlers in Phase 8.
+    # handlers in Phase 8.b.
     from ..features.profile.screens import render_settings_field_prompt
 
     await render_settings_field_prompt(
@@ -1164,13 +1164,6 @@ CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     **dict.fromkeys(CARD_RELATION_TOGGLES, _on_card_toggle_relation),
 }
 
-# These are adapter registry keys, not domain states. Deriving the complete proposal
-# subset beside the registry keeps its exceptional token lifetime in one place: a proposal
-# button outlives the generic TTL and dies with the process that made it, and `recovery`
-# reads this same tuple to delete those buttons at the next start.
-PROPOSAL_CALLBACK_ACTIONS = tuple(
-    action for action in CALLBACK_ACTIONS if action.startswith("proposal_")
-)
 PROPOSAL_APPLY_CALLBACK_ACTIONS = frozenset({"proposal_approve", "proposal_delete_confirm"})
 
 
@@ -1220,10 +1213,6 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
                 .where(
                     CallbackToken.token == token_value,
                     CallbackToken.owner_id == services.owner_id,
-                    or_(
-                        CallbackToken.expires_at >= now,
-                        CallbackToken.action.in_(PROPOSAL_CALLBACK_ACTIONS),
-                    ),
                     CallbackToken.consumed_at.is_(None),
                 )
                 .values(consumed_at=now)
@@ -1231,7 +1220,22 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
             )
         ).one_or_none()
         if claimed is None:
-            await callback.answer("This action expired. Reopen the screen.", show_alert=True)
+            # A token that is still here was pressed a second time; one that is gone
+            # belongs to a screen drawn by a run of Safwa that has ended.
+            pressed_again = await session.scalar(
+                select(CallbackToken.token).where(CallbackToken.token == token_value)
+            )
+            await session.commit()
+            if pressed_again is not None:
+                await callback.answer("This action expired. Reopen the screen.", show_alert=True)
+                return
+            await callback.answer()
+            await send_registered(
+                callback.message,
+                services,
+                "This screen is out of date. Reopen it from the menu.",
+                kind=MessageKind.ERROR,
+            )
             return
         action, payload = claimed
         await session.commit()

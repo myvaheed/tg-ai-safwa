@@ -61,11 +61,6 @@ SUMMARY_TOKEN_CEILING = 2_000
 SUMMARY_TRIGGER_TOKENS = 6_000
 HISTORY_TOKEN_BUDGET = SUMMARY_TRIGGER_TOKENS + SUMMARY_TOKEN_CEILING
 SUMMARY_CONTEXT_MESSAGE_LIMIT = 20
-# A ceiling on how many Telegram messages one backwards scan may walk.  The budget, a
-# Summary, or the oldest registration normally stops it far sooner.
-HISTORY_SCAN_LIMIT = 2_000
-# Bot API and Telethon disagree on message IDs; correlate by timestamp within this window.
-MESSAGE_CORRELATION_SECONDS = 15
 # --- Summaries and memory -------------------------------------------------
 MEMORY_TOKEN_BUDGET = 4_000
 # A tokenizer splits Latin at roughly 4 characters and Cyrillic at roughly 2, so a mixed
@@ -111,11 +106,9 @@ TOAST_SECONDS = 5
 PLAN_LINK_BURST_TAPS = 8
 PLAN_LINK_BURST_SECONDS = 10
 CHECK_LIST_LIMIT = 25
-TELEGRAM_TEXT_LIMIT = 3_900
 # A queue notice is transient and deleted on drain, so it previews the turn rather than
 # repeating it — a transcribed monologue would not fit in one message anyway.
 QUEUE_PREVIEW_CHARS = 300
-CALLBACK_TOKEN_TTL_HOURS = 24
 # A resolved proposal stays in the dialogue for good, so its receipt is capped rather than
 # carrying every field of a wide edit.
 PROPOSAL_OUTCOME_DETAIL_LIMIT = 6

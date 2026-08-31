@@ -21,6 +21,7 @@ from agent_runtime import (
     TurnOutcome,
 )
 from llm_gateway import LlmProvider
+from telegram_llm import DialogueMessage
 
 from ..constants import MAX_REPAIR_ROUNDS, MAX_TOOL_CALLS, SUBAGENT_DEADLINE_SECONDS
 from ..features.continuity.memory import MemoryFileStore
@@ -37,7 +38,6 @@ from ..features.proposals.store import ProposalStore
 from ..features.proposals.use_cases import decide_batch_item, interrupt_batch
 from ..foundation.errors import failure_reason
 from .autoapproval import AutoApprovalReviewer
-from .context import DialogueMessage
 from .materialize import ProposalMaterializer
 from .messages import ContextBuilder
 from .outcome import AIOutcome, AIOutcomeKind

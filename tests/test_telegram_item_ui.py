@@ -6,8 +6,10 @@ import html
 import importlib
 import inspect
 import pkgutil
+import re
 from datetime import UTC, date, datetime, time
 from types import SimpleNamespace
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -17,10 +19,8 @@ from sqlalchemy import select, text
 import safwa.features.profile.screens as profile_screens_source
 import safwa.telegram as telegram_source
 import safwa.telegram.plan as plan_module
-from safwa.ai.context import DialogueMessage
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.ai.sql import create_ai_views
-from safwa.asr import TranscriptionError, TranscriptionResult
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS
 from safwa.constants import (
     ASR_MAX_DURATION_SECONDS,
@@ -28,7 +28,6 @@ from safwa.constants import (
     PLAN_LINK_BURST_TAPS,
     REQUEST_RESULT_LIMIT,
     SELECTOR_PAGE_SIZE,
-    TELEGRAM_TEXT_LIMIT,
 )
 from safwa.domain import (
     DomainError,
@@ -52,6 +51,7 @@ from safwa.enums import MessageKind
 from safwa.features.cards.model import CardStage
 from safwa.features.cards.use_cases import EFFORT_POINTS
 from safwa.features.checks.model import CheckOutcome
+from safwa.features.continuity.model import SUMMARY_HEADER, SummaryState
 from safwa.features.diary.use_cases import create_diary_entry
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.screens import command_settings
@@ -131,6 +131,14 @@ from safwa.telegram.dialogue import run_dialogue_turn
 from safwa.telegram.plan import handle_plan_start, is_plan_link, render_plan
 from safwa.telegram.reminders import render_reminder, render_reminders
 from safwa.telegram.screens import OPENABLE_MODELS
+from telegram_llm import (
+    TELEGRAM_TEXT_LIMIT,
+    DialogueMessage,
+    TranscriptionError,
+    TranscriptionResult,
+    split_telegram_text,
+)
+from telegram_llm import host as host_module
 
 
 def _telegram_module_trees() -> list[ast.Module]:
@@ -1320,7 +1328,6 @@ async def test_card_text_field_prompt_replaces_creation_message(sessions) -> Non
                 owner_id=42,
                 action="card_create_edit_text",
                 payload={"field": "title"},
-                expires_at=datetime.now(UTC).replace(year=2030),
             )
         )
         await session.commit()
@@ -2435,6 +2442,7 @@ def capture_dialogue_turns(monkeypatch) -> list[tuple[str, object]]:
 
 
 async def test_voice_message_becomes_one_owner_dialogue_turn(sessions, monkeypatch) -> None:
+    """TG-RELAY-004 — tests/brd/telegram_history.feature"""
     turns = capture_dialogue_turns(monkeypatch)
     transcriber = ScriptedTranscriber("Renew the passport this week.")
     services = services_for(sessions, transcriber=transcriber)
@@ -2667,6 +2675,42 @@ async def test_a_cancelled_turn_is_not_rendered(sessions) -> None:
     assert message.sent_messages == []
 
 
+async def test_a_review_that_could_not_be_drawn_ends_and_the_owner_is_told(sessions) -> None:
+    """SC-FAIL-005 — tests/brd/screens.feature"""
+    cancelled: list[int] = []
+
+    class ProposalAdvisor:
+        # An empty store, so drawing proposal #77 fails the way a refused send does.
+        reviews = ProposalStore()
+        proposals = PROPOSALS
+
+        async def handle(self, request, *, source_message_id=None, dialogue=None):
+            del request, source_message_id, dialogue
+            return AIOutcome(AIOutcomeKind.PROPOSAL, "Review this", proposal_id=77)
+
+        async def cancel_approval_for_proposal(self, proposal_id: int) -> None:
+            cancelled.append(proposal_id)
+
+    services = turn_services(sessions)
+    services.advisor = ProposalAdvisor()
+    message = FakeMessage(965, text="Save it", bot_message=False, answer_as_new=True)
+    source = HistoryEntry(
+        message_id=965,
+        sender_id=42,
+        role="user",
+        text="Save it",
+        created_at=datetime.now(UTC),
+        kind=MessageKind.DIALOGUE_USER.value,
+    )
+
+    await run_dialogue_turn(message, services, "Save it", source)
+
+    assert cancelled == [77]
+    assert any(
+        "Your planning data was not changed" in item.text for item in message.sent_messages
+    )
+
+
 async def test_the_owner_turn_is_headed_by_the_telegram_name(sessions, monkeypatch) -> None:
     capture_dialogue_turns(monkeypatch)
     services = services_for(sessions, transcriber=ScriptedTranscriber("Plan my week."))
@@ -2756,7 +2800,7 @@ async def test_a_cancelled_generation_still_gives_up_its_lease(sessions, monkeyp
 
 
 async def test_a_toast_leaves_the_screen_alone_and_takes_itself_back(sessions, monkeypatch):
-    """A Toast is beside the screen, not instead of it, and it does not outlive its point."""
+    """SC-KEEP-002 — tests/brd/screens.feature"""
     import safwa.telegram._messaging as messaging
 
     monkeypatch.setattr(messaging, "TOAST_SECONDS", 0)
@@ -2779,7 +2823,7 @@ async def test_a_toast_leaves_the_screen_alone_and_takes_itself_back(sessions, m
     await messaging.send_toast(screen, services, "Still too fast.")
     assert first.message_id in screen.bot.deleted
 
-    message_id, expiry = messaging._toasts[screen.chat.id]
+    message_id, expiry = host_module._toasts[screen.chat.id]
     await expiry
     assert message_id in screen.bot.deleted
     async with sessions() as session:
@@ -2789,6 +2833,129 @@ async def test_a_toast_leaves_the_screen_alone_and_takes_itself_back(sessions, m
             )
             is None
         )
+
+
+async def test_what_was_said_is_never_taken_out_of_the_chat(sessions) -> None:
+    """SC-KEEP-002 — tests/brd/screens.feature"""
+    async with sessions() as session:
+        session.add_all(
+            [
+                TelegramMessage(
+                    chat_id=700,
+                    message_id=50,
+                    direction="out",
+                    kind=MessageKind.DASHBOARD.value,
+                ),
+                TelegramMessage(
+                    chat_id=700,
+                    message_id=51,
+                    direction="out",
+                    kind=MessageKind.DIALOGUE_ASSISTANT.value,
+                ),
+                TelegramMessage(
+                    chat_id=700,
+                    message_id=52,
+                    direction="out",
+                    kind=MessageKind.SUMMARY.value,
+                ),
+            ]
+        )
+        await session.commit()
+
+    bot = FakeBot()
+    store = ProposalStore()
+    services = services_for(sessions, reviews=store, advisor=StubAdvisor(store))
+    message = FakeMessage(53, text="Carry on", bot_message=False, bot=bot)
+
+    await dismiss_prior_ui(message, services)
+
+    assert bot.deleted == [50]
+
+
+def test_a_split_falls_on_a_line_break_and_closes_what_it_opened() -> None:
+    """SC-SPLIT-004 — tests/brd/screens.feature"""
+    body = "\n".join(f"line {index} of the answer" for index in range(400))
+    text = f"<b>Heading</b>\n<i>{body}</i>"
+
+    parts = split_telegram_text(text)
+
+    assert len(parts) > 1
+    assert all(len(part) <= TELEGRAM_TEXT_LIMIT for part in parts)
+    # Nothing is left open across a cut, and the next part opens it again.
+    assert all(part.count("<i>") == part.count("</i>") for part in parts)
+    assert parts[1].startswith("<i>")
+    assert all(part.endswith("</i>") for part in parts[:-1])
+    assert all(part.rsplit("<", 1)[0].endswith("answer") for part in parts[:-1])
+    # And nothing is lost between them.
+    visible = " ".join(re.sub(r"<[^>]+>", "", part) for part in parts)
+    assert visible.split() == re.sub(r"<[^>]+>", "", text).split()
+
+
+async def test_an_over_long_answer_arrives_as_several_dialogue_messages(sessions) -> None:
+    """SC-SPLIT-004 — tests/brd/screens.feature"""
+    services = services_for(sessions)
+    message = FakeMessage(970, bot_message=False, answer_as_new=True)
+    answer = " ".join(f"word{index}" for index in range(1_500))
+
+    await render_ai_outcome(message, services, AIOutcome(AIOutcomeKind.ANSWER, answer))
+
+    assert len(message.sent_messages) > 1
+    async with sessions() as session:
+        rows = list(await session.scalars(select(TelegramMessage)))
+    # Every part is registered as dialogue, which is what makes the window read them all
+    # and `dialogue()` merge them back into the one answer they were.
+    assert [row.kind for row in rows] == [MessageKind.DIALOGUE_ASSISTANT.value] * len(rows)
+    assert len(rows) == len(message.sent_messages)
+
+
+async def test_an_over_long_summary_is_split_and_the_cut_place_is_its_last_part(
+    sessions,
+) -> None:
+    """SC-SPLIT-004 — tests/brd/screens.feature"""
+    import safwa.telegram._messaging as messaging
+
+    services = services_for(sessions)
+    message = FakeMessage(971, bot_message=False, answer_as_new=True)
+    text = f"{SUMMARY_HEADER}\n" + "\n".join(f"point {index}" for index in range(600))
+
+    await messaging.send_summary(message, services, text, covered_id=500)
+
+    assert len(message.sent_messages) > 1
+    async with sessions() as session:
+        state = await session.get(SummaryState, 1)
+        rows = list(await session.scalars(select(TelegramMessage)))
+    assert [row.kind for row in rows] == [MessageKind.SUMMARY.value] * len(rows)
+    # The backwards read meets the newest part first, so that is the cut place.
+    assert state.summary_message_id == message.sent_messages[-1].message_id
+    assert state.covered_message_id == 500
+
+
+async def test_a_split_cue_is_delivered_only_once_its_last_part_is_in_the_chat(
+    sessions,
+) -> None:
+    """SC-SPLIT-004 — tests/brd/screens.feature"""
+    import safwa.telegram._messaging as messaging
+
+    services = services_for(sessions)
+    message = FakeMessage(972, bot_message=False, answer_as_new=True)
+    event_id = uuid4().hex
+
+    sent = await messaging.send_prose(
+        message,
+        services,
+        " ".join(f"word{index}" for index in range(1_500)),
+        kind=MessageKind.CUE,
+        event_id=event_id,
+    )
+
+    assert len(message.sent_messages) > 1
+    async with sessions() as session:
+        carrier = await session.scalar(
+            select(TelegramMessage).where(TelegramMessage.event_id == event_id)
+        )
+    # `CueRuntime.speak` reads this row back to mean "the owner has these words". On the
+    # first part it would call a send that failed halfway delivered.
+    assert carrier.message_id == sent.message_id == message.sent_messages[-1].message_id
 
 
 async def test_a_status_message_the_process_died_under_is_swept_at_startup(sessions) -> None:
@@ -3012,7 +3179,7 @@ async def test_pl_plan_019_a_burst_of_link_taps_earns_a_warning(sessions, monkey
     # The tap that earned the warning still opened the Card it points at.
     assert "Pick me" in screen.bot.edits[-1][1]
 
-    _, expiry = messaging._toasts[screen.chat.id]
+    _, expiry = host_module._toasts[screen.chat.id]
     await expiry
 
 

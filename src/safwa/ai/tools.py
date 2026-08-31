@@ -28,6 +28,7 @@ from agent_runtime import (
     log_preview,
 )
 from llm_gateway import ToolCall
+from telegram_llm import DialogueMessage
 
 from ..constants import SUBAGENT_HISTORY_LAST_MESSAGES
 from ..features.diary.model import DiaryEntry
@@ -35,7 +36,6 @@ from ..features.proposals.api import MutationToolSpec, ProposalRegistry
 from ..foundation.errors import failure_reason
 from ..history import citation_payload, conversation_block
 from ..models import Card, Check, SavedRequest, Tag, Value
-from .context import DialogueMessage
 from .contracts import (
     AgentChange,
     CallHelperInput,

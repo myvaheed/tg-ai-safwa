@@ -14,12 +14,6 @@ from ..models import Card, CardValue, Sprint, Tag, UserProfile, Value, Workspace
 
 
 @dataclass(frozen=True)
-class DialogueMessage:
-    role: str
-    content: str
-
-
-@dataclass(frozen=True)
 class BoardContext:
     """Split so the volatile clock can be sent after the cacheable prefix."""
 

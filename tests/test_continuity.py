@@ -9,7 +9,7 @@ from llm_gateway import CompletionRequest, CompletionTurn
 from safwa.constants import MEMORY_READ_TOKEN_BUDGET, SUMMARY_TRIGGER_TOKENS
 from safwa.enums import MessageKind
 from safwa.features.continuity.memory import MemoryFileStore
-from safwa.features.continuity.model import MemorySyncState
+from safwa.features.continuity.model import SUMMARY_HEADER, MemorySyncState
 from safwa.features.continuity.persona import MemoryMaintenanceResult, PersonaContinuity
 from safwa.features.continuity.use_cases import run_due_memory_maintenance
 from safwa.features.profile.model import UserProfile
@@ -293,7 +293,7 @@ async def test_new_summary_request_includes_previous_summary(sessions) -> None:
     request = provider.requests[0].messages[-1]["content"]
     assert request.startswith("Previous summary:\nEverything before today.")
     assert "A long enough request" in request
-    assert sent == [("📜 Summary\nThe rewritten summary", 10)]
+    assert sent == [(f"{SUMMARY_HEADER}\nThe rewritten summary", 10)]
 
 
 async def test_summary_below_configured_trigger_requires_force(sessions) -> None:
@@ -321,7 +321,7 @@ async def test_summary_below_configured_trigger_requires_force(sessions) -> None
 
     assert await continuity.maybe_summarize(42, send_summary) is False
     assert await continuity.maybe_summarize(42, send_summary, force=True) is True
-    assert sent == [("📜 Summary\nForced summary", 10)]
+    assert sent == [(f"{SUMMARY_HEADER}\nForced summary", 10)]
 
 
 async def test_memory_maintenance_reads_after_its_own_cursor(sessions, tmp_path: Path) -> None:

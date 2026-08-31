@@ -6,21 +6,22 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import update
 from telethon.tl.types import MessageEntityTextUrl
 
-from safwa.ai.context import DialogueMessage
 from safwa.enums import MessageKind
+from safwa.features.continuity.model import SUMMARY_HEADER
 from safwa.history import (
     CITATION_PATTERN,
+    CITATION_TYPES,
+    MARKS,
     HistoryEntry,
     TelegramHistorySource,
     conversation_block,
     mark_kind,
     mark_message,
     read_kind_mark,
-    read_message_mark,
     register_message,
-    restore_citations,
 )
 from safwa.models import TelegramMessage
+from telegram_llm import DialogueMessage, restore_citations
 
 
 @dataclass
@@ -56,7 +57,7 @@ async def register(
 
 
 async def backdate(sessions, chat_id: int, moment: datetime) -> None:
-    """Put every registration at `moment`, which is what the read floor is taken from."""
+    """Put every note at `moment`, so a test can place one after the messages it reads."""
     async with sessions() as session:
         await session.execute(
             update(TelegramMessage)
@@ -66,16 +67,12 @@ async def backdate(sessions, chat_id: int, moment: datetime) -> None:
         await session.commit()
 
 
-async def test_surviving_owner_text_is_dialogue_down_to_the_oldest_registration(
-    sessions,
-) -> None:
+async def test_surviving_owner_text_is_what_the_owner_said(sessions) -> None:
+    """TG-OWNER-003 — tests/brd/telegram_history.feature"""
     chat_id, owner_id, bot_id = 100, 42, 99
     at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
     messages = [
         FakeTelegramMessage(9, "Hello Safwa", owner_id, at + timedelta(minutes=4)),
-        FakeTelegramMessage(
-            8, "A card title entered in a form", owner_id, at + timedelta(minutes=3)
-        ),
         FakeTelegramMessage(
             7,
             mark_kind("Hello — how can I help?", MessageKind.DIALOGUE_ASSISTANT),
@@ -88,16 +85,8 @@ async def test_surviving_owner_text_is_dialogue_down_to_the_oldest_registration(
             bot_id,
             at + timedelta(minutes=1),
         ),
-        FakeTelegramMessage(
-            4, "Old unrelated private-chat message", owner_id, at - timedelta(hours=1)
-        ),
         FakeTelegramMessage(3, "An old message from the bot", bot_id, at - timedelta(hours=2)),
     ]
-    await register(sessions, chat_id, 9, "in", MessageKind.DIALOGUE_USER)
-    await register(sessions, chat_id, 8, "in", MessageKind.UI_INPUT)
-    await register(sessions, chat_id, 7, "out", MessageKind.DIALOGUE_ASSISTANT)
-    await register(sessions, chat_id, 6, "out", MessageKind.DASHBOARD)
-    await backdate(sessions, chat_id, at + timedelta(minutes=1))
     source = TelegramHistorySource(
         FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
     )
@@ -113,6 +102,7 @@ async def test_surviving_owner_text_is_dialogue_down_to_the_oldest_registration(
 
 
 async def test_summary_is_pinned_first_with_twenty_prior_messages(sessions) -> None:
+    """TG-SUMMARY-006 — tests/brd/telegram_history.feature"""
     chat_id, owner_id, bot_id = 101, 42, 99
     at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
     older = [
@@ -134,7 +124,7 @@ async def test_summary_is_pinned_first_with_twenty_prior_messages(sessions) -> N
         ),
         FakeTelegramMessage(
             98,
-            mark_kind("📜 Summary\nThe important earlier context.", MessageKind.SUMMARY),
+            mark_kind(f"{SUMMARY_HEADER}\nThe important earlier context.", MessageKind.SUMMARY),
             bot_id,
             at + timedelta(minutes=98),
         ),
@@ -171,6 +161,7 @@ async def test_summary_is_pinned_first_with_twenty_prior_messages(sessions) -> N
 async def test_the_window_is_cut_on_a_message_boundary_when_the_budget_runs_out(
     sessions,
 ) -> None:
+    """TG-WINDOW-005 — tests/brd/telegram_history.feature"""
     chat_id, owner_id, bot_id = 107, 42, 99
     at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
     messages = [
@@ -195,47 +186,11 @@ async def test_the_window_is_cut_on_a_message_boundary_when_the_budget_runs_out(
     assert [entry.message_id for entry in entries] == [7, 8, 9]
 
 
-async def test_private_chat_correlates_telethon_and_bot_api_message_ids(sessions) -> None:
-    chat_id, owner_id, bot_id = 104, 42, 99
-    at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
-    messages = [
-        FakeTelegramMessage(95_003, "Continue", owner_id, at + timedelta(seconds=2)),
-        FakeTelegramMessage(
-            95_002,
-            mark_kind("Safwa answer", MessageKind.DIALOGUE_ASSISTANT),
-            bot_id,
-            at + timedelta(seconds=1),
-        ),
-    ]
-    await register(sessions, chat_id, 13, "in", MessageKind.DIALOGUE_USER)
-    await register(sessions, chat_id, 12, "out", MessageKind.DIALOGUE_ASSISTANT)
-    async with sessions() as session:
-        await session.execute(
-            update(TelegramMessage)
-            .where(TelegramMessage.chat_id == chat_id, TelegramMessage.message_id == 13)
-            .values(created_at=at + timedelta(seconds=3))
-        )
-        await session.execute(
-            update(TelegramMessage)
-            .where(TelegramMessage.chat_id == chat_id, TelegramMessage.message_id == 12)
-            .values(created_at=at + timedelta(seconds=2))
-        )
-        await session.commit()
-    source = TelegramHistorySource(
-        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
-    )
-
-    entries = await source.recent(chat_id)
-
-    assert [(entry.kind, entry.text) for entry in entries] == [
-        (MessageKind.DIALOGUE_ASSISTANT.value, "Safwa answer"),
-        (MessageKind.DIALOGUE_USER.value, "Continue"),
-    ]
-
-
-async def test_current_source_is_not_duplicated_across_telegram_id_spaces(sessions) -> None:
+async def test_the_answered_message_is_not_read_twice(sessions) -> None:
+    """TG-CURRENT-008 — tests/brd/telegram_history.feature"""
     chat_id, owner_id, bot_id = 105, 42, 99
     at = datetime(2026, 8, 9, 12, 47, tzinfo=UTC)
+    # The Bot API numbered the owner's message 13; a Telethon session calls it 95_003.
     messages = [
         FakeTelegramMessage(95_003, "Как дела?", owner_id, at + timedelta(seconds=2)),
         FakeTelegramMessage(
@@ -245,20 +200,6 @@ async def test_current_source_is_not_duplicated_across_telegram_id_spaces(sessio
             at + timedelta(seconds=1),
         ),
     ]
-    await register(sessions, chat_id, 13, "in", MessageKind.DIALOGUE_USER)
-    await register(sessions, chat_id, 12, "out", MessageKind.DIALOGUE_ASSISTANT)
-    async with sessions() as session:
-        await session.execute(
-            update(TelegramMessage)
-            .where(TelegramMessage.chat_id == chat_id, TelegramMessage.message_id == 13)
-            .values(created_at=at + timedelta(seconds=3))
-        )
-        await session.execute(
-            update(TelegramMessage)
-            .where(TelegramMessage.chat_id == chat_id, TelegramMessage.message_id == 12)
-            .values(created_at=at + timedelta(seconds=2))
-        )
-        await session.commit()
     source = TelegramHistorySource(
         FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
     )
@@ -275,28 +216,11 @@ async def test_current_source_is_not_duplicated_across_telegram_id_spaces(sessio
 
     assert dialogue[-1].role == "user"
     assert dialogue[-1].content.endswith("[User]: Как дела?")
-
-
-async def test_owner_text_older_than_every_registration_is_excluded(sessions) -> None:
-    chat_id, owner_id, bot_id = 102, 42, 99
-    at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
-    messages = [
-        FakeTelegramMessage(3, "Привет", owner_id, at),
-        FakeTelegramMessage(2, "Old unrelated text", owner_id, at - timedelta(hours=1)),
-        FakeTelegramMessage(1, "Old bot UI", bot_id, at - timedelta(hours=2)),
-    ]
-    source = TelegramHistorySource(
-        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
-    )
-    await register(sessions, chat_id, 3, "in", MessageKind.DIALOGUE_USER)
-    await backdate(sessions, chat_id, at)
-
-    entries = await source.recent(chat_id)
-
-    assert [entry.text for entry in entries] == ["Привет"]
+    assert dialogue[-1].content.count("Как дела?") == 1
 
 
 async def test_dialogue_groups_every_user_message_until_the_next_ai_response(sessions) -> None:
+    """TG-SHAPE-010 — tests/brd/telegram_history.feature"""
     source = TelegramHistorySource(None, sessions, bot_user_id=99, owner_id=42)
     at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
     entries = [
@@ -320,52 +244,8 @@ async def test_dialogue_groups_every_user_message_until_the_next_ai_response(ses
     ]
 
 
-async def test_colliding_id_space_does_not_drop_the_newest_dialogue_message(sessions) -> None:
-    """A stale registration that happens to share a Telethon ID must not steal the match."""
-    chat_id, owner_id, bot_id = 106, 42, 99
-    at = datetime(2026, 8, 11, 21, 33, 33, tzinfo=UTC)
-    messages = [
-        FakeTelegramMessage(406, "Создай задачу подтянуться 20 раз", owner_id, at),
-        FakeTelegramMessage(
-            405,
-            mark_kind("Цель удалена.", MessageKind.DIALOGUE_ASSISTANT),
-            bot_id,
-            at - timedelta(seconds=30),
-        ),
-    ]
-    await register(sessions, chat_id, 465, "in", MessageKind.DIALOGUE_USER)
-    await register(sessions, chat_id, 464, "out", MessageKind.DIALOGUE_ASSISTANT)
-    # An older form input whose Bot API ID collides with the newest Telethon ID.
-    await register(sessions, chat_id, 406, "in", MessageKind.UI_INPUT)
-    async with sessions() as session:
-        for message_id, registered_at in (
-            (465, at),
-            (464, at - timedelta(seconds=30)),
-            (406, at - timedelta(hours=2)),
-        ):
-            await session.execute(
-                update(TelegramMessage)
-                .where(
-                    TelegramMessage.chat_id == chat_id,
-                    TelegramMessage.message_id == message_id,
-                )
-                .values(created_at=registered_at)
-            )
-        await session.commit()
-    source = TelegramHistorySource(
-        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
-    )
-
-    entries = await source.recent(chat_id)
-
-    assert [(entry.kind, entry.text) for entry in entries] == [
-        (MessageKind.DIALOGUE_ASSISTANT.value, "Цель удалена."),
-        (MessageKind.DIALOGUE_USER.value, "Создай задачу подтянуться 20 раз"),
-    ]
-
-
 async def test_kind_marks_rebuild_history_without_registrations(sessions) -> None:
-    """A rebuilt database loses every registration; Telegram must still be enough."""
+    """TG-NOTES-007 — tests/brd/telegram_history.feature"""
     chat_id, owner_id, bot_id = 100, 42, 99
     at = datetime(2026, 8, 11, 12, 0, tzinfo=UTC)
     messages = [
@@ -394,8 +274,112 @@ async def test_kind_marks_rebuild_history_without_registrations(sessions) -> Non
     ]
 
 
+async def test_the_read_reaches_past_every_note_safwa_kept(sessions) -> None:
+    """TG-NOTES-007 — tests/brd/telegram_history.feature"""
+    chat_id, owner_id, bot_id = 114, 42, 99
+    at = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
+    messages = [
+        FakeTelegramMessage(72, "Newest thought", owner_id, at + timedelta(minutes=2)),
+        FakeTelegramMessage(
+            71,
+            mark_kind("Older answer", MessageKind.DIALOGUE_ASSISTANT),
+            bot_id,
+            at - timedelta(hours=2),
+        ),
+        FakeTelegramMessage(70, "Older thought", owner_id, at - timedelta(hours=3)),
+    ]
+    # One note, newer than two of the three messages: the read used to stop at it.
+    await register(sessions, chat_id, 900, "out", MessageKind.DASHBOARD)
+    await backdate(sessions, chat_id, at + timedelta(minutes=1))
+    source = TelegramHistorySource(
+        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+    )
+
+    entries = await source.recent(chat_id)
+
+    assert [entry.text for entry in entries] == [
+        "Older thought",
+        "Older answer",
+        "Newest thought",
+    ]
+
+
+async def test_a_summary_too_long_for_one_message_reads_as_one(sessions) -> None:
+    """SC-SPLIT-004 — tests/brd/screens.feature"""
+    chat_id, owner_id, bot_id = 115, 42, 99
+    at = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
+    messages = [
+        FakeTelegramMessage(83, "After the Summary", owner_id, at + timedelta(minutes=4)),
+        FakeTelegramMessage(
+            82,
+            mark_kind("second half.", MessageKind.SUMMARY),
+            bot_id,
+            at + timedelta(minutes=3),
+        ),
+        FakeTelegramMessage(
+            81,
+            mark_kind(f"{SUMMARY_HEADER}\nFirst half,", MessageKind.SUMMARY),
+            bot_id,
+            at + timedelta(minutes=2),
+        ),
+        FakeTelegramMessage(80, "Before the Summary", owner_id, at + timedelta(minutes=1)),
+    ]
+    source = TelegramHistorySource(
+        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+    )
+
+    entries = await source.recent(chat_id)
+
+    assert entries[0].kind == MessageKind.SUMMARY.value
+    assert entries[0].text == "First half,\nsecond half."
+    # The newest part is the cut place, which is what `record_summary` stored.
+    assert entries[0].message_id == 82
+    assert [entry.text for entry in entries[1:]] == [
+        "Before the Summary",
+        "After the Summary",
+    ]
+
+
+async def test_an_older_summary_with_only_a_screen_between_them_is_not_read(sessions) -> None:
+    """TG-SUMMARY-006 — tests/brd/telegram_history.feature"""
+    chat_id, owner_id, bot_id = 116, 42, 99
+    at = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
+    messages = [
+        FakeTelegramMessage(
+            93,
+            mark_kind(f"{SUMMARY_HEADER}\nThe newest Summary.", MessageKind.SUMMARY),
+            bot_id,
+            at + timedelta(minutes=4),
+        ),
+        FakeTelegramMessage(
+            92,
+            mark_kind("Today's board", MessageKind.DASHBOARD),
+            bot_id,
+            at + timedelta(minutes=3),
+        ),
+        FakeTelegramMessage(
+            91,
+            mark_kind(f"{SUMMARY_HEADER}\nAn older Summary.", MessageKind.SUMMARY),
+            bot_id,
+            at + timedelta(minutes=2),
+        ),
+        FakeTelegramMessage(90, "Before both", owner_id, at + timedelta(minutes=1)),
+    ]
+    source = TelegramHistorySource(
+        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+    )
+
+    entries = await source.recent(chat_id)
+
+    # A dashboard between them is still a message, so these are two Summaries and not one
+    # split in two. The older one is already represented by the newer.
+    assert entries[0].kind == MessageKind.SUMMARY.value
+    assert entries[0].text == "The newest Summary."
+    assert [entry.text for entry in entries[1:]] == ["Before both"]
+
+
 async def test_item_links_read_back_as_the_citations_the_model_wrote(sessions) -> None:
-    """Telethon hands us plain text, so a rendered link has to be un-rendered here."""
+    """TG-CITE-011 — tests/brd/telegram_history.feature"""
     chat_id, owner_id, bot_id = 100, 42, 99
     at = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
     reply = "🎯 Answer Milk, then close Market."
@@ -423,20 +407,27 @@ async def test_item_links_read_back_as_the_citations_the_model_wrote(sessions) -
 
 
 def test_restore_citations_only_rewrites_safwa_deep_links() -> None:
-    assert restore_citations("Milk", None) == "Milk"
+    """TG-CITE-011 — tests/brd/telegram_history.feature"""
+    assert restore_citations("Milk", None, CITATION_TYPES) == "Milk"
     assert (
-        restore_citations("Milk", [MessageEntityTextUrl(0, 4, "https://t.me/x?start=check-14")])
+        restore_citations(
+            "Milk",
+            [MessageEntityTextUrl(0, 4, "https://t.me/x?start=check-14")],
+            CITATION_TYPES,
+        )
         == "[Milk](check:14)"
     )
     # A link that is not an item link is left exactly as the user reads it.
     for url in ("https://t.me/x?start=sprint-1", "https://t.me/safwa_ai_bot", "https://ok.dev"):
-        assert restore_citations("Milk", [MessageEntityTextUrl(0, 4, url)]) == "Milk"
+        assert restore_citations("Milk", [MessageEntityTextUrl(0, 4, url)], CITATION_TYPES) == "Milk"
 
 
 def test_a_compact_diary_label_round_trips_as_a_citation() -> None:
+    """TG-CITE-011 — tests/brd/telegram_history.feature"""
     restored = restore_citations(
         "Тот день: 4 марта · 🙂6.",
         [MessageEntityTextUrl(10, 13, "https://t.me/x?start=diary-12")],
+        CITATION_TYPES,
     )
     assert restored == "Тот день: [4 марта · 🙂6](diary:12)."
     match = CITATION_PATTERN.search(restored)
@@ -448,6 +439,7 @@ def test_a_compact_diary_label_round_trips_as_a_citation() -> None:
 
 
 def test_kind_mark_round_trips_and_is_invisible() -> None:
+    """TG-MARK-001 — tests/brd/telegram_history.feature"""
     for kind in MessageKind:
         marked = mark_kind("Visible text", kind)
         assert marked.startswith("Visible text")
@@ -456,11 +448,12 @@ def test_kind_mark_round_trips_and_is_invisible() -> None:
 
 
 def test_event_marker_survives_message_edits() -> None:
+    """TG-MARK-001 — tests/brd/telegram_history.feature"""
     original, event_id = mark_message("Original", MessageKind.DIALOGUE_ASSISTANT)
     edited = mark_kind("Edited", MessageKind.DIALOGUE_ASSISTANT, event_id=event_id)
 
-    assert read_message_mark(original)[1] == event_id
-    assert read_message_mark(edited) == (
+    assert MARKS.read(original)[1] == event_id
+    assert MARKS.read(edited) == (
         MessageKind.DIALOGUE_ASSISTANT.value,
         event_id,
         "Edited",
@@ -470,7 +463,7 @@ def test_event_marker_survives_message_edits() -> None:
 async def test_a_receipt_reads_back_as_a_tool_result_rather_than_as_safwa_words(
     sessions,
 ) -> None:
-    """The interface's receipt is the owner's channel; only Safwa's prose stays assistant."""
+    """TG-RECEIPT-009 — tests/brd/telegram_history.feature"""
     source = TelegramHistorySource(None, sessions, bot_user_id=99, owner_id=42)
     at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
     entries = [
@@ -502,7 +495,7 @@ async def test_a_receipt_reads_back_as_a_tool_result_rather_than_as_safwa_words(
 
 
 async def test_unmarked_bot_prose_is_excluded(sessions) -> None:
-    """First-version history accepts bot dialogue only when Safwa marked it."""
+    """TG-MARK-001 — tests/brd/telegram_history.feature"""
     chat_id, owner_id, bot_id = 100, 42, 99
     at = datetime(2026, 8, 12, 12, 0, tzinfo=UTC)
     messages = [
@@ -519,6 +512,161 @@ async def test_unmarked_bot_prose_is_excluded(sessions) -> None:
     assert [(entry.kind, entry.text) for entry in entries] == [
         (MessageKind.DIALOGUE_USER.value, "How does Safwa work?"),
     ]
+
+
+async def test_screens_receipts_and_progress_notes_are_not_the_conversation(sessions) -> None:
+    """TG-KIND-002 — tests/brd/telegram_history.feature"""
+    chat_id, owner_id, bot_id = 110, 42, 99
+    at = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
+    messages = [
+        FakeTelegramMessage(
+            37,
+            mark_kind("Your Sprint ended.", MessageKind.CUE),
+            bot_id,
+            at + timedelta(minutes=7),
+        ),
+        FakeTelegramMessage(
+            36,
+            mark_kind("Safwa could not complete that request.", MessageKind.ERROR),
+            bot_id,
+            at + timedelta(minutes=6),
+        ),
+        FakeTelegramMessage(
+            35,
+            mark_kind("\U0001f3a7 Transcribing... 40%", MessageKind.STATUS),
+            bot_id,
+            at + timedelta(minutes=5),
+        ),
+        FakeTelegramMessage(
+            34,
+            mark_kind("Saved. Safwa is continuing...", MessageKind.RECEIPT),
+            bot_id,
+            at + timedelta(minutes=4),
+        ),
+        FakeTelegramMessage(
+            33,
+            mark_kind("<b>Today</b>", MessageKind.DASHBOARD),
+            bot_id,
+            at + timedelta(minutes=3),
+        ),
+        FakeTelegramMessage(
+            32,
+            mark_kind("Good idea.", MessageKind.DIALOGUE_ASSISTANT),
+            bot_id,
+            at + timedelta(minutes=2),
+        ),
+        FakeTelegramMessage(31, "I want to stretch daily", owner_id, at + timedelta(minutes=1)),
+    ]
+    source = TelegramHistorySource(
+        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+    )
+
+    entries = await source.recent(chat_id)
+
+    assert [(entry.kind, entry.text) for entry in entries] == [
+        (MessageKind.DIALOGUE_USER.value, "I want to stretch daily"),
+        (MessageKind.DIALOGUE_ASSISTANT.value, "Good idea."),
+        (MessageKind.CUE.value, "Your Sprint ended."),
+    ]
+
+
+async def test_a_command_left_standing_in_the_chat_is_still_not_the_conversation(
+    sessions,
+) -> None:
+    """TG-OWNER-003 — tests/brd/telegram_history.feature"""
+    chat_id, owner_id, bot_id = 111, 42, 99
+    at = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
+    messages = [
+        FakeTelegramMessage(43, "What should I do next?", owner_id, at + timedelta(minutes=3)),
+        FakeTelegramMessage(42, "/today", owner_id, at + timedelta(minutes=2)),
+    ]
+    source = TelegramHistorySource(
+        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+    )
+
+    entries = await source.recent(chat_id)
+
+    assert [entry.text for entry in entries] == ["What should I do next?"]
+
+
+async def test_two_answers_with_nothing_between_them_read_as_one(sessions) -> None:
+    """TG-SHAPE-010 — tests/brd/telegram_history.feature"""
+    source = TelegramHistorySource(None, sessions, bot_user_id=99, owner_id=42)
+    at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
+    entries = [
+        HistoryEntry(1, 42, "user", "What is left today?", at, "dialogue_user"),
+        HistoryEntry(2, 99, "assistant", "Two Actions.", at, "dialogue_assistant"),
+        HistoryEntry(3, 99, "assistant", "Both are short.", at, "dialogue_assistant"),
+    ]
+
+    async def recent(*_args, **_kwargs):
+        return entries
+
+    source.recent = recent  # type: ignore[method-assign]
+    dialogue = await source.dialogue(100)
+
+    assert [(item.role, item.content) for item in dialogue] == [
+        ("user", "[2026-08-08 12:00] [User]: What is left today?"),
+        ("assistant", "Two Actions.\nBoth are short."),
+    ]
+
+
+async def test_the_answered_message_is_added_when_the_chat_read_has_not_caught_up(
+    sessions,
+) -> None:
+    """TG-CURRENT-008 — tests/brd/telegram_history.feature"""
+    chat_id, owner_id, bot_id = 112, 42, 99
+    at = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
+    messages = [
+        FakeTelegramMessage(
+            51,
+            mark_kind("Earlier answer", MessageKind.DIALOGUE_ASSISTANT),
+            bot_id,
+            at + timedelta(minutes=1),
+        ),
+    ]
+    source = TelegramHistorySource(
+        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+    )
+    current = HistoryEntry(
+        message_id=52,
+        sender_id=owner_id,
+        role="user",
+        text="And now?",
+        created_at=at + timedelta(minutes=2),
+        kind=MessageKind.DIALOGUE_USER.value,
+    )
+
+    entries = await source.recent(chat_id, source_message=current)
+
+    assert [entry.text for entry in entries] == ["Earlier answer", "And now?"]
+
+
+async def test_reading_one_named_day_reads_past_the_summary_inside_it(sessions) -> None:
+    """DI-READ-016 — tests/brd/diary.feature"""
+    chat_id, owner_id, bot_id = 113, 42, 99
+    day = datetime(2026, 8, 14, tzinfo=UTC)
+    messages = [
+        FakeTelegramMessage(64, "The day after", owner_id, day + timedelta(hours=25)),
+        FakeTelegramMessage(63, "Evening thought", owner_id, day + timedelta(hours=20)),
+        FakeTelegramMessage(
+            62,
+            mark_kind("\U0001f4dc Summary\nThe morning, in short.", MessageKind.SUMMARY),
+            bot_id,
+            day + timedelta(hours=13),
+        ),
+        FakeTelegramMessage(61, "Morning thought", owner_id, day + timedelta(hours=8)),
+        FakeTelegramMessage(60, "The day before", owner_id, day - timedelta(hours=1)),
+    ]
+    source = TelegramHistorySource(
+        FakeTelegramClient(messages), sessions, bot_user_id=bot_id, owner_id=owner_id
+    )
+
+    transcript = await source.day_transcript(
+        chat_id, start=day, end=day + timedelta(days=1), token_budget=6_000
+    )
+
+    assert transcript == "[08:00] [User]: Morning thought\n[20:00] [User]: Evening thought"
 
 
 def test_conversation_block_tags_every_line_by_who_wrote_it() -> None:

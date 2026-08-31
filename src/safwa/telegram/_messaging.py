@@ -1,46 +1,47 @@
-"""Telegram I/O: sending, editing and deleting screens, and registering every one of them."""
+"""Safwa's side of `telegram_llm`'s chat host: its kinds, its buttons, its own screens."""
 
 from __future__ import annotations
 
-import asyncio
 import html
 import logging
 import secrets
-from contextlib import suppress
-from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from aiogram import Bot
-from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    InputRichMessage,
     Message,
 )
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..constants import CALLBACK_TOKEN_TTL_HOURS, TOAST_SECONDS
+from telegram_llm import ChatHost, Note
+
+from ..constants import TOAST_SECONDS
 from ..enums import MessageKind
 from ..features.continuity.use_cases import record_summary
 from ..features.proposals.model import BatchDecision
-from ..history import mark_kind, mark_message, register_message
-from ..models import (
-    CallbackToken,
-    TelegramMessage,
-    UiSession,
-)
+from ..history import MARKS, TelegramNotes
+from ..models import CallbackToken, UiSession
 from ._core import QueuedMessage, Services
-from ._presentation import Page, proposal_outcome_text, split_telegram_text
+from ._presentation import Page, proposal_outcome_text
 
 logger = logging.getLogger(__name__)
 
-# Two taps arriving together would otherwise edit the same message at once, and Telegram
-# answers the loser with "canceled by new edit message request" instead of drawing it.  Only
-# edits contend: a new message cannot be cancelled by another, so sending never waits here.
-_edit_lock = asyncio.Lock()
+# Every screen kind: a message the owner can still press something on.
+_SCREEN_KINDS = frozenset(
+    {
+        MessageKind.DASHBOARD.value,
+        MessageKind.CARD_EDITOR.value,
+        MessageKind.APPROVAL.value,
+    }
+)
+
+
+def _host(services: Services) -> ChatHost:
+    return ChatHost(TelegramNotes(services.sessions), MARKS)
 
 
 async def token_button(
@@ -50,6 +51,7 @@ async def token_button(
     action: str,
     payload: dict[str, Any] | None = None,
 ) -> InlineKeyboardButton:
+    """One button that works once, minted in the transaction that draws its screen."""
     token = secrets.token_urlsafe(9)
     session.add(
         CallbackToken(
@@ -57,7 +59,6 @@ async def token_button(
             owner_id=owner_id,
             action=action,
             payload=payload or {},
-            expires_at=datetime.now(UTC) + timedelta(hours=CALLBACK_TOKEN_TTL_HOURS),
         )
     )
     return InlineKeyboardButton(text=text, callback_data=f"cb:{token}")
@@ -75,79 +76,16 @@ async def send_registered(
     replace: bool | None = None,
     rich: bool = False,
 ) -> Message:
-    """Render a UI state, replacing an inline-action screen when possible.
-
-    Command and ordinary-text handlers receive a user message, so their response
-    remains a new bot message. Callback handlers receive the bot's previous
-    message and therefore update that message in place. Callers only opt out for
-    intentionally additive history messages.
-
-    `rich` reads `text` as Rich HTML — a block dialect with tables, sent as a rich message
-    instead of a parse-mode one. Marking and registration stay the same for both.
-    """
-    should_replace = (
-        bool(message.from_user and message.from_user.is_bot) if replace is None else replace
+    return await _host(services).send(
+        message,
+        text,
+        kind=kind.value,
+        markup=markup,
+        related_id=related_id,
+        event_id=event_id,
+        replace=replace,
+        rich=rich,
     )
-    visible_text = text
-    # A supplied event id belongs to a caller that owns the delivery record — a Cue, which
-    # posts a new message rather than replacing one, so no stored id is looked up for it.
-    if should_replace and event_id is None:
-        async with services.sessions() as session:
-            stored = await session.scalar(
-                select(TelegramMessage).where(
-                    TelegramMessage.chat_id == message.chat.id,
-                    TelegramMessage.message_id == message.message_id,
-                )
-            )
-            event_id = stored.event_id if stored is not None else None
-    text, event_id = mark_message(visible_text, kind, event_id=event_id)
-
-    async def deliver_edit(body: str) -> None:
-        if rich:
-            await message.edit_text(
-                rich_message=InputRichMessage(html=body), reply_markup=markup
-            )
-        else:
-            await message.edit_text(body, reply_markup=markup, parse_mode=ParseMode.HTML)
-
-    async def deliver_new(body: str) -> Message:
-        if rich:
-            return await message.answer_rich(
-                rich_message=InputRichMessage(html=body), reply_markup=markup
-            )
-        return await message.answer(body, reply_markup=markup, parse_mode=ParseMode.HTML)
-
-    if should_replace:
-        try:
-            async with _edit_lock:
-                await deliver_edit(text)
-            sent = message
-        except TelegramAPIError as error:
-            # Telegram rejects a no-op edit.  It is still the same rendered state.
-            if "message is not modified" in str(error).casefold():
-                sent = message
-            else:
-                logger.warning(
-                    "Could not replace Telegram UI message %s; sending a new screen: %s",
-                    message.message_id,
-                    error,
-                )
-                text, event_id = mark_message(visible_text, kind)
-                sent = await deliver_new(text)
-    else:
-        sent = await deliver_new(text)
-    async with services.sessions() as session:
-        await register_message(
-            session,
-            sent.chat.id,
-            sent.message_id,
-            "out",
-            kind,
-            related_id,
-            event_id,
-        )
-        await session.commit()
-    return sent
 
 
 async def edit_registered_message(
@@ -161,100 +99,20 @@ async def edit_registered_message(
     related_id: int | None = None,
     rich: bool = False,
 ) -> None:
-    """Replace a known bot UI message after consuming a separate user text message."""
-    async with services.sessions() as session:
-        stored = await session.scalar(
-            select(TelegramMessage).where(
-                TelegramMessage.chat_id == message.chat.id,
-                TelegramMessage.message_id == message_id,
-            )
-        )
-        event_id = stored.event_id if stored is not None else None
-    marked_text, event_id = mark_message(text, kind, event_id=event_id)
-    try:
-        async with _edit_lock:
-            if rich:
-                await message.bot.edit_message_text(
-                    rich_message=InputRichMessage(html=marked_text),
-                    chat_id=message.chat.id,
-                    message_id=message_id,
-                    reply_markup=markup,
-                )
-            else:
-                await message.bot.edit_message_text(
-                    marked_text,
-                    chat_id=message.chat.id,
-                    message_id=message_id,
-                    reply_markup=markup,
-                    parse_mode=ParseMode.HTML,
-                )
-    except TelegramAPIError as error:
-        reason = str(error).casefold()
-        if "message to edit not found" in reason:
-            # The screen went away without the bot removing it — clearing the chat leaves
-            # its row behind — so the row goes too and the state is drawn as a new screen.
-            async with services.sessions() as session:
-                await session.execute(
-                    delete(TelegramMessage).where(
-                        TelegramMessage.chat_id == message.chat.id,
-                        TelegramMessage.message_id == message_id,
-                    )
-                )
-                await session.commit()
-            await send_registered(
-                message,
-                services,
-                text,
-                kind=kind,
-                markup=markup,
-                related_id=related_id,
-                replace=False,
-                rich=rich,
-            )
-            return
-        if "message is not modified" not in reason:
-            raise
-    async with services.sessions() as session:
-        await register_message(
-            session,
-            message.chat.id,
-            message_id,
-            "out",
-            kind,
-            related_id,
-            event_id,
-        )
-        await session.commit()
+    await _host(services).edit(
+        message,
+        message_id,
+        text,
+        kind=kind.value,
+        markup=markup,
+        related_id=related_id,
+        rich=rich,
+    )
 
 
 async def delete_text_input(message: Message, services: Services) -> bool:
     """Text entered into a field is operational UI input, not dialogue history."""
-    async with services.sessions() as session:
-        await register_message(
-            session,
-            message.chat.id,
-            message.message_id,
-            "in",
-            MessageKind.UI_INPUT,
-        )
-        await session.commit()
-    try:
-        await message.delete()
-    except TelegramAPIError as error:
-        logger.warning("Could not delete UI field input %s: %s", message.message_id, error)
-        return False
-    return True
-
-
-async def clear_message_markup(message: Message, message_id: int) -> None:
-    try:
-        await message.bot.edit_message_reply_markup(
-            chat_id=message.chat.id,
-            message_id=message_id,
-            reply_markup=None,
-        )
-    except TelegramAPIError:
-        pass
+    return await _host(services).remove_incoming(message, kind=MessageKind.UI_INPUT.value)
 
 
 async def paging_row(
@@ -281,99 +139,49 @@ async def paging_row(
 
 
 async def dismiss_prior_ui(message: Message, services: Services) -> None:
-    """Leave exactly one interaction screen live: the one this event belongs to.
+    """Leave exactly one interaction screen live: the one this event belongs to."""
 
-    The selector is "every other screen", not "every older screen" — a button pressed on a
-    dashboard below an open proposal still has to answer that proposal.
-    """
-    ui_kinds = {
-        MessageKind.DASHBOARD.value,
-        MessageKind.CARD_EDITOR.value,
-        MessageKind.APPROVAL.value,
-    }
-    async with services.sessions() as session:
-        screens = list(
-            await session.scalars(
-                select(TelegramMessage)
-                .where(
-                    TelegramMessage.chat_id == message.chat.id,
-                    TelegramMessage.direction == "out",
-                    TelegramMessage.kind.in_(ui_kinds),
-                    TelegramMessage.message_id != message.message_id,
-                )
-                .order_by(TelegramMessage.message_id.desc())
-            )
-        )
+    async def freeze(screen: Note) -> tuple[str, str] | None:
+        return await _interrupted_review(services, screen)
 
-    for screen in screens:
-        replacement: str | None = None
-        advisor = getattr(services, "advisor", None)
-        review = (
-            advisor.reviews.proposal(screen.related_id)
-            if advisor is not None and screen.kind == MessageKind.APPROVAL.value
-            else None
-        )
-        if review is not None:
-            async with services.sessions() as session:
-                description = await advisor.describe_proposal(session, review.id)
-            advisor.reviews.end_proposal(review.id)
-            progress = await advisor.cancel_approval_for_proposal(review.id)
-            if progress:
-                # Earlier items in the queue may already be saved, and this frozen screen
-                # becomes assistant history.  Report the whole request.
-                replacement = (
-                    "<b>Request interrupted</b>\n"
-                    "You continued the conversation, so the remaining proposals were "
-                    "discarded.\n\n" + html.escape(progress)
-                )
-            else:
-                replacement = proposal_outcome_text(
-                    BatchDecision.DISCARDED,
-                    description.summary,
-                    description.fields,
-                    notice="You continued the conversation without saving it.",
-                )
-        if replacement is not None:
-            try:
-                await message.bot.edit_message_text(
-                    mark_kind(
-                        replacement,
-                        MessageKind.DIALOGUE_ASSISTANT,
-                        event_id=screen.event_id,
-                    ),
-                    chat_id=message.chat.id,
-                    message_id=screen.message_id,
-                    parse_mode=ParseMode.HTML,
-                )
-            except TelegramAPIError as error:
-                logger.warning("Could not freeze proposal UI %s: %s", screen.message_id, error)
-                try:
-                    await message.bot.edit_message_reply_markup(
-                        chat_id=message.chat.id,
-                        message_id=screen.message_id,
-                        reply_markup=None,
-                    )
-                except TelegramAPIError:
-                    pass
-                continue
-            async with services.sessions() as session:
-                await register_message(
-                    session,
-                    message.chat.id,
-                    screen.message_id,
-                    "out",
-                    MessageKind.DIALOGUE_ASSISTANT,
-                    screen.related_id,
-                    screen.event_id,
-                )
-                await session.commit()
-            continue
-
-        await delete_screen(message, services, screen.message_id)
-
+    await _host(services).leave_one_screen(message, kinds=_SCREEN_KINDS, freeze=freeze)
     async with services.sessions() as session:
         await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
         await session.commit()
+
+
+async def _interrupted_review(services: Services, screen: Note) -> tuple[str, str] | None:
+    """A review the owner walked away from, frozen into what became of it.
+
+    Every other screen is only a state and goes; a review is a question that was asked, so
+    the chat has to keep saying it was asked and how it ended.
+    """
+    advisor = getattr(services, "advisor", None)
+    if advisor is None or screen.kind != MessageKind.APPROVAL.value:
+        return None
+    review = advisor.reviews.proposal(screen.related_id)
+    if review is None:
+        return None
+    async with services.sessions() as session:
+        description = await advisor.describe_proposal(session, review.id)
+    advisor.reviews.end_proposal(review.id)
+    progress = await advisor.cancel_approval_for_proposal(review.id)
+    if progress:
+        # Earlier items in the queue may already be saved, and this frozen screen becomes
+        # assistant history.  Report the whole request.
+        text = (
+            "<b>Request interrupted</b>\n"
+            "You continued the conversation, so the remaining proposals were discarded.\n\n"
+            + html.escape(progress)
+        )
+    else:
+        text = proposal_outcome_text(
+            BatchDecision.DISCARDED,
+            description.summary,
+            description.fields,
+            notice="You continued the conversation without saving it.",
+        )
+    return text, MessageKind.DIALOGUE_ASSISTANT.value
 
 
 async def materialize_queued_dialogue(
@@ -413,135 +221,61 @@ def owner_display_name(message: Message, services: Services) -> str:
     return "User"
 
 
-async def send_owner_turn(message: Message, services: Services, text: str) -> Message:
-    """Post the owner's words as their own dialogue turn, and return the last part.
+async def send_prose(
+    message: Message,
+    services: Services,
+    text: str,
+    *,
+    kind: MessageKind,
+    event_id: str | None = None,
+    replace: bool | None = None,
+) -> Message:
+    return await _host(services).send_parts(
+        message, text, kind=kind.value, event_id=event_id, replace=replace
+    )
 
-    Used wherever those words did not reach the chat as owner text: a transcript, because
-    a voice message carries none, and a queue drain, because the messages it holds were
-    deleted.  Either can outgrow one Telegram message, so both are split here.
-    """
-    name = owner_display_name(message, services)
-    sent: Message | None = None
-    for index, part in enumerate(split_telegram_text(text)):
-        # `dialogue()` merges consecutive user entries into one turn, so the name belongs
-        # on the first part only; repeating it would read as several turns.
-        head = f"<b>{html.escape(name)}:</b>\n" if index == 0 else ""
-        sent = await send_registered(
-            message,
-            services,
-            head + html.escape(part),
-            kind=MessageKind.DIALOGUE_USER,
-            replace=False,
-        )
-    if sent is None:
-        raise ValueError("Refusing to post an empty dialogue turn")
-    return sent
+
+async def send_owner_turn(message: Message, services: Services, text: str) -> Message:
+    """Post as `DIALOGUE_USER` words that did not reach the chat as owner text."""
+    return await _host(services).relay(
+        message,
+        owner_display_name(message, services),
+        text,
+        kind=MessageKind.DIALOGUE_USER.value,
+    )
 
 
 async def delete_screen(message: Message, services: Services, message_id: int) -> None:
-    """Remove one bot screen, or at least its buttons when Telegram refuses to delete it."""
-    try:
-        await message.bot.delete_message(message.chat.id, message_id)
-    except TelegramAPIError:
-        try:
-            await message.bot.edit_message_reply_markup(
-                chat_id=message.chat.id,
-                message_id=message_id,
-                reply_markup=None,
-            )
-        except TelegramAPIError:
-            pass
-        return
-    async with services.sessions() as session:
-        stored = await session.scalar(
-            select(TelegramMessage).where(
-                TelegramMessage.chat_id == message.chat.id,
-                TelegramMessage.message_id == message_id,
-            )
-        )
-        if stored is not None:
-            await session.delete(stored)
-            await session.commit()
-
-
-# One Toast at a time per chat: a burst of them would otherwise stack above the screen and
-# push it out of sight, which is the one thing a Toast must not do.
-_toasts: dict[int, tuple[int, asyncio.Task[None]]] = {}
+    await _host(services).remove_screen(message, message_id)
 
 
 async def send_toast(message: Message, services: Services, text: str) -> None:
-    """Say one thing beside the screen and take it back after `TOAST_SECONDS`.
-
-    A redraw carries its own notice through `with_notice`; a Toast is for what has to be
-    said when the screen must stay exactly as it is.  It is `STATUS`, so it never becomes
-    dialogue, and it leaves the screen the last message again once it expires.
-    """
-    await discard_toast(message, services)
-    sent = await send_registered(
-        message, services, text, kind=MessageKind.STATUS, replace=False
-    )
-    _toasts[message.chat.id] = (
-        sent.message_id,
-        asyncio.create_task(
-            _expire_toast(message, services, sent.message_id), name="toast-expiry"
-        ),
+    """A Toast is `STATUS`, so it never becomes dialogue."""
+    await _host(services).toast(
+        message, text, kind=MessageKind.STATUS.value, seconds=TOAST_SECONDS
     )
 
 
 async def discard_toast(message: Message, services: Services) -> None:
-    """Remove the live Toast now. Its timer is cancelled, so it is deleted exactly once."""
-    live = _toasts.pop(message.chat.id, None)
-    if live is None:
-        return
-    message_id, task = live
-    task.cancel()
-    await delete_screen(message, services, message_id)
+    await _host(services).discard_toast(message)
 
 
 async def discard_stale_status(bot: Bot, services: Services, chat_id: int) -> None:
-    """Take back the Toasts and progress lines the process died under.
-
-    Startup is the one moment that can tell a stale one from a live one, because none is
-    live yet.
-    """
-    async with services.sessions() as session:
-        stale = list(
-            await session.scalars(
-                select(TelegramMessage).where(
-                    TelegramMessage.chat_id == chat_id,
-                    TelegramMessage.direction == "out",
-                    TelegramMessage.kind == MessageKind.STATUS.value,
-                )
-            )
-        )
-        for stored in stale:
-            with suppress(TelegramAPIError):
-                await bot.delete_message(chat_id, stored.message_id)
-            await session.delete(stored)
-        await session.commit()
-
-
-async def _expire_toast(message: Message, services: Services, message_id: int) -> None:
-    await asyncio.sleep(TOAST_SECONDS)
-    _toasts.pop(message.chat.id, None)
-    await delete_screen(message, services, message_id)
+    """Take back the Toasts and progress lines the process died under."""
+    await _host(services).discard_stale(bot, chat_id, kind=MessageKind.STATUS.value)
 
 
 async def send_summary(
     message: Message, services: Services, text: str, covered_id: int
 ) -> None:
-    """Post one Summary and move the cut place `recent` reads back to."""
-    marked_text, event_id = mark_message(html.escape(text), MessageKind.SUMMARY)
-    sent = await message.answer(marked_text)
+    """Post one Summary and move the cut place `recent` reads back to.
+
+    The cut place is the **last** part, which is where the backwards read meets it.
+    """
+    sent = await send_prose(
+        message, services, html.escape(text), kind=MessageKind.SUMMARY, replace=False
+    )
     async with services.sessions() as session:
-        await register_message(
-            session,
-            sent.chat.id,
-            sent.message_id,
-            "out",
-            MessageKind.SUMMARY,
-            event_id=event_id,
-        )
         await record_summary(
             session, message_id=sent.message_id, covered_id=covered_id, text=text
         )

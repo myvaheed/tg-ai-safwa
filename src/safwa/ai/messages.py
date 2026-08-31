@@ -12,9 +12,10 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agent_runtime import append_user_message, cache_breakpoint, system_note
+from telegram_llm import DialogueMessage
 
 from ..features.continuity.memory import MemoryFileStore
-from .context import DialogueMessage, board_context, ordered_owner_context
+from .context import board_context, ordered_owner_context
 from .subagents import RoutedSubagent
 from .tools import conversation_for
 

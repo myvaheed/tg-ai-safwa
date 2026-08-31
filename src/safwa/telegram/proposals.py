@@ -7,14 +7,16 @@ from typing import Any
 from aiogram.enums import ChatAction
 from aiogram.types import InlineKeyboardMarkup, Message
 
+from telegram_llm import markdown_to_telegram_html
+
 from ..ai.outcome import AIOutcome
 from ..domain import DomainError
 from ..enums import MessageKind
 from ..features.proposals.model import DECISION_RECEIPTS, BatchDecision
 from ..foundation.errors import failure_reason
 from ._core import Services
-from ._messaging import edit_registered_message, send_registered, token_button
-from ._presentation import markdown_to_telegram_html, proposal_change_summary
+from ._messaging import edit_registered_message, send_prose, send_registered, token_button
+from ._presentation import proposal_change_summary
 from .screens import open_citation, render_citations
 
 logger = logging.getLogger(__name__)
@@ -104,19 +106,23 @@ async def render_ai_outcome(
 ) -> None:
     """Render one agent state; suspended approval batches expose only their head item."""
     if outcome.proposal_id is not None:
-        await render_proposal(message, services, outcome.proposal_id, event_id=event_id)
+        try:
+            await render_proposal(message, services, outcome.proposal_id, event_id=event_id)
+        except Exception:
+            # A review is committed before its screen is drawn. One that never reached the
+            # chat is unanswerable and holds the Cue gate shut for the life of the process,
+            # so it ends here; saying what failed stays the caller's.
+            try:
+                await services.advisor.cancel_approval_for_proposal(outcome.proposal_id)
+            except Exception:
+                logger.exception("Could not end a review whose screen failed to send")
+            raise
         return
     async with services.sessions() as session:
         text = await render_citations(
             session, services, markdown_to_telegram_html(outcome.message)
         )
-    await send_registered(
-        message,
-        services,
-        text,
-        kind=kind,
-        event_id=event_id,
-    )
+    await send_prose(message, services, text, kind=kind, event_id=event_id)
     if outcome.open_item:
         await open_citation(message, services, outcome.open_item)
 

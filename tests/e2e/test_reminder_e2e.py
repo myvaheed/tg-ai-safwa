@@ -9,7 +9,6 @@ from sqlalchemy import select
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.ai.context import DialogueMessage
 from safwa.ai.outcome import AIOutcomeKind
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.profile.model import ProfileField
@@ -19,6 +18,7 @@ from safwa.features.reminders.schedule import schedule_of
 from safwa.foundation.clock import SystemClock
 from safwa.models import CallbackToken, Reminder
 from safwa.telegram import GenerationGuard, callback_token_handler, render_proposal
+from telegram_llm import DialogueMessage
 
 TZ = ZoneInfo("Europe/Istanbul")
 

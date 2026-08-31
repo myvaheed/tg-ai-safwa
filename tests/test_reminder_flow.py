@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from safwa.ai.context import DialogueMessage, board_context
+from safwa.ai.context import board_context
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.constants import REMINDER_CATCHUP_GRACE_MINUTES
 from safwa.cues.runtime import CueRuntime
@@ -39,6 +39,7 @@ from safwa.models import (
     Workspace,
 )
 from safwa.telegram._core import BACKGROUND_SOURCE_ID, GenerationGuard
+from telegram_llm import DialogueMessage
 
 TZ = ZoneInfo("Europe/Istanbul")
 NOW = datetime(2026, 8, 13, 9, 0, tzinfo=UTC)  # a Thursday
@@ -454,7 +455,8 @@ async def test_a_cue_render_failure_releases_its_pending_proposal(sessions, monk
         guard=GenerationGuard(),
     )
     runtime = CueRuntime(services, object(), owner_id=42)
-    monkeypatch.setattr("safwa.cues.runtime.render_ai_outcome", failed_render)
+    # Below the guard, not over it: ending an undrawn review is `render_ai_outcome`'s job.
+    monkeypatch.setattr("safwa.telegram.proposals.render_proposal", failed_render)
     monkeypatch.setattr(runtime, "_anchor", lambda: object())
 
     assert await runtime.can_speak() is True

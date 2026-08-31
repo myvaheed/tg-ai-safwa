@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -10,7 +9,6 @@ from sqlalchemy import func, select
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.ai.context import DialogueMessage
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS, SYSTEM_PROMPT
 from safwa.constants import MAX_TOOL_CALLS
@@ -33,7 +31,6 @@ from safwa.features.proposals.model import (
 )
 from safwa.features.proposals.use_cases import approve_proposal
 from safwa.features.saved_requests.use_cases import create_saved_request, request_cards
-from safwa.foundation.clock import utcnow
 from safwa.models import (
     AgentRun,
     AgentStep,
@@ -53,8 +50,10 @@ from safwa.telegram import (
     GenerationGuard,
     callback_token_handler,
     dismiss_prior_ui,
+    render_ai_outcome,
     render_proposal,
 )
+from telegram_llm import DialogueMessage
 
 pytestmark = pytest.mark.e2e
 
@@ -1528,6 +1527,44 @@ async def test_new_dialogue_cancels_every_unresolved_item_in_suspended_batch(e2e
         assert (run.kind, run.status) == ("board", "interrupted")
 
 
+async def test_a_review_whose_screen_could_not_be_sent_does_not_stay_open(
+    e2e_harness, monkeypatch
+):
+    """SC-FAIL-005 — tests/brd/screens.feature"""
+    advisor, _provider = e2e_harness.advisor(
+        [mutation_turn(("tag", {"mode": "create", "name": "VrWalk"}))]
+    )
+    outcome = await advisor.handle("Create a VrWalk tag")
+    assert outcome.proposal_id is not None
+    assert advisor.reviews.busy is True
+
+    async def refuse(*_args, **_kwargs):
+        raise RuntimeError("Telegram refused the screen")
+
+    monkeypatch.setattr("safwa.telegram.proposals.render_proposal", refuse)
+    message = _QueueTestMessage()
+    services = SimpleNamespace(
+        sessions=e2e_harness.sessions,
+        advisor=advisor,
+        history=_QueueTestHistory(),
+        owner_id=42,
+        guard=GenerationGuard(),
+    )
+
+    with pytest.raises(RuntimeError):
+        await render_ai_outcome(message, services, outcome)
+
+    # Nothing on screen and nothing waiting: this is exactly what `CueRuntime.can_speak`
+    # reads, so a Reminder that comes due next is spoken instead of waiting for a restart.
+    assert message.rendered == []
+    assert advisor.reviews.busy is False
+    async with e2e_harness.sessions() as session:
+        claimed = await session.scalar(
+            select(func.count(AgentRun.id)).where(AgentRun.claimed_at.is_not(None))
+        )
+    assert claimed == 0
+
+
 async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_harness):
     """PR-QUEUE-007 — tests/brd/proposals.feature"""
     async with e2e_harness.sessions() as session:
@@ -1724,54 +1761,8 @@ async def test_single_tag_proposal_save_and_discard_callbacks_resume_agent(
     assert len(provider.calls) == 2
 
 
-async def test_proposal_save_ignores_button_age_while_the_process_is_running(e2e_harness):
-    """PR-STALE-013 — tests/brd/proposals.feature"""
-    final_text = "The old proposal was saved."
-    advisor, provider = e2e_harness.advisor(
-        [
-            mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
-            final_text,
-        ]
-    )
-    outcome = await advisor.handle("Create a VrWalk tag")
-    assert outcome.proposal_id is not None
-    message = _QueueTestMessage()
-    services = SimpleNamespace(
-        sessions=e2e_harness.sessions,
-        advisor=advisor,
-        history=_QueueTestHistory(),
-        owner_id=42,
-        guard=GenerationGuard(),
-    )
-    await render_proposal(message, services, outcome.proposal_id)
-    async with e2e_harness.sessions() as session:
-        token = await session.scalar(
-            select(CallbackToken).where(CallbackToken.action == "proposal_approve")
-        )
-        assert token is not None
-        token.expires_at = utcnow() - timedelta(minutes=1)
-        await session.commit()
-        token_value = token.token
-
-    callback = _QueueTestCallback(token_value, message)
-    await callback_token_handler(callback, services)
-
-    async with e2e_harness.sessions() as session:
-        proposal = advisor.reviews.proposal(outcome.proposal_id)
-        tag = await session.scalar(select(Tag).where(Tag.name == "VrWalk"))
-        batch = next(iter(advisor.reviews.open_batches), None)
-        token = await session.get(CallbackToken, token_value)
-    assert proposal is None
-    assert tag is not None
-    assert batch is None
-    assert token.consumed_at is not None
-    assert not any(alert for _text, alert in callback.answers)
-    assert final_text in message.rendered[-1]
-    assert len(provider.calls) == 2
-
-
 async def test_restart_invalidates_an_unanswered_proposal_button(e2e_harness):
-    """PR-STALE-013 — tests/brd/proposals.feature"""
+    """SC-BUTTON-003 — tests/brd/screens.feature"""
     advisor, provider = e2e_harness.advisor(
         [mutation_turn(("tag", {"mode": "create", "name": "VrWalk"}))]
     )
@@ -1805,12 +1796,52 @@ async def test_restart_invalidates_an_unanswered_proposal_button(e2e_harness):
         token = await session.get(CallbackToken, token_value)
     assert advisor.reviews.proposal(outcome.proposal_id) is None
     assert tag is None
-    # The button went with the review it belonged to, so it answers like any dead screen.
+    # The button went with the run of Safwa that drew it, and the screen it was on is
+    # replaced rather than left standing with controls that answer nothing.
     assert token is None
-    assert [(text, alert) for text, alert in callback.answers if alert] == [
+    assert "out of date" in message.rendered[-1]
+    assert message.markups[-1] is None
+    assert not [alert for _text, alert in callback.answers if alert]
+    assert len(provider.calls) == 1
+
+
+async def test_a_button_works_once(e2e_harness):
+    """SC-BUTTON-003 — tests/brd/screens.feature"""
+    advisor, _provider = e2e_harness.advisor(
+        [
+            mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
+            "The VrWalk tag was saved.",
+        ]
+    )
+    outcome = await advisor.handle("Create a VrWalk tag")
+    assert outcome.proposal_id is not None
+    message = _QueueTestMessage()
+    services = SimpleNamespace(
+        sessions=e2e_harness.sessions,
+        advisor=advisor,
+        history=_QueueTestHistory(),
+        owner_id=42,
+        guard=GenerationGuard(),
+    )
+    await render_proposal(message, services, outcome.proposal_id)
+    async with e2e_harness.sessions() as session:
+        token_value = await session.scalar(
+            select(CallbackToken.token).where(CallbackToken.action == "proposal_approve")
+        )
+
+    await callback_token_handler(_QueueTestCallback(token_value, message), services)
+    second = _QueueTestCallback(token_value, message)
+    await callback_token_handler(second, services)
+
+    async with e2e_harness.sessions() as session:
+        tags = list(await session.scalars(select(Tag).where(Tag.name == "VrWalk")))
+    # The work happened once, and the second press is told the action is spent rather
+    # than the screen being replaced: the button is still there, it is just used up.
+    assert len(tags) == 1
+    assert [(text, alert) for text, alert in second.answers if alert] == [
         ("This action expired. Reopen the screen.", True)
     ]
-    assert len(provider.calls) == 1
+    assert "out of date" not in message.rendered[-1]
 
 
 async def test_read_queries_beside_a_proposal_still_resume_the_agent(e2e_harness):

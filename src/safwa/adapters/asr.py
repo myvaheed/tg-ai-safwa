@@ -13,16 +13,21 @@ import logging
 import os
 import sys
 import time
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 from llm_gateway.openai_compatible import OpenAICompatibleError, create_openai_client
+from telegram_llm import (
+    AudioClip,
+    ProgressCallback,
+    Transcriber,
+    TranscriptionError,
+    TranscriptionResult,
+)
 
-from .config import Settings
-from .constants import (
+from ..config import Settings
+from ..constants import (
     ASR_MAX_RETRIES,
     ASR_PROGRESS_MIN_AUDIO_SECONDS,
     ASR_PROGRESS_MIN_INTERVAL_SECONDS,
@@ -34,40 +39,9 @@ from .constants import (
     FASTER_WHISPER_CUDA_COMPUTE_TYPE,
     FASTER_WHISPER_CUDA_ONLY_COMPUTE_TYPES,
 )
-from .enums import ASRProvider
+from ..enums import ASRProvider
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class AudioClip:
-    data: bytes
-    # The endpoint reads the container from the extension, so the name has to be real.
-    filename: str
-    mime_type: str
-    duration_seconds: float
-
-
-@dataclass(frozen=True)
-class TranscriptionResult:
-    text: str
-    elapsed_seconds: float = 0.0
-
-
-class TranscriptionError(RuntimeError):
-    """Anything that stopped a voice message from becoming text."""
-
-
-# Decoded audio seconds and the clip's total. Only an engine that decodes locally calls it.
-ProgressCallback = Callable[[float, float], Awaitable[None]]
-
-
-class Transcriber(Protocol):
-    async def transcribe(
-        self, clip: AudioClip, *, progress: ProgressCallback | None = None
-    ) -> TranscriptionResult: ...
-
-    async def close(self) -> None: ...
 
 
 def clip_timeout(clip: AudioClip) -> float:

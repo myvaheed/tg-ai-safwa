@@ -107,7 +107,6 @@ class CallbackToken(Base):
     owner_id: Mapped[int] = mapped_column(Integer, index=True)
     action: Mapped[str] = mapped_column(String(50))
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 

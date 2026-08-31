@@ -3,18 +3,13 @@
 from __future__ import annotations
 
 import html
-import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from ..constants import (
-    PAGE_SIZE,
-    PROPOSAL_OUTCOME_DETAIL_LIMIT,
-    TELEGRAM_TEXT_LIMIT,
-)
+from ..constants import PAGE_SIZE, PROPOSAL_OUTCOME_DETAIL_LIMIT
 from ..enums import CardKind, Category, EnergyType, Priority
 from ..features.cards.model import CardStage
 from ..features.proposals.model import BatchDecision, ProposalChange
@@ -41,63 +36,6 @@ ENERGY_EMOJIS = {
     EnergyType.SOCIAL.value: "🤝",
     EnergyType.VALUES.value: "💎",
 }
-
-
-_MARKDOWN_ESCAPE = re.compile(r"\\([\\`*_[\]()~])")
-
-
-def markdown_to_telegram_html(text: str) -> str:
-    """Render the advisor's supported Markdown subset as safe Telegram HTML.
-
-    Telegram messages use HTML parse mode throughout the application, while the advisor
-    writes Markdown.  Escape the model's text first, then translate only the small subset
-    promised in its prompt.  Completed fragments are protected from later passes so mixed
-    delimiters cannot create crossing HTML tags.  Safwa citations deliberately remain in
-    Markdown form for ``render_citations`` to resolve from live data afterwards.
-    """
-    rendered = html.escape(text)
-    protected: list[str] = []
-    token_prefix = "\ue000safwa-md-"
-    while token_prefix in rendered:
-        token_prefix += "x"
-
-    def protect(fragment: str) -> str:
-        token = f"{token_prefix}{len(protected)}\ue001"
-        protected.append(fragment)
-        return token
-
-    rendered = _MARKDOWN_ESCAPE.sub(lambda match: protect(match[1]), rendered)
-
-    def fenced_code(match: re.Match[str]) -> str:
-        body = match[1]
-        if "\n" in body:
-            first, rest = body.split("\n", 1)
-            if re.fullmatch(r"[A-Za-z0-9_+.-]*", first):
-                body = rest
-        return protect(f"<pre><code>{body}</code></pre>")
-
-    rendered = re.sub(r"```(.*?)```", fenced_code, rendered, flags=re.DOTALL)
-    rendered = re.sub(
-        r"`([^`\n]+)`", lambda match: protect(f"<code>{match[1]}</code>"), rendered
-    )
-
-    inline_patterns = (
-        (r"\*\*(?=\S)([^*\n]+?)(?<=\S)\*\*", "b"),
-        (r"__(?=\S)([^_\n]+?)(?<=\S)__", "b"),
-        (r"~~(?=\S)([^~\n]+?)(?<=\S)~~", "s"),
-        (r"(?<!\*)\*(?=\S)([^*\n]+?)(?<=\S)\*(?!\*)", "i"),
-        (r"(?<![\w_])_(?=\S)([^_\n]+?)(?<=\S)_(?![\w_])", "i"),
-    )
-    for pattern, tag in inline_patterns:
-        rendered = re.sub(
-            pattern,
-            lambda match, tag=tag: protect(f"<{tag}>{match[1]}</{tag}>"),
-            rendered,
-        )
-
-    for index, fragment in reversed(list(enumerate(protected))):
-        rendered = rendered.replace(f"{token_prefix}{index}\ue001", fragment)
-    return rendered
 
 
 def typed_label(value: Any, emojis: dict[str, str]) -> str:
@@ -311,24 +249,6 @@ def menu_markup(*, sprint_active: bool) -> InlineKeyboardMarkup:
 def menu_row() -> list[InlineKeyboardButton]:
     """A consistent escape hatch for a screen reached through quick actions."""
     return [InlineKeyboardButton(text="↩️ Menu", callback_data="nav:home")]
-
-
-def split_telegram_text(text: str, limit: int = TELEGRAM_TEXT_LIMIT) -> list[str]:
-    """Split visible context messages without breaking the result protocol header."""
-    text = text.strip()
-    if not text:
-        return []
-    chunks: list[str] = []
-    while len(text) > limit:
-        cut = text.rfind("\n", 0, limit)
-        if cut < limit // 2:
-            cut = text.rfind(" ", 0, limit)
-        if cut < limit // 2:
-            cut = limit
-        chunks.append(text[:cut].rstrip())
-        text = text[cut:].lstrip()
-    chunks.append(text)
-    return chunks
 
 
 def start_payload(text: str | None) -> str | None:

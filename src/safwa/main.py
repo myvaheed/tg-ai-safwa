@@ -12,10 +12,10 @@ from aiogram.enums import ParseMode
 
 from llm_gateway import OpenAICompatibleConfig, OpenAICompatibleProvider
 
+from .adapters.asr import build_transcriber
 from .ai.advisor import AIAdvisor
 from .ai.autoapproval import AutoApprovalReviewer
 from .ai.sql import ReadOnlyQueryRunner, create_ai_views
-from .asr import build_transcriber
 from .bootstrap.module_manifest import AgentContext, BackgroundContext
 from .bootstrap.modules import (
     AI_VIEWS,

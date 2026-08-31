@@ -317,6 +317,20 @@ async def test_di_date_012_read_day_defaults_to_the_local_day() -> None:
     )
 
 
+async def test_di_read_016_a_named_day_runs_from_local_midnight_to_local_midnight() -> None:
+    """DI-READ-016 — tests/brd/diary.feature"""
+    zone = ZoneInfo("Europe/Istanbul")
+    history = RecordingDayReader()
+    tool = day_read_tool(history, chat_id=42, timezone="Europe/Istanbul")
+
+    await tool.run(ToolCall(id="1", name="read_day", arguments_json='{"date":"2026-08-22"}'))
+
+    assert history.window == (
+        datetime(2026, 8, 22, tzinfo=zone).astimezone(UTC),
+        datetime(2026, 8, 23, tzinfo=zone).astimezone(UTC),
+    )
+
+
 def test_di_read_013_the_subagent_reads_both_sources() -> None:
     """DI-READ-013 — tests/brd/diary.feature
 

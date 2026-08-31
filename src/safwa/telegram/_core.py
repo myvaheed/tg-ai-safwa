@@ -13,8 +13,9 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import Audio, CallbackQuery, Message, TelegramObject, VideoNote, Voice
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from telegram_llm import Transcriber
+
 from ..ai.advisor import AIAdvisor
-from ..asr import Transcriber
 from ..constants import QUEUE_PREVIEW_CHARS
 from ..enums import Category, EnergyType, MessageKind
 from ..features.cards.references import TAG_REFERENCE, VALUE_REFERENCE
