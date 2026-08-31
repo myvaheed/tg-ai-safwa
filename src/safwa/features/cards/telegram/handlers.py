@@ -21,7 +21,7 @@ from ....shell import (
     token_button,
     with_notice,
 )
-from ...checks.api import unobserved_series
+from ...checks.use_cases import unobserved_series
 from ..model import CardStage
 from ..use_cases import (
     archive_subtree,

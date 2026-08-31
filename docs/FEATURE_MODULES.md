@@ -109,26 +109,36 @@ safwa/features/cards/telegram/
 `shell.go_back` dispatches it through the same table every inline button goes through. No module
 holds a list of which screens exist, and a screen with no `back` is the menu.
 
-Rule B reads file names, so an adapter package is not scanned for the transaction it opens, and
-after Phase 8.b that leaves it watching `agent.py` alone. Every screen commits by construction: it
-mints its single-use `CallbackToken` rows through `token_button` before it sends. Rule B widens to
-the package when a screen driver owns that transaction, the way `handle_text_input` owns the
-editor's — until then the gap is this paragraph.
+**A screen owns its own transaction.** It opens a session, writes and commits, because a tap is
+where a unit of work begins and ends — it mints its single-use `CallbackToken` rows through
+`token_button` before it sends. What may never commit is the agent contract, which builds a
+proposal and hands it on; Rule K is what says so.
 
 `api.py` **defines** what it publishes. It exists only when another feature actually calls in, and
 it hands over the answer rather than the row: `scheduled_memory_time(session)`, not `UserProfile`.
 A module that only re-exports is counted as a leftover path by Definition of Done #13.
 
-**Rule E has two doors, and `api.py` is only one of them.** A feature reaches another feature's
-business through `api.py`, and another feature's **screens** through its `telegram` adapter: a screen
-is public already, because `FeatureModule.screens` hands `render_card` to the composition root, and
-Planning draws its Sprint list with the rows Cards draws.
+**Rule E is a layer, and there are three of them.** `model.py` and `api.py` are what a thing is
+called; `use_cases.py` is what may be done to it; everything else — the adapter, the agent contract,
+the proposal handler, the wiring — is assembly. **A module opens a door at its own layer or below,
+never above, in any feature including its own:**
 
-**Writing a Card is the one exception, and the rule names it.** `cards/api.py` cannot import
-`cards/use_cases.py` without closing a cycle through `planning/api.py` — writing a stage syncs a
-Sprint commitment, and that coupling is the design — so Cards has no write door and cannot be given
-one. Whoever writes a Card names `cards/use_cases.py` outright. No other feature's `use_cases` is
-reachable from outside it.
+| A module at | may open |
+|---|---|
+| the vocabulary — `model.py`, `api.py` | `api` |
+| the operations — `use_cases.py` | `api`, `use_cases` |
+| assembly — everything else | `api`, `use_cases`, `telegram` |
+
+The edge the rule exists to forbid is `api` opening `use_cases`. A door that imports what is built
+on top of it has the whole feature behind it, and two such doors facing each other is an import
+cycle — which is exactly what `cards/api.py` importing `cards/use_cases.py` would close, through
+`planning/api.py`.
+
+The consequence is a door's contents: **a door carries the vocabulary and the reads that need no
+operation, and an operation is asked for at the operations layer.** So `checks/api.py` says what a
+Check is called, and closing an Action asks `checks/use_cases.py` to answer one. Screens are the
+top door because a screen is public already: `FeatureModule.screens` hands `render_card` to the
+composition root, and Planning draws its Sprint list with the rows Cards draws.
 
 `references.py` declares one [`ReferenceSpec`](../src/safwa/foundation/references.py) per named
 relationship — a Card carries Values, Tags and Checks, a Check carries Values — so a payload key,

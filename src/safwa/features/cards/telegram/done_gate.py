@@ -26,13 +26,14 @@ from ....shell import (
     token_button,
     with_notice,
 )
-from ...checks.api import CheckOutcome, unobserved_series
+from ...checks.api import CheckOutcome
 from ...checks.telegram import (
     CHECK_OUTCOME_LABELS,
     CHECK_STATUS_EMOJIS,
     SETTABLE_OUTCOMES,
     outcome_button_label,
 )
+from ...checks.use_cases import unobserved_series
 from ..api import live_card_title
 from ..model import CardStage
 from ..use_cases import finish_action

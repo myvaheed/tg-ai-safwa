@@ -25,7 +25,7 @@ from ...foundation.clock import utcnow
 from ...foundation.errors import DomainError
 from ...foundation.workspace import bump_workspace, require_workspace
 from ...models import CardTag, CardValue, Check
-from ..checks.api import (
+from ..checks.use_cases import (
     check_card_id,
     clone_checks_for_successor,
     delete_checks_of_cards,

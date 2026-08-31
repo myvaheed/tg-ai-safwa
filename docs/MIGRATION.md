@@ -2901,11 +2901,34 @@ registry of screens, in a codebase that already has one.
 itself, tried in `MODULES` order; a payload none of them claims opens the item it cites. Taken with
 one user, Planning, because the alternative is the shell knowing what a Sprint plan is.
 
-**Rule E lost a door and gained a name.** The `use_cases` door is Cards', from anywhere, instead of
-being open to every adapter: `cards/api.py` cannot import `cards/use_cases.py` without closing a
-cycle through `planning/api.py`, so Cards has no write door and cannot be given one. That is a fact
-about Cards, not about adapters. The one edge that used the old door for something else moved to a
-new `features/saved_requests/api.py`.
+**Rule E became a layer.** It used to list who was allowed which door, and the list had grown a
+carve-out per hard case. It now says one thing: a feature is three layers deep — `model.py` and
+`api.py` are what a thing is called, `use_cases.py` is what may be done to it, everything else is
+assembly — and **a module opens a door at its own layer or below, never above, in any feature
+including its own.** The edge it forbids is `api` opening `use_cases`: a door that imports what is
+built on top of it has the whole feature behind it, and two such doors facing each other is an
+import cycle.
+
+Two doors were carrying operations and had to give them up. `checks/api.py` published eleven names
+out of its own use cases and defined two more; `reminders/api.py` published three. Both now carry
+the vocabulary and the reads that need no operation, and their callers — all at the operations layer
+or above — ask `use_cases.py` directly. The screen that had reached `saved_requests.use_cases` got a
+door of its own on the way, `features/saved_requests/api.py`.
+
+Rule E is 0 under the new statement, with nothing exempted.
+
+**Rules B and L were removed rather than reworded.** Rule L watched for a feature importing
+`safwa.domain`, which step 6 deleted; a rule whose subject cannot exist is not a guard. Rule B said
+adapters do not open a transaction, and scanned by file name — `telegram.py` and `agent.py` — so it
+only ever saw the two single-file adapters and the agent contracts. Package adapters commit in some
+forty places, by design: a screen owns its unit of work. The rule passed because of what it did not
+scan, and its one real check, that an agent contract never commits, is Rule K's and unchanged.
+
+**Rule G stopped naming files.** It exempted a list of two paths and a file called `manager.py`,
+which had stopped starting tasks a phase earlier. It now says that whoever starts a background task
+also cancels one, which is the property it was always after: owning the lifetime is the permission.
+**Rule H stopped naming a path** and finds the registry by what it declares, so its exemption
+follows `MODULES` if that ever moves.
 
 **`bootstrap_workspace` went to `bootstrap/main.py`, not to `foundation/`**: one of the two rows it
 seeds is `features/profile`'s model, and foundation is what every feature calls, not the other way

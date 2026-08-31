@@ -330,7 +330,8 @@ system message.
 - Three rules govern a Check across a Card's life: a Card closes when every Check series on it was
   answered at least once **on this Card**; closing deletes whatever is still Pending; reopening puts
   each plain Check back to Pending and opens one fresh instance of each repeating series. They live
-  in [features/checks](src/safwa/features/checks), and Cards reaches them through `checks/api.py`.
+  in [features/checks](src/safwa/features/checks), and Cards asks for them by name in
+  `checks/use_cases.py`.
 - **Everything is deleted; only a Card and a Check are also archived**, two Sprints after they
   closed (`ARCHIVE_AFTER_SPRINTS`). Archived is a matter of sight: it still counts everywhere it
   counted. A Value, a Tag and a Saved Request carry no `archived_at` at all.

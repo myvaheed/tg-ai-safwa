@@ -391,3 +391,35 @@ async def archive_settled_checks(session: AsyncSession, cutoff: datetime) -> lis
         check.archived_at = stamp
         check.version += 1
     return [check.id for check in stale]
+
+
+async def require_check_answers(
+    session: AsyncSession,
+    card_id: int,
+    outcomes: dict[int, Any] | None,
+    *,
+    gated: bool,
+) -> dict[int, Any]:
+    """The answers this completion needs, refused before anything is written.
+
+    `gated` is Done: every series with no answer on this Card has to be answered now.
+    Cancelling abandons the work, so it asks for nothing.
+    """
+    pending = await pending_checks(session, card_id)
+    unobserved = await unobserved_series(session, card_id) if gated else []
+    return check_resolutions(pending, unobserved, outcomes)
+
+
+async def settle_checks(
+    session: AsyncSession,
+    card_id: int,
+    resolutions: dict[int, Any],
+    *,
+    actor: ActorType,
+) -> None:
+    """Write the answers a closing Card gave, then let go of what is still Pending."""
+    by_id = {check.id: check for check in await pending_checks(session, card_id)}
+    for check_id, outcome in sorted(resolutions.items()):
+        # The Card closing is what carries the series on, so no successor opens here.
+        await apply_check_outcome(session, by_id[check_id], outcome, actor, spawn=False)
+    await drop_pending_checks(session, card_id)

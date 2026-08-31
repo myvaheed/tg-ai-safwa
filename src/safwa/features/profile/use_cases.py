@@ -17,7 +17,7 @@ from ...foundation.clock import Clock
 from ...foundation.errors import DomainError
 from ...foundation.workspace import bump_workspace
 from ...models import Reminder
-from ..reminders.api import sync_daily_system_reminder
+from ..reminders.use_cases import sync_daily_system_reminder
 from .model import ProfileField, ProfileValue, UserProfile
 
 DIARY_REMINDER_INSTRUCTION = (

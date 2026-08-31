@@ -28,9 +28,9 @@ from ...foundation.models import Workspace
 from ...foundation.workspace import require_workspace
 from ..cards.api import CardStage, action_titles, planned_actions
 from ..cards.use_cases import archive_settled_cards
-from ..checks.api import archive_settled_checks
+from ..checks.use_cases import archive_settled_checks
 from ..profile.api import sprint_length_days as _profile_sprint_length_days
-from ..reminders.api import create_sprint_reminder, delete_sprint_reminders
+from ..reminders.use_cases import create_sprint_reminder, delete_sprint_reminders
 from .model import Sprint, SprintCommitment, SprintStatus
 
 # How many unfinished Actions the end-of-Sprint summary names before it counts the rest.

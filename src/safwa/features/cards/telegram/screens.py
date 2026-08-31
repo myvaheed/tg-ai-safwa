@@ -30,7 +30,7 @@ from ....shell import (
     token_button,
     with_notice,
 )
-from ...checks.api import card_checks
+from ...checks.use_cases import card_checks
 from ..model import CardStage
 from ..use_cases import blocking_actions, card_progress
 from .presentation import card_overview_text

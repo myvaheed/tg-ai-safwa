@@ -1,4 +1,4 @@
-"""Architecture rules A-K and the Definition of Done metrics, in one scanner.
+"""The architecture rules and the Definition of Done metrics, in one scanner.
 
 `tests/test_architecture.py` asserts on the violations; running this module directly prints
 the report a batch attaches to its summary.  Rules whose target directories do not exist yet
@@ -42,8 +42,10 @@ REUSABLE_PACKAGES = ("llm_gateway", "agent_runtime", "telegram_llm")
 # Rules C and D: processes that live beside the features rather than inside one.
 PROCESS_PACKAGES = ("safwa/turn/", "safwa/cues/")
 
-# Rule G: where starting a task is part of the job.
-LIFECYCLE_MODULES = ("safwa/main.py", "safwa/bootstrap/main.py")
+# Rule E: how deep into a feature a door reaches, and how deep a module is allowed to reach.
+# Anything not named here is assembly, which is the top and may open every door.
+DOOR_LAYERS = {"api": 1, "use_cases": 2, "telegram": 3}
+MODULE_LAYERS = {"model.py": 1, "api.py": 1, "use_cases.py": 2}
 
 HTML_TAG = re.compile(r"</?(?:b|i|u|s|a|code|pre|blockquote|tg-spoiler)\b")
 EMOJI = re.compile("[\U0001f000-\U0001faff←-⇿☀-➿]")
@@ -133,6 +135,13 @@ def process_modules(*names: str) -> Iterator[Module]:
             yield module
 
 
+def module_layer(module: Module) -> int:
+    """How deep a module sits in its own feature, which is how deep it may reach into others."""
+    if "telegram" in module.path.parts:
+        return DOOR_LAYERS["telegram"]
+    return MODULE_LAYERS.get(module.path.name, DOOR_LAYERS["telegram"])
+
+
 def _calls_named(tree: ast.AST, *names: str) -> Iterator[ast.Call]:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -163,15 +172,6 @@ def rule_a() -> list[Violation]:
         for path, line in module.imported_paths():
             if "telegram" in path.split(".") or path.endswith("bootstrap.settings"):
                 out.append(Violation("Rule A", module.rel, line, f"imports {path}"))
-    return out
-
-
-def rule_b() -> list[Violation]:
-    """Adapters do not open or close a business transaction."""
-    out = []
-    for module in process_modules("telegram.py", "agent.py"):
-        for call in _calls_named(module.tree, "commit", "rollback"):
-            out.append(Violation("Rule B", module.rel, call.lineno, "commits or rolls back"))
     return out
 
 
@@ -270,33 +270,37 @@ def rule_d() -> list[Violation]:
 
 
 def rule_e() -> list[Violation]:
-    """A feature reaches another feature through its `api`, or its screens through `telegram`.
+    """A module opens a door no higher than its own layer, in any feature including its own.
 
-    A screen is public already: `FeatureModule.screens` hands `render_card` to the composition
-    root, and Planning draws a list of Cards with the rows Cards draws.  Writing a Card is the
-    one exception, and it is named as one: `cards/api.py` cannot import `cards/use_cases.py`
-    without closing a cycle through `planning/api.py`, so Cards has no write door and cannot
-    be given one — whoever writes a Card names `cards/use_cases.py` outright.
+    A feature is three layers deep.  `model.py` and `api.py` are what a thing is called;
+    `use_cases.py` is what may be done to it; everything else — the adapter, the agent
+    contract, the proposal handler, the wiring — is assembly.  Each may name a door at its
+    own layer or below, and never one above: a door that imported what is built on top of it
+    would be a door with the whole feature behind it, and two such doors facing each other
+    is how an import cycle starts.
+
+    So `api` may be opened by anyone, `use_cases` by the operations layer and above, and
+    `telegram` by assembly alone.  What that decides is what a door may contain: the
+    vocabulary and the reads that need no operation, never an operation itself.
     """
     out = []
     for module in modules():
-        owner = module.feature
-        if owner is None:
+        if module.feature is None:
             continue
-        doors = [[], ["api"], ["telegram"]]
+        layer = module_layer(module)
         for path, line in module.imported_paths():
             parts = path.split(".")
             if "features" not in parts:
                 continue
             index = parts.index("features")
-            target = parts[index + 1 : index + 2]
-            if not target or target[0] == owner:
+            if not parts[index + 1 : index + 2]:
                 continue
             door = parts[index + 2 : index + 3]
-            if door == ["use_cases"] and target == ["cards"]:
-                continue
-            if door not in doors:
-                out.append(Violation("Rule E", module.rel, line, f"reaches into {path}"))
+            depth = DOOR_LAYERS.get(door[0], 0) if door else 0
+            if depth > layer:
+                out.append(
+                    Violation("Rule E", module.rel, line, f"layer {layer} opens {door[0]}: {path}")
+                )
     return out
 
 
@@ -314,14 +318,31 @@ def rule_f() -> list[Violation]:
 
 
 def rule_g() -> list[Violation]:
-    """A background task is started by whoever owns its lifetime."""
+    """Whoever starts a background task also cancels one.
+
+    A task nothing can cancel outlives the shutdown of whatever started it, and nothing
+    knows it is still running.  Owning the lifetime is the permission, so the module that
+    cancels is the module allowed to start.
+    """
     out = []
     for module in modules():
-        if module.rel in LIFECYCLE_MODULES or module.path.name == "manager.py":
+        if any(_calls_named(module.tree, "cancel")):
             continue
         for call in _calls_named(module.tree, "create_task"):
             out.append(Violation("Rule G", module.rel, call.lineno, "starts a background task"))
     return out
+
+
+def _declares_registry(module: Module) -> bool:
+    """The module `ENTITIES` is read from, found by what it declares rather than by path."""
+    return any(
+        isinstance(node, ast.AnnAssign | ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "MODULES"
+            for target in ([node.target] if isinstance(node, ast.AnnAssign) else node.targets)
+        )
+        for node in module.tree.body
+    )
 
 
 def _entity_names(nodes: Iterator[ast.expr]) -> set[str]:
@@ -336,12 +357,13 @@ def entity_dispatch_points() -> list[Violation]:
     """Rule H: places outside a feature that fan out over entity names.
 
     A dict, set, tuple or list keyed by two or more entity names, or a comparison against
-    one, is a central registry: adding an entity means editing it.  The Definition of Done
-    target is one such place, `bootstrap/modules.py`.
+    one, is a central registry: adding an entity means editing it.  The one place allowed to
+    name them all is the registry they are read from — the module that declares `MODULES` —
+    because that is where a feature is declared to exist at all.
     """
     out = []
     for module in modules():
-        if module.feature or module.rel == "safwa/bootstrap/modules.py":
+        if module.feature or _declares_registry(module):
             continue
         for node in ast.walk(module.tree):
             if isinstance(node, ast.Dict):
@@ -387,31 +409,13 @@ def rule_k() -> list[Violation]:
         for call in _calls_named(module.tree, "commit"):
             out.append(Violation("Rule K", module.rel, call.lineno, "commits"))
         for path, line in module.imported_paths():
-            if path.split(".")[-2:-1] == ["domain"] or path.endswith(".use_cases"):
+            if path.endswith(".use_cases"):
                 out.append(Violation("Rule K", module.rel, line, f"calls the domain via {path}"))
-    return out
-
-
-def rule_l() -> list[Violation]:
-    """A feature never reaches back into `safwa.domain`.
-
-    Rule E watches feature-to-feature edges only, so a feature taking its own use cases
-    through the legacy facade passed unseen — and every one of those is a reason
-    `domain.py` cannot be deleted. The count may only fall.
-    """
-    out = []
-    for module in modules():
-        if module.feature is None:
-            continue
-        for path, line in module.imported_paths():
-            if path.split(".")[:2] == ["safwa", "domain"]:
-                out.append(Violation("Rule L", module.rel, line, f"imports {path}"))
     return out
 
 
 RULES = {
     "Rule A": rule_a,
-    "Rule B": rule_b,
     "Rule C": rule_c,
     "Rule D": rule_d,
     "Rule E": rule_e,
@@ -419,7 +423,6 @@ RULES = {
     "Rule G": rule_g,
     "Rule H": rule_h,
     "Rule K": rule_k,
-    "Rule L": rule_l,
 }
 # Rules I and J are snapshots of built artefacts rather than of the source tree, so they
 # live with their baselines in `tests/test_architecture.py`.

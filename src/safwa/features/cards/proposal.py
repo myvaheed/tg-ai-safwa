@@ -17,7 +17,7 @@ from ...enums import (
 )
 from ...foundation.errors import DomainError, StaleStateError
 from ...models import Card, CardCategory, CardEnergyType
-from ..checks.api import unobserved_series
+from ..checks.use_cases import unobserved_series
 from ..proposals.api import (
     ApplyContext,
     ChangeAction,

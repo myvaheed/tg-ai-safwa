@@ -1,6 +1,6 @@
 """The architecture rules of the migration, plus the two snapshots that guard drift.
 
-Rules A-K live in `scripts/architecture_metrics.py` so the same scanner produces the batch
+The rules live in `scripts/architecture_metrics.py` so the same scanner produces the batch
 report.  `tests/architecture_allowlist.json` records what the codebase violated when Phase 0
 was recorded: counts may fall, never rise.
 
