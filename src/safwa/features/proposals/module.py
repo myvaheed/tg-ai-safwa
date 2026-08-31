@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from ...bootstrap.module_manifest import FeatureModule
-from ...telegram.callbacks import PROPOSAL_CALLBACK_ACTIONS
 from .remove import REMOVE_TOOL
+from .telegram import PROPOSAL_CALLBACK_ACTIONS
 
 MODULE = FeatureModule(
     name="proposals",

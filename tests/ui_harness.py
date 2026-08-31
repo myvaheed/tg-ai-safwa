@@ -25,7 +25,7 @@ from safwa.features.proposals.api import ProposalDescription
 from safwa.features.proposals.store import ProposalStore
 from safwa.history import MARKS, TelegramNotes
 from safwa.models import UiSession
-from safwa.telegram import SHELL_COMMANDS
+from safwa.shell import SHELL_COMMANDS
 from safwa.turn import TurnManager
 from telegram_llm import ChatHost
 

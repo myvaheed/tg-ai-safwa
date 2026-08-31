@@ -456,7 +456,7 @@ async def test_a_cue_render_failure_releases_its_pending_proposal(sessions, monk
     )
     runtime = CueRuntime(services, object(), owner_id=42)
     # Below the guard, not over it: ending an undrawn review is `render_ai_outcome`'s job.
-    monkeypatch.setattr("safwa.telegram.proposals.render_proposal", failed_render)
+    monkeypatch.setattr("safwa.features.proposals.telegram.answer.render_proposal", failed_render)
     monkeypatch.setattr(runtime, "_anchor", lambda: object())
 
     assert await runtime.can_speak() is True

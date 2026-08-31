@@ -24,6 +24,7 @@ from .bootstrap.modules import (
     BACKGROUND_TASKS,
     FEATURE_CALLBACK_ACTIONS,
     FEATURE_COMMANDS,
+    FEATURE_START_LINKS,
     FEATURE_TEXT_INPUTS,
     HEAVY_ANALYZER_PROMPT,
     PROPOSALS,
@@ -43,13 +44,17 @@ from .foundation.database import Database, upgrade_database
 from .history import MARKS, TelegramHistorySource, TelegramNotes
 from .models import Workspace
 from .recovery import recover_startup
-from .shell import OwnerAndWritingMiddleware, Services, discard_stale_status, router
-from .telegram import (
+from .shell import (
     SHELL_COMMANDS,
+    OwnerAndWritingMiddleware,
+    Services,
+    discard_stale_status,
     register_commands,
+    router,
     sync_bot_commands,
 )
 from .turn import TurnManager
+from .turn import dialogue as _dialogue  # noqa: F401  registers the owner-message handlers
 
 logger = logging.getLogger(__name__)
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
@@ -215,6 +220,7 @@ async def run(settings: Settings) -> None:
         commands=commands,
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
+        start_links=FEATURE_START_LINKS,
         views=ALLOWED_VIEWS,
         bot_username=settings.telegram_bot_username,
         transcriber=transcriber,

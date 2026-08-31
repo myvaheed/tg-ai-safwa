@@ -45,13 +45,8 @@ from ..use_cases import set_sprint_success_criteria, sprint_length_days, sprint_
 
 _PROMPT_TTL = timedelta(minutes=30)
 
-TODAY_BACK = {"kind": "dashboard", "stage": CardStage.TODAY.value, "title": "Today", "mode": "today"}
-SPRINT_BACK = {
-    "kind": "dashboard",
-    "stage": CardStage.SPRINT.value,
-    "title": "Sprint",
-    "mode": "sprint",
-}
+TODAY_BACK = {"action": "today_page"}
+SPRINT_BACK = {"action": "sprint_page"}
 
 
 async def render_today(
@@ -79,7 +74,7 @@ async def render_today(
         )
         rows.extend(
             await paging_row(
-                session, services.owner_id, current, "dashboard_page", dict(TODAY_BACK)
+                session, services.owner_id, current, "today_page", {}
             )
         )
         rows.append(menu_row())
@@ -129,7 +124,7 @@ async def render_sprint(
         )
         rows.extend(
             await paging_row(
-                session, services.owner_id, current, "dashboard_page", dict(SPRINT_BACK)
+                session, services.owner_id, current, "sprint_page", {}
             )
         )
         # On the last day ending the Sprint is not early, and the button says so.

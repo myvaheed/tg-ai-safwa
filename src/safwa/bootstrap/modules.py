@@ -40,6 +40,7 @@ from ..foundation.screens import (
     ScreenCatalogue,
     ScreenCommand,
     ScreenSpec,
+    StartLink,
     TextInputFlow,
 )
 from .module_manifest import AgentContext, AgentSpec, BackgroundTask, FeatureModule
@@ -125,6 +126,11 @@ def _text_inputs() -> dict[str, TextInputFlow]:
 
 
 FEATURE_TEXT_INPUTS: dict[str, TextInputFlow] = _text_inputs()
+
+# Tried in `MODULES` order; a payload none of them claims opens the item it cites.
+FEATURE_START_LINKS: tuple[StartLink, ...] = tuple(
+    link for module in MODULES for link in module.start_links
+)
 
 
 def _proposals() -> ProposalRegistry:

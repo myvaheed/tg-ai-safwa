@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from ...bootstrap.module_manifest import FeatureModule
 from ...foundation.screens import ScreenCommand
-from ...telegram.commands import (
+from .background import MEMORY_FILE_POLL, MEMORY_MAINTENANCE
+from .telegram import (
     command_memory,
     command_remember,
     command_summarize,
     command_syncmem,
 )
-from .background import MEMORY_FILE_POLL, MEMORY_MAINTENANCE
 
 MODULE = FeatureModule(
     name="continuity",

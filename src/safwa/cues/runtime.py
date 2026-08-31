@@ -16,9 +16,9 @@ from sqlalchemy import func, select
 from telegram_llm import DialogueMessage
 
 from ..enums import MessageKind
+from ..features.proposals.telegram import render_ai_outcome
 from ..models import AgentRun, TelegramMessage
 from ..shell import Services
-from ..telegram.proposals import render_ai_outcome
 
 logger = logging.getLogger(__name__)
 

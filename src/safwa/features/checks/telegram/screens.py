@@ -159,7 +159,7 @@ async def render_check(
     ``card_id`` is only where Back returns to: a Check reached from the advisor, or one
     hanging on no Card at all, has no owning screen to go back to.
     """
-    back = back or {"kind": "home"}
+    back = back or {}
     async with services.sessions() as session:
         check = await session.get(Check, check_id)
         if check is None:
@@ -242,7 +242,7 @@ async def render_check(
                     session,
                     services.owner_id,
                     "↩️ Back",
-                    "check_list_back" if card_id is not None else "check_back",
+                    "check_list" if card_id is not None else "check_back",
                     {"card_id": card_id, "back": back},
                 ),
             ]
@@ -291,7 +291,7 @@ async def render_check_values(
     page: int = 0,
 ) -> None:
     """Choose which Values this Check measures. Its Cards are chosen elsewhere."""
-    back = back or {"kind": "home"}
+    back = back or {}
     payload = {"id": check_id, "card_id": card_id, "back": back}
     async with services.sessions() as session:
         check = await session.get(Check, check_id)

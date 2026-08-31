@@ -9,7 +9,7 @@ Sources: the owner's ruling of 2026-08-30; `REFACTORING_CLEAN_ARCH_FINAL.md` §9
 [shell/services.py](../../src/safwa/shell/services.py) (`OwnerAndWritingMiddleware`,
 `queue_owner_text`, `GenerationGuard`),
 [shell/chat.py](../../src/safwa/shell/chat.py) (`materialize_queued_dialogue`),
-[telegram/dialogue.py](../../src/safwa/telegram/dialogue.py) (`voice_message`).
+[turn/dialogue.py](../../src/safwa/turn/dialogue.py) (`voice_message`).
 Supersedes: amends the approved `AG-TURN-010`, see below.
 
 ## What the owner changed

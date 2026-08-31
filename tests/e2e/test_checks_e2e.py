@@ -27,14 +27,10 @@ from safwa.domain import (
 from safwa.enums import MessageKind
 from safwa.features.cards.model import CardStage
 from safwa.features.checks.model import CheckOutcome
+from safwa.features.proposals.telegram import render_ai_outcome, render_proposal
 from safwa.history import MARKS, TelegramNotes
 from safwa.models import CallbackToken, Card, Check, TelegramMessage
-from safwa.telegram import (
-    callback_token_handler,
-    render_ai_outcome,
-    render_proposal,
-)
-from safwa.telegram.commands import command_start
+from safwa.shell import callback_token_handler, command_start
 from safwa.turn import TurnManager
 from telegram_llm import ChatHost, DialogueMessage
 
@@ -121,6 +117,7 @@ def _services(harness, advisor) -> SimpleNamespace:
         chat=ChatHost(TelegramNotes(harness.sessions), MARKS),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
+        start_links=(),
         bot_username="safwa_ai_bot",
     )
 
@@ -490,7 +487,7 @@ async def test_manual_check_screens_only_repeat_and_answer(e2e_harness):
         "check_toggle_repeat",
         "check_set_status",
         "check_choose_values",
-        "check_list_back",
+        "check_list",
         "check_delete_prompt",
     }
     assert "Note" not in message.rendered[-1]
@@ -511,10 +508,10 @@ async def test_manual_done_button_opens_the_resolution_screen(e2e_harness):
     message = _TestMessage()
     services = _services(e2e_harness, advisor)
 
-    from safwa.features.checks.telegram import render_check_resolution
+    from safwa.features.cards.telegram import render_check_resolution
 
     await render_check_resolution(
-        message, services, card_id, back={"kind": "card", "id": card_id}
+        message, services, card_id, back={"action": "card_view", "id": card_id}
     )
     assert "Pending Checks" in message.rendered[-1]
     # Nothing is prefilled.

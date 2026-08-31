@@ -10,7 +10,7 @@ into `telegram_llm` and what stays in Safwa); current code — [history.py](../.
 [shell/chat.py](../../src/safwa/shell/chat.py) (`send_registered`,
 `send_owner_turn`, `dismiss_prior_ui`),
 [shell/services.py](../../src/safwa/shell/services.py) (`OwnerAndWritingMiddleware`),
-[telegram/dialogue.py](../../src/safwa/telegram/dialogue.py) (`voice_message`);
+[turn/dialogue.py](../../src/safwa/turn/dialogue.py) (`voice_message`);
 `archived_docs/MEMORY_HISTORY_USAGE.md`, read for intent and checked against the code.
 Supersedes: named per scenario.
 

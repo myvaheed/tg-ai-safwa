@@ -15,7 +15,8 @@ from safwa.features.reminders.telegram import render_reminder, render_reminders
 from safwa.features.reminders.use_cases import create_reminder
 from safwa.foundation.clock import SystemClock
 from safwa.models import Reminder
-from safwa.telegram import callback_token_handler, ordinary_text
+from safwa.shell import callback_token_handler
+from safwa.turn.dialogue import ordinary_text
 
 
 async def test_reminder_text_requires_a_value_and_restores_its_view(sessions) -> None:

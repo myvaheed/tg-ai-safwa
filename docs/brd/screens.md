@@ -8,10 +8,10 @@ and stands as it is.
 Sources: `REFACTORING_CLEAN_ARCH_FINAL.md` §13.2 invariants three and four, §13.3; current code —
 [shell/chat.py](../../src/safwa/shell/chat.py) (`token_button`, `send_toast`,
 `_expire_toast`, `delete_screen`, `send_registered`, `send_owner_turn`, `send_summary`),
-[telegram/callbacks.py](../../src/safwa/telegram/callbacks.py) (`callback_token_handler`),
+[shell/callbacks.py](../../src/safwa/shell/callbacks.py) (`callback_token_handler`),
 [shell/layout.py](../../src/safwa/shell/layout.py) (`split_telegram_text`),
 [recovery.py](../../src/safwa/recovery.py), [ai/materialize.py](../../src/safwa/ai/materialize.py)
-(`open_batch`), [telegram/dialogue.py](../../src/safwa/telegram/dialogue.py) (`run_dialogue_turn`).
+(`open_batch`), [turn/dialogue.py](../../src/safwa/turn/dialogue.py) (`run_dialogue_turn`).
 Supersedes: named per scenario.
 
 ## Why this packet exists
@@ -169,7 +169,6 @@ difference is the whole of it.
 ## Note on where these live after Phase 8
 
 `tests/brd/README.md` calls `screens.feature` the one file not owned by a package under
-`features/`, and names `src/safwa/telegram` as its owner "which Phase 8 turns into a package of its
-own". When 8.b lands, that line names `telegram_llm`, and this file's rules are the package's
+`features/`. Its rules are now kept by `src/safwa/shell` and `telegram_llm`, and this file is their
 acceptance. `SC-FAIL-005` is the exception: the review it is about is Safwa's, so the fix is in
 Safwa and the scenario stays with the screen it names.

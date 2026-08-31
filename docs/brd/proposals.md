@@ -9,9 +9,9 @@ bullets after it) and §Subagents; current code —
 `ai/service.py` `_execute_mutation_tool`, `_materialize`,
 `resolve_approval`; [features/proposals/use_cases.py](../../src/safwa/features/proposals/use_cases.py)
 `prepare_proposal`, `approve_proposal`, `ProposalStore.end_proposal`;
-[telegram/proposals.py](../../src/safwa/telegram/proposals.py);
-[telegram/callbacks.py](../../src/safwa/telegram/callbacks.py) `_on_proposal_approve`,
-`_on_proposal_delete_confirm`, `_on_proposal_reject`, `_resume_failed_approval`;
+[proposals/telegram/screens.py](../../src/safwa/features/proposals/telegram/screens.py);
+[proposals/telegram/handlers.py](../../src/safwa/features/proposals/telegram/handlers.py)
+`_on_approve`, `_on_delete_confirm`, `_on_reject`, `_resume`;
 [recovery.py](../../src/safwa/recovery.py); and the E2E suite named in the audit table below.
 
 This file is the approval artifact for the first Phase 6 batch. Nothing enters

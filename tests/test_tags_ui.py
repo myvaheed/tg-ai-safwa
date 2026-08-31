@@ -10,7 +10,7 @@ from safwa.enums import MessageKind
 from safwa.features.tags.telegram import render_tag
 from safwa.features.tags.telegram.screens import render_tag_text_prompt
 from safwa.models import TelegramMessage, UiSession
-from safwa.telegram import ordinary_text
+from safwa.turn.dialogue import ordinary_text
 
 
 async def test_tag_field_input_reuses_editor_message_and_deletes_input(sessions) -> None:

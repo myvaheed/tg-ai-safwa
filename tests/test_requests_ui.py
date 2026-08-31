@@ -20,8 +20,7 @@ from safwa.features.planning.telegram import render_plan
 from safwa.features.saved_requests.telegram import command_requests
 from safwa.features.saved_requests.use_cases import create_saved_request, delete_saved_request
 from safwa.models import SavedRequest
-from safwa.shell import open_item_screen
-from safwa.telegram import callback_token_handler
+from safwa.shell import callback_token_handler, open_item_screen
 
 
 async def _one_request_over_actions(sessions, *, cards: int, name: str = "Open actions"):

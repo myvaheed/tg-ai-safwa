@@ -18,12 +18,13 @@ from safwa.bootstrap.modules import (
 )
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
+from safwa.features.proposals.telegram import render_proposal
 from safwa.features.proposals.use_cases import approve_proposal
 from safwa.features.reminders.schedule import schedule_of
 from safwa.foundation.clock import SystemClock
 from safwa.history import MARKS, TelegramNotes
 from safwa.models import CallbackToken, Reminder
-from safwa.telegram import callback_token_handler, render_proposal
+from safwa.shell import callback_token_handler
 from safwa.turn import TurnManager
 from telegram_llm import ChatHost, DialogueMessage
 

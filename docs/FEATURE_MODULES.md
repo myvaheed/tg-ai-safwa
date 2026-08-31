@@ -21,6 +21,7 @@ rule imports it.
 | `commands` | a `ScreenCommand` per screen the owner opens by name: a slash command, a menu button, or both |
 | `callback_actions` | the inline-button actions this feature's screens draw |
 | `text_inputs` | a `TextInputFlow` per editor field the owner types a value into |
+| `start_links` | a `StartLink` — a `/start <payload>` this feature answers instead of it opening a cited item |
 | `recover` | one hook `recover_startup` runs before the run machinery is reconciled |
 | `background` | tasks the polling loop starts and cancels |
 
@@ -81,23 +82,32 @@ These names are the whole vocabulary. A feature that wants a file outside this l
 contents belong to a role the list does not have yet, which is a question for the batch, not a new
 word.
 
-**The adapter is a package as soon as it draws a screen**, and the rest of Safwa writes
-`from .telegram import ...` either way — a feature that only presents proposals keeps one file, and
-the import does not say which it is. Two names recur inside: `screens.py` is what the owner is taken
-to, and `review.py` is the `ProposalPresenter` and the citation label. Everything else is the
-feature's own, because there is no shared vocabulary of screens to hold it to:
+**The adapter is one file until it is more than one file's worth**, and the rest of Safwa
+writes `from .telegram import ...` either way, so the import does not say which it is. Continuity's
+four commands are one file; Cards is nine modules. Two names recur inside a package: `screens.py`
+is what the owner is taken to, and `handlers.py` is the callback actions the feature publishes.
+`review.py` is the `ProposalPresenter` and the citation label. Everything else is the feature's own,
+because there is no shared vocabulary of screens to hold it to:
 
 ```text
 safwa/features/cards/telegram/
   __init__.py      # what the adapter publishes, behind __all__
   presentation.py  # labels, the overview text, list order, the citation
+  draft.py         # what a Card written by hand holds, and what stops it being saved
   selectors.py     # which relationships a Card offers, and the two screens that offer them
-  creation.py      # the draft
+  creation.py      # the draft's screen and its buttons
   lists.py         # every screen showing several Cards
   screens.py       # the Card itself
+  done_gate.py     # the Checks a Card has to answer before it is Done
   text_input.py    # the typed-value flows
+  handlers.py      # CARD_CALLBACK_ACTIONS
   review.py        # ProposalPresenter
 ```
+
+**A screen says how to come back to it as the action that draws it.** A `back` payload is
+`{"action": "card_view", "id": 12, ...}` — the callback action plus that action's payload — and
+`shell.go_back` dispatches it through the same table every inline button goes through. No module
+holds a list of which screens exist, and a screen with no `back` is the menu.
 
 Rule B reads file names, so an adapter package is not scanned for the transaction it opens, and
 after Phase 8.b that leaves it watching `agent.py` alone. Every screen commits by construction: it

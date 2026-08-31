@@ -12,7 +12,8 @@ from ....foundation.screens import TextInputFlow
 from ....models import UiSession
 from ....shell import TextValidator, required_text
 from ..use_cases import edit_card_text, update_card_fields
-from .creation import render_card_creation, sanitize_card_creation_state
+from .creation import render_card_creation
+from .draft import sanitize_card_creation_state
 from .screens import render_card
 
 _BLOCKED_FLOW = "card_blocked"

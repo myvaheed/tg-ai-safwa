@@ -23,7 +23,7 @@ _PLAN_TTL = timedelta(hours=24)
 def plan_back(state: dict[str, Any]) -> dict[str, Any]:
     """What a Card opened from the plan has to be handed to come back to it."""
     return {
-        "kind": PLAN_UI_KIND,
+        "action": "plan_page",
         "page": int(state.get("page", 0)),
         "filters": list(state.get("filters", [])),
     }

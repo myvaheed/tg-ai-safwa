@@ -16,7 +16,7 @@ from safwa.domain import (
 from safwa.features.checks.model import CheckOutcome
 from safwa.features.checks.telegram import render_check
 from safwa.models import Card, Check, Value
-from safwa.telegram import callback_token_handler
+from safwa.shell import callback_token_handler
 
 
 async def test_ch_archive_016_an_archived_check_keeps_its_answer(sessions) -> None:

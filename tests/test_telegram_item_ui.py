@@ -53,6 +53,7 @@ from safwa.features.diary.use_cases import create_diary_entry
 from safwa.features.planning.telegram import render_sprint
 from safwa.features.proposals.model import ChangeAction, ProposalChange
 from safwa.features.proposals.store import ProposalStore
+from safwa.features.proposals.telegram import render_ai_outcome, render_proposal
 from safwa.features.proposals.use_cases import approve_proposal
 from safwa.features.saved_requests.use_cases import (
     create_saved_request,
@@ -71,9 +72,11 @@ from safwa.models import (
     Workspace,
 )
 from safwa.shell import (
+    SHELL_COMMANDS,
     OwnerAndWritingMiddleware,
     dismiss_prior_ui,
     open_item_screen,
+    register_commands,
     render_citations,
 )
 from safwa.shell.chat import (
@@ -85,16 +88,8 @@ from safwa.shell.chat import (
     send_registered,
 )
 from safwa.shell.layout import menu_markup, menu_row, start_payload
-from safwa.telegram import (
-    SHELL_COMMANDS,
-    ordinary_text,
-    render_ai_outcome,
-    render_proposal,
-    voice_message,
-)
-from safwa.telegram.commands import register_commands
-from safwa.telegram.dialogue import run_dialogue_turn
 from safwa.turn import TurnManager
+from safwa.turn.dialogue import ordinary_text, run_dialogue_turn, voice_message
 from telegram_llm import (
     TELEGRAM_TEXT_LIMIT,
     ChatHost,
@@ -435,7 +430,7 @@ async def test_a_command_dismisses_every_other_screen(sessions) -> None:
 
     A command is the owner walking away, so the middleware answers the open screens.
     """
-    from safwa.telegram.commands import dismiss_screens_before_a_command
+    from safwa.shell import dismiss_screens_before_a_command
 
     async with sessions() as session:
         session.add_all(
@@ -1199,7 +1194,7 @@ def voice_message_for(
 
 def capture_dialogue_turns(monkeypatch) -> list[tuple[str, object]]:
     """Stop at the handler's edge: the advisor loop itself is the text path's test."""
-    import safwa.telegram.dialogue as dialogue_module
+    import safwa.turn.dialogue as dialogue_module
 
     turns: list[tuple[str, object]] = []
 
@@ -1516,7 +1511,7 @@ async def test_a_cancelled_generation_still_gives_up_its_lease(sessions, monkeyp
     A turn left behind is invisible: the middleware silently deletes every command after
     it, so the bot looks alive while `/start` and every deep link do nothing.
     """
-    import safwa.telegram.dialogue as dialogue_module
+    import safwa.turn.dialogue as dialogue_module
 
     async def cancelled(*_args, **_kwargs):
         raise asyncio.CancelledError

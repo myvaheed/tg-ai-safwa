@@ -8,7 +8,7 @@ Sources: `CLAUDE.md` §"A session is the unit, and `route` hands one turn to ano
 and checked against the code; current code — `ai/service.py`
 (`handle`, `_run_agent_loop`, `_execute_route_tool`, `_run_child`, `_provider_turn`),
 [ai/subagents.py](../../src/safwa/ai/subagents.py), [cues/runtime.py](../../src/safwa/cues/runtime.py),
-[telegram/dialogue.py](../../src/safwa/telegram/dialogue.py),
+[turn/dialogue.py](../../src/safwa/turn/dialogue.py),
 [recovery.py](../../src/safwa/recovery.py), and the E2E suite named in the audit table.
 
 Fifteen scenarios, all of them describing what Safwa already does. This packet writes down rules

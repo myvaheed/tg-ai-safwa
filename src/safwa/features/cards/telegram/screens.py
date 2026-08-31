@@ -57,7 +57,7 @@ async def render_card(
             and existing_editor.state.get("card_id") == card_id
         ):
             back = dict(existing_editor.state.get("back", {}))
-        back = back or {"kind": "home"}
+        back = back or {}
         card = await session.get(Card, card_id)
         if card is None:
             raise DomainError("Card does not exist")
@@ -140,7 +140,7 @@ async def render_card(
                         "card_view",
                         {
                             "id": parent.id,
-                            "back": {"kind": "card", "id": card.id, "back": back},
+                            "back": {"action": "card_view", "id": card.id, "back": back},
                         },
                     )
                 ]
@@ -157,7 +157,7 @@ async def render_card(
                         "card_view",
                         {
                             "id": live_card.id,
-                            "back": {"kind": "card", "id": card.id, "back": back},
+                            "back": {"action": "card_view", "id": card.id, "back": back},
                         },
                     )
                 ]
@@ -185,10 +185,10 @@ async def render_card(
                         session,
                         services.owner_id,
                         f"☑️ Checks ({pending_total}/{check_total})",
-                        "card_checks",
+                        "check_list",
                         {
                             "card_id": card.id,
-                            "back": {"kind": "card", "id": card.id, "back": back},
+                            "back": {"action": "card_view", "id": card.id, "back": back},
                         },
                     )
                 ]

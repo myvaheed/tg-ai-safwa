@@ -36,6 +36,7 @@ from safwa.features.proposals.model import (
     ChangeAction,
     ProposalChange,
 )
+from safwa.features.proposals.telegram import render_ai_outcome, render_proposal
 from safwa.features.proposals.use_cases import approve_proposal
 from safwa.features.saved_requests.use_cases import create_saved_request, request_cards
 from safwa.history import MARKS, TelegramNotes
@@ -54,12 +55,7 @@ from safwa.models import (
     Workspace,
 )
 from safwa.recovery import recover_startup
-from safwa.shell import dismiss_prior_ui
-from safwa.telegram import (
-    callback_token_handler,
-    render_ai_outcome,
-    render_proposal,
-)
+from safwa.shell import callback_token_handler, dismiss_prior_ui
 from safwa.turn import TurnManager
 from telegram_llm import ChatHost, DialogueMessage
 
@@ -1549,7 +1545,7 @@ async def test_a_review_whose_screen_could_not_be_sent_does_not_stay_open(
     async def refuse(*_args, **_kwargs):
         raise RuntimeError("Telegram refused the screen")
 
-    monkeypatch.setattr("safwa.telegram.proposals.render_proposal", refuse)
+    monkeypatch.setattr("safwa.features.proposals.telegram.answer.render_proposal", refuse)
     message = _QueueTestMessage()
     services = SimpleNamespace(
         sessions=e2e_harness.sessions,

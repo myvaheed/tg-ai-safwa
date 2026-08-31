@@ -19,18 +19,18 @@ from safwa.domain import create_card, set_sprint_success_criteria, start_sprint
 from safwa.features.cards.model import CardStage
 from safwa.features.planning.telegram import (
     handle_plan_start,
-    is_plan_link,
     render_plan,
     render_sprint,
     render_today,
 )
+from safwa.features.planning.telegram.plan import claims_plan_payload
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.saved_requests.use_cases import create_saved_request
 from safwa.foundation.clock import SystemClock
 from safwa.models import Card, Cue, Reminder, Sprint, UiSession, Workspace
-from safwa.telegram import callback_token_handler, ordinary_text
-from safwa.telegram.commands import command_start
+from safwa.shell import callback_token_handler, command_start
+from safwa.turn.dialogue import ordinary_text
 
 
 async def test_pl_mode_001_the_menu_offers_today_only_while_a_sprint_runs(sessions) -> None:
@@ -241,8 +241,8 @@ async def test_pl_plan_016_a_return_tap_moves_the_card_back_and_redraws_the_same
 
     payload = f"sr-{ids['sprint']}"
     tap = FakeMessage(102, text="/start " + payload, bot_message=False, bot=screen.bot)
-    assert is_plan_link(tap.text) is True
-    assert await handle_plan_start(tap, services, payload) is True
+    assert claims_plan_payload(payload) is True
+    await handle_plan_start(tap, services, payload)
 
     async with sessions() as session:
         assert (await session.get(Card, ids["sprint"])).effective_stage == CardStage.BACKLOG.value
@@ -266,7 +266,7 @@ async def test_opening_a_card_from_the_plan_comes_back_to_the_same_page_and_filt
     await render_plan(screen, services, filters=[request_id])
     assert "Skip me (2)" not in button_texts(screen.edits[-1][1])
 
-    assert await handle_plan_start(screen, services, f"sp-{ids['pick']}") is True
+    await handle_plan_start(screen, services, f"sp-{ids['pick']}")
     card_text, card_markup = screen.bot.edits[-1][1], screen.bot.edits[-1][2]
     assert "Pick me" in card_text
 

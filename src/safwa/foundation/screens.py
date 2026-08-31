@@ -74,6 +74,17 @@ class ScreenCatalogue:
         return (match.group(1), int(match.group(2))) if match else None
 
 
+@dataclass(frozen=True, slots=True)
+class StartLink:
+    """A `/start <payload>` a feature answers itself, instead of it opening a cited item.
+
+    `claims` also tells the command middleware to leave the open screen alone: such a tap
+    replaces the screen it was made on rather than opening another one.
+    """
+
+    claims: Callable[[str], bool]
+    # (message, services, payload) -> None.
+    open: Callable[..., Awaitable[None]]
 
 
 @dataclass(frozen=True, slots=True)

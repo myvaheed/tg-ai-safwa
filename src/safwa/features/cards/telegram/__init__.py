@@ -1,20 +1,20 @@
-"""The Card's Telegram adapter: its screens, its editors and its review screen.
+"""The Card's Telegram adapter: its screens, its editors, its buttons and its review screen.
 
-Big enough to be a package; a feature whose adapter is one screen keeps it one file, and
-either way the rest of Safwa writes `from .telegram import ...`.
+Big enough to be a package; a feature with one screen keeps it one file, and either way the
+rest of Safwa writes `from .telegram import ...`.
 """
 
 from __future__ import annotations
 
-from .creation import (
+from .creation import render_card_creation, start_manual_card_creation
+from .done_gate import render_check_resolution
+from .draft import (
     card_creation_errors,
-    card_creation_markup,
     card_editor_back_state,
-    render_card_creation,
     require_card_draft,
     sanitize_card_creation_state,
-    start_manual_card_creation,
 )
+from .handlers import CARD_CALLBACK_ACTIONS
 from .lists import (
     card_list_rows,
     card_list_text,
@@ -31,28 +31,15 @@ from .presentation import (
 )
 from .review import CardProposalPresenter
 from .screens import render_card
-from .selectors import (
-    CARD_CHOICE_FIELDS,
-    CARD_DRAFT_CHOICE_FIELDS,
-    CARD_DRAFT_RELATIONS,
-    CARD_RELATION_TOGGLES,
-    RELATION_CHOICES,
-    handle_card_creation_chooser,
-    render_card_choices,
-)
+from .selectors import render_card_choices
 from .text_input import CARD_TEXT_INPUTS
 
 __all__ = [
-    "CARD_CHOICE_FIELDS",
-    "CARD_DRAFT_CHOICE_FIELDS",
-    "CARD_DRAFT_RELATIONS",
-    "CARD_RELATION_TOGGLES",
+    "CARD_CALLBACK_ACTIONS",
     "CARD_TEXT_INPUTS",
-    "RELATION_CHOICES",
     "CardProposalPresenter",
     "card_citation_label",
     "card_creation_errors",
-    "card_creation_markup",
     "card_editor_back_state",
     "card_list_rows",
     "card_list_text",
@@ -60,11 +47,11 @@ __all__ = [
     "category_expression",
     "command_backlog",
     "energy_expression",
-    "handle_card_creation_chooser",
     "kind_label",
     "render_card",
     "render_card_choices",
     "render_card_creation",
+    "render_check_resolution",
     "render_children",
     "render_dashboard",
     "require_card_draft",

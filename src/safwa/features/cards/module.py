@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from ...bootstrap.module_manifest import FeatureModule, ProposalContribution
 from ...foundation.screens import ScreenCommand, ScreenSpec
-from ...telegram.callbacks import CARD_CALLBACK_ACTIONS
 from . import agent, proposal, telegram, views
 from .model import Card
 from .telegram import (
+    CARD_CALLBACK_ACTIONS,
     CARD_TEXT_INPUTS,
     card_citation_label,
     command_backlog,

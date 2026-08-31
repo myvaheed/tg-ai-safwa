@@ -125,7 +125,7 @@ What each feature plugs into the application is declared once, in
 The codebase is moving from flat layers to vertical features. A feature owns its model, use cases,
 agent contract and Telegram adapter, and its AI and UI mutation paths call the same operations —
 [features/diary](src/safwa/features/diary) is the shape to copy. What has not moved yet lives in
-[domain.py](src/safwa/domain.py) and [telegram/](src/safwa/telegram) until its declared phase.
+[domain.py](src/safwa/domain.py) and [history.py](src/safwa/history.py) until its declared phase.
 
 ### Board and Planning are not the same word
 
@@ -160,14 +160,14 @@ its two sets now live in [features/cards/model.py](src/safwa/features/cards/mode
 `WorkspaceMode` still wait in `enums.py`; `WorkspaceMode` belongs to Planning.
 
 [shell/](src/safwa/shell) is what a feature's Telegram adapter imports besides `telegram_llm`:
-the container, the router, the chat verbs, the layout, the editor and the shared selector. The
-shell never imports [telegram/](src/safwa/telegram), which is what is left to empty into the
-features. Only [commands.py](src/safwa/telegram/commands.py),
-[callbacks.py](src/safwa/telegram/callbacks.py) and [dialogue.py](src/safwa/telegram/dialogue.py)
-register `@router` handlers, and [__init__.py](src/safwa/telegram/__init__.py) imports them for that
-side effect — dropping one silently unregisters its handlers. A leading underscore means
-module-local: a name used by a sibling module carries no underscore, even though the whole package
-stays private behind `__init__.__all__`.
+the container, the router, the chat verbs, the layout, the editor, the shared selector, Safwa's own
+three commands and the one dispatcher every inline button goes through. The shell never imports a
+feature. Only [shell/commands.py](src/safwa/shell/commands.py),
+[shell/callbacks.py](src/safwa/shell/callbacks.py) and [turn/dialogue.py](src/safwa/turn/dialogue.py)
+register `@router` handlers; the shell package imports the first two and
+[main.py](src/safwa/main.py) imports the third for that side effect — dropping one silently
+unregisters its handlers. A leading underscore means module-local: a name used by a sibling module
+carries no underscore, even though the whole package stays private behind `__init__.__all__`.
 
 ## Principles
 
@@ -296,9 +296,9 @@ system message.
 
 ### Concurrency and UI state
 
-- `GenerationGuard` is the single foreground/background lease. While an answer runs, callbacks are
-  rejected and owner text is queued, then processed as one turn. Background work verifies the
-  revision before publishing or committing.
+- `TurnManager` ([turn/](src/safwa/turn)) is the single foreground/background lease. While an
+  answer runs, callbacks are rejected and owner text leaves the chat, which is what makes it not
+  something the owner said. Background work verifies the revision before publishing or committing.
 - `OwnerAndWritingMiddleware` drops anything that is not the owner in a private chat.
 - Every inline button is a single-use `CallbackToken` row that dies with the run of Safwa that
   drew it; `UiSession` holds transient editor state

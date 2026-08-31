@@ -6,9 +6,7 @@
       "Rule G|telegram_llm/host.py|starts a background task": 1
     },
     "Rule H": {
-      "Rule H|safwa/ai/contracts.py|collection over card, check, diary, request, tag, value": 1,
-      "Rule H|safwa/telegram/callbacks.py|branches on card": 1,
-      "Rule H|safwa/telegram/callbacks.py|branches on request": 1
+      "Rule H|safwa/ai/contracts.py|collection over card, check, diary, request, tag, value": 1
     },
     "Rule L": {
       "Rule L|safwa/features/planning/background.py|imports safwa.domain.expire_due_sprint": 1

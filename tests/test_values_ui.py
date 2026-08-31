@@ -14,7 +14,7 @@ from safwa.domain import (
 from safwa.features.tags.telegram import render_tag
 from safwa.features.values.telegram import render_value
 from safwa.models import Card, CardTag, CardValue, Tag, Value
-from safwa.telegram import callback_token_handler
+from safwa.shell import callback_token_handler
 
 
 async def test_the_value_screen_counts_cards_and_checks_and_flips_focus(sessions) -> None:

@@ -144,7 +144,7 @@ rolling back 4500 lines and seventy callback actions as one piece is not a safet
 | 5b | Cards and Checks | criterion 17 | **done** |
 | 5c | Planning and the Sprint | Rule E gains its second door | **done** |
 | 5d | Values, Tags, Requests, Reminders, Profile | Rule H 8 to 3 | **done** |
-| 5e | Proposals; `src/safwa/telegram/` does not exist | criterion 8 | |
+| 5e | Proposals; `src/safwa/telegram/` does not exist | criterion 8 | **done** |
 | 6 | `domain.py`, `history.py`, `main.py`; Rule G; Rule L; `CARD_EDITOR` → `EDITOR` | criteria 11, 12, 19 | |
 | 7 | Allowlist regenerated; `CLAUDE.md` and `README.md` corrected by deleting | criterion 18 | |
 
@@ -553,6 +553,74 @@ behind; both are paid here. `tests/test_telegram_item_ui.py` is 2,635 lines to 1
 `test_values_ui.py` (99), `test_settings_ui.py` (94) and `test_tags_ui.py` (88) are the screens'
 own. `seed_plan` and `plan_filters` went to `tests/ui_harness.py` and lost their underscores: two
 test modules build a plan, so the helper is no longer module-local.
+
+### What step 5e landed
+
+795 passed, 3 skipped; `ruff check .` clean; 211 modules; cycles 0. **Criterion 8's first half is
+met: `src/safwa/telegram/` does not exist.** Rule H 3 to 1 and DoD #1 3 to 1 — the one left is
+`ai/contracts.py`. DoD #3 2 to 1. No module this step produced is over 320 lines.
+
+| Was | Is |
+|---|---|
+| `telegram/proposals.py` | `features/proposals/telegram/{screens,answer}.py` |
+| `telegram/callbacks.py` — Cards | `features/cards/telegram/{handlers,creation,done_gate}.py` |
+| `telegram/callbacks.py` — Checks | `features/checks/telegram/handlers.py` |
+| `telegram/callbacks.py` — the Sprint | `features/planning/telegram/handlers.py` |
+| `telegram/callbacks.py` — proposals | `features/proposals/telegram/handlers.py` |
+| `telegram/callbacks.py` — `callback_token_handler` | `shell/callbacks.py` |
+| `telegram/commands.py` — Safwa's own | `shell/commands.py` |
+| `telegram/commands.py` — memory | `features/continuity/telegram.py` |
+| `telegram/dialogue.py` | `turn/dialogue.py` |
+
+**A `back` payload names the action that draws the screen.** This is not in the plan, and it is what
+made the step possible. `_on_card_back` branched over six screen kinds — `dashboard`, `request`,
+`plan`, `card`, `children`, `home` — reaching Cards, Planning and Saved Requests from one function,
+and `_render_dashboard_state` branched again between Today, the Sprint and a stage list. In
+`features/cards/` that is a cycle with Planning, which draws its lists with Cards' rows; in `shell/`
+it is the shell importing three features. Both are the same fact: **the branch was a registry of
+screens, and Safwa already has one.** A `back` is now `{"action": "card_view", "id": 12, …}`, and
+`shell.go_back` dispatches it through `services.callback_actions`. Both branches are gone, Today and
+the Sprint got the `today_page` and `sprint_page` actions their own paging always needed, and the
+two Rule H entries at `callbacks.py:297` and `:306` went with them.
+
+**`FeatureModule` grew a sixth contribution, `start_links`.** `command_start` asked Planning whether
+a `/start` payload was a tap in the plan table, and so did the command middleware; the shell cannot
+ask a feature anything. A `StartLink` is `claims(payload)` plus `open(message, services, payload)`,
+tried in `MODULES` order, and a payload none of them claims opens the item it cites. Planning
+declares the only one. This is the field the manifest rule says to weigh — "a capability several
+features plug into earns a contribution" — and it is taken with one user, because the alternative is
+the shell knowing what a Sprint plan is.
+
+**The Done-gate moved to Cards, screen and buttons together.** `checks/telegram/resolution.py`
+became `cards/telegram/done_gate.py`. Finishing an Action is what opens it, `finish_action` is what
+Save calls, and Back goes to the Card; only the rows on it are Checks, and their wording still comes
+from `checks/telegram`. Leaving the screen in Checks while its three handlers moved to Cards would
+have split one screen across two features and closed a `cards.telegram ↔ checks.telegram` cycle
+through the facades. Its `replace_message_id` parameter was dead on every call and went with it.
+This also answers what `resolution.py` was doing outside the adapter vocabulary: it was a Card
+screen in the Checks package.
+
+**`render_ai_outcome` and `continue_agent_approval` went to the proposals feature, not to the
+turn.** Both exist only because an answer may be a pending review: the first branches on
+`outcome.proposal_id`, the second resumes the session a screen suspended. Putting them in `turn/`
+would have made `turn → proposals.telegram → turn` — the handlers need the continuation and the
+continuation needs the screen. In `features/proposals/telegram/answer.py` the edge runs one way, and
+`turn/dialogue.py` and `cues/runtime.py` both import it.
+
+**The dispatcher stopped knowing the word "proposal".** `callback_token_handler` carried
+`_report_callback_failure` and `_resume_failed_approval`, both no-ops unless the action started with
+`proposal_`. The three proposal handlers are wrapped where they are declared, so `shell/callbacks.py`
+now logs and says one sentence, and the feature that drew the screen is the only thing that decides
+whether it can be redrawn.
+
+**`card_checks` and `check_list_back` were one handler under two names**; both are `check_list`,
+declared by Checks, which is what draws the list. `command_today` and `command_sprint` were
+deleted rather than moved: `planning/module.py` names `render_today` and `render_sprint` directly,
+and both wrappers had been dead since step 4b.
+
+**`creation.py` split into `draft.py` and `creation.py`.** The draft's state is what the selectors
+read, and its screen is what the selectors are opened from, so one module could not hold both once
+the handlers arrived — `selectors.py` imported `creation.py`, and the handlers needed the reverse.
 
 ### Step 6 — the last flat modules
 

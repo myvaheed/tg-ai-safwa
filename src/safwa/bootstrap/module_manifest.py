@@ -24,7 +24,7 @@ from ..features.proposals.api import (
     ProposalHandler,
     ProposalPresenter,
 )
-from ..foundation.screens import ScreenCommand, ScreenSpec, TextInputFlow
+from ..foundation.screens import ScreenCommand, ScreenSpec, StartLink, TextInputFlow
 from ..history import TelegramHistorySource
 from ..shell import Services
 
@@ -110,6 +110,10 @@ class FeatureModule:
         default_factory=dict
     )
     text_inputs: tuple[TextInputFlow, ...] = ()
+    # A deep link this feature answers itself, ahead of the citation it would otherwise be.
+    start_links: tuple[StartLink, ...] = ()
+    # A deep link this feature answers itself, ahead of the citation it would otherwise be.
+    start_links: tuple[StartLink, ...] = ()
 
     # Lifecycle
     recover: Callable[[AsyncSession], Awaitable[None]] | None = None

@@ -13,7 +13,8 @@ from safwa.features.profile.telegram import command_settings
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.foundation.clock import SystemClock
 from safwa.models import UiSession, UserProfile
-from safwa.telegram import callback_token_handler, ordinary_text
+from safwa.shell import callback_token_handler
+from safwa.turn.dialogue import ordinary_text
 
 
 async def test_valid_settings_input_updates_selected_field_and_auto_closes_prompt(

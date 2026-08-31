@@ -29,6 +29,7 @@ from ....constants import (
     SPRINT_PLAN_TITLE_LIMIT,
 )
 from ....enums import MessageKind
+from ....foundation.screens import StartLink
 from ....models import Card, SavedRequest
 from ....shell import (
     CallbackContext,
@@ -38,7 +39,6 @@ from ....shell import (
     paginate,
     send_registered,
     send_toast,
-    start_payload,
     token_button,
 )
 from ...cards.api import CardStage, actions_on_stages
@@ -80,15 +80,12 @@ def _is_a_burst() -> bool:
     )
 
 
-def is_plan_link(text: str | None) -> bool:
-    """Whether this owner message is a tap in the plan table.
+def claims_plan_payload(payload: str) -> bool:
+    """Whether this deep link is a tap in the plan table.
 
     A screen is only ever the last message, and such a tap replaces the screen rather than
     opening another one, so the command middleware must leave that screen alive.
     """
-    payload = start_payload(text)
-    if payload is None:
-        return False
     return bool(_OPEN_PAYLOAD.fullmatch(payload) or _RETURN_PAYLOAD.fullmatch(payload))
 
 
@@ -295,16 +292,14 @@ async def render_plan_filters(message: Message, services: Services) -> None:
     )
 
 
-async def handle_plan_start(message: Message, services: Services, payload: str) -> bool:
+async def handle_plan_start(message: Message, services: Services, payload: str) -> None:
     """Act on a tap in the plan table, in place of the screen it was made on.
 
-    False means the payload belongs to someone else. The screen survived the command
-    middleware, so it is still the last message and the answer takes its place there.
+    The screen survived the command middleware, so it is still the last message and the
+    answer takes its place there.
     """
     returned = _RETURN_PAYLOAD.fullmatch(payload)
     opened = _OPEN_PAYLOAD.fullmatch(payload)
-    if returned is None and opened is None:
-        return False
     async with services.sessions() as session:
         state = await load_plan_state(session, services.owner_id)
         screen_id = await plan_screen_id(session, message.chat.id, state)
@@ -325,7 +320,9 @@ async def handle_plan_start(message: Message, services: Services, payload: str) 
         )
     if _is_a_burst():
         await send_toast(message, services, _BURST_WARNING)
-    return True
+
+
+PLAN_LINK = StartLink(claims=claims_plan_payload, open=handle_plan_start)
 
 
 async def on_plan_open(context: CallbackContext) -> None:
@@ -334,9 +331,14 @@ async def on_plan_open(context: CallbackContext) -> None:
 
 
 async def on_plan_page(context: CallbackContext) -> None:
+    """Paging carries nothing; coming back from a Card carries the state it replaced."""
     page = context.payload.get("page")
+    filters = context.payload.get("filters")
     await render_plan(
-        context.message, context.services, page=None if page is None else int(page)
+        context.message,
+        context.services,
+        page=None if page is None else int(page),
+        filters=None if filters is None else list(filters),
     )
 
 

@@ -121,7 +121,7 @@ async def render_dashboard(
             services,
             cards,
             page=page,
-            back={"kind": "dashboard", "stage": stage.value, "title": title},
+            back={"action": "dashboard_page", "stage": stage.value, "title": title},
         )
         rows.extend(
             await paging_row(
@@ -155,7 +155,7 @@ async def render_children(
     page: int = 0,
     back: dict[str, Any] | None = None,
 ) -> None:
-    back = back or {"kind": "home"}
+    back = back or {}
     async with services.sessions() as session:
         parent = await session.get(Card, parent_id)
         if parent is None:
@@ -163,7 +163,7 @@ async def render_children(
         children = await card_children(session, parent.id)
         current = paginate_cards(children, page)
         child_back = {
-            "kind": "children",
+            "action": "card_children",
             "id": parent.id,
             "page": current.index,
             "back": back,

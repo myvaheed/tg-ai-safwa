@@ -27,13 +27,15 @@ from safwa.domain import (
 )
 from safwa.features.cards.model import CardStage
 from safwa.features.cards.telegram import (
-    RELATION_CHOICES,
-    handle_card_creation_chooser,
     render_card,
     render_card_choices,
     render_card_creation,
     render_children,
     render_dashboard,
+)
+from safwa.features.cards.telegram.selectors import (
+    RELATION_CHOICES,
+    handle_card_creation_chooser,
 )
 from safwa.features.cards.use_cases import EFFORT_POINTS
 from safwa.features.tags.telegram import render_tag
@@ -43,7 +45,8 @@ from safwa.models import (
     Card,
     UiSession,
 )
-from safwa.telegram import callback_token_handler, ordinary_text
+from safwa.shell import callback_token_handler
+from safwa.turn.dialogue import ordinary_text
 
 
 def test_every_card_relationship_is_wired_to_both_selector_surfaces() -> None:

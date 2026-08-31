@@ -69,7 +69,7 @@ async def render_saved_request(
                     services.owner_id,
                     f"{kind_label(card.kind)} · {card.title}"[:60],
                     "card_view",
-                    {"id": card.id, "back": {"kind": "request", "id": request.id}},
+                    {"id": card.id, "back": {"action": "request_view", "id": request.id}},
                 )
             ]
             for card in cards

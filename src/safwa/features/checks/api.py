@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...enums import ActorType
 from .model import Check as Check
+from .model import CheckOutcome as CheckOutcome
 from .model import is_closed_repeat as is_closed_repeat
 from .references import CHECK_VALUE_REFERENCE as CHECK_VALUE_REFERENCE
 from .use_cases import apply_check_outcome, check_resolutions, drop_pending_checks, pending_checks

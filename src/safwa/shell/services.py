@@ -24,7 +24,7 @@ from ..ai.advisor import AIAdvisor
 from ..features.continuity.memory import MemoryFileStore
 from ..features.continuity.persona import PersonaContinuity
 from ..foundation.models import Workspace
-from ..foundation.screens import ScreenCatalogue, ScreenCommand, TextInputFlow
+from ..foundation.screens import ScreenCatalogue, ScreenCommand, StartLink, TextInputFlow
 from ..history import TelegramHistorySource
 from ..turn import TurnManager
 
@@ -62,6 +62,8 @@ class Services:
     callback_actions: Mapping[str, CallbackHandler]
     # What each text editor writes the owner's typed value to.
     text_inputs: Mapping[str, TextInputFlow]
+    # The deep links the features answer themselves, before a payload is read as a citation.
+    start_links: tuple[StartLink, ...] = ()
     # The `ai_*` views the features publish; a saved Request's SQL is validated against them.
     views: frozenset[str] = frozenset()
     # Loaded from Settings; item citations stay plain text when the username is omitted.

@@ -1,4 +1,4 @@
-"""The manual Card draft: a `UiSession` row that persists nothing until Save."""
+"""The screen a Card is written on by hand, and what each of its buttons does."""
 
 from __future__ import annotations
 
@@ -10,96 +10,35 @@ from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....enums import CardKind, MessageKind, Priority
+from ....enums import CardKind, MessageKind
 from ....foundation.errors import DomainError
 from ....models import Tag, UiSession, Value
 from ....shell import (
+    CallbackContext,
+    CallbackHandler,
     Services,
+    TextInputScreen,
+    command_start,
     edit_registered_message,
     menu_markup,
+    render_text_input,
     send_registered,
     sprint_is_active,
     token_button,
 )
-from ..model import CardStage
-from ..use_cases import validate_action_fields, validate_blocked_fields
+from ..use_cases import create_card
+from .draft import (
+    card_creation_errors,
+    new_card_creation_state,
+    require_card_draft,
+    sanitize_card_creation_state,
+)
 from .presentation import card_overview_text
-
-
-def _new_card_creation_state() -> dict[str, Any]:
-    return {
-        "kind": CardKind.ACTION.value,
-        "title": "",
-        "note": "",
-        "stage": CardStage.BACKLOG.value,
-        "priority": Priority.MEDIUM.value,
-        "hard_time": False,
-        "blocked": False,
-        "blocked_description": "",
-        "effort_points": None,
-        "repeatable": False,
-        "categories": [],
-        "energy_types": [],
-        "value_ids": [],
-        "tag_ids": [],
-    }
-
-
-def sanitize_card_creation_state(state: dict[str, Any]) -> dict[str, Any]:
-    clean = {**_new_card_creation_state(), **state}
-    try:
-        clean["kind"] = CardKind(clean["kind"]).value
-    except ValueError:
-        clean["kind"] = CardKind.ACTION.value
-    try:
-        clean["stage"] = CardStage(clean["stage"]).value
-    except ValueError:
-        clean["stage"] = CardStage.BACKLOG.value
-    if clean["stage"] in {CardStage.DONE.value, CardStage.CANCELLED.value}:
-        clean["stage"] = CardStage.BACKLOG.value
-    if clean["kind"] != CardKind.ACTION.value:
-        clean.update(
-            stage=CardStage.BACKLOG.value,
-            effort_points=None,
-            repeatable=False,
-            blocked=False,
-            categories=[],
-            energy_types=[],
-        )
-    if not clean["blocked"]:
-        clean["blocked_description"] = ""
-    for field in ("categories", "energy_types", "value_ids", "tag_ids"):
-        clean[field] = list(dict.fromkeys(clean.get(field) or []))
-    return clean
-
-
-def card_creation_errors(state: dict[str, Any]) -> list[str]:
-    """Report what still blocks Save, using the same rules the domain enforces.
-
-    The draft is checked here only so Save can be hidden until it would succeed;
-    ``create_card`` remains the authority and revalidates everything.
-    """
-    errors: list[str] = []
-    if not str(state.get("title", "")).strip():
-        errors.append("Add a title")
-    for check in (
-        lambda: validate_action_fields(
-            state["kind"],
-            state.get("effort_points"),
-            bool(state.get("repeatable")),
-            set(state.get("categories") or []),
-            set(state.get("energy_types") or []),
-            blocked=bool(state.get("blocked")),
-        ),
-        lambda: validate_blocked_fields(
-            bool(state.get("blocked")), state.get("blocked_description")
-        ),
-    ):
-        try:
-            check()
-        except DomainError as error:
-            errors.append(str(error))
-    return errors
+from .selectors import (
+    CARD_DRAFT_CHOICE_FIELDS,
+    CARD_DRAFT_RELATIONS,
+    handle_card_creation_chooser,
+)
 
 
 async def card_creation_markup(
@@ -221,7 +160,7 @@ async def start_manual_card_creation(message: Message, services: Services) -> No
             UiSession(
                 owner_id=services.owner_id,
                 kind="card_create",
-                state=_new_card_creation_state(),
+                state=new_card_creation_state(),
                 expires_at=datetime.now(UTC) + timedelta(hours=24),
             )
         )
@@ -229,21 +168,138 @@ async def start_manual_card_creation(message: Message, services: Services) -> No
     await render_card_creation(message, services)
 
 
-async def require_card_draft(session: AsyncSession, owner_id: int) -> UiSession:
-    draft = await session.scalar(
-        select(UiSession).where(
-            UiSession.owner_id == owner_id,
-            UiSession.kind == "card_create",
+async def _on_view(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        draft = await session.scalar(
+            select(UiSession).where(UiSession.owner_id == context.owner_id)
         )
+        if draft is None:
+            raise DomainError("Card creation is no longer active")
+        state = dict(draft.state or {})
+        state.pop("input_field", None)
+        state.pop("message_id", None)
+        state.pop("text_input", None)
+        state.pop("flow", None)
+        draft.kind = "card_create"
+        draft.state = sanitize_card_creation_state(state)
+        await session.commit()
+    await render_card_creation(context.message, context.services)
+
+
+async def _on_edit_text(context: CallbackContext) -> None:
+    field = context.payload["field"]
+    async with context.sessions() as session:
+        draft = await require_card_draft(session, context.owner_id)
+        state = dict(draft.state or {})
+        current = str(state.get(field) or "")
+        state["input_field"] = field
+        state["flow"] = "card_create"
+    await render_text_input(
+        context.message,
+        context.services,
+        screen=TextInputScreen(
+            title=f"Edit Card {field.replace('_', ' ').title()}",
+            current_value=current,
+            instruction=f"Send the new {field.replace('_', ' ')}.",
+            back_action="card_create_view",
+            back_payload={},
+        ),
+        state=state,
     )
-    if draft is None:
-        raise DomainError("Card creation is no longer active")
-    return draft
 
 
-async def card_editor_back_state(session: AsyncSession, owner_id: int) -> dict[str, Any]:
-    """Keep the navigation trail of the Card screen a focused prompt replaces."""
-    editor = await session.scalar(select(UiSession).where(UiSession.owner_id == owner_id))
-    if editor is None or editor.kind != "card_editor":
-        return {}
-    return dict(editor.state.get("back", {}))
+async def _on_toggle(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        draft = await require_card_draft(session, context.owner_id)
+        state = dict(draft.state or {})
+        field = context.payload["field"]
+        state[field] = not bool(state.get(field))
+        draft.state = sanitize_card_creation_state(state)
+        await session.commit()
+    await render_card_creation(context.message, context.services)
+
+
+async def _on_chooser(context: CallbackContext) -> None:
+    await handle_card_creation_chooser(
+        context.message,
+        context.services,
+        context.action,
+        page=int(context.payload.get("page", 0)),
+    )
+
+
+async def _on_set(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        draft = await require_card_draft(session, context.owner_id)
+        state = dict(draft.state or {})
+        state[context.payload["field"]] = context.payload["value"]
+        draft.state = sanitize_card_creation_state(state)
+        await session.commit()
+    await render_card_creation(context.message, context.services)
+
+
+async def _on_toggle_relation(context: CallbackContext) -> None:
+    field, payload_key = CARD_DRAFT_RELATIONS[context.action]
+    async with context.sessions() as session:
+        draft = await require_card_draft(session, context.owner_id)
+        state = dict(draft.state or {})
+        selected = set(state.get(field) or [])
+        selected.symmetric_difference_update({context.payload[payload_key]})
+        state[field] = sorted(selected)
+        draft.state = sanitize_card_creation_state(state)
+        await session.commit()
+    await render_card_creation(context.message, context.services)
+
+
+async def _on_save(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        draft = await require_card_draft(session, context.owner_id)
+        state = sanitize_card_creation_state(dict(draft.state or {}))
+        errors = card_creation_errors(state)
+        if errors:
+            raise DomainError("Card is incomplete: " + "; ".join(errors))
+        card = await create_card(
+            session,
+            kind=state["kind"],
+            title=state["title"],
+            note=state["note"],
+            stage=state["stage"],
+            priority=state["priority"],
+            hard_time=state["hard_time"],
+            blocked=state["blocked"],
+            blocked_description=state["blocked_description"],
+            effort_points=state["effort_points"],
+            repeatable=state["repeatable"],
+            categories=set(state["categories"]),
+            energy_types=set(state["energy_types"]),
+            value_ids=set(state["value_ids"]),
+            tag_ids=set(state["tag_ids"]),
+        )
+        await session.delete(draft)
+        await session.commit()
+    await send_registered(
+        context.message,
+        context.services,
+        f"✅ Created <b>{html.escape(card.title)}</b>.",
+        kind=MessageKind.DIALOGUE_ASSISTANT,
+        related_id=card.id,
+    )
+
+
+async def _on_discard(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        await session.execute(delete(UiSession).where(UiSession.owner_id == context.owner_id))
+        await session.commit()
+    await command_start(context.message, context.services)
+
+
+CARD_DRAFT_ACTIONS: dict[str, CallbackHandler] = {
+    "card_create_view": _on_view,
+    "card_create_edit_text": _on_edit_text,
+    "card_create_toggle": _on_toggle,
+    "card_create_set": _on_set,
+    "card_create_save": _on_save,
+    "card_create_discard": _on_discard,
+    **{f"card_create_choose_{field}": _on_chooser for field in CARD_DRAFT_CHOICE_FIELDS},
+    **dict.fromkeys(CARD_DRAFT_RELATIONS, _on_toggle_relation),
+}
