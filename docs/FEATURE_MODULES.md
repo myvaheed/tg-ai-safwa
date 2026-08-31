@@ -122,11 +122,13 @@ A module that only re-exports is counted as a leftover path by Definition of Don
 **Rule E has two doors, and `api.py` is only one of them.** A feature reaches another feature's
 business through `api.py`, and another feature's **screens** through its `telegram` adapter: a screen
 is public already, because `FeatureModule.screens` hands `render_card` to the composition root, and
-Planning draws its Sprint list with the rows Cards draws. An **adapter** may additionally call
-another feature's `use_cases`, because Cards has no write door and cannot be given one —
-`cards/api.py` importing `cards/use_cases.py` closes a cycle through `planning/api.py`, and that
-coupling, where writing a stage syncs a Sprint commitment, is the design. Business modules keep the
-single door.
+Planning draws its Sprint list with the rows Cards draws.
+
+**Writing a Card is the one exception, and the rule names it.** `cards/api.py` cannot import
+`cards/use_cases.py` without closing a cycle through `planning/api.py` — writing a stage syncs a
+Sprint commitment, and that coupling is the design — so Cards has no write door and cannot be given
+one. Whoever writes a Card names `cards/use_cases.py` outright. No other feature's `use_cases` is
+reachable from outside it.
 
 `references.py` declares one [`ReferenceSpec`](../src/safwa/foundation/references.py) per named
 relationship — a Card carries Values, Tags and Checks, a Check carries Values — so a payload key,

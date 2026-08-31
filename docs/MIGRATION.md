@@ -59,7 +59,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 5 | Cards, Checks and the Sprint | business | **done** — 5.0 the board package (technical), 5.a Cards, 5.b stages, 5.c Checks, 5.d archiving, 5.e the archive as a mark, 5.f the heavy analyzer, 5.g a repeat's Values, 5.h Planning and the plan screen |
 | 6 | Proposals and the first reactive process | business | **done** — 6.a the typed batch and the reducer, 6.b the proposal use cases, 6.c interruption and autoapproval, 6.d the startup sweeps, 6.e–6.g no status, no tables, no stringly vocabularies |
 | 7 | `agent_runtime` | technical + business | **done** — 7.a 21 scenarios approved, 7.b `ai/service.py` deleted, 7.c the interaction contract |
-| 8 | `telegram_llm` and `TurnManager` | business + technical | **in progress** — 8.a done, one exit criterion carried; 8.b the handlers go to the features |
+| 8 | `telegram_llm` and `TurnManager` | business + technical | **done** — 8.a the chat leaves Safwa, 8.b the handlers go to the features; criterion 16 carried |
 | 9 | Packages and cleanup | technical | not started |
 
 A phase ends in a state that can be kept forever: tests green, bot working, no old path running
@@ -2845,8 +2845,103 @@ fresh `ChatHost` on each of its 185 calls; the host gets a home when `_messaging
 **Criterion 16 is unverified.** The live Telegram suite needs a second BotFather bot and the
 `SAFWA_QA_*` variables, so it was not run here.
 
-## Phase 8.b is planned in its own file
+## What Phase 8.b delivered
 
-[MIGRATION_8b.md](MIGRATION_8b.md) carries the steps, the six things reading the code changed in the
-plan, what the batch deletes and the amended exit criteria. It folds back into this file as "What
-Phase 8.b delivered" when the batch is done.
+The handlers went to the features, the turn got a name, and the flat modules are empty.
+
+```
+                 8.b start                        8.b end
+modules          181                              212
+Rule F/G/H/L     0 / 2 / 24 / 1                   0 / 0 / 1 / 0
+DoD #1 / #3      24 / 3                           1 / 1
+tests            814 passed, 3 skipped            795 passed, 3 skipped
+src/safwa/       telegram/ 6,329 lines, 16 files  telegram/ does not exist
+                 history.py 392, domain.py 190,   neither exists; main.py is
+                 main.py 250                      bootstrap/main.py
+```
+
+Fewer tests at the end than at the start: the queue tests were deleted by name in step 1, because
+the behaviour they asserted was amended out of `AG-TURN-010`.
+
+| Step | What it moved |
+|---|---|
+| 1–2 | `AG-TURN-010` amended, `022` and `023` written; the queue deleted and `TurnManager` arrived in `src/safwa/turn/` |
+| 3 | `foundation/state_flow.py` deleted, the states kept |
+| 4a–4d | `FeatureModule` grew `screens`, `commands`, `callback_actions`, `text_inputs`; four central registries gone |
+| 5a | `src/safwa/shell/` — the router, the container, the middleware, the menu, the token dispatch |
+| 5b–5e | Cards, Checks, Planning, Values, Tags, Requests, Reminders, Profile, Proposals; `src/safwa/telegram/` deleted |
+| 6 | `domain.py` and `history.py` deleted, `main.py` became `bootstrap/main.py`, Rule G to 0, `CARD_EDITOR` became `EDITOR` |
+| 7 | the allowlist, these documents, and the last test monolith |
+
+### The six things reading the code changed, and the decisions taken on them
+
+1. **DoD #3 cannot reach 0.** `features/cards/use_cases.py` (816) is a feature module in its right
+   place, and its size is the guarantee its docstring states: every writer of an Action's stage is
+   in one file. Criterion 12 reads `3 → 1` with that as the named reason.
+2. **Rule H reached outside `telegram/`**, so the catalogue of openable and citable items is a
+   `FeatureModule` contribution, `screens`, and not only a UI mechanism.
+3. **That catalogue would have moved `prompt_prefix.json`.** `OpenInput.item_type`'s `Literal` stays
+   hand-written in `ai/contracts.py`: a tool's enum is prompt text, and prompt text is written where
+   the model reads it. It is Rule H's last entry, on purpose.
+4. **Rule G's second entry was inside `telegram_llm`.** Neither module starts a task now:
+   `ChatHost` takes a `Spawn`, and `bootstrap/main.py` cancels every Toast timer it started. A timer
+   the package started outlived shutdown, because nothing outside knew it existed.
+5. **Step 5 had no home for the shell.** `src/safwa/shell/` is it — Safwa's Telegram application,
+   and the only module besides `telegram_llm` that a feature's adapter may import.
+6. **8.b had no ceiling on what it produced**, so criterion 17 was added: 400 lines.
+
+### What was decided while it ran
+
+**A `back` payload names the action that draws the screen.** `{"action": "card_view", "id": 12, …}`,
+dispatched by `shell.go_back` through the same table every inline button goes through. It replaced a
+branch over six screen kinds that reached Cards, Planning and Saved Requests from one function — a
+registry of screens, in a codebase that already has one.
+
+**`FeatureModule` grew a sixth contribution, `start_links`.** A `/start` payload a feature answers
+itself, tried in `MODULES` order; a payload none of them claims opens the item it cites. Taken with
+one user, Planning, because the alternative is the shell knowing what a Sprint plan is.
+
+**Rule E lost a door and gained a name.** The `use_cases` door is Cards', from anywhere, instead of
+being open to every adapter: `cards/api.py` cannot import `cards/use_cases.py` without closing a
+cycle through `planning/api.py`, so Cards has no write door and cannot be given one. That is a fact
+about Cards, not about adapters. The one edge that used the old door for something else moved to a
+new `features/saved_requests/api.py`.
+
+**`bootstrap_workspace` went to `bootstrap/main.py`, not to `foundation/`**: one of the two rows it
+seeds is `features/profile`'s model, and foundation is what every feature calls, not the other way
+round.
+
+**One regression was found and closed.** Since step 5c, the 🏃 Sprint screen called
+`planning/use_cases.finish_sprint`, which does not archive, while every test called the `domain.py`
+wrapper, which does — so half of `PL-END-014` was broken and untestable at once. There is one
+`finish_sprint` now, in Planning, and it sweeps.
+
+### Exit criteria
+
+Every criterion is met except one, which could not be run here.
+
+| # | Criterion | Verdict |
+|---|---|---|
+| 8 | `src/safwa/telegram/` and `GenerationGuard` do not exist | met |
+| 9 | no illegal combination of turn state is representable; `QueuedMessage` is gone | met |
+| 10 | `foundation/state_flow.py` deleted | met |
+| 11 | Rule H 24 → 1 (the `open` tool's enum), G 2 → 0, L 1 → 0, DoD #1 24 → 1 | met |
+| 12 | DoD #3 3 → 1 (`features/cards/use_cases.py`); neither `domain.py` nor `history.py` exists | met |
+| 13 | `AG-TURN-010` amended, `022` and `023` green, the queue tests deleted by name | met |
+| 14 | `prompt_prefix.json` byte-identical, `schema.json` unchanged | met |
+| 15 | the two E2E suites added to, never traded | met |
+| 16 | the live Telegram suite passes | **not run**: it needs a second BotFather bot and the `SAFWA_QA_*` variables |
+| 17 | no module produced by this batch is over 400 lines | met for source; the largest is `features/values/telegram/screens.py` at 398. Two test modules are over it — `tests/test_cards_ui.py` (732) and `tests/test_planning_ui.py` (428) — and are named rather than split |
+| 18 | `tests/test_telegram_item_ui.py` does not exist | met: it is `test_shell_wiring.py`, `test_turn_ui.py`, `test_interruptions_ui.py`, `test_citations_ui.py`, `test_proposals_ui.py`, `test_voice_ui.py` and `test_chat_ui.py` |
+| 19 | `CARD_EDITOR` does not exist, and `MessageKind` is still Safwa's | met |
+
+**Criterion 16 is carried into Phase 9**, as it was carried out of 8.a. So is one stale name:
+`tests/test_domain.py` is named after a module that no longer exists, and its contents are half
+Cards' tree and half the Sprint's scope, so it has no one owner to be renamed to.
+`tests/test_history.py` did have one and is `tests/test_chat_history.py`.
+
+**One stored value is stale.** `MessageKind.CARD_EDITOR` became `EDITOR`, and the mark code is
+unchanged, so every message already in the chat reads back as the kind it was sent under. Rows
+written before the rename still say `card_editor` in `telegram_messages.kind`; all of them are
+screens and typed values, none of which is dialogue. Rebuilding the database, or
+`UPDATE telegram_messages SET kind = 'editor' WHERE kind = 'card_editor'`, makes them match.

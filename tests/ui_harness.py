@@ -29,7 +29,7 @@ from safwa.features.proposals.store import ProposalStore
 from safwa.models import UiSession
 from safwa.shell import SHELL_COMMANDS
 from safwa.turn import TurnManager
-from telegram_llm import ChatHost
+from telegram_llm import ChatHost, TranscriptionError, TranscriptionResult
 
 # What the composition root puts together, which is what a live Safwa answers with.
 CALLBACK_ACTIONS = FEATURE_CALLBACK_ACTIONS
@@ -245,3 +245,56 @@ async def plan_filters(sessions) -> list[int]:
     async with sessions() as session:
         ui = await session.scalar(select(UiSession).where(UiSession.kind == "sprint_plan"))
         return list(ui.state["filters"])
+
+
+class ScriptedTranscriber:
+    """The ASR network boundary: one canned transcript, or one failure."""
+
+    def __init__(
+        self, text: str = "", error: str = "", progress_at: tuple[float, ...] = ()
+    ) -> None:
+        self.text = text
+        self.error = error
+        self.progress_at = progress_at
+        self.clips: list[object] = []
+
+    async def transcribe(self, clip, *, progress=None):
+        self.clips.append(clip)
+        for done in self.progress_at:
+            if progress is not None:
+                await progress(done, clip.duration_seconds)
+        if self.error:
+            raise TranscriptionError(self.error)
+        return TranscriptionResult(text=self.text, elapsed_seconds=0.1)
+
+    async def close(self) -> None:
+        return None
+
+
+def voice_message_for(
+    message_id: int, *, duration: int = 12, file_size: int = 4_096
+) -> FakeMessage:
+    return FakeMessage(
+        message_id,
+        bot_message=False,
+        answer_as_new=True,
+        voice=SimpleNamespace(
+            file_id=f"voice-{message_id}",
+            duration=duration,
+            file_size=file_size,
+            mime_type="audio/ogg",
+        ),
+    )
+
+
+def capture_dialogue_turns(monkeypatch) -> list[tuple[str, object]]:
+    """Stop at the handler's edge: the advisor loop itself is the text path's test."""
+    import safwa.turn.dialogue as dialogue_module
+
+    turns: list[tuple[str, object]] = []
+
+    async def fake_turn(_message, _services, request, source):
+        turns.append((request, source))
+
+    monkeypatch.setattr(dialogue_module, "run_dialogue_turn", fake_turn)
+    return turns

@@ -153,10 +153,12 @@ Cross-feature tuning — token budgets, poll intervals, shared timeouts — live
 [constants.py](src/safwa/constants.py), which imports nothing from Safwa;
 [config.py](src/safwa/config.py) takes its defaults from there. A limit that belongs to one feature
 is a constant at the top of that feature's module, next to where it is used. The same split applies
-to [enums.py](src/safwa/enums.py): `MessageKind` and `AIProvider` are shared, while `CardStage` and
-its two sets now live in [features/cards/model.py](src/safwa/features/cards/model.py) and
-`CheckOutcome` in [features/checks/model.py](src/safwa/features/checks/model.py). `CardKind` and
-`WorkspaceMode` still wait in `enums.py`; `WorkspaceMode` belongs to Planning.
+to [enums.py](src/safwa/enums.py): what more than one feature reads is there, and what one
+feature owns lives with it — `CardStage` and its two sets in
+[features/cards/model.py](src/safwa/features/cards/model.py), `CheckOutcome` in
+[features/checks/model.py](src/safwa/features/checks/model.py). `WorkspaceMode` is the exception
+and stays shared: `Workspace` is [foundation](src/safwa/foundation/models.py)'s row, and its `mode`
+column is where the default is written.
 
 [shell/](src/safwa/shell) is what a feature's Telegram adapter imports besides `telegram_llm`:
 the container, the router, the chat verbs, the layout, the editor, the shared selector, Safwa's own
