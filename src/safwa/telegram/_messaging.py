@@ -8,7 +8,6 @@ import secrets
 from typing import Any
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramAPIError
 from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -25,7 +24,7 @@ from ..features.continuity.use_cases import record_summary
 from ..features.proposals.model import BatchDecision
 from ..history import MARKS, TelegramNotes
 from ..models import CallbackToken, UiSession
-from ._core import QueuedMessage, Services
+from ._core import Services
 from ._presentation import Page, proposal_outcome_text
 
 logger = logging.getLogger(__name__)
@@ -184,30 +183,6 @@ async def _interrupted_review(services: Services, screen: Note) -> tuple[str, st
     return text, MessageKind.DIALOGUE_ASSISTANT.value
 
 
-async def materialize_queued_dialogue(
-    message: Message, services: Services
-) -> tuple[Message, str] | None:
-    """Replace transient queue notices with one durable user-role dialogue turn."""
-    queued: list[QueuedMessage] = await services.guard.drain_queue()
-    if not queued:
-        return None
-    request = "\n\n----\n\n".join(item.text.strip() for item in queued if item.text.strip())
-    dialogue_text = f"{owner_display_name(message, services)}:\n{request}"
-    sent = await send_owner_turn(message, services, request)
-    placeholder_ids = [
-        item.placeholder_message_id for item in queued if item.placeholder_message_id is not None
-    ]
-    if placeholder_ids:
-        try:
-            await message.bot.delete_messages(
-                chat_id=message.chat.id,
-                message_ids=placeholder_ids,
-            )
-        except TelegramAPIError as error:
-            logger.warning("Could not remove queued-message placeholders: %s", error)
-    return sent, dialogue_text
-
-
 def owner_display_name(message: Message, services: Services) -> str:
     """What to call the owner in their own dialogue turns.
 
@@ -247,6 +222,30 @@ async def send_owner_turn(message: Message, services: Services, text: str) -> Me
 
 async def delete_screen(message: Message, services: Services, message_id: int) -> None:
     await _host(services).remove_screen(message, message_id)
+
+
+# `UI_INPUT` keeps it out of the conversation, and `/cancel` is tappable as written.
+TURN_NOTICE = "⏳ Safwa is writing an answer.\n/cancel to stop it."
+
+
+async def open_turn_notice(message: Message, services: Services) -> None:
+    """Say in the chat that an answer is being written, once for the whole turn."""
+    sent = await send_registered(
+        message, services, TURN_NOTICE, kind=MessageKind.UI_INPUT, replace=False
+    )
+    services.turn.notice_shown(message.message_id, sent.message_id)
+
+
+async def remove_turn_notice(
+    message: Message, services: Services, notice: int | None
+) -> None:
+    if notice is not None:
+        await delete_screen(message, services, notice)
+
+
+async def end_turn(message: Message, services: Services) -> None:
+    """Give the turn back and take its notice out of the chat, in that order."""
+    await remove_turn_notice(message, services, services.turn.end(message.message_id))
 
 
 async def send_toast(message: Message, services: Services, text: str) -> None:

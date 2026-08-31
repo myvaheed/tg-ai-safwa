@@ -106,9 +106,6 @@ TOAST_SECONDS = 5
 PLAN_LINK_BURST_TAPS = 8
 PLAN_LINK_BURST_SECONDS = 10
 CHECK_LIST_LIMIT = 25
-# A queue notice is transient and deleted on drain, so it previews the turn rather than
-# repeating it — a transcribed monologue would not fit in one message anyway.
-QUEUE_PREVIEW_CHARS = 300
 # A resolved proposal stays in the dialogue for good, so its receipt is capped rather than
 # carrying every field of a wide edit.
 PROPOSAL_OUTCOME_DETAIL_LIMIT = 6

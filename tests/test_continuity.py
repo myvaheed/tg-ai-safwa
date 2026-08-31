@@ -14,7 +14,7 @@ from safwa.features.continuity.persona import MemoryMaintenanceResult, PersonaCo
 from safwa.features.continuity.use_cases import run_due_memory_maintenance
 from safwa.features.profile.model import UserProfile
 from safwa.history import HistoryEntry
-from safwa.telegram._core import GenerationGuard
+from safwa.turn import TurnManager
 
 NOT_TEXT = b"\xff\xfe not text at all"
 
@@ -93,7 +93,7 @@ async def test_due_memory_maintenance_runs_once_per_local_day(sessions) -> None:
         await session.commit()
 
     continuity = StubContinuity()
-    guard = GenerationGuard()
+    guard = TurnManager()
     now = datetime(2026, 8, 8, 3, 1, tzinfo=ZoneInfo("Europe/Istanbul"))
     first = await run_due_memory_maintenance(
         cast(Any, continuity),
@@ -128,7 +128,7 @@ async def test_memory_maintenance_off_never_runs(sessions) -> None:
         sessions,
         42,
         "Europe/Istanbul",
-        run_background=GenerationGuard().run_background,
+        run_background=TurnManager().run_background,
         now=datetime(2026, 8, 8, 23, 0, tzinfo=ZoneInfo("Europe/Istanbul")),
     )
 
@@ -138,8 +138,8 @@ async def test_memory_maintenance_off_never_runs(sessions) -> None:
 
 async def test_background_gate_does_not_start_work_while_foreground_is_active() -> None:
     """CO-GENERATION-011 — tests/brd/continuity.feature"""
-    guard = GenerationGuard()
-    await guard.acquire(101)
+    guard = TurnManager()
+    guard.begin(101)
     called = False
 
     async def background(_still_current) -> bool:
@@ -153,7 +153,7 @@ async def test_background_gate_does_not_start_work_while_foreground_is_active() 
 
 async def test_background_gate_invalidates_currentness_after_dialogue_revision_changes() -> None:
     """CO-GENERATION-011 — tests/brd/continuity.feature"""
-    guard = GenerationGuard()
+    guard = TurnManager()
 
     async def background(still_current) -> bool:
         assert still_current() is True
@@ -173,8 +173,8 @@ async def test_due_memory_maintenance_waits_while_foreground_generation_is_activ
         await session.commit()
 
     continuity = StubContinuity()
-    guard = GenerationGuard()
-    await guard.acquire(101)
+    guard = TurnManager()
+    guard.begin(101)
     ran = await run_due_memory_maintenance(
         cast(Any, continuity),
         sessions,

@@ -17,7 +17,7 @@ from telegram_llm import DialogueMessage
 
 from ..enums import MessageKind
 from ..models import AgentRun, TelegramMessage
-from ..telegram._core import BACKGROUND_SOURCE_ID, Services
+from ..telegram._core import Services
 from ..telegram.proposals import render_ai_outcome
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ class CueRuntime:
         An open proposal is an unanswered question; raising a second one on top of it —
         one the owner did not even initiate — turns the chat into a stack of screens.
         """
-        if self.services.guard.active:
+        if self.services.turn.active:
             return False
         if self.services.advisor.reviews.busy:
             return False
@@ -50,20 +50,20 @@ class CueRuntime:
             )
             if claimed:
                 return False
-        if not self.services.guard.reserve_background():
+        if not self.services.turn.try_begin_background():
             return False
-        self._lease_revision = self.services.guard.dialogue_revision
+        self._lease_revision = self.services.turn.dialogue_revision
         return True
 
     def still_current(self) -> bool:
         return (
             self._lease_revision is not None
-            and self.services.guard.background
-            and self.services.guard.dialogue_revision == self._lease_revision
+            and self.services.turn.background
+            and self.services.turn.dialogue_revision == self._lease_revision
         )
 
     def release(self) -> None:
-        self.services.guard.release(BACKGROUND_SOURCE_ID)
+        self.services.turn.end_background()
         self._lease_revision = None
 
     async def speak(self, event_id: str, text: str) -> bool:
@@ -92,7 +92,7 @@ class CueRuntime:
                 return False
             outcome = await self.services.advisor.handle(text, dialogue=dialogue)
             if not self.still_current():
-                # The owner arrived mid-turn and took the guard. Their message wins.
+                # The owner arrived mid-turn and took the turn. Their message wins.
                 return False
             # CUE keeps the answer in dialogue while marking it as something the model
             # volunteered, not a reply to a message that is not there.

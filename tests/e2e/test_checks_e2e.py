@@ -24,12 +24,12 @@ from safwa.features.cards.model import CardStage
 from safwa.features.checks.model import CheckOutcome
 from safwa.models import CallbackToken, Card, Check, TelegramMessage
 from safwa.telegram import (
-    GenerationGuard,
     callback_token_handler,
     render_ai_outcome,
     render_proposal,
 )
 from safwa.telegram.commands import command_start
+from safwa.turn import TurnManager
 from telegram_llm import DialogueMessage
 
 pytestmark = pytest.mark.e2e
@@ -110,7 +110,7 @@ def _services(harness, advisor) -> SimpleNamespace:
         advisor=advisor,
         history=_TestHistory(),
         owner_id=42,
-        guard=GenerationGuard(),
+        turn=TurnManager(),
         bot_username="safwa_ai_bot",
     )
 

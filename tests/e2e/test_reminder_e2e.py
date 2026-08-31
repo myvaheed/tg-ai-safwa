@@ -17,7 +17,8 @@ from safwa.features.proposals.use_cases import approve_proposal
 from safwa.features.reminders.schedule import schedule_of
 from safwa.foundation.clock import SystemClock
 from safwa.models import CallbackToken, Reminder
-from safwa.telegram import GenerationGuard, callback_token_handler, render_proposal
+from safwa.telegram import callback_token_handler, render_proposal
+from safwa.turn import TurnManager
 from telegram_llm import DialogueMessage
 
 TZ = ZoneInfo("Europe/Istanbul")
@@ -278,7 +279,7 @@ def _services(harness, advisor) -> SimpleNamespace:
         advisor=advisor,
         history=_TestHistory(),
         owner_id=42,
-        guard=GenerationGuard(),
+        turn=TurnManager(),
         bot_username="safwa_ai_bot",
     )
 

@@ -4,9 +4,9 @@ One long-lived collaborator, built once by the composition root and handed to th
 adapters. It reads the canonical conversation, calls the provider, and hands the result
 to the operations in `use_cases.py`; it owns no schedule and no state of its own.
 
-It also owns no lock. `GenerationGuard.run_background` is the single lease every caller
+It also owns no lock. `TurnManager.run_background` is the single lease every caller
 takes, and it already refuses a second background run — a lock here would be a second
-mechanism for the property the guard exists to hold.
+mechanism for the property the turn exists to hold.
 """
 
 from __future__ import annotations

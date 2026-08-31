@@ -39,6 +39,9 @@ BUSINESS_FILES = ("rules.py", "model.py", "use_cases.py", "data.py")
 # Rule F: packages that must stay usable without Safwa.
 REUSABLE_PACKAGES = ("llm_gateway", "agent_runtime", "telegram_llm")
 
+# Rules C and D: processes that live beside the features rather than inside one.
+PROCESS_PACKAGES = ("safwa/turn/", "safwa/cues/")
+
 # Rule G: where starting a task is part of the job.
 LIFECYCLE_MODULES = ("safwa/main.py", "safwa/bootstrap/main.py")
 
@@ -122,9 +125,11 @@ def modules() -> list[Module]:
     return found
 
 
-def feature_modules(*names: str) -> Iterator[Module]:
+def process_modules(*names: str) -> Iterator[Module]:
+    """Modules of a feature or of a process that lives beside them, such as the turn."""
     for module in modules():
-        if module.feature and module.path.name in names:
+        owned = module.feature is not None or module.rel.startswith(PROCESS_PACKAGES)
+        if owned and module.path.name in names:
             yield module
 
 
@@ -151,7 +156,7 @@ def _string_constants(tree: ast.AST) -> Iterator[ast.Constant]:
 def rule_a() -> list[Violation]:
     """Business files know nothing about delivery, the provider SDK or settings."""
     out = []
-    for module in feature_modules(*BUSINESS_FILES):
+    for module in process_modules(*BUSINESS_FILES):
         for root, line in module.imported_roots():
             if root in DELIVERY_PACKAGES:
                 out.append(Violation("Rule A", module.rel, line, f"imports {root}"))
@@ -164,7 +169,7 @@ def rule_a() -> list[Violation]:
 def rule_b() -> list[Violation]:
     """Adapters do not open or close a business transaction."""
     out = []
-    for module in feature_modules("telegram.py", "agent.py"):
+    for module in process_modules("telegram.py", "agent.py"):
         for call in _calls_named(module.tree, "commit", "rollback"):
             out.append(Violation("Rule B", module.rel, call.lineno, "commits or rolls back"))
     return out
@@ -190,12 +195,44 @@ def _is_enum(node: ast.ClassDef) -> bool:
     return any(ast.unparse(base).endswith("Enum") for base in node.bases)
 
 
+def _union_members(tree: ast.Module) -> set[str]:
+    """The variants of every `XState = A | B` or `type XState = A | B` in a module.
+
+    A union names its variants whatever reads best — `Idle` and `Answering` say more
+    than `IdleState` — so the alias is what says they are process state, not the suffix
+    on each one.
+    """
+    members: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.TypeAlias):
+            name, value = node.name.id, node.value
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            if not isinstance(target, ast.Name):
+                continue
+            name, value = target.id, node.value
+        else:
+            continue
+        if not name.endswith(("State", "Action", "Effect")):
+            continue
+        while isinstance(value, ast.BinOp) and isinstance(value.op, ast.BitOr):
+            if isinstance(value.right, ast.Name):
+                members.add(value.right.id)
+            value = value.left
+        if isinstance(value, ast.Name):
+            members.add(value.id)
+    return members
+
+
 def rule_c() -> list[Violation]:
-    """Process state is frozen, and the writer never leaves the Manager."""
+    """Process state is frozen: every variant of a State, Action or Effect union."""
     out = []
-    for module in feature_modules("manager.py", "model.py"):
+    for module in process_modules("manager.py", "model.py"):
+        named = _union_members(module.tree)
         for node in ast.walk(module.tree):
-            if isinstance(node, ast.ClassDef) and node.name.endswith(("State", "Action", "Effect")):
+            if isinstance(node, ast.ClassDef) and (
+                node.name.endswith(("State", "Action", "Effect")) or node.name in named
+            ):
                 # A persisted row is durable state, not the process state this rule means:
                 # it is mutable by definition, and its truth is the table, not a union.
                 # An enum is a closed vocabulary, and its members are already immutable.
@@ -205,23 +242,13 @@ def rule_c() -> list[Violation]:
                     out.append(
                         Violation("Rule C", module.rel, node.lineno, f"{node.name} is not frozen")
                     )
-    for module in feature_modules("manager.py"):
-        for node in ast.walk(module.tree):
-            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                continue
-            if node.returns is None or node.name.startswith("_"):
-                continue
-            if "MutableStateFlow" in ast.unparse(node.returns):
-                out.append(
-                    Violation("Rule C", module.rel, node.lineno, f"{node.name} leaks the writer")
-                )
     return out
 
 
 def rule_d() -> list[Violation]:
     """Reducers are pure: a transition may not await, read a file or touch a session."""
     out = []
-    for module in feature_modules("reducer.py", "manager.py"):
+    for module in process_modules("reducer.py", "manager.py"):
         # Every function in a `reducer.py` is a transition, whatever it is called: the
         # entry point is usually a `match` that hands the work to private helpers, and
         # checking the name alone would leave those helpers free to open a session.
@@ -336,7 +363,7 @@ def rule_h() -> list[Violation]:
 def rule_k() -> list[Violation]:
     """A proposal handler carries no wording, and a tool adapter carries no commit."""
     out = []
-    for module in feature_modules("proposal.py"):
+    for module in process_modules("proposal.py"):
         for root, line in module.imported_roots():
             if root in ("aiogram", "telegram_llm"):
                 out.append(Violation("Rule K", module.rel, line, f"imports {root}"))
@@ -345,7 +372,7 @@ def rule_k() -> list[Violation]:
                 out.append(
                     Violation("Rule K", module.rel, constant.lineno, "carries a user-facing string")
                 )
-    for module in feature_modules("agent.py"):
+    for module in process_modules("agent.py"):
         for call in _calls_named(module.tree, "commit"):
             out.append(Violation("Rule K", module.rel, call.lineno, "commits"))
         for path, line in module.imported_paths():

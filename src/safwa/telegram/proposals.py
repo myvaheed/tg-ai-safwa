@@ -15,7 +15,13 @@ from ..enums import MessageKind
 from ..features.proposals.model import DECISION_RECEIPTS, BatchDecision
 from ..foundation.errors import failure_reason
 from ._core import Services
-from ._messaging import edit_registered_message, send_prose, send_registered, token_button
+from ._messaging import (
+    edit_registered_message,
+    end_turn,
+    send_prose,
+    send_registered,
+    token_button,
+)
 from ._presentation import proposal_change_summary
 from .screens import open_citation, render_citations
 
@@ -149,7 +155,7 @@ async def continue_agent_approval(
         kind=MessageKind.RECEIPT,
     )
     try:
-        await services.guard.acquire(message.message_id)
+        services.turn.begin(message.message_id)
     except Exception:
         logger.exception(
             "Could not acquire continuation lease after %s #%s", decision, proposal_id
@@ -190,4 +196,4 @@ async def continue_agent_approval(
         await render_ai_outcome(message, services, outcome)
         return True
     finally:
-        services.guard.release(message.message_id)
+        await end_turn(message, services)

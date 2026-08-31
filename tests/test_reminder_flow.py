@@ -38,7 +38,7 @@ from safwa.models import (
     TelegramMessage,
     Workspace,
 )
-from safwa.telegram._core import BACKGROUND_SOURCE_ID, GenerationGuard
+from safwa.turn import TurnManager
 from telegram_llm import DialogueMessage
 
 TZ = ZoneInfo("Europe/Istanbul")
@@ -247,54 +247,54 @@ async def test_reconcile_is_a_no_op_when_the_timezone_has_not_moved(sessions):
 
 def test_a_background_lease_is_marked_background():
     """RM-GATE-018 — tests/brd/reminders.feature"""
-    guard = GenerationGuard()
-    assert guard.reserve_background() is True
-    assert guard.active and guard.background
+    turn = TurnManager()
+    assert turn.try_begin_background() is True
+    assert turn.active and turn.background
 
 
 def test_an_owner_lease_is_not_background():
     """RM-GATE-018 — tests/brd/reminders.feature"""
-    guard = GenerationGuard()
-    guard.reserve(101)
-    assert guard.active and not guard.background
+    turn = TurnManager()
+    turn.try_begin(101)
+    assert turn.active and not turn.background
 
 
 def test_a_background_lease_never_steals_from_the_owner():
     """RM-GATE-018 — tests/brd/reminders.feature"""
-    guard = GenerationGuard()
-    guard.reserve(101)
-    assert guard.reserve_background() is False
-    assert guard.active_source_id == 101
+    turn = TurnManager()
+    turn.try_begin(101)
+    assert turn.try_begin_background() is False
+    assert turn.source_message_id == 101
 
 
-def test_releasing_a_background_lease_frees_the_guard():
+def test_releasing_a_background_lease_gives_the_turn_back():
     """RM-GATE-018 — tests/brd/reminders.feature"""
-    guard = GenerationGuard()
-    guard.reserve_background()
-    guard.release(BACKGROUND_SOURCE_ID)
-    assert not guard.active and not guard.background
+    turn = TurnManager()
+    turn.try_begin_background()
+    turn.end_background()
+    assert not turn.active and not turn.background
 
 
 def test_cancelling_a_background_lease_bumps_the_dialogue_revision():
     """RM-GATE-018 — tests/brd/reminders.feature"""
     # That bump is how the running turn learns it lost and must discard its answer.
-    guard = GenerationGuard()
-    guard.reserve_background()
-    revision = guard.dialogue_revision
-    guard.cancel()
-    assert guard.dialogue_revision != revision
-    assert not guard.active
-    assert guard.reserve(101) is True  # the owner can take it immediately
+    turn = TurnManager()
+    turn.try_begin_background()
+    revision = turn.dialogue_revision
+    turn.cancel()
+    assert turn.dialogue_revision != revision
+    assert not turn.active
+    assert turn.try_begin(101) is True  # the owner can take it immediately
 
 
-def test_releasing_a_background_lease_cannot_free_an_owner_lease():
+def test_ending_background_work_cannot_take_the_owners_turn():
     """RM-GATE-018 — tests/brd/reminders.feature"""
-    guard = GenerationGuard()
-    guard.reserve_background()
-    guard.cancel()
-    guard.reserve(101)
-    guard.release(BACKGROUND_SOURCE_ID)
-    assert guard.active_source_id == 101
+    turn = TurnManager()
+    turn.try_begin_background()
+    turn.cancel()
+    turn.try_begin(101)
+    turn.end_background()
+    assert turn.source_message_id == 101
 
 
 # --- cue text ------------------------------------------------------
@@ -375,12 +375,12 @@ async def test_reminder_advisor_receives_canonical_dialogue(sessions, monkeypatc
 
     history = History()
     advisor = Advisor()
-    guard = GenerationGuard()
+    turn = TurnManager()
     services = SimpleNamespace(
         sessions=sessions,
         history=history,
         advisor=advisor,
-        guard=guard,
+        turn=turn,
     )
     runtime = CueRuntime(services, object(), owner_id=42)
     rendered: list[tuple[MessageKind, str]] = []
@@ -452,7 +452,7 @@ async def test_a_cue_render_failure_releases_its_pending_proposal(sessions, monk
         sessions=sessions,
         history=History(),
         advisor=Advisor(),
-        guard=GenerationGuard(),
+        turn=TurnManager(),
     )
     runtime = CueRuntime(services, object(), owner_id=42)
     # Below the guard, not over it: ending an undrawn review is `render_ai_outcome`'s job.
@@ -469,13 +469,13 @@ async def test_a_cue_render_failure_releases_its_pending_proposal(sessions, monk
 async def test_cancelling_a_foreground_lease_aborts_its_task() -> None:
     """RM-GATE-018 — tests/brd/reminders.feature"""
     # Bumping the revision only marks the answer stale; the provider calls must stop.
-    guard = GenerationGuard()
+    turn = TurnManager()
     started = asyncio.Event()
     finished = False
 
     async def generation() -> None:
         nonlocal finished
-        guard.reserve(101)
+        turn.try_begin(101)
         started.set()
         await asyncio.sleep(30)
         finished = True
@@ -483,30 +483,30 @@ async def test_cancelling_a_foreground_lease_aborts_its_task() -> None:
     task = asyncio.create_task(generation())
     await started.wait()
 
-    guard.cancel()
+    turn.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
 
     assert task.cancelled()
     assert finished is False
-    assert not guard.active
+    assert not turn.active
 
 
 async def test_cancelling_a_background_lease_leaves_its_loop_running() -> None:
     """RM-GATE-018 — tests/brd/reminders.feature"""
     # A background holder's task is a long-lived loop; cancelling it would end the loop.
-    guard = GenerationGuard()
+    turn = TurnManager()
     started = asyncio.Event()
 
     async def loop() -> None:
-        guard.reserve_background()
+        turn.try_begin_background()
         started.set()
         await asyncio.sleep(30)
 
     task = asyncio.create_task(loop())
     await started.wait()
 
-    guard.cancel()
+    turn.cancel()
     await asyncio.sleep(0)
 
     assert not task.cancelled()
@@ -521,7 +521,7 @@ def _gate_runtime(sessions) -> CueRuntime:
         sessions=sessions,
         history=None,
         advisor=SimpleNamespace(reviews=ProposalStore()),
-        guard=GenerationGuard(),
+        turn=TurnManager(),
     )
     return CueRuntime(services, object(), owner_id=42)
 
@@ -532,9 +532,9 @@ async def test_an_open_question_of_any_shape_closes_the_gate(sessions):
     assert await runtime.can_speak() is True
     runtime.release()
 
-    runtime.services.guard.reserve(7)
+    runtime.services.turn.try_begin(7)
     assert await runtime.can_speak() is False
-    runtime.services.guard.release(7)
+    runtime.services.turn.end(7)
 
     reviews = runtime.services.advisor.reviews
     proposal = reviews.open_proposal(

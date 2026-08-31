@@ -28,13 +28,14 @@ from ..features.reminders.use_cases import update_reminder_text
 from ..foundation.clock import SystemClock
 from ..history import HistoryEntry
 from ..models import UiSession
-from ._core import Services, audio_payload, queue_owner_text, router
+from ._core import Services, audio_payload, router
 from ._messaging import (
     delete_screen,
     delete_text_input,
     dismiss_prior_ui,
     edit_registered_message,
-    materialize_queued_dialogue,
+    end_turn,
+    open_turn_notice,
     send_owner_turn,
     send_registered,
     send_summary,
@@ -307,16 +308,6 @@ async def voice_message(message: Message, services: Services) -> None:
     finally:
         await progress.clear()
 
-    # The lease is settled only now: the middleware could not know what this message said
-    # until it was decoded, and a decode is long enough for the lease to have changed hands.
-    if services.guard.background:
-        services.guard.cancel()
-    if services.guard.active and services.guard.active_source_id != message.message_id:
-        if services.guard.queue_messages:
-            await queue_owner_text(message, services, result.text, delete_source=False)
-            return
-        services.guard.cancel()
-
     await dismiss_prior_ui(message, services)
     sent = await send_owner_turn(message, services, result.text)
     source = HistoryEntry(
@@ -374,50 +365,32 @@ def _audio_filename(message: Message) -> str:
 async def run_dialogue_turn(
     message: Message, services: Services, request: str, source: HistoryEntry
 ) -> None:
-    """Answer one owner turn, then drain whatever queued while the advisor was busy.
+    """Answer one owner turn.
 
-    `message` is the owner event that owns the generation lease. `source` is the dialogue
-    turn itself, which is a different message whenever the owner's words reached the chat
-    as a bot message rather than as their own text.
+    `message` is the owner event that holds the turn. `source` is the dialogue turn
+    itself, which is a different message whenever the owner's words reached the chat as a
+    bot message rather than as their own text.
     """
-    dialogue_revision = services.guard.dialogue_revision
-    current_source = source
-    current_request = request
+    dialogue_revision = services.turn.dialogue_revision
     try:
-        await services.guard.acquire(message.message_id, queue_messages=True)
-        while True:
-            await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-            dialogue = await services.history.dialogue(
-                message.chat.id, source_message=current_source
-            )
-            outcome = await services.advisor.handle(
-                current_request,
-                source_message_id=current_source.message_id,
-                dialogue=dialogue,
-            )
-            # Only the owner invalidates their own answer. The workspace revision does not:
-            # an autoapproved change bumps it from inside this very turn.
-            if services.guard.dialogue_revision != dialogue_revision:
-                logger.info("Discarding an answer the owner already moved past")
-                return
-            await render_ai_outcome(message, services, outcome)
-            queued = await materialize_queued_dialogue(message, services)
-            if queued is None:
-                break
-            queued_message, current_request = queued
-            await dismiss_prior_ui(queued_message, services)
-            current_source = HistoryEntry(
-                message_id=queued_message.message_id,
-                sender_id=services.owner_id,
-                role="user",
-                text=current_request,
-                created_at=queued_message.date.astimezone(UTC),
-                kind=MessageKind.DIALOGUE_USER.value,
-            )
+        services.turn.begin(message.message_id)
+        await open_turn_notice(message, services)
+        await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+        dialogue = await services.history.dialogue(message.chat.id, source_message=source)
+        outcome = await services.advisor.handle(
+            request,
+            source_message_id=source.message_id,
+            dialogue=dialogue,
+        )
+        # Only the owner invalidates their own answer. The workspace revision does not:
+        # an autoapproved change bumps it from inside this very turn.
+        if services.turn.dialogue_revision != dialogue_revision:
+            logger.info("Discarding an answer the owner already moved past")
+            return
+        await render_ai_outcome(message, services, outcome)
+        await end_turn(message, services)
 
-        services.guard.release(message.message_id)
-
-        await services.guard.run_background(
+        await services.turn.run_background(
             lambda still_current: services.continuity.maybe_summarize(
                 message.chat.id,
                 lambda text, covered_id: send_summary(message, services, text, covered_id),
@@ -434,14 +407,8 @@ async def run_dialogue_turn(
             kind=MessageKind.ERROR,
         )
     finally:
-        # The lease is released under its own `finally`: restoring the queue awaits, and an
-        # await in a cancelled task raises `CancelledError` straight past `except Exception`.
-        # Losing the release there would leave the guard held by a task that no longer runs,
-        # and from then on every command is silently dropped by the middleware.
-        try:
-            if services.guard.active_source_id == message.message_id:
-                await materialize_queued_dialogue(message, services)
-        except Exception:
-            logger.exception("Could not restore queued messages after generation stopped")
-        finally:
-            services.guard.release(message.message_id)
+        # The turn is given back under its own `finally`: an await in a cancelled task
+        # raises `CancelledError` straight past `except Exception`, and losing this would
+        # leave the turn held by a task that no longer runs, from which point every
+        # command is silently dropped by the middleware.
+        await end_turn(message, services)

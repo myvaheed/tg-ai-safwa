@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import asyncio
-import html
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
-from typing import Any, TypeVar
+from dataclasses import dataclass
+from typing import Any
 
 from aiogram import BaseMiddleware, Router
-from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import Audio, CallbackQuery, Message, TelegramObject, VideoNote, Voice
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -16,8 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from telegram_llm import Transcriber
 
 from ..ai.advisor import AIAdvisor
-from ..constants import QUEUE_PREVIEW_CHARS
-from ..enums import Category, EnergyType, MessageKind
+from ..enums import Category, EnergyType
 from ..features.cards.references import TAG_REFERENCE, VALUE_REFERENCE
 from ..features.cards.use_cases import (
     toggle_card_category,
@@ -28,8 +24,9 @@ from ..features.cards.use_cases import (
 from ..features.checks.api import CHECK_VALUE_REFERENCE
 from ..features.continuity.memory import MemoryFileStore
 from ..features.continuity.persona import PersonaContinuity
-from ..history import TelegramHistorySource, mark_message, register_message
+from ..history import TelegramHistorySource
 from ..models import CardCategory, CardEnergyType, CardTag, CardValue, Workspace
+from ..turn import TurnManager
 
 logger = logging.getLogger(__name__)
 router = Router(name="safwa")
@@ -54,150 +51,13 @@ class Services:
     memory: MemoryFileStore
     continuity: PersonaContinuity
     owner_id: int
-    guard: GenerationGuard
+    turn: TurnManager
     # The `ai_*` views the features publish; a saved Request's SQL is validated against them.
     views: frozenset[str] = frozenset()
     # Loaded from Settings; item citations stay plain text when the username is omitted.
     bot_username: str = ""
     # None when SAFWA_ASR_PROVIDER is off, which is what makes the bot text-only.
     transcriber: Transcriber | None = None
-
-
-# The source id of a generation nobody asked for. Telegram message ids are positive, so a
-# negative one cannot collide with a real message.
-BACKGROUND_SOURCE_ID = -1
-BackgroundResult = TypeVar("BackgroundResult")
-
-
-def _current_task() -> asyncio.Task[Any] | None:
-    """The running task, or None when the guard is driven outside a loop, as in tests."""
-    try:
-        return asyncio.current_task()
-    except RuntimeError:
-        return None
-
-
-@dataclass(eq=False)
-class QueuedMessage:
-    text: str
-    placeholder_message_id: int | None = None
-    ready: asyncio.Event = field(default_factory=asyncio.Event)
-
-
-class GenerationGuard:
-    """Allows one AI generation at a time, identified by what started it.
-
-    ``active_source_id`` is the Telegram message id being answered, or
-    ``BACKGROUND_SOURCE_ID`` when nothing was asked.  Holding it is what makes the
-    middleware reject callbacks and delete incoming messages, so only one answer is ever
-    being written into the chat.  ``dialogue_revision`` is bumped by :meth:`cancel` and is
-    how a generation already in flight learns to discard its result.
-
-    A foreground holder also registers its own task, so :meth:`cancel` stops the provider
-    traffic instead of only marking the answer stale.  A background holder does not: its
-    task is a long-lived loop, and cancelling that would end the loop rather than the run.
-    """
-
-    def __init__(self) -> None:
-        self.active_source_id: int | None = None
-        self.dialogue_revision = 0
-        self.queue_messages = False
-        self._queued_messages: list[QueuedMessage] = []
-        self._task: asyncio.Task[Any] | None = None
-
-    @property
-    def active(self) -> bool:
-        return self.active_source_id is not None
-
-    @property
-    def background(self) -> bool:
-        return self.active_source_id == BACKGROUND_SOURCE_ID
-
-    async def acquire(self, source_id: int, *, queue_messages: bool = False) -> None:
-        if self.active_source_id not in {None, source_id}:
-            raise RuntimeError("Another foreground generation is active")
-        self.active_source_id = source_id
-        self.queue_messages = self.queue_messages or queue_messages
-        self._task = _current_task()
-
-    def reserve(self, source_id: int, *, queue_messages: bool = False) -> bool:
-        if self.active_source_id is not None:
-            return self.active_source_id == source_id
-        self.active_source_id = source_id
-        self.queue_messages = queue_messages
-        self._task = _current_task()
-        return True
-
-    def reserve_background(self) -> bool:
-        """Take the guard for a generation nobody asked for, or decline if it is held.
-
-        Never takes it away from the owner; the caller retries later.
-        """
-        if self.active_source_id is not None:
-            return False
-        self.active_source_id = BACKGROUND_SOURCE_ID
-        self.queue_messages = False
-        self._task = None
-        return True
-
-    async def run_background(
-        self,
-        operation: Callable[[Callable[[], bool]], Awaitable[BackgroundResult]],
-    ) -> BackgroundResult | None:
-        """Run one background generation while its lease remains current.
-
-        Foreground work always wins: a held guard postpones this operation. The callback
-        receives the single staleness predicate used by Summary and Memory.
-        """
-        if not self.reserve_background():
-            return None
-        revision = self.dialogue_revision
-
-        def still_current() -> bool:
-            return self.background and self.dialogue_revision == revision
-
-        try:
-            return await operation(still_current)
-        finally:
-            self.release(BACKGROUND_SOURCE_ID)
-
-    def release(self, source_id: int | None = None) -> None:
-        if source_id is not None and self.active_source_id != source_id:
-            return
-        self.active_source_id = None
-        self.queue_messages = False
-        self._task = None
-
-    def cancel(self) -> None:
-        """Stop the current generation, and abort its task when the owner still holds it."""
-        task = self._task
-        self.dialogue_revision += 1
-        self.release()
-        if task is not None and task is not _current_task() and not task.done():
-            task.cancel()
-
-    def begin_queue(self, text: str) -> QueuedMessage:
-        queued = QueuedMessage(text=text)
-        self._queued_messages.append(queued)
-        return queued
-
-    def finish_queue(self, queued: QueuedMessage, placeholder_message_id: int | None) -> None:
-        queued.placeholder_message_id = placeholder_message_id
-        queued.ready.set()
-
-    def abort_queue(self, queued: QueuedMessage) -> None:
-        if queued in self._queued_messages:
-            self._queued_messages.remove(queued)
-        queued.ready.set()
-
-    async def drain_queue(self) -> list[QueuedMessage]:
-        while self._queued_messages:
-            snapshot = list(self._queued_messages)
-            await asyncio.gather(*(queued.ready.wait() for queued in snapshot))
-            if snapshot == self._queued_messages:
-                self._queued_messages.clear()
-                return snapshot
-        return []
 
 
 class OwnerAndWritingMiddleware(BaseMiddleware):
@@ -227,87 +87,40 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
                     command_deleted = True
                 except TelegramAPIError as error:
                     logger.warning("Could not delete operational command %s: %s", command, error)
-        if services.guard.background:
-            # The owner outranks a generation nobody asked for: drop it and take the message
+        if services.turn.background:
+            # The owner outranks work nobody asked for: drop it and take the message
             # normally, rather than deleting it the way a foreground collision would.
-            services.guard.cancel()
-        if isinstance(event, Message) and services.guard.active:
+            services.turn.cancel()
+        if isinstance(event, Message) and services.turn.active:
             if command == "/cancel":
                 return await handler(event, data)
-            if event.message_id != services.guard.active_source_id:
-                if services.guard.queue_messages and not command and event.text:
-                    if await queue_owner_text(event, services, event.text, delete_source=True):
-                        return None
-                    services.guard.cancel()
-                    return await handler(event, data)
-                if services.guard.queue_messages and audio_payload(event) is not None:
-                    # Only the handler can turn audio into text this queue can hold.
-                    return await handler(event, data)
+            if event.message_id != services.turn.source_message_id:
+                # Nothing joins a running answer: the message leaves the chat, and leaving
+                # the chat is what makes it not something the owner said. A recording is
+                # refused here rather than downloaded, so nothing is paid to transcribe it.
                 if not command_deleted:
                     try:
                         await event.delete()
                     except TelegramAPIError:
-                        services.guard.cancel()
+                        # It could not be taken out, so it is theirs and stays theirs.
+                        services.turn.cancel()
                         return await handler(event, data)
                 return None
-        if isinstance(event, CallbackQuery) and services.guard.active:
+        if isinstance(event, CallbackQuery) and services.turn.active:
             await event.answer("Safwa is responding. Use /cancel to stop it.", show_alert=True)
             return None
-        reserved = False
-        if isinstance(event, Message) and not services.guard.active:
+        taken = False
+        if isinstance(event, Message) and not services.turn.active:
             is_dialogue = (
                 bool(event.text) and not event.text.lstrip().startswith("/")
             ) or audio_payload(event) is not None
             if is_dialogue:
-                reserved = services.guard.reserve(event.message_id, queue_messages=True)
+                taken = services.turn.try_begin(event.message_id)
         try:
             return await handler(event, data)
         finally:
-            if reserved:
-                services.guard.release(event.message_id)
-
-
-async def queue_owner_text(
-    message: Message, services: Services, text: str, *, delete_source: bool
-) -> bool:
-    """Hold one owner turn until the running generation finishes.
-
-    False means the message could not be taken out of the chat, so the caller has to stop
-    the generation and handle the turn now instead.  A transcript is queued without a
-    source to delete: the voice message it came from carries no text and is invisible to
-    the dialogue anyway.
-    """
-    queued = services.guard.begin_queue(text)
-    if delete_source:
-        try:
-            await message.delete()
-        except TelegramAPIError:
-            services.guard.abort_queue(queued)
-            return False
-    placeholder_id: int | None = None
-    try:
-        preview = text if len(text) <= QUEUE_PREVIEW_CHARS else text[:QUEUE_PREVIEW_CHARS] + "…"
-        placeholder_text, event_id = mark_message(
-            f"Generating response... /cancel for cancelling.\nQueued: {html.escape(preview)}",
-            MessageKind.UI_INPUT,
-        )
-        placeholder = await message.answer(placeholder_text, parse_mode=ParseMode.HTML)
-        placeholder_id = placeholder.message_id
-        async with services.sessions() as session:
-            await register_message(
-                session,
-                placeholder.chat.id,
-                placeholder.message_id,
-                "out",
-                MessageKind.UI_INPUT,
-                event_id=event_id,
-            )
-            await session.commit()
-    except Exception:
-        logger.exception("Could not render a queued-message placeholder")
-    finally:
-        services.guard.finish_queue(queued, placeholder_id)
-    return True
+            if taken:
+                services.turn.end(event.message_id)
 
 
 @dataclass(frozen=True)

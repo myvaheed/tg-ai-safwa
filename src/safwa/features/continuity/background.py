@@ -35,7 +35,7 @@ async def _maintain_memory(context: BackgroundContext) -> None:
                 context.sessions,
                 context.settings.telegram_owner_id,
                 context.settings.timezone,
-                run_background=context.services.guard.run_background,
+                run_background=context.services.turn.run_background,
             )
         except Exception:
             logger.exception("Scheduled memory synchronization failed")

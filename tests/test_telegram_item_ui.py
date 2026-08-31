@@ -97,7 +97,6 @@ from safwa.models import (
 )
 from safwa.telegram import (
     CALLBACK_ACTIONS,
-    GenerationGuard,
     OwnerAndWritingMiddleware,
     callback_token_handler,
     dismiss_prior_ui,
@@ -119,9 +118,11 @@ from safwa.telegram import (
     voice_message,
 )
 from safwa.telegram._messaging import (
+    TURN_NOTICE,
     discard_stale_status,
     edit_registered_message,
-    materialize_queued_dialogue,
+    remove_turn_notice,
+    send_owner_turn,
     send_registered,
 )
 from safwa.telegram._presentation import start_payload
@@ -131,6 +132,7 @@ from safwa.telegram.dialogue import run_dialogue_turn
 from safwa.telegram.plan import handle_plan_start, is_plan_link, render_plan
 from safwa.telegram.reminders import render_reminder, render_reminders
 from safwa.telegram.screens import OPENABLE_MODELS
+from safwa.turn import TurnManager
 from telegram_llm import (
     TELEGRAM_TEXT_LIMIT,
     DialogueMessage,
@@ -357,7 +359,7 @@ def services_for(sessions, *, advisor=None, reviews=None, transcriber=None):
     return SimpleNamespace(
         sessions=sessions,
         owner_id=42,
-        guard=GenerationGuard(),
+        turn=TurnManager(),
         views=ALLOWED_VIEWS,
         bot_username="safwa_ai_bot",
         advisor=advisor
@@ -392,7 +394,7 @@ async def test_every_command_is_deleted_and_still_dispatched(sessions, monkeypat
     assert handled == ["/start", "/mem remember this", "/cancel"]
 
 
-async def test_messages_are_queued_with_placeholders_and_restored_as_one_turn(
+async def test_ag_turn_010_nothing_that_arrives_during_an_answer_joins_it(
     sessions, monkeypatch
 ) -> None:
     """AG-TURN-010 — tests/brd/agents.feature"""
@@ -401,43 +403,53 @@ async def test_messages_are_queued_with_placeholders_and_restored_as_one_turn(
     monkeypatch.setattr(core_module, "Message", FakeMessage)
     middleware = OwnerAndWritingMiddleware()
     services = services_for(sessions)
-    assert services.guard.reserve(1, queue_messages=True)
+    assert services.turn.try_begin(1)
     handled: list[str] = []
 
     async def handler(event, _data):
         handled.append(event.text)
 
-    first = FakeMessage(2, text="First queued request", bot_message=False, answer_as_new=True)
-    second = FakeMessage(
-        3,
-        text="Second queued request",
-        bot_message=False,
-        bot=first.bot,
-        answer_as_new=True,
-    )
-    await middleware(handler, first, {"services": services})
-    await middleware(handler, second, {"services": services})
+    written = FakeMessage(2, text="Second request", bot_message=False, answer_as_new=True)
+    recording = voice_message_for(3)
+    await middleware(handler, written, {"services": services})
+    await middleware(handler, recording, {"services": services})
 
-    assert first.was_deleted and second.was_deleted
+    assert written.was_deleted and recording.was_deleted
     assert handled == []
-    assert read_kind_mark(first.answers[0])[1] == (
-        "Generating response... /cancel for cancelling.\nQueued: First queued request"
-    )
-
-    anchor = FakeMessage(1, text="Active request", bot_message=False, bot=first.bot, answer_as_new=True)
-    restored = await materialize_queued_dialogue(anchor, services)
-
-    assert restored is not None
-    sent, request = restored
-    assert request == "User Name Surname:\nFirst queued request\n\n----\n\nSecond queued request"
-    assert read_kind_mark(sent.text) == (
-        MessageKind.DIALOGUE_USER.value,
-        "<b>User Name Surname:</b>\nFirst queued request\n\n----\n\nSecond queued request",
-    )
-    assert first.bot.deleted_batches == [[1002, 1003]]
+    # Nothing is said about either of them, and the recording is never downloaded.
+    assert written.answers == [] and recording.answers == []
+    assert recording.bot.downloads == []
 
 
-async def test_proposal_ui_releases_generation_guard_before_continuity_work(sessions) -> None:
+async def test_ag_turn_023_words_telegram_refused_to_delete_are_answered_now(
+    sessions, monkeypatch
+) -> None:
+    """AG-TURN-023 — tests/brd/agents.feature"""
+    import safwa.telegram._core as core_module
+
+    monkeypatch.setattr(core_module, "Message", FakeMessage)
+    middleware = OwnerAndWritingMiddleware()
+    services = services_for(sessions)
+    assert services.turn.try_begin(1)
+    handled: list[str] = []
+
+    async def handler(event, _data):
+        handled.append(event.text)
+
+    message = FakeMessage(2, text="Actually, do this instead", bot_message=False)
+
+    async def refuse() -> None:
+        raise TelegramAPIError(method=SimpleNamespace(), message="message can't be deleted")
+
+    message.delete = refuse
+
+    await middleware(handler, message, {"services": services})
+
+    assert handled == ["Actually, do this instead"]
+    assert services.turn.active is False
+
+
+async def test_proposal_ui_gives_up_the_turn_before_continuity_work(sessions) -> None:
     store = ProposalStore()
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
@@ -470,20 +482,20 @@ async def test_proposal_ui_releases_generation_guard_before_continuity_work(sess
         async def dialogue(self, *_args, **_kwargs):
             return [DialogueMessage(role="user", content="[Initial request]: Create a Tag")]
 
-    guard = GenerationGuard()
+    turn = TurnManager()
 
     class Continuity:
         called = False
 
         async def maybe_summarize(self, *_args, **_kwargs):
             self.called = True
-            assert guard.background is True
+            assert turn.background is True
 
     continuity = Continuity()
     services = SimpleNamespace(
         sessions=sessions,
         owner_id=42,
-        guard=guard,
+        turn=turn,
         advisor=Advisor(),
         history=History(),
         continuity=continuity,
@@ -493,7 +505,7 @@ async def test_proposal_ui_releases_generation_guard_before_continuity_work(sess
     await ordinary_text(message, services)
 
     assert continuity.called is True
-    assert guard.active is False
+    assert turn.active is False
     async with sessions() as session:
         tokens = list(
             await session.scalars(
@@ -717,7 +729,7 @@ async def test_typed_words_end_the_review_and_are_then_answered(sessions) -> Non
     services = SimpleNamespace(
         sessions=sessions,
         owner_id=42,
-        guard=GenerationGuard(),
+        turn=TurnManager(),
         advisor=Advisor(store),
         history=History(),
         continuity=Continuity(),
@@ -2545,59 +2557,6 @@ async def test_overlong_recording_is_refused_before_download(sessions, monkeypat
     assert "transcribes up to" in message.answers[-1]
 
 
-async def test_voice_arriving_during_generation_is_queued(sessions, monkeypatch) -> None:
-    turns = capture_dialogue_turns(monkeypatch)
-    services = services_for(sessions, transcriber=ScriptedTranscriber("And one more thing."))
-    await services.guard.acquire(900, queue_messages=True)
-    message = voice_message_for(945)
-
-    await voice_message(message, services)
-
-    assert turns == []
-    assert message.was_deleted is False
-    assert "Queued: And one more thing." in message.answers[-1]
-    assert [item.text for item in await services.guard.drain_queue()] == ["And one more thing."]
-
-
-async def test_a_queued_transcript_is_previewed_and_split_on_drain(sessions) -> None:
-    transcript = " ".join(f"word{index}" for index in range(1_200))
-    services = services_for(sessions, transcriber=ScriptedTranscriber(transcript))
-    await services.guard.acquire(950, queue_messages=True)
-    message = voice_message_for(951)
-
-    await voice_message(message, services)
-
-    placeholder = message.answers[-1]
-    assert len(placeholder) < TELEGRAM_TEXT_LIMIT
-    assert "…" in placeholder
-    assert "word1199" not in placeholder
-
-    drain_target = FakeMessage(952, bot_message=False, answer_as_new=True, bot=message.bot)
-    sent, dialogue_text = await materialize_queued_dialogue(drain_target, services)
-
-    assert len(drain_target.sent_messages) > 1
-    # TELEGRAM_TEXT_LIMIT budgets the body; the name prefix and the invisible kind mark
-    # ride on top of it and still have to fit Telegram's own 4096.
-    assert all(len(item.text) <= 4_096 for item in drain_target.sent_messages)
-    assert sent is drain_target.sent_messages[-1]
-    assert transcript in dialogue_text
-
-
-async def test_a_transcript_keeps_its_turn_when_the_lease_changed_hands(
-    sessions, monkeypatch
-) -> None:
-    """A decode is long enough for a background generation to have taken the lease."""
-    turns = capture_dialogue_turns(monkeypatch)
-    services = services_for(sessions, transcriber=ScriptedTranscriber("Plan my week."))
-    message = voice_message_for(953)
-    assert services.guard.reserve_background()
-
-    await voice_message(message, services)
-
-    assert [request for request, _source in turns] == ["Plan my week."]
-    assert services.guard.background is False
-
-
 class TurnAdvisor:
     """One answer, produced by a turn that saved a change the way autoapproval does."""
 
@@ -2649,12 +2608,34 @@ async def test_an_autoapproved_change_still_reaches_the_chat(sessions) -> None:
         assert (await session.get(Workspace, 1)).revision > 0
 
 
-async def test_a_cancelled_turn_is_not_rendered(sessions) -> None:
+async def test_ag_turn_022_the_notice_stands_while_the_answer_is_written(sessions) -> None:
+    """AG-TURN-022 — tests/brd/agents.feature"""
+    services = turn_services(sessions)
+    message = FakeMessage(966, text="Save it", bot_message=False, answer_as_new=True)
+    source = HistoryEntry(
+        message_id=966,
+        sender_id=42,
+        role="user",
+        text="Save it",
+        created_at=datetime.now(UTC),
+        kind=MessageKind.DIALOGUE_USER.value,
+    )
+
+    await run_dialogue_turn(message, services, "Save it", source)
+
+    notice = message.sent_messages[0]
+    assert read_kind_mark(notice.text) == (MessageKind.UI_INPUT.value, TURN_NOTICE)
+    assert notice.message_id in message.bot.deleted
+    assert any("Auto-saved" in item.text for item in message.sent_messages)
+
+
+async def test_ag_turn_022_a_cancelled_turn_leaves_no_notice_and_no_answer(sessions) -> None:
+    """AG-TURN-022 — tests/brd/agents.feature"""
     services = turn_services(sessions)
     original_handle = services.advisor.handle
 
     async def cancel_then_answer(request, *, source_message_id=None, dialogue=None):
-        services.guard.cancel()
+        await remove_turn_notice(message, services, services.turn.cancel())
         return await original_handle(
             request, source_message_id=source_message_id, dialogue=dialogue
         )
@@ -2672,7 +2653,10 @@ async def test_a_cancelled_turn_is_not_rendered(sessions) -> None:
 
     await run_dialogue_turn(message, services, "Save it", source)
 
-    assert message.sent_messages == []
+    notice = message.sent_messages[0]
+    assert read_kind_mark(notice.text)[1] == TURN_NOTICE
+    assert notice.message_id in message.bot.deleted
+    assert [item for item in message.sent_messages if "Auto-saved" in item.text] == []
 
 
 async def test_a_review_that_could_not_be_drawn_ends_and_the_owner_is_told(sessions) -> None:
@@ -2724,13 +2708,12 @@ async def test_the_owner_turn_is_headed_by_the_telegram_name(sessions, monkeypat
 async def test_a_turn_with_no_owner_message_is_headed_by_the_bare_role(sessions) -> None:
     """A Reminder anchor carries no real `from_user`, so only the role is left."""
     services = services_for(sessions)
-    services.guard.finish_queue(services.guard.begin_queue("Later, then."), None)
     anchor = FakeMessage(964, bot_message=True, answer_as_new=True)
     anchor.from_user = SimpleNamespace(id=1, is_bot=True, full_name="Safwa")
 
-    _sent, dialogue_text = await materialize_queued_dialogue(anchor, services)
+    await send_owner_turn(anchor, services, "Later, then.")
 
-    assert dialogue_text.startswith("User:")
+    assert read_kind_mark(anchor.sent_messages[-1].text)[1].startswith("<b>User:</b>")
 
 
 async def test_a_screen_deleted_outside_the_bot_is_redrawn_instead_of_failing(sessions) -> None:
@@ -2771,9 +2754,9 @@ async def test_a_screen_deleted_outside_the_bot_is_redrawn_instead_of_failing(se
 
 
 async def test_a_cancelled_generation_still_gives_up_its_lease(sessions, monkeypatch) -> None:
-    """Restoring the queue awaits, and a cancelled await must not carry the lease away.
+    """Giving the turn back awaits, and a cancelled await must not carry it away.
 
-    A lease left behind is invisible: the middleware silently deletes every command after
+    A turn left behind is invisible: the middleware silently deletes every command after
     it, so the bot looks alive while `/start` and every deep link do nothing.
     """
     import safwa.telegram.dialogue as dialogue_module
@@ -2781,8 +2764,8 @@ async def test_a_cancelled_generation_still_gives_up_its_lease(sessions, monkeyp
     async def cancelled(*_args, **_kwargs):
         raise asyncio.CancelledError
 
-    monkeypatch.setattr(dialogue_module, "materialize_queued_dialogue", cancelled)
-    services = services_for(sessions)
+    monkeypatch.setattr(dialogue_module, "render_ai_outcome", cancelled)
+    services = turn_services(sessions)
     message = FakeMessage(1, text="Plan my week", bot_message=False, answer_as_new=True)
     source = HistoryEntry(
         message_id=message.message_id,
@@ -2796,7 +2779,7 @@ async def test_a_cancelled_generation_still_gives_up_its_lease(sessions, monkeyp
     with pytest.raises(asyncio.CancelledError):
         await dialogue_module.run_dialogue_turn(message, services, "Plan my week", source)
 
-    assert services.guard.active is False, "the lease outlived the generation that held it"
+    assert services.turn.active is False, "the lease outlived the generation that held it"
 
 
 async def test_a_toast_leaves_the_screen_alone_and_takes_itself_back(sessions, monkeypatch):

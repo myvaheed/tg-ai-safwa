@@ -39,13 +39,13 @@ from .history import TelegramHistorySource
 from .models import Workspace
 from .recovery import recover_startup
 from .telegram import (
-    GenerationGuard,
     OwnerAndWritingMiddleware,
     Services,
     discard_stale_status,
     router,
     sync_bot_commands,
 )
+from .turn import TurnManager
 
 logger = logging.getLogger(__name__)
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
@@ -182,7 +182,7 @@ async def run(settings: Settings) -> None:
         summary_trigger_tokens=settings.summary_trigger_tokens,
         chars_per_token=settings.token_chars_estimate,
     )
-    guard = GenerationGuard()
+    turn = TurnManager()
     transcriber = build_transcriber(settings)
     if transcriber is not None:
         logger.info(
@@ -198,7 +198,7 @@ async def run(settings: Settings) -> None:
         memory=memory,
         continuity=continuity,
         owner_id=settings.telegram_owner_id,
-        guard=guard,
+        turn=turn,
         views=ALLOWED_VIEWS,
         bot_username=settings.telegram_bot_username,
         transcriber=transcriber,

@@ -30,7 +30,7 @@ from ..models import (
 from ._core import Services, router, sprint_is_active
 from ._messaging import (
     dismiss_prior_ui,
-    materialize_queued_dialogue,
+    remove_turn_notice,
     send_registered,
     send_summary,
     token_button,
@@ -106,7 +106,7 @@ async def command_start(message: Message, services: Services) -> None:
 @router.message(Command("summarize"))
 async def command_summarize(message: Message, services: Services) -> None:
     """Cut the context deliberately: post a Summary now instead of waiting for the budget."""
-    written = await services.guard.run_background(
+    written = await services.turn.run_background(
         lambda still_current: services.continuity.maybe_summarize(
             message.chat.id,
             lambda text, covered_id: send_summary(message, services, text, covered_id),
@@ -264,7 +264,7 @@ async def command_syncmem(message: Message, services: Services) -> None:
     if (message.text or "").partition(" ")[2].strip():
         await send_registered(message, services, "Usage: /syncmem", kind=MessageKind.ERROR)
         return
-    result = await services.guard.run_background(
+    result = await services.turn.run_background(
         lambda still_current: services.continuity.maintain_memory(
             message.chat.id,
             still_current=still_current,
@@ -339,8 +339,7 @@ async def command_status(message: Message, services: Services) -> None:
 
 @router.message(Command("cancel"))
 async def command_cancel(message: Message, services: Services) -> None:
-    services.guard.cancel()
-    await materialize_queued_dialogue(message, services)
+    await remove_turn_notice(message, services, services.turn.cancel())
     await send_registered(
         message, services, "Current generation cancelled.", kind=MessageKind.RECEIPT
     )

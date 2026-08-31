@@ -5,7 +5,8 @@ Feature: Agents — the session, the hand-over, and what comes back
   reads the same conversation, and hands back a receipt. A session survives being paused on a
   screen, carries one budget however long it takes, and ends when the process does.
 
-  Approved 2026-08-29. Packets: docs/brd/agents.md and docs/brd/agents_interrupted.md.
+  Approved 2026-08-29, and AG-TURN-010, AG-TURN-022 and AG-TURN-023 on 2026-08-30. Packets:
+  docs/brd/agents.md, docs/brd/agents_interrupted.md and docs/brd/agents_turn.md.
 
   Scenario: AG-ROUTE-001 — A change is written by the part that owns it, and Safwa itself writes none
     Given the owner asks Safwa to change something on their board
@@ -78,12 +79,14 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then none of it is picked up, and the owner starts from a request they make now
     And no button left in the chat can revive it
 
-  Scenario: AG-TURN-010 — One request at a time, and words that arrive during one join it
+  Scenario: AG-TURN-010 — One request at a time, and nothing that arrives during one joins it
     Given Safwa is working on a request
     When the owner writes another message
     Then it does not start a second request
-    And it is held, and taken up as part of the same request once the running one finishes
-    When the owner presses a button on any screen instead
+    And it is taken out of the chat, and nothing is done with it
+    When the owner sends a recording instead
+    Then that is taken out of the chat too, and never transcribed
+    When the owner presses a button on any screen
     Then it does nothing while the request is running
     When the owner runs /cancel
     Then the running request is stopped, and that is the one thing they can always do
@@ -164,3 +167,20 @@ Feature: Agents — the session, the hand-over, and what comes back
     When the same request hands the turn to that same subagent again
     Then it starts from nothing, with no memory of the change already saved
     And it works from the conversation, where the saved change is already visible
+
+  Scenario: AG-TURN-022 — While an answer is being written, the chat says so and offers to stop it
+    Given the owner asked Safwa something
+    When Safwa begins writing the answer
+    Then one message stands in the chat saying the answer is being written, offering /cancel as
+      something they can tap
+    And there is one of those however much the owner sends meanwhile
+    When the answer arrives
+    Then that message is taken out of the chat
+    When the owner cancels instead
+    Then it is taken out of the chat the same way, and no answer is written
+    And it is never part of the conversation
+
+  Scenario: AG-TURN-023 — Words Safwa could not take out of the chat are answered rather than left hanging
+    Given Safwa is working on a request
+    When the owner writes, and Telegram refuses to let Safwa take that message out of the chat
+    Then the running request is stopped, and what they wrote is answered now

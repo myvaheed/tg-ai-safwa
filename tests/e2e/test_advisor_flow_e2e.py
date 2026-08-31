@@ -47,12 +47,12 @@ from safwa.models import (
 )
 from safwa.recovery import recover_startup
 from safwa.telegram import (
-    GenerationGuard,
     callback_token_handler,
     dismiss_prior_ui,
     render_ai_outcome,
     render_proposal,
 )
+from safwa.turn import TurnManager
 from telegram_llm import DialogueMessage
 
 pytestmark = pytest.mark.e2e
@@ -1548,7 +1548,7 @@ async def test_a_review_whose_screen_could_not_be_sent_does_not_stay_open(
         advisor=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
-        guard=GenerationGuard(),
+        turn=TurnManager(),
     )
 
     with pytest.raises(RuntimeError):
@@ -1738,7 +1738,7 @@ async def test_single_tag_proposal_save_and_discard_callbacks_resume_agent(
         advisor=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
-        guard=GenerationGuard(),
+        turn=TurnManager(),
     )
     await render_proposal(message, services, outcome.proposal_id)
     async with e2e_harness.sessions() as session:
@@ -1774,7 +1774,7 @@ async def test_restart_invalidates_an_unanswered_proposal_button(e2e_harness):
         advisor=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
-        guard=GenerationGuard(),
+        turn=TurnManager(),
     )
     await render_proposal(message, services, outcome.proposal_id)
     async with e2e_harness.sessions() as session:
@@ -1821,7 +1821,7 @@ async def test_a_button_works_once(e2e_harness):
         advisor=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
-        guard=GenerationGuard(),
+        turn=TurnManager(),
     )
     await render_proposal(message, services, outcome.proposal_id)
     async with e2e_harness.sessions() as session:
@@ -1872,7 +1872,7 @@ async def test_read_queries_beside_a_proposal_still_resume_the_agent(e2e_harness
         advisor=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
-        guard=GenerationGuard(),
+        turn=TurnManager(),
     )
     await render_proposal(message, services, outcome.proposal_id)
     async with e2e_harness.sessions() as session:
@@ -1941,7 +1941,7 @@ async def test_discarding_the_last_queued_proposal_still_reports_saved_siblings(
         advisor=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
-        guard=GenerationGuard(),
+        turn=TurnManager(),
     )
     await render_proposal(message, services, first.proposal_id)
 
@@ -2013,7 +2013,7 @@ async def test_new_message_discarding_a_queue_reports_what_was_already_saved(e2e
         advisor=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
-        guard=GenerationGuard(),
+        turn=TurnManager(),
     )
     await render_proposal(screen, services, first.proposal_id)
     await _resolve_queued_proposal(
@@ -2063,7 +2063,7 @@ async def test_proposal_ui_queues_mutations_and_reports_dependency_failure(e2e_h
         advisor=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
-        guard=GenerationGuard(),
+        turn=TurnManager(),
     )
     await render_proposal(message, services, first.proposal_id)
     assert "Create Tag" in message.rendered[-1]
@@ -2114,7 +2114,7 @@ async def test_single_proposal_save_error_is_reported_and_resolved(e2e_harness):
         advisor=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
-        guard=GenerationGuard(),
+        turn=TurnManager(),
     )
     await render_proposal(message, services, outcome.proposal_id)
     async with e2e_harness.sessions() as session:
@@ -2166,7 +2166,7 @@ async def test_single_tag_callback_never_leaves_dead_buttons_when_follow_up_fail
         advisor=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
-        guard=GenerationGuard(),
+        turn=TurnManager(),
     )
     await render_proposal(message, services, outcome.proposal_id)
     async with e2e_harness.sessions() as session:
@@ -2478,7 +2478,7 @@ async def test_a_resolved_proposal_leaves_one_readable_line_in_the_dialogue(
         advisor=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
-        guard=GenerationGuard(),
+        turn=TurnManager(),
     )
     await render_proposal(message, services, proposal_id)
     async with e2e_harness.sessions() as session:
@@ -2510,7 +2510,7 @@ async def test_navigating_away_freezes_the_proposal_into_the_same_outcome_text(e
         advisor=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
-        guard=GenerationGuard(),
+        turn=TurnManager(),
     )
     await render_proposal(message, services, proposal_id)
     # A screen *below* the proposal: the old "older than this message" selector missed it.
@@ -2535,7 +2535,7 @@ def _screen_services(e2e_harness, advisor) -> SimpleNamespace:
         advisor=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
-        guard=GenerationGuard(),
+        turn=TurnManager(),
     )
 
 

@@ -14,11 +14,11 @@ from safwa.features.proposals.model import ChangeAction, ProposalChange
 from safwa.features.proposals.store import ProposalStore
 from safwa.foundation.clock import utcnow
 from safwa.models import AgentRun, Cue
-from safwa.telegram._core import GenerationGuard
+from safwa.turn import TurnManager
 
 
 class Recorder:
-    """Stands in for the background guard and the Advisor turn."""
+    """Stands in for the background lease and the Advisor turn."""
 
     def __init__(self, *, open_gate=True, delivered=True):
         self.open_gate = open_gate
@@ -43,21 +43,21 @@ def _hooks(recorder: Recorder) -> dict:
     return {"gate": recorder.gate, "speak": recorder.speak, "release": recorder.release}
 
 
-def _runtime(sessions, guard: GenerationGuard, reviews: ProposalStore) -> CueRuntime:
-    """The real gate, over the real guard and the real store; only the bot is absent."""
+def _runtime(sessions, turn: TurnManager, reviews: ProposalStore) -> CueRuntime:
+    """The real gate, over the real turn and the real store; only the bot is absent."""
     services = SimpleNamespace(
-        sessions=sessions, guard=guard, advisor=SimpleNamespace(reviews=reviews)
+        sessions=sessions, turn=turn, advisor=SimpleNamespace(reviews=reviews)
     )
     return CueRuntime(services, bot=None, owner_id=1)  # type: ignore[arg-type]
 
 
 async def test_ag_turn_015_the_gate_is_shut_while_anything_of_the_owners_is_open(sessions):
     """AG-TURN-015 — tests/brd/agents.feature"""
-    guard, reviews = GenerationGuard(), ProposalStore()
+    turn, reviews = TurnManager(), ProposalStore()
 
-    await guard.acquire(source_id=7)
-    assert await _runtime(sessions, guard, reviews).can_speak() is False
-    guard.release(7)
+    turn.begin(7)
+    assert await _runtime(sessions, turn, reviews).can_speak() is False
+    turn.end(7)
 
     reviews.open_proposal(
         message="Готово?",
@@ -66,7 +66,7 @@ async def test_ag_turn_015_the_gate_is_shut_while_anything_of_the_owners_is_open
             ProposalChange(entity="card", action=ChangeAction.CREATE, values={"title": "Рынок"})
         ],
     )
-    assert await _runtime(sessions, guard, reviews).can_speak() is False
+    assert await _runtime(sessions, turn, reviews).can_speak() is False
     reviews.end_proposal(reviews.open_proposals[0].id)
 
     async with sessions() as session:
@@ -74,20 +74,20 @@ async def test_ag_turn_015_the_gate_is_shut_while_anything_of_the_owners_is_open
             AgentRun(provider="test", model="test", status="running", claimed_at=utcnow())
         )
         await session.commit()
-    assert await _runtime(sessions, guard, reviews).can_speak() is False
+    assert await _runtime(sessions, turn, reviews).can_speak() is False
 
 
 async def test_ag_turn_015_an_open_gate_takes_the_background_lease(sessions):
     """AG-TURN-015 — tests/brd/agents.feature"""
-    guard = GenerationGuard()
-    runtime = _runtime(sessions, guard, ProposalStore())
+    turn = TurnManager()
+    runtime = _runtime(sessions, turn, ProposalStore())
 
     assert await runtime.can_speak() is True
 
-    # The lease is the guard itself, so the owner arriving next still wins the chat.
-    assert guard.background is True
+    # The lease is the turn itself, so the owner arriving next still wins the chat.
+    assert turn.background is True
     assert runtime.still_current() is True
-    guard.cancel()
+    turn.cancel()
     assert runtime.still_current() is False
 
 

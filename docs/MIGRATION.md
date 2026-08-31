@@ -2844,3 +2844,9 @@ fresh `ChatHost` on each of its 185 calls; the host gets a home when `_messaging
 
 **Criterion 16 is unverified.** The live Telegram suite needs a second BotFather bot and the
 `SAFWA_QA_*` variables, so it was not run here.
+
+## Phase 8.b is planned in its own file
+
+[MIGRATION_8b.md](MIGRATION_8b.md) carries the steps, the six things reading the code changed in the
+plan, what the batch deletes and the amended exit criteria. It folds back into this file as "What
+Phase 8.b delivered" when the batch is done.
