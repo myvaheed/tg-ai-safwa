@@ -17,7 +17,7 @@ from telegram_llm import DialogueMessage
 
 from ..enums import MessageKind
 from ..models import AgentRun, TelegramMessage
-from ..telegram._core import Services
+from ..shell import Services
 from ..telegram.proposals import render_ai_outcome
 
 logger = logging.getLogger(__name__)

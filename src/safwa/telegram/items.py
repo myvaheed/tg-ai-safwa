@@ -13,11 +13,18 @@ from ..domain import DomainError
 from ..enums import MessageKind
 from ..features.saved_requests.use_cases import request_cards
 from ..models import SavedRequest, Tag, UiSession, Value
-from ._core import ITEM_CARRIERS, Services
-from ._messaging import edit_registered_message, send_registered, token_button
-from ._presentation import kind_label, menu_row
+from ..shell import (
+    Services,
+    TextInputScreen,
+    edit_registered_message,
+    menu_row,
+    render_text_input,
+    send_registered,
+    token_button,
+)
+from ._core import ITEM_CARRIERS
+from ._presentation import kind_label
 from .cards import carrier_counts
-from .text_input import TextInputScreen, render_text_input
 
 logger = logging.getLogger(__name__)
 

@@ -3,30 +3,13 @@
 from __future__ import annotations
 
 import html
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-
-from ..constants import PAGE_SIZE, PROPOSAL_OUTCOME_DETAIL_LIMIT
 from ..enums import CardKind, Category, EnergyType, Priority
 from ..features.cards.model import CardStage
-from ..features.proposals.model import BatchDecision, ProposalChange
 from ..models import Card
-
-CITATION_TITLE_LIMIT = 25
-
-
-def short_citation_title(value: str) -> str:
-    """Keep a citation recognisable without letting it consume an advisor reply."""
-    title = value.strip()
-    return f"{title[: CITATION_TITLE_LIMIT - 1]}…" if len(title) > CITATION_TITLE_LIMIT else title
-
-
-def with_citation_fields(leading: str, fields: list[str]) -> str:
-    return f"{leading} · {'·'.join(fields)}" if fields else leading
-
+from ..shell import Page, paginate
 
 _KIND_EMOJIS = {
     CardKind.GOAL.value: "🎯",
@@ -65,15 +48,6 @@ def _typed_expression(values: Any, emojis: dict[str, str]) -> str:
     return ", ".join(labels) or "—"
 
 
-def with_notice(body: str, notice: str | None) -> str:
-    """Carry a warning into the destination screen.
-
-    A callback response replaces the current message, so a warning sent as its own
-    message is overwritten by the next render.  It has to be part of that render.
-    """
-    return f"{html.escape(notice)}\n\n{body}" if notice else body
-
-
 def kind_label(value: Any) -> str:
     return typed_label(value, _KIND_EMOJIS)
 
@@ -99,71 +73,8 @@ def _live_card_order(card: Card) -> tuple[bool, int, datetime]:
     return (not card.hard_time, _PRIORITY_ORDER[card.priority], card.created_at)
 
 
-@dataclass(frozen=True)
-class Page:
-    items: list[Any]
-    index: int
-    count: int
-
-    @property
-    def label(self) -> str:
-        return f"page {self.index + 1}/{self.count}"
-
-
-def paginate(items: list[Any], page: int, size: int = PAGE_SIZE) -> Page:
-    last = max(0, (len(items) - 1) // size)
-    index = min(max(page, 0), last)
-    return Page(items[index * size : (index + 1) * size], index, last + 1)
-
-
 def paginate_cards(cards: list[Card], page: int) -> Page:
     return paginate(sorted(cards, key=_live_card_order), page)
-
-
-def proposal_change_summary(change: ProposalChange) -> str:
-    target = f" #{change.entity_id}" if change.entity_id is not None else ""
-    values = ", ".join(f"{key}={value!r}" for key, value in change.values.items())
-    suffix = f": {values}" if values else ""
-    return f"{change.action.title()} {change.entity.title()}{target}{suffix}"
-
-
-PROPOSAL_OUTCOME_HEADINGS = {
-    BatchDecision.APPROVED: "✅ Saved",
-    BatchDecision.DISCARDED: "🗑 Discarded",
-    BatchDecision.FAILED: "⚠️ Failed",
-}
-
-
-def _carries_a_value(field: str) -> bool:
-    """Whether a `Label: value` detail line says anything. `—` is the empty rendering."""
-    _, separator, value = field.partition(": ")
-    return not separator or value.strip() not in {"", "—", "— → —"}
-
-
-def proposal_outcome_text(
-    decision: BatchDecision,
-    summary: str,
-    fields: list[str] | None = None,
-    *,
-    notice: str | None = None,
-) -> str:
-    """The one text a resolved proposal leaves in the conversation.
-
-    Save, Discard, and the screen a navigation freezes all read the same way, so the model
-    rereading the dialogue learns what happened from one shape rather than three.
-    """
-    parts = [f"<b>{PROPOSAL_OUTCOME_HEADINGS.get(decision, 'Resolved')}</b>"]
-    if notice:
-        parts.append(html.escape(notice))
-    if summary:
-        parts.append(html.escape(summary))
-    details = [field for field in (fields or []) if _carries_a_value(field)]
-    if details:
-        capped = details[:PROPOSAL_OUTCOME_DETAIL_LIMIT]
-        if len(details) > PROPOSAL_OUTCOME_DETAIL_LIMIT:
-            capped.append(f"… and {len(details) - PROPOSAL_OUTCOME_DETAIL_LIMIT} more")
-        parts.append("\n".join(f"• {html.escape(field)}" for field in capped))
-    return "\n".join(parts)
 
 
 def card_overview_text(state: dict[str, Any], *, heading: str = "Card") -> str:
@@ -232,45 +143,3 @@ def card_overview_text(state: dict[str, Any], *, heading: str = "Card") -> str:
     if state.get("check_names"):
         lines.append(f"Checks: {html.escape(', '.join(state['check_names']))}")
     return f"<b>{html.escape(heading)}</b>\n" + "\n".join(lines)
-
-
-def menu_markup(*, sprint_active: bool) -> InlineKeyboardMarkup:
-    """The menu. Today belongs to a running Sprint, so Planning does not offer it."""
-    sprint_row = [InlineKeyboardButton(text="🏃 Sprint", callback_data="nav:sprint")]
-    if sprint_active:
-        sprint_row.insert(0, InlineKeyboardButton(text="☀️ Today", callback_data="nav:today"))
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            sprint_row,
-            [
-                InlineKeyboardButton(text="📚 Backlog", callback_data="nav:backlog"),
-                InlineKeyboardButton(text="➕ Add", callback_data="nav:add"),
-            ],
-            [
-                InlineKeyboardButton(text="💎 Values", callback_data="nav:values"),
-                InlineKeyboardButton(text="🏷 Tags", callback_data="nav:tags"),
-            ],
-            [
-                InlineKeyboardButton(text="🔎 Requests", callback_data="nav:requests"),
-                InlineKeyboardButton(text="⏰ Reminders", callback_data="nav:reminders"),
-                InlineKeyboardButton(text="⚙️ Settings", callback_data="nav:settings"),
-            ],
-        ]
-    )
-
-
-def menu_row() -> list[InlineKeyboardButton]:
-    """A consistent escape hatch for a screen reached through quick actions."""
-    return [InlineKeyboardButton(text="↩️ Menu", callback_data="nav:home")]
-
-
-def start_payload(text: str | None) -> str | None:
-    """The deep-link payload of a `/start <payload>` message, if this is one.
-
-    `command_start` also serves the menu's Home button, where it is handed the bot's own
-    screen — only a real command line may be read as a payload.
-    """
-    parts = (text or "").strip().split(maxsplit=1)
-    if len(parts) != 2 or parts[0].split("@", 1)[0].casefold() != "/start":
-        return None
-    return parts[1].strip() or None

@@ -36,6 +36,7 @@ from ..features.cards.model import CardStage
 from ..features.checks.model import CheckOutcome
 from ..features.checks.use_cases import toggle_check_value
 from ..features.proposals.model import BatchDecision
+from ..features.proposals.render import proposal_outcome_text
 from ..features.proposals.use_cases import approve_proposal
 from ..features.reminders.use_cases import delete_reminder
 from ..models import (
@@ -45,6 +46,18 @@ from ..models import (
     UiSession,
     Workspace,
 )
+from ..shell import (
+    CallbackContext,
+    CallbackHandler,
+    Services,
+    TextInputScreen,
+    menu_row,
+    render_text_input,
+    router,
+    send_registered,
+    token_button,
+    with_notice,
+)
 from ._core import (
     CARD_CHOICE_FIELDS,
     CARD_DRAFT_CHOICE_FIELDS,
@@ -52,13 +65,7 @@ from ._core import (
     CARD_RELATION_TOGGLES,
     ITEM_CARRIERS,
     RELATION_CHOICES,
-    CallbackContext,
-    CallbackHandler,
-    Services,
-    router,
 )
-from ._messaging import send_registered, token_button
-from ._presentation import menu_row, proposal_outcome_text, with_notice
 from .cards import (
     card_creation_errors,
     card_editor_back_state,
@@ -108,7 +115,6 @@ from .reminders import (
     render_reminders,
 )
 from .sprint import render_sprint, render_sprint_criteria_prompt, render_today
-from .text_input import TextInputScreen, render_text_input
 
 logger = logging.getLogger(__name__)
 

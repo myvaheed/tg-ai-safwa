@@ -26,20 +26,14 @@ from ...models import (
     CardValue,
     UiSession,
 )
+from ...shell import TextValidator, required_text, short_citation_title, with_citation_fields
 from ...telegram import card_overview_text, category_expression, energy_expression
-from ...telegram._presentation import (
-    CATEGORY_EMOJIS,
-    ENERGY_EMOJIS,
-    kind_emoji,
-    short_citation_title,
-    with_citation_fields,
-)
+from ...telegram._presentation import CATEGORY_EMOJIS, ENERGY_EMOJIS, kind_emoji
 from ...telegram.cards import (
     render_card,
     render_card_creation,
     sanitize_card_creation_state,
 )
-from ...telegram.text_input import TextValidator, required_text
 from ..proposals.api import (
     ACTION_VERBS,
     ChangeAction,

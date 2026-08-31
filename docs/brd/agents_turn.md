@@ -6,9 +6,9 @@ Batch: Phase 8.b. Writes into `tests/brd/agents.feature`, alongside [agents.md](
 Numbering continues from `AG-WORDS-021`.
 Sources: the owner's ruling of 2026-08-30; `REFACTORING_CLEAN_ARCH_FINAL.md` §9.3
 (`GenerationGuard` as the worked example of a bag of state); current code —
-[telegram/_core.py](../../src/safwa/telegram/_core.py) (`OwnerAndWritingMiddleware`,
+[shell/services.py](../../src/safwa/shell/services.py) (`OwnerAndWritingMiddleware`,
 `queue_owner_text`, `GenerationGuard`),
-[telegram/_messaging.py](../../src/safwa/telegram/_messaging.py) (`materialize_queued_dialogue`),
+[shell/chat.py](../../src/safwa/shell/chat.py) (`materialize_queued_dialogue`),
 [telegram/dialogue.py](../../src/safwa/telegram/dialogue.py) (`voice_message`).
 Supersedes: amends the approved `AG-TURN-010`, see below.
 

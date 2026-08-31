@@ -6,10 +6,10 @@ This packet does not touch `SC-LIVE-001`; it was approved with
 [agents_interrupted.md](agents_interrupted.md) and [proposals_interrupted.md](proposals_interrupted.md)
 and stands as it is.
 Sources: `REFACTORING_CLEAN_ARCH_FINAL.md` §13.2 invariants three and four, §13.3; current code —
-[telegram/_messaging.py](../../src/safwa/telegram/_messaging.py) (`token_button`, `send_toast`,
+[shell/chat.py](../../src/safwa/shell/chat.py) (`token_button`, `send_toast`,
 `_expire_toast`, `delete_screen`, `send_registered`, `send_owner_turn`, `send_summary`),
 [telegram/callbacks.py](../../src/safwa/telegram/callbacks.py) (`callback_token_handler`),
-[telegram/_presentation.py](../../src/safwa/telegram/_presentation.py) (`split_telegram_text`),
+[shell/layout.py](../../src/safwa/shell/layout.py) (`split_telegram_text`),
 [recovery.py](../../src/safwa/recovery.py), [ai/materialize.py](../../src/safwa/ai/materialize.py)
 (`open_batch`), [telegram/dialogue.py](../../src/safwa/telegram/dialogue.py) (`run_dialogue_turn`).
 Supersedes: named per scenario.

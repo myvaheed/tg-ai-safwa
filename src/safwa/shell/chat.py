@@ -1,4 +1,8 @@
-"""Safwa's side of `telegram_llm`'s chat host: its kinds, its buttons, its own screens."""
+"""Safwa's side of the chat host: its kinds, its buttons, its own screens.
+
+`telegram_llm` puts a message in the chat and takes it back; what the kinds mean, which
+of them is a screen, and what a screen the owner walked away from should say instead are
+all Safwa's, and they are here."""
 
 from __future__ import annotations
 
@@ -16,16 +20,16 @@ from aiogram.types import (
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from telegram_llm import ChatHost, Note
+from telegram_llm import Note
 
 from ..constants import TOAST_SECONDS
 from ..enums import MessageKind
 from ..features.continuity.use_cases import record_summary
 from ..features.proposals.model import BatchDecision
-from ..history import MARKS, TelegramNotes
+from ..features.proposals.render import proposal_outcome_text
 from ..models import CallbackToken, UiSession
-from ._core import Services
-from ._presentation import Page, proposal_outcome_text
+from .layout import Page
+from .services import Services
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +41,6 @@ _SCREEN_KINDS = frozenset(
         MessageKind.APPROVAL.value,
     }
 )
-
-
-def _host(services: Services) -> ChatHost:
-    return ChatHost(TelegramNotes(services.sessions), MARKS)
 
 
 async def token_button(
@@ -75,7 +75,7 @@ async def send_registered(
     replace: bool | None = None,
     rich: bool = False,
 ) -> Message:
-    return await _host(services).send(
+    return await services.chat.send(
         message,
         text,
         kind=kind.value,
@@ -98,7 +98,7 @@ async def edit_registered_message(
     related_id: int | None = None,
     rich: bool = False,
 ) -> None:
-    await _host(services).edit(
+    await services.chat.edit(
         message,
         message_id,
         text,
@@ -111,7 +111,7 @@ async def edit_registered_message(
 
 async def delete_text_input(message: Message, services: Services) -> bool:
     """Text entered into a field is operational UI input, not dialogue history."""
-    return await _host(services).remove_incoming(message, kind=MessageKind.UI_INPUT.value)
+    return await services.chat.remove_incoming(message, kind=MessageKind.UI_INPUT.value)
 
 
 async def paging_row(
@@ -143,7 +143,7 @@ async def dismiss_prior_ui(message: Message, services: Services) -> None:
     async def freeze(screen: Note) -> tuple[str, str] | None:
         return await _interrupted_review(services, screen)
 
-    await _host(services).leave_one_screen(message, kinds=_SCREEN_KINDS, freeze=freeze)
+    await services.chat.leave_one_screen(message, kinds=_SCREEN_KINDS, freeze=freeze)
     async with services.sessions() as session:
         await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
         await session.commit()
@@ -205,14 +205,14 @@ async def send_prose(
     event_id: str | None = None,
     replace: bool | None = None,
 ) -> Message:
-    return await _host(services).send_parts(
+    return await services.chat.send_parts(
         message, text, kind=kind.value, event_id=event_id, replace=replace
     )
 
 
 async def send_owner_turn(message: Message, services: Services, text: str) -> Message:
     """Post as `DIALOGUE_USER` words that did not reach the chat as owner text."""
-    return await _host(services).relay(
+    return await services.chat.relay(
         message,
         owner_display_name(message, services),
         text,
@@ -221,7 +221,7 @@ async def send_owner_turn(message: Message, services: Services, text: str) -> Me
 
 
 async def delete_screen(message: Message, services: Services, message_id: int) -> None:
-    await _host(services).remove_screen(message, message_id)
+    await services.chat.remove_screen(message, message_id)
 
 
 # `UI_INPUT` keeps it out of the conversation, and `/cancel` is tappable as written.
@@ -250,18 +250,18 @@ async def end_turn(message: Message, services: Services) -> None:
 
 async def send_toast(message: Message, services: Services, text: str) -> None:
     """A Toast is `STATUS`, so it never becomes dialogue."""
-    await _host(services).toast(
+    await services.chat.toast(
         message, text, kind=MessageKind.STATUS.value, seconds=TOAST_SECONDS
     )
 
 
 async def discard_toast(message: Message, services: Services) -> None:
-    await _host(services).discard_toast(message)
+    await services.chat.discard_toast(message)
 
 
 async def discard_stale_status(bot: Bot, services: Services, chat_id: int) -> None:
     """Take back the Toasts and progress lines the process died under."""
-    await _host(services).discard_stale(bot, chat_id, kind=MessageKind.STATUS.value)
+    await services.chat.discard_stale(bot, chat_id, kind=MessageKind.STATUS.value)
 
 
 async def send_summary(

@@ -45,6 +45,19 @@ from ..models import (
     Value,
     Workspace,
 )
+from ..shell import (
+    Page,
+    Services,
+    edit_registered_message,
+    menu_markup,
+    menu_row,
+    paginate,
+    paging_row,
+    send_registered,
+    sprint_is_active,
+    token_button,
+    with_notice,
+)
 from ._core import (
     CARD_CHOICE_FIELDS,
     CHOICE_TITLES,
@@ -52,22 +65,14 @@ from ._core import (
     RELATION_CHOICES,
     SINGLE_CHOICE_FIELDS,
     RelationChoice,
-    Services,
-    sprint_is_active,
 )
-from ._messaging import edit_registered_message, paging_row, send_registered, token_button
 from ._presentation import (
     CATEGORY_EMOJIS,
     ENERGY_EMOJIS,
-    Page,
     card_overview_text,
     kind_label,
-    menu_markup,
-    menu_row,
-    paginate,
     paginate_cards,
     typed_label,
-    with_notice,
 )
 
 logger = logging.getLogger(__name__)

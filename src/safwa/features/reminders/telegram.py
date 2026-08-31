@@ -14,8 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...ai.contracts import AgentChange
 from ...foundation.screens import TextInputFlow
+from ...shell import required_text
 from ...telegram.reminders import render_reminder
-from ...telegram.text_input import required_text
 from ..proposals.api import (
     ACTION_VERBS,
     ChangeAction,

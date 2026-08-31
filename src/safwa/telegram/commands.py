@@ -28,23 +28,23 @@ from ..models import (
     Value,
     Workspace,
 )
-from ._core import Services, router, sprint_is_active
-from ._messaging import (
+from ..shell import (
+    Services,
     dismiss_prior_ui,
-    remove_turn_notice,
-    send_registered,
-    send_summary,
-    token_button,
-)
-from ._presentation import (
     menu_markup,
     menu_row,
+    open_citation,
+    remove_turn_notice,
+    router,
+    send_registered,
+    send_summary,
+    sprint_is_active,
     start_payload,
+    token_button,
 )
 from .cards import render_dashboard, start_manual_card_creation
 from .plan import handle_plan_start, is_plan_link
 from .reminders import render_reminders
-from .screens import open_citation
 from .sprint import render_sprint, render_today
 
 logger = logging.getLogger(__name__)

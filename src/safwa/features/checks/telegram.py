@@ -11,7 +11,7 @@ from ...ai.contracts import AgentChange
 from ...foundation.marks import title_marks
 from ...foundation.references import resolve_references
 from ...models import Check
-from ...telegram._presentation import short_citation_title
+from ...shell import short_citation_title
 from ..proposals.api import (
     ChangeAction,
     ProposalChange,

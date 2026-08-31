@@ -8,9 +8,8 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...foundation.screens import TextInputFlow
-from ...telegram._presentation import short_citation_title
+from ...shell import TextValidator, required_text, short_citation_title
 from ...telegram.items import render_item_editor
-from ...telegram.text_input import TextValidator, required_text
 from ..proposals.api import (
     NamedItemPresenter,
 )

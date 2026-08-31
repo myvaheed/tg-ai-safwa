@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...ai.contracts import AgentChange
 from ...models import SavedRequest
-from ...telegram._presentation import short_citation_title, with_citation_fields
+from ...shell import short_citation_title, with_citation_fields
 from ..proposals.api import (
     ProposalChange,
     ProposalScreen,

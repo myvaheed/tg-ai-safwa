@@ -140,7 +140,7 @@ rolling back 4500 lines and seventy callback actions as one piece is not a safet
 | 4b | `FeatureModule` grows `commands` | `BOT_COMMANDS` gone | **done** |
 | 4c | `FeatureModule` grows `callback_actions` | `CALLBACK_ACTIONS` gone | **done** |
 | 4d | `FeatureModule` grows `text_inputs` | 7 flow branches gone | **done** |
-| 5a | The shell: `src/safwa/shell/`; `_messaging.py` dissolves into direct `ChatHost` calls | 189 call sites | |
+| 5a | The shell: `src/safwa/shell/`; the host is built once and owns its own state | criterion 17 | **done** |
 | 5b | Cards and Checks | | |
 | 5c | Planning and the Sprint | | |
 | 5d | Values, Tags, Requests, Reminders, Profile | | |
@@ -384,6 +384,39 @@ lines in on top. It is split there, not here — named now so 5b does not treat 
 one file knows about every entity. Leaving it whole would recreate, in the tests, exactly the
 registry this phase removes from the code. Each of 5b–5e takes its share into the feature's own test
 module.
+
+### What step 5a landed
+
+795 passed, 3 skipped; `ruff check .` clean; 189 modules; no rule count moved and cycles stayed 0.
+`src/safwa/shell/` is 964 lines in six modules, none over 300: `services.py` (the container, the
+router, the middleware), `chat.py` (Safwa's verbs over the host), `layout.py` (paging, menu,
+notices, citation titles), `text_input.py` (the editor and its driver) and `screens.py` (opening a
+cited item). `src/safwa/telegram/` is 5,977 lines to 4,704 and holds only feature screens now.
+
+**The shell never imports `safwa.telegram`, and `telegram/_presentation.py` imports the shell.**
+That is the direction 5b–5e empty the package along. `bootstrap/module_manifest.py` takes `Services`
+from `..shell`, and the packet documents were relinked with the files.
+
+**One thing in the plan was not done as written: the 189 call sites.** The step said
+`_messaging.py` goes and its callers call `ChatHost` directly. Reading them, that is not
+simplification: `send_registered(message, services, text, kind=MessageKind.DASHBOARD)` becomes
+`services.chat.send(message, text, kind=MessageKind.DASHBOARD.value)` — longer at every site, with
+`.value` spelled 189 times. And `telegram_llm` refuses to know what a kind means on purpose
+(`marking.py` says so), so the layer that translates `MessageKind` into it is the border, not a
+restatement of it. `_messaging.py` moved to `shell/chat.py` whole.
+
+**What the review actually found is fixed: the host had no home.** `_host(services)` built a new
+`ChatHost` on every call, which is why its edit lock and its live Toasts had to be module globals in
+`telegram_llm/host.py`. The composition root builds one host, `Services` carries it, and both are
+its own fields. A test that reached into `host._toasts` now reads `services.chat.toasts`.
+
+**`proposal_outcome_text` went to `features/proposals/render.py`** rather than travelling with the
+shell. It is what a resolved proposal says, which is the proposals feature's wording; the shell only
+asks for it when it freezes a review the owner walked away from. That is 5e's work for one function,
+done here because leaving it behind would have made the shell import the package it is emptying.
+
+**`telegram/_core.py` is 112 lines and `telegram/_presentation.py` is 145.** What is left in both is
+the Card selector vocabulary and Card presentation, which move to `features/cards/` in 5b.
 
 ### Step 6 — the last flat modules
 

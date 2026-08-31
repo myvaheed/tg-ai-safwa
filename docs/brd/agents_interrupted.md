@@ -7,7 +7,7 @@ Sources: [MIGRATION.md](../MIGRATION.md) §"Phase 7 notes: how an interruption i
 ruled 2026-08-28; `archived_docs/SUBAGENTS_PLAN.md` rules 9 and 10, read for intent;
 current code — `ai/service.py` (`cancel_approval_for_proposal`,
 `_close_lapsed_sessions`, `_resume_suspended`, `_resumed_transcript`),
-[telegram/_messaging.py](../../src/safwa/telegram/_messaging.py) `dismiss_prior_ui`.
+[shell/chat.py](../../src/safwa/shell/chat.py) `dismiss_prior_ui`.
 Supersedes nothing. PR-INTERRUPT-017, PR-INTERRUPT-018 and SC-LIVE-001 in
 [proposals.feature](../../tests/brd/proposals.feature) and
 [screens.feature](../../tests/brd/screens.feature) stay exactly as approved — they own what happens

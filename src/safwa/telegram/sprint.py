@@ -22,11 +22,18 @@ from ..features.cards.model import CardStage
 from ..features.profile.api import capacity_effort_points
 from ..foundation.clock import utcnow
 from ..models import Card, Sprint, Workspace
-from ._core import Services
-from ._messaging import edit_registered_message, paging_row, send_registered, token_button
-from ._presentation import menu_row, with_notice
+from ..shell import (
+    Services,
+    TextInputScreen,
+    edit_registered_message,
+    menu_row,
+    paging_row,
+    render_text_input,
+    send_registered,
+    token_button,
+    with_notice,
+)
 from .cards import card_list_rows, card_list_text
-from .text_input import TextInputScreen, render_text_input
 
 _PROMPT_TTL = timedelta(minutes=30)
 

@@ -17,19 +17,21 @@ from ..constants import ASR_MAX_DURATION_SECONDS, ASR_MAX_FILE_BYTES
 from ..enums import MessageKind
 from ..history import HistoryEntry
 from ..models import UiSession
-from ._core import Services, audio_payload, router
-from ._messaging import (
+from ..shell import (
+    Services,
+    audio_payload,
     delete_screen,
     dismiss_prior_ui,
     edit_registered_message,
     end_turn,
+    handle_text_input,
     open_turn_notice,
+    router,
     send_owner_turn,
     send_registered,
     send_summary,
 )
 from .proposals import render_ai_outcome
-from .text_input import handle_text_input
 
 logger = logging.getLogger(__name__)
 

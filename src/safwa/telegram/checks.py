@@ -21,9 +21,14 @@ from ..domain import (
 from ..enums import MessageKind
 from ..features.checks.model import CHECK_OUTCOME_LABELS, CheckOutcome
 from ..models import Card, Check, UiSession, Value
-from ._core import Services
-from ._messaging import edit_registered_message, send_registered, token_button
-from ._presentation import paginate, with_notice
+from ..shell import (
+    Services,
+    edit_registered_message,
+    paginate,
+    send_registered,
+    token_button,
+    with_notice,
+)
 from .cards import choice_rows, choice_screen
 
 CHECK_STATUS_EMOJIS = {

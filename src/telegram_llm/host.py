@@ -15,7 +15,7 @@ import html
 import logging
 from collections.abc import Awaitable, Callable, Collection
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from aiogram import Bot
 from aiogram.enums import ParseMode
@@ -27,15 +27,6 @@ from .notes import Note, NoteStore
 from .text import split_telegram_text
 
 logger = logging.getLogger(__name__)
-
-# Two taps arriving together would otherwise edit the same message at once, and Telegram
-# answers the loser with "canceled by new edit message request" instead of drawing it.  Only
-# edits contend: a new message cannot be cancelled by another, so sending never waits here.
-_edit_lock = asyncio.Lock()
-
-# One Toast at a time per chat: a burst of them would otherwise stack above the screen and
-# push it out of sight, which is the one thing a Toast must not do.
-_toasts: dict[int, tuple[int, asyncio.Task[None]]] = {}
 
 # What becomes of a screen that is not the live one: the text to freeze it into and the kind
 # it is from then on, or None to take it out of the chat.
@@ -60,6 +51,14 @@ class ChatHost:
 
     notes: NoteStore
     marks: KindMarks
+    # Two taps arriving together would otherwise edit the same message at once, and
+    # Telegram answers the loser with "canceled by new edit message request" instead of
+    # drawing it. Only edits contend: a new message cannot be cancelled by another, so
+    # sending never waits here.
+    edit_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # One Toast at a time per chat: a burst of them would otherwise stack above the
+    # screen and push it out of sight, which is the one thing a Toast must not do.
+    toasts: dict[int, tuple[int, asyncio.Task[None]]] = field(default_factory=dict)
 
     async def send(
         self,
@@ -110,7 +109,7 @@ class ChatHost:
 
         if should_replace:
             try:
-                async with _edit_lock:
+                async with self.edit_lock:
                     await deliver_edit(text)
                 sent = message
             except TelegramAPIError as error:
@@ -204,7 +203,7 @@ class ChatHost:
         event_id = stored.event_id if stored is not None else None
         marked_text, event_id = self.marks.write(text, kind, event_id=event_id)
         try:
-            async with _edit_lock:
+            async with self.edit_lock:
                 if rich:
                     await message.bot.edit_message_text(
                         rich_message=InputRichMessage(html=marked_text),
@@ -333,7 +332,7 @@ class ChatHost:
         """
         await self.discard_toast(message)
         sent = await self.send(message, text, kind=kind, replace=False)
-        _toasts[message.chat.id] = (
+        self.toasts[message.chat.id] = (
             sent.message_id,
             asyncio.create_task(
                 self._expire_toast(message, sent.message_id, seconds), name="toast-expiry"
@@ -342,7 +341,7 @@ class ChatHost:
 
     async def discard_toast(self, message: Message) -> None:
         """Take the live Toast back now. Its timer is cancelled, so it goes exactly once."""
-        live = _toasts.pop(message.chat.id, None)
+        live = self.toasts.pop(message.chat.id, None)
         if live is None:
             return
         message_id, task = live
@@ -351,7 +350,7 @@ class ChatHost:
 
     async def _expire_toast(self, message: Message, message_id: int, seconds: float) -> None:
         await asyncio.sleep(seconds)
-        _toasts.pop(message.chat.id, None)
+        self.toasts.pop(message.chat.id, None)
         await self.remove_screen(message, message_id)
 
     async def discard_stale(self, bot: Bot, chat_id: int, *, kind: str) -> None:

@@ -5,7 +5,7 @@ Batch: Phase 6.c
 Sources: `CLAUDE.md` §"AI mutations are always proposals"; current code —
 `ai/service.py` `_advance_autoapprovals`,
 `_autoapproval_candidate`; [ai/autoapproval.py](../../src/safwa/ai/autoapproval.py);
-[telegram/_messaging.py](../../src/safwa/telegram/_messaging.py) `dismiss_prior_ui`;
+[shell/chat.py](../../src/safwa/shell/chat.py) `dismiss_prior_ui`;
 [telegram/dialogue.py](../../src/safwa/telegram/dialogue.py); and the E2E suite named in the audit
 table below.
 

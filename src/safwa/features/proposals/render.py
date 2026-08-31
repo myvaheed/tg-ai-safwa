@@ -9,6 +9,7 @@ a proposal is.
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 from typing import Any
@@ -16,6 +17,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...ai.contracts import AgentChange, ToolResultStatus
+from ...constants import PROPOSAL_OUTCOME_DETAIL_LIMIT
 from .api import ProposalDescription, ProposalRegistry, detail_lines, result_value
 from .model import (
     AUTO_SAVED_RECEIPT,
@@ -309,3 +311,49 @@ class ProposalRenderer:
         fields = await self.result_details(session, proposal_id, None)
         summary = await self.display_line(session, proposal_id, None, fields)
         return ProposalDescription(summary=summary, fields=fields)
+
+
+def proposal_change_summary(change: ProposalChange) -> str:
+    target = f" #{change.entity_id}" if change.entity_id is not None else ""
+    values = ", ".join(f"{key}={value!r}" for key, value in change.values.items())
+    suffix = f": {values}" if values else ""
+    return f"{change.action.title()} {change.entity.title()}{target}{suffix}"
+
+
+PROPOSAL_OUTCOME_HEADINGS = {
+    BatchDecision.APPROVED: "✅ Saved",
+    BatchDecision.DISCARDED: "🗑 Discarded",
+    BatchDecision.FAILED: "⚠️ Failed",
+}
+
+
+def _carries_a_value(field: str) -> bool:
+    """Whether a `Label: value` detail line says anything. `—` is the empty rendering."""
+    _, separator, value = field.partition(": ")
+    return not separator or value.strip() not in {"", "—", "— → —"}
+
+
+def proposal_outcome_text(
+    decision: BatchDecision,
+    summary: str,
+    fields: list[str] | None = None,
+    *,
+    notice: str | None = None,
+) -> str:
+    """The one text a resolved proposal leaves in the conversation.
+
+    Save, Discard, and the screen a navigation freezes all read the same way, so the model
+    rereading the dialogue learns what happened from one shape rather than three.
+    """
+    parts = [f"<b>{PROPOSAL_OUTCOME_HEADINGS.get(decision, 'Resolved')}</b>"]
+    if notice:
+        parts.append(html.escape(notice))
+    if summary:
+        parts.append(html.escape(summary))
+    details = [field for field in (fields or []) if _carries_a_value(field)]
+    if details:
+        capped = details[:PROPOSAL_OUTCOME_DETAIL_LIMIT]
+        if len(details) > PROPOSAL_OUTCOME_DETAIL_LIMIT:
+            capped.append(f"… and {len(details) - PROPOSAL_OUTCOME_DETAIL_LIMIT} more")
+        parts.append("\n".join(f"• {html.escape(field)}" for field in capped))
+    return "\n".join(parts)

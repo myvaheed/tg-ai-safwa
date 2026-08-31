@@ -7,9 +7,9 @@ Sources: `CLAUDE.md` §"Telegram is the canonical dialogue store, not SQLite";
 into `telegram_llm` and what stays in Safwa); current code — [history.py](../../src/safwa/history.py)
 (`recent`, `dialogue`, `mark_message`, `read_message_mark`, `restore_citations`,
 `split_receipts`, `_registered_message`, `register_message`),
-[telegram/_messaging.py](../../src/safwa/telegram/_messaging.py) (`send_registered`,
+[shell/chat.py](../../src/safwa/shell/chat.py) (`send_registered`,
 `send_owner_turn`, `dismiss_prior_ui`),
-[telegram/_core.py](../../src/safwa/telegram/_core.py) (`OwnerAndWritingMiddleware`),
+[shell/services.py](../../src/safwa/shell/services.py) (`OwnerAndWritingMiddleware`),
 [telegram/dialogue.py](../../src/safwa/telegram/dialogue.py) (`voice_message`);
 `archived_docs/MEMORY_HISTORY_USAGE.md`, read for intent and checked against the code.
 Supersedes: named per scenario.

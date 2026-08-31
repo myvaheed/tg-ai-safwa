@@ -82,7 +82,7 @@ from safwa.features.saved_requests.use_cases import (
     delete_saved_request,
 )
 from safwa.foundation.clock import SystemClock
-from safwa.history import HistoryEntry, read_kind_mark
+from safwa.history import MARKS, HistoryEntry, TelegramNotes, read_kind_mark
 from safwa.models import (
     CallbackToken,
     Card,
@@ -102,21 +102,32 @@ from safwa.models import (
     Value,
     Workspace,
 )
+from safwa.shell import (
+    OwnerAndWritingMiddleware,
+    dismiss_prior_ui,
+    open_item_screen,
+    render_citations,
+)
+from safwa.shell.chat import (
+    TURN_NOTICE,
+    discard_stale_status,
+    edit_registered_message,
+    remove_turn_notice,
+    send_owner_turn,
+    send_registered,
+)
+from safwa.shell.layout import menu_markup, menu_row, start_payload
 from safwa.telegram import (
     SHELL_CALLBACK_ACTIONS,
     SHELL_COMMANDS,
-    OwnerAndWritingMiddleware,
     callback_token_handler,
-    dismiss_prior_ui,
     handle_card_creation_chooser,
-    open_item_screen,
     ordinary_text,
     render_ai_outcome,
     render_card,
     render_card_choices,
     render_card_creation,
     render_children,
-    render_citations,
     render_dashboard,
     render_item_editor,
     render_item_text_prompt,
@@ -125,15 +136,6 @@ from safwa.telegram import (
     render_today,
     voice_message,
 )
-from safwa.telegram._messaging import (
-    TURN_NOTICE,
-    discard_stale_status,
-    edit_registered_message,
-    remove_turn_notice,
-    send_owner_turn,
-    send_registered,
-)
-from safwa.telegram._presentation import menu_markup, menu_row, start_payload
 from safwa.telegram.checks import render_check
 from safwa.telegram.commands import command_requests, command_start, register_commands
 from safwa.telegram.dialogue import run_dialogue_turn
@@ -142,12 +144,12 @@ from safwa.telegram.reminders import render_reminder, render_reminders
 from safwa.turn import TurnManager
 from telegram_llm import (
     TELEGRAM_TEXT_LIMIT,
+    ChatHost,
     DialogueMessage,
     TranscriptionError,
     TranscriptionResult,
     split_telegram_text,
 )
-from telegram_llm import host as host_module
 
 
 def _telegram_module_trees() -> list[ast.Module]:
@@ -408,6 +410,7 @@ def services_for(sessions, *, advisor=None, reviews=None, transcriber=None):
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
+        chat=ChatHost(TelegramNotes(sessions), MARKS),
         commands=(*SHELL_COMMANDS, *FEATURE_COMMANDS),
         callback_actions=CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
@@ -427,7 +430,7 @@ def button_texts(markup) -> list[str]:
 
 
 async def test_every_command_is_deleted_and_still_dispatched(sessions, monkeypatch) -> None:
-    import safwa.telegram._core as core_module
+    import safwa.shell.services as core_module
 
     monkeypatch.setattr(core_module, "Message", FakeMessage)
     middleware = OwnerAndWritingMiddleware()
@@ -475,7 +478,7 @@ async def test_ag_turn_010_nothing_that_arrives_during_an_answer_joins_it(
     sessions, monkeypatch
 ) -> None:
     """AG-TURN-010 — tests/brd/agents.feature"""
-    import safwa.telegram._core as core_module
+    import safwa.shell.services as core_module
 
     monkeypatch.setattr(core_module, "Message", FakeMessage)
     middleware = OwnerAndWritingMiddleware()
@@ -502,7 +505,7 @@ async def test_ag_turn_023_words_telegram_refused_to_delete_are_answered_now(
     sessions, monkeypatch
 ) -> None:
     """AG-TURN-023 — tests/brd/agents.feature"""
-    import safwa.telegram._core as core_module
+    import safwa.shell.services as core_module
 
     monkeypatch.setattr(core_module, "Message", FakeMessage)
     middleware = OwnerAndWritingMiddleware()
@@ -573,6 +576,8 @@ async def test_proposal_ui_gives_up_the_turn_before_continuity_work(sessions) ->
         sessions=sessions,
         owner_id=42,
         turn=turn,
+        chat=ChatHost(TelegramNotes(sessions), MARKS),
+        text_inputs=FEATURE_TEXT_INPUTS,
         advisor=Advisor(),
         history=History(),
         continuity=continuity,
@@ -807,6 +812,8 @@ async def test_typed_words_end_the_review_and_are_then_answered(sessions) -> Non
         sessions=sessions,
         owner_id=42,
         turn=TurnManager(),
+        chat=ChatHost(TelegramNotes(sessions), MARKS),
+        text_inputs=FEATURE_TEXT_INPUTS,
         advisor=Advisor(store),
         history=History(),
         continuity=Continuity(),
@@ -2863,7 +2870,7 @@ async def test_a_cancelled_generation_still_gives_up_its_lease(sessions, monkeyp
 
 async def test_a_toast_leaves_the_screen_alone_and_takes_itself_back(sessions, monkeypatch):
     """SC-KEEP-002 — tests/brd/screens.feature"""
-    import safwa.telegram._messaging as messaging
+    import safwa.shell.chat as messaging
 
     monkeypatch.setattr(messaging, "TOAST_SECONDS", 0)
     services = services_for(sessions)
@@ -2885,7 +2892,7 @@ async def test_a_toast_leaves_the_screen_alone_and_takes_itself_back(sessions, m
     await messaging.send_toast(screen, services, "Still too fast.")
     assert first.message_id in screen.bot.deleted
 
-    message_id, expiry = host_module._toasts[screen.chat.id]
+    message_id, expiry = services.chat.toasts[screen.chat.id]
     await expiry
     assert message_id in screen.bot.deleted
     async with sessions() as session:
@@ -2974,7 +2981,7 @@ async def test_an_over_long_summary_is_split_and_the_cut_place_is_its_last_part(
     sessions,
 ) -> None:
     """SC-SPLIT-004 — tests/brd/screens.feature"""
-    import safwa.telegram._messaging as messaging
+    import safwa.shell.chat as messaging
 
     services = services_for(sessions)
     message = FakeMessage(971, bot_message=False, answer_as_new=True)
@@ -2996,7 +3003,7 @@ async def test_a_split_cue_is_delivered_only_once_its_last_part_is_in_the_chat(
     sessions,
 ) -> None:
     """SC-SPLIT-004 — tests/brd/screens.feature"""
-    import safwa.telegram._messaging as messaging
+    import safwa.shell.chat as messaging
 
     services = services_for(sessions)
     message = FakeMessage(972, bot_message=False, answer_as_new=True)
@@ -3222,7 +3229,7 @@ async def test_pl_plan_017_the_filter_screen_toggles_a_request_on_and_off(sessio
 
 async def test_pl_plan_019_a_burst_of_link_taps_earns_a_warning(sessions, monkeypatch) -> None:
     """PL-PLAN-019 — tests/brd/planning.feature"""
-    import safwa.telegram._messaging as messaging
+    import safwa.shell.chat as messaging
 
     monkeypatch.setattr(messaging, "TOAST_SECONDS", 0)
     ids = await _seed_plan(sessions)
@@ -3241,7 +3248,7 @@ async def test_pl_plan_019_a_burst_of_link_taps_earns_a_warning(sessions, monkey
     # The tap that earned the warning still opened the Card it points at.
     assert "Pick me" in screen.bot.edits[-1][1]
 
-    _, expiry = host_module._toasts[screen.chat.id]
+    _, expiry = services.chat.toasts[screen.chat.id]
     await expiry
 
 

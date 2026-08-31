@@ -12,8 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...ai.contracts import AgentChange
 from ...enums import MessageKind
 from ...foundation.errors import DomainError
-from ...telegram._core import Services
-from ...telegram._messaging import send_registered
+from ...shell import Services, send_registered
 from ..proposals.api import (
     ACTION_VERBS,
     ChangeAction,

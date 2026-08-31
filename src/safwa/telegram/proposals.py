@@ -13,17 +13,18 @@ from ..ai.outcome import AIOutcome
 from ..domain import DomainError
 from ..enums import MessageKind
 from ..features.proposals.model import DECISION_RECEIPTS, BatchDecision
+from ..features.proposals.render import proposal_change_summary
 from ..foundation.errors import failure_reason
-from ._core import Services
-from ._messaging import (
+from ..shell import (
+    Services,
     edit_registered_message,
     end_turn,
+    open_citation,
+    render_citations,
     send_prose,
     send_registered,
     token_button,
 )
-from ._presentation import proposal_change_summary
-from .screens import open_citation, render_citations
 
 logger = logging.getLogger(__name__)
 

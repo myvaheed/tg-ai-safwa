@@ -26,7 +26,7 @@ from ..features.proposals.api import (
 )
 from ..foundation.screens import ScreenCommand, ScreenSpec, TextInputFlow
 from ..history import TelegramHistorySource
-from ..telegram import Services
+from ..shell import Services
 
 
 @dataclass(frozen=True, slots=True)

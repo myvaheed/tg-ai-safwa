@@ -27,6 +27,7 @@ from safwa.domain import (
 from safwa.enums import MessageKind
 from safwa.features.cards.model import CardStage
 from safwa.features.checks.model import CheckOutcome
+from safwa.history import MARKS, TelegramNotes
 from safwa.models import CallbackToken, Card, Check, TelegramMessage
 from safwa.telegram import (
     SHELL_CALLBACK_ACTIONS,
@@ -36,7 +37,7 @@ from safwa.telegram import (
 )
 from safwa.telegram.commands import command_start
 from safwa.turn import TurnManager
-from telegram_llm import DialogueMessage
+from telegram_llm import ChatHost, DialogueMessage
 
 pytestmark = pytest.mark.e2e
 
@@ -118,6 +119,7 @@ def _services(harness, advisor) -> SimpleNamespace:
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
+        chat=ChatHost(TelegramNotes(harness.sessions), MARKS),
         callback_actions={**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS},
         text_inputs=FEATURE_TEXT_INPUTS,
         bot_username="safwa_ai_bot",

@@ -14,8 +14,8 @@ from sqlalchemy import delete
 from ..enums import MessageKind
 from ..foundation.errors import DomainError
 from ..models import UiSession
-from ._core import Services
-from ._messaging import delete_text_input, edit_registered_message, token_button
+from .chat import delete_text_input, edit_registered_message, token_button
+from .services import Services
 
 _DEFAULT_TTL = timedelta(minutes=30)
 

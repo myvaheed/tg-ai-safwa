@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...foundation.screens import TextInputFlow
 from ...models import Sprint
+from ...shell import required_text
 from ...telegram.sprint import render_sprint, render_sprint_retro
-from ...telegram.text_input import required_text
 from .use_cases import set_sprint_success_criteria
 
 

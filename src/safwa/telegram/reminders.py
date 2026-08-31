@@ -19,10 +19,17 @@ from ..domain import DomainError
 from ..enums import MessageKind
 from ..features.reminders.schedule import describe, schedule_of
 from ..models import Reminder, Workspace
-from ._core import Services
-from ._messaging import edit_registered_message, paging_row, send_registered, token_button
-from ._presentation import menu_row, paginate
-from .text_input import TextInputScreen, render_text_input
+from ..shell import (
+    Services,
+    TextInputScreen,
+    edit_registered_message,
+    menu_row,
+    paginate,
+    paging_row,
+    render_text_input,
+    send_registered,
+    token_button,
+)
 
 _TEXT_PREVIEW = 40
 _PROMPT_TTL = timedelta(minutes=30)

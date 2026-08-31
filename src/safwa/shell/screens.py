@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..enums import MessageKind
 from ..foundation.errors import DomainError
-from ._core import Services
-from ._messaging import send_registered
+from .chat import send_registered
+from .services import Services
 
 logger = logging.getLogger(__name__)
 

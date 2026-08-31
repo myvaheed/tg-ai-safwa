@@ -37,14 +37,17 @@ from ..features.cards.model import CardStage
 from ..features.profile.api import capacity_effort_points
 from ..features.saved_requests.use_cases import request_cards
 from ..models import Card, SavedRequest, TelegramMessage, UiSession
-from ._core import CallbackContext, Services
-from ._messaging import (
+from ..shell import (
+    CallbackContext,
+    Page,
+    Services,
     edit_registered_message,
+    paginate,
     send_registered,
     send_toast,
+    start_payload,
     token_button,
 )
-from ._presentation import Page, paginate, start_payload
 from .cards import render_card
 from .sprint import plan_cost
 

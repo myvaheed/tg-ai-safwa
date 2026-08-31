@@ -11,6 +11,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from llm_gateway import OpenAICompatibleConfig, OpenAICompatibleProvider
+from telegram_llm import ChatHost
 
 from .adapters.asr import build_transcriber
 from .ai.advisor import AIAdvisor
@@ -39,17 +40,14 @@ from .features.continuity.memory import MemoryFileStore
 from .features.continuity.persona import PersonaContinuity
 from .features.heavy_analyzer import agent as heavy_analyzer
 from .foundation.database import Database, upgrade_database
-from .history import TelegramHistorySource
+from .history import MARKS, TelegramHistorySource, TelegramNotes
 from .models import Workspace
 from .recovery import recover_startup
+from .shell import OwnerAndWritingMiddleware, Services, discard_stale_status, router
 from .telegram import (
     SHELL_CALLBACK_ACTIONS,
     SHELL_COMMANDS,
-    OwnerAndWritingMiddleware,
-    Services,
-    discard_stale_status,
     register_commands,
-    router,
     sync_bot_commands,
 )
 from .turn import TurnManager
@@ -193,6 +191,8 @@ async def run(settings: Settings) -> None:
         chars_per_token=settings.token_chars_estimate,
     )
     turn = TurnManager()
+    # One host for the process: it owns the edit lock and the live Toasts.
+    chat = ChatHost(TelegramNotes(database.sessions), MARKS)
     commands = (*SHELL_COMMANDS, *FEATURE_COMMANDS)
     callback_actions = {**SHELL_CALLBACK_ACTIONS, **FEATURE_CALLBACK_ACTIONS}
     register_commands(router, commands)
@@ -212,6 +212,7 @@ async def run(settings: Settings) -> None:
         continuity=continuity,
         owner_id=settings.telegram_owner_id,
         turn=turn,
+        chat=chat,
         screens=SCREENS,
         commands=commands,
         callback_actions=callback_actions,
