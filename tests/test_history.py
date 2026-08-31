@@ -6,21 +6,20 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import update
 from telethon.tl.types import MessageEntityTextUrl
 
-from safwa.bootstrap.modules import SCREENS
-from safwa.enums import MessageKind
-from safwa.features.continuity.model import SUMMARY_HEADER
-from safwa.history import (
+from safwa.adapters.telegram_history import (
     MARKS,
-    HistoryEntry,
     TelegramHistorySource,
-    conversation_block,
     mark_kind,
     mark_message,
     read_kind_mark,
     register_message,
 )
+from safwa.ai.conversation import conversation_block
+from safwa.bootstrap.modules import SCREENS
+from safwa.enums import MessageKind
+from safwa.features.continuity.model import SUMMARY_HEADER
 from safwa.models import TelegramMessage
-from telegram_llm import DialogueMessage, restore_citations
+from telegram_llm import DialogueMessage, HistoryEntry, restore_citations
 
 
 @dataclass

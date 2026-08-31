@@ -5,9 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
+from ui_harness import spawn_timer
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
+from safwa.adapters.telegram_history import MARKS, TelegramNotes
 from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.bootstrap.modules import (
     ALLOWED_VIEWS,
@@ -15,20 +17,17 @@ from safwa.bootstrap.modules import (
     FEATURE_TEXT_INPUTS,
     SCREENS,
 )
-from safwa.domain import (
-    check_card_id,
-    create_card,
-    create_check,
-    finish_action,
-    pending_checks,
-    resolve_check,
-    toggle_card_check,
-)
 from safwa.enums import MessageKind
 from safwa.features.cards.model import CardStage
+from safwa.features.cards.use_cases import create_card, finish_action, toggle_card_check
 from safwa.features.checks.model import CheckOutcome
+from safwa.features.checks.use_cases import (
+    check_card_id,
+    create_check,
+    pending_checks,
+    resolve_check,
+)
 from safwa.features.proposals.telegram import render_ai_outcome, render_proposal
-from safwa.history import MARKS, TelegramNotes
 from safwa.models import CallbackToken, Card, Check, TelegramMessage
 from safwa.shell import callback_token_handler, command_start
 from safwa.turn import TurnManager
@@ -114,7 +113,7 @@ def _services(harness, advisor) -> SimpleNamespace:
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
-        chat=ChatHost(TelegramNotes(harness.sessions), MARKS),
+        chat=ChatHost(TelegramNotes(harness.sessions), MARKS, spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
         start_links=(),

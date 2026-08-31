@@ -1,9 +1,10 @@
 """The Sprint: starting one, what it records, and the two ways it ends.
 
 Planning owns the Sprint and every row that says what an Action was worth to it. Cards
-calls in here after it writes a stage; Planning never calls Cards back, which is what
-keeps the two features acyclic. The archive sweep a Sprint's end sets off is therefore
-composed in `domain.py`, where both halves are in reach.
+calls in here after it writes a stage, through `api.py`, which is why that door speaks
+nothing but Cards' own vocabulary. The ending is composed the other way round: a Sprint
+that ends is the clock the archive runs on, so Planning is what asks Cards and Checks to
+sweep what has waited long enough.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...constants import (
+    ARCHIVE_AFTER_SPRINTS,
     SPRINT_LENGTH_MAX_DAYS,
     SPRINT_LENGTH_MIN_DAYS,
 )
@@ -25,6 +27,8 @@ from ...foundation.errors import DomainError
 from ...foundation.models import Workspace
 from ...foundation.workspace import require_workspace
 from ..cards.api import CardStage, action_titles, planned_actions
+from ..cards.use_cases import archive_settled_cards
+from ..checks.api import archive_settled_checks
 from ..profile.api import sprint_length_days as _profile_sprint_length_days
 from ..reminders.api import create_sprint_reminder, delete_sprint_reminders
 from .model import Sprint, SprintCommitment, SprintStatus
@@ -141,9 +145,48 @@ async def _schedule_sprint_reminders(
         )
 
 
+async def settled_cutoff(session: AsyncSession) -> datetime | None:
+    """When a Sprint ends, what closed on or before this moment has waited long enough."""
+    ended = list(
+        await session.scalars(
+            select(Sprint)
+            .where(Sprint.actual_ended_at.is_not(None))
+            .order_by(Sprint.number.desc())
+            .limit(ARCHIVE_AFTER_SPRINTS + 1)
+        )
+    )
+    if len(ended) <= ARCHIVE_AFTER_SPRINTS:
+        return None
+    return ended[ARCHIVE_AFTER_SPRINTS].actual_ended_at
+
+
+async def archive_settled_items(session: AsyncSession) -> tuple[list[int], list[int]]:
+    """Take what closed two Sprints ago off the screens, and report what left.
+
+    A Sprint ending is the clock: nothing is archived while the workspace is in Planning,
+    and whatever built up there leaves the moment the next Sprint ends.
+    """
+    cutoff = await settled_cutoff(session)
+    if cutoff is None:
+        return [], []
+    return (
+        await archive_settled_cards(session, cutoff),
+        await archive_settled_checks(session, cutoff),
+    )
+
+
+async def expire_due_sprint(session: AsyncSession, *, now: datetime | None = None) -> Sprint | None:
+    """Close the active Sprint once local midnight has passed its planned end date.
+
+    Unfinished Actions keep their stage: the Sprint ends, the plan does not evaporate.
+    """
+    if await sprint_is_due(session, now=now) is None:
+        return None
+    return await finish_sprint(session, reason="expired")
+
+
 async def finish_sprint(session: AsyncSession, *, reason: str = "finished") -> Sprint:
-    """End the running Sprint. What the workspace does about it afterwards is composed
-    in `domain.finish_sprint`, which also runs the archive sweep the ending sets off."""
+    """End the running Sprint, and sweep what its ending settled."""
     workspace = await require_workspace(session)
     if not workspace.active_sprint_id:
         raise DomainError("No Sprint is active")
@@ -161,6 +204,7 @@ async def finish_sprint(session: AsyncSession, *, reason: str = "finished") -> S
     await session.flush()
     # Written here, so Safwa is told how the Sprint went rather than sent reading tables.
     await cue_advisor(session, text=await sprint_summary(session, sprint))
+    await archive_settled_items(session)
     return sprint
 
 

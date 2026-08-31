@@ -16,15 +16,6 @@ from ui_harness import (
 )
 
 from safwa.constants import SELECTOR_PAGE_SIZE
-from safwa.domain import (
-    archive_subtree,
-    create_card,
-    create_check,
-    create_tag,
-    create_value,
-    finish_action,
-    toggle_card_check,
-)
 from safwa.features.cards.model import CardStage
 from safwa.features.cards.telegram import (
     render_card,
@@ -37,9 +28,18 @@ from safwa.features.cards.telegram.selectors import (
     RELATION_CHOICES,
     handle_card_creation_chooser,
 )
-from safwa.features.cards.use_cases import EFFORT_POINTS
+from safwa.features.cards.use_cases import (
+    EFFORT_POINTS,
+    archive_subtree,
+    create_card,
+    finish_action,
+    toggle_card_check,
+)
+from safwa.features.checks.use_cases import create_check
 from safwa.features.tags.telegram import render_tag
+from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.telegram import render_value
+from safwa.features.values.use_cases import create_value
 from safwa.models import (
     CallbackToken,
     Card,

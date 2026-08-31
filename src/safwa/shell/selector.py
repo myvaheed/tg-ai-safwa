@@ -58,6 +58,6 @@ async def choice_screen(
         message,
         services,
         f"<b>{html.escape(heading)}</b>",
-        kind=MessageKind.CARD_EDITOR,
+        kind=MessageKind.EDITOR,
         markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )

@@ -49,7 +49,7 @@ def test_a_mutation_tool_name_belongs_to_exactly_one_feature():
 
 
 def test_an_unowned_entity_is_refused_rather_than_silently_dropped():
-    from safwa.domain import DomainError
+    from safwa.foundation.errors import DomainError
 
     with pytest.raises(DomainError):
         PROPOSALS.handler("habit")

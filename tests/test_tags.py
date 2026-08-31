@@ -4,9 +4,10 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import select
 
-from safwa.domain import DomainError, create_card, toggle_card_tag
+from safwa.features.cards.use_cases import create_card, toggle_card_tag
 from safwa.features.proposals.remove import RemoveToolInput
 from safwa.features.tags.use_cases import create_tag, delete_tag, update_tag_fields
+from safwa.foundation.errors import DomainError
 from safwa.models import Card, CardTag, Tag
 
 

@@ -4,7 +4,7 @@ Status: **approved 2026-08-30**, all eleven written into `tests/brd/telegram_his
 Batch: Phase 8.a. Writes into `tests/brd/telegram_history.feature` (new file, prefix `TG`).
 Sources: `CLAUDE.md` §"Telegram is the canonical dialogue store, not SQLite";
 `REFACTORING_CLEAN_ARCH_FINAL.md` §13.2 (the four invariants of the UI core) and §13.3 (what goes
-into `telegram_llm` and what stays in Safwa); current code — [history.py](../../src/safwa/history.py)
+into `telegram_llm` and what stays in Safwa); current code — [adapters/telegram_history.py](../../src/safwa/adapters/telegram_history.py)
 (`recent`, `dialogue`, `mark_message`, `read_message_mark`, `restore_citations`,
 `split_receipts`, `_registered_message`, `register_message`),
 [shell/chat.py](../../src/safwa/shell/chat.py) (`send_registered`,

@@ -113,8 +113,8 @@ Backup/restore CLIs: `uv run safwa-backup`, `uv run safwa-restore <zip> --yes`.
 ## Architecture
 
 Single-owner Telegram bot (aiogram 3) + an OpenAI-compatible LLM (`SAFWA_AI_PROVIDER`, LM Studio by
-default, OpenRouter for `openai/gpt-5.6-luna`) + SQLite/SQLAlchemy 2 async. Flat modules under
-`src/safwa/`, wired in [main.py](src/safwa/main.py): `Settings` → `Database` →
+default, OpenRouter for `openai/gpt-5.6-luna`) + SQLite/SQLAlchemy 2 async. Wired in
+[bootstrap/main.py](src/safwa/bootstrap/main.py): `Settings` → `Database` →
 provider/memory/advisor → `Services` dataclass injected as `dispatcher["services"]`, plus background
 `asyncio` tasks cancelled in the polling `finally`.
 
@@ -122,10 +122,9 @@ What each feature plugs into the application is declared once, in
 [bootstrap/modules.py](src/safwa/bootstrap/modules.py) — see
 [docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md).
 
-The codebase is moving from flat layers to vertical features. A feature owns its model, use cases,
-agent contract and Telegram adapter, and its AI and UI mutation paths call the same operations —
-[features/diary](src/safwa/features/diary) is the shape to copy. What has not moved yet lives in
-[domain.py](src/safwa/domain.py) and [history.py](src/safwa/history.py) until its declared phase.
+A feature owns its model, use cases, agent contract and Telegram adapter, and its AI and UI
+mutation paths call the same operations — [features/diary](src/safwa/features/diary) is the shape
+to copy.
 
 ### Board and Planning are not the same word
 
@@ -165,7 +164,7 @@ three commands and the one dispatcher every inline button goes through. The shel
 feature. Only [shell/commands.py](src/safwa/shell/commands.py),
 [shell/callbacks.py](src/safwa/shell/callbacks.py) and [turn/dialogue.py](src/safwa/turn/dialogue.py)
 register `@router` handlers; the shell package imports the first two and
-[main.py](src/safwa/main.py) imports the third for that side effect — dropping one silently
+[bootstrap/main.py](src/safwa/bootstrap/main.py) imports the third for that side effect — dropping one silently
 unregisters its handlers. A leading underscore means module-local: a name used by a sibling module
 carries no underscore, even though the whole package stays private behind `__init__.__all__`.
 
@@ -173,8 +172,9 @@ carries no underscore, even though the whole package stays private behind `__ini
 
 ### Telegram is the canonical dialogue store, not SQLite
 
-[history.py](src/safwa/history.py) re-reads the real private chat through Telethon on every advisor
-turn; `telegram_messages` stores event metadata, never persona text.
+[adapters/telegram_history.py](src/safwa/adapters/telegram_history.py) re-reads the real private
+chat through Telethon on every advisor turn; `telegram_messages` stores event metadata, never
+persona text.
 
 - **Every bot message is sent registered and marked** with a `MessageKind`. An unregistered or
   unmarked message is invisible to the LLM; a wrongly-kinded one leaks UI noise into persona history.
@@ -191,7 +191,7 @@ turn; `telegram_messages` stores event metadata, never persona text.
 
 The model never mutates and never writes mutation SQL. A mutation tool call becomes a Pydantic
 contract, then `ChangePreparer.prepare` against live data, then an open review, then a review
-screen, and `approve_proposal` calls the *same* `domain.py` functions the manual UI calls.
+screen, and `approve_proposal` calls the *same* use cases the manual UI calls.
 A review is process state, never a row: `ProposalStore` holds it, and a restart ends every one.
 
 - **Every mutation tool belongs to a subagent, never to the Advisor.** `board` owns the board —

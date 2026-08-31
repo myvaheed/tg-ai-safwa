@@ -3,29 +3,27 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import select
 
-from safwa.domain import (
-    DomainError,
+from safwa.features.cards.model import CardStage
+from safwa.features.cards.use_cases import (
     archive_subtree,
     card_progress,
-    create_tag,
-    create_value,
     edit_card_text,
     finish_action,
-    live_repeat_instance_id,
     move_card,
     set_card_parent,
-    set_value_focus,
-    sprint_metrics,
-    start_sprint,
     toggle_card_tag,
     toggle_card_value,
     update_card_fields,
 )
-from safwa.domain import create_card as create_domain_card
-from safwa.features.cards.model import CardStage
+from safwa.features.cards.use_cases import create_card as create_domain_card
+from safwa.features.planning.use_cases import sprint_metrics, start_sprint
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
+from safwa.features.tags.use_cases import create_tag
+from safwa.features.values.use_cases import create_value, set_value_focus
 from safwa.foundation.clock import SystemClock
+from safwa.foundation.errors import DomainError
+from safwa.foundation.marks import live_repeat_instance_id
 from safwa.models import (
     Card,
     CardEvent,

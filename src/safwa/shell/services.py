@@ -20,12 +20,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from telegram_llm import ChatHost, Transcriber
 
+from ..adapters.telegram_history import TelegramHistorySource
 from ..ai.advisor import AIAdvisor
 from ..features.continuity.memory import MemoryFileStore
 from ..features.continuity.persona import PersonaContinuity
 from ..foundation.models import Workspace
 from ..foundation.screens import ScreenCatalogue, ScreenCommand, StartLink, TextInputFlow
-from ..history import TelegramHistorySource
 from ..turn import TurnManager
 
 logger = logging.getLogger(__name__)

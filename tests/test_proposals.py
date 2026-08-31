@@ -12,24 +12,17 @@ from sqlalchemy import select
 
 from safwa.ai.prepare import ChangePreparer
 from safwa.bootstrap.modules import PROPOSALS
-from safwa.domain import (
-    StaleStateError,
-    archive_check,
-    archive_subtree,
-    create_card,
-    create_check,
-    expire_due_sprint,
-    finish_action,
-    resolve_check,
-    start_sprint,
-)
 from safwa.enums import MessageKind
 from safwa.features.cards.model import CardStage
+from safwa.features.cards.use_cases import archive_subtree, create_card, finish_action
 from safwa.features.checks.model import CheckOutcome
+from safwa.features.checks.use_cases import archive_check, create_check, resolve_check
+from safwa.features.planning.use_cases import expire_due_sprint, start_sprint
 from safwa.features.proposals.api import ToolPreparationError
 from safwa.features.proposals.model import ChangeProposal
 from safwa.features.proposals.store import ProposalStore
 from safwa.features.proposals.use_cases import approve_proposal, prepare_proposal
+from safwa.foundation.errors import StaleStateError
 from safwa.models import AgentRun, CallbackToken, Card, TelegramMessage
 from safwa.recovery import recover_startup
 

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 import safwa.features.continuity.background as continuity_background
-from safwa import main as safwa_main
+from safwa.bootstrap import main as safwa_main
 from safwa.config import Settings
 from safwa.foundation.database import upgrade_database
 

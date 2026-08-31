@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Coroutine
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,6 +12,7 @@ from sqlalchemy import select
 
 import safwa
 import safwa.features.planning.telegram.plan as plan_module
+from safwa.adapters.telegram_history import MARKS, TelegramNotes
 from safwa.ai.sql import create_ai_views
 from safwa.bootstrap.modules import (
     AI_VIEWS,
@@ -20,10 +23,9 @@ from safwa.bootstrap.modules import (
     PROPOSALS,
     SCREENS,
 )
-from safwa.domain import create_card
+from safwa.features.cards.use_cases import create_card
 from safwa.features.proposals.api import ProposalDescription
 from safwa.features.proposals.store import ProposalStore
-from safwa.history import MARKS, TelegramNotes
 from safwa.models import UiSession
 from safwa.shell import SHELL_COMMANDS
 from safwa.turn import TurnManager
@@ -31,6 +33,11 @@ from telegram_llm import ChatHost
 
 # What the composition root puts together, which is what a live Safwa answers with.
 CALLBACK_ACTIONS = FEATURE_CALLBACK_ACTIONS
+
+
+def spawn_timer(work: Coroutine[None, None, None], name: str) -> asyncio.Task[None]:
+    """The Toast timer a test's host starts: no test shuts down, so no test cancels one."""
+    return asyncio.create_task(work, name=name)
 
 
 class FakeBot:
@@ -175,7 +182,7 @@ def services_for(sessions, *, advisor=None, reviews=None, transcriber=None):
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
-        chat=ChatHost(TelegramNotes(sessions), MARKS),
+        chat=ChatHost(TelegramNotes(sessions), MARKS, spawn=spawn_timer),
         commands=(*SHELL_COMMANDS, *FEATURE_COMMANDS),
         callback_actions=CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,

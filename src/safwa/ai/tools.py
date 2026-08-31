@@ -34,7 +34,6 @@ from ..constants import SUBAGENT_HISTORY_LAST_MESSAGES
 from ..features.proposals.api import MutationToolSpec, ProposalRegistry
 from ..foundation.errors import failure_reason
 from ..foundation.screens import ScreenCatalogue
-from ..history import conversation_block
 from .contracts import (
     AgentChange,
     CallHelperInput,
@@ -44,6 +43,7 @@ from .contracts import (
     tool_json_schema,
     validation_error_summary,
 )
+from .conversation import conversation_block
 from .sql import QUERY_SAFWA_TOOL, ReadOnlyQueryRunner, is_complex_read, read_query
 from .subagents import RoutedSubagent
 

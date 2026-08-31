@@ -6,9 +6,11 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
+from ui_harness import spawn_timer
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
+from safwa.adapters.telegram_history import MARKS, TelegramNotes
 from safwa.ai.outcome import AIOutcomeKind
 from safwa.bootstrap.modules import (
     FEATURE_CALLBACK_ACTIONS,
@@ -22,7 +24,6 @@ from safwa.features.proposals.telegram import render_proposal
 from safwa.features.proposals.use_cases import approve_proposal
 from safwa.features.reminders.schedule import schedule_of
 from safwa.foundation.clock import SystemClock
-from safwa.history import MARKS, TelegramNotes
 from safwa.models import CallbackToken, Reminder
 from safwa.shell import callback_token_handler
 from safwa.turn import TurnManager
@@ -288,7 +289,7 @@ def _services(harness, advisor) -> SimpleNamespace:
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
-        chat=ChatHost(TelegramNotes(harness.sessions), MARKS),
+        chat=ChatHost(TelegramNotes(harness.sessions), MARKS, spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
         bot_username="safwa_ai_bot",

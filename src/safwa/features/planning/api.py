@@ -1,23 +1,19 @@
 """What another feature may ask of Planning.
 
 Cards calls every one of these after it has written a stage or deleted a Card: the
-commitment rows are the Sprint's, and Cards never touches one itself. The archive cutoff
-is here for the same reason — how long a closed Card has waited is counted in Sprints.
+commitment rows are the Sprint's, and Cards never touches one itself.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
-
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...constants import ARCHIVE_AFTER_SPRINTS
 from ...enums import CardKind
 from ...foundation.clock import utcnow
 from ...foundation.workspace import require_workspace
 from ..cards.api import PLANNED_STAGES, TERMINAL_STAGES, Card, CardStage
-from .model import Sprint, SprintCommitment
+from .model import SprintCommitment
 
 # The stages an Action has to be on for a Sprint to have anything to say about it.
 SPRINT_SCOPE = frozenset({CardStage.SPRINT, CardStage.TODAY, CardStage.DONE, CardStage.CANCELLED})
@@ -81,18 +77,3 @@ async def record_sprint_result(
 async def delete_commitments_of_cards(session: AsyncSession, card_ids: list[int]) -> None:
     """Take deleted Cards out of every Sprint that ever counted them."""
     await session.execute(delete(SprintCommitment).where(SprintCommitment.card_id.in_(card_ids)))
-
-
-async def settled_cutoff(session: AsyncSession) -> datetime | None:
-    """When a Sprint ends, what closed on or before this moment has waited long enough."""
-    ended = list(
-        await session.scalars(
-            select(Sprint)
-            .where(Sprint.actual_ended_at.is_not(None))
-            .order_by(Sprint.number.desc())
-            .limit(ARCHIVE_AFTER_SPRINTS + 1)
-        )
-    )
-    if len(ended) <= ARCHIVE_AFTER_SPRINTS:
-        return None
-    return ended[ARCHIVE_AFTER_SPRINTS].actual_ended_at

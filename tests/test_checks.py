@@ -4,33 +4,27 @@ import pytest
 from sqlalchemy import select
 
 from safwa.ai.contracts import CheckToolInput
-from safwa.domain import (
-    DomainError,
+from safwa.features.cards.model import CardStage
+from safwa.features.cards.use_cases import create_card as create_domain_card
+from safwa.features.cards.use_cases import finish_action, move_card, toggle_card_check
+from safwa.features.checks.model import CheckOutcome
+from safwa.features.checks.use_cases import (
     archive_check,
-    archive_settled_items,
     card_checks,
     check_card_id,
     check_value_ids,
     create_check,
-    create_value,
     delete_check,
-    finish_action,
-    finish_sprint,
-    is_closed_repeat,
-    live_repeat_instance_id,
-    move_card,
     pending_checks,
     resolve_check,
-    start_sprint,
-    title_marks,
-    toggle_card_check,
     toggle_check_value,
     unobserved_series,
     update_check_fields,
 )
-from safwa.domain import create_card as create_domain_card
-from safwa.features.cards.model import CardStage
-from safwa.features.checks.model import CheckOutcome
+from safwa.features.planning.use_cases import archive_settled_items, finish_sprint, start_sprint
+from safwa.features.values.use_cases import create_value
+from safwa.foundation.errors import DomainError
+from safwa.foundation.marks import is_closed_repeat, live_repeat_instance_id, title_marks
 from safwa.models import Card, CardEvent, Check
 
 

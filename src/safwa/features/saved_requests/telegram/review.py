@@ -16,7 +16,7 @@ from ...proposals.api import (
     named_details,
     named_summary,
 )
-from ..use_cases import request_cards
+from ..api import request_cards
 
 
 class RequestProposalPresenter:

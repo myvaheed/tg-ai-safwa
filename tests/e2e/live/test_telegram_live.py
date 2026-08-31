@@ -15,9 +15,9 @@ from telethon import TelegramClient
 from telethon.tl.custom.message import Message
 from telethon.tl.types import User
 
-from safwa import main as safwa_main
+from safwa.adapters.telegram_history import TelegramHistorySource
+from safwa.bootstrap import main as safwa_main
 from safwa.foundation.database import upgrade_database
-from safwa.history import TelegramHistorySource
 from safwa.qa import resolve_qa_config
 from safwa.shell import router as safwa_router
 

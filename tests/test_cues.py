@@ -9,7 +9,8 @@ from sqlalchemy import select
 from safwa.cues.background import tick
 from safwa.cues.queue import cue_advisor, next_cue
 from safwa.cues.runtime import CueRuntime
-from safwa.domain import create_card, finish_sprint, start_sprint
+from safwa.features.cards.use_cases import create_card
+from safwa.features.planning.use_cases import finish_sprint, start_sprint
 from safwa.features.proposals.model import ChangeAction, ProposalChange
 from safwa.features.proposals.store import ProposalStore
 from safwa.foundation.clock import utcnow

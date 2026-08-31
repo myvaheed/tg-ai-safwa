@@ -165,7 +165,7 @@ async def render_text_input(
         services,
         message_id,
         _screen_text(screen, notice),
-        kind=MessageKind.CARD_EDITOR,
+        kind=MessageKind.EDITOR,
         markup=InlineKeyboardMarkup(inline_keyboard=rows),
         related_id=screen.related_id,
     )

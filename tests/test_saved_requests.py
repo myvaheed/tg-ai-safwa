@@ -9,10 +9,10 @@ from safwa.ai.sql import RequestQueryError, create_ai_views
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
 from safwa.features.proposals.remove import RemoveToolInput
 from safwa.features.saved_requests.model import SavedRequest
+from safwa.features.saved_requests.api import request_cards
 from safwa.features.saved_requests.use_cases import (
     create_saved_request,
     delete_saved_request,
-    request_cards,
     update_saved_request,
 )
 from safwa.foundation.errors import DomainError

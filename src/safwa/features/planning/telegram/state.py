@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....enums import MessageKind
 from ....models import SavedRequest, TelegramMessage, UiSession
-from ...saved_requests.use_cases import request_cards
+from ...saved_requests.api import request_cards
 
 PLAN_UI_KIND = "sprint_plan"
 _PLAN_TTL = timedelta(hours=24)

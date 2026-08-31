@@ -6,9 +6,11 @@ from types import SimpleNamespace
 import pytest
 from aiogram.types import InlineKeyboardMarkup
 from sqlalchemy import func, select
+from ui_harness import spawn_timer
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
+from safwa.adapters.telegram_history import MARKS, TelegramNotes
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.bootstrap.modules import (
     ALLOWED_VIEWS,
@@ -19,18 +21,9 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
 )
 from safwa.constants import MAX_TOOL_CALLS
-from safwa.domain import (
-    StaleStateError,
-    create_card,
-    create_tag,
-    finish_action,
-    finish_sprint,
-    move_card,
-    sprint_metrics,
-    start_sprint,
-    title_marks,
-)
 from safwa.features.cards.model import CardStage
+from safwa.features.cards.use_cases import create_card, finish_action, move_card
+from safwa.features.planning.use_cases import finish_sprint, sprint_metrics, start_sprint
 from safwa.features.proposals.model import (
     BatchDecision,
     ChangeAction,
@@ -38,8 +31,11 @@ from safwa.features.proposals.model import (
 )
 from safwa.features.proposals.telegram import render_ai_outcome, render_proposal
 from safwa.features.proposals.use_cases import approve_proposal
-from safwa.features.saved_requests.use_cases import create_saved_request, request_cards
-from safwa.history import MARKS, TelegramNotes
+from safwa.features.saved_requests.api import request_cards
+from safwa.features.saved_requests.use_cases import create_saved_request
+from safwa.features.tags.use_cases import create_tag
+from safwa.foundation.errors import StaleStateError
+from safwa.foundation.marks import title_marks
 from safwa.models import (
     AgentRun,
     AgentStep,
@@ -1554,7 +1550,7 @@ async def test_a_review_whose_screen_could_not_be_sent_does_not_stay_open(
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -1748,7 +1744,7 @@ async def test_single_tag_proposal_save_and_discard_callbacks_resume_agent(
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -1788,7 +1784,7 @@ async def test_restart_invalidates_an_unanswered_proposal_button(e2e_harness):
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -1839,7 +1835,7 @@ async def test_a_button_works_once(e2e_harness):
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -1894,7 +1890,7 @@ async def test_read_queries_beside_a_proposal_still_resume_the_agent(e2e_harness
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -1967,7 +1963,7 @@ async def test_discarding_the_last_queued_proposal_still_reports_saved_siblings(
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -2043,7 +2039,7 @@ async def test_new_message_discarding_a_queue_reports_what_was_already_saved(e2e
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -2097,7 +2093,7 @@ async def test_proposal_ui_queues_mutations_and_reports_dependency_failure(e2e_h
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -2152,7 +2148,7 @@ async def test_single_proposal_save_error_is_reported_and_resolved(e2e_harness):
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -2208,7 +2204,7 @@ async def test_single_tag_callback_never_leaves_dead_buttons_when_follow_up_fail
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -2524,7 +2520,7 @@ async def test_a_resolved_proposal_leaves_one_readable_line_in_the_dialogue(
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -2560,7 +2556,7 @@ async def test_navigating_away_freezes_the_proposal_into_the_same_outcome_text(e
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -2589,7 +2585,7 @@ def _screen_services(e2e_harness, advisor) -> SimpleNamespace:
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )

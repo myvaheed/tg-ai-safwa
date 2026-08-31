@@ -91,7 +91,10 @@ class Talker:
 
     def __init__(self, provider: LlmProvider, bot_user_id: int) -> None:
         self.chat = Chat()
-        self.host = ChatHost(self.chat, MARKS)
+        # A Toast timer is started by whoever can cancel it; this example never shuts down.
+        self.host = ChatHost(
+            self.chat, MARKS, spawn=lambda work, name: asyncio.create_task(work, name=name)
+        )
         self.provider = provider
         self.bot_user_id = bot_user_id
 

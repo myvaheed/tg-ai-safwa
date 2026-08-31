@@ -14,9 +14,9 @@ from safwa.ai.outcome import AIOutcomeKind
 from safwa.ai.subagents import RoutedSubagent
 from safwa.ai.tools import IMMEDIATE_TOOLS
 from safwa.bootstrap.modules import PROPOSALS
-from safwa.domain import create_card, finish_action
 from safwa.enums import CardKind
 from safwa.features.cards.model import CardStage
+from safwa.features.cards.use_cases import create_card, finish_action
 from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
 from safwa.features.diary.model import DiaryEntry
 from safwa.features.proposals.model import BatchDecision

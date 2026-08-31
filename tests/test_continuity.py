@@ -13,8 +13,8 @@ from safwa.features.continuity.model import SUMMARY_HEADER, MemorySyncState
 from safwa.features.continuity.persona import MemoryMaintenanceResult, PersonaContinuity
 from safwa.features.continuity.use_cases import run_due_memory_maintenance
 from safwa.features.profile.model import UserProfile
-from safwa.history import HistoryEntry
 from safwa.turn import TurnManager
+from telegram_llm import HistoryEntry
 
 NOT_TEXT = b"\xff\xfe not text at all"
 

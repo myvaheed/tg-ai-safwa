@@ -21,9 +21,11 @@ from ui_harness import (
     StubAdvisor,
     button_texts,
     services_for,
+    spawn_timer,
     ui_sources,
 )
 
+from safwa.adapters.telegram_history import MARKS, TelegramNotes, read_kind_mark
 from safwa.ai.contracts import OpenInput
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.ai.sql import create_ai_views
@@ -38,19 +40,13 @@ from safwa.bootstrap.modules import (
 from safwa.constants import (
     ASR_MAX_DURATION_SECONDS,
 )
-from safwa.domain import (
-    DomainError,
-    create_card,
-    create_check,
-    create_tag,
-    create_value,
-    delete_tag,
-    set_sprint_success_criteria,
-)
 from safwa.enums import MessageKind
+from safwa.features.cards.use_cases import create_card
+from safwa.features.checks.use_cases import create_check
 from safwa.features.continuity.model import SUMMARY_HEADER, SummaryState
 from safwa.features.diary.use_cases import create_diary_entry
 from safwa.features.planning.telegram import render_sprint
+from safwa.features.planning.use_cases import set_sprint_success_criteria
 from safwa.features.proposals.model import ChangeAction, ProposalChange
 from safwa.features.proposals.store import ProposalStore
 from safwa.features.proposals.telegram import render_ai_outcome, render_proposal
@@ -58,7 +54,9 @@ from safwa.features.proposals.use_cases import approve_proposal
 from safwa.features.saved_requests.use_cases import (
     create_saved_request,
 )
-from safwa.history import MARKS, HistoryEntry, TelegramNotes, read_kind_mark
+from safwa.features.tags.use_cases import create_tag, delete_tag
+from safwa.features.values.use_cases import create_value
+from safwa.foundation.errors import DomainError
 from safwa.models import (
     CallbackToken,
     Card,
@@ -94,6 +92,7 @@ from telegram_llm import (
     TELEGRAM_TEXT_LIMIT,
     ChatHost,
     DialogueMessage,
+    HistoryEntry,
     TranscriptionError,
     TranscriptionResult,
     split_telegram_text,
@@ -341,7 +340,7 @@ async def test_proposal_ui_gives_up_the_turn_before_continuity_work(sessions) ->
         sessions=sessions,
         owner_id=42,
         turn=turn,
-        chat=ChatHost(TelegramNotes(sessions), MARKS),
+        chat=ChatHost(TelegramNotes(sessions), MARKS, spawn=spawn_timer),
         text_inputs=FEATURE_TEXT_INPUTS,
         advisor=Advisor(),
         history=History(),
@@ -445,7 +444,7 @@ async def test_a_command_dismisses_every_other_screen(sessions) -> None:
                     chat_id=700,
                     message_id=40,
                     direction="out",
-                    kind=MessageKind.CARD_EDITOR.value,
+                    kind=MessageKind.EDITOR.value,
                 ),
             ]
         )
@@ -577,7 +576,7 @@ async def test_typed_words_end_the_review_and_are_then_answered(sessions) -> Non
         sessions=sessions,
         owner_id=42,
         turn=TurnManager(),
-        chat=ChatHost(TelegramNotes(sessions), MARKS),
+        chat=ChatHost(TelegramNotes(sessions), MARKS, spawn=spawn_timer),
         text_inputs=FEATURE_TEXT_INPUTS,
         advisor=Advisor(store),
         history=History(),

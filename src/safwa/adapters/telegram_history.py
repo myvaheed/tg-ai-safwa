@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import getpass
-import re
 from collections.abc import AsyncIterator, Collection, Sequence
 from pathlib import Path
 
@@ -20,30 +19,21 @@ from telethon import TelegramClient
 
 from telegram_llm.marking import KindMarks
 from telegram_llm.notes import Note
-from telegram_llm.window import (
-    ChatMessage,
-    ChatVocabulary,
-    ChatWindow,
-    DialogueMessage,
-    HistoryEntry,
-)
+from telegram_llm.window import ChatMessage, ChatVocabulary, ChatWindow
 
-from .config import Settings
-from .constants import SUMMARY_CONTEXT_MESSAGE_LIMIT, SUMMARY_TRIGGER_TOKENS
-from .enums import MessageKind
-from .features.continuity.model import SUMMARY_HEADER
-from .features.proposals.model import RECEIPT_MEANINGS
-from .foundation.tokens import estimate_tokens
-from .models import TelegramMessage
+from ..config import Settings
+from ..constants import SUMMARY_CONTEXT_MESSAGE_LIMIT, SUMMARY_TRIGGER_TOKENS
+from ..enums import MessageKind
+from ..features.continuity.model import SUMMARY_HEADER
+from ..features.proposals.model import RECEIPT_MEANINGS
+from ..foundation.tokens import estimate_tokens
+from ..models import TelegramMessage
 
 __all__ = [
     "MARKS",
-    "DialogueMessage",
-    "HistoryEntry",
     "TelegramHistorySource",
     "TelegramNotes",
     "auth_main",
-    "conversation_block",
     "mark_kind",
     "mark_message",
     "read_kind_mark",
@@ -61,7 +51,7 @@ MARKS = KindMarks(
         MessageKind.COMMAND.value: 7,
         MessageKind.UI_INPUT.value: 8,
         MessageKind.DASHBOARD.value: 9,
-        MessageKind.CARD_EDITOR.value: 10,
+        MessageKind.EDITOR.value: 10,
         MessageKind.APPROVAL.value: 11,
         MessageKind.RECEIPT.value: 12,
         MessageKind.ERROR.value: 14,
@@ -97,50 +87,6 @@ def vocabulary(citation_types: tuple[str, ...]) -> ChatVocabulary:
         citation_types=citation_types,
         receipts=RECEIPT_MEANINGS,
     )
-
-
-# Who each line of the dialogue belongs to.  The keys are the labels the window writes;
-# the values are what a reader that did not take part sees.
-CONVERSATION_TAGS = {
-    "User": "User",
-    "Assistant": "Advisor",
-    "Summary": "Summary",
-    "Tool result": "ToolResult",
-}
-_CONVERSATION_LINE = re.compile(
-    r"^(?:\[(?P<stamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2})\] )?"
-    r"(?:\[(?P<label>User|Assistant|Summary|Tool result)\]: )?"
-)
-
-
-def conversation_block(dialogue: Sequence[DialogueMessage]) -> str:
-    """The dialogue as tagged data rather than as the reader's own turns.
-
-    The Advisor is the assistant of this conversation and reads the roles as they are.
-    Anyone routed into it is not: prose in the `assistant` slot would be a standing
-    demonstration of answering in prose, which is the one thing a subagent must not do.
-    Every line says whose it is instead, and none of them is the reader's own.
-    """
-    elements: list[tuple[str, str | None, list[str]]] = []
-    for item in dialogue:
-        spoken_by = "Advisor" if item.role == "assistant" else "User"
-        for line in item.content.splitlines():
-            match = _CONVERSATION_LINE.match(line)
-            stamp, label = match.group("stamp"), match.group("label")
-            tag = CONVERSATION_TAGS[label] if label else spoken_by
-            body = line[match.end() :]
-            if stamp is None and label is None and elements and elements[-1][0] == tag:
-                elements[-1][2].append(body)
-                continue
-            elements.append((tag, stamp, [body]))
-    if not elements:
-        return ""
-    lines = ["<Conversation>"]
-    for tag, stamp, body in elements:
-        opening = f'<{tag} at="{stamp}">' if stamp else f"<{tag}>"
-        lines.append(opening + "\n".join(body) + f"</{tag}>")
-    lines.append("</Conversation>")
-    return "\n".join(lines)
 
 
 class TelegramNotes:

@@ -138,7 +138,7 @@ async def render_card_creation(
             services,
             replace_message_id,
             text,
-            kind=MessageKind.CARD_EDITOR,
+            kind=MessageKind.EDITOR,
             markup=markup,
             related_id=editor_id,
         )
@@ -147,7 +147,7 @@ async def render_card_creation(
             message,
             services,
             text,
-            kind=MessageKind.CARD_EDITOR,
+            kind=MessageKind.EDITOR,
             markup=markup,
             related_id=editor_id,
         )

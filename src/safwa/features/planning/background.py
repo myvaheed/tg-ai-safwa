@@ -10,8 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ...bootstrap.module_manifest import BackgroundContext, BackgroundTask
 from ...constants import SPRINT_EXPIRY_POLL_SECONDS
-from ...domain import expire_due_sprint
 from ...shell import sync_bot_commands
+from .use_cases import expire_due_sprint
 
 logger = logging.getLogger(__name__)
 

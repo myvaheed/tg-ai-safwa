@@ -11,9 +11,6 @@ from safwa.ai.context import board_context
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.constants import REMINDER_CATCHUP_GRACE_MINUTES
 from safwa.cues.runtime import CueRuntime
-from safwa.domain import (
-    DomainError,
-)
 from safwa.enums import MessageKind, ScheduleKind
 from safwa.features.proposals.store import ProposalStore
 from safwa.features.proposals.use_cases import open_batch
@@ -32,6 +29,7 @@ from safwa.features.reminders.use_cases import (
     reschedule_reminder,
     update_reminder_text,
 )
+from safwa.foundation.errors import DomainError
 from safwa.models import (
     AgentRun,
     Reminder,

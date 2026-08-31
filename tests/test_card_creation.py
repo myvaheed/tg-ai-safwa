@@ -7,18 +7,18 @@ from sqlalchemy import DateTime
 from safwa.ai.contracts import CardToolInput
 from safwa.ai.prepare import ChangePreparer
 from safwa.bootstrap.modules import PROPOSALS
-from safwa.domain import (
+from safwa.enums import Priority
+from safwa.features.cards.model import CardStage
+from safwa.features.cards.use_cases import (
     create_card,
-    create_check,
     finish_action,
-    live_repeat_instance_id,
     toggle_card_check,
     update_card_fields,
 )
-from safwa.enums import Priority
-from safwa.features.cards.model import CardStage
 from safwa.features.checks.model import CheckOutcome
+from safwa.features.checks.use_cases import create_check
 from safwa.features.proposals.api import ToolPreparationError
+from safwa.foundation.marks import live_repeat_instance_id
 from safwa.models import (
     Card,
     Check,

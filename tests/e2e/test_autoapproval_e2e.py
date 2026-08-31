@@ -10,11 +10,13 @@ from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.autoapproval import AutoApprovalReviewer
 from safwa.ai.outcome import AIOutcomeKind
 from safwa.bootstrap.modules import PROPOSALS
-from safwa.domain import create_card, create_tag, create_value
+from safwa.features.cards.use_cases import create_card
 from safwa.features.proposals.model import (
     BatchDecision,
 )
 from safwa.features.proposals.use_cases import approve_proposal
+from safwa.features.tags.use_cases import create_tag
+from safwa.features.values.use_cases import create_value
 from safwa.models import Card, CardTag, Tag, Value
 
 pytestmark = pytest.mark.e2e

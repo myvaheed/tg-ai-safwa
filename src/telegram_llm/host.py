@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
-from collections.abc import Awaitable, Callable, Collection
+from collections.abc import Awaitable, Callable, Collection, Coroutine
 from contextlib import suppress
 from dataclasses import dataclass, field
 
@@ -31,6 +31,10 @@ logger = logging.getLogger(__name__)
 # What becomes of a screen that is not the live one: the text to freeze it into and the kind
 # it is from then on, or None to take it out of the chat.
 Freeze = Callable[[Note], Awaitable[tuple[str, str] | None]]
+
+# How a Toast's timer is started.  The package never starts one itself: a timer it started
+# would outlive the host's shutdown, because nothing outside would know it exists.
+Spawn = Callable[[Coroutine[None, None, None], str], "asyncio.Task[None]"]
 
 
 async def clear_markup(message: Message, message_id: int) -> None:
@@ -51,6 +55,7 @@ class ChatHost:
 
     notes: NoteStore
     marks: KindMarks
+    spawn: Spawn = field(kw_only=True)
     # Two taps arriving together would otherwise edit the same message at once, and
     # Telegram answers the loser with "canceled by new edit message request" instead of
     # drawing it. Only edits contend: a new message cannot be cancelled by another, so
@@ -334,9 +339,7 @@ class ChatHost:
         sent = await self.send(message, text, kind=kind, replace=False)
         self.toasts[message.chat.id] = (
             sent.message_id,
-            asyncio.create_task(
-                self._expire_toast(message, sent.message_id, seconds), name="toast-expiry"
-            ),
+            self.spawn(self._expire_toast(message, sent.message_id, seconds), "toast-expiry"),
         )
 
     async def discard_toast(self, message: Message) -> None:

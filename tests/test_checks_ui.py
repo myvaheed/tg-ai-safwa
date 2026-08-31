@@ -4,17 +4,16 @@ from __future__ import annotations
 
 from ui_harness import FakeCallback, FakeMessage, button_texts, services_for
 
-from safwa.domain import (
-    archive_check,
-    create_card,
-    create_check,
-    create_value,
-    resolve_check,
-    toggle_card_check,
-    toggle_check_value,
-)
+from safwa.features.cards.use_cases import create_card, toggle_card_check
 from safwa.features.checks.model import CheckOutcome
 from safwa.features.checks.telegram import render_check
+from safwa.features.checks.use_cases import (
+    archive_check,
+    create_check,
+    resolve_check,
+    toggle_check_value,
+)
+from safwa.features.values.use_cases import create_value
 from safwa.models import Card, Check, Value
 from safwa.shell import callback_token_handler
 

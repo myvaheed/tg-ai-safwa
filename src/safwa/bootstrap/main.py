@@ -3,22 +3,47 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from collections.abc import Coroutine
 from contextlib import suppress
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_gateway import OpenAICompatibleConfig, OpenAICompatibleProvider
 from telegram_llm import ChatHost
 
-from .adapters.asr import build_transcriber
-from .ai.advisor import AIAdvisor
-from .ai.autoapproval import AutoApprovalReviewer
-from .ai.sql import ReadOnlyQueryRunner, create_ai_views
-from .bootstrap.module_manifest import AgentContext, BackgroundContext
-from .bootstrap.modules import (
+from ..adapters.asr import build_transcriber
+from ..adapters.telegram_history import MARKS, TelegramHistorySource, TelegramNotes
+from ..ai.advisor import AIAdvisor
+from ..ai.autoapproval import AutoApprovalReviewer
+from ..ai.sql import ReadOnlyQueryRunner, create_ai_views
+from ..config import Settings
+from ..constants import AI_APP_TITLE, AI_APP_URL
+from ..enums import AIProvider
+from ..features.continuity.memory import MemoryFileStore
+from ..features.continuity.persona import PersonaContinuity
+from ..features.heavy_analyzer import agent as heavy_analyzer
+from ..features.profile.model import UserProfile
+from ..foundation.database import Database, upgrade_database
+from ..foundation.errors import DomainError
+from ..foundation.models import Workspace
+from ..recovery import recover_startup
+from ..shell import (
+    SHELL_COMMANDS,
+    OwnerAndWritingMiddleware,
+    Services,
+    discard_stale_status,
+    register_commands,
+    router,
+    sync_bot_commands,
+)
+from ..turn import TurnManager
+from ..turn import dialogue as _dialogue  # noqa: F401  registers the owner-message handlers
+from .module_manifest import AgentContext, BackgroundContext
+from .modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
     BACKGROUND_TASKS,
@@ -33,28 +58,6 @@ from .bootstrap.modules import (
     SYSTEM_PROMPT,
     routed_subagents,
 )
-from .config import Settings
-from .constants import AI_APP_TITLE, AI_APP_URL
-from .domain import bootstrap_workspace
-from .enums import AIProvider
-from .features.continuity.memory import MemoryFileStore
-from .features.continuity.persona import PersonaContinuity
-from .features.heavy_analyzer import agent as heavy_analyzer
-from .foundation.database import Database, upgrade_database
-from .history import MARKS, TelegramHistorySource, TelegramNotes
-from .models import Workspace
-from .recovery import recover_startup
-from .shell import (
-    SHELL_COMMANDS,
-    OwnerAndWritingMiddleware,
-    Services,
-    discard_stale_status,
-    register_commands,
-    router,
-    sync_bot_commands,
-)
-from .turn import TurnManager
-from .turn import dialogue as _dialogue  # noqa: F401  registers the owner-message handlers
 
 logger = logging.getLogger(__name__)
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
@@ -79,6 +82,24 @@ def configure_logging(level_name: str) -> None:
     safwa_logger.setLevel(level)
     safwa_logger.propagate = False
     safwa_logger.disabled = False
+
+
+async def bootstrap_workspace(session: AsyncSession, owner_id: int, timezone: str) -> Workspace:
+    """Bind the database to its owner, and seed the two rows every screen assumes.
+
+    The Profile is a feature's model and the Workspace is not, so neither of them could
+    seed the other; the composition root is where both are in reach.
+    """
+    workspace = await session.get(Workspace, 1)
+    if workspace is None:
+        workspace = Workspace(id=1, owner_telegram_id=owner_id, timezone=timezone)
+        session.add(workspace)
+    elif workspace.owner_telegram_id != owner_id:
+        raise DomainError("The database is already bound to another Telegram owner")
+    if await session.get(UserProfile, 1) is None:
+        session.add(UserProfile(id=1))
+    await session.flush()
+    return workspace
 
 
 def database_path(database_url: str) -> Path:
@@ -195,8 +216,17 @@ async def run(settings: Settings) -> None:
         chars_per_token=settings.token_chars_estimate,
     )
     turn = TurnManager()
+    timers: set[asyncio.Task[None]] = set()
+
+    def spawn(work: Coroutine[None, None, None], name: str) -> asyncio.Task[None]:
+        """A Toast timer, held so that shutdown ends it rather than leaving it running."""
+        timer = asyncio.create_task(work, name=name)
+        timers.add(timer)
+        timer.add_done_callback(timers.discard)
+        return timer
+
     # One host for the process: it owns the edit lock and the live Toasts.
-    chat = ChatHost(TelegramNotes(database.sessions), MARKS)
+    chat = ChatHost(TelegramNotes(database.sessions), MARKS, spawn=spawn)
     commands = (*SHELL_COMMANDS, *FEATURE_COMMANDS)
     register_commands(router, commands)
     transcriber = build_transcriber(settings)
@@ -250,6 +280,8 @@ async def run(settings: Settings) -> None:
     try:
         await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
     finally:
+        for timer in tuple(timers):
+            timer.cancel()
         for task in tasks:
             task.cancel()
             with suppress(asyncio.CancelledError):

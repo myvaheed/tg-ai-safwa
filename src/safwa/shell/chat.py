@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 _SCREEN_KINDS = frozenset(
     {
         MessageKind.DASHBOARD.value,
-        MessageKind.CARD_EDITOR.value,
+        MessageKind.EDITOR.value,
         MessageKind.APPROVAL.value,
     }
 )

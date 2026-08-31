@@ -20,7 +20,7 @@ from ....shell import (
     token_button,
 )
 from ...cards.telegram import kind_label
-from ..use_cases import request_cards
+from ..api import request_cards
 
 
 async def command_requests(message: Message, services: Services) -> None:

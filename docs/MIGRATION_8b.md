@@ -145,7 +145,7 @@ rolling back 4500 lines and seventy callback actions as one piece is not a safet
 | 5c | Planning and the Sprint | Rule E gains its second door | **done** |
 | 5d | Values, Tags, Requests, Reminders, Profile | Rule H 8 to 3 | **done** |
 | 5e | Proposals; `src/safwa/telegram/` does not exist | criterion 8 | **done** |
-| 6 | `domain.py`, `history.py`, `main.py`; Rule G; Rule L; `CARD_EDITOR` → `EDITOR` | criteria 11, 12, 19 | |
+| 6 | `domain.py`, `history.py`, `main.py`; Rule G; Rule L; `CARD_EDITOR` → `EDITOR` | criteria 11, 12, 19 | **done** |
 | 7 | Allowlist regenerated; `CLAUDE.md` and `README.md` corrected by deleting | criterion 18 | |
 
 **Steps 1 and 2 land together.** `test_brd_traceability` fails on an approved scenario with no
@@ -676,6 +676,85 @@ rows, and there are no migrations, but the owner recreates the pre-release datab
 available now and impossible after the first release.
 
 `uv run safwa-backup` first. `schema.json` does not move: this is a stored value, not a column.
+
+### What step 6 landed
+
+795 passed, 3 skipped; `ruff check .` clean; 212 modules; cycles 0. **One rule violation is left in
+the whole tree, and it is criterion 11's named one.**
+
+```
+Rule E 0   Rule G 0   Rule H 1   Rule L 0
+DoD #1 1   DoD #3 1 (features/cards/use_cases.py, 816)
+```
+
+| Was | Is |
+|---|---|
+| `history.py` — the Telethon reader, the notes, the marks | `adapters/telegram_history.py` (306) |
+| `history.py` — `conversation_block` | `ai/conversation.py` (51) |
+| `main.py` | `bootstrap/main.py` (304) |
+| `domain.py` — `bootstrap_workspace` | `bootstrap/main.py` |
+| `domain.py` — `finish_sprint`, `expire_due_sprint`, `archive_settled_items` | `features/planning/use_cases.py` |
+| `domain.py` — everything else | deleted; it was a re-export of its owner |
+
+**`domain.py` does not exist, and neither does `history.py`.** Every test that imported the facade
+now names the module that owns what it imports, which is 24 test modules and no production module:
+only three of them were left under `src/` — `ai/prepare.py` took `DomainError` from
+`foundation/errors.py`, `main.py` took `bootstrap_workspace` with it, and `planning/background.py`
+is Rule L's last entry, closed below.
+
+**Rule E lost a door and gained a name.** The plan puts `archive_settled_items` in
+`features/cards/archive.py` and `finish_sprint` in `features/planning/use_cases.py`, and those two
+cannot both happen: Planning would have to reach `cards/archive.py`, and Rule E's doors are `api`
+and `telegram`. Cards cannot publish an archive on `cards/api.py` either — `archive_settled_cards`
+needs `propagate_ancestors`, so `cards/api.py` would have to import `cards/use_cases.py`, which
+closes the cycle `cards.api → cards.use_cases → planning.api → cards.api` that `cards/api.py`'s own
+docstring exists to prevent.
+
+Rule E already said why, in the sentence that earned its second door in 5c: *"Cards has no write
+door and cannot get one."* That is a fact about **Cards**, not about adapters. So the rule now says
+it that way — **the `use_cases` door is Cards', from anywhere** — and the adapter carve-out is gone.
+It is strictly narrower than what 5c decided: every edge the old rule allowed still passes, and the
+general permission for an adapter to reach into any feature's use cases no longer exists. The one
+edge that used it for something other than Cards was
+`planning/telegram/state.py → saved_requests.use_cases.request_cards`; `request_cards` is a read,
+and it moved to a new `features/saved_requests/api.py` (35), which is where Planning asks for it now.
+
+**The composition is Planning's, and it fixes a regression 5c introduced.** `finish_sprint` and
+`expire_due_sprint` are `features/planning/use_cases.py`'s, and `finish_sprint` runs the sweep
+itself. `settled_cutoff` moved off `planning/api.py` at the same time: with the sweep in Planning,
+no other feature asks it anything about the archive.
+
+This is not only tidying. Since 5c, `planning/telegram/handlers.py` has called
+`use_cases.finish_sprint` — the one that did **not** sweep — while every test called
+`domain.finish_sprint`, which did. **Closing a Sprint from the 🏃 Sprint screen has not archived
+anything since `ad11ee6`**, which is half of PL-END-014 ("whether the owner closed it or it closed
+itself"). The tests could not see it, because they called the composed one directly. There is now
+one `finish_sprint`, so the screen and the tests exercise the same function and the gap cannot
+reopen.
+
+**`bootstrap_workspace` went to `bootstrap/main.py`, not to `foundation/workspace.py`.** It seeds
+two rows, and one of them is `UserProfile` — `features/profile`'s model. `foundation/workspace.py`
+holds `require_workspace` and `bump_workspace`, which every feature calls; making it import a
+feature to seed that feature's row inverts it. The composition root is where both rows are in
+reach, and seeding the database the application starts with is what a composition root is for.
+
+**Rule G is 0, and neither module starts a task.** `telegram_llm/host.py` takes a `Spawn` —
+`(coro, name) -> asyncio.Task` — and `bootstrap/main.py` supplies one that holds every timer it
+started and cancels them in the polling `finally`. A Toast timer now dies with the process instead
+of outliving it, which is decision 4's actual reason rather than the count.
+
+`adapters/asr.py` needed no such thing: its `create_task` was awaited three lines below, so the
+decode and the percentage are two halves of one wait, and `asyncio.gather` says that outright.
+`_ProgressReporter.reached` swallows its own failures, so the reporting half cannot raise and the
+error path is unchanged.
+
+**`MessageKind.CARD_EDITOR` is `EDITOR`.** `data/backups/safwa-20260831T200057Z.zip` was taken
+first. The mark code is 10 either way, so every message already in the chat still reads back as the
+kind it was sent under; what did not change is the `telegram_messages.kind` column, where old rows
+still say `card_editor`. Those rows are screens and typed values, none of which is dialogue, so
+nothing the model reads is affected — but the owner recreating the database, or one
+`UPDATE telegram_messages SET kind = 'editor' WHERE kind = 'card_editor'`, is what makes them match
+again.
 
 ### Step 7 — the documents
 

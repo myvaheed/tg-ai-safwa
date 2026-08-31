@@ -296,7 +296,7 @@ Claude Code его не найдёт. Добавление в таблицу в�
 | 5 | `ai/service.py` | метод `_apply_<entity>_change` и ветку в `apply` | [service.py:2851](src/safwa/ai/service.py:2851) |
 | 6 | `ai/sql.py` | `ALLOWED_VIEWS` **и отдельно** `create_ai_views` | [sql.py:31](src/safwa/ai/sql.py:31) |
 | 7 | `telegram/callbacks.py` | записи в `CALLBACK_ACTIONS` | [callbacks.py:1020](src/safwa/telegram/callbacks.py:1020) |
-| 8 | `main.py` | элемент в ростере `RoutedSubagent(...)` | [main.py:141](src/safwa/main.py:141) |
+| 8 | `main.py` | элемент в ростере `RoutedSubagent(...)` | [bootstrap/main.py](src/safwa/bootstrap/main.py) |
 | 9 | `SYSTEM_PROMPT` | прозаический абзац в разделе правил маршрутизации | `ai/service.py` |
 
 И это не всё. В зависимости от фичи добавляются `recovery.py`, `backup.py`, фоновая задача в

@@ -77,7 +77,7 @@ class MessageKind(StrEnum):
     COMMAND = "command"
     UI_INPUT = "ui_input"
     DASHBOARD = "dashboard"
-    CARD_EDITOR = "card_editor"
+    EDITOR = "editor"
     APPROVAL = "approval"
     RECEIPT = "receipt"
     # Transient progress the sender deletes again, never part of the conversation.

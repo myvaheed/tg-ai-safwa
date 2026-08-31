@@ -15,7 +15,7 @@ from ui_harness import (
 from safwa.ai.sql import create_ai_views
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
 from safwa.constants import REQUEST_RESULT_LIMIT
-from safwa.domain import create_card
+from safwa.features.cards.use_cases import create_card
 from safwa.features.planning.telegram import render_plan
 from safwa.features.saved_requests.telegram import command_requests
 from safwa.features.saved_requests.use_cases import create_saved_request, delete_saved_request

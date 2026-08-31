@@ -4,7 +4,7 @@ Status: **approved 2026-08-30**, written into `tests/brd/diary.feature` in 8.a s
 Batch: Phase 8.a. Writes into `tests/brd/diary.feature`, alongside [diary.md](diary.md), because
 one `.feature` file is one package. Numbering continues from `DI-READ-015`.
 Sources: current code — [features/diary/agent.py](../../src/safwa/features/diary/agent.py)
-(`read_day`, `DayReader`), [history.py](../../src/safwa/history.py) (`day_transcript`, and
+(`read_day`, `DayReader`), [adapters/telegram_history.py](../../src/safwa/adapters/telegram_history.py) (`day_transcript`, and
 `recent`'s `stop_at_summary`).
 Supersedes: none.
 

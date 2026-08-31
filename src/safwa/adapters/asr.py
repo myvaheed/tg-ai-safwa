@@ -278,17 +278,20 @@ class FasterWhisperTranscriber:
             finally:
                 loop.call_soon_threadsafe(ends.put_nowait, None)
 
-        # No timeout: a local decode cannot hang on a network, and abandoning the wait
-        # would leave the thread running anyway.
-        worker = asyncio.create_task(asyncio.to_thread(decode))
         reporter = _ProgressReporter(clip, progress)
-        while True:
-            end = await ends.get()
-            if end is None:
-                break
-            await reporter.reached(end)
+
+        async def report() -> None:
+            while True:
+                end = await ends.get()
+                if end is None:
+                    break
+                await reporter.reached(end)
+
+        # No timeout: a local decode cannot hang on a network, and abandoning the wait
+        # would leave the thread running anyway.  The report ends when the decode does,
+        # because the decode posts its own end marker whether it finished or raised.
         try:
-            await worker
+            await asyncio.gather(asyncio.to_thread(decode), report())
         except Exception as error:
             raise TranscriptionError(str(error)) from error
 

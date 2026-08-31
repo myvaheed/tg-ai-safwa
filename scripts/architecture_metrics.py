@@ -269,19 +269,14 @@ def rule_d() -> list[Violation]:
     return out
 
 
-def _is_adapter(module: Module) -> bool:
-    """A feature's Telegram adapter, whether it is one file or a package."""
-    return module.path.name == "telegram.py" or "telegram" in module.path.parts
-
-
 def rule_e() -> list[Violation]:
     """A feature reaches another feature through its `api`, or its screens through `telegram`.
 
     A screen is public already: `FeatureModule.screens` hands `render_card` to the composition
-    root, and Planning draws a list of Cards with the rows Cards draws.  An adapter may also
-    call another feature's use cases, because Cards has no write door and cannot get one:
-    `cards/api.py` importing `cards/use_cases.py` closes a cycle through `planning/api.py`,
-    and that coupling — a stage write syncs a Sprint commitment — is the design.
+    root, and Planning draws a list of Cards with the rows Cards draws.  Writing a Card is the
+    one exception, and it is named as one: `cards/api.py` cannot import `cards/use_cases.py`
+    without closing a cycle through `planning/api.py`, so Cards has no write door and cannot
+    be given one — whoever writes a Card names `cards/use_cases.py` outright.
     """
     out = []
     for module in modules():
@@ -289,8 +284,6 @@ def rule_e() -> list[Violation]:
         if owner is None:
             continue
         doors = [[], ["api"], ["telegram"]]
-        if _is_adapter(module):
-            doors.append(["use_cases"])
         for path, line in module.imported_paths():
             parts = path.split(".")
             if "features" not in parts:
@@ -299,7 +292,10 @@ def rule_e() -> list[Violation]:
             target = parts[index + 1 : index + 2]
             if not target or target[0] == owner:
                 continue
-            if parts[index + 2 : index + 3] not in doors:
+            door = parts[index + 2 : index + 3]
+            if door == ["use_cases"] and target == ["cards"]:
+                continue
+            if door not in doors:
                 out.append(Violation("Rule E", module.rel, line, f"reaches into {path}"))
     return out
 
