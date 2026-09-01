@@ -4,7 +4,6 @@ import asyncio
 import logging
 import sys
 from collections.abc import Coroutine
-from contextlib import suppress
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher
@@ -225,7 +224,6 @@ async def run(settings: Settings) -> None:
         timer.add_done_callback(timers.discard)
         return timer
 
-    # One host for the process: it owns the edit lock and the live Toasts.
     chat = ChatHost(TelegramNotes(database.sessions), MARKS, spawn=spawn)
     commands = (*SHELL_COMMANDS, *FEATURE_COMMANDS)
     register_commands(router, commands)
@@ -280,12 +278,12 @@ async def run(settings: Settings) -> None:
     try:
         await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
     finally:
-        for timer in tuple(timers):
+        live_timers = tuple(timers)
+        for timer in live_timers:
             timer.cancel()
         for task in tasks:
             task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
+        await asyncio.gather(*live_timers, *tasks, return_exceptions=True)
         await history.close()
         if transcriber is not None:
             await transcriber.close()

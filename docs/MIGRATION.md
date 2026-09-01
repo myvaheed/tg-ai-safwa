@@ -2968,3 +2968,34 @@ unchanged, so every message already in the chat reads back as the kind it was se
 written before the rename still say `card_editor` in `telegram_messages.kind`; all of them are
 screens and typed values, none of which is dialogue. Rebuilding the database, or
 `UPDATE telegram_messages SET kind = 'editor' WHERE kind = 'card_editor'`, makes them match.
+
+### Phase 8 post-review audit
+
+The `v9.3` and `v9.4` review commits tightened the architecture checks and removed a second,
+implicit menu registry, dead compatibility surfaces, stale constants, and comments that merely
+repeated field names. The resulting test-count change is intentional: `v9.3` removed two obsolete
+parametrized architecture cases, `v9.4` added the menu-order regression, and this audit added the
+failed-freeze regression. The current suite is **794 passed, 3 skipped**.
+
+The post-review audit found and closed three defects around the Phase 8 boundaries:
+
+1. A screen whose final freeze edit failed had its buttons cleared but stayed registered as a live
+   screen. `ChatHost` now forgets that note, so the next event cannot walk and delete a screen whose
+   review has already ended.
+2. Shutdown cancelled background and Toast tasks without awaiting the complete cancelled set.
+   Cancellation could therefore overlap SQLAlchemy disposal and leave `aiosqlite` worker-thread
+   exceptions for the next test. Shutdown now cancels first, then awaits every owned task together;
+   pytest treats any future `PytestUnhandledThreadExceptionWarning` as an error.
+3. The opt-in live Telegram fixture still patched the pre-Phase-8 scheduler functions and used the
+   old history-factory signature. It now disables `BACKGROUND_TASKS` at the composition root and
+   supplies the citation types expected by `SharedHistoryFactory`.
+
+Redundant comments in the shell container, chat-state declaration, and bootstrap assembly were
+removed. Comments that explain a business, ownership, or concurrency invariant remain.
+
+The architecture report is unchanged at the intended end state: 212 modules, 837 edges, no import
+cycles; Rules E/F/G/L and DoD #2/#13 are 0; Rule H and DoD #1 are 1 for the named `OpenInput`
+exception; DoD #3 is 1 for `features/cards/use_cases.py`. Criterion 16 remains the only external
+gate not executed in this environment because the `SAFWA_QA_TELEGRAM_*` credentials and second bot
+are not configured. The live fixture now collects against the current composition root, but a real
+Telegram run is still required before that criterion can be marked met.

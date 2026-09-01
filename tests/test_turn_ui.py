@@ -343,3 +343,40 @@ async def test_what_was_said_is_never_taken_out_of_the_chat(sessions) -> None:
     await dismiss_prior_ui(message, services)
 
     assert bot.deleted == [50]
+
+
+async def test_a_screen_whose_freeze_fails_stops_being_walked(sessions) -> None:
+    async with sessions() as session:
+        session.add(
+            TelegramMessage(
+                chat_id=700,
+                message_id=60,
+                direction="out",
+                kind=MessageKind.APPROVAL.value,
+            )
+        )
+        await session.commit()
+
+    bot = FakeBot()
+
+    async def refused_edit(*_args, **_kwargs) -> None:
+        raise TelegramAPIError(method=SimpleNamespace(), message="edit failed")
+
+    async def freeze(_screen):
+        return "Review discarded", MessageKind.DIALOGUE_ASSISTANT.value
+
+    bot.edit_message_text = refused_edit
+    services = services_for(sessions)
+    message = FakeMessage(61, text="Carry on", bot_message=False, bot=bot)
+
+    await services.chat.leave_one_screen(
+        message,
+        kinds={MessageKind.APPROVAL.value},
+        freeze=freeze,
+    )
+
+    assert bot.cleared_markup == [60]
+    async with sessions() as session:
+        assert await session.scalar(
+            select(TelegramMessage).where(TelegramMessage.message_id == 60)
+        ) is None

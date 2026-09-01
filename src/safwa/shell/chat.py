@@ -33,7 +33,6 @@ from .services import Services
 
 logger = logging.getLogger(__name__)
 
-# Every screen kind: a message the owner can still press something on.
 _SCREEN_KINDS = frozenset(
     {
         MessageKind.DASHBOARD.value,

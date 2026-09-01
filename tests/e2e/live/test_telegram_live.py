@@ -124,10 +124,6 @@ class LiveTelegramHarness:
             await self.client.delete_messages(self.bot_entity, message_ids, revoke=True)
 
 
-async def idle_background_job(*_args, **_kwargs) -> None:
-    await asyncio.Event().wait()
-
-
 @pytest_asyncio.fixture
 async def live_telegram_harness(tmp_path: Path, monkeypatch) -> LiveTelegramHarness:
     repository_root = Path(__file__).parents[3]
@@ -169,19 +165,21 @@ async def live_telegram_harness(tmp_path: Path, monkeypatch) -> LiveTelegramHarn
 
     class SharedHistoryFactory:
         @classmethod
-        def from_settings(cls, _settings, sessions, *, bot_user_id: int):
+        def from_settings(
+            cls, _settings, sessions, *, bot_user_id: int, citation_types: tuple[str, ...] = ()
+        ):
             return TelegramHistorySource(
                 client,
                 sessions,
                 bot_user_id=bot_user_id,
                 owner_id=settings.telegram_owner_id,
+                citation_types=citation_types,
             )
 
     monkeypatch.setattr(safwa_main, "TelegramHistorySource", SharedHistoryFactory)
     NoAIProvider.calls = 0
     monkeypatch.setattr(safwa_main, "OpenAICompatibleProvider", NoAIProvider)
-    monkeypatch.setattr(safwa_main, "run_scheduler", idle_background_job)
-    monkeypatch.setattr(safwa_main, "run_memory_maintenance", idle_background_job)
+    monkeypatch.setattr(safwa_main, "BACKGROUND_TASKS", ())
     app_task = asyncio.create_task(safwa_main.run(settings), name="safwa-qa-live")
     harness = LiveTelegramHarness(
         client,

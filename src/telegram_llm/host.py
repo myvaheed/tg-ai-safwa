@@ -316,6 +316,7 @@ class ChatHost:
             except TelegramAPIError as error:
                 logger.warning("Could not freeze screen %s: %s", screen.message_id, error)
                 await clear_markup(message, screen.message_id)
+                await self.notes.forget(message.chat.id, screen.message_id)
                 continue
             await self.notes.write(
                 Note(

@@ -51,6 +51,7 @@ packages = ["src/safwa", "src/llm_gateway", "src/agent_runtime", "src/telegram_l
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+filterwarnings = ["error::pytest.PytestUnhandledThreadExceptionWarning"]
 markers = [
   "e2e: isolated end-to-end tests using real SQLite and mocked remote boundaries",
   "live_telegram: opt-in live integration tests against the dedicated Safwa-QA bot",
