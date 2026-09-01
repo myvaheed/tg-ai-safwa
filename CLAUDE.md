@@ -89,17 +89,21 @@ uv run safwa-auth            # one-time Telethon user-session login (history rea
 uv run pytest -q
 uv run pytest tests\e2e -q
 uv run ruff check .
-uv run python scripts/architecture_metrics.py   # migration rules and Definition of Done metrics
+uv run python scripts/architecture_metrics.py   # the architecture rules and the module graph
 ```
 
-`tests/test_architecture.py` fails on a rule violation that is not in
-`tests/architecture_allowlist.json`, and on a change to the prompt-prefix or schema snapshot under
-`tests/snapshots/`. See [docs/MIGRATION.md](docs/MIGRATION.md).
+Every architecture rule reads zero. `tests/test_architecture.py` fails on any violation, and on a
+change to the prompt-prefix or schema snapshot under `tests/snapshots/`. Rewrite a snapshot only in
+a batch declared to change that artefact:
+
+```powershell
+uv run pytest tests/test_architecture.py --snapshot-update
+```
 
 Single test / single file:
 
 ```powershell
-uv run pytest tests\test_domain.py::test_parent_stage_propagation_and_reopen -q
+uv run pytest tests\test_cards.py::test_parent_stage_propagation_and_reopen -q
 ```
 
 `asyncio_mode = "auto"`, so async tests need no marker. Live Telegram tests are opt-in and skipped
@@ -145,9 +149,7 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
 `planning` is the mode with no Sprint.
 
 **`tests/brd/*.feature` is the product spec.** An approved scenario outranks the code, the tests
-and every document, and changing one needs the owner. `archived_docs/` is not a spec: it was written
-quickly, and it describes modules that no longer exist. Read it for what a rule was getting at, check
-that against the code, and write down what you found — never quote it as current behavior.
+and every document, and changing one needs the owner.
 
 Cross-feature tuning — token budgets, poll intervals, shared timeouts — lives in
 [constants.py](src/safwa/constants.py), which imports nothing from Safwa;
@@ -411,22 +413,18 @@ ORM metadata at that point.
 |---|---|
 | Product spec | [tests/brd/](tests/brd) |
 | What a scenario is | [tests/brd/README.md](tests/brd/README.md) |
-| History, memory, summaries | [archived_docs/MEMORY_HISTORY_USAGE.md](archived_docs/MEMORY_HISTORY_USAGE.md) |
-| Checks | [archived_docs/CHECKS_PLAN.md](archived_docs/CHECKS_PLAN.md) |
-| Diary | [archived_docs/DIARY_PLAN.md](archived_docs/DIARY_PLAN.md) |
-| Reminders | [archived_docs/REMINDERS_PLAN.md](archived_docs/REMINDERS_PLAN.md) |
-| Subagents and routing | [archived_docs/SUBAGENTS_PLAN.md](archived_docs/SUBAGENTS_PLAN.md) |
-| Voice input | [archived_docs/ASR_PLAN.md](archived_docs/ASR_PLAN.md) |
+| The six flows, drawn | [docs/diagrams/](docs/diagrams) |
+| History, memory, summaries | [telegram_history.feature](tests/brd/telegram_history.feature), [continuity.feature](tests/brd/continuity.feature), [features/continuity](src/safwa/features/continuity) |
+| Checks | [checks.feature](tests/brd/checks.feature), [features/checks](src/safwa/features/checks) |
+| Diary | [diary.feature](tests/brd/diary.feature), [features/diary](src/safwa/features/diary) |
+| Reminders | [reminders.feature](tests/brd/reminders.feature), [features/reminders](src/safwa/features/reminders) |
+| Voice input | [agents.feature](tests/brd/agents.feature), [adapters/asr.py](src/safwa/adapters/asr.py) |
 | Sessions, routing, helpers, cues, history | [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md) |
 | How a feature plugs in | [docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md) |
 | LLM provider boundary | [docs/LLM_GATEWAY.md](docs/LLM_GATEWAY.md) |
-| Clean-architecture migration | [REFACTORING_CLEAN_ARCH_FINAL.md](REFACTORING_CLEAN_ARCH_FINAL.md) |
-| Migration status and gates | [docs/MIGRATION.md](docs/MIGRATION.md) |
-| Approval packets, while the migration runs | [docs/brd/README.md](docs/brd/README.md) |
 
-`archived_docs/` records intent, not the code: its file names and module lists are pre-migration and
-largely wrong. `docs/brd/` is the approval packet around the scenarios and is deleted at the end of
-the migration; `tests/brd/` survives it. `docs/` is where anything written from now on goes.
+A feature's own package is a pointer like any other: its `.feature` file is the rule, and the
+package is what keeps it. `docs/` is where anything written from now on goes.
 
 **Keep this file and `README.md` current by deleting, not by adding.** A line that stopped being
 true is removed or replaced in place — never left standing next to its correction. Both files

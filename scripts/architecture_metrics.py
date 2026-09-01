@@ -10,7 +10,6 @@ return nothing and start biting by themselves the moment a phase creates those d
 from __future__ import annotations
 
 import ast
-import json
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -406,8 +405,22 @@ def entity_dispatch_points() -> list[Violation]:
     return out
 
 
+# Rule H's one permanent exception, and the whole of it. `OpenInput.item_type` enumerates
+# what the `open` tool may put on the screen, and a tool's enum is prompt text: it is
+# written where the model reads it, and generating it from the registry would move
+# `prompt_prefix.json` every time a feature is added. Nothing dispatches on it.
+RULE_H_EXCEPTION = (
+    "safwa/ai/contracts.py",
+    "collection over card, check, diary, request, tag, value",
+)
+
+
 def rule_h() -> list[Violation]:
-    return entity_dispatch_points()
+    return [
+        item
+        for item in entity_dispatch_points()
+        if (item.path, item.detail) != RULE_H_EXCEPTION
+    ]
 
 
 def rule_k() -> list[Violation]:
@@ -590,23 +603,8 @@ def report() -> str:
     return "\n".join(lines)
 
 
-def allowlist() -> dict[str, dict[str, int]]:
-    """The current violations as counts per key, which is the shape the allowlist stores.
-
-    Counting rather than listing is what makes the file a ratchet: a phase may lower any
-    number and remove any key, and the test fails on a key that grew or appeared.
-    """
-    grouped: dict[str, dict[str, int]] = {}
-    for item in violations():
-        counts = grouped.setdefault(item.rule, {})
-        counts[item.key()] = counts.get(item.key(), 0) + 1
-    return {rule: dict(sorted(counts.items())) for rule, counts in sorted(grouped.items())}
-
-
 def main() -> None:
     print(report())
-    print()
-    print(json.dumps(allowlist(), indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

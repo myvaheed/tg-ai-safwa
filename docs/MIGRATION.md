@@ -60,7 +60,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 6 | Proposals and the first reactive process | business | **done** — 6.a the typed batch and the reducer, 6.b the proposal use cases, 6.c interruption and autoapproval, 6.d the startup sweeps, 6.e–6.g no status, no tables, no stringly vocabularies |
 | 7 | `agent_runtime` | technical + business | **done** — 7.a 21 scenarios approved, 7.b `ai/service.py` deleted, 7.c the interaction contract |
 | 8 | `telegram_llm` and `TurnManager` | business + technical | **done** — 8.a the chat leaves Safwa, 8.b the handlers go to the features; criterion 16 carried |
-| 9 | Packages and cleanup | technical | **in progress** — 9.a **done**, 9.b **done**, 9.c the end of the migration |
+| 9 | Packages and cleanup | technical | **done** — 9.a the Advisor gets a feature, 9.b the packages are accepted, 9.c the end of the migration |
 
 A phase ends in a state that can be kept forever: tests green, bot working, no old path running
 beside a new one. A phase that cannot be finished is rolled back whole.
@@ -3307,3 +3307,78 @@ screen catalogue, `contracts.py` carries the entity literal that is Rule H's las
 `runs.py` is a SQLAlchemy table on Safwa's `Base`. What is left that names nothing —
 `conversation.py`, and `contracts.py` without `OpenInput` — is under two hundred lines with no
 second consumer. What was genuinely application-neutral in the engine is already `agent_runtime`.
+
+## What Phase 9.c delivered, and the end of this file
+
+The migration's own scaffolding is gone. What is left is the code, the scenarios, and four
+documents that describe what exists.
+
+```
+                 9.c start                        9.c end
+rules            H allowlisted at 1               every rule 0, no allowlist
+docs/            MIGRATION.md, brd/ (25 files)    AGENT_ARCH, FEATURE_MODULES,
+                 AGENT_ARCH, FEATURE_MODULES,     LLM_GATEWAY, FUTURE_FEATURE,
+                 LLM_GATEWAY, FUTURE_FEATURE,     README, diagrams/ (7 files)
+                 README
+archived_docs/   9 documents and 7 diagrams       does not exist
+tests            799 passed, 3 skipped            779 collected, 3 skipped
+```
+
+| Step | What |
+|---|---|
+| 1 | `tests/test_domain.py` split: seven tree tests to `test_cards.py`, three `PL-SCOPE` to `test_sprint.py` |
+| 2 | `tests/architecture_allowlist.json` deleted; Rule H's one exception named inside the rule |
+| 3 | `docs/diagrams/` — six flows, in Russian, written from the code |
+| 4 | `archived_docs/` deleted, and every pointer into it replaced with a live one |
+| 5 | `docs/brd/` deleted, with `scripts/test_inventory.py`, which existed to write into it |
+| 6 | The fourteen Definition of Done criteria measured and published in `README.md` |
+| 7 | This file and `REFACTORING_CLEAN_ARCH_FINAL.md` deleted |
+
+### The allowlist did not shrink to zero — it stopped being the right shape
+
+`tests/architecture_allowlist.json` was a ratchet: counts recorded at Phase 0 that a batch could
+lower and never raise, with three tests around it. What it had left was one entry that is not debt
+and will never be lowered — `OpenInput.item_type`, the `open` tool's enum, which is prompt text and
+belongs where the model reads it.
+
+A permanent exception in a file whose contract is "these numbers only fall" is a lie about what it
+is. So `rule_h` names it, next to the reason, and reads zero with it excluded; the file and its
+three tests are gone; and `test_rule_has_no_violation` asserts what it says. The exception is still
+pinned to a path and a detail, so it stops covering anything the moment it moves.
+
+### `test_domain.py` had two owners, so it stopped existing
+
+Named after a module 8.b deleted, and half of it was Cards' tree while half was the Sprint's scope.
+The Cards half went to `test_cards.py`, whose own docstring says "its place in the tree", with the
+local helper renamed `a_card` so it does not shadow the use case that file already imports. The
+three `PL-SCOPE` tests went to `test_sprint.py`, which already had the helper they needed.
+
+### `docs/diagrams/` is what replaced `archived_docs/`
+
+Six flows: the four namespaces, one turn, the chat as the store, proposals, how a feature plugs in,
+and the Cue. Written from the code, not translated: of the old seven, one drew `GenerationGuard`,
+which no longer exists, and the architecture one drew a tree from before the migration.
+
+`archived_docs/` recorded intent from before any of this and named modules that are gone, and
+CLAUDE.md was pointing six subsystems at it while telling the reader not to trust it. Those six
+rows now name the `.feature` file that is the rule and the package that keeps it.
+
+### What outlives the migration
+
+- `tests/brd/*.feature` — the product spec, one approved rule per `Scenario`.
+- `CLAUDE.md` and `README.md` — kept current by deleting.
+- `docs/` — `AGENT_ARCH.md`, `FEATURE_MODULES.md`, `LLM_GATEWAY.md`, `FUTURE_FEATURE.md`,
+  `README.md`, and `diagrams/`.
+- `scripts/architecture_metrics.py` — the rules and the graph, printed rather than described.
+
+### Criterion 16 is still not run
+
+The live Telegram suite needs a second BotFather bot and the `SAFWA_QA_*` variables. It has been
+carried out of 8.a, out of 8.b and now out of Phase 9, and it is the owner's to run:
+
+```powershell
+uv run pytest tests\e2e\live --live-telegram -q
+```
+
+Everything else on the phase's list is met. The bot runs, `ruff check .` is clean, every
+architecture rule reads zero, and there are no import cycles across 214 modules.

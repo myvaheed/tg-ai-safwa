@@ -1,8 +1,0 @@
-{
-  "note": "Recorded in Phase 0, lowered by every batch since. Counts may only go down; a new key or a grown count fails tests/test_architecture.py. Regenerate with: uv run python scripts/architecture_metrics.py",
-  "rules": {
-    "Rule H": {
-      "Rule H|safwa/ai/contracts.py|collection over card, check, diary, request, tag, value": 1
-    }
-  }
-}

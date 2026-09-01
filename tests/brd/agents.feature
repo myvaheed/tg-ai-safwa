@@ -5,8 +5,7 @@ Feature: Agents — the session, the hand-over, and what comes back
   reads the same conversation, and hands back a receipt. A session survives being paused on a
   screen, carries one budget however long it takes, and ends when the process does.
 
-  Approved 2026-08-29, and AG-TURN-010, AG-TURN-022 and AG-TURN-023 on 2026-08-30. Packets:
-  docs/brd/agents.md, docs/brd/agents_interrupted.md and docs/brd/agents_turn.md.
+  Approved 2026-08-29, and AG-TURN-010, AG-TURN-022 and AG-TURN-023 on 2026-08-30.
 
   Scenario: AG-ROUTE-001 — A change is written by the part that owns it, and Safwa itself writes none
     Given the owner asks Safwa to change something on their board

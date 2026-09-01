@@ -42,14 +42,17 @@ from safwa.features.checks.model import Check, CheckOutcome
 from safwa.features.checks.use_cases import check_card_id, create_check, toggle_check_value
 from safwa.features.planning.model import SprintCommitment
 from safwa.features.planning.use_cases import finish_sprint, start_sprint
+from safwa.features.profile.model import ProfileField, UserProfile
+from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.proposals.api import ToolPreparationError
 from safwa.features.proposals.prepare import ChangePreparer
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import CardValue, Value
-from safwa.features.values.use_cases import create_value, delete_value
+from safwa.features.values.use_cases import create_value, delete_value, set_value_focus
+from safwa.foundation.clock import SystemClock
 from safwa.foundation.errors import DomainError
-from safwa.foundation.marks import title_marks
+from safwa.foundation.marks import live_repeat_instance_id, title_marks
 
 
 async def test_cd_kind_001_a_card_stays_the_kind_it_was_created_as(sessions):
@@ -932,3 +935,198 @@ async def test_cd_archive_023_an_archived_card_is_marked_and_still_listed(read_v
 
     rows = (await runner.run("SELECT id, title FROM ai_cards ORDER BY id")).rows
     assert {row["id"]: row["title"] for row in rows}[gone_id] == "Gone [📦]"
+
+
+
+
+async def a_card(session, **overrides):
+    """An Action with every required field filled, for a test that is about the tree."""
+    payload = {"title": "Action", "kind": "action", "stage": "backlog", "effort_points": 3}
+    payload.update(overrides)
+    payload.pop("root_confirmed", None)
+    payload.pop("expected_parent_version", None)
+    return await create_card(session, **payload)
+
+
+async def test_parent_stage_propagation_and_reopen(sessions):
+    async with sessions() as session:
+        goal = await a_card(session, title="Goal", kind="goal", effort_points=None)
+        action = await a_card(
+            session,
+            title="Child",
+            parent_id=goal.id,
+            expected_parent_version=goal.version,
+            root_confirmed=False,
+        )
+        await session.commit()
+        await move_card(session, action.id, CardStage.TODAY)
+        assert goal.effective_stage == CardStage.TODAY.value
+        await finish_action(session, action.id, CardStage.DONE)
+        assert goal.effective_stage == CardStage.DONE.value
+        await move_card(session, action.id, CardStage.BACKLOG)
+        assert goal.effective_stage == CardStage.BACKLOG.value
+
+
+async def test_repeat_completion_clones_the_action(sessions):
+    async with sessions() as session:
+        card = await a_card(session, title="Run", repeatable=True, stage="today")
+        result = await finish_action(session, card.id, CardStage.DONE)
+        await session.commit()
+        successor = await session.get(Card, result.successor_ids[0])
+        assert successor.effective_stage == CardStage.TODAY.value
+        assert successor.repeat_series_id == card.repeat_series_id
+
+
+async def test_a_closed_repeat_cannot_be_reopened_and_points_at_the_open_one(sessions):
+    async with sessions() as session:
+        first = await a_card(session, title="Run", repeatable=True, stage="today")
+        result = await finish_action(session, first.id, CardStage.DONE)
+        second = await session.get(Card, result.successor_ids[0])
+        result = await finish_action(session, second.id, CardStage.DONE)
+        third = await session.get(Card, result.successor_ids[0])
+        await session.commit()
+
+        with pytest.raises(DomainError, match="closed repeating Action"):
+            await move_card(session, first.id, CardStage.TODAY)
+
+        # Across three generations the answer is the newest open row, not the direct
+        # successor: only the last one created can still be open.
+        assert await live_repeat_instance_id(session, first) == third.id
+        assert await live_repeat_instance_id(session, second) == third.id
+
+        # Cancelling continues the series too, so the answer follows to the new row.
+        result = await finish_action(session, third.id, CardStage.CANCELLED)
+        await session.commit()
+        assert await live_repeat_instance_id(session, first) == result.successor_ids[0]
+
+        # A non-repeating Card is not a series, so reopening it stays ordinary.
+        plain = await a_card(session, title="Once", stage="today")
+        await finish_action(session, plain.id, CardStage.DONE)
+        await move_card(session, plain.id, CardStage.TODAY)
+        await session.commit()
+        assert (await session.get(Card, plain.id)).effective_stage == CardStage.TODAY.value
+
+
+async def test_ui_mutations_use_domain_services_and_are_audited(sessions):
+    """VL-FOCUS-001 — tests/brd/values.feature"""
+    async with sessions() as session:
+        tag = await create_tag(session, "Personal")
+        value = await create_value(session, "Consistency")
+        await set_value_focus(session, value.id, True)
+        card = await a_card(session, title="Original")
+        assert await toggle_card_tag(session, card.id, tag.id) is True
+        await edit_card_text(session, card.id, "title", "Renamed")
+        await set_profile_field(
+            session,
+            ProfileField.ABOUT_ME,
+            "Prefers calm, practical planning",
+            clock=SystemClock(),
+        )
+        await finish_action(session, card.id, CardStage.CANCELLED)
+        await archive_subtree(session, card.id)
+        await session.commit()
+
+        profile = await session.get(UserProfile, 1)
+        assert profile.about_me == "Prefers calm, practical planning"
+        assert (await session.get(Value, value.id)).active is True
+        assert (await session.get(Card, card.id)).title == "Renamed"
+        assert await session.get(CardTag, {"card_id": card.id, "tag_id": tag.id}) is not None
+        events = list(await session.scalars(select(CardEvent).where(CardEvent.card_id == card.id)))
+        assert {event.operation for event in events} >= {"edit_title", "archive"}
+
+
+async def test_committed_card_relationships_are_validated_propagated_and_audited(sessions):
+    """VL-LINK-004 — tests/brd/values.feature"""
+    async with sessions() as session:
+        first_goal = await a_card(session, title="First goal", kind="goal", effort_points=None)
+        second_goal = await a_card(
+            session, title="Second goal", kind="goal", effort_points=None
+        )
+        action = await a_card(
+            session,
+            title="Move me",
+            parent_id=first_goal.id,
+            expected_parent_version=first_goal.version,
+            root_confirmed=False,
+        )
+        value = await create_value(session, "Health")
+        await move_card(session, action.id, CardStage.TODAY)
+
+        await set_card_parent(session, action.id, second_goal.id)
+        assert action.parent_id == second_goal.id
+        assert first_goal.effective_stage == CardStage.BACKLOG.value
+        assert second_goal.effective_stage == CardStage.TODAY.value
+
+        assert await toggle_card_value(session, action.id, value.id) is True
+        assert await toggle_card_value(session, action.id, value.id) is False
+
+        tag = Tag(name="Family")
+        session.add(tag)
+        await session.flush()
+        assert await toggle_card_tag(session, action.id, tag.id) is True
+
+        await update_card_fields(
+            session,
+            action.id,
+            {"blocked": True, "blocked_description": "Waiting for access"},
+        )
+        assert action.blocked is True
+        assert action.blocked_description == "Waiting for access"
+        await session.commit()
+
+        events = list(
+            await session.scalars(select(CardEvent).where(CardEvent.card_id == action.id))
+        )
+        assert {event.operation for event in events} >= {
+            "set_parent",
+            "link_value",
+            "unlink_value",
+            "update",
+        }
+
+
+async def test_an_action_cannot_reach_a_terminal_stage_through_move(sessions):
+    async with sessions() as session:
+        action = await a_card(session, title="Ship", stage="today", effort_points=3)
+        with pytest.raises(DomainError):
+            await move_card(session, action.id, CardStage.DONE)
+        with pytest.raises(DomainError):
+            await move_card(session, action.id, CardStage.CANCELLED)
+        assert action.effective_stage == CardStage.TODAY.value
+
+
+async def test_goal_progress_is_recursive_but_children_count_is_direct(sessions):
+    """CD-EFFORT-021 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        goal = await a_card(session, title="Goal", kind="goal", effort_points=None)
+        idea = await a_card(
+            session,
+            title="Idea",
+            kind="idea",
+            effort_points=None,
+            parent_id=goal.id,
+        )
+        done = await a_card(
+            session,
+            title="Done",
+            effort_points=3,
+            parent_id=idea.id,
+        )
+        await a_card(
+            session,
+            title="Remaining",
+            effort_points=5,
+            parent_id=goal.id,
+        )
+        await finish_action(session, done.id, CardStage.DONE)
+
+        progress = await card_progress(session, goal.id)
+
+        assert progress == {
+            "completed_effort": 3,
+            "completed_children": 1,
+            "total_children": 2,
+        }
+        # The branch total is the Card's own effort now, so a query reads it too.
+        assert (await session.get(Card, goal.id)).effort_points == 8
+        assert (await session.get(Card, idea.id)).effort_points == 3

@@ -10,8 +10,14 @@ from safwa.bootstrap.modules import MODULES
 from safwa.constants import SPRINT_LENGTH_DAYS
 from safwa.cues.model import Cue
 from safwa.features.board.state import board_context
+from safwa.features.cards.model import CardStage
 from safwa.features.cards.use_cases import create_card as create_domain_card
-from safwa.features.cards.use_cases import toggle_card_value, update_card_fields
+from safwa.features.cards.use_cases import (
+    finish_action,
+    move_card,
+    toggle_card_value,
+    update_card_fields,
+)
 from safwa.features.planning.model import Sprint
 from safwa.features.planning.use_cases import (
     expire_due_sprint,
@@ -370,3 +376,54 @@ async def test_pl_end_014_a_sprint_ending_is_when_the_workspace_is_tidied(sessio
             await session.commit()
 
         assert (await session.get(Card, closed.id)).archived_at is not None
+
+
+async def test_pl_scope_007_work_that_joins_a_running_sprint_is_counted_apart(sessions):
+    """PL-SCOPE-007 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        initial = await create_card(session, title="Initial", stage="sprint", effort_points=5)
+        sprint = await start_sprint(session, success_criteria="Ship the release")
+        # Created straight into Today while the Sprint runs.
+        created = await create_card(session, title="Added", stage="today", effort_points=3)
+        moved = await create_card(session, title="Moved", effort_points=2)
+        await move_card(session, moved.id, CardStage.SPRINT)
+        await finish_action(session, initial.id, CardStage.DONE)
+
+        metrics = await sprint_metrics(session, sprint.id)
+
+        assert metrics == {"committed": 5, "added": 5, "removed": 0, "completed": 5, "cancelled": 0}
+        assert created.effective_stage == "today"
+
+
+async def test_pl_scope_009_a_sprint_records_what_each_action_came_to(sessions):
+    """PL-SCOPE-009 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        action = await create_card(session, title="Ship", stage="sprint", effort_points=5)
+        sprint = await start_sprint(session, success_criteria="Ship the release")
+        await finish_action(session, action.id, CardStage.DONE)
+        assert (await sprint_metrics(session, sprint.id))["completed"] == 5
+
+        await move_card(session, action.id, CardStage.SPRINT)
+
+        # A reopened Action is live again, so its effort must stop counting as completed.
+        assert (await sprint_metrics(session, sprint.id))["completed"] == 0
+        assert action.effective_stage == CardStage.SPRINT.value
+
+        await finish_action(session, action.id, CardStage.CANCELLED)
+
+        metrics = await sprint_metrics(session, sprint.id)
+        assert (metrics["cancelled"], metrics["completed"]) == (5, 0)
+
+
+async def test_pl_scope_008_returning_to_sprint_scope_cancels_the_earlier_removal(sessions):
+    """PL-SCOPE-008 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        action = await create_card(session, title="Ship", stage="sprint", effort_points=5)
+        sprint = await start_sprint(session, success_criteria="Ship the release")
+        await move_card(session, action.id, CardStage.BACKLOG)
+        assert (await sprint_metrics(session, sprint.id))["removed"] == 5
+
+        await move_card(session, action.id, CardStage.TODAY)
+
+        # The same effort must not be reported as both removed and selected.
+        assert (await sprint_metrics(session, sprint.id))["removed"] == 0

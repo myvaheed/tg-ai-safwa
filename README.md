@@ -84,6 +84,41 @@ that. A voice message carries no text, so the transcript is what the advisor rea
 one by sending the correction as your next message. The turn is headed `User <your Telegram display
 name>`, or just `User` when Telegram gives none.
 
+## Architecture
+
+`src/` holds four packages. `llm_gateway`, `agent_runtime` and `telegram_llm` import no Safwa at
+all and are checked on it; `safwa` is the application built on them. The six flows are drawn in
+[docs/diagrams/](docs/diagrams), a feature's wiring is [docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md),
+and sessions and routing are [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md).
+
+```powershell
+uv run python scripts/architecture_metrics.py
+```
+
+That prints the rules and the module graph. Every rule reads zero, and
+`tests/test_architecture.py` fails on any violation.
+
+### Definition of Done
+
+The fourteen criteria the clean-architecture migration was held to, as they stand.
+
+| # | Criterion | How it is measured | Result |
+|---|---|---|---|
+| 1 | Places to edit to add an entity | Rule H | one package plus one line in `MODULES` |
+| 2 | No base Use Case | search for `UseCaseBase`, `class UseCase`, `def execute(self` | 0 |
+| 3 | Largest module | `architecture_metrics.py` | 1 over 600: `features/cards/use_cases.py`, so every writer of an Action's stage is in one file |
+| 4 | No module holds two of rules, data, use cases, manager, adapter | Rules A and K | 0 violations |
+| 5 | Process state is a frozen union with one writer | Rule C | 0 violations |
+| 6 | One Manager per process, each with a named identity | review | 3: `AgentManager` (a session), `TurnManager` (the turn), `CueRuntime` (what Safwa still owes) |
+| 7 | A reducer only where a pure function simplifies the transitions | review | no quota, and none added without one |
+| 8 | The shared packages work without Safwa | Rule F plus a running example | `examples/plain_chat_bot/` and `examples/note_keeper/`, both run by tests |
+| 9 | Every migrated rule cites a scenario | `tests/test_brd_traceability.py` | enforced |
+| 10 | Every replaced test has an owner's decision | the migration's audit table | done as each batch landed; the table retired with the approval packets |
+| 11 | The schema did not change outside a schema batch | Rule J | snapshot under `tests/snapshots/` |
+| 12 | The prompt prefix is byte-stable | Rule I | snapshot under `tests/snapshots/` |
+| 13 | No old path running beside a new one | search for facades | 0 |
+| 14 | `ruff check .` and `pytest -q` | CI | green |
+
 ## Tests
 
 ```powershell

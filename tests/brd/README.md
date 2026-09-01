@@ -7,10 +7,7 @@ what Safwa does: when code, tests and docs disagree, an approved scenario wins.
 No BDD framework. Readable pytest is enough — the `.feature` file is a traceability contract, and
 `tests/test_brd_traceability.py` is what keeps it connected to the tests that cite it.
 
-`docs/brd/` is the approval packet around these files — `Status`, `Sources`, `Supersedes`, the
-recorded decision, the audit table and the gate results. It exists only while the migration runs and
-is deleted at the end of it. What a scenario has to look like lives here instead, because the
-`.feature` files outlive it.
+What a scenario has to look like lives here, next to the scenarios themselves.
 
 ## Identifier
 
@@ -78,9 +75,8 @@ the codebase's.
   unless the rule is about the mechanism.
 - Domain nouns stay capitalized and exact: Card, Sprint, Value, Tag, Check, Request, Reminder,
   Summary, Diary.
-- **A source is never copied word for word**, `archived_docs/` least of all: it was written quickly
-  and carries wrong artifacts. Read what it is getting at, check it against the code, and write that.
-  Where the two disagree, the disagreement ships as a `question`.
+- **A source is never copied word for word.** Read what it is getting at, check it against the
+  code, and write that. Where the two disagree, the disagreement ships as a `question`.
 
 The identifier line is the exception: it is an identifier, and it never changes wording once
 approved. The `Scenario:` title after the em dash is prose and may be made clearer.

@@ -1,8 +1,9 @@
-"""The architecture rules of the migration, plus the two snapshots that guard drift.
+"""The architecture rules, plus the two snapshots that guard drift.
 
-The rules live in `scripts/architecture_metrics.py` so the same scanner produces the batch
-report.  `tests/architecture_allowlist.json` records what the codebase violated when Phase 0
-was recorded: counts may fall, never rise.
+The rules live in `scripts/architecture_metrics.py` so the same scanner produces the report
+a batch attaches to its summary.  Every one of them reads zero: the migration's allowlist of
+recorded violations is gone, and the one exception that outlived it is named inside the rule
+that grants it.
 
 Rules I and J are snapshots of built artefacts rather than of the source tree, so they are
 here.  Regenerate a snapshot only inside a batch that is declared as changing that artefact:
@@ -23,14 +24,9 @@ from safwa.ai.subagents import PERSONA
 from safwa.ai.tools import CALL_HELPER_TOOL, OPEN_TOOL, QUERY_SAFWA_TOOL, ROUTE_TOOL
 from safwa.bootstrap.modules import AGENTS, HEAVY_ANALYZER_PROMPT, PROPOSALS, SYSTEM_PROMPT
 from safwa.foundation.models import Base
-from scripts.architecture_metrics import RULES, allowlist, cycles, violations
+from scripts.architecture_metrics import RULES, cycles
 
-ALLOWLIST = Path(__file__).parent / "architecture_allowlist.json"
 SNAPSHOTS = Path(__file__).parent / "snapshots"
-
-
-def _allowed() -> dict[str, dict[str, int]]:
-    return json.loads(ALLOWLIST.read_text(encoding="utf-8"))["rules"]
 
 
 def _digest(value: str) -> str:
@@ -50,40 +46,14 @@ def _snapshot(name: str, produced: dict[str, str], update: bool) -> None:
     assert not changed, f"{name} changed: {changed}"
 
 
-# ------------------------------------------------------------------- Rules A-K
+# ------------------------------------------------------------------- Rules A-M
 
 
 @pytest.mark.parametrize("rule", sorted(RULES))
-def test_rule_has_no_violation_outside_the_allowlist(rule):
-    allowed = _allowed().get(rule, {})
-    found: dict[str, int] = {}
-    for item in RULES[rule]():
-        found[item.key()] = found.get(item.key(), 0) + 1
+def test_rule_has_no_violation(rule):
+    found = [str(item) for item in RULES[rule]()]
 
-    grown = {key: count for key, count in found.items() if count > allowed.get(key, 0)}
-
-    assert not grown, f"{rule} gained violations: {grown}"
-
-
-def test_the_allowlist_has_no_entry_that_is_already_fixed():
-    # A stale entry hides a rule that has started passing, so the ratchet has to be reset
-    # in the batch that fixed it: `uv run python scripts/architecture_metrics.py`.
-    current = allowlist()
-    stale = {
-        f"{rule}|{key}"
-        for rule, counts in _allowed().items()
-        for key, count in counts.items()
-        if current.get(rule, {}).get(key, 0) < count
-    }
-
-    assert not stale, f"allowlist is behind the code: {sorted(stale)}"
-
-
-def test_the_allowlist_covers_every_violation_the_scanner_reports():
-    allowed = _allowed()
-    uncovered = [item for item in violations() if item.key() not in allowed.get(item.rule, {})]
-
-    assert not uncovered, f"unrecorded violations: {[str(item) for item in uncovered]}"
+    assert not found, f"{rule}: {found}"
 
 
 def test_internal_imports_stay_acyclic():
