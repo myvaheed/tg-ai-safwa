@@ -224,7 +224,7 @@ async def test_qa_status_and_manual_card_review_flow(live_telegram_harness):
         await click_button(settings, "Menu")
         home = await qa.wait_for_existing_bot_message(
             settings.id,
-            lambda message: "Safwa" in message.raw_text and has_button(message, "Today"),
+            lambda message: "Safwa" in message.raw_text and has_button(message, "Add"),
         )
         assert home.id == settings.id
 
@@ -236,7 +236,7 @@ async def test_qa_status_and_manual_card_review_flow(live_telegram_harness):
         await click_button(review, "Title")
         title_prompt = await qa.wait_for_existing_bot_message(
             review.id,
-            lambda message: "Set new Title" in message.raw_text,
+            lambda message: "Edit Card Title" in message.raw_text,
         )
         assert title_prompt.id == review.id
 
@@ -334,7 +334,7 @@ async def test_qa_check_gate_blocks_done_until_every_check_is_answered(live_tele
         )
         await click_button(draft, "Title")
         await qa.wait_for_existing_bot_message(
-            draft.id, lambda message: "Set new Title" in message.raw_text
+            draft.id, lambda message: "Edit Card Title" in message.raw_text
         )
         await qa.send(title)
         titled = await qa.wait_for_existing_bot_message(
@@ -373,7 +373,7 @@ async def test_qa_check_gate_blocks_done_until_every_check_is_answered(live_tele
         await click_button(card, "Checks")
         checks = await qa.wait_for_existing_bot_message(
             card.id,
-            lambda message: check_title in message.raw_text
+            lambda message: has_button(message, check_title)
             and not has_button(message, "Add Check"),
         )
         await click_button(checks, check_title)
@@ -387,7 +387,8 @@ async def test_qa_check_gate_blocks_done_until_every_check_is_answered(live_tele
         await click_button(check_screen, "Back")
         listed = await qa.wait_for_existing_bot_message(
             check_screen.id,
-            lambda message: check_title in message.raw_text and has_button(message, "Back"),
+            lambda message: has_button(message, check_title)
+            and not has_button(message, "Passed"),
         )
         await click_button(listed, "Back")
         card = await qa.wait_for_existing_bot_message(
@@ -460,7 +461,7 @@ async def test_qa_tags_and_requests_navigation(live_telegram_harness):
         await click_button(editor, "Name")
         prompt = await qa.wait_for_existing_bot_message(
             editor.id,
-            lambda message: "Set new Name" in message.raw_text,
+            lambda message: "Edit Tag Name" in message.raw_text,
         )
         assert prompt.id == tags.id
         await qa.send(tag_name)
