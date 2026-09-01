@@ -73,8 +73,6 @@ async def continue_agent_approval(
     result: dict[str, Any],
 ) -> bool:
     """Advance an open approval queue, resuming the model only after its last item."""
-    if getattr(services, "advisor", None) is None or getattr(services, "history", None) is None:
-        return False
     if not services.advisor.has_pending_approval(proposal_id):
         return False
     resolved_text = f"{DECISION_RECEIPTS[decision]}."

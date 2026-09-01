@@ -12,7 +12,7 @@ from ...bootstrap.module_manifest import (
     FeatureModule,
     ProposalContribution,
 )
-from ...foundation.screens import ScreenCommand
+from ...foundation.screens import MenuButton, ScreenCommand
 from . import agent, proposal, telegram, views
 from .background import run_scheduler
 from .telegram import REMINDER_CALLBACK_ACTIONS, render_reminders
@@ -47,6 +47,7 @@ MODULE = FeatureModule(
             command="reminders",
             description="Your Reminders",
             nav="reminders",
+            menu=MenuButton("⏰ Reminders", row=4),
         ),
     ),
     callback_actions=REMINDER_CALLBACK_ACTIONS,

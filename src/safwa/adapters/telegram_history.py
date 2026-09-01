@@ -34,13 +34,10 @@ __all__ = [
     "TelegramHistorySource",
     "TelegramNotes",
     "auth_main",
-    "mark_kind",
-    "mark_message",
-    "read_kind_mark",
     "register_message",
 ]
 
-# Codes are append-only: a released code must never be reused for another kind.  1, 2 and
+# Codes are append-only: a released code must never be reused for another kind.  1, 2, 7 and
 # 13 belonged to retired kinds and stay out of circulation.
 MARKS = KindMarks(
     {
@@ -48,7 +45,6 @@ MARKS = KindMarks(
         MessageKind.DIALOGUE_ASSISTANT.value: 4,
         MessageKind.CUE.value: 5,
         MessageKind.SUMMARY.value: 6,
-        MessageKind.COMMAND.value: 7,
         MessageKind.UI_INPUT.value: 8,
         MessageKind.DASHBOARD.value: 9,
         MessageKind.EDITOR.value: 10,
@@ -58,23 +54,6 @@ MARKS = KindMarks(
         MessageKind.STATUS.value: 15,
     }
 )
-
-
-def mark_message(
-    text: str, kind: MessageKind, *, event_id: str | None = None
-) -> tuple[str, str]:
-    """Append the invisible kind + event mark and return both text and identifier."""
-    return MARKS.write(text, kind.value, event_id=event_id)
-
-
-def mark_kind(text: str, kind: MessageKind, *, event_id: str | None = None) -> str:
-    return MARKS.write(text, kind.value, event_id=event_id)[0]
-
-
-def read_kind_mark(text: str) -> tuple[str | None, str]:
-    """Split a marked message into its kind and its visible text."""
-    kind, _event_id, visible = MARKS.read(text)
-    return kind, visible
 
 
 def vocabulary(citation_types: tuple[str, ...]) -> ChatVocabulary:

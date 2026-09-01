@@ -110,9 +110,6 @@ class FeatureModule:
         default_factory=dict
     )
     text_inputs: tuple[TextInputFlow, ...] = ()
-    # A deep link this feature answers itself, ahead of the citation it would otherwise be.
-    start_links: tuple[StartLink, ...] = ()
-    # A deep link this feature answers itself, ahead of the citation it would otherwise be.
     start_links: tuple[StartLink, ...] = ()
 
     # Lifecycle

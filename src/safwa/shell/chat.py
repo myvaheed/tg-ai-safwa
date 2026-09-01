@@ -155,9 +155,9 @@ async def _interrupted_review(services: Services, screen: Note) -> tuple[str, st
     Every other screen is only a state and goes; a review is a question that was asked, so
     the chat has to keep saying it was asked and how it ended.
     """
-    advisor = getattr(services, "advisor", None)
-    if advisor is None or screen.kind != MessageKind.APPROVAL.value:
+    if screen.kind != MessageKind.APPROVAL.value:
         return None
+    advisor = services.advisor
     review = advisor.reviews.proposal(screen.related_id)
     if review is None:
         return None

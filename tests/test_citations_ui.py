@@ -6,13 +6,13 @@ import html
 from datetime import date
 
 import pytest
+from marks import read_kind_mark
 from ui_harness import (
     FakeMessage,
     button_texts,
     services_for,
 )
 
-from safwa.adapters.telegram_history import read_kind_mark
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.ai.sql import create_ai_views
 from safwa.bootstrap.modules import (

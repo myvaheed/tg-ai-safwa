@@ -105,7 +105,9 @@ async def render_card_creation(
                 services,
                 "Card creation is no longer active.",
                 kind=MessageKind.ERROR,
-                markup=menu_markup(sprint_active=await sprint_is_active(session)),
+                markup=menu_markup(
+                    services.commands, sprint_active=await sprint_is_active(session)
+                ),
             )
             return
         state = sanitize_card_creation_state(dict(editor.state or {}))

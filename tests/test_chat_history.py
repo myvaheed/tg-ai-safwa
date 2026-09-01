@@ -3,15 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from marks import mark_kind, mark_message, read_kind_mark
 from sqlalchemy import update
 from telethon.tl.types import MessageEntityTextUrl
 
 from safwa.adapters.telegram_history import (
     MARKS,
     TelegramHistorySource,
-    mark_kind,
-    mark_message,
-    read_kind_mark,
     register_message,
 )
 from safwa.ai.conversation import conversation_block

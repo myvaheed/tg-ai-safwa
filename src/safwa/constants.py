@@ -59,7 +59,6 @@ QUERY_TIMEOUT_SECONDS = 2.0
 # the message budget itself, so a Summary is written exactly when the window is full.
 SUMMARY_TOKEN_CEILING = 2_000
 SUMMARY_TRIGGER_TOKENS = 6_000
-HISTORY_TOKEN_BUDGET = SUMMARY_TRIGGER_TOKENS + SUMMARY_TOKEN_CEILING
 SUMMARY_CONTEXT_MESSAGE_LIMIT = 20
 # --- Summaries and memory -------------------------------------------------
 MEMORY_TOKEN_BUDGET = 4_000
@@ -118,9 +117,6 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # A local server either answers or is down; a metered remote returns 429/502 and
 # is worth retrying with the SDK's backoff.
 AI_MAX_RETRIES_LOCAL = 1
-# A provider can answer HTTP 200 with nothing in it, which the client's own retries do
-# not cover because the request itself succeeded.
-AI_EMPTY_RESPONSE_ATTEMPTS = 2
 AI_MAX_RETRIES_REMOTE = 3
 # Sent to OpenRouter as HTTP-Referer/X-Title for request attribution.
 AI_APP_URL = "https://github.com/myvaheed/tg-ai-safwa"

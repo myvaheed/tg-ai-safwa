@@ -37,10 +37,6 @@ class TurnManager:
         self.dialogue_revision = 0
 
     @property
-    def state(self) -> TurnState:
-        return self._state
-
-    @property
     def active(self) -> bool:
         return not isinstance(self._state, Idle)
 
@@ -129,7 +125,7 @@ class TurnManager:
         """Run one background operation while its lease is still the current one.
 
         The owner always wins: a held turn postpones the operation rather than queueing
-        it. The callback receives the single staleness predicate Summary and memory read.
+        it. The callback is handed the staleness predicate to check before it publishes.
         """
         if not self.try_begin_background():
             return None

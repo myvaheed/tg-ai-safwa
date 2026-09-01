@@ -9,6 +9,7 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from ..constants import PAGE_SIZE
+from ..foundation.screens import ScreenCommand
 
 CITATION_TITLE_LIMIT = 25
 
@@ -49,29 +50,21 @@ def paginate(items: list[Any], page: int, size: int = PAGE_SIZE) -> Page:
     return Page(items[index * size : (index + 1) * size], index, last + 1)
 
 
-def menu_markup(*, sprint_active: bool) -> InlineKeyboardMarkup:
-    """The menu. Today belongs to a running Sprint, so Planning does not offer it."""
-    sprint_row = [InlineKeyboardButton(text="🏃 Sprint", callback_data="nav:sprint")]
-    if sprint_active:
-        sprint_row.insert(0, InlineKeyboardButton(text="☀️ Today", callback_data="nav:today"))
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            sprint_row,
-            [
-                InlineKeyboardButton(text="📚 Backlog", callback_data="nav:backlog"),
-                InlineKeyboardButton(text="➕ Add", callback_data="nav:add"),
-            ],
-            [
-                InlineKeyboardButton(text="💎 Values", callback_data="nav:values"),
-                InlineKeyboardButton(text="🏷 Tags", callback_data="nav:tags"),
-            ],
-            [
-                InlineKeyboardButton(text="🔎 Requests", callback_data="nav:requests"),
-                InlineKeyboardButton(text="⏰ Reminders", callback_data="nav:reminders"),
-                InlineKeyboardButton(text="⚙️ Settings", callback_data="nav:settings"),
-            ],
-        ]
-    )
+def menu_markup(
+    commands: tuple[ScreenCommand, ...], *, sprint_active: bool
+) -> InlineKeyboardMarkup:
+    """The menu, as the screens themselves declared it.
+
+    Today belongs to a running Sprint, so Planning does not offer it while there is none.
+    """
+    rows: dict[int, list[InlineKeyboardButton]] = {}
+    for screen in commands:
+        if screen.menu is None or (screen.needs_sprint and not sprint_active):
+            continue
+        rows.setdefault(screen.menu.row, []).append(
+            InlineKeyboardButton(text=screen.menu.label, callback_data=f"nav:{screen.nav}")
+        )
+    return InlineKeyboardMarkup(inline_keyboard=[rows[row] for row in sorted(rows)])
 
 
 def menu_row() -> list[InlineKeyboardButton]:

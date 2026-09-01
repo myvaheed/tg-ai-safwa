@@ -74,7 +74,6 @@ class MessageKind(StrEnum):
     DIALOGUE_ASSISTANT = "dialogue_assistant"
     CUE = "cue"
     SUMMARY = "summary"
-    COMMAND = "command"
     UI_INPUT = "ui_input"
     DASHBOARD = "dashboard"
     EDITOR = "editor"

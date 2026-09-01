@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ...bootstrap.module_manifest import FeatureModule
-from ...foundation.screens import ScreenCommand, ScreenSpec
+from ...foundation.screens import MenuButton, ScreenCommand, ScreenSpec
 from ...models import Sprint
 from . import background, telegram, views
 from .telegram import PLANNING_CALLBACK_ACTIONS, render_sprint, render_today
@@ -18,6 +18,7 @@ MODULE = FeatureModule(
             command="today",
             description="Today dashboard",
             nav="today",
+            menu=MenuButton("☀️ Today", row=1),
             needs_sprint=True,
         ),
         ScreenCommand(
@@ -25,6 +26,7 @@ MODULE = FeatureModule(
             command="sprint",
             description="Planning or Sprint",
             nav="sprint",
+            menu=MenuButton("🏃 Sprint", row=1),
         ),
     ),
     screens=(

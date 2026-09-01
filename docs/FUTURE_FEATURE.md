@@ -6,21 +6,27 @@ twice. An entry leaves this file by becoming an approved scenario package, or by
 
 ## The Advisor cannot read the conversation by date
 
-Noticed 2026-08-30, while the Phase 8 history packet was being reviewed.
+Noticed 2026-08-30, reviewing the Phase 8 history packet.
 
-**What is missing.** Ask the Advisor "what did I say about this on Tuesday" and it answers from the
-window it always reads: the newest messages up to the token budget, stopping at the newest Summary.
-It has no way to reach a named day. The only reader that can is the Diary subagent, through
-`read_day`, whose argument is a calendar date — and the Advisor does not route a question about the
-conversation to the Diary, because the Diary owns written days, not the chat.
+Asked what was said on Tuesday, the Advisor answers from the window it always reads — the newest
+messages up to the token budget, stopping at the newest Summary. Only the Diary subagent reaches a
+named day, through `read_day`, and a question about the chat is not routed there.
 
-**Why the obvious fix is not obvious.** A Summary is free text a model wrote. It carries no dates
-of its own, and the days inside it cannot be told apart, so it cannot serve as an index into the
-conversation. Making one Summary per day, or making a Summary carry its days as structure, was
-considered on 2026-08-30 and left alone: it changes when a Summary is written, which is
-`CO-SUMMARY-001`, and the window it belongs to.
+A Summary cannot be the index: it is free text with no dates of its own. Making one Summary per day
+was considered and left alone, because it changes when a Summary is written, which is
+`CO-SUMMARY-001`.
 
-**What was ruled instead.** Nothing changes for now. `DI-READ-016` records that the Diary reads a
-whole named day whatever a Summary in the middle of it says; that stays a Diary rule. Whether the
-Advisor gets a way to reach a day, and what shape it takes, is a feature to design after the
-migration.
+Ruled: nothing changes. `DI-READ-016` keeps the Diary reading a whole named day; whether the
+Advisor gets a way to reach one is designed later.
+
+## `MenuButton` says where it is drawn
+
+Noticed 2026-09-01, making the menu one registry.
+
+`MenuButton(label, row)` moved the menu out of the shell and into the features that own the
+screens, which is what it was for. But `row` is layout: the same button belongs in different places
+in different keyboards, and a screen has no business naming the row it sits in. `label` is
+borderline and stands for now — a screen is called the same wherever it is offered.
+
+The tension is that the shell may not hold a list of features either, which is exactly what `row`
+removed. Something has to reconcile the two, and neither side is it.

@@ -52,17 +52,11 @@ class Services:
     continuity: PersonaContinuity
     owner_id: int
     turn: TurnManager
-    # The one host: its edit lock and its live Toasts are per-application state.
     chat: ChatHost
-    # Every item type a feature publishes a screen for, and how one is cited.
     screens: ScreenCatalogue
-    # Every screen the owner opens by name, the shell's own first.
     commands: tuple[ScreenCommand, ...]
-    # What each inline button does, by the action its token carries.
     callback_actions: Mapping[str, CallbackHandler]
-    # What each text editor writes the owner's typed value to.
     text_inputs: Mapping[str, TextInputFlow]
-    # The deep links the features answer themselves, before a payload is read as a citation.
     start_links: tuple[StartLink, ...] = ()
     # The `ai_*` views the features publish; a saved Request's SQL is validated against them.
     views: frozenset[str] = frozenset()

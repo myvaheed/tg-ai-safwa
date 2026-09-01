@@ -71,7 +71,7 @@ async def command_start(message: Message, services: Services) -> None:
         services,
         "<b>Safwa</b>\nYour personal agile advisor. Choose a dashboard or just write to me.",
         kind=MessageKind.DASHBOARD,
-        markup=menu_markup(sprint_active=sprint_active),
+        markup=menu_markup(services.commands, sprint_active=sprint_active),
     )
 
 
@@ -130,12 +130,11 @@ async def sync_bot_commands(
 
 @router.callback_query(F.data.startswith("nav:"))
 async def navigation(callback: CallbackQuery, services: Services) -> None:
-    await callback.answer()
     if not callback.message:
+        await callback.answer()
         return
     action = callback.data.split(":", 1)[1]
-    # Walking into the menu is an answer too: whatever else was open is refused.
-    await dismiss_prior_ui(callback.message, services)
+    # A press is answered once, so which answer it gets is decided before anything is drawn.
     handler = next(
         (screen.handler for screen in services.commands if screen.nav == action), None
     )
@@ -143,6 +142,9 @@ async def navigation(callback: CallbackQuery, services: Services) -> None:
         logger.warning("Unknown nav action: %s", action)
         await callback.answer("This action is no longer available.", show_alert=True)
         return
+    await callback.answer()
+    # Walking into the menu is an answer too: whatever else was open is refused.
+    await dismiss_prior_ui(callback.message, services)
     if action != "add":
         async with services.sessions() as session:
             await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))

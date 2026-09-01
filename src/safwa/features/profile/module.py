@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...bootstrap.module_manifest import FeatureModule
 from ...foundation.clock import SystemClock
-from ...foundation.screens import ScreenCommand
+from ...foundation.screens import MenuButton, ScreenCommand
 from . import telegram
 from .telegram import SETTINGS_CALLBACK_ACTIONS, command_settings
 from .use_cases import sync_diary_reminder
@@ -26,6 +26,7 @@ MODULE = FeatureModule(
             command="settings",
             description="Profile and reminders",
             nav="settings",
+            menu=MenuButton("⚙️ Settings", row=4),
         ),
     ),
     callback_actions=SETTINGS_CALLBACK_ACTIONS,

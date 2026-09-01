@@ -161,14 +161,35 @@ def test_every_declared_command_is_bound_to_its_command_line() -> None:
     assert bound == {screen.command for screen in commands if screen.command is not None}
 
 
-def test_every_menu_button_reaches_a_declared_screen() -> None:
-    """The menu named its handlers in a dict of its own until the features declared them."""
-    rows = [*menu_markup(sprint_active=True).inline_keyboard, menu_row()]
-    pressed = {button.callback_data.split(":", 1)[1] for row in rows for button in row}
+def test_the_menu_is_exactly_what_the_screens_declared() -> None:
+    """The menu held its own list of buttons until the features declared them."""
+    commands = (*SHELL_COMMANDS, *FEATURE_COMMANDS)
+    rows = menu_markup(commands, sprint_active=True).inline_keyboard
+    drawn = [button.callback_data.split(":", 1)[1] for row in rows for button in row]
 
-    assert pressed <= {
-        screen.nav for screen in (*SHELL_COMMANDS, *FEATURE_COMMANDS) if screen.nav is not None
+    # Row by row, and within a row in the order the features declared it.
+    declared = sorted(
+        (screen for screen in commands if screen.menu is not None),
+        key=lambda screen: screen.menu.row,
+    )
+    assert drawn == [screen.nav for screen in declared]
+    # Home is the one action reached without a menu button of its own.
+    assert menu_row()[0].callback_data == "nav:home"
+    assert {screen.nav for screen in commands if screen.nav is not None} == {
+        *drawn,
+        "home",
     }
+
+
+def test_today_leaves_the_menu_with_the_sprint_that_makes_it_a_screen() -> None:
+    planning = [
+        button.callback_data
+        for row in menu_markup(FEATURE_COMMANDS, sprint_active=False).inline_keyboard
+        for button in row
+    ]
+
+    assert "nav:today" not in planning
+    assert "nav:sprint" in planning
 
 
 def test_the_screen_catalogue_is_the_one_list_of_openable_items() -> None:

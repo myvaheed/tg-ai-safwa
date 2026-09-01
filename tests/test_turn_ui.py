@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from aiogram.exceptions import TelegramAPIError
+from marks import read_kind_mark
 from sqlalchemy import select
 from ui_harness import (
     FakeBot,
@@ -19,7 +20,6 @@ from ui_harness import (
     voice_message_for,
 )
 
-from safwa.adapters.telegram_history import read_kind_mark
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.bootstrap.modules import (
     PROPOSALS,
