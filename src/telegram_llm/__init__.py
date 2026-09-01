@@ -10,14 +10,13 @@ conversation is the host's to say, once, in a `ChatVocabulary`.
 
 from __future__ import annotations
 
-from .host import ChatHost, Freeze, clear_markup
+from .host import ChatHost, Freeze
 from .marking import KindMarks
 from .notes import Note, NoteStore
 from .text import (
     TELEGRAM_TEXT_LIMIT,
     markdown_to_telegram_html,
     restore_citations,
-    split_receipts,
     split_telegram_text,
 )
 from .voice import (
@@ -54,9 +53,7 @@ __all__ = [
     "Transcriber",
     "TranscriptionError",
     "TranscriptionResult",
-    "clear_markup",
     "markdown_to_telegram_html",
     "restore_citations",
-    "split_receipts",
     "split_telegram_text",
 ]

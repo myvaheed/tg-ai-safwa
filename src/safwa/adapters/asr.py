@@ -17,7 +17,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from llm_gateway.openai_compatible import OpenAICompatibleError, create_openai_client
+from llm_gateway import OpenAICompatibleError, create_openai_client
 from telegram_llm import (
     AudioClip,
     ProgressCallback,

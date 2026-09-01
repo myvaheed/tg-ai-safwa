@@ -27,9 +27,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, mapped_column
 from telethon import TelegramClient
 
-from telegram_llm.marking import KindMarks
-from telegram_llm.notes import Note
-from telegram_llm.window import ChatMessage, ChatVocabulary, ChatWindow
+from telegram_llm import (
+    ChatMessage,
+    ChatVocabulary,
+    ChatWindow,
+    KindMarks,
+    Note,
+)
 
 from ..config import Settings
 from ..constants import SUMMARY_CONTEXT_MESSAGE_LIMIT, SUMMARY_TRIGGER_TOKENS
@@ -60,6 +64,7 @@ class TelegramMessage(Base):
     related_id: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (UniqueConstraint("chat_id", "message_id"),)
+
 
 # Codes are append-only: a released code must never be reused for another kind.  1, 2, 7 and
 # 13 belonged to retired kinds and stay out of circulation.

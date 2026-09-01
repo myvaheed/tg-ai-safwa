@@ -60,7 +60,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 6 | Proposals and the first reactive process | business | **done** — 6.a the typed batch and the reducer, 6.b the proposal use cases, 6.c interruption and autoapproval, 6.d the startup sweeps, 6.e–6.g no status, no tables, no stringly vocabularies |
 | 7 | `agent_runtime` | technical + business | **done** — 7.a 21 scenarios approved, 7.b `ai/service.py` deleted, 7.c the interaction contract |
 | 8 | `telegram_llm` and `TurnManager` | business + technical | **done** — 8.a the chat leaves Safwa, 8.b the handlers go to the features; criterion 16 carried |
-| 9 | Packages and cleanup | technical | **in progress** — 9.a **done**, 9.b the packages are accepted, 9.c the end of the migration |
+| 9 | Packages and cleanup | technical | **in progress** — 9.a **done**, 9.b **done**, 9.c the end of the migration |
 
 A phase ends in a state that can be kept forever: tests green, bot working, no old path running
 beside a new one. A phase that cannot be finished is rolled back whole.
@@ -3222,3 +3222,88 @@ Rule M behind it.
 
 The schema paragraph named `models.py` as what makes the metadata complete. It names the composition
 root instead.
+
+## What Phase 9.b delivered
+
+The three packages were read as packages: every public name got a verdict, `llm_gateway` got
+the border tests the other two carry, and the two questions the phase left open were answered.
+
+```
+                 9.b start                        9.b end
+public names     8 / 23 / 22                      10 / 23 / 20
+llm_gateway      1 border test                    3
+host reaches     4 imports past the front door    0
+tests            796 passed, 3 skipped            799 passed, 3 skipped
+```
+
+### The review, name by name
+
+Fifty-three public names across the three `__all__` lists, each asked one question: is it the
+package's, or is it the application's and leaked? The method was mechanical — for every name,
+who outside the package uses it, and from where.
+
+**Forty-four are the package's and have a consumer**, in Safwa, in an example, or in a test.
+`llm_gateway`: `CompletionRequest`, `CompletionTurn`, `LlmProvider`, `OpenAICompatibleConfig`,
+`OpenAICompatibleProvider`, `ScriptedProvider`, `ToolCall`, `Usage`. `agent_runtime`:
+`AgentDefinition`, `AgentLoopResult`, `AgentManager`, `AgentSession`, `InMemorySessionStore`,
+`InteractionRef`, `Observer`, `PendingTool`, `Resumption`, `RunRecord`, `RunStatus`,
+`ToolOutcome`, `TurnOutcome`, `append_user_message`, `cache_breakpoint`, `json_safe`,
+`log_preview`, `system_note`. `telegram_llm`: `TELEGRAM_TEXT_LIMIT`, `AudioClip`, `ChatHost`,
+`ChatMessage`, `ChatVocabulary`, `ChatWindow`, `DialogueMessage`, `HistoryEntry`, `KindMarks`,
+`Note`, `NoteStore`, `ProgressCallback`, `Transcriber`, `TranscriptionError`,
+`TranscriptionResult`, `markdown_to_telegram_html`, `restore_citations`, `split_telegram_text`.
+
+**Five are ports or named failures that nothing outside spells out, and stay published**:
+`ContextSource`, `Materializer`, `SessionStore`, `ToolRunner` and `ToolBudgetExceeded` in
+`agent_runtime`, `ChatReader` and `Freeze` in `telegram_llm`. A host that writes a store or a
+reader needs the Protocol to write it against, and a caller that wants to catch the loop's one
+named failure needs its class. An unnamed port is a typing gap, not a leak.
+
+`PendingTool` looked like the same case and is not: `features/proposals/materialize.py` and
+`examples/note_keeper` both iterate `result.pending_tools` and read `.change`, `.call.id` and
+`.result` off each one. It is in the contract; only the annotation was missing.
+
+**Two were internal and left the public list**: `clear_markup`, which `host.py` calls on its own
+way to taking a screen down, and `split_receipts`, which `window.py` applies to every bot message
+it reads back. Neither has ever been imported from outside.
+
+**Two were the package's and were not published, though the one real second consumer used them.**
+`adapters/asr.py` is a bot's other OpenAI-compatible client — the proof `llm_gateway` is reusable
+at all — and it was importing `OpenAICompatibleError` and `create_openai_client` out of
+`llm_gateway.openai_compatible`, neither of which was in `__all__`. Both are published now.
+
+**"Citation" and "receipt" are the package's own words, not Safwa's.** They were the two names
+that read as leaks. `ChatVocabulary` already takes `citation_types` and `receipts` as host
+configuration, so the package knows *that* a bot links to items and prints outcome lines, and
+never what an item is or what an outcome means. That is the border drawn in the right place.
+
+### Four reaches past the front door, now none
+
+Safwa was importing `telegram_llm.marking`, `telegram_llm.notes`, `telegram_llm.window` and
+`llm_gateway.openai_compatible` directly. Five of those seven names were already in `__all__`, so
+those four lines were the wrong path rather than a use of internals; the other two are the pair
+above. Every host import is through the package name now, which is what makes `__all__` the
+contract instead of a suggestion. Both examples were already through the front door.
+
+### `llm_gateway` got the two border tests
+
+`test_the_vocabulary_of_the_package_belongs_to_no_application` over `model.py` and `provider.py`,
+and `test_no_module_in_the_package_imports_the_application`. Rule F says no module under the
+package imports Safwa; these say no public name is *about* Safwa, which is the half a rule about
+imports cannot see. The gateway's foreign list is its own: a completion is a one-shot effect, so
+a name about a chat, a run or a database means it has taken on somebody else's state.
+
+### The two questions, answered
+
+**No wheels.** §15 calls a separate wheel premature fixation while the namespaces still move, and
+Clean Architecture does not ask for one. The namespaces did move in this phase — two names left a
+public list and two joined one — which is the evidence rather than the counter-argument: the
+review is what a version would have to be cut after, and it has only just happened. The single
+hatchling wheel over the four namespaces stays, and a uv workspace is a decision for whoever has
+a second application to build, not for this repository.
+
+**No fourth package out of `ai/`.** `sql.py` is the `ai_*` views, `tools.py` reaches Safwa's
+screen catalogue, `contracts.py` carries the entity literal that is Rule H's last entry, and
+`runs.py` is a SQLAlchemy table on Safwa's `Base`. What is left that names nothing —
+`conversation.py`, and `contracts.py` without `OpenInput` — is under two hundred lines with no
+second consumer. What was genuinely application-neutral in the engine is already `agent_runtime`.
