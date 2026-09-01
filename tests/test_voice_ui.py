@@ -10,13 +10,11 @@ from ui_harness import (
     voice_message_for,
 )
 
+from safwa.adapters.telegram_history import TelegramMessage
 from safwa.constants import (
     ASR_MAX_DURATION_SECONDS,
 )
 from safwa.enums import MessageKind
-from safwa.models import (
-    TelegramMessage,
-)
 from safwa.turn.dialogue import voice_message
 
 

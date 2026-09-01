@@ -16,7 +16,7 @@ from ui_harness import (
 )
 
 from safwa.constants import SELECTOR_PAGE_SIZE
-from safwa.features.cards.model import CardStage
+from safwa.features.cards.model import Card, CardStage
 from safwa.features.cards.telegram import (
     render_card,
     render_card_choices,
@@ -40,12 +40,8 @@ from safwa.features.tags.telegram import render_tag
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.telegram import render_value
 from safwa.features.values.use_cases import create_value
-from safwa.models import (
-    CallbackToken,
-    Card,
-    UiSession,
-)
 from safwa.shell import callback_token_handler
+from safwa.shell.model import CallbackToken, UiSession
 from safwa.turn.dialogue import ordinary_text
 
 

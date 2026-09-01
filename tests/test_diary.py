@@ -9,7 +9,6 @@ import pytest
 from sqlalchemy import select
 
 from llm_gateway import ToolCall
-from safwa.ai.prepare import ChangePreparer
 from safwa.ai.subagents import RoutedSubagent
 from safwa.ai.tools import ToolAdapters
 from safwa.bootstrap.module_manifest import AgentContext
@@ -35,6 +34,8 @@ from safwa.features.diary.use_cases import (
 )
 from safwa.features.profile.use_cases import sync_diary_reminder
 from safwa.features.proposals.api import ChangeAction, ToolPreparationError
+from safwa.features.proposals.prepare import ChangePreparer
+from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import resolve
 from safwa.features.reminders.use_cases import (
     delete_reminder,
@@ -43,7 +44,6 @@ from safwa.features.reminders.use_cases import (
 )
 from safwa.foundation.clock import SystemClock
 from safwa.foundation.errors import DomainError
-from safwa.models import Reminder
 
 
 class FrozenClock:

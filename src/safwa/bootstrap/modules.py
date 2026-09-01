@@ -13,10 +13,10 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 
-from ..ai.context import ADVISOR_VIEWS, SYSTEM_PROMPT_TEMPLATE
 from ..ai.sql import SqlView, view_catalogue
 from ..ai.subagents import RoutedSubagent
 from ..cues.module import CUE_QUEUE
+from ..features.advisor.agent import ADVISOR_VIEWS, SYSTEM_PROMPT_TEMPLATE
 from ..features.board.module import MODULE as BOARD
 from ..features.cards.module import MODULE as CARDS
 from ..features.checks.module import MODULE as CHECKS

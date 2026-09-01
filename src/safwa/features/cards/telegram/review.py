@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ....ai.contracts import AgentChange
 from ....enums import CardKind, Priority
 from ....foundation.references import resolve_references
-from ....models import Card, CardCategory, CardEnergyType, CardTag, CardValue
 from ...proposals.api import (
     ACTION_VERBS,
     ChangeAction,
@@ -26,7 +25,9 @@ from ...proposals.api import (
     reference_names,
     result_value,
 )
-from ..model import CardStage
+from ...tags.model import CardTag
+from ...values.model import CardValue
+from ..model import Card, CardCategory, CardEnergyType, CardStage
 from ..references import CARD_REFERENCE_SPECS
 from ..use_cases import card_progress
 from .presentation import card_overview_text, category_expression, energy_expression

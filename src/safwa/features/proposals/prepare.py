@@ -15,15 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_gateway import LlmProvider
 
-from ..features.proposals.api import (
-    PreparationContext,
-    PreparedChange,
-    ProposalRegistry,
-)
-from ..foundation.errors import DomainError
-from ..models import Workspace
-from .contracts import AgentChange
-from .sql import ReadOnlyQueryRunner
+from ...ai.contracts import AgentChange
+from ...ai.sql import ReadOnlyQueryRunner
+from ...foundation.errors import DomainError
+from ...foundation.models import Workspace
+from .api import PreparationContext, PreparedChange, ProposalRegistry
 
 
 class ChangePreparer:

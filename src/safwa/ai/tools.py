@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping
-from typing import Any
+from typing import Any, Protocol
 
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -31,12 +31,12 @@ from llm_gateway import ToolCall
 from telegram_llm import DialogueMessage
 
 from ..constants import SUBAGENT_HISTORY_LAST_MESSAGES
-from ..features.proposals.api import MutationToolSpec, ProposalRegistry
 from ..foundation.errors import failure_reason
 from ..foundation.screens import ScreenCatalogue
 from .contracts import (
     AgentChange,
     CallHelperInput,
+    MutationToolSpec,
     OpenInput,
     RouteInput,
     ToolResultStatus,
@@ -124,6 +124,18 @@ def add_notice(rows: list[dict[str, Any]], text: str) -> None:
     rows.append({"notice": text})
 
 
+class MutationCatalogue(Protocol):
+    """What the tool port needs of whoever turns a mutation call into a change.
+
+    The engine dispatches the call and reports the failure; preparing the change and
+    reviewing it belong to the mechanism the composition root binds in here.
+    """
+
+    tools: Mapping[str, MutationToolSpec]
+
+    def change_from_tool(self, name: str, arguments: dict[str, Any]) -> AgentChange: ...
+
+
 def mutation_repair_details(
     tool: MutationToolSpec | None, arguments: dict[str, Any]
 ) -> dict[str, Any]:
@@ -149,7 +161,7 @@ class ToolAdapters:
         self,
         sessions: async_sessionmaker[AsyncSession],
         query_runner: ReadOnlyQueryRunner,
-        proposals: ProposalRegistry,
+        proposals: MutationCatalogue,
         trail: Observer,
         screens: ScreenCatalogue,
         helpers: Mapping[str, Helper] | None = None,

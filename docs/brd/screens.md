@@ -10,7 +10,7 @@ Sources: `REFACTORING_CLEAN_ARCH_FINAL.md` §13.2 invariants three and four, §1
 `_expire_toast`, `delete_screen`, `send_registered`, `send_owner_turn`, `send_summary`),
 [shell/callbacks.py](../../src/safwa/shell/callbacks.py) (`callback_token_handler`),
 [shell/layout.py](../../src/safwa/shell/layout.py) (`split_telegram_text`),
-[recovery.py](../../src/safwa/recovery.py), [ai/materialize.py](../../src/safwa/ai/materialize.py)
+[recovery.py](../../src/safwa/recovery.py), [ai/materialize.py](../../src/safwa/features/proposals/materialize.py)
 (`open_batch`), [turn/dialogue.py](../../src/safwa/turn/dialogue.py) (`run_dialogue_turn`).
 Supersedes: named per scenario.
 

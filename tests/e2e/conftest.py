@@ -9,7 +9,6 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
-from safwa.ai.advisor import AIAdvisor
 from safwa.ai.autoapproval import AutoApprovalReviewer
 from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from safwa.ai.subagents import RoutedSubagent
@@ -23,6 +22,7 @@ from safwa.bootstrap.modules import (
     SCREENS,
     SYSTEM_PROMPT,
 )
+from safwa.features.advisor.session import AIAdvisor
 from safwa.features.board.agent import BOARD_TOOLS
 from safwa.features.continuity.memory import MemoryFileStore
 from safwa.features.heavy_analyzer import agent as heavy_analyzer

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from ...bootstrap.module_manifest import FeatureModule
 from ...foundation.screens import MenuButton, ScreenCommand, ScreenSpec
-from ...models import Sprint
 from . import background, telegram, views
+from .model import Sprint
 from .telegram import PLANNING_CALLBACK_ACTIONS, render_sprint, render_today
 
 MODULE = FeatureModule(

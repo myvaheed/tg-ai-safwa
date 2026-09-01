@@ -26,8 +26,8 @@ from safwa.bootstrap.modules import (
 from safwa.features.cards.use_cases import create_card
 from safwa.features.proposals.api import ProposalDescription
 from safwa.features.proposals.store import ProposalStore
-from safwa.models import UiSession
 from safwa.shell import SHELL_COMMANDS
+from safwa.shell.model import UiSession
 from safwa.turn import TurnManager
 from telegram_llm import ChatHost, TranscriptionError, TranscriptionResult
 

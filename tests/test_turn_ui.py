@@ -20,6 +20,7 @@ from ui_harness import (
     voice_message_for,
 )
 
+from safwa.adapters.telegram_history import TelegramMessage
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.bootstrap.modules import (
     PROPOSALS,
@@ -28,10 +29,7 @@ from safwa.enums import MessageKind
 from safwa.features.planning.telegram import render_sprint
 from safwa.features.planning.use_cases import set_sprint_success_criteria
 from safwa.features.proposals.store import ProposalStore
-from safwa.models import (
-    TelegramMessage,
-    Workspace,
-)
+from safwa.foundation.models import Workspace
 from safwa.shell import (
     dismiss_prior_ui,
 )

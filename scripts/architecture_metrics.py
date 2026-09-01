@@ -317,6 +317,23 @@ def rule_f() -> list[Violation]:
     return out
 
 
+def rule_m() -> list[Violation]:
+    """The agent engine knows no feature.
+
+    `safwa/ai/` is what a session is and what a tool call costs; a feature is what the
+    owner keeps.  An engine that imports one is an engine only this application can run,
+    and the direction is what proves the claim rather than the intention.
+    """
+    out = []
+    for module in modules():
+        if not module.rel.startswith("safwa/ai/"):
+            continue
+        for path, line in module.imported_paths():
+            if path.startswith("safwa.features."):
+                out.append(Violation("Rule M", module.rel, line, f"imports {path}"))
+    return out
+
+
 def rule_g() -> list[Violation]:
     """Whoever starts a background task also cancels one.
 
@@ -423,6 +440,7 @@ RULES = {
     "Rule G": rule_g,
     "Rule H": rule_h,
     "Rule K": rule_k,
+    "Rule M": rule_m,
 }
 # Rules I and J are snapshots of built artefacts rather than of the source tree, so they
 # live with their baselines in `tests/test_architecture.py`.

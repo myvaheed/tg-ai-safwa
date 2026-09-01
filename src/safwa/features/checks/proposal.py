@@ -6,7 +6,6 @@ from typing import Any
 
 from ...enums import ActorType
 from ...foundation.errors import DomainError, StaleStateError
-from ...models import Check
 from ..proposals.api import (
     ApplyContext,
     ChangeAction,
@@ -18,7 +17,7 @@ from ..proposals.api import (
     require_target,
     validate_named_references,
 )
-from .model import CheckOutcome
+from .model import Check, CheckOutcome
 from .references import CHECK_VALUE_REFERENCE
 from .use_cases import (
     archive_check,

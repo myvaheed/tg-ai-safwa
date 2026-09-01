@@ -4,11 +4,11 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import select, text
 
-from safwa.ai.context import board_context
 from safwa.ai.sql import create_ai_views
 from safwa.bootstrap.modules import AI_VIEWS
 from safwa.constants import CONTEXT_CRITICAL_CARD_LIMIT
-from safwa.features.cards.model import CardStage
+from safwa.features.board.state import board_context
+from safwa.features.cards.model import Card, CardCheck, CardStage
 from safwa.features.cards.use_cases import (
     archive_subtree,
     create_card,
@@ -16,7 +16,7 @@ from safwa.features.cards.use_cases import (
     toggle_card_check,
     toggle_card_value,
 )
-from safwa.features.checks.model import CheckOutcome
+from safwa.features.checks.model import Check, CheckOutcome
 from safwa.features.checks.use_cases import (
     archive_check,
     check_value_ids,
@@ -27,10 +27,9 @@ from safwa.features.checks.use_cases import (
 )
 from safwa.features.proposals.remove import RemoveToolInput
 from safwa.features.tags.use_cases import create_tag
-from safwa.features.values.model import CardValue, CheckValue
+from safwa.features.values.model import CardValue, CheckValue, Value
 from safwa.features.values.use_cases import create_value, delete_value, update_value_fields
 from safwa.foundation.errors import DomainError
-from safwa.models import Card, CardCheck, Check, Value
 
 
 async def _action(session, title: str, **overrides):

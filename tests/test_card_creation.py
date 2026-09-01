@@ -5,28 +5,24 @@ from pydantic import ValidationError
 from sqlalchemy import DateTime
 
 from safwa.ai.contracts import CardToolInput
-from safwa.ai.prepare import ChangePreparer
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.enums import Priority
-from safwa.features.cards.model import CardStage
+from safwa.features.cards.model import Card, CardStage
 from safwa.features.cards.use_cases import (
     create_card,
     finish_action,
     toggle_card_check,
     update_card_fields,
 )
-from safwa.features.checks.model import CheckOutcome
+from safwa.features.checks.model import Check, CheckOutcome
 from safwa.features.checks.use_cases import create_check
+from safwa.features.planning.model import Sprint
 from safwa.features.proposals.api import ToolPreparationError
+from safwa.features.proposals.prepare import ChangePreparer
+from safwa.features.saved_requests.model import SavedRequest
+from safwa.features.tags.model import Tag
+from safwa.features.values.model import Value
 from safwa.foundation.marks import live_repeat_instance_id
-from safwa.models import (
-    Card,
-    Check,
-    SavedRequest,
-    Sprint,
-    Tag,
-    Value,
-)
 
 
 @pytest.mark.parametrize("stage", ["done", "cancelled"])

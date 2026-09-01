@@ -17,9 +17,9 @@ from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
 from safwa.constants import REQUEST_RESULT_LIMIT
 from safwa.features.cards.use_cases import create_card
 from safwa.features.planning.telegram import render_plan
+from safwa.features.saved_requests.model import SavedRequest
 from safwa.features.saved_requests.telegram import command_requests
 from safwa.features.saved_requests.use_cases import create_saved_request, delete_saved_request
-from safwa.models import SavedRequest
 from safwa.shell import callback_token_handler, open_item_screen
 
 

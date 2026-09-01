@@ -16,12 +16,12 @@ from telegram_llm import ChatHost
 
 from ..adapters.asr import build_transcriber
 from ..adapters.telegram_history import MARKS, TelegramHistorySource, TelegramNotes
-from ..ai.advisor import AIAdvisor
 from ..ai.autoapproval import AutoApprovalReviewer
 from ..ai.sql import ReadOnlyQueryRunner, create_ai_views
 from ..config import Settings
 from ..constants import AI_APP_TITLE, AI_APP_URL
 from ..enums import AIProvider
+from ..features.advisor.session import AIAdvisor
 from ..features.continuity.memory import MemoryFileStore
 from ..features.continuity.persona import PersonaContinuity
 from ..features.heavy_analyzer import agent as heavy_analyzer

@@ -10,7 +10,6 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...ai.contracts import AgentChange
-from ...ai.prepare import ChangePreparer
 from ...foundation.errors import DomainError, StaleStateError
 from ...foundation.models import Workspace
 from .api import ApplyContext, ProposalRegistry
@@ -26,6 +25,7 @@ from .model import (
     RejectPendingEffect,
     ResolveCallsEffect,
 )
+from .prepare import ChangePreparer
 from .reducer import reduce
 from .store import ProposalStore
 

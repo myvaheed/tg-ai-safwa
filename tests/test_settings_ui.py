@@ -8,12 +8,12 @@ from sqlalchemy import select
 from ui_harness import FakeCallback, FakeMessage, services_for
 
 from safwa.constants import DIARY_TIME_DEFAULT
-from safwa.features.profile.model import ProfileField
+from safwa.features.profile.model import ProfileField, UserProfile
 from safwa.features.profile.telegram import command_settings
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.foundation.clock import SystemClock
-from safwa.models import UiSession, UserProfile
 from safwa.shell import callback_token_handler
+from safwa.shell.model import UiSession
 from safwa.turn.dialogue import ordinary_text
 
 

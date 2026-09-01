@@ -7,14 +7,17 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from safwa.ai.context import board_context
+from safwa.adapters.telegram_history import TelegramMessage
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
+from safwa.ai.runs import AgentRun
 from safwa.constants import REMINDER_CATCHUP_GRACE_MINUTES
 from safwa.cues.runtime import CueRuntime
 from safwa.enums import MessageKind, ScheduleKind
+from safwa.features.board.state import board_context
 from safwa.features.proposals.store import ProposalStore
 from safwa.features.proposals.use_cases import open_batch
 from safwa.features.reminders.background import Firing, format_cue
+from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import (
     resolve,
     schedule_columns,
@@ -30,12 +33,7 @@ from safwa.features.reminders.use_cases import (
     update_reminder_text,
 )
 from safwa.foundation.errors import DomainError
-from safwa.models import (
-    AgentRun,
-    Reminder,
-    TelegramMessage,
-    Workspace,
-)
+from safwa.foundation.models import Workspace
 from safwa.turn import TurnManager
 from telegram_llm import DialogueMessage
 

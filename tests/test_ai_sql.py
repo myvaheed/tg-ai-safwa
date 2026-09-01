@@ -361,7 +361,7 @@ def _runner_over_cards(tmp_path, count: int, note: str = "", **caps):
     from sqlalchemy import create_engine
 
     from safwa.ai.sql import create_ai_views
-    from safwa.models import Base
+    from safwa.foundation.models import Base
 
     path = tmp_path / "caps.db"
     engine = create_engine(f"sqlite:///{path.as_posix()}")

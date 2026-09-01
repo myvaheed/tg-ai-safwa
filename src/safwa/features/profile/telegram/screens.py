@@ -18,7 +18,6 @@ from ....foundation.clock import SystemClock
 from ....foundation.errors import DomainError
 from ....foundation.models import Workspace
 from ....foundation.screens import TextInputFlow
-from ....models import UiSession
 from ....shell import (
     CallbackContext,
     CallbackHandler,
@@ -31,6 +30,7 @@ from ....shell import (
     token_button,
     with_notice,
 )
+from ....shell.model import UiSession
 from ...reminders.api import parse_clock_or_off
 from ..model import UserProfile
 from ..use_cases import profile_field, set_profile_field

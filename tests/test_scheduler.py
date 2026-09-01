@@ -12,7 +12,9 @@ from safwa.constants import (
     REMINDER_FIRE_BATCH,
     REMINDER_MIN_INTERVAL_MINUTES,
 )
+from safwa.cues.model import Cue
 from safwa.cues.queue import cue_advisor
+from safwa.features.profile.model import UserProfile
 from safwa.features.reminders import background
 from safwa.features.reminders.background import (
     prepare,
@@ -20,8 +22,9 @@ from safwa.features.reminders.background import (
     settle,
     tick,
 )
+from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import resolve, schedule_columns
-from safwa.models import Cue, Reminder, UserProfile, Workspace
+from safwa.foundation.models import Workspace
 
 TZ = ZoneInfo("Europe/Istanbul")
 NOW = datetime(2026, 8, 13, 9, 0, tzinfo=UTC)  # a Thursday

@@ -11,7 +11,7 @@ uv run ruff check .
 uv run python scripts/architecture_metrics.py
 ```
 
-`tests/test_architecture.py` enforces rules A–K against `tests/architecture_allowlist.json`.
+`tests/test_architecture.py` enforces rules A–M against `tests/architecture_allowlist.json`.
 
 `tests/brd/*.feature` are approved traceability contracts, not a Behave suite. The unit and E2E
 pytest tests cite their `DI-*` scenario and feature file in their docstrings.
@@ -60,7 +60,7 @@ registries" looks like when a machine counts it. The target is one place, `boots
 | 6 | Proposals and the first reactive process | business | **done** — 6.a the typed batch and the reducer, 6.b the proposal use cases, 6.c interruption and autoapproval, 6.d the startup sweeps, 6.e–6.g no status, no tables, no stringly vocabularies |
 | 7 | `agent_runtime` | technical + business | **done** — 7.a 21 scenarios approved, 7.b `ai/service.py` deleted, 7.c the interaction contract |
 | 8 | `telegram_llm` and `TurnManager` | business + technical | **done** — 8.a the chat leaves Safwa, 8.b the handlers go to the features; criterion 16 carried |
-| 9 | Packages and cleanup | technical | not started |
+| 9 | Packages and cleanup | technical | **in progress** — 9.a **done**, 9.b the packages are accepted, 9.c the end of the migration |
 
 A phase ends in a state that can be kept forever: tests green, bot working, no old path running
 beside a new one. A phase that cannot be finished is rolled back whole.
@@ -2999,3 +2999,226 @@ exception; DoD #3 is 1 for `features/cards/use_cases.py`. Criterion 16 remains t
 gate not executed in this environment because the `SAFWA_QA_TELEGRAM_*` credentials and second bot
 are not configured. The live fixture now collects against the current composition root, but a real
 Telegram run is still required before that criterion can be marked met.
+
+## Before starting Phase 9
+
+Phase 9 in one line: the Advisor gets a feature, the engine stops importing features, the three
+packages are accepted as packages, and the migration's own documents are deleted.
+
+It is a **technical phase**. No batch in it changes observable behaviour, so no scenario packet is
+written and no `.feature` file gains a line. A batch that finds it wants a behaviour change stops
+and asks for a packet, the way every business batch did.
+
+### Where the migration stands, measured before the phase opened
+
+```
+212 modules, 837 edges, 0 cycles
+Rules A/C/D/E/F/G/K = 0, Rule H = 1 (the `open` tool's enum, named permanent in 8.b)
+DoD #1 = 1, #2 = 0, #3 = 1 (features/cards/use_cases.py, 816), #13 = 0
+797 tests collected: 794 passed, 3 skipped
+```
+
+Three of the four things §15 lists as Phase 9's preconditions are already true. There is no facade
+and no compatibility layer anywhere under `src/`; `examples/plain_chat_bot/` and
+`examples/note_keeper/` exist and are run by tests; the independent namespaces are held by Rule F
+plus AST tests that forbid a foreign word in a public name. What is left is not the sweepings of
+eight phases — it is the four things no phase had a home for.
+
+### The four things this phase owns
+
+1. **The Advisor is the one agent without a feature.** Every subagent's prompt lives in its
+   feature's `agent.py`, and `features/board/` is the precedent for a feature that is *only* an
+   agent — an empty `__init__.py`, an `agent.py` and a `module.py`. The Advisor's prompt lives in
+   `ai/context.py` instead, with `ADVISOR_VIEWS` and the board-state builder beside it, and
+   `bootstrap/modules.py` assembles `SYSTEM_PROMPT` out of the engine.
+2. **The engine imports features.** Seventeen edges run from `safwa/ai/` back down into
+   `safwa/features/` — fourteen to `proposals`, two to `continuity.memory`, one to `cards.model`.
+   It is the only two-way pair in the tree: 30 feature modules import `ai/`, and 8 of `ai/`'s 14
+   import a feature back. `shell/` has the rule already and keeps it; `ai/` has neither.
+3. **`models.py` combines two roles.** 22 re-exports held only to complete `Base.metadata`, plus
+   five tables with no owner: `AgentRun`, `AgentStep`, `TelegramMessage`, `UiSession`,
+   `CallbackToken`. It produces one inversion — `foundation/database.py` does
+   `from ..models import Base`, so the foundation reaches up through the whole application to find
+   its own declarative base.
+4. **The packages have never been read as packages.** No reuse review has been done on the public
+   surface of any of the three, and `llm_gateway` is missing the two border tests `agent_runtime`
+   and `telegram_llm` both carry.
+
+### What the owner ruled on 2026-09-01, before the phase opened
+
+**`ai/` stays where it is and gets a layer above it.** It is Safwa's agent engine, beside `shell/`,
+which is Safwa's Telegram application — an engine other applications could be built on, in the same
+line as `llm_gateway → agent_runtime → telegram_llm → safwa`. `features/advisor/` is the layer:
+the prompt and everything that says *Advisor* rather than *a session*.
+
+`ai/` as a whole can never become a fourth `src/` package — `contracts.py` is Safwa's entity
+vocabulary and `sql.py` is the `ai_*` views. Whether some subset of it should be is a question
+9.b's review answers with a yes or a no and a reason, not a question 9.a moves code for.
+
+**Only `models.py` moves among the flat modules.** `config.py`, `constants.py`, `enums.py`,
+`qa.py`, `backup.py` and `recovery.py` stay at the top of `safwa/`. Their position causes no
+mistake, and relocating them per §12.1 is a diff across most of the tree for the letter of a plan.
+§12.1 is stale here and is not the authority the code is held to.
+
+**The API review happens; the wheels do not.** One written verdict per public name in the three
+packages, the missing `llm_gateway` tests, and the decision not to cut distributions recorded with
+its reason. The single hatchling wheel over four namespaces stays.
+
+**`docs/brd/`, `archived_docs/`, `docs/MIGRATION.md` and `REFACTORING_CLEAN_ARCH_FINAL.md` are all
+deleted**, and `docs/diagrams/` is written to replace what `archived_docs/diagrams/` was: current,
+short, in Russian, the same shape.
+
+### The three batches
+
+Ordered by what each one needs to be true first: 9.a moves code, so 9.b reads a namespace that has
+stopped moving, and 9.c records numbers that have stopped changing and then deletes the file it
+recorded them in.
+
+#### 9.a — the Advisor gets a feature, and the engine stops importing features
+
+| Step | What |
+|---|---|
+| 1 | **`features/advisor/`.** `SYSTEM_PROMPT_TEMPLATE`, `ADVISOR_VIEWS` and `citation` leave `ai/context.py`. `bootstrap/modules.py` stops reaching into the engine for the prompt |
+| 2 | **`board_context` gets an owner.** It reads Cards, Values, Tags, the Sprint and the Profile directly, and `ai/context.py:12`'s `CardStage` is that reach. Either it goes through each feature's `api`, or the board's state becomes a `FeatureModule` contribution the way every other cross-feature capability already is. Decided by reading, inside this step |
+| 3 | **`models.py` dissolves.** `AgentRun` and `AgentStep` to `ai/runs.py`, which is already their store; `TelegramMessage` to `adapters/telegram_history.py`, which is already its reader; `UiSession` and `CallbackToken` to `shell/`. `foundation/database.py` takes `Base` from `foundation/models.py`, and the composition root imports the model modules through `MODULES` before `create_all` |
+| 4 | **The proposal seam inverts.** Fourteen of the seventeen edges are `features/proposals`, and most are the port types — `MutationToolSpec`, `ProposalRegistry`, `ToolPreparationError`, `ChangeAction`. The port belongs where the engine can see it without importing a feature; the feature implements it. `materialize.py` is judged in this step: engine seam, or `features/proposals` |
+| 5 | **The two remaining edges.** `MemoryFileStore` is handed to `messages.py` and `advisor.py`, not imported by them |
+| 6 | **Rule M**: no module under `safwa/ai/` imports `safwa/features/`. Added to `architecture_metrics.py`, count 0, no allowlist entry. This is what makes step 4 permanent rather than tidy |
+
+**Why the rule comes last and not first.** A rule added before the edges are gone is an allowlist
+entry, and an allowlist entry is how a violation survives a phase.
+
+**Where this can go wrong.** Step 4 is the one to watch: `advisor.py` imports seven names out of
+`proposals`, and if inverting them turns into a parallel set of engine-side types that mirror the
+feature's, the batch has built the identical-dataclass anti-pattern of §23 and must stop. The test
+is whether `features/proposals` gets smaller. If it does not, the seam was drawn in the wrong place.
+
+#### 9.b — the packages are accepted as packages
+
+| Step | What |
+|---|---|
+| 1 | **The reuse review.** One verdict per public name in `llm_gateway`, `agent_runtime` and `telegram_llm`: it is the package's, or it is Safwa's and leaked. Written down, name by name, in the batch record |
+| 2 | **`llm_gateway` gets its border tests** — the foreign-vocabulary test and the no-application-import test the other two carry |
+| 3 | **The examples are read against the public API only**, which is what makes them acceptance rather than samples |
+| 4 | **No wheels, recorded.** §15 calls a wheel premature fixation while the namespaces still move, and the review in step 1 is the evidence for whether they have stopped |
+| 5 | **The one open question is answered**: does any subset of `ai/` belong in `src/` as a package? A yes here is a Phase 10, not a step |
+
+#### 9.c — the end of the migration
+
+| Step | What |
+|---|---|
+| 1 | **`tests/test_domain.py`** is named after a module deleted in 8.b. It is half Cards' tree and half the Sprint's scope, so it splits rather than gets renamed |
+| 2 | **The allowlist is deleted.** Its one entry is permanent by decision, and a permanent exception belongs inside the rule that names it, not in a file whose title says debt. `tests/test_architecture.py` loses the comparison and asserts the rules directly |
+| 3 | **`docs/diagrams/`** — current, short, Russian, the shape of `archived_docs/diagrams/`. Written from the code, not translated from the old set: four of those seven diagrams describe mechanisms Phases 5–8 deleted |
+| 4 | **`archived_docs/` is deleted**, and each of the six rows in CLAUDE.md's *Where the detail lives* that points into it is replaced by a live pointer — the `.feature` file and the package that owns the rule |
+| 5 | **`docs/brd/` is deleted** — 25 approval packets whose scenarios all landed in `tests/brd/`. `CLAUDE.md`'s row for it goes with it |
+| 6 | **The Definition of Done is published**, all fourteen criteria of §17 measured, into `README.md` — the table has to outlive the file it was tracked in |
+| 7 | **`docs/MIGRATION.md` and `REFACTORING_CLEAN_ARCH_FINAL.md` are deleted, last.** `MIGRATION.md` carries this phase's own record until that step, and the plan's §12.1 is already stale where 8.b and 9.a rule against it |
+
+**Two things only the owner can do**, and neither blocks the batches:
+
+- **Criterion 16**, carried out of 8.a and then out of 8.b: the live Telegram suite needs a second
+  BotFather bot and the `SAFWA_QA_*` variables, which this environment does not have.
+- **The stale kind.** Rows written before 8.b still read `card_editor` in `telegram_messages.kind`.
+  All of them are screens and typed values, none is dialogue, so nothing is wrong today.
+  `UPDATE telegram_messages SET kind = 'editor' WHERE kind = 'card_editor'`, or a rebuilt database.
+
+### Exit criteria, all of them checkable
+
+Numbering continues from Phase 8.
+
+| # | Criterion |
+|---|---|
+| 20 | `features/advisor/` exists and owns the Advisor's prompt; `bootstrap/modules.py` assembles `SYSTEM_PROMPT` from a `FeatureModule` like every other agent's |
+| 21 | Rule M is in `architecture_metrics.py` and reads 0: no module under `safwa/ai/` imports `safwa/features/` |
+| 22 | `src/safwa/models.py` does not exist; `foundation/database.py` imports `Base` from `foundation/models.py` |
+| 23 | `schema.json` is unchanged — moving a table between modules is not a schema change, and Rule J is what proves it |
+| 24 | `prompt_prefix.json` is byte-identical: moving the prompt does not rewrite it |
+| 25 | `llm_gateway` carries both border tests; a written verdict exists for every public name in the three packages |
+| 26 | `tests/architecture_allowlist.json` does not exist, and every rule reads 0 with its exceptions named in the rule |
+| 27 | `docs/diagrams/` exists; `archived_docs/`, `docs/brd/`, `docs/MIGRATION.md` and `REFACTORING_CLEAN_ARCH_FINAL.md` do not; `tests/test_docs.py` is green |
+| 28 | The fourteen Definition of Done criteria are measured and published in `README.md` |
+| 29 | `ruff check .` clean, `pytest -q` green, no module the phase produced over 400 lines |
+| 30 | The bot runs |
+
+### Three risks named before the phase opens
+
+1. **Step 9.a.4 is a design step wearing a refactor's clothes.** Inverting a port is how the seam
+   becomes real; mirroring a feature's types on the engine side is how it becomes two seams. The
+   named test is that `features/proposals` gets smaller.
+2. **`docs/diagrams/` is the only thing in the phase that has to be written rather than moved**, and
+   it is written last, when the code is stable. A diagram drawn against 9.a's midpoint is wrong.
+3. **Deleting `MIGRATION.md` is one-way.** Everything in it that is still true has to be somewhere
+   else first — the DoD table in `README.md`, the rules in `CLAUDE.md`, the behaviour in
+   `tests/brd/`. Step 9.c.7 is last for that reason, and it is the step to refuse if any of the
+   three is not done.
+
+## What Phase 9.a delivered
+
+The Advisor got a feature, and the engine stopped importing them.
+
+```
+                 9.a start                        9.a end
+modules          212                              214
+ai/ -> features/ 17 edges, 8 of 14 modules        0
+Rules            A/C/D/E/F/G/K 0, H 1             the same, plus M at 0
+DoD #1 / #3      1 / 1                            1 / 1
+tests            794 passed, 3 skipped            796 passed, 3 skipped
+src/safwa/ai/    14 modules, 3219 lines           11 modules, 2449 lines
+flat modules     models.py and six others         the six
+```
+
+| Step | What moved |
+|---|---|
+| 1 | `features/advisor/` — `agent.py` carries `SYSTEM_PROMPT_TEMPLATE` and `ADVISOR_VIEWS`, `session.py` carries `AIAdvisor`; `ai/context.py` and `ai/advisor.py` are gone |
+| 2 | `features/board/state.py` — `board_context`, the citation shape and the Critical-Card read |
+| 3 | `models.py` dissolved: `AgentRun` and `AgentStep` to `ai/runs.py`, `TelegramMessage` to `adapters/telegram_history.py`, `UiSession` and `CallbackToken` to the new `shell/model.py` |
+| 4 | `ChangeAction` to `enums.py`, `MutationToolSpec` to `ai/contracts.py`, and `ai/prepare.py` and `ai/materialize.py` to `features/proposals/` |
+| 5 | `ContextBuilder` takes the board state and the memory as what they are, not as the feature they come from |
+| 6 | **Rule M**: no module under `safwa/ai/` imports `safwa/features/` |
+
+### The five things reading the code decided
+
+1. **`features/advisor/` declares no `MODULE`, and that is the point.** `MODULES` is what a feature
+   plugs into the application; the Advisor is the root session every routed one hangs off, wired
+   directly by `bootstrap/main.py`. Giving it an `AgentSpec` would have put it in the routing rules,
+   and keeping it out of them would have been a branch over a name — which is what Rule H exists to
+   forbid. `bootstrap/modules.py` imports the template and fills `{routes}` and `{views}` into it,
+   exactly as it did when the template lived in the engine.
+2. **`AIAdvisor` went with the prompt.** It is named Advisor, it carries the Advisor's two sentences
+   to an interrupted session, and it imported seven names out of `features/proposals`. Moving it
+   removed those seven edges without inverting anything, and a feature's assembly layer may open any
+   door — which is what it was already doing from the wrong side of the tree.
+3. **`board_context` belongs to the board, not to its reader.** It reads Cards, Values, Tags, the
+   Sprint and the Profile, and `AgentSpec.board_state` is the flag that asks for it. What crosses
+   into the engine is `StateBlocks` — the cacheable half and the volatile half — which is the
+   engine's own concept and names no entity.
+4. **The proposal seam was relocated, not inverted.** `materialize.py` is where a tool call becomes
+   a review and `prepare.py` is what a proposal stores, so both are the mechanism's; and
+   `features/proposals/use_cases.py` was already importing `ai/prepare.py` upward. What stayed an
+   inversion is the two the engine genuinely needs: `MutationToolSpec` is a tool's contract and went
+   to `ai/contracts.py`, and the registry became `MutationCatalogue`, a four-line Protocol stating
+   what the tool port asks of whoever prepares a change. `features/proposals/api.py` went 600 lines
+   to 581 — the test the batch set itself for whether the seam was drawn in the right place.
+5. **`ChangeAction` went to `enums.py`** rather than into the engine: ten features read it, which is
+   the rule that file already states.
+
+### What replaced `models.py`'s one job
+
+The flat module existed so `Base.metadata` was complete before `create_all`. Importing
+`bootstrap/modules.py` already reaches all 27 tables, so `foundation/database.py` takes `Base` from
+`foundation/models.py` and the composition root's own imports are the completeness.
+
+`test_importing_the_composition_root_declares_every_table` is what keeps that true: it scans every
+`__tablename__` under `src/safwa`, then asks a child process that imported only the composition root
+what the metadata holds. A table whose module nothing imports fails it.
+
+### Two lines in CLAUDE.md that had stopped being true
+
+"The shell never imports a feature" was false before this batch: `shell/services.py` and
+`shell/chat.py` take five names out of `continuity` and `proposals`. The sentence is deleted rather
+than corrected, because the shell has no such rule — `ai/` is the package that does now, and it has
+Rule M behind it.
+
+The schema paragraph named `models.py` as what makes the metadata complete. It names the composition
+root instead.

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....enums import CardKind, Priority
 from ....foundation.errors import DomainError
-from ....models import UiSession
+from ....shell.model import UiSession
 from ..model import CardStage
 from ..use_cases import validate_action_fields, validate_blocked_fields
 

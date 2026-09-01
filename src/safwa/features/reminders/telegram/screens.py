@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from ....enums import MessageKind
 from ....foundation.errors import DomainError
-from ....models import Reminder, Workspace
+from ....foundation.models import Workspace
 from ....shell import (
     CallbackContext,
     CallbackHandler,
@@ -31,6 +31,7 @@ from ....shell import (
     send_registered,
     token_button,
 )
+from ..model import Reminder
 from ..schedule import describe, schedule_of
 from ..use_cases import delete_reminder
 

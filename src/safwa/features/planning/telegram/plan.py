@@ -30,7 +30,6 @@ from ....constants import (
 )
 from ....enums import MessageKind
 from ....foundation.screens import StartLink
-from ....models import Card, SavedRequest
 from ....shell import (
     CallbackContext,
     Page,
@@ -42,9 +41,11 @@ from ....shell import (
     token_button,
 )
 from ...cards.api import CardStage, actions_on_stages
+from ...cards.model import Card
 from ...cards.telegram import render_card
 from ...cards.use_cases import move_card
 from ...profile.api import capacity_effort_points
+from ...saved_requests.model import SavedRequest
 from .sprint import plan_cost
 from .state import (
     load_plan_state,

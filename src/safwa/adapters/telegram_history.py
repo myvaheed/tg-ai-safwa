@@ -11,10 +11,20 @@ from __future__ import annotations
 import asyncio
 import getpass
 from collections.abc import AsyncIterator, Collection, Sequence
+from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import delete, select
+from sqlalchemy import (
+    DateTime,
+    Integer,
+    String,
+    UniqueConstraint,
+    delete,
+    func,
+    select,
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import Mapped, mapped_column
 from telethon import TelegramClient
 
 from telegram_llm.marking import KindMarks
@@ -26,16 +36,30 @@ from ..constants import SUMMARY_CONTEXT_MESSAGE_LIMIT, SUMMARY_TRIGGER_TOKENS
 from ..enums import MessageKind
 from ..features.continuity.model import SUMMARY_HEADER
 from ..features.proposals.model import RECEIPT_MEANINGS
+from ..foundation.models import Base
 from ..foundation.tokens import estimate_tokens
-from ..models import TelegramMessage
 
 __all__ = [
     "MARKS",
     "TelegramHistorySource",
+    "TelegramMessage",
     "TelegramNotes",
     "auth_main",
     "register_message",
 ]
+
+
+class TelegramMessage(Base):
+    __tablename__ = "telegram_messages"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(Integer, index=True)
+    message_id: Mapped[int] = mapped_column(Integer)
+    event_id: Mapped[str | None] = mapped_column(String(32), unique=True, index=True)
+    direction: Mapped[str] = mapped_column(String(10))
+    kind: Mapped[str] = mapped_column(String(40), default=MessageKind.DASHBOARD.value)
+    related_id: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (UniqueConstraint("chat_id", "message_id"),)
 
 # Codes are append-only: a released code must never be reused for another kind.  1, 2, 7 and
 # 13 belonged to retired kinds and stay out of circulation.

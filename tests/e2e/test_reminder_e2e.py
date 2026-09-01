@@ -22,10 +22,11 @@ from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.proposals.telegram import render_proposal
 from safwa.features.proposals.use_cases import approve_proposal
+from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import schedule_of
 from safwa.foundation.clock import SystemClock
-from safwa.models import CallbackToken, Reminder
 from safwa.shell import callback_token_handler
+from safwa.shell.model import CallbackToken
 from safwa.turn import TurnManager
 from telegram_llm import ChatHost, DialogueMessage
 

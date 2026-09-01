@@ -12,17 +12,7 @@ from sqlalchemy import delete, select
 from ....enums import CardKind, MessageKind
 from ....foundation.errors import DomainError
 from ....foundation.marks import is_closed_repeat, live_repeat_instance_id, title_marks
-from ....models import (
-    Card,
-    CardCategory,
-    CardEnergyType,
-    CardTag,
-    CardValue,
-    Tag,
-    UiSession,
-    Value,
-    Workspace,
-)
+from ....foundation.models import Workspace
 from ....shell import (
     Services,
     edit_registered_message,
@@ -30,8 +20,11 @@ from ....shell import (
     token_button,
     with_notice,
 )
+from ....shell.model import UiSession
 from ...checks.use_cases import card_checks
-from ..model import CardStage
+from ...tags.model import CardTag, Tag
+from ...values.model import CardValue, Value
+from ..model import Card, CardCategory, CardEnergyType, CardStage
 from ..use_cases import blocking_actions, card_progress
 from .presentation import card_overview_text
 

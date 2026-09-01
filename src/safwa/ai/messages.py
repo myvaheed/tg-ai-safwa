@@ -7,17 +7,43 @@ the order is by how often each block changes so a remote provider can cache the 
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agent_runtime import append_user_message, cache_breakpoint, system_note
 from telegram_llm import DialogueMessage
 
-from ..features.continuity.memory import MemoryFileStore
-from .context import board_context, ordered_owner_context
 from .subagents import RoutedSubagent
 from .tools import conversation_for
+
+
+class Memory(Protocol):
+    """What the durable block is read from. Where the facts are kept is not the engine's."""
+
+    async def sync(self) -> Facts: ...
+
+
+class Facts(Protocol):
+    text: str
+
+
+@dataclass(frozen=True)
+class StateBlocks:
+    """Split so the volatile clock can be sent after the cacheable prefix."""
+
+    state: str
+    clock: str
+
+
+def ordered_owner_context(memory_text: str, board_state: str) -> str:
+    """Put the explicit board state after the durable memory it can override."""
+    return (
+        f"Persistent memory:\n{memory_text}"
+        f"\n\nCurrent board state:\n{board_state}"
+    )
 
 
 class ContextBuilder:
@@ -26,7 +52,8 @@ class ContextBuilder:
     def __init__(
         self,
         sessions: async_sessionmaker[AsyncSession],
-        memory: MemoryFileStore,
+        memory: Memory,
+        board_state: Callable[[AsyncSession], Awaitable[StateBlocks]],
         *,
         system_prompt: str,
         subagents: dict[str, RoutedSubagent],
@@ -34,6 +61,9 @@ class ContextBuilder:
     ) -> None:
         self.sessions = sessions
         self.memory = memory
+        # What the world looks like right now. The blocks are the application's, so the
+        # builder is handed one rather than reaching into a feature for it.
+        self.board_state = board_state
         self.system_prompt = system_prompt
         self.subagents = subagents
         self.cache_breakpoints = cache_breakpoints
@@ -58,7 +88,7 @@ class ContextBuilder:
     async def advisor(self, dialogue: list[DialogueMessage]) -> list[dict[str, Any]]:
         memory = await self.memory.sync()
         async with self.sessions() as session:
-            context = await board_context(session)
+            context = await self.board_state(session)
         # Ordered by how often each block changes, so the stable prefix stays
         # byte-identical across turns and remote prompt caching can hit it.
         # Anything volatile goes after the dialogue, never into a system block.
@@ -95,7 +125,7 @@ class ContextBuilder:
         messages: list[dict[str, Any]] = [{"role": "system", "content": routed.prompt}]
         if routed.board_state:
             async with self.sessions() as session:
-                context = await board_context(session)
+                context = await self.board_state(session)
             append_user_message(messages, f"[System]: Current board state:\n{context.state}")
         conversation = conversation_for(dialogue)
         if conversation:

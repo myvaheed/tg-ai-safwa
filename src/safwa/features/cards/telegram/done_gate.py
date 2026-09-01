@@ -16,7 +16,6 @@ from sqlalchemy import delete, select
 
 from ....enums import MessageKind
 from ....foundation.errors import DomainError
-from ....models import UiSession
 from ....shell import (
     CallbackContext,
     CallbackHandler,
@@ -26,6 +25,7 @@ from ....shell import (
     token_button,
     with_notice,
 )
+from ....shell.model import UiSession
 from ...checks.api import CheckOutcome
 from ...checks.telegram import (
     CHECK_OUTCOME_LABELS,

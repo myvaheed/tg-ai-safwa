@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from ..models import Base
+from .models import Base
 
 _in_transaction: ContextVar[bool] = ContextVar("safwa_in_transaction", default=False)
 

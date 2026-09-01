@@ -45,7 +45,7 @@ neither commits nor calls the domain.
 
 What stays generic is the orchestration: the workspace and its revision, the batch and proposal
 rows, the optimistic lock, and the ordered walk over the stored changes
-([`ChangePreparer`](../src/safwa/ai/prepare.py),
+([`ChangePreparer`](../src/safwa/features/proposals/prepare.py),
 [features/proposals/use_cases.py](../src/safwa/features/proposals/use_cases.py)).
 
 ## Derived registries

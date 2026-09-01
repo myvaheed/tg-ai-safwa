@@ -9,8 +9,8 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....foundation.screens import TextInputFlow
-from ....models import UiSession
 from ....shell import TextValidator, required_text
+from ....shell.model import UiSession
 from ..use_cases import edit_card_text, update_card_fields
 from .creation import render_card_creation
 from .draft import sanitize_card_creation_state

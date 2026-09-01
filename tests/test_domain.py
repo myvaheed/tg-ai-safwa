@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import select
 
-from safwa.features.cards.model import CardStage
+from safwa.features.cards.model import Card, CardEvent, CardStage
 from safwa.features.cards.use_cases import (
     archive_subtree,
     card_progress,
@@ -17,21 +17,15 @@ from safwa.features.cards.use_cases import (
 )
 from safwa.features.cards.use_cases import create_card as create_domain_card
 from safwa.features.planning.use_cases import sprint_metrics, start_sprint
-from safwa.features.profile.model import ProfileField
+from safwa.features.profile.model import ProfileField, UserProfile
 from safwa.features.profile.use_cases import set_profile_field
+from safwa.features.tags.model import CardTag, Tag
 from safwa.features.tags.use_cases import create_tag
+from safwa.features.values.model import Value
 from safwa.features.values.use_cases import create_value, set_value_focus
 from safwa.foundation.clock import SystemClock
 from safwa.foundation.errors import DomainError
 from safwa.foundation.marks import live_repeat_instance_id
-from safwa.models import (
-    Card,
-    CardEvent,
-    CardTag,
-    Tag,
-    UserProfile,
-    Value,
-)
 
 
 async def create_card(session, **overrides):

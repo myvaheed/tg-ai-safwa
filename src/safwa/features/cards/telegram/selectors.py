@@ -18,9 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ....constants import SELECTOR_PAGE_SIZE
 from ....enums import CardKind, Category, EnergyType, Priority
 from ....foundation.errors import DomainError
-from ....models import Card, CardCategory, CardEnergyType, CardTag, CardValue, Tag, Value
 from ....shell import Page, Services, choice_rows, choice_screen, paginate
-from ..model import CardStage
+from ...tags.model import CardTag, Tag
+from ...values.model import CardValue, Value
+from ..model import Card, CardCategory, CardEnergyType, CardStage
 from ..use_cases import (
     EFFORT_POINTS,
     toggle_card_category,

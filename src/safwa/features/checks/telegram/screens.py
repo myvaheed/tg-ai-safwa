@@ -12,7 +12,6 @@ from ....constants import CHECK_LIST_LIMIT, SELECTOR_PAGE_SIZE
 from ....enums import MessageKind
 from ....foundation.errors import DomainError
 from ....foundation.marks import is_closed_repeat, live_repeat_instance_id, title_marks
-from ....models import Check, Value
 from ....shell import (
     Services,
     choice_rows,
@@ -24,7 +23,8 @@ from ....shell import (
     with_notice,
 )
 from ...cards.api import card_labels, card_title
-from ..model import CHECK_OUTCOME_LABELS, CheckOutcome
+from ...values.model import Value
+from ..model import CHECK_OUTCOME_LABELS, Check, CheckOutcome
 from ..use_cases import card_checks, check_card_id, check_value_ids
 
 CHECK_STATUS_EMOJIS = {

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from sqlalchemy import delete
 
-from ....models import UiSession, Workspace
+from ....foundation.models import Workspace
 from ....shell import CallbackContext, CallbackHandler, sync_bot_commands
+from ....shell.model import UiSession
 from ..use_cases import finish_sprint, start_sprint
 from .plan import (
     on_plan_card,

@@ -10,7 +10,6 @@ from sqlalchemy import select
 from ....constants import REQUEST_RESULT_LIMIT
 from ....enums import MessageKind
 from ....foundation.errors import DomainError
-from ....models import SavedRequest
 from ....shell import (
     CallbackContext,
     CallbackHandler,
@@ -21,6 +20,7 @@ from ....shell import (
 )
 from ...cards.telegram import kind_label
 from ..api import request_cards
+from ..model import SavedRequest
 
 
 async def command_requests(message: Message, services: Services) -> None:

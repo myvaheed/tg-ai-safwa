@@ -9,7 +9,7 @@ from ui_harness import spawn_timer
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.adapters.telegram_history import MARKS, TelegramNotes
+from safwa.adapters.telegram_history import MARKS, TelegramMessage, TelegramNotes
 from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.bootstrap.modules import (
     ALLOWED_VIEWS,
@@ -18,9 +18,9 @@ from safwa.bootstrap.modules import (
     SCREENS,
 )
 from safwa.enums import MessageKind
-from safwa.features.cards.model import CardStage
+from safwa.features.cards.model import Card, CardStage
 from safwa.features.cards.use_cases import create_card, finish_action, toggle_card_check
-from safwa.features.checks.model import CheckOutcome
+from safwa.features.checks.model import Check, CheckOutcome
 from safwa.features.checks.use_cases import (
     check_card_id,
     create_check,
@@ -28,8 +28,8 @@ from safwa.features.checks.use_cases import (
     resolve_check,
 )
 from safwa.features.proposals.telegram import render_ai_outcome, render_proposal
-from safwa.models import CallbackToken, Card, Check, TelegramMessage
 from safwa.shell import callback_token_handler, command_start
+from safwa.shell.model import CallbackToken
 from safwa.turn import TurnManager
 from telegram_llm import ChatHost, DialogueMessage
 

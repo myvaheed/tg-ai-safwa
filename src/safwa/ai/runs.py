@@ -7,16 +7,53 @@ store already holds: finding a session to take and taking it are one decision.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import Mapped, aliased, mapped_column
 
 from agent_runtime import RunRecord, RunStatus
 
 from ..foundation.clock import utcnow
-from ..models import AgentRun, AgentStep
+from ..foundation.models import Base, TimestampMixin
+
+
+class AgentRun(Base, TimestampMixin):
+    """One model session, from its first turn to whichever turn ends it.
+
+    A session that stops on an approval screen keeps everything it needs to continue in
+    `state_json`, so it resumes from its own row.  `claimed_at` is taken before resuming
+    and released afterwards: it is what stops two resumes of the same session.  A session
+    suspended on a child it routed to keeps the unanswered call in `state_json` too.
+    """
+
+    __tablename__ = "agent_runs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(30), default="advisor")
+    # The session that routed here.  A finished session hands its receipt back up this
+    # link, so a turn ends only when the root session answers.
+    parent_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="SET NULL")
+    )
+    provider: Mapped[str] = mapped_column(String(100))
+    model: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(30), index=True)
+    state_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_message_id: Mapped[int | None] = mapped_column(Integer)
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    error_code: Mapped[str | None] = mapped_column(String(100))
+
+
+class AgentStep(Base):
+    __tablename__ = "agent_steps"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"), index=True)
+    position: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(String(30), index=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
 
 def _record(run: AgentRun) -> RunRecord:

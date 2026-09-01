@@ -10,11 +10,11 @@ from ui_harness import FakeCallback, FakeMessage, button_texts, services_for
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.telegram import command_settings
 from safwa.features.profile.use_cases import DIARY_REMINDER_INSTRUCTION, set_profile_field
+from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import resolve
 from safwa.features.reminders.telegram import render_reminder, render_reminders
 from safwa.features.reminders.use_cases import create_reminder
 from safwa.foundation.clock import SystemClock
-from safwa.models import Reminder
 from safwa.shell import callback_token_handler
 from safwa.turn.dialogue import ordinary_text
 

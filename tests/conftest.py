@@ -7,7 +7,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from safwa.bootstrap.main import bootstrap_workspace
-from safwa.models import Base
+from safwa.foundation.models import Base
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

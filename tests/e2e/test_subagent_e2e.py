@@ -11,17 +11,17 @@ from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.mini import ReadToolSpec
 from safwa.ai.outcome import AIOutcomeKind
+from safwa.ai.runs import AgentRun, AgentStep
 from safwa.ai.subagents import RoutedSubagent
 from safwa.ai.tools import IMMEDIATE_TOOLS
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.enums import CardKind
-from safwa.features.cards.model import CardStage
+from safwa.features.cards.model import Card, CardStage
 from safwa.features.cards.use_cases import create_card, finish_action
 from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
 from safwa.features.diary.model import DiaryEntry
 from safwa.features.proposals.model import BatchDecision
 from safwa.features.proposals.use_cases import approve_proposal
-from safwa.models import AgentRun, AgentStep, Card
 from telegram_llm import DialogueMessage
 
 TODAY = date.today().isoformat()
@@ -380,7 +380,7 @@ async def test_route_cannot_share_its_response_with_another_call(e2e_harness):
 
 async def test_a_subagent_that_runs_too_long_is_stopped_by_the_clock(e2e_harness, monkeypatch):
     """AG-BUDGET-012 — tests/brd/agents.feature"""
-    monkeypatch.setattr("safwa.ai.advisor.SUBAGENT_DEADLINE_SECONDS", 0.05)
+    monkeypatch.setattr("safwa.features.advisor.session.SUBAGENT_DEADLINE_SECONDS", 0.05)
 
     async def never_returns_in_time(_call):
         await asyncio.sleep(1.0)

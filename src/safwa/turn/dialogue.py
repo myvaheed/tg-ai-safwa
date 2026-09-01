@@ -16,7 +16,6 @@ from telegram_llm import AudioClip, HistoryEntry, TranscriptionError
 from ..constants import ASR_MAX_DURATION_SECONDS, ASR_MAX_FILE_BYTES
 from ..enums import MessageKind
 from ..features.proposals.telegram import render_ai_outcome
-from ..models import UiSession
 from ..shell import (
     Services,
     audio_payload,
@@ -31,6 +30,7 @@ from ..shell import (
     send_registered,
     send_summary,
 )
+from ..shell.model import UiSession
 
 logger = logging.getLogger(__name__)
 

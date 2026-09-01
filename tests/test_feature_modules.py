@@ -7,6 +7,11 @@ prove the registry actually carries what those modules used to enumerate by hand
 
 from __future__ import annotations
 
+import re
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 from sqlalchemy import create_engine, inspect
 
@@ -22,7 +27,39 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
 )
 from safwa.cues.module import CUE_QUEUE
-from safwa.models import Base
+from safwa.foundation.models import Base
+
+SRC = Path(__file__).resolve().parents[1] / "src" / "safwa"
+TABLENAME = re.compile(r'^\s*__tablename__ = "([a-z_]+)"', re.MULTILINE)
+
+
+def test_importing_the_composition_root_declares_every_table():
+    """`create_all` runs off whatever the imports reached, so the reach is the guarantee.
+
+    A table whose module nothing imports is created on no database and noticed by nobody
+    until a query fails.  The child process imports the composition root and nothing else,
+    which is what startup does.
+    """
+    declared = {
+        name
+        for path in SRC.rglob("*.py")
+        for name in TABLENAME.findall(path.read_text(encoding="utf-8"))
+    }
+
+    reached = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import safwa.bootstrap.modules;"
+            "from safwa.foundation.models import Base;"
+            "print(' '.join(sorted(Base.metadata.tables)))",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+
+    assert declared == set(reached)
 
 
 def test_every_entity_registers_all_three_proposal_responsibilities():

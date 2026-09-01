@@ -19,9 +19,9 @@ from sqlalchemy import select, update
 
 from ..enums import MessageKind
 from ..foundation.errors import DomainError
-from ..models import CallbackToken
 from .chat import send_registered
 from .commands import command_start
+from .model import CallbackToken
 from .services import CallbackContext, Services, router
 
 logger = logging.getLogger(__name__)

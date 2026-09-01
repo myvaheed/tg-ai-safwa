@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ....enums import CardKind, MessageKind
 from ....foundation.errors import DomainError
 from ....foundation.marks import title_marks
-from ....models import Card
 from ....shell import (
     Page,
     Services,
@@ -23,7 +22,7 @@ from ....shell import (
     token_button,
     with_notice,
 )
-from ..model import CardStage
+from ..model import Card, CardStage
 from ..use_cases import card_children
 from .presentation import kind_label, paginate_cards
 

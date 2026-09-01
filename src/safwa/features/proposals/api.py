@@ -27,24 +27,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_gateway import LlmProvider
 
-from ...ai.contracts import AgentChange, ToolResultStatus, tool_json_schema
+from ...ai.contracts import (
+    AgentChange,
+    MutationToolSpec,
+    ToolResultStatus,
+)
 from ...ai.sql import ReadOnlyQueryRunner
 from ...foundation.errors import DomainError
+from ...foundation.models import Workspace
 from ...foundation.references import ReferenceSpec, resolve_references
-from ...models import Card, Check, Workspace
 from ..cards.api import (
     is_closed_repeat as is_closed_card_repeat,
 )
 from ..cards.api import (
     live_repeat_instance_id as live_card_repeat_instance_id,
 )
+from ..cards.model import Card
 from ..checks.api import (
     is_closed_repeat as is_closed_check_repeat,
 )
 from ..checks.api import (
     live_repeat_instance_id as live_check_repeat_instance_id,
 )
+from ..checks.model import Check
 from .model import ChangeAction, ProposalChange
+
+__all__ = ["MutationToolSpec"]
 
 
 class ToolPreparationError(DomainError):
@@ -157,31 +165,6 @@ def entity_change(entity: str) -> Callable[[BaseModel], AgentChange]:
         )
 
     return convert
-
-
-@dataclass(frozen=True, slots=True)
-class MutationToolSpec:
-    """One mutation tool as the model sees it."""
-
-    name: str
-    input_model: type[BaseModel]
-    description: str
-    to_change: Callable[[BaseModel], AgentChange]
-    # Extra repair detail when the model sent arguments this tool could not validate.
-    repair: Callable[[dict[str, Any]], dict[str, Any]] | None = None
-
-    def schema(self) -> dict[str, Any]:
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": tool_json_schema(self.input_model),
-            },
-        }
-
-    def change_from(self, arguments: dict[str, Any]) -> AgentChange:
-        return self.to_change(self.input_model.model_validate(arguments))
 
 
 @dataclass(frozen=True, slots=True)

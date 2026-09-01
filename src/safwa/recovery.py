@@ -8,13 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_runtime import RunStatus
 
+from .adapters.telegram_history import TelegramMessage
+from .ai.runs import AgentRun
 from .enums import MessageKind
-from .models import (
-    AgentRun,
-    CallbackToken,
-    TelegramMessage,
-    UiSession,
-)
+from .shell.model import CallbackToken, UiSession
 
 
 async def recover_startup(

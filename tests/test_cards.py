@@ -11,10 +11,16 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 
 from safwa.ai.contracts import CardToolInput
-from safwa.ai.prepare import ChangePreparer
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.enums import CardKind
-from safwa.features.cards.model import CardStage
+from safwa.features.cards.model import (
+    Card,
+    CardCategory,
+    CardCheck,
+    CardEnergyType,
+    CardEvent,
+    CardStage,
+)
 from safwa.features.cards.use_cases import (
     EFFORT_POINTS,
     archive_subtree,
@@ -32,27 +38,18 @@ from safwa.features.cards.use_cases import (
     toggle_card_value,
     update_card_fields,
 )
-from safwa.features.checks.model import CheckOutcome
+from safwa.features.checks.model import Check, CheckOutcome
 from safwa.features.checks.use_cases import check_card_id, create_check, toggle_check_value
+from safwa.features.planning.model import SprintCommitment
 from safwa.features.planning.use_cases import finish_sprint, start_sprint
 from safwa.features.proposals.api import ToolPreparationError
+from safwa.features.proposals.prepare import ChangePreparer
+from safwa.features.tags.model import CardTag, Tag
 from safwa.features.tags.use_cases import create_tag
+from safwa.features.values.model import CardValue, Value
 from safwa.features.values.use_cases import create_value, delete_value
 from safwa.foundation.errors import DomainError
 from safwa.foundation.marks import title_marks
-from safwa.models import (
-    Card,
-    CardCategory,
-    CardCheck,
-    CardEnergyType,
-    CardEvent,
-    CardTag,
-    CardValue,
-    Check,
-    SprintCommitment,
-    Tag,
-    Value,
-)
 
 
 async def test_cd_kind_001_a_card_stays_the_kind_it_was_created_as(sessions):

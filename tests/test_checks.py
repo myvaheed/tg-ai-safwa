@@ -4,10 +4,10 @@ import pytest
 from sqlalchemy import select
 
 from safwa.ai.contracts import CheckToolInput
-from safwa.features.cards.model import CardStage
+from safwa.features.cards.model import Card, CardEvent, CardStage
 from safwa.features.cards.use_cases import create_card as create_domain_card
 from safwa.features.cards.use_cases import finish_action, move_card, toggle_card_check
-from safwa.features.checks.model import CheckOutcome
+from safwa.features.checks.model import Check, CheckOutcome
 from safwa.features.checks.use_cases import (
     archive_check,
     card_checks,
@@ -25,7 +25,6 @@ from safwa.features.planning.use_cases import archive_settled_items, finish_spri
 from safwa.features.values.use_cases import create_value
 from safwa.foundation.errors import DomainError
 from safwa.foundation.marks import is_closed_repeat, live_repeat_instance_id, title_marks
-from safwa.models import Card, CardEvent, Check
 
 
 async def create_action(session, **overrides):

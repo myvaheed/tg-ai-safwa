@@ -6,18 +6,20 @@ from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy import select
 
-from safwa.ai.context import board_context, ordered_owner_context
+from safwa.ai.messages import ordered_owner_context
 from safwa.bootstrap.modules import RECOVERY_HOOKS
+from safwa.features.board.state import board_context
 from safwa.features.cards.use_cases import create_card
 from safwa.features.planning.use_cases import start_sprint
-from safwa.features.profile.model import ProfileField
+from safwa.features.profile.model import ProfileField, UserProfile
 from safwa.features.profile.telegram.screens import SETTINGS_FIELDS
 from safwa.features.profile.use_cases import profile_field, set_profile_field
+from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import resolve
 from safwa.features.reminders.use_cases import create_reminder
 from safwa.foundation.clock import SystemClock
 from safwa.foundation.errors import DomainError
-from safwa.models import Reminder, UserProfile, Workspace
+from safwa.foundation.models import Workspace
 from safwa.recovery import recover_startup
 
 

@@ -16,7 +16,6 @@ from ...enums import (
     EnergyType,
 )
 from ...foundation.errors import DomainError, StaleStateError
-from ...models import Card, CardCategory, CardEnergyType
 from ..checks.use_cases import unobserved_series
 from ..proposals.api import (
     ApplyContext,
@@ -30,7 +29,7 @@ from ..proposals.api import (
     require_target,
     validate_named_references,
 )
-from .model import TERMINAL_STAGES, CardStage
+from .model import TERMINAL_STAGES, Card, CardCategory, CardEnergyType, CardStage
 from .references import (
     CARD_REFERENCE_SPECS,
     CHECK_REFERENCE,

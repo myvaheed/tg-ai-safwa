@@ -24,8 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ....enums import MessageKind
 from ....foundation.clock import utcnow
 from ....foundation.errors import DomainError
+from ....foundation.models import Workspace
 from ....foundation.screens import TextInputFlow
-from ....models import Card, Sprint, Workspace
 from ....shell import (
     Services,
     TextInputScreen,
@@ -39,8 +39,10 @@ from ....shell import (
     with_notice,
 )
 from ...cards.api import CardStage, actions_on_stages
+from ...cards.model import Card
 from ...cards.telegram import card_list_rows, card_list_text
 from ...profile.api import capacity_effort_points
+from ..model import Sprint
 from ..use_cases import set_sprint_success_criteria, sprint_length_days, sprint_metrics
 
 _PROMPT_TTL = timedelta(minutes=30)

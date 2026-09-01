@@ -162,13 +162,21 @@ column is where the default is written.
 
 [shell/](src/safwa/shell) is what a feature's Telegram adapter imports besides `telegram_llm`:
 the container, the router, the chat verbs, the layout, the editor, the shared selector, Safwa's own
-three commands and the one dispatcher every inline button goes through. The shell never imports a
-feature. Only [shell/commands.py](src/safwa/shell/commands.py),
+three commands and the one dispatcher every inline button goes through. Only
+[shell/commands.py](src/safwa/shell/commands.py),
 [shell/callbacks.py](src/safwa/shell/callbacks.py) and [turn/dialogue.py](src/safwa/turn/dialogue.py)
 register `@router` handlers; the shell package imports the first two and
 [bootstrap/main.py](src/safwa/bootstrap/main.py) imports the third for that side effect — dropping one silently
 unregisters its handlers. A leading underscore means module-local: a name used by a sibling module
 carries no underscore, even though the whole package stays private behind `__init__.__all__`.
+
+[ai/](src/safwa/ai) is the other application beside the shell: Safwa's agent engine — what a
+session is, what a tool call costs, what the model may read. **It imports no feature**, and Rule M
+in [scripts/architecture_metrics.py](scripts/architecture_metrics.py) is what keeps that true; every
+feature imports it. The Advisor is not in the engine:
+[features/advisor](src/safwa/features/advisor) owns its prompt, the views it may read, and the
+wiring of its own turn, and it declares no `MODULE` because the composition root wires the root
+session directly.
 
 ## Principles
 
@@ -362,8 +370,9 @@ system message.
 
 There are no migrations and no Alembic. The ORM model modules are the schema source: startup calls
 `upgrade_database` ([foundation/database.py](src/safwa/foundation/database.py)), which is
-`Base.metadata.create_all`. During the vertical migration, [models.py](src/safwa/models.py) imports
-feature-owned models so the metadata is complete before startup creates tables.
+`Base.metadata.create_all`. Every table is declared by the module that owns it, and importing
+[bootstrap/modules.py](src/safwa/bootstrap/modules.py) reaches all of them, so the metadata is
+complete before startup creates tables.
 
 `create_all` adds missing tables and indexes and **never alters an existing one**, so a **fresh**
 database always matches the declared models, while adding or changing a column will **not** touch an

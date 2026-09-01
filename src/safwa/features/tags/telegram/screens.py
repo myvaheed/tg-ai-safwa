@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ....enums import MessageKind
 from ....foundation.errors import DomainError
 from ....foundation.screens import TextInputFlow
-from ....models import UiSession
 from ....shell import (
     CallbackContext,
     CallbackHandler,
@@ -28,6 +27,7 @@ from ....shell import (
     send_registered,
     token_button,
 )
+from ....shell.model import UiSession
 from ..model import Tag
 from ..use_cases import create_tag, delete_tag, tag_link_count, update_tag_fields
 

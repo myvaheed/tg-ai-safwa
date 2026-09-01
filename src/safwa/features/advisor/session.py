@@ -23,30 +23,31 @@ from agent_runtime import (
 from llm_gateway import LlmProvider
 from telegram_llm import DialogueMessage
 
-from ..constants import MAX_REPAIR_ROUNDS, MAX_TOOL_CALLS, SUBAGENT_DEADLINE_SECONDS
-from ..features.continuity.memory import MemoryFileStore
-from ..features.proposals.api import ProposalDescription, ProposalRegistry
-from ..features.proposals.model import RECEIPT_MEANINGS, BatchDecision
-from ..features.proposals.reducer import INTERRUPTED
-from ..features.proposals.render import (
+from ...ai.autoapproval import AutoApprovalReviewer
+from ...ai.messages import ContextBuilder
+from ...ai.outcome import AIOutcome, AIOutcomeKind
+from ...ai.runs import AgentRunStore, AgentStepTrail
+from ...ai.sql import ReadOnlyQueryRunner
+from ...ai.subagents import RoutedSubagent
+from ...ai.tools import Helper, ToolAdapters
+from ...constants import MAX_REPAIR_ROUNDS, MAX_TOOL_CALLS, SUBAGENT_DEADLINE_SECONDS
+from ...foundation.errors import failure_reason
+from ...foundation.screens import ScreenCatalogue
+from ..board.state import board_context
+from ..continuity.memory import MemoryFileStore
+from ..proposals.api import ProposalDescription, ProposalRegistry
+from ..proposals.materialize import ProposalMaterializer
+from ..proposals.model import RECEIPT_MEANINGS, BatchDecision
+from ..proposals.prepare import ChangePreparer
+from ..proposals.reducer import INTERRUPTED
+from ..proposals.render import (
     ProposalRenderer,
     compose_display_outcome,
     resolved_tool_result,
     results_summary,
 )
-from ..features.proposals.store import ProposalStore
-from ..features.proposals.use_cases import decide_batch_item, interrupt_batch
-from ..foundation.errors import failure_reason
-from ..foundation.screens import ScreenCatalogue
-from .autoapproval import AutoApprovalReviewer
-from .materialize import ProposalMaterializer
-from .messages import ContextBuilder
-from .outcome import AIOutcome, AIOutcomeKind
-from .prepare import ChangePreparer
-from .runs import AgentRunStore, AgentStepTrail
-from .sql import ReadOnlyQueryRunner
-from .subagents import RoutedSubagent
-from .tools import Helper, ToolAdapters
+from ..proposals.store import ProposalStore
+from ..proposals.use_cases import decide_batch_item, interrupt_batch
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +110,7 @@ class AIAdvisor:
         self.context = ContextBuilder(
             sessions,
             memory,
+            board_context,
             system_prompt=system_prompt,
             subagents=self.subagents,
             cache_breakpoints=cache_breakpoints,

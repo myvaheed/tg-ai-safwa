@@ -6,11 +6,13 @@ from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy import select
 
-from safwa.ai.context import board_context
 from safwa.bootstrap.modules import MODULES
 from safwa.constants import SPRINT_LENGTH_DAYS
+from safwa.cues.model import Cue
+from safwa.features.board.state import board_context
 from safwa.features.cards.use_cases import create_card as create_domain_card
 from safwa.features.cards.use_cases import toggle_card_value, update_card_fields
+from safwa.features.planning.model import Sprint
 from safwa.features.planning.use_cases import (
     expire_due_sprint,
     finish_sprint,
@@ -20,11 +22,12 @@ from safwa.features.planning.use_cases import (
 )
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
+from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.use_cases import delete_reminder
 from safwa.features.values.use_cases import create_value
 from safwa.foundation.clock import SystemClock
 from safwa.foundation.errors import DomainError
-from safwa.models import Cue, Reminder, Sprint, Workspace
+from safwa.foundation.models import Workspace
 
 
 async def create_card(session, **overrides):
@@ -339,9 +342,8 @@ async def test_pl_end_012_finishing_early_leaves_the_work_where_it_is(sessions):
 async def test_pl_end_014_a_sprint_ending_is_when_the_workspace_is_tidied(sessions):
     """PL-END-014 — tests/brd/planning.feature"""
     from safwa.constants import ARCHIVE_AFTER_SPRINTS
-    from safwa.features.cards.model import CardStage
+    from safwa.features.cards.model import Card, CardStage
     from safwa.features.cards.use_cases import finish_action
-    from safwa.models import Card
 
     async with sessions() as session:
         closed = await create_card(session, title="Shipped", stage="sprint", effort_points=2)

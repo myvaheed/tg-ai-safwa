@@ -5,12 +5,13 @@ from __future__ import annotations
 from sqlalchemy import select
 from ui_harness import CALLBACK_ACTIONS, FakeMessage, button_texts, services_for
 
+from safwa.adapters.telegram_history import TelegramMessage
 from safwa.enums import MessageKind
 from safwa.features.cards.use_cases import create_card, toggle_card_tag
 from safwa.features.tags.telegram import render_tag
 from safwa.features.tags.telegram.screens import render_tag_text_prompt
 from safwa.features.tags.use_cases import create_tag
-from safwa.models import TelegramMessage, UiSession
+from safwa.shell.model import UiSession
 from safwa.turn.dialogue import ordinary_text
 
 

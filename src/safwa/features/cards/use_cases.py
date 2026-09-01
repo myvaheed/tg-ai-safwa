@@ -24,7 +24,7 @@ from ...enums import (
 from ...foundation.clock import utcnow
 from ...foundation.errors import DomainError
 from ...foundation.workspace import bump_workspace, require_workspace
-from ...models import CardTag, CardValue, Check
+from ..checks.model import Check
 from ..checks.use_cases import (
     check_card_id,
     clone_checks_for_successor,
@@ -39,7 +39,9 @@ from ..planning.api import (
     sync_commitment_for_stage,
 )
 from ..tags.api import Tag, attach_tags, unlinkable_tag_id
+from ..tags.model import CardTag
 from ..values.api import Value, attach_values, unlinkable_value_id
+from ..values.model import CardValue
 from .model import (
     LIVE_STAGE_PRECEDENCE,
     TERMINAL_STAGES,

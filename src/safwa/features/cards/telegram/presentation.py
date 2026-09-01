@@ -11,9 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....enums import CardKind, Category, EnergyType, Priority
 from ....foundation.marks import title_marks
-from ....models import Card, CardCategory, CardEnergyType
 from ....shell import Page, paginate, short_citation_title, with_citation_fields
-from ..model import CardStage
+from ..model import Card, CardCategory, CardEnergyType, CardStage
 from ..use_cases import card_progress
 
 _KIND_EMOJIS = {

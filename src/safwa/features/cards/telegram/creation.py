@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....enums import CardKind, MessageKind
 from ....foundation.errors import DomainError
-from ....models import Tag, UiSession, Value
 from ....shell import (
     CallbackContext,
     CallbackHandler,
@@ -26,6 +25,9 @@ from ....shell import (
     sprint_is_active,
     token_button,
 )
+from ....shell.model import UiSession
+from ...tags.model import Tag
+from ...values.model import Value
 from ..use_cases import create_card
 from .draft import (
     card_creation_errors,

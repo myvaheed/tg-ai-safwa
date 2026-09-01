@@ -27,8 +27,8 @@ from ..enums import MessageKind
 from ..features.continuity.use_cases import record_summary
 from ..features.proposals.model import BatchDecision
 from ..features.proposals.render import proposal_outcome_text
-from ..models import CallbackToken, UiSession
 from .layout import Page
+from .model import CallbackToken, UiSession
 from .services import Services
 
 logger = logging.getLogger(__name__)

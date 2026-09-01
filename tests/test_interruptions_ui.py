@@ -15,7 +15,7 @@ from ui_harness import (
     voice_message_for,
 )
 
-from safwa.adapters.telegram_history import MARKS, TelegramNotes
+from safwa.adapters.telegram_history import MARKS, TelegramMessage, TelegramNotes
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.bootstrap.modules import (
     FEATURE_TEXT_INPUTS,
@@ -24,15 +24,12 @@ from safwa.bootstrap.modules import (
 from safwa.enums import MessageKind
 from safwa.features.proposals.model import ChangeAction, ProposalChange
 from safwa.features.proposals.store import ProposalStore
-from safwa.models import (
-    CallbackToken,
-    TelegramMessage,
-    Workspace,
-)
+from safwa.foundation.models import Workspace
 from safwa.shell import (
     OwnerAndWritingMiddleware,
     dismiss_prior_ui,
 )
+from safwa.shell.model import CallbackToken
 from safwa.turn import TurnManager
 from safwa.turn.dialogue import ordinary_text
 from telegram_llm import (

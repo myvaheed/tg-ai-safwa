@@ -8,7 +8,6 @@ from aiogram.types import InlineKeyboardMarkup
 
 from ....enums import MessageKind
 from ....foundation.errors import DomainError
-from ....models import Card
 from ....shell import (
     CallbackContext,
     CallbackHandler,
@@ -22,7 +21,7 @@ from ....shell import (
     with_notice,
 )
 from ...checks.use_cases import unobserved_series
-from ..model import CardStage
+from ..model import Card, CardStage
 from ..use_cases import (
     archive_subtree,
     delete_subtree,

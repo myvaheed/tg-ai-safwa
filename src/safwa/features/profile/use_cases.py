@@ -16,7 +16,7 @@ from ...constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ...foundation.clock import Clock
 from ...foundation.errors import DomainError
 from ...foundation.workspace import bump_workspace
-from ...models import Reminder
+from ..reminders.model import Reminder
 from ..reminders.use_cases import sync_daily_system_reminder
 from .model import ProfileField, ProfileValue, UserProfile
 

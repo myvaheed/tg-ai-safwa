@@ -12,6 +12,7 @@ from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.adapters.telegram_history import MARKS, TelegramNotes
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
+from safwa.ai.runs import AgentRun, AgentStep
 from safwa.bootstrap.modules import (
     ALLOWED_VIEWS,
     FEATURE_CALLBACK_ACTIONS,
@@ -21,7 +22,7 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
 )
 from safwa.constants import MAX_TOOL_CALLS
-from safwa.features.cards.model import CardStage
+from safwa.features.cards.model import Card, CardCategory, CardEnergyType, CardStage
 from safwa.features.cards.use_cases import create_card, finish_action, move_card
 from safwa.features.planning.use_cases import finish_sprint, sprint_metrics, start_sprint
 from safwa.features.proposals.model import (
@@ -32,26 +33,17 @@ from safwa.features.proposals.model import (
 from safwa.features.proposals.telegram import render_ai_outcome, render_proposal
 from safwa.features.proposals.use_cases import approve_proposal
 from safwa.features.saved_requests.api import request_cards
+from safwa.features.saved_requests.model import SavedRequest
 from safwa.features.saved_requests.use_cases import create_saved_request
+from safwa.features.tags.model import CardTag, Tag
 from safwa.features.tags.use_cases import create_tag
+from safwa.features.values.model import CardValue, Value
 from safwa.foundation.errors import StaleStateError
 from safwa.foundation.marks import title_marks
-from safwa.models import (
-    AgentRun,
-    AgentStep,
-    CallbackToken,
-    Card,
-    CardCategory,
-    CardEnergyType,
-    CardTag,
-    CardValue,
-    SavedRequest,
-    Tag,
-    Value,
-    Workspace,
-)
+from safwa.foundation.models import Workspace
 from safwa.recovery import recover_startup
 from safwa.shell import callback_token_handler, dismiss_prior_ui
+from safwa.shell.model import CallbackToken
 from safwa.turn import TurnManager
 from telegram_llm import ChatHost, DialogueMessage
 

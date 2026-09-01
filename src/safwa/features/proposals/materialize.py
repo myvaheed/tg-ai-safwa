@@ -17,22 +17,22 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agent_runtime import AgentLoopResult, AgentSession, TurnOutcome, json_safe
 
-from ..constants import MAX_REPAIR_ROUNDS
-from ..features.proposals.api import ProposalRegistry, ToolPreparationError
-from ..features.proposals.model import AUTO_SAVED_RECEIPT, BatchDecision, QueueItem
-from ..features.proposals.render import (
+from ...ai.autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
+from ...ai.outcome import AIOutcome, AIOutcomeKind, as_turn
+from ...ai.tools import REPAIR_EXHAUSTED, ToolAdapters
+from ...constants import MAX_REPAIR_ROUNDS
+from ...foundation.errors import DomainError
+from .api import ProposalRegistry, ToolPreparationError
+from .model import AUTO_SAVED_RECEIPT, BatchDecision, QueueItem
+from .prepare import ChangePreparer
+from .render import (
     AUTOAPPROVED,
     ProposalRenderer,
     compose_display_outcome,
     with_queued_siblings,
 )
-from ..features.proposals.store import ProposalStore
-from ..features.proposals.use_cases import number_queued_proposals, open_batch, prepare_proposal
-from ..foundation.errors import DomainError
-from .autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
-from .outcome import AIOutcome, AIOutcomeKind, as_turn
-from .prepare import ChangePreparer
-from .tools import REPAIR_EXHAUSTED, ToolAdapters
+from .store import ProposalStore
+from .use_cases import number_queued_proposals, open_batch, prepare_proposal
 
 logger = logging.getLogger(__name__)
 

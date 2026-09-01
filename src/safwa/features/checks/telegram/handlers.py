@@ -8,7 +8,6 @@ from aiogram.types import InlineKeyboardMarkup
 
 from ....enums import MessageKind
 from ....foundation.errors import DomainError
-from ....models import Check
 from ....shell import (
     CallbackContext,
     CallbackHandler,
@@ -16,7 +15,7 @@ from ....shell import (
     send_registered,
     token_button,
 )
-from ..model import CheckOutcome
+from ..model import Check, CheckOutcome
 from ..use_cases import delete_check, resolve_check, toggle_check_value, update_check_fields
 from .screens import render_check, render_check_values, render_checks
 

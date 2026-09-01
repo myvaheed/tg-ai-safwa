@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, ClassVar, Literal
 
@@ -14,7 +16,7 @@ from pydantic import (
     model_validator,
 )
 
-from ..features.proposals.model import ChangeAction
+from ..enums import ChangeAction
 
 _NULLISH_STRINGS = frozenset({"null", "none", "nil", "undefined"})
 _CONTENT_STRING_FIELDS = frozenset(
@@ -501,3 +503,28 @@ class OpenInput(ToolInput):
         description="What kind of item it is."
     )
     id: int = Field(description="Its numeric id.")
+
+
+@dataclass(frozen=True, slots=True)
+class MutationToolSpec:
+    """One mutation tool as the model sees it."""
+
+    name: str
+    input_model: type[BaseModel]
+    description: str
+    to_change: Callable[[BaseModel], AgentChange]
+    # Extra repair detail when the model sent arguments this tool could not validate.
+    repair: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+
+    def schema(self) -> dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": tool_json_schema(self.input_model),
+            },
+        }
+
+    def change_from(self, arguments: dict[str, Any]) -> AgentChange:
+        return self.to_change(self.input_model.model_validate(arguments))

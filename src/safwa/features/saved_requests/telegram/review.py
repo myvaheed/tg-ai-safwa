@@ -7,7 +7,6 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....ai.contracts import AgentChange
-from ....models import SavedRequest
 from ....shell import short_citation_title, with_citation_fields
 from ...proposals.api import (
     ProposalChange,
@@ -17,6 +16,7 @@ from ...proposals.api import (
     named_summary,
 )
 from ..api import request_cards
+from ..model import SavedRequest
 
 
 class RequestProposalPresenter:
