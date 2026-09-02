@@ -88,18 +88,6 @@ class StartLink:
 
 
 @dataclass(frozen=True, slots=True)
-class MenuButton:
-    """A screen's place in the menu: what its button says, and which row it shares.
-
-    Buttons of one row are drawn in `MODULES` order, so a feature declares where its
-    screen is reached from and nothing outside it holds a list of the menu.
-    """
-
-    label: str
-    row: int
-
-
-@dataclass(frozen=True, slots=True)
 class ScreenCommand:
     """One screen the owner opens by name: a slash command, a menu button, or both."""
 
@@ -110,8 +98,8 @@ class ScreenCommand:
     description: str = ""
     # The action a button carries as `nav:<action>`; None means nothing navigates here.
     nav: str | None = None
-    # None means this screen is reached some other way and is not drawn in the menu.
-    menu: MenuButton | None = None
+    # What this screen is called wherever it is offered as a button.
+    title: str | None = None
     # Today is a real screen only while a Sprint is running.
     needs_sprint: bool = False
 

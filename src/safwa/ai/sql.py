@@ -39,7 +39,6 @@ from ..constants import (
 from .contracts import (
     QueryToolInput,
     ToolResultStatus,
-    tool_json_schema,
     validation_error_summary,
 )
 
@@ -392,19 +391,6 @@ class ReadOnlyQueryRunner:
 
     async def run(self, sql: str) -> QueryOutcome:
         return await asyncio.wait_for(asyncio.to_thread(self._run, sql), timeout=self.timeout)
-
-
-QUERY_SAFWA_TOOL: dict[str, Any] = {
-    "type": "function",
-    "function": {
-        "name": "query_safwa",
-        "description": (
-            "Read Safwa's current data with one read-only SELECT over the ai_* views listed "
-            "in your instructions. Use it before you answer or propose anything."
-        ),
-        "parameters": tool_json_schema(QueryToolInput),
-    },
-}
 
 
 @dataclass

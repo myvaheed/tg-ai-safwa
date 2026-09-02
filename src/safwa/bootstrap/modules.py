@@ -17,12 +17,12 @@ from ..ai.sql import SqlView, view_catalogue
 from ..ai.subagents import RoutedSubagent
 from ..cues.module import CUE_QUEUE
 from ..features.advisor.agent import ADVISOR_VIEWS, SYSTEM_PROMPT_TEMPLATE
-from ..features.board.module import MODULE as BOARD
 from ..features.cards.module import MODULE as CARDS
 from ..features.checks.module import MODULE as CHECKS
 from ..features.continuity.module import MODULE as CONTINUITY
 from ..features.diary.module import MODULE as DIARY
 from ..features.heavy_analyzer import agent as heavy_analyzer
+from ..features.home.module import MODULE as HOME
 from ..features.planning.module import MODULE as PLANNING
 from ..features.profile.module import MODULE as PROFILE
 from ..features.proposals.api import (
@@ -33,9 +33,11 @@ from ..features.proposals.api import (
 )
 from ..features.proposals.module import MODULE as PROPOSALS_FEATURE
 from ..features.reminders.module import MODULE as REMINDERS
+from ..features.retro.module import MODULE as RETRO
 from ..features.saved_requests.module import MODULE as SAVED_REQUESTS
 from ..features.tags.module import MODULE as TAGS
 from ..features.values.module import MODULE as VALUES
+from ..features.workspace_mutator.module import MODULE as WORKSPACE_MUTATOR
 from ..foundation.screens import (
     ScreenCatalogue,
     ScreenCommand,
@@ -49,12 +51,14 @@ from .module_manifest import AgentContext, AgentSpec, BackgroundTask, FeatureMod
 # incidental: Profile settles the Diary's own Reminder before the Reminder rebuild walks the
 # whole table, and the Advisor's prompt lists the subagents in this order every run.
 MODULES: tuple[FeatureModule, ...] = (
-    BOARD,
+    HOME,
+    WORKSPACE_MUTATOR,
     CARDS,
     CHECKS,
     VALUES,
     TAGS,
     PLANNING,
+    RETRO,
     DIARY,
     PROFILE,
     REMINDERS,
@@ -228,7 +232,7 @@ def routed_subagents(context: AgentContext) -> tuple[RoutedSubagent, ...]:
             instructions=agent.instructions,
             read_tools=agent.read_tools(context) if agent.read_tools else (),
             mutation_tools=agent.mutation_tools,
-            board_state=agent.board_state,
+            workspace_state=agent.workspace_state,
             clock=agent.clock(context) if agent.clock else None,
         )
         for agent in AGENTS

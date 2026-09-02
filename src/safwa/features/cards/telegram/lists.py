@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import html
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....enums import CardKind, MessageKind
+from ....enums import MessageKind
 from ....foundation.errors import DomainError
 from ....foundation.marks import title_marks
+from ....foundation.models import Workspace
 from ....shell import (
     Page,
     Services,
@@ -22,16 +23,39 @@ from ....shell import (
     token_button,
     with_notice,
 )
-from ..model import Card, CardStage
+from ..api import actions_on_stages
+from ..model import LIVE_STAGE_PRECEDENCE, Card, CardStage
 from ..use_cases import card_children
 from .presentation import kind_label, paginate_cards
 
-# Which side a one-tap stage move sits on, so a row always reads the same way: leaving
-# Today for the Sprint on the left, pulling a Sprint Action into Today on the right.
-QUICK_MOVE_BUTTONS = {
-    CardStage.SPRINT: ("🏃", True),
-    CardStage.TODAY: ("☀️", False),
+
+@dataclass(frozen=True, slots=True)
+class QuickMove:
+    """One tap from a stage list: where it sends an Action, and how the row reads."""
+
+    target: CardStage
+    emoji: str
+    header: str
+
+
+# One tap moves an Action one step along the ladder, and the same list is every stage
+# dashboard there is: the Backlog, the Sprint and Today differ by this line alone.
+STAGE_QUICK_MOVE = {
+    CardStage.BACKLOG: QuickMove(
+        CardStage.SPRINT, "🏃", "🏃 moves an Action into the Sprint."
+    ),
+    CardStage.SPRINT: QuickMove(
+        CardStage.TODAY, "☀️", "☀️ moves an Action into Today."
+    ),
+    CardStage.TODAY: QuickMove(
+        CardStage.SPRINT, "🏃", "🏃 moves an Action back to the Sprint."
+    ),
 }
+
+
+def moves_up(stage: CardStage, move: QuickMove) -> bool:
+    """The button sits on the side the move goes: up the ladder right, back down left."""
+    return LIVE_STAGE_PRECEDENCE[move.target] > LIVE_STAGE_PRECEDENCE[stage]
 
 
 async def card_list_rows(
@@ -41,10 +65,15 @@ async def card_list_rows(
     *,
     page: int,
     back: dict[str, Any],
-    quick_move: CardStage | None = None,
+    stage: CardStage | None = None,
     prefix: Callable[[Card], str] | None = None,
 ) -> tuple[Page, list[str], list[list[InlineKeyboardButton]]]:
-    """One Card list: the page, its plain-text lines, and one button row per Card."""
+    """One Card list: the page, its plain-text lines, and one button row per Card.
+
+    `stage` is the list's own stage, which is what decides the one-tap move: where it
+    sends an Action, and which side of the row it sits on.
+    """
+    move = STAGE_QUICK_MOVE.get(stage) if stage is not None else None
     current = paginate_cards(cards, page)
     back = {**back, "page": current.index}
     rows: list[list[InlineKeyboardButton]] = []
@@ -68,21 +97,20 @@ async def card_list_rows(
             await token_button(
                 session,
                 services.owner_id,
-                label[: 40 if quick_move else 60],
+                label[: 40 if move else 60],
                 "card_view",
                 {"id": card.id, "back": back},
             )
         ]
-        if quick_move is not None:
-            emoji, leading = QUICK_MOVE_BUTTONS[quick_move]
-            move = await token_button(
+        if move is not None:
+            button = await token_button(
                 session,
                 services.owner_id,
-                emoji,
+                move.emoji,
                 "card_quick_move",
-                {"id": card.id, "stage": quick_move.value, "back": back},
+                {"id": card.id, "stage": move.target.value, "back": back},
             )
-            row.insert(0 if leading else 1, move)
+            row.insert(1 if moves_up(stage, move) else 0, button)
         rows.append(row)
     return current, descriptions, rows
 
@@ -96,6 +124,44 @@ def card_list_text(title: str, page: Page, descriptions: list[str], *, header: s
     )
 
 
+async def stage_list_block(
+    session: AsyncSession,
+    services: Services,
+    stage: CardStage,
+    *,
+    title: str,
+    page: int,
+    action: str,
+    payload: dict[str, Any] | None = None,
+    header: str = "",
+) -> tuple[str, list[list[InlineKeyboardButton]]]:
+    """One stage's Actions as a block: its text and its rows, with nothing sent.
+
+    Every stage list is this block.  What a screen puts above it is `header` — the
+    Sprint's dates and metrics, nothing on a plain list — and what it puts under it is
+    its own rows.  `action` is where paging and `back` come back to, so a screen redraws
+    itself rather than another one showing the same stage.
+    """
+    payload = payload or {}
+    cards = await actions_on_stages(session, stage)
+    current, descriptions, rows = await card_list_rows(
+        session,
+        services,
+        cards,
+        page=page,
+        back={"action": action, **payload},
+        stage=stage,
+    )
+    rows.extend(await paging_row(session, services.owner_id, current, action, payload))
+    tap = STAGE_QUICK_MOVE[stage].header
+    return (
+        card_list_text(
+            title, current, descriptions, header=f"{header}\n{tap}" if header else tap
+        ),
+        rows,
+    )
+
+
 async def render_dashboard(
     message: Message,
     services: Services,
@@ -106,37 +172,21 @@ async def render_dashboard(
     notice: str | None = None,
 ) -> None:
     async with services.sessions() as session:
-        cards = list(
-            await session.scalars(
-                select(Card).where(
-                    Card.effective_stage == stage.value,
-                    Card.kind == CardKind.ACTION.value,
-                    Card.archived_at.is_(None),
-                )
-            )
-        )
-        current, descriptions, rows = await card_list_rows(
+        text, rows = await stage_list_block(
             session,
             services,
-            cards,
+            stage,
+            title=title,
             page=page,
-            back={"action": "dashboard_page", "stage": stage.value, "title": title},
-        )
-        rows.extend(
-            await paging_row(
-                session,
-                services.owner_id,
-                current,
-                "dashboard_page",
-                {"stage": stage.value, "title": title},
-            )
+            action="dashboard_page",
+            payload={"stage": stage.value, "title": title},
         )
         rows.append(menu_row())
         await session.commit()
     await send_registered(
         message,
         services,
-        with_notice(card_list_text(title, current, descriptions), notice),
+        with_notice(text, notice),
         kind=MessageKind.DASHBOARD,
         markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )
@@ -144,6 +194,22 @@ async def render_dashboard(
 
 async def command_backlog(message: Message, services: Services) -> None:
     await render_dashboard(message, services, CardStage.BACKLOG, title="Backlog")
+
+
+async def command_today(message: Message, services: Services) -> None:
+    """Today is the Sprint's own stage, so it is a screen only while one runs."""
+    async with services.sessions() as session:
+        workspace = await session.get(Workspace, 1)
+    if workspace is None or not workspace.active_sprint_id:
+        await send_registered(
+            message,
+            services,
+            "Today opens once a Sprint is running. Plan the next Sprint first.",
+            kind=MessageKind.ERROR,
+            markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
+        )
+        return
+    await render_dashboard(message, services, CardStage.TODAY, title="Today")
 
 
 async def render_children(

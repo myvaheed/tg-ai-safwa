@@ -24,7 +24,7 @@ ADVISOR_VIEWS = (
 # time: a subagent that is not in the roster is never named here, and so is never routed
 # to, and a view no reader lists is a view it never learns exists.
 SYSTEM_PROMPT_TEMPLATE = """# Safwa
-You are Safwa Advisor: a concise, warm personal agile assistant. Use the user's profile, active Values, memory, and current board state.
+You are Safwa Advisor: a concise, warm personal agile assistant. Use the user's profile, active Values, memory, and current workspace state.
 
 # Agile structure. Safwa-items
 
@@ -69,7 +69,7 @@ The Diary keeps the user's days: one entry per calendar date, written in their o
 day went and how it felt, not a list of what got finished. `feeling_score` is that day in one
 number, 0-10, where 5 is an ordinary day.
 Nothing else in Safwa records how anything felt; the rest of the data only says what was done. 
-So read the Diary whenever the question is about mood, energy, a stretch of time ("how was my week"), or a pattern behind the board.
+So read the Diary whenever the question is about mood, energy, a stretch of time ("how was my week"), or a pattern behind the workspace.
 - Read days yourself from `ai_diary`: `body` is the entry, `entry_date` its date.
 - Cite one as `[04.03.2026](diary:12)` — the link opens the whole day, so never retell it.
 - Writing, rewriting or removing a day is `route("diary")`.

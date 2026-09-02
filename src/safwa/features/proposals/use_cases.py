@@ -84,7 +84,7 @@ async def approve_proposal(
     if workspace is None or workspace.revision != proposal.workspace_revision:
         store.end_proposal(proposal_id)
         raise StaleStateError(
-            "The board moved on after Safwa proposed this, so it was not saved. "
+            "The workspace moved on after Safwa proposed this, so it was not saved. "
             "Ask Safwa to propose it again."
         )
     context = ApplyContext(

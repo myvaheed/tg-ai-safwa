@@ -70,7 +70,7 @@ row. The row is what survives a suspension:
 | `status` | `running`, `awaiting_approval`, `interrupted`, `completed`, `failed`, `abandoned` |
 
 `AgentSession.restore` rebuilds a suspended run from its own row. The context prefix is **not**
-restored — it is rebuilt from live state, so the board and the clock are current while the session's
+restored — it is rebuilt from live state, so the workspace and the clock are current while the session's
 own steps come only from its record.
 
 Three things happen to a session that stops on a person, and `AgentManager` owns all three:
@@ -128,7 +128,7 @@ can cache the stable prefix:
 
 ```text
 messages[0]  system   SYSTEM_PROMPT                  ← cache breakpoint
-messages[1]  user     [System]: memory + board state
+messages[1]  user     [System]: memory + workspace state
    …         user/assistant   the dialogue window
 messages[-1] user     [System]: the clock            ← volatile, always last
 ```
@@ -141,7 +141,7 @@ system message.
 `messages[0]` costs every cache hit and scatters OpenRouter's sticky provider routing.
 `tests/snapshots/prompt_prefix.json` is what notices if it moves.
 
-A routed subagent's context is the same order under its own prompt: prompt → board state →
+A routed subagent's context is the same order under its own prompt: prompt → workspace state →
 `<Conversation>` → this turn's receipts → clock.
 
 ## `route` — one turn handed to a subagent
@@ -149,10 +149,10 @@ A routed subagent's context is the same order under its own prompt: prompt → b
 ```mermaid
 sequenceDiagram
     participant A as Advisor
-    participant B as board subagent
+    participant B as workspace mutator
     participant S as Screen
     participant O as Owner
-    A->>B: route("board")
+    A->>B: route("workspace_mutator")
     B->>B: query_safwa, then one mutation tool per change
     B->>S: open review → review screen
     Note over A,B: whole chain suspends, status awaiting_approval
@@ -230,7 +230,7 @@ flowchart LR
 ```
 
 - The model never mutates and never writes mutation SQL.
-- **Every mutation tool belongs to a subagent**, never to the Advisor. `board` owns the board,
+- **Every mutation tool belongs to a subagent**, never to the Advisor. `workspace` owns the workspace,
   `diary` owns the Diary. Preparation runs where the change was authored.
 - **Every proposal screen is exactly Save/Discard.** A screen that needs a field control is the
   wrong screen.
@@ -374,7 +374,7 @@ flowchart LR
     CAT --> ALLOW[ALLOWED_VIEWS]
     CAT --> DOC["view_catalogue(views, names)"]
     DOC -->|{views}| P1[SYSTEM_PROMPT · 9 views]
-    DOC --> P2[board prompt · 7 views]
+    DOC --> P2[workspace prompt · 7 views]
     DOC --> P3[heavy_analyzer prompt · 10 views]
 ```
 

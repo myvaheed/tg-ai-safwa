@@ -6,10 +6,9 @@ import html
 from dataclasses import dataclass
 from typing import Any
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton
 
 from ..constants import PAGE_SIZE
-from ..foundation.screens import ScreenCommand
 
 CITATION_TITLE_LIMIT = 25
 
@@ -50,23 +49,6 @@ def paginate(items: list[Any], page: int, size: int = PAGE_SIZE) -> Page:
     return Page(items[index * size : (index + 1) * size], index, last + 1)
 
 
-def menu_markup(
-    commands: tuple[ScreenCommand, ...], *, sprint_active: bool
-) -> InlineKeyboardMarkup:
-    """The menu, as the screens themselves declared it.
-
-    Today belongs to a running Sprint, so Planning does not offer it while there is none.
-    """
-    rows: dict[int, list[InlineKeyboardButton]] = {}
-    for screen in commands:
-        if screen.menu is None or (screen.needs_sprint and not sprint_active):
-            continue
-        rows.setdefault(screen.menu.row, []).append(
-            InlineKeyboardButton(text=screen.menu.label, callback_data=f"nav:{screen.nav}")
-        )
-    return InlineKeyboardMarkup(inline_keyboard=[rows[row] for row in sorted(rows)])
-
-
 def menu_row() -> list[InlineKeyboardButton]:
     """A consistent escape hatch for a screen reached through quick actions."""
     return [InlineKeyboardButton(text="↩️ Menu", callback_data="nav:home")]
@@ -75,7 +57,7 @@ def menu_row() -> list[InlineKeyboardButton]:
 def start_payload(text: str | None) -> str | None:
     """The deep-link payload of a `/start <payload>` message, if this is one.
 
-    `command_start` also serves the menu's Home button, where it is handed the bot's own
+    `render_home` also serves the menu's Home button, where it is handed the bot's own
     screen — only a real command line may be read as a payload.
     """
     parts = (text or "").strip().split(maxsplit=1)

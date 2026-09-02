@@ -13,7 +13,6 @@ from safwa.ai.runs import AgentRun
 from safwa.constants import REMINDER_CATCHUP_GRACE_MINUTES
 from safwa.cues.runtime import CueRuntime
 from safwa.enums import MessageKind, ScheduleKind
-from safwa.features.board.state import board_context
 from safwa.features.proposals.store import ProposalStore
 from safwa.features.proposals.use_cases import open_batch
 from safwa.features.reminders.background import Firing, format_cue
@@ -32,6 +31,7 @@ from safwa.features.reminders.use_cases import (
     reschedule_reminder,
     update_reminder_text,
 )
+from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.errors import DomainError
 from safwa.foundation.models import Workspace
 from safwa.turn import TurnManager
@@ -592,7 +592,7 @@ async def test_no_reminder_reaches_the_cacheable_board_context(sessions):
             tz=TZ,
         )
         await session.commit()
-        context = await board_context(session)
+        context = await workspace_context(session)
 
     assert "Review the launch plan" not in context.state
     assert "Reminder" not in context.state

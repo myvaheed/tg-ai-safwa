@@ -9,7 +9,6 @@ from sqlalchemy import select
 from safwa.bootstrap.modules import MODULES
 from safwa.constants import SPRINT_LENGTH_DAYS
 from safwa.cues.model import Cue
-from safwa.features.board.state import board_context
 from safwa.features.cards.model import CardStage
 from safwa.features.cards.use_cases import create_card as create_domain_card
 from safwa.features.cards.use_cases import (
@@ -31,6 +30,7 @@ from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.use_cases import delete_reminder
 from safwa.features.values.use_cases import create_value
+from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.clock import SystemClock
 from safwa.foundation.errors import DomainError
 from safwa.foundation.models import Workspace
@@ -81,7 +81,7 @@ async def test_pl_criteria_004_success_criteria_outlive_the_sprint(sessions):
         await session.commit()
 
         assert (await session.get(Workspace, 1)).sprint_success_criteria == "Ship v2"
-        context = await board_context(session)
+        context = await workspace_context(session)
 
     assert "No Sprint is running" in context.state
     assert "Draft Success criteria for the next one: Ship v2" in context.state
@@ -295,7 +295,7 @@ async def test_pl_context_010_safwa_is_handed_the_sprint_and_todays_actions(sess
         sprint = await start_sprint(session, success_criteria="Ship v2")
         await session.commit()
 
-        context = await board_context(session)
+        context = await workspace_context(session)
 
     assert f"Sprint {sprint.number}: {sprint.planned_start_date} – {sprint.planned_end_date}" in (
         context.state
@@ -319,7 +319,7 @@ async def test_board_context_lists_critical_cards_valued_first(sessions):
         await create_card(session, title="Ordinary", priority="medium")
         await session.commit()
 
-        context = await board_context(session)
+        context = await workspace_context(session)
 
     listed = [line for line in context.state.splitlines() if line.startswith("- [")]
     assert len(listed) == 10

@@ -1,13 +1,10 @@
-"""The Sprint screens: Today, the running Sprint, and Planning.
+"""The Sprint screen, and the Planning screen that stands in for it.
 
-Today exists only while a Sprint runs, so both dashboards are here rather than beside the
-generic Backlog list.  Planning is what stands in for the Sprint before one starts: it
-carries the Success criteria and the shape of the plan, and it offers Start only once it
-has both, because a Sprint that begins without either is a Sprint nobody can close against
-anything.  The plan itself is built one screen further in, in `plan.py`.
-
-The retro a finished Sprint left behind is here too: it is the same Sprint, read after it
-closed, and it is what a `retro:` citation opens.
+The running Sprint is a list of Actions under what the Sprint committed to, so it is
+composed here out of the Card list Cards draws.  Planning carries the Success criteria
+and the shape of the plan, and it offers Start only once it has both, because a Sprint
+that begins without either is a Sprint nobody can close against anything.  The plan
+itself is built one screen further in, in `plan.py`.
 """
 
 from __future__ import annotations
@@ -31,7 +28,6 @@ from ....shell import (
     TextInputScreen,
     edit_registered_message,
     menu_row,
-    paging_row,
     render_text_input,
     required_text,
     send_registered,
@@ -40,59 +36,13 @@ from ....shell import (
 )
 from ...cards.api import CardStage, actions_on_stages
 from ...cards.model import Card
-from ...cards.telegram import card_list_rows, card_list_text
+from ...cards.telegram import stage_list_block
 from ...profile.api import capacity_effort_points
 from ..model import Sprint
 from ..use_cases import set_sprint_success_criteria, sprint_length_days, sprint_metrics
 
 _PROMPT_TTL = timedelta(minutes=30)
 
-TODAY_BACK = {"action": "today_page"}
-SPRINT_BACK = {"action": "sprint_page"}
-
-
-async def render_today(
-    message: Message, services: Services, *, page: int = 0, notice: str | None = None
-) -> None:
-    async with services.sessions() as session:
-        workspace = await session.get(Workspace, 1)
-        if workspace is None or not workspace.active_sprint_id:
-            await send_registered(
-                message,
-                services,
-                "Today opens once a Sprint is running. Plan the next Sprint first.",
-                kind=MessageKind.ERROR,
-                markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
-            )
-            return
-        cards = await actions_on_stages(session, CardStage.TODAY)
-        current, descriptions, rows = await card_list_rows(
-            session,
-            services,
-            cards,
-            page=page,
-            back=TODAY_BACK,
-            quick_move=CardStage.SPRINT,
-        )
-        rows.extend(
-            await paging_row(
-                session, services.owner_id, current, "today_page", {}
-            )
-        )
-        rows.append(menu_row())
-        await session.commit()
-    await send_registered(
-        message,
-        services,
-        with_notice(
-            card_list_text(
-                "Today", current, descriptions, header="🏃 moves an Action back to the Sprint."
-            ),
-            notice,
-        ),
-        kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=rows),
-    )
 
 
 async def render_sprint(
@@ -115,35 +65,27 @@ async def render_sprint(
     async with services.sessions() as session:
         sprint = await session.get(Sprint, active_sprint_id)
         metrics = await sprint_metrics(session, sprint.id)
-        cards = await actions_on_stages(session, CardStage.SPRINT)
-        current, descriptions, rows = await card_list_rows(
+        block, rows = await stage_list_block(
             session,
             services,
-            cards,
+            CardStage.SPRINT,
+            title=f"Sprint {sprint.number}",
             page=page,
-            back=SPRINT_BACK,
-            quick_move=CardStage.TODAY,
-        )
-        rows.extend(
-            await paging_row(
-                session, services.owner_id, current, "sprint_page", {}
-            )
+            action="sprint_page",
+            header=(
+                f"{sprint.planned_start_date} – {sprint.planned_end_date}\n"
+                f"Success criteria: {html.escape(sprint.success_criteria)}\n"
+                f"Committed {metrics['committed']} · Added {metrics['added']} · "
+                f"Done {metrics['completed']} · Cancelled {metrics['cancelled']}"
+            ),
         )
         # On the last day ending the Sprint is not early, and the button says so.
         local_today = utcnow().astimezone(ZoneInfo(workspace.timezone)).date()
         finishing = "⏹ Finish Sprint" if local_today >= sprint.planned_end_date else "⏹ Finish early"
         rows.append([await token_button(session, services.owner_id, finishing, "sprint_finish")])
         rows.append(menu_row())
-        header = (
-            f"{sprint.planned_start_date} – {sprint.planned_end_date}\n"
-            f"Success criteria: {html.escape(sprint.success_criteria)}\n"
-            f"Committed {metrics['committed']} · Added {metrics['added']} · "
-            f"Done {metrics['completed']} · Cancelled {metrics['cancelled']}\n"
-            "☀️ moves an Action into Today."
-        )
-        title = f"Sprint {sprint.number}"
         await session.commit()
-    text = with_notice(card_list_text(title, current, descriptions, header=header), notice)
+    text = with_notice(block, notice)
     markup = InlineKeyboardMarkup(inline_keyboard=rows)
     if replace_message_id is not None:
         await edit_registered_message(
@@ -254,40 +196,6 @@ def plan_cost(planned: list[Card], capacity: int | None) -> tuple[str, str]:
     )
     above = f"⚠️ Above configured capacity ({capacity} EP)." if capacity and effort > capacity else ""
     return line, above
-
-
-async def render_sprint_retro(message: Message, services: Services, sprint_id: int) -> None:
-    """The Sprint retro screen. It is empty: the retrospective is its own feature."""
-    async with services.sessions() as session:
-        sprint = await session.get(Sprint, sprint_id)
-        if sprint is None:
-            raise DomainError("Sprint does not exist")
-        rows = [menu_row()]
-        text = (
-            f"<b>Sprint {sprint.number} retro</b>\n"
-            f"{sprint.planned_start_date} – {sprint.planned_end_date}\n"
-            f"Success criteria: {html.escape(sprint.success_criteria)}\n\n"
-            "There is nothing here yet."
-        )
-        await session.commit()
-    await send_registered(
-        message,
-        services,
-        text,
-        kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=rows),
-    )
-
-
-async def retro_citation_label(session: AsyncSession, services: Any, sprint: Sprint) -> str:
-    return f"📊 Sprint {sprint.number} retro"
-
-
-async def open_sprint_retro(
-    message: Any, services: Any, item_id: int, *, replace: bool | None = None
-) -> None:
-    """The retro is always its own message: it is what a finished Sprint left behind."""
-    await render_sprint_retro(message, services, item_id)
 
 
 async def _apply_success_criteria(

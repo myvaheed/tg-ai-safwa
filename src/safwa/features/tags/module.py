@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ...bootstrap.module_manifest import FeatureModule, ProposalContribution
-from ...foundation.screens import MenuButton, ScreenCommand, ScreenSpec
+from ...foundation.screens import ScreenCommand, ScreenSpec
 from . import agent, proposal, telegram, views
 from .model import Tag
 from .telegram import TAG_CALLBACK_ACTIONS, command_tags
@@ -32,7 +32,7 @@ MODULE = FeatureModule(
             command="tags",
             description="Manage Tags",
             nav="tags",
-            menu=MenuButton("🏷 Tags", row=3),
+            title="🏷 Tags",
         ),
     ),
     callback_actions=TAG_CALLBACK_ACTIONS,

@@ -17,13 +17,14 @@ from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
 from safwa.constants import PLAN_LINK_BURST_TAPS
 from safwa.cues.model import Cue
 from safwa.features.cards.model import Card, CardStage
+from safwa.features.cards.telegram import command_today
 from safwa.features.cards.use_cases import create_card
+from safwa.features.home.telegram import render_home
 from safwa.features.planning.model import Sprint
 from safwa.features.planning.telegram import (
     handle_plan_start,
     render_plan,
     render_sprint,
-    render_today,
 )
 from safwa.features.planning.telegram.plan import claims_plan_payload
 from safwa.features.planning.use_cases import set_sprint_success_criteria, start_sprint
@@ -33,7 +34,7 @@ from safwa.features.reminders.model import Reminder
 from safwa.features.saved_requests.use_cases import create_saved_request
 from safwa.foundation.clock import SystemClock
 from safwa.foundation.models import Workspace
-from safwa.shell import callback_token_handler, command_start
+from safwa.shell import callback_token_handler
 from safwa.shell.model import UiSession
 from safwa.turn.dialogue import ordinary_text
 
@@ -43,7 +44,7 @@ async def test_pl_mode_001_the_menu_offers_today_only_while_a_sprint_runs(sessio
     services = services_for(sessions)
     message = FakeMessage(74, bot_message=True)
 
-    await command_start(message, services)
+    await render_home(message, services)
     assert "☀️ Today" not in button_texts(message.edits[-1][1])
 
     async with sessions() as session:
@@ -53,7 +54,7 @@ async def test_pl_mode_001_the_menu_offers_today_only_while_a_sprint_runs(sessio
         await start_sprint(session, success_criteria="Ship v2")
         await session.commit()
 
-    await command_start(message, services)
+    await render_home(message, services)
     assert "☀️ Today" in button_texts(message.edits[-1][1])
 
 
@@ -61,7 +62,7 @@ async def test_pl_mode_001_the_today_screen_is_closed_during_planning(sessions) 
     """PL-MODE-001 — tests/brd/planning.feature"""
     message = FakeMessage(75, bot_message=True)
 
-    await render_today(message, services_for(sessions))
+    await command_today(message, services_for(sessions))
 
     text, markup = message.edits[-1]
     assert "Plan the next Sprint first" in text
@@ -79,7 +80,7 @@ async def test_quick_move_buttons_walk_an_action_between_today_and_sprint(sessio
 
     services = services_for(sessions)
     message = FakeMessage(76, bot_message=True)
-    await render_today(message, services)
+    await command_today(message, services)
 
     text, markup = message.edits[-1]
     assert "Ship it" in text

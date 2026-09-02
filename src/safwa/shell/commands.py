@@ -1,7 +1,7 @@
 """The screens the owner opens by name, and what publishing them to Telegram takes.
 
-Safwa's own three commands are here — home, diagnostics and cancelling a running answer.
-Every other command belongs to the feature that draws the screen behind it and reaches this
+Safwa's own two commands are here — diagnostics and cancelling a running answer. Every
+other command belongs to the feature that draws the screen behind it and reaches this
 module only as a `ScreenCommand` the composition root collected.
 """
 
@@ -21,15 +21,14 @@ from ..enums import MessageKind
 from ..foundation.models import Workspace
 from ..foundation.screens import ScreenCommand
 from .chat import dismiss_prior_ui, remove_turn_notice, send_registered
-from .layout import menu_markup, start_payload
+from .layout import start_payload
 from .model import UiSession
-from .screens import open_citation
-from .services import Services, router, sprint_is_active
+from .services import Services, router
 
 logger = logging.getLogger(__name__)
 
 
-def _claimed_link(services: Services, payload: str | None):
+def claimed_link(services: Services, payload: str | None):
     """The feature that answers this deep link itself, if one does."""
     if payload is None:
         return None
@@ -51,29 +50,15 @@ async def dismiss_screens_before_a_command(
     text = event.text or ""
     if text.lstrip().startswith("/"):
         services: Services = data["services"]
-        if _claimed_link(services, start_payload(text)) is None:
+        if claimed_link(services, start_payload(text)) is None:
             await dismiss_prior_ui(event, services)
     return await handler(event, data)
 
 
-async def command_start(message: Message, services: Services) -> None:
-    payload = start_payload(message.text)
-    if payload is not None:
-        link = _claimed_link(services, payload)
-        if link is not None:
-            await link.open(message, services, payload)
-        else:
-            await open_citation(message, services, payload)
-        return
-    async with services.sessions() as session:
-        sprint_active = await sprint_is_active(session)
-    await send_registered(
-        message,
-        services,
-        "<b>Safwa</b>\nYour personal agile advisor. Choose a dashboard or just write to me.",
-        kind=MessageKind.DASHBOARD,
-        markup=menu_markup(services.commands, sprint_active=sprint_active),
-    )
+async def open_home(message: Message, services: Services) -> None:
+    """Draw the menu screen, whichever feature owns it. The shell holds no list of them."""
+    handler = next(screen.handler for screen in services.commands if screen.nav == "home")
+    await handler(message, services)
 
 
 async def command_status(message: Message, services: Services) -> None:
@@ -97,9 +82,6 @@ async def command_cancel(message: Message, services: Services) -> None:
 
 
 SHELL_COMMANDS: tuple[ScreenCommand, ...] = (
-    ScreenCommand(
-        handler=command_start, command="start", description="Open Safwa", nav="home"
-    ),
     ScreenCommand(handler=command_status, command="status", description="Safwa diagnostics"),
     ScreenCommand(handler=command_cancel, command="cancel", description="Cancel generation"),
 )

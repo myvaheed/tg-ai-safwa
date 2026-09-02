@@ -183,7 +183,7 @@ def services_for(sessions, *, advisor=None, reviews=None, transcriber=None):
         turn=TurnManager(),
         screens=SCREENS,
         chat=ChatHost(TelegramNotes(sessions), MARKS, spawn=spawn_timer),
-        commands=(*SHELL_COMMANDS, *FEATURE_COMMANDS),
+        commands=(*FEATURE_COMMANDS, *SHELL_COMMANDS),
         callback_actions=CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
         views=ALLOWED_VIEWS,

@@ -21,15 +21,15 @@ from ...ai.mini import (
     MiniSessionError,
     ReadToolSpec,
     TerminalTool,
-    query_read_tool,
     run_mini_session,
 )
 from ...ai.sql import ReadOnlyQueryRunner
+from ...ai.tools import query_read_tool
 
 NAME = "heavy_analyzer"
 
 # Reading is the whole job, so exploring costs more than one turn of the Advisor's does.
-# Past this the session gives up and says so rather than reading its way through the board.
+# Past this the session gives up and says so rather than reading its way through the workspace.
 HEAVY_ANALYZER_MAX_TOOL_CALLS = 10
 
 # Every view, the log of changes included: a question about a stretch of time is what this

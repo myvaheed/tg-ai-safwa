@@ -1,6 +1,6 @@
 """What the model may do with a Reminder.
 
-Two things live here because they are one contract: the mutation tool the board subagent
+Two things live here because they are one contract: the mutation tool the workspace mutator
 calls, and the setup session that turns its free-text ``when`` into schedule parameters.
 The model never names a schedule shape — it is derived from which parameters came back.
 """

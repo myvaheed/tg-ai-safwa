@@ -1,0 +1,36 @@
+"""The menu screen, and the deep link that opens an item instead of it."""
+
+from __future__ import annotations
+
+from aiogram.types import Message
+
+from ...enums import MessageKind
+from ...shell import (
+    Services,
+    claimed_link,
+    open_citation,
+    send_registered,
+    sprint_is_active,
+    start_payload,
+)
+from .api import menu_markup
+
+
+async def render_home(message: Message, services: Services) -> None:
+    payload = start_payload(message.text)
+    if payload is not None:
+        link = claimed_link(services, payload)
+        if link is not None:
+            await link.open(message, services, payload)
+        else:
+            await open_citation(message, services, payload)
+        return
+    async with services.sessions() as session:
+        sprint_active = await sprint_is_active(session)
+    await send_registered(
+        message,
+        services,
+        "<b>Safwa</b>\nYour personal agile advisor. Choose a dashboard or just write to me.",
+        kind=MessageKind.DASHBOARD,
+        markup=menu_markup(services.commands, sprint_active=sprint_active),
+    )

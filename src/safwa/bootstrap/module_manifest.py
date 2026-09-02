@@ -50,7 +50,7 @@ class AgentSpec:
     # The views this subagent is told about, filled into `{views}` in its instructions.
     # A prompt that spells its own out leaves this empty and keeps what it wrote.
     views: tuple[str, ...] = ()
-    board_state: bool = False
+    workspace_state: bool = False
     read_tools: Callable[[AgentContext], tuple[ReadToolSpec, ...]] | None = None
     clock: Callable[[AgentContext], Callable[[], str]] | None = None
 

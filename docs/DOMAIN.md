@@ -3,21 +3,22 @@
 What a Card, a Check and a Sprint are, and the invariants every write path has to hold. The rule
 itself is `tests/brd/*.feature`; this is the shape those scenarios add up to, in one place.
 
-## Board and Planning are not the same word
+## The workspace and Planning are not the same word
 
 **One package per `.feature` file**, so a rule and the code that keeps it are found together.
 
-- **The board** is what the owner keeps: Cards, Checks, Values, Tags, Requests and Reminders — the
-  set, not one entity. `board` is the subagent that proposes every change to it, and
-  [features/board](../src/safwa/features/board) is that subagent and nothing else: the roster lets
-  it declare mutation tools the features that own those entities publish.
+- **The workspace** is what the owner keeps: Cards, Checks, Values, Tags, Requests and Reminders —
+  the set, not one entity. `workspace_mutator` is the subagent that proposes every change to it,
+  and [features/workspace_mutator](../src/safwa/features/workspace_mutator) is that subagent and
+  nothing else: the roster lets it declare mutation tools the features that own those entities
+  publish.
 - **Planning** is the workspace mode without a running Sprint (`WorkspaceMode.PLANNING`), the Sprint
   itself, and the screen where the next one is planned.
   [features/planning](../src/safwa/features/planning) is exactly that and nothing else.
 
-A Card is not "planning data". Say Card, Check, Value, Tag, Sprint — or say the board.
+A Card is not "planning data". Say Card, Check, Value, Tag, Sprint — or say the workspace.
 
-`AgentSpec.board_state` is that set's current state, sent to a subagent that asked for it, and the
+`AgentSpec.workspace_state` is that set's current state, sent to a subagent that asked for it, and the
 model reads it under that name. The `Workspace mode:` line inside it is the other word: there
 `planning` is the mode with no Sprint.
 

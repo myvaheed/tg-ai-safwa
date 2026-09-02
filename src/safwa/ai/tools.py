@@ -38,13 +38,15 @@ from .contracts import (
     CallHelperInput,
     MutationToolSpec,
     OpenInput,
+    QueryToolInput,
     RouteInput,
     ToolResultStatus,
     tool_json_schema,
     validation_error_summary,
 )
 from .conversation import conversation_block
-from .sql import QUERY_SAFWA_TOOL, ReadOnlyQueryRunner, is_complex_read, read_query
+from .mini import ReadToolSpec
+from .sql import ReadOnlyQueryRunner, is_complex_read, read_query
 from .subagents import RoutedSubagent
 
 logger = logging.getLogger(__name__)
@@ -54,6 +56,17 @@ logger = logging.getLogger(__name__)
 Helper = Callable[..., Awaitable[dict[str, Any]]]
 
 
+QUERY_SAFWA_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "query_safwa",
+        "description": (
+            "Read Safwa's current data with one read-only SELECT over the ai_* views listed "
+            "in your instructions. Use it before you answer or propose anything."
+        ),
+        "parameters": tool_json_schema(QueryToolInput),
+    },
+}
 OPEN_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -96,6 +109,20 @@ SAFWA_TOOLS = (QUERY_SAFWA_TOOL, OPEN_TOOL)
 # of becoming a proposal the owner approves. A session's own read tools are immediate too,
 # but they are its own: a subagent that named one of these would never be heard.
 IMMEDIATE_TOOLS = frozenset({"query_safwa", "route", "open", "call_helper"})
+
+
+def query_read_tool(query_runner: ReadOnlyQueryRunner) -> ReadToolSpec:
+    """`query_safwa` as a read tool a mini session declares for itself.
+
+    A mini session never runs through `ToolAdapters`, so this is how it reaches the same
+    door: the runner, its caps and its wording are `ai/sql.py`'s for every reader.
+    """
+
+    async def read(call: ToolCall) -> list[dict[str, Any]]:
+        return (await read_query(query_runner, call)).rows
+
+    return ReadToolSpec(QUERY_SAFWA_TOOL, read)
+
 
 REPAIR_EXHAUSTED = (
     "I could not prepare the requested change after five repair attempts. "

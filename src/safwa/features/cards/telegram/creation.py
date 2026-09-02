@@ -17,15 +17,15 @@ from ....shell import (
     CallbackHandler,
     Services,
     TextInputScreen,
-    command_start,
     edit_registered_message,
-    menu_markup,
+    open_home,
     render_text_input,
     send_registered,
     sprint_is_active,
     token_button,
 )
 from ....shell.model import UiSession
+from ...home.api import menu_markup
 from ...tags.model import Tag
 from ...values.model import Value
 from ..use_cases import create_card
@@ -294,7 +294,7 @@ async def _on_discard(context: CallbackContext) -> None:
     async with context.sessions() as session:
         await session.execute(delete(UiSession).where(UiSession.owner_id == context.owner_id))
         await session.commit()
-    await command_start(context.message, context.services)
+    await open_home(context.message, context.services)
 
 
 CARD_DRAFT_ACTIONS: dict[str, CallbackHandler] = {

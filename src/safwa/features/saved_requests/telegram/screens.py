@@ -1,4 +1,4 @@
-"""The Requests the owner keeps: the list, and one Request run against the board."""
+"""The Requests the owner keeps: the list, and one Request run against the workspace."""
 
 from __future__ import annotations
 

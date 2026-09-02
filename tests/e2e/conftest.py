@@ -23,10 +23,10 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
 )
 from safwa.features.advisor.session import AIAdvisor
-from safwa.features.board.agent import BOARD_TOOLS
 from safwa.features.continuity.memory import MemoryFileStore
 from safwa.features.heavy_analyzer import agent as heavy_analyzer
 from safwa.features.proposals.store import ProposalStore
+from safwa.features.workspace_mutator.agent import MUTATOR_TOOLS
 from safwa.foundation.database import Database, upgrade_database
 
 
@@ -98,7 +98,7 @@ class ScriptedProvider:
         wanted = {call.name for call in response.tool_calls}
         if not wanted or wanted <= offered or "call_helper" in wanted:
             return None
-        target = "diary" if wanted & {"read_day", "diary"} else "board"
+        target = "diary" if wanted & {"read_day", "diary"} else "workspace_mutator"
         return CompletionTurn(
             content="",
             tool_calls=(
@@ -123,16 +123,16 @@ class E2EHarness:
     # One harness is one running bot: the reviews it opens outlive each advisor it builds.
     reviews: ProposalStore = field(default_factory=ProposalStore)
 
-    def board(self) -> RoutedSubagent:
-        """The real board subagent: every mutation tool lives behind `route("board")`."""
+    def workspace(self) -> RoutedSubagent:
+        """The real workspace mutator: every mutation tool lives behind `route("workspace_mutator")`."""
         return RoutedSubagent(
-            name="board",
+            name="workspace_mutator",
             purpose="every change to the planning data",
             # The instructions as assembled, `{views}` filled in: what the application runs.
-            instructions=next(agent.instructions for agent in AGENTS if agent.name == "board"),
+            instructions=next(agent.instructions for agent in AGENTS if agent.name == "workspace_mutator"),
             # No read tool of its own: `query_safwa` is published by the adapters.
-            mutation_tools=BOARD_TOOLS,
-            board_state=True,
+            mutation_tools=MUTATOR_TOOLS,
+            workspace_state=True,
         )
 
     def advisor(
@@ -144,7 +144,7 @@ class E2EHarness:
         helpers: dict[str, object] | None = None,
         autoapprove: bool = False,
     ) -> tuple[AIAdvisor, ScriptedProvider]:
-        subagents = (self.board(),) if subagents is None else subagents
+        subagents = (self.workspace(),) if subagents is None else subagents
         provider = ScriptedProvider(responses)
         # One harness is one running bot, so every advisor it builds shares its reviews.
         advisor = AIAdvisor(

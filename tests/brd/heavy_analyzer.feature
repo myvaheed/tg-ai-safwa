@@ -74,4 +74,4 @@ Feature: The helper the Advisor calls
     Given the owner asks how much of a stretch of work they closed themselves
     When the helper reads the log of changes to Cards
     Then each change says whether the owner made it on a screen or an approved proposal did
-    And neither the Advisor nor the board is told that log exists
+    And neither the Advisor nor the workspace is told that log exists

@@ -14,7 +14,7 @@ Feature: Saved Requests
     When they look for a way to write one themselves
     Then there is none: the screens list them, open them and run them, and nothing else
     And the only way one comes into being is the owner approving a proposed Request
-    And the part of Safwa that keeps the board is what proposes one; the part that talks to the
+    And the part of Safwa that keeps the workspace is what proposes one; the part that talks to the
       owner never does
 
   Scenario: SR-WRITE-002 — A Request's name is taken whatever the capitals, and is never blank

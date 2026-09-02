@@ -8,7 +8,6 @@ from sqlalchemy import select
 
 from safwa.ai.messages import ordered_owner_context
 from safwa.bootstrap.modules import RECOVERY_HOOKS
-from safwa.features.board.state import board_context
 from safwa.features.cards.use_cases import create_card
 from safwa.features.planning.use_cases import start_sprint
 from safwa.features.profile.model import ProfileField, UserProfile
@@ -17,6 +16,7 @@ from safwa.features.profile.use_cases import profile_field, set_profile_field
 from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import resolve
 from safwa.features.reminders.use_cases import create_reminder
+from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.clock import SystemClock
 from safwa.foundation.errors import DomainError
 from safwa.foundation.models import Workspace
@@ -43,14 +43,14 @@ async def test_explicit_profile_context_is_after_memory_in_the_prompt(sessions) 
             "Current Advisor instruction",
             clock=SystemClock(),
         )
-        context = await board_context(session)
+        context = await workspace_context(session)
 
     rendered = ordered_owner_context(
         "About me: stale inference\nAdvisor instructions: stale inference",
         context.state,
     )
 
-    assert rendered.index("Persistent memory:") < rendered.index("Current board state:")
+    assert rendered.index("Persistent memory:") < rendered.index("Current workspace state:")
     assert rendered.index("About me: stale inference") < rendered.index("About me: Current About Me")
     assert rendered.index("Advisor instructions: stale inference") < rendered.index(
         "Advisor instructions: Current Advisor instruction"

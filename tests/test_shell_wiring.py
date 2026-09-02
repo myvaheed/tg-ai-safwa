@@ -24,12 +24,13 @@ from safwa.bootstrap.modules import (
     FEATURE_TEXT_INPUTS,
     SCREENS,
 )
+from safwa.features.home.api import MENU_LAYOUT, menu_markup
 from safwa.shell import (
     SHELL_COMMANDS,
     OwnerAndWritingMiddleware,
     register_commands,
 )
-from safwa.shell.layout import menu_markup, menu_row, start_payload
+from safwa.shell.layout import menu_row, start_payload
 
 
 def _telegram_module_trees() -> list[ast.Module]:
@@ -161,18 +162,19 @@ def test_every_declared_command_is_bound_to_its_command_line() -> None:
     assert bound == {screen.command for screen in commands if screen.command is not None}
 
 
-def test_the_menu_is_exactly_what_the_screens_declared() -> None:
-    """The menu held its own list of buttons until the features declared them."""
-    commands = (*SHELL_COMMANDS, *FEATURE_COMMANDS)
+def test_the_menu_draws_every_label_a_screen_declared() -> None:
+    """The titles are the features', the layout is Home's, and a title the layout does not
+    name is dropped without a word — so the two lists have to be the same list."""
+    commands = (*FEATURE_COMMANDS, *SHELL_COMMANDS)
+    placed = [nav for row in MENU_LAYOUT for nav in row]
+    assert len(placed) == len(set(placed))
+    assert sorted(placed) == sorted(
+        screen.nav for screen in commands if screen.title is not None
+    )
+
     rows = menu_markup(commands, sprint_active=True).inline_keyboard
     drawn = [button.callback_data.split(":", 1)[1] for row in rows for button in row]
-
-    # Row by row, and within a row in the order the features declared it.
-    declared = sorted(
-        (screen for screen in commands if screen.menu is not None),
-        key=lambda screen: screen.menu.row,
-    )
-    assert drawn == [screen.nav for screen in declared]
+    assert drawn == placed
     # Home is the one action reached without a menu button of its own.
     assert menu_row()[0].callback_data == "nav:home"
     assert {screen.nav for screen in commands if screen.nav is not None} == {
@@ -204,7 +206,7 @@ def test_start_payload_reads_only_a_command_line() -> None:
     assert start_payload("/start card-12") == "card-12"
     assert start_payload("/start@safwa_ai_bot card-12") == "card-12"
     assert start_payload("/start") is None
-    # The menu's Home button hands command_start the bot's own screen, never a command.
+    # The menu's Home button hands `render_home` the bot's own screen, never a command.
     assert start_payload("<b>Card</b>: Pull ups") is None
     assert SCREENS.parse_payload("check-14") == ("check", 14)
     assert SCREENS.parse_payload("sprint-1") is None

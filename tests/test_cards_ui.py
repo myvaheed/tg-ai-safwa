@@ -132,6 +132,28 @@ async def test_dashboard_paging_walks_between_pages(sessions) -> None:
     assert "Next ▶" not in button_texts(markup)
 
 
+async def test_one_tap_moves_an_action_one_step_along_the_stage_ladder(sessions) -> None:
+    """The three stage lists are one screen, and the button sits on the side the move goes."""
+    async with sessions() as session:
+        for stage in ("backlog", "sprint", "today"):
+            await create_card(
+                session, kind="action", title=f"Do {stage}", stage=stage, effort_points=1
+            )
+        await session.commit()
+
+    services = services_for(sessions)
+    rows = {}
+    for stage in (CardStage.BACKLOG, CardStage.SPRINT, CardStage.TODAY):
+        message = FakeMessage(96, bot_message=True)
+        await render_dashboard(message, services, stage, title=stage.value.title())
+        rows[stage] = [button.text for button in message.edits[-1][1].inline_keyboard[0]]
+
+    # Up the ladder the button is on the right; coming back down it is on the left.
+    assert rows[CardStage.BACKLOG][1] == "🏃"
+    assert rows[CardStage.SPRINT][1] == "☀️"
+    assert rows[CardStage.TODAY][0] == "🏃"
+
+
 async def test_tag_selector_pages_instead_of_truncating(sessions) -> None:
     """TA-PICK-007 — tests/brd/tags.feature"""
     overflow = SELECTOR_PAGE_SIZE + 2

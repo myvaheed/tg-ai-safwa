@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ...bootstrap.module_manifest import FeatureModule, ProposalContribution
-from ...foundation.screens import MenuButton, ScreenCommand, ScreenSpec
+from ...foundation.screens import ScreenCommand, ScreenSpec
 from . import agent, proposal, telegram, views
 from .model import Value
 from .telegram import VALUE_CALLBACK_ACTIONS, command_values
@@ -32,7 +32,7 @@ MODULE = FeatureModule(
             command="values",
             description="Values in focus",
             nav="values",
-            menu=MenuButton("💎 Values", row=3),
+            title="💎 Values",
         ),
     ),
     callback_actions=VALUE_CALLBACK_ACTIONS,

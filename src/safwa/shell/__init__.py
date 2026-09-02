@@ -31,14 +31,14 @@ from .chat import (
 )
 from .commands import (
     SHELL_COMMANDS,
-    command_start,
+    claimed_link,
     dismiss_screens_before_a_command,
+    open_home,
     register_commands,
     sync_bot_commands,
 )
 from .layout import (
     Page,
-    menu_markup,
     menu_row,
     paginate,
     short_citation_title,
@@ -89,7 +89,7 @@ __all__ = [
     "callback_token_handler",
     "choice_rows",
     "choice_screen",
-    "command_start",
+    "claimed_link",
     "delete_screen",
     "delete_text_input",
     "discard_stale_status",
@@ -101,9 +101,9 @@ __all__ = [
     "go_back",
     "go_back_action",
     "handle_text_input",
-    "menu_markup",
     "menu_row",
     "open_citation",
+    "open_home",
     "open_item_screen",
     "open_turn_notice",
     "owner_display_name",

@@ -20,7 +20,7 @@ from sqlalchemy import select, update
 from ..enums import MessageKind
 from ..foundation.errors import DomainError
 from .chat import send_registered
-from .commands import command_start
+from .commands import open_home
 from .model import CallbackToken
 from .services import CallbackContext, Services, router
 
@@ -37,7 +37,7 @@ async def go_back(
     action = (back or {}).get("action")
     handler = context.services.callback_actions.get(action) if action else None
     if handler is None:
-        await command_start(context.message, context.services)
+        await open_home(context.message, context.services)
         return
     payload = {key: value for key, value in back.items() if key != "action"}
     if notice is not None:

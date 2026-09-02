@@ -1,6 +1,6 @@
-"""The board subagent: what the roster promises about the one session that changes the board.
+"""The workspace mutator: what the roster promises about the one session that changes the workspace.
 
-The board is not an entity — it is the set the owner keeps, Cards, Checks, Values, Tags,
+The workspace is not an entity — it is the set the owner keeps, Cards, Checks, Values, Tags,
 Requests and Reminders — so what can be asserted here is the contract of the session that
 proposes every change to it.
 """
@@ -18,7 +18,7 @@ from safwa.bootstrap.modules import (
     PROPOSALS,
     SYSTEM_PROMPT,
 )
-from safwa.features.board.agent import BOARD_AGENT
+from safwa.features.workspace_mutator.agent import MUTATOR_AGENT
 
 
 def test_every_mutation_tool_belongs_to_the_board_or_to_the_diary():
@@ -27,13 +27,13 @@ def test_every_mutation_tool_belongs_to_the_board_or_to_the_diary():
     routed = {tool for agent in AGENTS for tool in agent.mutation_tools}
 
     assert routed == set(PROPOSALS.tools)
-    assert set(PROPOSALS.tools) - set(BOARD_AGENT.mutation_tools) == {"diary"}
+    assert set(PROPOSALS.tools) - set(MUTATOR_AGENT.mutation_tools) == {"diary"}
 
 
 def test_the_board_judges_a_change_against_the_state_it_is_given():
     # Its prompt tells it to weigh every proposal against the Sprint, the Success criteria
-    # and the active Values, which reach it only as the board state block.
-    assert BOARD_AGENT.board_state is True
+    # and the active Values, which reach it only as the workspace state block.
+    assert MUTATOR_AGENT.workspace_state is True
 
 
 # Every prompt a model reads a view list from, however that list was written.

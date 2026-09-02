@@ -225,7 +225,8 @@ async def run(settings: Settings) -> None:
         return timer
 
     chat = ChatHost(TelegramNotes(database.sessions), MARKS, spawn=spawn)
-    commands = (*SHELL_COMMANDS, *FEATURE_COMMANDS)
+    # Home is a feature now, and `/start` leads the published list, so its commands come first.
+    commands = (*FEATURE_COMMANDS, *SHELL_COMMANDS)
     register_commands(router, commands)
     transcriber = build_transcriber(settings)
     if transcriber is not None:

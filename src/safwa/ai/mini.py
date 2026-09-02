@@ -20,7 +20,6 @@ from llm_gateway import CompletionRequest, LlmProvider, ToolCall
 
 from ..constants import MINI_SESSION_REPAIR_ROUNDS
 from .contracts import ToolResultStatus, tool_json_schema
-from .sql import QUERY_SAFWA_TOOL, ReadOnlyQueryRunner, read_query
 
 logger = logging.getLogger(__name__)
 
@@ -188,16 +187,3 @@ def _reply(messages: list[dict[str, Any]], call: ToolCall, content: Any) -> None
             "content": json.dumps(content, ensure_ascii=False, default=str),
         }
     )
-
-
-def query_read_tool(query_runner: ReadOnlyQueryRunner) -> ReadToolSpec:
-    """`query_safwa` as a read tool a mini session declares for itself.
-
-    A mini session never runs through `ToolAdapters`, so this is how it reaches the same
-    door: the runner, its caps and its wording are `ai/sql.py`'s for every reader.
-    """
-
-    async def read(call: ToolCall) -> list[dict[str, Any]]:
-        return (await read_query(query_runner, call)).rows
-
-    return ReadToolSpec(QUERY_SAFWA_TOOL, read)

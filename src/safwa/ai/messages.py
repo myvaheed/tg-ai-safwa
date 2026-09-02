@@ -38,11 +38,11 @@ class StateBlocks:
     clock: str
 
 
-def ordered_owner_context(memory_text: str, board_state: str) -> str:
-    """Put the explicit board state after the durable memory it can override."""
+def ordered_owner_context(memory_text: str, workspace_state: str) -> str:
+    """Put the explicit workspace state after the durable memory it can override."""
     return (
         f"Persistent memory:\n{memory_text}"
-        f"\n\nCurrent board state:\n{board_state}"
+        f"\n\nCurrent workspace state:\n{workspace_state}"
     )
 
 
@@ -53,7 +53,7 @@ class ContextBuilder:
         self,
         sessions: async_sessionmaker[AsyncSession],
         memory: Memory,
-        board_state: Callable[[AsyncSession], Awaitable[StateBlocks]],
+        workspace_state: Callable[[AsyncSession], Awaitable[StateBlocks]],
         *,
         system_prompt: str,
         subagents: dict[str, RoutedSubagent],
@@ -63,7 +63,7 @@ class ContextBuilder:
         self.memory = memory
         # What the world looks like right now. The blocks are the application's, so the
         # builder is handed one rather than reaching into a feature for it.
-        self.board_state = board_state
+        self.workspace_state = workspace_state
         self.system_prompt = system_prompt
         self.subagents = subagents
         self.cache_breakpoints = cache_breakpoints
@@ -88,7 +88,7 @@ class ContextBuilder:
     async def advisor(self, dialogue: list[DialogueMessage]) -> list[dict[str, Any]]:
         memory = await self.memory.sync()
         async with self.sessions() as session:
-            context = await self.board_state(session)
+            context = await self.workspace_state(session)
         # Ordered by how often each block changes, so the stable prefix stays
         # byte-identical across turns and remote prompt caching can hit it.
         # Anything volatile goes after the dialogue, never into a system block.
@@ -123,10 +123,10 @@ class ContextBuilder:
         the ``SUBAGENT_HISTORY_LAST_MESSAGES`` window never trims them away.
         """
         messages: list[dict[str, Any]] = [{"role": "system", "content": routed.prompt}]
-        if routed.board_state:
+        if routed.workspace_state:
             async with self.sessions() as session:
-                context = await self.board_state(session)
-            append_user_message(messages, f"[System]: Current board state:\n{context.state}")
+                context = await self.workspace_state(session)
+            append_user_message(messages, f"[System]: Current workspace state:\n{context.state}")
         conversation = conversation_for(dialogue)
         if conversation:
             append_user_message(

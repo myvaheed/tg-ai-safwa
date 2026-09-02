@@ -183,7 +183,7 @@ async def test_the_in_memory_store_closes_a_branch_the_way_the_real_one_does() -
     """One port, one contract: everything unfinished below a session ends with it."""
     store = InMemorySessionStore()
     root = await store.create(kind="advisor")
-    child = await store.create(kind="board", parent_run_id=root.id)
+    child = await store.create(kind="workspace_mutator", parent_run_id=root.id)
     grandchild = await store.create(kind="diary", parent_run_id=child.id)
     for run in (child, grandchild):
         await store.leave_interrupted(run.id, {}, "left unfinished")

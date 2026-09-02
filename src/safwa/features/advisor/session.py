@@ -33,7 +33,6 @@ from ...ai.tools import Helper, ToolAdapters
 from ...constants import MAX_REPAIR_ROUNDS, MAX_TOOL_CALLS, SUBAGENT_DEADLINE_SECONDS
 from ...foundation.errors import failure_reason
 from ...foundation.screens import ScreenCatalogue
-from ..board.state import board_context
 from ..continuity.memory import MemoryFileStore
 from ..proposals.api import ProposalDescription, ProposalRegistry
 from ..proposals.materialize import ProposalMaterializer
@@ -48,6 +47,7 @@ from ..proposals.render import (
 )
 from ..proposals.store import ProposalStore
 from ..proposals.use_cases import decide_batch_item, interrupt_batch
+from ..workspace_mutator.state import workspace_context
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +110,7 @@ class AIAdvisor:
         self.context = ContextBuilder(
             sessions,
             memory,
-            board_context,
+            workspace_context,
             system_prompt=system_prompt,
             subagents=self.subagents,
             cache_breakpoints=cache_breakpoints,

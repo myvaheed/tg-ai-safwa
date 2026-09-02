@@ -36,7 +36,7 @@ features/<x>/
   telegram/      экраны и обработчики
 ```
 
-`features/board/` — это `agent.py`, `module.py` и `state.py`: субагент доски и её состояние,
+`features/workspace_mutator/` — это `agent.py`, `module.py` и `state.py`: субагент рабочего пространства и его состояние,
 и больше ничего. `features/advisor/` — промпт и обвязка корневой сессии, и `MODULE` он не объявляет.
 
 ## Три слоя, и дверь открывается не выше своего

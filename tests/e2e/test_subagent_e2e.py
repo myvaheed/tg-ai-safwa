@@ -144,10 +144,10 @@ async def test_an_autoapproved_board_route_hands_back_its_receipt(e2e_harness):
 
     advisor, provider = e2e_harness.advisor(
         [
-            turn(("route", {"name": "board"})),
+            turn(("route", {"name": "workspace_mutator"})),
             turn(
                 ("card", {"mode": "update", "id": card.id, "title": "Купить овсяное молоко"}),
-                prefix="board",
+                prefix="workspace_mutator",
             ),
             review_turn("The operation and every non-default value are explicit."),
             "Переименовал чек.",
@@ -160,14 +160,14 @@ async def test_an_autoapproved_board_route_hands_back_its_receipt(e2e_harness):
 
     assert outcome.kind is AIOutcomeKind.ANSWER
     assert [message["role"] for message in provider.calls[1]] == ["system", "user"]
-    receipt = next(receipt for receipt in route_receipts(provider) if receipt["subagent"] == "board")
+    receipt = next(receipt for receipt in route_receipts(provider) if receipt["subagent"] == "workspace_mutator")
     assert receipt["did"] == [
         "⚡ Auto-saved — Edit Action “Купить овсяное молоко” "
         "(Title: Купить молоко → Купить овсяное молоко)"
     ]
     assert receipt["text"] == "Переименовал чек."
     # Five turns are scripted and five are made. An automatic Save resolves a screen that is
-    # already suspended, so resuming the board session and then the Advisor is the only way
+    # already suspended, so resuming the workspace session and then the Advisor is the only way
     # either of them runs again — not a second pass through the turn that opened it.
     assert provider.total == 5
     async with e2e_harness.sessions() as session:
@@ -176,7 +176,7 @@ async def test_an_autoapproved_board_route_hands_back_its_receipt(e2e_harness):
     assert stored is not None and stored.title == "Купить овсяное молоко"
     assert [(run.kind, run.status, run.parent_run_id) for run in runs] == [
         ("advisor", "completed", None),
-        ("board", "completed", 1),
+        ("workspace_mutator", "completed", 1),
     ]
 
 
@@ -272,7 +272,7 @@ async def test_a_routed_subagent_is_offered_only_its_own_tools(e2e_harness):
 
     offered = {tool["function"]["name"] for tool in provider.options[1]["tools"]}
     assert offered == {"read_day", "query_safwa", "diary"}
-    # No recursion, and no reach into the board.
+    # No recursion, and no reach into the workspace.
     assert "route" not in offered
     assert "card" not in offered
 
@@ -281,7 +281,7 @@ async def test_the_board_owns_every_mutation_tool(e2e_harness):
     """PR-WRITE-002 — tests/brd/proposals.feature"""
     advisor, provider = e2e_harness.advisor(
         [
-            turn(("route", {"name": "board"})),
+            turn(("route", {"name": "workspace_mutator"})),
             turn(("card", {"mode": "create", "kind": "goal", "title": "Быть здоровым"})),
         ]
     )
@@ -307,7 +307,7 @@ async def test_the_board_owns_every_mutation_tool(e2e_harness):
         runs = list(await session.scalars(select(AgentRun).order_by(AgentRun.id)))
     assert [(run.kind, run.status) for run in runs] == [
         ("advisor", "awaiting_approval"),
-        ("board", "awaiting_approval"),
+        ("workspace_mutator", "awaiting_approval"),
     ]
 
 
@@ -321,7 +321,7 @@ async def test_a_subagent_reads_the_tail_of_the_conversation_as_tagged_data(e2e_
     ]
     advisor, provider = e2e_harness.advisor(
         [turn(("tag", {"mode": "create", "name": "VrWalk"}))],
-        subagents=(e2e_harness.board(),),
+        subagents=(e2e_harness.workspace(),),
     )
 
     await advisor.handle("Заведи тег VrWalk", dialogue=dialogue)
@@ -329,7 +329,7 @@ async def test_a_subagent_reads_the_tail_of_the_conversation_as_tagged_data(e2e_
     board_seen = [item for item in provider.calls[0] if item["role"] == "user"]
     assert len(board_seen) == 1
     conversation = str(board_seen[0]["content"])
-    assert conversation.startswith("[System]: Current board state:")
+    assert conversation.startswith("[System]: Current workspace state:")
     # The tail only, and every line says whose it is: the subagent said none of it, so
     # nothing reaches it in the slot it writes to itself.
     assert "сообщение 0" not in conversation
@@ -342,7 +342,7 @@ async def test_a_subagent_is_required_to_open_with_a_tool_call(e2e_harness):
     """AG-ANSWER-014 — tests/brd/agents.feature"""
     advisor, provider = e2e_harness.advisor(
         [turn(("tag", {"mode": "create", "name": "VrWalk"}))],
-        subagents=(e2e_harness.board(),),
+        subagents=(e2e_harness.workspace(),),
     )
 
     await advisor.handle("Заведи тег VrWalk")
@@ -445,21 +445,21 @@ async def test_two_domains_in_one_request_are_both_finished(e2e_harness):
         await session.commit()
         card_id = card.id
 
-    board = e2e_harness.board()
+    workspace = e2e_harness.workspace()
     diary = diary_subagent(e2e_harness)
     advisor, provider = e2e_harness.advisor(
         [
-            turn(("route", {"name": "board"})),
+            turn(("route", {"name": "workspace_mutator"})),
             turn(("card", {"mode": "update", "id": card_id, "title": "Приготовить пиццу"})),
         ],
-        subagents=(board, diary),
+        subagents=(workspace, diary),
     )
     first = await advisor.handle(
         "Переименуй действие в Приготовить пиццу и запиши вчерашний день в дневник"
     )
     assert first.kind is AIOutcomeKind.PROPOSAL
 
-    # Saving resumes the board, whose receipt resumes the Advisor, which routes on.
+    # Saving resumes the workspace, whose receipt resumes the Advisor, which routes on.
     async with e2e_harness.sessions() as session:
         affected = await approve_proposal(session, advisor.reviews, PROPOSALS, first.proposal_id)
         await session.commit()
@@ -487,12 +487,12 @@ async def test_two_domains_in_one_request_are_both_finished(e2e_harness):
         runs = list(await session.scalars(select(AgentRun).order_by(AgentRun.id)))
     assert [(run.kind, run.status, run.parent_run_id) for run in runs] == [
         ("advisor", "awaiting_approval", None),
-        ("board", "completed", 1),
+        ("workspace_mutator", "completed", 1),
         ("diary", "awaiting_approval", 1),
     ]
-    # The Advisor routed on because it read what the board had already saved.
+    # The Advisor routed on because it read what the workspace had already saved.
     receipt = route_receipts(provider)[0]
-    assert receipt["subagent"] == "board"
+    assert receipt["subagent"] == "workspace_mutator"
     assert receipt["did"] == [
         "✅ Saved — Edit Action “Приготовить пиццу” "
         "(Title: Приготовить еду → Приготовить пиццу)"
@@ -544,14 +544,14 @@ async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
         await session.commit()
         card_id = card.id
 
-    board = e2e_harness.board()
+    workspace = e2e_harness.workspace()
     diary = diary_subagent(e2e_harness)
     advisor, provider = e2e_harness.advisor(
         [
-            turn(("route", {"name": "board"})),
+            turn(("route", {"name": "workspace_mutator"})),
             turn(("card", {"mode": "update", "id": card_id, "title": "Приготовить пиццу"})),
         ],
-        subagents=(board, diary),
+        subagents=(workspace, diary),
     )
     first = await advisor.handle("Переименуй действие и запиши день")
     async with e2e_harness.sessions() as session:
@@ -571,7 +571,7 @@ async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
         result={"affected_ids": affected},
     )
 
-    # The Diary's own context names what the board already saved, in the owner's words.
+    # The Diary's own context names what the workspace already saved, in the owner's words.
     diary_seen = next(item for item in provider.calls[-1] if item["role"] == "user")
     context = str(diary_seen["content"])
     assert "✅ Saved — Edit Action “Приготовить пиццу”" in context
@@ -768,10 +768,10 @@ async def test_every_session_reads_through_the_one_door_and_no_one_declares_it_t
 ) -> None:
     """`query_safwa` comes from the adapters, so the Advisor and a subagent share one door."""
     advisor, _ = e2e_harness.advisor(
-        ["Готово."], subagents=(e2e_harness.board(), diary_subagent(e2e_harness))
+        ["Готово."], subagents=(e2e_harness.workspace(), diary_subagent(e2e_harness))
     )
 
-    for kind in ("advisor", "board", "diary"):
+    for kind in ("advisor", "workspace_mutator", "diary"):
         definition = advisor.adapters.definition(kind)
         names = [tool["function"]["name"] for tool in definition.tools]
         assert names.count("query_safwa") == 1, kind

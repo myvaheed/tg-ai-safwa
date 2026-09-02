@@ -49,22 +49,22 @@ def terminal(name: str, arguments: dict[str, Any] | None = None) -> CompletionTu
 
 def test_han_read_012_the_event_log_belongs_to_the_helper(read_views) -> None:
     """HAN-READ-012 — tests/brd/heavy_analyzer.feature"""
-    board = next(agent.instructions for agent in AGENTS if agent.name == "board")
+    workspace = next(agent.instructions for agent in AGENTS if agent.name == "workspace_mutator")
 
     assert "ai_card_events" in HEAVY_ANALYZER_PROMPT
     assert "ai_card_events" not in SYSTEM_PROMPT
-    assert "ai_card_events" not in board
+    assert "ai_card_events" not in workspace
     # What the log is for: which of two hands made the change.
     assert "user_ui | ai" in HEAVY_ANALYZER_PROMPT
 
 
 def test_a_reader_is_scoped_by_the_list_it_is_given() -> None:
-    """The Diary is the Advisor's to read and the board's to leave alone."""
-    board = next(agent.instructions for agent in AGENTS if agent.name == "board")
+    """The Diary is the Advisor's to read and the workspace's to leave alone."""
+    workspace = next(agent.instructions for agent in AGENTS if agent.name == "workspace_mutator")
 
     assert "ai_diary" in SYSTEM_PROMPT
-    assert "ai_diary" not in board
-    assert "{views}" not in board and "{views}" not in SYSTEM_PROMPT
+    assert "ai_diary" not in workspace
+    assert "{views}" not in workspace and "{views}" not in SYSTEM_PROMPT
 
 
 # ------------------------------------------------------------------ what triggers it

@@ -8,7 +8,7 @@ Feature: Agents — the session, the hand-over, and what comes back
   Approved 2026-08-29, and AG-TURN-010, AG-TURN-022 and AG-TURN-023 on 2026-08-30.
 
   Scenario: AG-ROUTE-001 — A change is written by the part that owns it, and Safwa itself writes none
-    Given the owner asks Safwa to change something on their board
+    Given the owner asks Safwa to change something on their workspace
     When Safwa works on it
     Then the change is prepared by the subagent that owns that area
     And the part answering in the chat has no way to change anything itself, in any area, so a
@@ -30,7 +30,7 @@ Feature: Agents — the session, the hand-over, and what comes back
     And none of them arrives as if the subagent had said it
 
   Scenario: AG-ROUTE-003 — A request that names two areas is one request, not two
-    Given the owner asks for one thing on their board and one thing in their Diary, in a single
+    Given the owner asks for one thing on their workspace and one thing in their Diary, in a single
       message
     When Safwa works on it
     Then each area is handed to the subagent that owns it, one after the other, within the same
@@ -69,7 +69,7 @@ Feature: Agents — the session, the hand-over, and what comes back
   Scenario: AG-SESSION-008 — What it knows about the workspace is read fresh, not replayed
     Given the subagent stopped for the owner
     When it starts again
-    Then what it knows about the board and the time of day is read fresh, not replayed from when it
+    Then what it knows about the workspace and the time of day is read fresh, not replayed from when it
       stopped
 
   Scenario: AG-SESSION-009 — A restart ends every piece of work that was waiting

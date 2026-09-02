@@ -1516,7 +1516,7 @@ async def test_new_dialogue_cancels_every_unresolved_item_in_suspended_batch(e2e
         # The screen is frozen, but the session that wrote it stays resumable: the owner's
         # next words may well be a correction to exactly these two changes.  Unfinished
         # rather than waiting, because no screen is open on it any more.
-        assert (run.kind, run.status) == ("board", "interrupted")
+        assert (run.kind, run.status) == ("workspace_mutator", "interrupted")
 
 
 async def test_a_review_whose_screen_could_not_be_sent_does_not_stay_open(
@@ -2361,7 +2361,7 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
     assert final is not None and "Цель и задача готовы." in final.message
     assert len(provider.calls) == 4
     last = provider.calls[3]
-    # The board session's context: its prompt, the board state, the conversation, then
+    # The workspace session's context: its prompt, the workspace state, the conversation, then
     # every step it already took for this request.
     assert [message["role"] for message in last] == [
         "system",
@@ -2463,7 +2463,7 @@ async def test_ending_a_session_ends_every_unfinished_one_below_it(e2e_harness):
     """
     advisor, _provider = e2e_harness.advisor(["Готово."])
     root = await advisor.store.create(kind="advisor")
-    child = await advisor.store.create(kind="board", parent_run_id=root.id)
+    child = await advisor.store.create(kind="workspace_mutator", parent_run_id=root.id)
     grandchild = await advisor.store.create(kind="diary", parent_run_id=child.id)
     for run in (child, grandchild):
         await advisor.store.leave_interrupted(run.id, {}, "left unfinished")

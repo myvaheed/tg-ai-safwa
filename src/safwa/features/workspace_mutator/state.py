@@ -1,7 +1,7 @@
-"""The board's current state, as one block a session reads before its own steps.
+"""The workspace's current state, as one block a session reads before its own steps.
 
-The board is what the owner keeps - Cards, Checks, Values, Tags, Requests and Reminders -
-so the block that describes it is the board's, not the reader's. `AgentSpec.board_state`
+The workspace is what the owner keeps - Cards, Checks, Values, Tags, Requests and Reminders -
+so the block that describes it is the workspace's, not the reader's. `AgentSpec.workspace_state`
 is the flag that asks for it.
 """
 
@@ -55,7 +55,7 @@ async def _critical_cards(session: AsyncSession) -> list[Card]:
     )
 
 
-async def board_context(session: AsyncSession) -> StateBlocks:
+async def workspace_context(session: AsyncSession) -> StateBlocks:
     workspace = await session.get(Workspace, 1)
     profile = await session.get(UserProfile, 1)
     active_values = list(

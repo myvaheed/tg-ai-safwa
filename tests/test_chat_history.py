@@ -370,7 +370,7 @@ async def test_an_older_summary_with_only_a_screen_between_them_is_not_read(sess
         ),
         FakeTelegramMessage(
             92,
-            mark_kind("Today's board", MessageKind.DASHBOARD),
+            mark_kind("Today's workspace", MessageKind.DASHBOARD),
             bot_id,
             at + timedelta(minutes=3),
         ),

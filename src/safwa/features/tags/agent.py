@@ -1,4 +1,4 @@
-"""The Tag mutation tool. The board subagent owns the turn that calls it."""
+"""The Tag mutation tool. The workspace mutator owns the turn that calls it."""
 
 from __future__ import annotations
 

@@ -209,7 +209,7 @@ async def test_han_ask_010_a_subagent_cannot_be_called_as_a_helper(e2e_harness) 
     advisor, provider = e2e_harness.advisor(
         [
             read("SELECT status, count(*) FROM ai_checks GROUP BY status"),
-            ask_helper("Сделай что-нибудь.", name="board"),
+            ask_helper("Сделай что-нибудь.", name="workspace_mutator"),
             "Не вышло.",
         ],
         helpers={"heavy_analyzer": recording_helper([])},
@@ -258,7 +258,7 @@ async def test_han_offer_005_the_offer_outlives_a_screen(e2e_harness) -> None:
             CompletionTurn(
                 content="",
                 tool_calls=(
-                    ToolCall(id="r1", name="route", arguments_json=json.dumps({"name": "board"})),
+                    ToolCall(id="r1", name="route", arguments_json=json.dumps({"name": "workspace_mutator"})),
                 ),
             ),
             CompletionTurn(

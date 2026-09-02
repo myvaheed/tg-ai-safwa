@@ -1,6 +1,6 @@
-"""The board subagent: the one session that proposes every change to the board.
+"""The workspace mutator: the one session that proposes every change to the workspace.
 
-The board is what the owner keeps — Cards, Checks, Values, Tags, Requests and Reminders.
+The workspace is what the owner keeps — Cards, Checks, Values, Tags, Requests and Reminders.
 This package is that subagent and nothing else: the roster lets it declare mutation tools
 the features that own those entities publish.
 """
@@ -9,13 +9,13 @@ from __future__ import annotations
 
 from ...bootstrap.module_manifest import AgentSpec
 
-BOARD_TOOLS = ("card", "check", "value", "tag", "request", "reminder", "remove")
+MUTATOR_TOOLS = ("card", "check", "value", "tag", "request", "reminder", "remove")
 
 
-BOARD_PROMPT = """You keep the user's board: their Cards, Checks, Values, Tags, Requests and Reminders.
+MUTATOR_PROMPT = """You keep the user's workspace: their Cards, Checks, Values, Tags, Requests and Reminders.
 
-# What the board is for
-The user keeps everything they mean to do on one board, and commits a slice of it to a Sprint — a
+# What the workspace is for
+The user keeps everything they mean to do in one workspace, and commits a slice of it to a Sprint — a
 fixed period with Success criteria that say what it must achieve.
 - `backlog` is what they might do, `sprint` what they took on for this one, `today` what they are
   doing now. That ladder is how much they have committed, so never climb it for them.
@@ -72,14 +72,14 @@ IDs are small integers. Never ask the user for one you can find yourself.
 - Propose only what was asked. When the choice is the user's, cite the item instead of guessing it."""
 
 
-BOARD_AGENT = AgentSpec(
-    name="board",
+MUTATOR_AGENT = AgentSpec(
+    name="workspace_mutator",
     purpose=(
         "any change(create, update, archive, delete) to a Card, Check, Value, Tag, "
         "Request or Reminder."
     ),
-    instructions=BOARD_PROMPT,
-    # What it changes, and what it judges a change against. The Diary is not the board's,
+    instructions=MUTATOR_PROMPT,
+    # What it changes, and what it judges a change against. The Diary is not the workspace's,
     # and neither is the log of what has already happened.
     views=(
         "ai_cards",
@@ -90,6 +90,6 @@ BOARD_AGENT = AgentSpec(
         "ai_reminders",
         "ai_current_sprint",
     ),
-    mutation_tools=BOARD_TOOLS,
-    board_state=True,
+    mutation_tools=MUTATOR_TOOLS,
+    workspace_state=True,
 )

@@ -7,7 +7,6 @@ from sqlalchemy import select, text
 from safwa.ai.sql import create_ai_views
 from safwa.bootstrap.modules import AI_VIEWS
 from safwa.constants import CONTEXT_CRITICAL_CARD_LIMIT
-from safwa.features.board.state import board_context
 from safwa.features.cards.model import Card, CardCheck, CardStage
 from safwa.features.cards.use_cases import (
     archive_subtree,
@@ -29,6 +28,7 @@ from safwa.features.proposals.remove import RemoveToolInput
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import CardValue, CheckValue, Value
 from safwa.features.values.use_cases import create_value, delete_value, update_value_fields
+from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.errors import DomainError
 
 
@@ -213,7 +213,7 @@ async def test_safwa_is_told_which_values_are_in_focus(sessions):
         family = await create_tag(session, "Family")
         await session.commit()
 
-        context = await board_context(session)
+        context = await workspace_context(session)
 
     values_line = next(
         line for line in context.state.splitlines() if line.startswith("Active Values:")
@@ -238,7 +238,7 @@ async def test_a_critical_card_serving_a_focus_is_shown_to_safwa_first(sessions)
             await _action(session, f"Filler {index}", priority="critical")
         await session.commit()
 
-        context = await board_context(session)
+        context = await workspace_context(session)
 
     titles = [
         line.split("](")[0].removeprefix("- [")

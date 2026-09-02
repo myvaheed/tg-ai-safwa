@@ -16,22 +16,13 @@ from .plan import (
     on_plan_open,
     on_plan_page,
 )
-from .sprint import render_sprint, render_sprint_criteria_prompt, render_today
+from .sprint import render_sprint, render_sprint_criteria_prompt
 
 
 async def _clear_ui(context: CallbackContext) -> None:
     async with context.sessions() as session:
         await session.execute(delete(UiSession).where(UiSession.owner_id == context.owner_id))
         await session.commit()
-
-
-async def _on_today_page(context: CallbackContext) -> None:
-    await render_today(
-        context.message,
-        context.services,
-        page=int(context.payload.get("page", 0)),
-        notice=context.payload.get("notice"),
-    )
 
 
 async def _on_sprint_page(context: CallbackContext) -> None:
@@ -86,7 +77,6 @@ async def _on_finish(context: CallbackContext) -> None:
 
 
 PLANNING_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
-    "today_page": _on_today_page,
     "sprint_page": _on_sprint_page,
     "sprint_criteria_prompt": _on_criteria_prompt,
     "sprint_back": _on_back,

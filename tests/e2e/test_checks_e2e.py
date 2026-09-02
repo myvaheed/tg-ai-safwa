@@ -27,8 +27,9 @@ from safwa.features.checks.use_cases import (
     pending_checks,
     resolve_check,
 )
+from safwa.features.home.telegram import render_home
 from safwa.features.proposals.telegram import render_ai_outcome, render_proposal
-from safwa.shell import callback_token_handler, command_start
+from safwa.shell import callback_token_handler
 from safwa.shell.model import CallbackToken
 from safwa.turn import TurnManager
 from telegram_llm import ChatHost, DialogueMessage
@@ -257,7 +258,7 @@ async def test_a_cited_item_opens_its_manual_screen(e2e_harness):
     # Tapping the link sends /start with the payload, and the screen arrives as its own
     # message: the reply above it is canonical history and must survive.
     message.text = f"/start check-{check_ids[0]}"
-    await command_start(message, services)
+    await render_home(message, services)
     assert "<b>Check</b>: Milk" in message.sent[-1]
     assert "Go to the market" in message.sent[-1]
     assert {"check_toggle_repeat", "check_set_status"} <= await _live_actions(e2e_harness)
@@ -350,16 +351,16 @@ async def test_citations_link_live_items_and_drop_missing_ones(e2e_harness):
     assert "card-4242" not in text
 
     message.text = f"/start card-{card_id}"
-    await command_start(message, services)
+    await render_home(message, services)
     assert "Go to the market" in message.sent[-1]
 
     # A link that outlives its item reports the failure and changes nothing else.
     message.text = "/start card-4242"
-    await command_start(message, services)
+    await render_home(message, services)
     assert "⚠️ Error while opening: Card does not exist" in message.sent[-1]
 
     message.text = "/start nonsense"
-    await command_start(message, services)
+    await render_home(message, services)
     assert "not a Safwa item" in message.sent[-1]
 
 

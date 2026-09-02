@@ -1,9 +1,9 @@
 {
   "HEAVY_ANALYZER_PROMPT": "a45457109d9c5384",
   "PERSONA": "4d7d76dae685589c",
-  "SYSTEM_PROMPT": "a7b776cc77e2aeee",
-  "agent:board": "3e2895ab44347075",
+  "SYSTEM_PROMPT": "1a90daca01b45d6e",
   "agent:diary": "c1227d9a03184a49",
+  "agent:workspace_mutator": "47f5d5971157cd10",
   "tool:call_helper": "dd468e92745ed1e8",
   "tool:card": "cb03a4758df388f5",
   "tool:check": "e728558d162ba42b",

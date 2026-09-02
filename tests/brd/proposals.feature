@@ -14,7 +14,7 @@ Feature: Proposals
     Then it is refused for that reason instead, and Safwa is sent to find the id
 
   Scenario: PR-WRITE-002 — Safwa proposes, and only the owner writes
-    Given the owner asks Safwa to change something on their board
+    Given the owner asks Safwa to change something on their workspace
     When Safwa decides what should be done
     Then nothing is written: a review screen appears with the proposal on it
     And what it proposes happens only once the owner has saved it
@@ -37,7 +37,7 @@ Feature: Proposals
     And no other proposal asks twice
 
   Scenario: PR-QUEUE-005 — Whatever Safwa proposes at once is one screen
-    Given the owner asks for something that needs the board changed
+    Given the owner asks for something that needs the workspace changed
     When Safwa proposes an edit to one item
     Then it becomes one proposal with one review screen, whether it sets one field or five
     And whether Safwa proposes two edits to one item together or apart is its own choice,
@@ -87,12 +87,12 @@ Feature: Proposals
     And for the saved one it is told not to propose it again
     And for the discarded one it is told that it did not happen
 
-  Scenario: PR-STALE-012 — A proposal is refused once the board has moved on without it
+  Scenario: PR-STALE-012 — A proposal is refused once the workspace has moved on without it
     Given a proposal is on screen, and the owner leaves it unanswered overnight
     When the Sprint reaches its planned end and closes itself in the night
     And the owner presses Save in the morning
     Then nothing at all is written
-    And the owner is told the board has moved on since Safwa proposed this, and it has to be
+    And the owner is told the workspace has moved on since Safwa proposed this, and it has to be
       proposed again
     And the screen cannot be acted on any more
 
