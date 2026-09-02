@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ...ai.sql import LIVE_FORMAT, MARKER_FORMAT, SqlView
-from ...constants import ARCHIVE_MARKER
+from ...ai.sql import SqlView
+from ...foundation.marks import ARCHIVE_MARKER, LIVE_FORMAT, MARKER_FORMAT
 
 # The open instance of this row's series, already rendered as the marker's tail. See the
 # note in `features/cards/views.py` for why this is a plain SELECT and not a derived table.

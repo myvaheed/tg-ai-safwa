@@ -39,6 +39,11 @@ class ReferenceSpec:
     # Only a Check is ever archived; a Value and a Tag are deleted instead, so there is no
     # archived one for a link to be refused against.
     archivable: bool = False
+    # Why a resolved item may not be linked, as `(status, message, hint)`, or None when it
+    # may. The feature that owns the link writes the wording; generic code only raises it.
+    refusal: Callable[[AsyncSession, Any], Awaitable[tuple[str, str, str] | None]] | None = (
+        None
+    )
 
     @property
     def singular_key(self) -> str:

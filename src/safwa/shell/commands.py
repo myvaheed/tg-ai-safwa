@@ -18,8 +18,8 @@ from aiogram.types import BotCommand, CallbackQuery, Message
 from sqlalchemy import delete
 
 from ..enums import MessageKind
-from ..foundation.models import Workspace
 from ..foundation.screens import ScreenCommand
+from ..foundation.workspace import Workspace
 from .chat import dismiss_prior_ui, remove_turn_notice, send_registered
 from .layout import start_payload
 from .model import UiSession

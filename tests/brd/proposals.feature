@@ -6,10 +6,10 @@ Feature: Proposals
     Given a workspace where every change Safwa makes is a proposal the owner decides on
 
   Scenario: PR-TARGET-001 — An archived item is not changed automatically
-    Given an archived Card and an archived Check
-    When Safwa proposes a change to either
+    Given an item the owner has archived
+    When Safwa proposes a change to it
     Then it is refused, and the refusal says an archived item is not changed automatically
-    And Safwa ends its answer citing each one, for the owner to open and change by hand
+    And Safwa ends its answer citing it, for the owner to open and change by hand
     When Safwa proposes a change to an id that matches nothing
     Then it is refused for that reason instead, and Safwa is sent to find the id
 
@@ -28,13 +28,12 @@ Feature: Proposals
     When the proposal holds more than one edit
     Then every one of them is listed on that same screen, still behind one Save and one Discard
 
-  Scenario: PR-SCREEN-004 — Deleting a Card asks once more before it goes
-    Given a proposal to delete a Card
+  Scenario: PR-SCREEN-004 — A change its own feature calls destructive asks once more
+    Given a proposal to make a change the feature that owns the item declares destructive
     When the owner presses Save
-    Then nothing is deleted yet: one more screen asks to confirm, saying the whole tree under that
-      Card and its contribution to past totals go with it
-    And the Card is deleted only after the owner presses that confirmation
-    And no other proposal asks twice
+    Then nothing is written yet: one more screen asks to confirm, saying what goes with it
+    And it is written only after the owner presses that confirmation
+    And a proposal whose feature declares no such change never asks twice
 
   Scenario: PR-QUEUE-005 — Whatever Safwa proposes at once is one screen
     Given the owner asks for something that needs the workspace changed

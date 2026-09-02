@@ -24,7 +24,7 @@ from safwa.bootstrap.modules import (
 from safwa.enums import MessageKind
 from safwa.features.proposals.model import ChangeAction, ProposalChange
 from safwa.features.proposals.store import ProposalStore
-from safwa.foundation.models import Workspace
+from safwa.foundation.workspace import Workspace
 from safwa.shell import (
     OwnerAndWritingMiddleware,
     dismiss_prior_ui,

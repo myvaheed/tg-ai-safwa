@@ -217,3 +217,4 @@ Feature: Cards
     And the Values and Tags they carried lose the link and nothing else
     And their Sprint commitments and their history go too
     And archiving is never substituted for it
+    And Cards calls this destructive, so a proposal to do it is confirmed a second time

@@ -24,7 +24,7 @@ from safwa.features.reminders.background import (
 )
 from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import resolve, schedule_columns
-from safwa.foundation.models import Workspace
+from safwa.foundation.workspace import Workspace
 
 TZ = ZoneInfo("Europe/Istanbul")
 NOW = datetime(2026, 8, 13, 9, 0, tzinfo=UTC)  # a Thursday

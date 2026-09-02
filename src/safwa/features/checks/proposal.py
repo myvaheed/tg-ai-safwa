@@ -6,14 +6,15 @@ from typing import Any
 
 from ...enums import ActorType
 from ...foundation.errors import DomainError, StaleStateError
+from ...foundation.marks import closed_repeat_refusal
 from ..proposals.api import (
     ApplyContext,
     ChangeAction,
     PreparationContext,
     PreparedChange,
     ProposalChange,
+    ToolPreparationError,
     named_ids,
-    reject_closed_repeat,
     require_target,
     validate_named_references,
 )
@@ -41,7 +42,9 @@ class CheckProposalHandler:
     async def prepare(self, context: PreparationContext, change: Any) -> PreparedChange:
         check, expected_version = await require_target(context, change, Check)
         if check is not None:
-            await reject_closed_repeat(context.session, check, change.entity)
+            refusal = await closed_repeat_refusal(context.session, check, change.entity)
+            if refusal is not None:
+                raise ToolPreparationError(*refusal)
         values = dict(change.values)
         await validate_named_references(context.session, values, CHECK_VALUE_REFERENCE)
         return PreparedChange(values=values, expected_version=expected_version)

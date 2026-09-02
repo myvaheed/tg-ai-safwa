@@ -14,13 +14,7 @@ from typing import Any
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...enums import (
-    ActorType,
-    CardKind,
-    Category,
-    EnergyType,
-    Priority,
-)
+from ...enums import ActorType
 from ...foundation.clock import utcnow
 from ...foundation.errors import DomainError
 from ...foundation.workspace import bump_workspace, require_workspace
@@ -50,8 +44,11 @@ from .model import (
     CardCheck,
     CardEnergyType,
     CardEvent,
+    CardKind,
     CardStage,
-    is_closed_repeat,
+    Category,
+    EnergyType,
+    Priority,
     new_correlation_id,
 )
 
@@ -590,7 +587,7 @@ async def move_card(
         raise DomainError("Card does not exist")
     if card.kind != CardKind.ACTION.value:
         raise DomainError("Only an Action has a stage; a parent shows what its Actions are in")
-    if is_closed_repeat(card):
+    if card.is_closed_repeat():
         # Reopening it would run two instances of one series at once.
         raise DomainError("A closed repeating Action cannot be reopened")
     if stage in TERMINAL_STAGES:

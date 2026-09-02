@@ -9,7 +9,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....ai.contracts import AgentChange
-from ....enums import CardKind, Priority
 from ....foundation.references import resolve_references
 from ...proposals.api import (
     ACTION_VERBS,
@@ -27,7 +26,7 @@ from ...proposals.api import (
 )
 from ...tags.model import CardTag
 from ...values.model import CardValue
-from ..model import Card, CardCategory, CardEnergyType, CardStage
+from ..model import Card, CardCategory, CardEnergyType, CardKind, CardStage, Priority
 from ..references import CARD_REFERENCE_SPECS
 from ..use_cases import card_progress
 from .presentation import card_overview_text, category_expression, energy_expression

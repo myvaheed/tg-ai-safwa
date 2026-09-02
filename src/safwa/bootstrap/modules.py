@@ -13,6 +13,8 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from ..ai.sql import SqlView, view_catalogue
 from ..ai.subagents import RoutedSubagent
 from ..cues.module import CUE_QUEUE
@@ -30,6 +32,7 @@ from ..features.proposals.api import (
     ProposalHandler,
     ProposalPresenter,
     ProposalRegistry,
+    World,
 )
 from ..features.proposals.module import MODULE as PROPOSALS_FEATURE
 from ..features.reminders.module import MODULE as REMINDERS
@@ -45,6 +48,7 @@ from ..foundation.screens import (
     StartLink,
     TextInputFlow,
 )
+from ..foundation.workspace import require_workspace
 from .module_manifest import AgentContext, AgentSpec, BackgroundTask, FeatureModule
 
 # Order is what the routing rules and the recovery hooks follow, so it is fixed rather than
@@ -137,6 +141,12 @@ FEATURE_START_LINKS: tuple[StartLink, ...] = tuple(
 )
 
 
+async def _world(session: AsyncSession) -> World:
+    """Safwa's answer to what a proposal is made against: the workspace row."""
+    workspace = await require_workspace(session)
+    return World(revision=workspace.revision, timezone=workspace.timezone)
+
+
 def _proposals() -> ProposalRegistry:
     handlers: dict[str, ProposalHandler] = {}
     presenters: dict[str, ProposalPresenter] = {}
@@ -163,7 +173,11 @@ def _proposals() -> ProposalRegistry:
         for tool in module.mutation_tools:
             register_tool(tool)
     return ProposalRegistry(
-        handlers=handlers, presenters=presenters, tools=tools, views=ALLOWED_VIEWS
+        handlers=handlers,
+        presenters=presenters,
+        tools=tools,
+        views=ALLOWED_VIEWS,
+        world=_world,
     )
 
 

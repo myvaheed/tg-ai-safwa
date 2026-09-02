@@ -1,14 +1,12 @@
-"""Schema primitives and the workspace shared by every Safwa feature."""
+"""The schema primitives every Safwa table is built on."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Dialect, ForeignKey, Integer, String, Text, TypeDecorator
+from sqlalchemy import DateTime, Dialect, TypeDecorator
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
-
-from ..enums import WorkspaceMode
 
 
 class Base(DeclarativeBase):
@@ -38,15 +36,3 @@ class TimestampMixin:
         UtcDateTime, server_default=func.now(), onupdate=func.now()
     )
 
-
-class Workspace(Base, TimestampMixin):
-    __tablename__ = "workspace"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
-    owner_telegram_id: Mapped[int] = mapped_column(Integer, unique=True)
-    mode: Mapped[str] = mapped_column(String(20), default=WorkspaceMode.PLANNING.value)
-    active_sprint_id: Mapped[int | None] = mapped_column(ForeignKey("sprints.id"))
-    timezone: Mapped[str] = mapped_column(String(64), default="Europe/Istanbul")
-    # What the next Sprint is meant to achieve, edited during Planning and copied into the
-    # Sprint at start. It outlives a Sprint so the next one can start from the last wording.
-    sprint_success_criteria: Mapped[str] = mapped_column(Text, default="")
-    revision: Mapped[int] = mapped_column(Integer, default=1)

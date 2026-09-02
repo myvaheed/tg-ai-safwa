@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ....enums import MessageKind
 from ....foundation.errors import DomainError
 from ....foundation.marks import title_marks
-from ....foundation.models import Workspace
+from ....foundation.workspace import Workspace
 from ....shell import (
     Page,
     Services,

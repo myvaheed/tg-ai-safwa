@@ -10,7 +10,7 @@ from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....enums import CardKind, MessageKind
+from ....enums import MessageKind
 from ....foundation.errors import DomainError
 from ....shell import (
     CallbackContext,
@@ -28,6 +28,7 @@ from ....shell.model import UiSession
 from ...home.api import menu_markup
 from ...tags.model import Tag
 from ...values.model import Value
+from ..model import CardKind
 from ..use_cases import create_card
 from .draft import (
     card_creation_errors,

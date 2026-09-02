@@ -15,8 +15,7 @@ from safwa.ai.runs import AgentRun, AgentStep
 from safwa.ai.subagents import RoutedSubagent
 from safwa.ai.tools import IMMEDIATE_TOOLS
 from safwa.bootstrap.modules import PROPOSALS
-from safwa.enums import CardKind
-from safwa.features.cards.model import Card, CardStage
+from safwa.features.cards.model import Card, CardKind, CardStage
 from safwa.features.cards.use_cases import create_card, finish_action
 from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
 from safwa.features.diary.model import DiaryEntry

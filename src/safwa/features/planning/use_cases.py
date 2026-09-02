@@ -21,11 +21,9 @@ from ...constants import (
     SPRINT_LENGTH_MIN_DAYS,
 )
 from ...cues.queue import cue_advisor
-from ...enums import WorkspaceMode
 from ...foundation.clock import utcnow
 from ...foundation.errors import DomainError
-from ...foundation.models import Workspace
-from ...foundation.workspace import require_workspace
+from ...foundation.workspace import Workspace, WorkspaceMode, require_workspace
 from ..cards.api import CardStage, action_titles, planned_actions
 from ..cards.use_cases import archive_settled_cards
 from ..checks.use_cases import archive_settled_checks

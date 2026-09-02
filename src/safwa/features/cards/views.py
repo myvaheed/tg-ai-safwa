@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ...ai.sql import LIVE_FORMAT, MARKER_FORMAT, SqlView
-from ...constants import ARCHIVE_MARKER
+from ...ai.sql import SqlView
+from ...foundation.marks import ARCHIVE_MARKER, LIVE_FORMAT, MARKER_FORMAT
 from .model import TERMINAL_STAGES
 
 _TERMINAL_STAGE_SQL = ", ".join(f"'{stage.value}'" for stage in TERMINAL_STAGES)

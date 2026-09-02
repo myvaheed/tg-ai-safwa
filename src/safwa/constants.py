@@ -20,10 +20,7 @@ SPRINT_LENGTH_MAX_DAYS = 60
 ARCHIVE_AFTER_SPRINTS = 2
 # What a title carries after it wherever it is read: the model sees the marks in
 # `ai_cards`/`ai_checks`, the owner sees them on a screen and in a citation link.
-REPEAT_MARKER = " [🔄{index}{live}]"
 # The tail of that marker, empty when the series has ended and there is no open one.
-REPEAT_LIVE = ", live #{live_id}"
-ARCHIVE_MARKER = " [📦]"
 # Weekday tokens as stored in `reminders.weekdays`, indexed by `date.weekday()`.
 # Mirrored by the Literal in ai/contracts.py.
 WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -34,24 +31,14 @@ CONTEXT_CRITICAL_CARD_LIMIT = 10
 
 # --- AI agent loop --------------------------------------------------------
 MAX_TOOL_CALLS = 64
-MAX_REPAIR_ROUNDS = 5
 
 # --- Subagents ------------------------------------------------------------
 # A subagent blocks the advisor's turn, so the clock bounds it instead of a call count.
 SUBAGENT_DEADLINE_SECONDS = 300.0
 
-SUBAGENT_HISTORY_LAST_MESSAGES = 10
 # Local clock the Diary's system Reminder fires on out of the box; Settings moves it,
 # and `off` there removes the row.
 DIARY_TIME_DEFAULT = "22:00"
-
-# --- query_safwa result caps ----------------------------------------------
-# Sized for a local model: one result should inform a turn, not consume its context.
-DEFAULT_ROW_LIMIT = 50
-DEFAULT_CHAR_BUDGET = 12_000
-DEFAULT_COLUMN_LIMIT = 20
-DEFAULT_CELL_LIMIT = 2_000
-QUERY_TIMEOUT_SECONDS = 2.0
 
 # --- Telegram history -----------------------------------------------------
 # The advisor window is a token budget rather than a message count: a Summary of at most
@@ -87,9 +74,6 @@ REMINDER_FIRE_BATCH = 3
 # always fires, however late.
 REMINDER_CATCHUP_GRACE_MINUTES = 120
 REMINDER_MIN_INTERVAL_MINUTES = 5
-# A mini-session has one job and one terminal tool; it does not get the agent loop's budget.
-MINI_SESSION_REPAIR_ROUNDS = 3
-MINI_SESSION_MAX_TOOL_CALLS = 6
 
 # --- Telegram UI ----------------------------------------------------------
 PAGE_SIZE = 5
@@ -105,9 +89,6 @@ TOAST_SECONDS = 5
 PLAN_LINK_BURST_TAPS = 8
 PLAN_LINK_BURST_SECONDS = 10
 CHECK_LIST_LIMIT = 25
-# A resolved proposal stays in the dialogue for good, so its receipt is capped rather than
-# carrying every field of a wide edit.
-PROPOSAL_OUTCOME_DETAIL_LIMIT = 6
 
 # --- Provider -------------------------------------------------------------
 AI_TIMEOUT_SECONDS = 120.0

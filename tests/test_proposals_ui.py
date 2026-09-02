@@ -24,7 +24,7 @@ from safwa.features.proposals.telegram import render_proposal
 from safwa.features.proposals.use_cases import approve_proposal
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.values.model import CardValue, Value
-from safwa.foundation.models import Workspace
+from safwa.foundation.workspace import Workspace
 
 
 async def test_item_proposal_shows_diffs_and_only_save_discard_footer(sessions) -> None:

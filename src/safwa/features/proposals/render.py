@@ -17,7 +17,6 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...ai.contracts import AgentChange, ToolResultStatus
-from ...constants import PROPOSAL_OUTCOME_DETAIL_LIMIT
 from .api import ProposalDescription, ProposalRegistry, detail_lines, result_value
 from .model import (
     AUTO_SAVED_RECEIPT,
@@ -27,6 +26,10 @@ from .model import (
     ProposalChange,
 )
 from .store import ProposalStore
+
+# A resolved proposal stays in the dialogue for good, so its receipt is capped rather
+# than carrying every field of a wide edit.
+PROPOSAL_OUTCOME_DETAIL_LIMIT = 6
 
 logger = logging.getLogger(__name__)
 

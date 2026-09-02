@@ -12,13 +12,13 @@ from sqlalchemy import func, select
 
 from safwa.ai.contracts import CardToolInput
 from safwa.bootstrap.modules import PROPOSALS
-from safwa.enums import CardKind
 from safwa.features.cards.model import (
     Card,
     CardCategory,
     CardCheck,
     CardEnergyType,
     CardEvent,
+    CardKind,
     CardStage,
 )
 from safwa.features.cards.use_cases import (

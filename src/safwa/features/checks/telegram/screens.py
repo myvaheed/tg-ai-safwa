@@ -11,7 +11,7 @@ from sqlalchemy import select
 from ....constants import CHECK_LIST_LIMIT, SELECTOR_PAGE_SIZE
 from ....enums import MessageKind
 from ....foundation.errors import DomainError
-from ....foundation.marks import is_closed_repeat, live_repeat_instance_id, title_marks
+from ....foundation.marks import live_repeat_instance_id, title_marks
 from ....shell import (
     Services,
     choice_rows,
@@ -200,7 +200,7 @@ async def render_check(
             ]
         )
         live_id = (
-            await live_repeat_instance_id(session, check) if is_closed_repeat(check) else None
+            await live_repeat_instance_id(session, check) if check.is_closed_repeat() else None
         )
         live_check = await session.get(Check, live_id) if live_id is not None else None
         if live_check is not None:

@@ -17,7 +17,7 @@ repeat and `target_not_found` belong to the feature that owns the entity.
 from __future__ import annotations
 
 import html
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -34,22 +34,7 @@ from ...ai.contracts import (
 )
 from ...ai.sql import ReadOnlyQueryRunner
 from ...foundation.errors import DomainError
-from ...foundation.models import Workspace
 from ...foundation.references import ReferenceSpec, resolve_references
-from ..cards.api import (
-    is_closed_repeat as is_closed_card_repeat,
-)
-from ..cards.api import (
-    live_repeat_instance_id as live_card_repeat_instance_id,
-)
-from ..cards.model import Card
-from ..checks.api import (
-    is_closed_repeat as is_closed_check_repeat,
-)
-from ..checks.api import (
-    live_repeat_instance_id as live_check_repeat_instance_id,
-)
-from ..checks.model import Check
 from .model import ChangeAction, ProposalChange
 
 __all__ = ["MutationToolSpec"]
@@ -82,11 +67,27 @@ class PreparedChange:
 
 
 @dataclass(frozen=True, slots=True)
+class World:
+    """The state of the surrounding application one proposal is made against.
+
+    `revision` moves whenever anything the model may propose against changes, and a
+    proposal is saveable only while it still matches. The application binds
+    `ProposalRegistry.world` to whatever holds these; nothing here knows what that is.
+    """
+
+    revision: int
+    timezone: str
+
+
+WorldReader = Callable[[AsyncSession], Awaitable[World]]
+
+
+@dataclass(frozen=True, slots=True)
 class PreparationContext:
     """Everything preparation may read. It writes nothing."""
 
     session: AsyncSession
-    workspace: Workspace
+    world: World
     provider: LlmProvider
     query_runner: ReadOnlyQueryRunner
     # The read surface a Request's SQL may reference.
@@ -221,6 +222,8 @@ class ProposalRegistry:
     tools: Mapping[str, MutationToolSpec]
     # The read surface both `query_safwa` and a saved Request are validated against.
     views: frozenset[str]
+    # How the application reports the state a proposal is made and saved against.
+    world: WorldReader
 
     def handler(self, entity: str) -> ProposalHandler:
         found = self.handlers.get(entity)
@@ -406,35 +409,6 @@ REFERENCE_HINT = (
 )
 
 
-def is_closed_repeat(entity: Card | Check) -> bool:
-    if isinstance(entity, Check):
-        return is_closed_check_repeat(entity)
-    return is_closed_card_repeat(entity)
-
-
-async def live_repeat_instance_id(session: AsyncSession, entity: Card | Check) -> int | None:
-    if isinstance(entity, Check):
-        return await live_check_repeat_instance_id(session, entity)
-    return await live_card_repeat_instance_id(session, entity)
-
-
-async def live_instance_hint(session: AsyncSession, entity: Card | Check) -> str:
-    live_id = await live_repeat_instance_id(session, entity)
-    if live_id is None:
-        return "The series has ended. Tell the owner instead of proposing again."
-    return f"Retry this call with #{live_id}, the open one in its series."
-
-
-async def reject_closed_repeat(session: AsyncSession, entity: Card | Check, label: str) -> None:
-    if not is_closed_repeat(entity):
-        return
-    raise ToolPreparationError(
-        "closed_repeat",
-        f"{label.title()} #{entity.id} is a closed repeat and cannot be changed.",
-        await live_instance_hint(session, entity),
-    )
-
-
 async def validate_named_references(
     session: AsyncSession, values: dict[str, Any], spec: ReferenceSpec
 ) -> None:
@@ -465,16 +439,15 @@ async def validate_named_references(
             f"{spec.label} '{resolved.ambiguous[0]}' matched more than one item.",
             f"Use query_safwa to choose one {spec.label} and retry with its numeric ID.",
         )
-    if spec.model is not Check:
+    if spec.refusal is None:
         return
-    for check_id in sorted(resolved.ids):
-        check = await session.get(Check, check_id)
-        if check is not None and is_closed_repeat(check):
-            raise ToolPreparationError(
-                "closed_repeat",
-                f"Check #{check_id} is a closed repeat and cannot be linked.",
-                await live_instance_hint(session, check),
-            )
+    for entity_id in sorted(resolved.ids):
+        entity = await session.get(spec.model, entity_id)
+        if entity is None:
+            continue
+        refused = await spec.refusal(session, entity)
+        if refused is not None:
+            raise ToolPreparationError(*refused)
 
 
 async def named_ids(

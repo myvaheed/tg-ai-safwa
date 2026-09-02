@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from ....enums import MessageKind
 from ....foundation.errors import DomainError
-from ....foundation.models import Workspace
+from ....foundation.workspace import Workspace
 from ....shell import (
     CallbackContext,
     CallbackHandler,

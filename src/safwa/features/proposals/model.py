@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from ...enums import ChangeAction
+from ...ai.contracts import ChangeAction
 
 __all__ = ["ChangeAction"]
 

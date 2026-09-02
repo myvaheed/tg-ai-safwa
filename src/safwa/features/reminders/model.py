@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 from datetime import datetime, time
+from enum import StrEnum
 
 from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...foundation.models import Base, TimestampMixin, UtcDateTime
+
+
+class ScheduleKind(StrEnum):
+    """How a Reminder repeats. Derived from the resolved parameters, never model-supplied."""
+
+    ONCE = "once"
+    INTERVAL = "interval"
+    DAILY = "daily"
+    WEEKLY = "weekly"
 
 
 class Reminder(Base, TimestampMixin):

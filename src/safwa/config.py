@@ -7,13 +7,12 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .ai.sql import DEFAULT_CHAR_BUDGET, DEFAULT_ROW_LIMIT
 from .constants import (
     AI_MAX_OUTPUT_TOKENS,
     AI_MAX_RETRIES_LOCAL,
     AI_MAX_RETRIES_REMOTE,
     AI_TIMEOUT_SECONDS,
-    DEFAULT_CHAR_BUDGET,
-    DEFAULT_ROW_LIMIT,
     FASTER_WHISPER_MODEL,
     GROQ_ASR_BASE_URL,
     GROQ_ASR_MODEL,

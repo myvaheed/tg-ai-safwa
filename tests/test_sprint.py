@@ -33,7 +33,7 @@ from safwa.features.values.use_cases import create_value
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.clock import SystemClock
 from safwa.foundation.errors import DomainError
-from safwa.foundation.models import Workspace
+from safwa.foundation.workspace import Workspace
 
 
 async def create_card(session, **overrides):

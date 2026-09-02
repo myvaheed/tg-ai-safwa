@@ -5,8 +5,7 @@ from pydantic import ValidationError
 
 from safwa.ai.contracts import CardToolInput
 from safwa.bootstrap.modules import PROPOSALS
-from safwa.enums import Priority
-from safwa.features.cards.model import Card, CardStage
+from safwa.features.cards.model import Card, CardStage, Priority
 from safwa.features.cards.use_cases import (
     create_card,
     finish_action,

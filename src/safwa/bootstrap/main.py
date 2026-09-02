@@ -28,7 +28,7 @@ from ..features.heavy_analyzer import agent as heavy_analyzer
 from ..features.profile.model import UserProfile
 from ..foundation.database import Database, upgrade_database
 from ..foundation.errors import DomainError
-from ..foundation.models import Workspace
+from ..foundation.workspace import Workspace
 from ..recovery import recover_startup
 from ..shell import (
     SHELL_COMMANDS,

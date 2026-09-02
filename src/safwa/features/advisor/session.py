@@ -30,12 +30,12 @@ from ...ai.runs import AgentRunStore, AgentStepTrail
 from ...ai.sql import ReadOnlyQueryRunner
 from ...ai.subagents import RoutedSubagent
 from ...ai.tools import Helper, ToolAdapters
-from ...constants import MAX_REPAIR_ROUNDS, MAX_TOOL_CALLS, SUBAGENT_DEADLINE_SECONDS
+from ...constants import MAX_TOOL_CALLS, SUBAGENT_DEADLINE_SECONDS
 from ...foundation.errors import failure_reason
 from ...foundation.screens import ScreenCatalogue
 from ..continuity.memory import MemoryFileStore
 from ..proposals.api import ProposalDescription, ProposalRegistry
-from ..proposals.materialize import ProposalMaterializer
+from ..proposals.materialize import MAX_REPAIR_ROUNDS, ProposalMaterializer
 from ..proposals.model import RECEIPT_MEANINGS, BatchDecision
 from ..proposals.prepare import ChangePreparer
 from ..proposals.reducer import INTERRUPTED

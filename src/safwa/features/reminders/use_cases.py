@@ -14,12 +14,10 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...constants import REMINDER_CATCHUP_GRACE_MINUTES, WEEKDAY_NAMES
-from ...enums import ScheduleKind
 from ...foundation.clock import Clock
 from ...foundation.errors import DomainError
-from ...foundation.models import Workspace
-from ...foundation.workspace import bump_workspace
-from .model import Reminder
+from ...foundation.workspace import Workspace, bump_workspace
+from .model import Reminder, ScheduleKind
 from .schedule import (
     Schedule,
     next_fire,

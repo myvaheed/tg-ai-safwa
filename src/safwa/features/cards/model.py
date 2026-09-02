@@ -18,15 +18,42 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Select,
     String,
     Text,
     UniqueConstraint,
+    select,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
-from ...enums import Priority
 from ...foundation.models import Base, TimestampMixin, UtcDateTime
+
+
+class CardKind(StrEnum):
+    GOAL = "goal"
+    IDEA = "idea"
+    ACTION = "action"
+
+
+class Priority(StrEnum):
+    CRITICAL = "critical"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class Category(StrEnum):
+    SELF = "self"
+    CONTRIBUTION = "contribution"
+    WORK = "work"
+    REST = "rest"
+
+
+class EnergyType(StrEnum):
+    PHYSICAL = "physical"
+    COGNITIVE = "cognitive"
+    SOCIAL = "social"
+    VALUES = "values"
 
 
 class CardStage(StrEnum):
@@ -96,6 +123,33 @@ class Card(Base, TimestampMixin):
         Index("ix_cards_live_sort", "effective_stage", "hard_time", "priority", "created_at"),
     )
 
+    def is_closed_repeat(self) -> bool:
+        """A repeat instance that already ended, so its series continues on a newer row."""
+        return self.repeatable and CardStage(self.effective_stage) in TERMINAL_STAGES
+
+    def live_instance_query(self) -> Select[tuple[int]]:
+        """The open Card of this series. Only the newest instance can be open."""
+        return (
+            select(Card.id)
+            .where(
+                Card.repeat_series_id == (self.repeat_series_id or self.id),
+                Card.effective_stage.notin_([stage.value for stage in TERMINAL_STAGES]),
+            )
+            .order_by(Card.id.desc())
+            .limit(1)
+        )
+
+    def series_index_query(self) -> Select[tuple[int]]:
+        """This instance's place, counted over every row the series has ever had."""
+        return (
+            select(func.count())
+            .select_from(Card)
+            .where(
+                Card.repeat_series_id == (self.repeat_series_id or self.id),
+                Card.id <= self.id,
+            )
+        )
+
 
 class CardCheck(Base):
     """The one Check relationship, stored on the Card side like `card_values`.
@@ -144,7 +198,3 @@ class CardEvent(Base):
     correlation_id: Mapped[str] = mapped_column(String(16), default=new_correlation_id, index=True)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, server_default=func.now())
 
-
-def is_closed_repeat(card: Card) -> bool:
-    """A repeat instance that already ended, so its series continues on a newer row."""
-    return card.repeatable and CardStage(card.effective_stage) in TERMINAL_STAGES

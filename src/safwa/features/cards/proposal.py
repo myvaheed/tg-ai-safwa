@@ -9,13 +9,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...ai.sql import RequestQueryError, UnsafeQueryError, normalize_request_sql
-from ...enums import (
-    ActorType,
-    CardKind,
-    Category,
-    EnergyType,
-)
+from ...enums import ActorType
 from ...foundation.errors import DomainError, StaleStateError
+from ...foundation.marks import closed_repeat_refusal
 from ..checks.use_cases import unobserved_series
 from ..proposals.api import (
     ApplyContext,
@@ -25,11 +21,19 @@ from ..proposals.api import (
     ProposalChange,
     ToolPreparationError,
     named_ids,
-    reject_closed_repeat,
     require_target,
     validate_named_references,
 )
-from .model import TERMINAL_STAGES, Card, CardCategory, CardEnergyType, CardStage
+from .model import (
+    TERMINAL_STAGES,
+    Card,
+    CardCategory,
+    CardEnergyType,
+    CardKind,
+    CardStage,
+    Category,
+    EnergyType,
+)
 from .references import (
     CARD_REFERENCE_SPECS,
     CHECK_REFERENCE,
@@ -288,7 +292,9 @@ class CardProposalHandler:
     ) -> PreparedChange:
         card, expected_version = await require_target(context, change, Card)
         if card is not None:
-            await reject_closed_repeat(context.session, card, change.entity)
+            refusal = await closed_repeat_refusal(context.session, card, change.entity)
+            if refusal is not None:
+                raise ToolPreparationError(*refusal)
         values = dict(change.values)
         proposed_kind = (
             values.get("kind") if change.action is ChangeAction.CREATE else getattr(card, "kind", None)

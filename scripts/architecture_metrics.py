@@ -38,6 +38,18 @@ BUSINESS_FILES = ("rules.py", "model.py", "use_cases.py", "data.py")
 # Rule F: packages that must stay usable without Safwa.
 REUSABLE_PACKAGES = ("llm_gateway", "agent_runtime", "telegram_llm")
 
+# Rule N: what `safwa/ai/` and the proposals core may name from Safwa. Each is entity-free
+# on purpose, so the pair can be lifted into another project with these files and nothing else.
+PORTABLE_FOUNDATION = frozenset(
+    {
+        "safwa.foundation.clock",
+        "safwa.foundation.errors",
+        "safwa.foundation.models",
+        "safwa.foundation.references",
+        "safwa.foundation.screens",
+    }
+)
+
 # Rules C and D: processes that live beside the features rather than inside one.
 PROCESS_PACKAGES = ("safwa/turn/", "safwa/cues/")
 
@@ -444,6 +456,36 @@ def rule_k() -> list[Violation]:
     return out
 
 
+def rule_n() -> list[Violation]:
+    """The engine and the review flow leave together, and carry only what is generic.
+
+    `safwa/ai/` is the agent engine and `features/proposals/` is how a change it proposes
+    reaches the owner; neither is worth writing twice, so both are meant to be lifted into
+    the next project whole.  What they may name from Safwa is listed here: the review
+    flow's Telegram adapter and its manifest are the port and stay behind, and everything
+    else must be an entity-free module or the pair no longer travels.
+    """
+    out = []
+    for module in modules():
+        travels = module.rel.startswith("safwa/ai/") or (
+            module.rel.startswith("safwa/features/proposals/")
+            and "/telegram/" not in module.rel
+            and not module.rel.endswith("/module.py")
+        )
+        if not travels:
+            continue
+        for path, line in module.imported_paths():
+            if not path.startswith("safwa."):
+                continue
+            if path.startswith(("safwa.ai.", "safwa.features.proposals.")):
+                continue
+            # `imported_paths` carries the imported name, so match on the module it is in.
+            if any(path.startswith(f"{module_path}.") for module_path in PORTABLE_FOUNDATION):
+                continue
+            out.append(Violation("Rule N", module.rel, line, f"imports {path}"))
+    return out
+
+
 RULES = {
     "Rule A": rule_a,
     "Rule C": rule_c,
@@ -454,6 +496,7 @@ RULES = {
     "Rule H": rule_h,
     "Rule K": rule_k,
     "Rule M": rule_m,
+    "Rule N": rule_n,
 }
 # Rules I and J are snapshots of built artefacts rather than of the source tree, so they
 # live with their baselines in `tests/test_architecture.py`.

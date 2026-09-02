@@ -21,8 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ....enums import MessageKind
 from ....foundation.clock import utcnow
 from ....foundation.errors import DomainError
-from ....foundation.models import Workspace
 from ....foundation.screens import TextInputFlow
+from ....foundation.workspace import Workspace
 from ....shell import (
     Services,
     TextInputScreen,

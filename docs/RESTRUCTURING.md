@@ -48,12 +48,98 @@ reads entity names as strings, and this is `isinstance`. Its verdict is now **fi
 - Every stale name in the docs was caught by `tests/test_docs.py` while the batch ran, four times,
   before it reached a commit.
 
+## Batch 2 — landed
+
+`safwa/ai/` and the `features/proposals/` core name nothing of Safwa's, and Rule N in
+`scripts/architecture_metrics.py` reads zero only while that holds. What they may reach is
+`PORTABLE_FOUNDATION`: `foundation/{clock,errors,models,references,screens}.py`, each free of
+any entity. The review flow's `telegram/` and its `module.py` are the port and stay behind.
+
+26. **done** — `Card` and `Check` answer `is_closed_repeat`, `live_instance_query` and
+    `series_index_query` for themselves, so `foundation/marks.py` names no feature.
+27. **done** — `proposals/api.py` dropped its third copy of the repeat helpers; `ReferenceSpec`
+    carries a `refusal` and the wording lives with the feature that owns the link.
+14. **done** — `CardKind`, `Priority`, `Category` and `EnergyType` are Cards', `ScheduleKind` is
+    Reminders', and `WorkspaceMode` is `foundation/workspace.py`'s beside the row it describes.
+
+Beside those: the marker wording left `ai/sql.py` for `foundation/marks.py`, where `title_marks`
+already rendered it; the query caps, the mini-session budgets and the repair rounds went to the
+modules whose defaults they are; `Workspace` left `foundation/models.py` for
+`foundation/workspace.py`; and `ProposalRegistry` gained a `World` port, so proposals asks the
+application for the revision it locks against instead of reading Safwa's row.
+
+Candidate 2 is settled as **no**. The proposals core imports `ai` and is meant to; moving the
+package under it would have reversed three arrows — `proposals/telegram` reads `shell`,
+`module.py` reads `bootstrap`, and `ai/tools.py` already declares `MutationCatalogue` rather than
+importing the registry. Travelling together is what was actually wanted, and Rule N says it.
+
+### Benefits
+
+- The engine's dependency on Safwa was invisible because it ran through modules, not names:
+  `ai/sql.py` never imported a Card, it imported `constants.py`, which mentions Sprints. Rule N
+  reads paths, so the next such import fails instead of being argued about.
+- Three copies of `live_repeat_instance_id` — `cards/api.py`, `checks/api.py` and
+  `proposals/api.py` — are one, and the `isinstance` ladder under `foundation/marks.py` is gone
+  with them.
+- The layer under everything stopped importing two features, so a repeat rule now changes in one
+  place: the entity that repeats.
+- A refusal's wording lives with the feature that owns the link, and generic code only raises what
+  it is handed, so `validate_named_references` no longer spells `Check`.
+- `enums.py` is what no single feature owns; a Card's four words are in `cards/model.py`, next to
+  the column each one types.
+- A limit is where its default is: the query caps are `ReadOnlyQueryRunner`'s, the mini-session
+  budgets are `ai/mini.py`'s, and `constants.py` is back to cross-feature tuning alone.
+- `Workspace` is not a schema primitive and no longer sits with `Base`; `foundation/workspace.py`
+  holds the row, its two modes, and the two functions that read and move it.
+- Proposals locks against a revision it is told about rather than a row it knows, so what the
+  optimistic lock actually needs is one dataclass wide and stated in one place.
+- Two scenarios said Card and Check where they meant a mechanism; they say the mechanism, and
+  `cards.feature` says which of Cards' changes is the destructive one.
+
+## tg_harness — a plan, not a schedule
+
+The engine, the review flow, the shell, the turn lease and the cues are one reusable thing:
+`llm_gateway <- agent_runtime <- tg_harness <- safwa`. Nothing below is started. It is written
+down because the measurement is the expensive part and it is already done.
+
+The candidate set is 49 modules — `ai/` 11, `features/proposals/` 15, `shell/` 10, `cues/` 6,
+`turn/` 4, `adapters/` 3 — plus `foundation/{clock,errors,models,references,screens}.py`. It
+names Safwa in eight places. Two facts make the rest cheap: `ai/messages.py` already declares
+`Memory` as a protocol and takes `workspace_state` as a callable, so *told, not importing* is
+already the house style; and `maybe_summarize` already takes `send_summary` as a callback, so
+the history seam is half inverted already.
+
+Mechanical, and none of it moves anything:
+
+- `MessageKind` is the dialogue store's vocabulary and `AIProvider`/`ASRProvider` are the
+  harness's; they leave `enums.py`.
+- `constants` reaches `shell`, `turn` and `cues`; each constant goes where it is read.
+- `adapters/telegram_history.py` imports `SUMMARY_HEADER`; the header becomes a parameter.
+- `bootstrap/module_manifest.py` is the plug contract, not the roster; its `Settings` becomes the
+  four fields the harness actually reads.
+- `command_status` is the only reason `Services.memory` and `Workspace` are in the shell.
+
+Three seams, and they are the real work:
+
+- **The Advisor's session.** `features/advisor/session.py` is harness code: eight `ai/` imports,
+  eight `proposals/` imports, and two Safwa names — `MemoryFileStore`, which the `Memory`
+  protocol already covers, and `workspace_context`, which the composition root can hand over.
+  The package keeps `agent.py`, which is what its own `__init__` already says it is.
+- **The Summary's cut.** `shell/chat.py` calls `record_summary`; the callback returns the message
+  id instead and `PersonaContinuity` records its own cut.
+- **The window.** `Services.continuity` is `turn/dialogue.py` calling one method; the harness
+  declares that method and Safwa binds it. Summary stays a feature — the harness manages the
+  window, it does not decide what goes in it.
+
+Then the move, and Rule F covers the package: Rule N is deleted rather than extended. Candidates 6,
+12, 16, 18 and 22 are answered by the three seams, so none is worth doing on its own.
+
 ## Candidates — from the owner
 
-2. **first** — the review flow is engine, but `features/proposals/api.py` dispatches on
-   `Card | Check`, and 26 and 27 have to land before anything moves under `ai/`.
-6. **first** — `AgentSpec` splits into a session spec and a routed spec built on it, and the
-   Advisor is the first; a `routable` flag would be the special case under another name.
+2. **no** — the review flow travels with the engine rather than into it; Rule N is what says
+   so, and moving the package would reverse `shell`, `bootstrap` and `MutationCatalogue`.
+6. **plan** — the split to make is not spec-from-spec: `AIAdvisor` is harness and
+   `features/advisor` keeps its prompt, which is the tg_harness plan's first seam.
 7. **yes** — continuity splits into summary and memory once continuity.feature does; the two share
    only `persona.py`.
 8. **first** — the trigger is hardcoded in `ai/tools.py` as `agent.kind` plus `is_complex_read`, so
@@ -68,20 +154,18 @@ reads entity names as strings, and this is `isinstance`. Its verdict is now **fi
 11. **yes** — `ai/contracts.py` declares `CardToolInput`, `CheckToolInput`, `ValueToolInput`,
     `TagToolInput`, `RequestToolInput` and `ReminderToolInput`: every feature's contract sits in
     the engine that owns no feature.
-12. **yes** — `ai/subagents.py` `RoutedSubagent` and `module_manifest.py` `AgentSpec` are one
-    concept declared twice, one converted into the other; 6 removes one.
+12. **plan** — `RoutedSubagent` and `AgentSpec` are one concept declared twice; both land on
+    the harness side of the plan, which is where the duplicate is decided.
 13. **yes** — `heavy_analyzer` has no `module.py` and `bootstrap/modules.py` imports its agent
     directly, which is the second exception to the registry after the Advisor.
-14. **yes** — `enums.py` still keeps `CardKind`, `Priority`, `Category`, `EnergyType` and
-    `ScheduleKind`, which one feature each owns.
 15. **yes** — `constants.py` still keeps `SPRINT_LENGTH_DAYS`, `ARCHIVE_AFTER_SPRINTS`,
     `DIARY_TIME_DEFAULT` and `SUMMARY_TRIGGER_TOKENS`, which one feature each reads.
-16. **yes** — `adapters/` is two unrelated boundaries, voice input and Telethon history, sharing a
-    folder and nothing else.
+16. **plan** — `adapters/` is two unrelated boundaries, voice input and Telethon history, and
+    both are the harness's rather than a feature's.
 17. **check** — `backup.py`, `qa.py` and `recovery.py` sit at the package root; `recovery.py` is
     lifecycle and belongs under `bootstrap/`.
-18. **check** — `Services` names `advisor`, `memory` and `continuity` as fields, which is the
-    fan-out over feature names Rule H forbids everywhere else.
+18. **plan** — `Services` names `advisor`, `memory` and `continuity` as fields; each stops
+    being a feature name for a different reason, all three in the plan.
 19. **check** — `features/workspace_mutator/state.py` builds one block out of every entity, the
     other place a single module knows the whole roster.
 20. **yes** — the package profile, the file profile_settings.feature and the "⚙️ Settings" button
@@ -89,17 +173,11 @@ reads entity names as strings, and this is `isinstance`. Its verdict is now **fi
 21. **check** — agents.feature, screens.feature and telegram_history.feature have no package,
     and advisor, workspace_mutator, home and retro have no scenario file, against one package
     per scenario file.
-22. **check** — `Services` is the whole application's container but lives in `shell/`, so every
-    feature imports the shell to reach the database.
+22. **plan** — `Services` is the whole application's container but lives in `shell/`; the shell
+    is harness, so the container is too and the import is right after the move.
 23. **check** — `foundation/screens.py` carries `ScreenCommand`, `ScreenSpec` and
     `TextInputFlow`, which is Telegram vocabulary in the layer under the domain.
 24. **check** — `features/cards/telegram` is eleven modules; the stage lists may want a package
     of their own.
 25. **no** — values and tags are the same nine modules twice, but each keeps its own rules, and
     `RecordToolInput` is already the whole of what they share.
-26. **yes** — `foundation/marks.py` imports `features/cards/model.py` and
-    `features/checks/model.py` and branches on `isinstance`, so the layer under everything
-    names two features; the entity should answer `is_closed_repeat` for itself.
-27. **yes** — `features/proposals/api.py` keeps its own copy of `marks.py`'s
-    `is_closed_repeat` and `live_repeat_instance_id` under aliased imports, and
-    `validate_named_references` names `Check` where `ReferenceSpec` could carry the refusal.

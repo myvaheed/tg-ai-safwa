@@ -5,8 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String
+from sqlalchemy import Boolean, ForeignKey, Integer, Select, String, select
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql import func
 
 from ...foundation.models import Base, TimestampMixin, UtcDateTime
 
@@ -48,7 +49,27 @@ class Check(Base, TimestampMixin):
     archived_at: Mapped[datetime | None] = mapped_column(UtcDateTime, index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
 
+    def is_closed_repeat(self) -> bool:
+        """A repeat instance that already ended, so its series continues on a newer row."""
+        return self.repeatable and self.outcome is not None
 
-def is_closed_repeat(check: Check) -> bool:
-    """A repeat instance that already ended, so its series continues on a newer row."""
-    return check.repeatable and check.outcome is not None
+    def live_instance_query(self) -> Select[tuple[int]]:
+        """The open Check of this series. Only the newest instance can be open."""
+        return (
+            select(Check.id)
+            .where(
+                Check.series_id == (self.series_id or self.id),
+                Check.outcome.is_(None),
+            )
+            .order_by(Check.id.desc())
+            .limit(1)
+        )
+
+    def series_index_query(self) -> Select[tuple[int]]:
+        """This instance's place, counted over every row the series has ever had."""
+        return (
+            select(func.count())
+            .select_from(Check)
+            .where(Check.series_id == (self.series_id or self.id), Check.id <= self.id)
+        )
+

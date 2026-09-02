@@ -24,8 +24,8 @@ from ..adapters.telegram_history import TelegramHistorySource
 from ..features.advisor.session import AIAdvisor
 from ..features.continuity.memory import MemoryFileStore
 from ..features.continuity.persona import PersonaContinuity
-from ..foundation.models import Workspace
 from ..foundation.screens import ScreenCatalogue, ScreenCommand, StartLink, TextInputFlow
+from ..foundation.workspace import Workspace
 from ..turn import TurnManager
 
 logger = logging.getLogger(__name__)

@@ -19,7 +19,7 @@ from safwa.features.reminders.use_cases import create_reminder
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.clock import SystemClock
 from safwa.foundation.errors import DomainError
-from safwa.foundation.models import Workspace
+from safwa.foundation.workspace import Workspace
 from safwa.recovery import recover_startup
 
 

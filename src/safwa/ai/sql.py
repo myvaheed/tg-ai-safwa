@@ -27,15 +27,6 @@ from pydantic import ValidationError
 
 from llm_gateway import ToolCall
 
-from ..constants import (
-    DEFAULT_CELL_LIMIT,
-    DEFAULT_CHAR_BUDGET,
-    DEFAULT_COLUMN_LIMIT,
-    DEFAULT_ROW_LIMIT,
-    QUERY_TIMEOUT_SECONDS,
-    REPEAT_LIVE,
-    REPEAT_MARKER,
-)
 from .contracts import (
     QueryToolInput,
     ToolResultStatus,
@@ -44,10 +35,12 @@ from .contracts import (
 
 logger = logging.getLogger(__name__)
 
-# The marks `foundation.marks.title_marks` renders, as SQLite format strings: one wording, so a row
-# reads the same whether the model queried it or the owner tapped a citation.
-MARKER_FORMAT = REPEAT_MARKER.replace("{index}", "%d").replace("{live}", "%s")
-LIVE_FORMAT = REPEAT_LIVE.replace("{live_id}", "%d")
+# Sized for a local model: one result should inform a turn, not consume its context.
+DEFAULT_ROW_LIMIT = 50
+DEFAULT_CHAR_BUDGET = 12_000
+DEFAULT_COLUMN_LIMIT = 20
+DEFAULT_CELL_LIMIT = 2_000
+QUERY_TIMEOUT_SECONDS = 2.0
 
 
 class UnsafeQueryError(ValueError):

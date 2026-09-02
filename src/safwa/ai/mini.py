@@ -18,8 +18,11 @@ from pydantic import BaseModel, ValidationError
 
 from llm_gateway import CompletionRequest, LlmProvider, ToolCall
 
-from ..constants import MINI_SESSION_REPAIR_ROUNDS
 from .contracts import ToolResultStatus, tool_json_schema
+
+# A mini-session has one job and one terminal tool; it does not get the agent loop's budget.
+MINI_SESSION_REPAIR_ROUNDS = 3
+MINI_SESSION_MAX_TOOL_CALLS = 6
 
 logger = logging.getLogger(__name__)
 

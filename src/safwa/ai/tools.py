@@ -30,7 +30,6 @@ from agent_runtime import (
 from llm_gateway import ToolCall
 from telegram_llm import DialogueMessage
 
-from ..constants import SUBAGENT_HISTORY_LAST_MESSAGES
 from ..foundation.errors import failure_reason
 from ..foundation.screens import ScreenCatalogue
 from .contracts import (
@@ -50,6 +49,8 @@ from .sql import ReadOnlyQueryRunner, is_complex_read, read_query
 from .subagents import RoutedSubagent
 
 logger = logging.getLogger(__name__)
+
+SUBAGENT_HISTORY_LAST_MESSAGES = 10
 
 # What a helper is: it reads, it answers with rows, and it cannot open a screen. `route`
 # is the other half — a subagent that writes, and whose screen suspends the whole chain.

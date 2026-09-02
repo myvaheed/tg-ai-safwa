@@ -18,7 +18,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ...constants import REMINDER_MIN_INTERVAL_MINUTES, WEEKDAY_NAMES
-from ...enums import ScheduleKind
+from .model import ScheduleKind
 
 MINUTES_PER_DAY = 24 * 60
 _WORKWEEK = ("Mon", "Tue", "Wed", "Thu", "Fri")

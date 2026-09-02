@@ -137,10 +137,10 @@ rule and the code that keeps it are found together.
 
 Where a shared thing goes is decided by how many features read it. Cross-feature tuning — token
 budgets, poll intervals, shared timeouts — lives in [constants.py](src/safwa/constants.py), which
-imports nothing from Safwa, and [config.py](src/safwa/config.py) takes its defaults from there. A
-limit one feature owns is a constant at the top of that feature's module, next to where it is used.
-[enums.py](src/safwa/enums.py) splits the same way: what several features read is there, what one
-feature owns lives with it.
+imports nothing from Safwa. A limit one module owns is a constant at the top of that module, next
+to where it is used, and [config.py](src/safwa/config.py) takes a default from wherever the limit
+lives. [enums.py](src/safwa/enums.py) splits the same way: what several features read is there,
+what one feature owns lives with it.
 
 [shell/](src/safwa/shell) is what a feature's Telegram adapter imports besides `telegram_llm`. Only
 [shell/commands.py](src/safwa/shell/commands.py), [shell/callbacks.py](src/safwa/shell/callbacks.py)
@@ -152,7 +152,10 @@ behind its `__init__`.
 [ai/](src/safwa/ai) is the other application beside the shell: Safwa's agent engine — what a session
 is, what a tool call costs, what the model may read. **It imports no feature**, and Rule M in
 [scripts/architecture_metrics.py](scripts/architecture_metrics.py) keeps that true; every feature
-imports it. The Advisor is not in the engine:
+imports it. The engine and [features/proposals](src/safwa/features/proposals) are meant to be
+lifted into the next project together, so Rule N holds both to naming no Safwa entity: what they
+may reach is the `PORTABLE_FOUNDATION` list, and the review flow's `telegram/` and `module.py` are
+the port that stays behind. The Advisor is not in the engine:
 [features/advisor](src/safwa/features/advisor) owns its prompt, its views and the wiring of its own
 turn, and declares no `MODULE` because the composition root wires the root session directly.
 

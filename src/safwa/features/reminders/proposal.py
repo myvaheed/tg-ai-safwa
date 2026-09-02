@@ -11,7 +11,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ...foundation.errors import DomainError, StaleStateError
-from ...foundation.models import Workspace
+from ...foundation.workspace import Workspace
 from ..proposals.api import (
     ApplyContext,
     ChangeAction,
@@ -50,7 +50,7 @@ class ReminderProposalHandler:
         when = str(prepared.pop("when", "") or "").strip()
         if not when:
             return prepared  # an edit with no timing leaves the schedule alone
-        tz = ZoneInfo(context.workspace.timezone)
+        tz = ZoneInfo(context.world.timezone)
         now = datetime.now(UTC)
         try:
             schedule = await resolve_schedule(

@@ -16,8 +16,8 @@ from ....constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ....enums import MessageKind
 from ....foundation.clock import SystemClock
 from ....foundation.errors import DomainError
-from ....foundation.models import Workspace
 from ....foundation.screens import TextInputFlow
+from ....foundation.workspace import Workspace
 from ....shell import (
     CallbackContext,
     CallbackHandler,

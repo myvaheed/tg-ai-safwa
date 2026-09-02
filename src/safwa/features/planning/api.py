@@ -9,10 +9,10 @@ from __future__ import annotations
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...enums import CardKind
 from ...foundation.clock import utcnow
 from ...foundation.workspace import require_workspace
 from ..cards.api import PLANNED_STAGES, TERMINAL_STAGES, Card, CardStage
+from ..cards.model import CardKind
 from .model import SprintCommitment
 
 # The stages an Action has to be on for a Sprint to have anything to say about it.

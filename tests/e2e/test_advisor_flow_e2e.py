@@ -40,7 +40,7 @@ from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import CardValue, Value
 from safwa.foundation.errors import StaleStateError
 from safwa.foundation.marks import title_marks
-from safwa.foundation.models import Workspace
+from safwa.foundation.workspace import Workspace
 from safwa.recovery import recover_startup
 from safwa.shell import callback_token_handler, dismiss_prior_ui
 from safwa.shell.model import CallbackToken

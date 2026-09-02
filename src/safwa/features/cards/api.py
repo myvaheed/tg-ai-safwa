@@ -12,13 +12,12 @@ from collections.abc import Iterable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...enums import CardKind
 from ...foundation.errors import DomainError
 from ...foundation.marks import title_marks
 from .model import TERMINAL_STAGES as TERMINAL_STAGES
 from .model import Card as Card
+from .model import CardKind
 from .model import CardStage as CardStage
-from .model import is_closed_repeat as is_closed_repeat
 
 PLANNED_STAGES = (CardStage.SPRINT, CardStage.TODAY)
 
@@ -75,15 +74,3 @@ async def card_labels(session: AsyncSession, card_ids: Iterable[int]) -> list[st
         for card in await session.scalars(select(Card).where(Card.id.in_(wanted)))
     ]
 
-
-async def live_repeat_instance_id(session: AsyncSession, card: Card) -> int | None:
-    """The open Card in this repeat series, or None when the series has ended."""
-    return await session.scalar(
-        select(Card.id)
-        .where(
-            Card.repeat_series_id == (card.repeat_series_id or card.id),
-            Card.effective_stage.notin_([stage.value for stage in TERMINAL_STAGES]),
-        )
-        .order_by(Card.id.desc())
-        .limit(1)
-    )

@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...ai.contracts import AgentChange
 from ...foundation.errors import DomainError, StaleStateError
-from ...foundation.models import Workspace
 from .api import ApplyContext, ProposalRegistry
 from .model import (
     ApprovalBatch,
@@ -44,13 +43,11 @@ async def prepare_proposal(
     one change.  Cross-proposal references resolve by name against committed data once the
     earlier proposal has been saved.
     """
-    workspace = await session.get(Workspace, 1)
-    if workspace is None:
-        raise DomainError("Workspace is missing")
+    world = await preparer.world(session)
     prepared = await preparer.prepare(session, change)
     return store.open_proposal(
         message=message,
-        workspace_revision=workspace.revision,
+        workspace_revision=world.revision,
         changes=[
             ProposalChange(
                 entity=change.entity,
@@ -80,8 +77,8 @@ async def approve_proposal(
     proposal = store.proposal(proposal_id)
     if proposal is None:
         raise DomainError("Proposal is no longer pending")
-    workspace = await session.get(Workspace, 1)
-    if workspace is None or workspace.revision != proposal.workspace_revision:
+    world = await proposals.world(session)
+    if world.revision != proposal.workspace_revision:
         store.end_proposal(proposal_id)
         raise StaleStateError(
             "The workspace moved on after Safwa proposed this, so it was not saved. "
@@ -248,10 +245,9 @@ async def refresh_queued_proposal(
 ) -> None:
     """Snapshot a proposal when it becomes visible after earlier batch decisions."""
     proposal = store.proposal(proposal_id)
-    workspace = await session.get(Workspace, 1)
-    if proposal is None or workspace is None:
+    if proposal is None:
         return
-    proposal.workspace_revision = workspace.revision
+    proposal.workspace_revision = (await proposals.world(session)).revision
     for change in proposal.changes:
         handler = proposals.handlers.get(change.entity)
         model = handler.version_model if handler is not None else None

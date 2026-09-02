@@ -24,7 +24,7 @@ from safwa.features.checks.use_cases import (
 from safwa.features.planning.use_cases import archive_settled_items, finish_sprint, start_sprint
 from safwa.features.values.use_cases import create_value
 from safwa.foundation.errors import DomainError
-from safwa.foundation.marks import is_closed_repeat, live_repeat_instance_id, title_marks
+from safwa.foundation.marks import live_repeat_instance_id, title_marks
 
 
 async def create_action(session, **overrides):
@@ -264,8 +264,8 @@ async def test_answering_a_repeating_check_opens_the_next_one(sessions):
         assert again is None
         assert len(await pending_checks(session, card.id)) == 1
 
-        assert is_closed_repeat(answered) is True
-        assert is_closed_repeat(successor) is False
+        assert answered.is_closed_repeat() is True
+        assert successor.is_closed_repeat() is False
         assert await live_repeat_instance_id(session, answered) == successor.id
 
 

@@ -9,10 +9,10 @@ from zoneinfo import ZoneInfo
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import delete, select
 
-from ....enums import CardKind, MessageKind
+from ....enums import MessageKind
 from ....foundation.errors import DomainError
-from ....foundation.marks import is_closed_repeat, live_repeat_instance_id, title_marks
-from ....foundation.models import Workspace
+from ....foundation.marks import live_repeat_instance_id, title_marks
+from ....foundation.workspace import Workspace
 from ....shell import (
     Services,
     edit_registered_message,
@@ -24,7 +24,7 @@ from ....shell.model import UiSession
 from ...checks.use_cases import card_checks
 from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value
-from ..model import Card, CardCategory, CardEnergyType, CardStage
+from ..model import Card, CardCategory, CardEnergyType, CardKind, CardStage
 from ..use_cases import blocking_actions, card_progress
 from .presentation import card_overview_text
 
@@ -138,7 +138,7 @@ async def render_card(
                     )
                 ]
             )
-        live_id = await live_repeat_instance_id(session, card) if is_closed_repeat(card) else None
+        live_id = await live_repeat_instance_id(session, card) if card.is_closed_repeat() else None
         live_card = await session.get(Card, live_id) if live_id is not None else None
         if live_card is not None:
             relationship_rows.append(
@@ -221,7 +221,7 @@ async def render_card(
             )
         ]
         if archived:
-            if card.kind == CardKind.ACTION.value and not is_closed_repeat(card):
+            if card.kind == CardKind.ACTION.value and not card.is_closed_repeat():
                 closing_row.insert(
                     0,
                     await token_button(

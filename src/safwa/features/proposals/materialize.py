@@ -20,7 +20,6 @@ from agent_runtime import AgentLoopResult, AgentSession, TurnOutcome, json_safe
 from ...ai.autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
 from ...ai.outcome import AIOutcome, AIOutcomeKind, as_turn
 from ...ai.tools import REPAIR_EXHAUSTED, ToolAdapters
-from ...constants import MAX_REPAIR_ROUNDS
 from ...foundation.errors import DomainError
 from .api import ProposalRegistry, ToolPreparationError
 from .model import AUTO_SAVED_RECEIPT, BatchDecision, QueueItem
@@ -35,6 +34,8 @@ from .store import ProposalStore
 from .use_cases import number_queued_proposals, open_batch, prepare_proposal
 
 logger = logging.getLogger(__name__)
+
+MAX_REPAIR_ROUNDS = 5
 
 ResolveApproval = Callable[..., Awaitable[AIOutcome | None]]
 

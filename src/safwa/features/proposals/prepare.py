@@ -17,9 +17,7 @@ from llm_gateway import LlmProvider
 
 from ...ai.contracts import AgentChange
 from ...ai.sql import ReadOnlyQueryRunner
-from ...foundation.errors import DomainError
-from ...foundation.models import Workspace
-from .api import PreparationContext, PreparedChange, ProposalRegistry
+from .api import PreparationContext, PreparedChange, ProposalRegistry, World
 
 
 class ChangePreparer:
@@ -33,13 +31,14 @@ class ChangePreparer:
         self.query_runner = query_runner
         self.proposals = proposals
 
+    async def world(self, session: AsyncSession) -> World:
+        """What this application reports as the state a proposal is made against."""
+        return await self.proposals.world(session)
+
     async def prepare(self, session: AsyncSession, change: AgentChange) -> PreparedChange:
-        workspace = await session.get(Workspace, 1)
-        if workspace is None:
-            raise DomainError("Workspace is missing")
         context = PreparationContext(
             session=session,
-            workspace=workspace,
+            world=await self.proposals.world(session),
             provider=self.provider,
             query_runner=self.query_runner,
             views=self.proposals.views,

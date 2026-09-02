@@ -7,12 +7,29 @@ cases read through Planning's.
 
 from __future__ import annotations
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ...foundation.marks import live_instance_hint
 from ...foundation.references import ReferenceSpec
 from ..checks.api import Check
 from ..tags.api import CardTag, Tag
 from ..values.api import CardValue, Value
 from .model import CardCheck
 from .use_cases import toggle_card_check, toggle_card_tag, toggle_card_value
+
+
+async def _closed_check_refusal(
+    session: AsyncSession, check: Check
+) -> tuple[str, str, str] | None:
+    """A closed instance links to a row the owner can no longer act on."""
+    if not check.is_closed_repeat():
+        return None
+    return (
+        "closed_repeat",
+        f"Check #{check.id} is a closed repeat and cannot be linked.",
+        await live_instance_hint(session, check),
+    )
+
 
 VALUE_REFERENCE = ReferenceSpec("value", "Value", Value, CardValue, toggle_card_value)
 TAG_REFERENCE = ReferenceSpec("tag", "Tag", Tag, CardTag, toggle_card_tag)
@@ -26,5 +43,6 @@ CHECK_REFERENCE = ReferenceSpec(
     toggle_card_check,
     name_attr="title",
     archivable=True,
+    refusal=_closed_check_refusal,
 )
 CARD_REFERENCE_SPECS = (VALUE_REFERENCE, TAG_REFERENCE, CHECK_REFERENCE)

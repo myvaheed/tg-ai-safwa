@@ -15,9 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...ai.messages import StateBlocks
 from ...constants import CONTEXT_CRITICAL_CARD_LIMIT
-from ...enums import CardKind, Priority
-from ...foundation.models import Workspace
-from ..cards.model import Card, CardStage
+from ...foundation.workspace import Workspace
+from ..cards.model import Card, CardKind, CardStage, Priority
 from ..planning.model import Sprint
 from ..profile.model import UserProfile
 from ..tags.model import Tag

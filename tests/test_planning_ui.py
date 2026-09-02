@@ -33,7 +33,7 @@ from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.reminders.model import Reminder
 from safwa.features.saved_requests.use_cases import create_saved_request
 from safwa.foundation.clock import SystemClock
-from safwa.foundation.models import Workspace
+from safwa.foundation.workspace import Workspace
 from safwa.shell import callback_token_handler
 from safwa.shell.model import UiSession
 from safwa.turn.dialogue import ordinary_text

@@ -12,8 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from llm_gateway import LlmProvider
 
-from ..constants import MINI_SESSION_MAX_TOOL_CALLS
-from .mini import TerminalTool, run_mini_session
+from .mini import MINI_SESSION_MAX_TOOL_CALLS, TerminalTool, run_mini_session
 
 logger = logging.getLogger(__name__)
 

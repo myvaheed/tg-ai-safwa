@@ -16,7 +16,24 @@ from pydantic import (
     model_validator,
 )
 
-from ..enums import ChangeAction
+
+class ChangeAction(StrEnum):
+    """What one change does. Every mutation tool's `mode` is one of these, spelled the same.
+
+    The tools declare their own subset, so a tool offers only the actions its entity has.
+    """
+
+    CREATE = "create"
+    UPDATE = "update"
+    MOVE = "move"
+    COMPLETE = "complete"
+    CANCEL = "cancel"
+    REOPEN = "reopen"
+    ARCHIVE = "archive"
+    DELETE = "delete"
+    LINK = "link"
+    UNLINK = "unlink"
+
 
 _NULLISH_STRINGS = frozenset({"null", "none", "nil", "undefined"})
 _CONTENT_STRING_FIELDS = frozenset(

@@ -29,7 +29,7 @@ from safwa.enums import MessageKind
 from safwa.features.planning.telegram import render_sprint
 from safwa.features.planning.use_cases import set_sprint_success_criteria
 from safwa.features.proposals.store import ProposalStore
-from safwa.foundation.models import Workspace
+from safwa.foundation.workspace import Workspace
 from safwa.shell import (
     dismiss_prior_ui,
 )

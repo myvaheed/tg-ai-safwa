@@ -5,8 +5,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from safwa.enums import ScheduleKind
 from safwa.features.reminders.api import parse_clock_or_off
+from safwa.features.reminders.model import ScheduleKind
 from safwa.features.reminders.schedule import (
     Schedule,
     ScheduleError,
