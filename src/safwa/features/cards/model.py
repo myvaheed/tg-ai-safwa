@@ -15,7 +15,6 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     Boolean,
-    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -74,8 +73,8 @@ class Card(Base, TimestampMixin):
     source_instance_id: Mapped[int | None] = mapped_column(
         ForeignKey("cards.id", ondelete="SET NULL")
     )
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    cancelled_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     archived_at: Mapped[datetime | None] = mapped_column(UtcDateTime, index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
 
@@ -143,7 +142,7 @@ class CardEvent(Base):
     before: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     after: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     correlation_id: Mapped[str] = mapped_column(String(16), default=new_correlation_id, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, server_default=func.now())
 
 
 def is_closed_repeat(card: Card) -> bool:

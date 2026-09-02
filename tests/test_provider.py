@@ -322,24 +322,6 @@ def test_the_vocabulary_of_the_package_belongs_to_no_application(module: str) ->
     assert not foreign, f"llm_gateway/{module} names {foreign}"
 
 
-def test_no_module_in_the_package_imports_the_application() -> None:
-    offenders = []
-    for path in sorted(PACKAGE.glob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                offenders += [
-                    f"{path.name}: {alias.name}"
-                    for alias in node.names
-                    if alias.name.split(".")[0] == "safwa"
-                ]
-            elif isinstance(node, ast.ImportFrom) and node.level == 0:
-                if (node.module or "").split(".")[0] == "safwa":
-                    offenders.append(f"{path.name}: {node.module}")
-
-    assert not offenders, offenders
-
-
 def test_openai_sdk_is_imported_only_by_the_gateway_adapter():
     source_root = Path(__file__).parents[1] / "src"
     importers = []

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, Integer, String, Text
+from sqlalchemy import Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
-from ...foundation.models import Base
+from ...foundation.models import Base, UtcDateTime
 
 # Written on the first message of a Summary, for the owner. The window strips it back off,
 # so the model reads the words alone — one string, written and stripped from here.
@@ -22,7 +22,7 @@ class SummaryState(Base):
     covered_message_id: Mapped[int | None] = mapped_column(Integer)
     estimated_tokens: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        UtcDateTime, server_default=func.now(), onupdate=func.now()
     )
 
 
@@ -32,7 +32,7 @@ class MemoryFactCache(Base):
     fact: Mapped[str] = mapped_column(Text)
     provenance: Mapped[str] = mapped_column(String(20), default="manual")
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        UtcDateTime, server_default=func.now(), onupdate=func.now()
     )
 
 
@@ -42,8 +42,8 @@ class MemorySyncState(Base):
     file_hash: Mapped[str | None] = mapped_column(String(64))
     file_mtime: Mapped[float | None] = mapped_column(Float)
     error: Mapped[str | None] = mapped_column(Text)
-    processed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    memory_last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    processed_until: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    memory_last_run_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        UtcDateTime, server_default=func.now(), onupdate=func.now()
     )

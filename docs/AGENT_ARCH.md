@@ -10,15 +10,15 @@ The rules behind these mechanisms live in [CLAUDE.md](../CLAUDE.md); this file i
 ```mermaid
 flowchart TB
     OWNER([Owner in Telegram])
-    subgraph TG[telegram]
+    subgraph TG[shell · turn · feature adapters]
         HANDLERS[commands / callbacks / dialogue]
-        GUARD[GenerationGuard]
+        GUARD[TurnManager]
         SCREENS[screens · proposals · renderers]
     end
     subgraph RT[agent_runtime]
         MGR[AgentManager · the loop, the routed chain, suspend and resume]
     end
-    subgraph AI[ai]
+    subgraph AI[ai · features/advisor · features/proposals]
         ADV[Advisor session]
         SUB[Routed subagent session]
         MINI[Mini session]
@@ -33,7 +33,7 @@ flowchart TB
         MEMP[memory-file-poll]
         MEMM[memory-maintenance]
     end
-    HIST[(history.py · Telethon)]
+    HIST[(telegram_history.py · Telethon)]
     MEM[(data/memory.md)]
     DB[(SQLite · ai_* views)]
 
@@ -95,11 +95,11 @@ something: the receipts, or one `⚠️` line.
 ```mermaid
 sequenceDiagram
     participant O as Owner
-    participant G as GenerationGuard
+    participant G as TurnManager
     participant A as Advisor
     participant P as Provider
     O->>G: message
-    G->>A: acquire(source_id)
+    G->>A: begin(message_id)
     A->>A: ContextBuilder.messages_for()
     loop until a turn calls no tool
         A->>P: messages + tools
@@ -273,11 +273,12 @@ it again.
 
 `CueRuntime` is the whole delivery mechanism, and there is one of it:
 
-- **The gate** refuses while `guard.active`, while any `ChangeProposal` is pending, and while any
-  session is suspended on an approval batch or holds `claimed_at`. An open proposal is an unanswered
-  question, and raising a second one on top of it turns the chat into a stack of screens.
-- **The lease** is `guard.reserve_background()`. `still_current` compares `dialogue_revision` before
-  and after the turn, so an owner who speaks mid-turn wins and the half-written answer is discarded.
+- **The gate** refuses while `turn.active`, while `ProposalStore.busy` — any open review or any
+  suspended approval batch — and while any session holds `claimed_at`. An open proposal is an
+  unanswered question, and raising a second one on top of it turns the chat into a stack of screens.
+- **The lease** is `turn.try_begin_background()`. `still_current` compares `dialogue_revision`
+  before and after the turn, so an owner who speaks mid-turn wins and the half-written answer is
+  discarded.
 - The answer is posted with `MessageKind.CUE`: it stays in dialogue, marked as something Safwa
   volunteered rather than a reply to a message that is not there.
 - One waiting Cue is said per tick, oldest first.
@@ -328,14 +329,14 @@ flowchart LR
     CHAT[(the real private chat)] -->|Telethon, every turn| SCAN[backwards scan]
     SCAN --> KIND{MessageKind}
     KIND -->|dialogue_user · dialogue_assistant<br/>cue · summary| WINDOW[the window]
-    KIND -->|dashboard · approval · receipt<br/>command · ui_input · status · error| DROP[excluded]
+    KIND -->|dashboard · editor · approval · receipt<br/>ui_input · status · error| DROP[excluded]
     WINDOW --> BUDGET{over SUMMARY_TRIGGER_TOKENS = 6000?}
     BUDGET -->|yes| SUM[write a 📜 Summary]
     SUM --> WINDOW
 ```
 
-- `history.py` re-reads the real chat on every advisor turn. `telegram_messages` stores event
-  metadata, never persona text.
+- `adapters/telegram_history.py` re-reads the real chat on every advisor turn.
+  `telegram_messages` stores event metadata, never persona text.
 - **Every bot message is sent registered and marked** with a `MessageKind`. An unregistered or
   unmarked message is invisible to the LLM; a wrongly-kinded one leaks UI noise into persona history.
 - The window is a **token budget**, not a message count: `HISTORY_TOKEN_BUDGET = SUMMARY_TRIGGER_TOKENS
@@ -343,8 +344,8 @@ flowchart LR
   far edge of the window.
 - Owner text still in the chat **is** dialogue: commands and typed field values are deleted, so
   survival is the evidence.
-- Words that never reached the chat as owner text — a voice transcript, a drained queue — are posted
-  back as a bot message of the owner's kind, or the Advisor never sees them.
+- Words that never reached the chat as owner text — a voice transcript — are posted back as a bot
+  message of the owner's kind, or the Advisor never sees them.
 - A receipt line is replayed as a **tool result** rather than as words Safwa said
   (`RECEIPT_MEANINGS`, beside the decision it reports),
   so `✅ Saved` reads as `applied` rather than as something the persona claimed.
@@ -405,20 +406,21 @@ one.
 
 ## Concurrency
 
-`GenerationGuard` is the single foreground/background lease.
+`TurnManager` is the single foreground/background lease, and the only writer of `TurnState`.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Idle
-    Idle --> Foreground: acquire(message_id)
-    Idle --> Background: reserve_background()
-    Foreground --> Idle: released
-    Background --> Idle: released
-    Foreground --> Foreground: callbacks rejected, owner text queued
-    Background --> Foreground: cancel() — the owner always wins
+    Idle --> Answering: begin(message_id)
+    Idle --> BackgroundWork: try_begin_background()
+    Answering --> Idle: end(message_id)
+    BackgroundWork --> Idle: end_background()
+    Answering --> Answering: callbacks rejected, other owner text deleted
+    BackgroundWork --> Answering: cancel() — the owner always wins
 ```
 
-- While an answer runs, callbacks are rejected and owner text is queued, then processed as one turn.
+- While an answer runs, callbacks are rejected and any other owner message is taken out of the chat,
+  which is what makes it not something the owner said.
 - `dialogue_revision` is bumped by `cancel()`, and is how a generation already in flight learns to
   discard its result. Only `dialogue_revision` invalidates an in-flight answer — the answer's own
   autoapproved change moves `workspace.revision`, which is a different question.

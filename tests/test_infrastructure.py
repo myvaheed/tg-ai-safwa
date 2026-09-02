@@ -9,8 +9,7 @@ from sqlalchemy import create_engine, inspect, select
 from safwa.ai.runs import AgentRun
 from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
-from safwa.features.cards.model import Card
-from safwa.features.tags.model import CardTag, Tag
+from safwa.features.tags.model import Tag
 from safwa.foundation.database import Database, upgrade_database
 from safwa.foundation.models import Base
 from safwa.recovery import recover_startup
@@ -92,23 +91,6 @@ async def test_read_only_query_runner_reads_only_ai_views(tmp_path):
     assert (await runner.run("SELECT name FROM ai_tags")).rows == [{"name": "Family"}]
     assert (await runner.run("SELECT name FROM ai_requests")).rows == [{"name": "Family actions"}]
     engine.dispose()
-
-
-async def test_durable_entities_use_incrementing_integer_ids(sessions):
-    async with sessions() as session:
-        first = Card(kind="action", title="First", effort_points=1)
-        second = Card(kind="action", title="Second", effort_points=1)
-        first_tag = Tag(name="First tag")
-        second_tag = Tag(name="Second tag")
-        session.add_all([first, second, first_tag, second_tag])
-        await session.flush()
-        session.add(CardTag(card_id=first.id, tag_id=first_tag.id))
-        await session.commit()
-
-    assert isinstance(first.id, int)
-    assert second.id == first.id + 1
-    assert isinstance(first_tag.id, int)
-    assert second_tag.id == first_tag.id + 1
 
 
 async def test_transaction_commits_the_whole_block(tmp_path):

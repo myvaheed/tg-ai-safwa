@@ -351,13 +351,10 @@ async def test_memory_maintenance_reads_after_its_own_cursor(sessions, tmp_path:
     result = await continuity.maintain_memory(42)
 
     assert result is MemoryMaintenanceResult.UPDATED
-    # SQLite hands the cursor back naive; `recent` is what normalizes it to UTC.
-    assert history.reads == [
-        {"token_budget": MEMORY_READ_TOKEN_BUDGET, "since": cursor.replace(tzinfo=None)}
-    ]
+    assert history.reads == [{"token_budget": MEMORY_READ_TOKEN_BUDGET, "since": cursor}]
     async with sessions() as session:
         state = await session.get(MemorySyncState, 1)
-    assert state.processed_until.replace(tzinfo=UTC) == entry.created_at
+    assert state.processed_until == entry.created_at
 
 
 async def test_memory_maintenance_refuses_to_replace_an_unreadable_file(

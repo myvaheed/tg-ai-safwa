@@ -57,8 +57,9 @@ entity, tool or view:
   It is passed as data to whoever validates against it, so `ai/sql.py` stays a leaf.
 - `PROPOSALS` — the `ProposalRegistry` the advisor, the proposal use cases and the review screen
   read.
-- `SYSTEM_PROMPT` — the template in `ai/context.py` with the routing rules generated from the
-  roster. `MODULES` is a constant of import time, so the cacheable prompt prefix stays byte-stable.
+- `SYSTEM_PROMPT` — the template in `features/advisor/agent.py` with the routing rules generated
+  from the roster. `MODULES` is a constant of import time, so the cacheable prompt prefix stays
+  byte-stable.
 - `RECOVERY_HOOKS` and `BACKGROUND_TASKS` — in `MODULES` order.
 
 ## Adding an entity the model may change
@@ -84,7 +85,7 @@ word.
 
 **The adapter is one file until it is more than one file's worth**, and the rest of Safwa
 writes `from .telegram import ...` either way, so the import does not say which it is. Continuity's
-four commands are one file; Cards is nine modules. Two names recur inside a package: `screens.py`
+four commands are one file; Cards is ten modules. Two names recur inside a package: `screens.py`
 is what the owner is taken to, and `handlers.py` is the callback actions the feature publishes.
 `review.py` is the `ProposalPresenter` and the citation label. Everything else is the feature's own,
 because there is no shared vocabulary of screens to hold it to:
@@ -157,9 +158,6 @@ One rule, because the alternative is a reentrancy question with no good answer:
   inner failure would ride along into the outer commit.
 - A use case that has to know the time **takes a `Clock`.** The composition root binds
   `SystemClock()`; near midnight and across a timezone change the result is then reproducible.
-
-This amends plan §5, which had the use case open its own transaction. It could not: every write
-path in Safwa already reaches the feature from inside a session someone else opened.
 
 Then one line in `MODULES`. That is the whole edit in central code: the mutation tool and its
 schema, the review screen, the view and its allowlist entry, the routing line, the recovery hook and

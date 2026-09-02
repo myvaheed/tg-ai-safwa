@@ -28,9 +28,11 @@ features/<x>/
   api.py         словарь и чтения, которым не нужна операция
   model.py       таблицы и enum-ы этой фичи
   use_cases.py   операции
+  references.py  ReferenceSpec на каждую именованную связь
   views.py       SqlView для ai_*
   proposal.py    ProposalHandler
   agent.py       AgentSpec и/или MutationToolSpec
+  reducer.py     reduce(state, action), когда у фичи есть процесс
   telegram/      экраны и обработчики
 ```
 

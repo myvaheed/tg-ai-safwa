@@ -45,7 +45,7 @@ from .contracts import (
 
 logger = logging.getLogger(__name__)
 
-# The marks `domain.title_marks` renders, as SQLite format strings: one wording, so a row
+# The marks `foundation.marks.title_marks` renders, as SQLite format strings: one wording, so a row
 # reads the same whether the model queried it or the owner tapped a citation.
 MARKER_FORMAT = REPEAT_MARKER.replace("{index}", "%d").replace("{live}", "%s")
 LIVE_FORMAT = REPEAT_LIVE.replace("{live_id}", "%d")

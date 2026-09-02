@@ -5,10 +5,10 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ...foundation.models import Base, TimestampMixin
+from ...foundation.models import Base, TimestampMixin, UtcDateTime
 
 
 class CheckOutcome(StrEnum):
@@ -39,13 +39,13 @@ class Check(Base, TimestampMixin):
     title: Mapped[str] = mapped_column(String(500))
     repeatable: Mapped[bool] = mapped_column(Boolean, default=False)
     outcome: Mapped[str | None] = mapped_column(String(20), index=True)
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     resolved_by: Mapped[str | None] = mapped_column(String(20))
     series_id: Mapped[int | None] = mapped_column(Integer, index=True)
     source_instance_id: Mapped[int | None] = mapped_column(
         ForeignKey("checks.id", ondelete="SET NULL")
     )
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    archived_at: Mapped[datetime | None] = mapped_column(UtcDateTime, index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
 
 

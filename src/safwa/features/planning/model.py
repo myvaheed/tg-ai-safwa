@@ -5,10 +5,10 @@ from __future__ import annotations
 from datetime import date, datetime
 from enum import StrEnum
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Date, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ...foundation.models import Base, TimestampMixin
+from ...foundation.models import Base, TimestampMixin, UtcDateTime
 
 
 class SprintStatus(StrEnum):
@@ -22,8 +22,8 @@ class Sprint(Base, TimestampMixin):
     number: Mapped[int] = mapped_column(Integer, unique=True)
     planned_start_date: Mapped[date] = mapped_column(Date)
     planned_end_date: Mapped[date] = mapped_column(Date)
-    actual_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    actual_ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    actual_started_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    actual_ended_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     success_criteria: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20), default=SprintStatus.ACTIVE.value)
     finish_reason: Mapped[str | None] = mapped_column(String(100))
@@ -38,8 +38,8 @@ class SprintCommitment(Base, TimestampMixin):
     card_id: Mapped[int] = mapped_column(ForeignKey("cards.id", ondelete="CASCADE"), index=True)
     effort_snapshot: Mapped[int] = mapped_column(Integer)
     scope_kind: Mapped[str] = mapped_column(String(20), default="initial")
-    added_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    added_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    removed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     result: Mapped[str | None] = mapped_column(String(20))
 
     __table_args__ = (UniqueConstraint("sprint_id", "card_id"),)

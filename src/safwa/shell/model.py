@@ -10,10 +10,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Integer, String
+from sqlalchemy import JSON, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ..foundation.models import Base, TimestampMixin
+from ..foundation.models import Base, TimestampMixin, UtcDateTime
 
 
 class UiSession(Base, TimestampMixin):
@@ -22,7 +22,7 @@ class UiSession(Base, TimestampMixin):
     owner_id: Mapped[int] = mapped_column(Integer, index=True)
     kind: Mapped[str] = mapped_column(String(30))
     state: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
 
 
 class CallbackToken(Base):
@@ -31,4 +31,4 @@ class CallbackToken(Base):
     owner_id: Mapped[int] = mapped_column(Integer, index=True)
     action: Mapped[str] = mapped_column(String(50))
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)

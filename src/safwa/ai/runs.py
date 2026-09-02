@@ -10,14 +10,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, select, update
+from sqlalchemy import JSON, ForeignKey, Integer, String, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, aliased, mapped_column
 
 from agent_runtime import RunRecord, RunStatus
 
 from ..foundation.clock import utcnow
-from ..foundation.models import Base, TimestampMixin
+from ..foundation.models import Base, TimestampMixin, UtcDateTime
 
 
 class AgentRun(Base, TimestampMixin):
@@ -41,7 +41,7 @@ class AgentRun(Base, TimestampMixin):
     model: Mapped[str] = mapped_column(String(200))
     status: Mapped[str] = mapped_column(String(30), index=True)
     state_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    claimed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     source_message_id: Mapped[int | None] = mapped_column(Integer)
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     error_code: Mapped[str | None] = mapped_column(String(100))

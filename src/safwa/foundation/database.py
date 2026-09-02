@@ -19,7 +19,7 @@ _in_transaction: ContextVar[bool] = ContextVar("safwa_in_transaction", default=F
 
 
 def upgrade_database(database_url: str) -> None:
-    """Bring the database up to `models.py`, which is the only schema source.
+    """Bring the database up to the ORM model modules, which are the only schema source.
 
     Safwa is pre-release and has no migration history: the owner recreates the database
     instead of migrating it, so the schema is created straight from the metadata rather

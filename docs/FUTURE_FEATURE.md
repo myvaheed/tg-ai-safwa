@@ -1,4 +1,4 @@
-# Ideas kept for after the migration
+# Ideas kept, and questions already settled
 
 Nothing here is a commitment and nothing here has a scenario. Each entry is a real gap noticed
 while something else was being decided, written down so the reasoning does not have to happen
@@ -6,7 +6,7 @@ twice. An entry leaves this file by becoming an approved scenario package, or by
 
 ## The Advisor cannot read the conversation by date
 
-Noticed 2026-08-30, reviewing the Phase 8 history packet.
+Noticed 2026-08-30, reviewing how the Advisor reads history.
 
 Asked what was said on Tuesday, the Advisor answers from the window it always reads — the newest
 messages up to the token budget, stopping at the newest Summary. Only the Diary subagent reaches a

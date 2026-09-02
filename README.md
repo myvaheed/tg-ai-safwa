@@ -3,8 +3,9 @@
 Safwa is a single-owner personal agile organizer and AI advisor delivered through a Telegram bot.
 It supports hierarchical Goal/Idea/Action Cards, Checks, Values, Tags, Planning and Sprints (two
 weeks by default), repeatable Actions, a Diary, Reminders, AI-authored saved Requests, voice input,
-and an OpenAI-compatible persona. The advisor never writes to your data itself: every change it
-proposes arrives as a Save/Discard screen.
+and an OpenAI-compatible persona. The advisor never writes to your data itself: every change is a
+proposal, and it arrives as a Save/Discard screen unless it is one of the narrow allowlisted shapes
+a second model review may approve on its own.
 
 ## Windows setup
 
@@ -100,7 +101,8 @@ That prints the rules and the module graph. Every rule reads zero, and
 
 ### Definition of Done
 
-The fourteen criteria the clean-architecture migration was held to, as they stand.
+The fourteen criteria this codebase is held to. `architecture_metrics.py` prints #1, #2, #3 and
+#13 on every run; the rest are a rule, a snapshot or a review.
 
 | # | Criterion | How it is measured | Result |
 |---|---|---|---|
@@ -112,8 +114,8 @@ The fourteen criteria the clean-architecture migration was held to, as they stan
 | 6 | One Manager per process, each with a named identity | review | 3: `AgentManager` (a session), `TurnManager` (the turn), `CueRuntime` (what Safwa still owes) |
 | 7 | A reducer only where a pure function simplifies the transitions | review | no quota, and none added without one |
 | 8 | The shared packages work without Safwa | Rule F plus a running example | `examples/plain_chat_bot/` and `examples/note_keeper/`, both run by tests |
-| 9 | Every migrated rule cites a scenario | `tests/test_brd_traceability.py` | enforced |
-| 10 | Every replaced test has an owner's decision | the migration's audit table | done as each batch landed; the table retired with the approval packets |
+| 9 | Every rule cites a scenario | `tests/test_brd_traceability.py` | enforced |
+| 10 | A test is replaced only on the owner's decision | review | the only one here nothing measures: the batch that drops a test names what still covers its scenario |
 | 11 | The schema did not change outside a schema batch | Rule J | snapshot under `tests/snapshots/` |
 | 12 | The prompt prefix is byte-stable | Rule I | snapshot under `tests/snapshots/` |
 | 13 | No old path running beside a new one | search for facades | 0 |

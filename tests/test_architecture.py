@@ -1,9 +1,8 @@
 """The architecture rules, plus the two snapshots that guard drift.
 
 The rules live in `scripts/architecture_metrics.py` so the same scanner produces the report
-a batch attaches to its summary.  Every one of them reads zero: the migration's allowlist of
-recorded violations is gone, and the one exception that outlived it is named inside the rule
-that grants it.
+a batch attaches to its summary.  Every one of them reads zero, and the one exception any
+rule grants is named inside that rule.
 
 Rules I and J are snapshots of built artefacts rather than of the source tree, so they are
 here.  Regenerate a snapshot only inside a batch that is declared as changing that artefact:
@@ -57,8 +56,7 @@ def test_rule_has_no_violation(rule):
 
 
 def test_internal_imports_stay_acyclic():
-    # Plan section 21: the migration has to preserve this, not only the phase that moves
-    # the module.  A cycle is what a badly placed seam looks like from the outside.
+    # A cycle is what a badly placed seam looks like from the outside.
     found = cycles()
 
     assert not found, [" -> ".join([*loop, loop[0]]) for loop in found]

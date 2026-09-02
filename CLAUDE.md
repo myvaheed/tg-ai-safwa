@@ -10,7 +10,8 @@ It carries the principles only. Every mechanism has a document that owns it, lis
 feature you are changing before you change it, and [tests/brd/README.md](tests/brd/README.md) for
 what a scenario is.
 
-Then [docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md) for how a feature is wired in, and
+Then [docs/DOMAIN.md](docs/DOMAIN.md) for what a Card, a Check and a Sprint are,
+[docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md) for how a feature is wired in, and
 [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md) for sessions, routing and history. `uv run python
 scripts/architecture_metrics.py` prints the current module graph — no document is kept in step
 with it.
@@ -130,243 +131,55 @@ A feature owns its model, use cases, agent contract and Telegram adapter, and it
 mutation paths call the same operations — [features/diary](src/safwa/features/diary) is the shape
 to copy.
 
-### Board and Planning are not the same word
-
-**One package per `.feature` file**, so a rule and the code that keeps it are found in one place.
-
-- **The board** is what the owner keeps: Cards, Checks, Values, Tags, Requests and Reminders — the
-  set, not one entity. `board` is the subagent that proposes every change to it, and
-  [features/board](src/safwa/features/board) is that subagent and nothing else: the roster lets it
-  declare mutation tools the features that own those entities publish.
-- **Planning** is the workspace mode without a running Sprint (`WorkspaceMode.PLANNING`), the Sprint
-  itself, and the screen where the next one is planned.
-  [features/planning](src/safwa/features/planning) is exactly that and nothing else.
-
-A Card is not "planning data". Say Card, Check, Value, Tag, Sprint — or say the board.
-
-`AgentSpec.board_state` is that set's current state, sent to a subagent that asked for it, and the
-model reads it under that name. The `Workspace mode:` line inside it is the other word: there
-`planning` is the mode with no Sprint.
-
 **`tests/brd/*.feature` is the product spec.** An approved scenario outranks the code, the tests
-and every document, and changing one needs the owner.
+and every document, and changing one needs the owner. **One package per `.feature` file**, so a
+rule and the code that keeps it are found together.
 
-Cross-feature tuning — token budgets, poll intervals, shared timeouts — lives in
-[constants.py](src/safwa/constants.py), which imports nothing from Safwa;
-[config.py](src/safwa/config.py) takes its defaults from there. A limit that belongs to one feature
-is a constant at the top of that feature's module, next to where it is used. The same split applies
-to [enums.py](src/safwa/enums.py): what more than one feature reads is there, and what one
-feature owns lives with it — `CardStage` and its two sets in
-[features/cards/model.py](src/safwa/features/cards/model.py), `CheckOutcome` in
-[features/checks/model.py](src/safwa/features/checks/model.py). `WorkspaceMode` is the exception
-and stays shared: `Workspace` is [foundation](src/safwa/foundation/models.py)'s row, and its `mode`
-column is where the default is written.
+Where a shared thing goes is decided by how many features read it. Cross-feature tuning — token
+budgets, poll intervals, shared timeouts — lives in [constants.py](src/safwa/constants.py), which
+imports nothing from Safwa, and [config.py](src/safwa/config.py) takes its defaults from there. A
+limit one feature owns is a constant at the top of that feature's module, next to where it is used.
+[enums.py](src/safwa/enums.py) splits the same way: what several features read is there, what one
+feature owns lives with it.
 
-[shell/](src/safwa/shell) is what a feature's Telegram adapter imports besides `telegram_llm`:
-the container, the router, the chat verbs, the layout, the editor, the shared selector, Safwa's own
-three commands and the one dispatcher every inline button goes through. Only
-[shell/commands.py](src/safwa/shell/commands.py),
-[shell/callbacks.py](src/safwa/shell/callbacks.py) and [turn/dialogue.py](src/safwa/turn/dialogue.py)
-register `@router` handlers; the shell package imports the first two and
-[bootstrap/main.py](src/safwa/bootstrap/main.py) imports the third for that side effect — dropping one silently
-unregisters its handlers. A leading underscore means module-local: a name used by a sibling module
-carries no underscore, even though the whole package stays private behind `__init__.__all__`.
+[shell/](src/safwa/shell) is what a feature's Telegram adapter imports besides `telegram_llm`. Only
+[shell/commands.py](src/safwa/shell/commands.py), [shell/callbacks.py](src/safwa/shell/callbacks.py)
+and [turn/dialogue.py](src/safwa/turn/dialogue.py) register `@router` handlers, and each is imported
+for that side effect alone — dropping one silently unregisters its handlers. A leading underscore
+means module-local: a name a sibling module uses carries none, even though the package stays private
+behind its `__init__`.
 
-[ai/](src/safwa/ai) is the other application beside the shell: Safwa's agent engine — what a
-session is, what a tool call costs, what the model may read. **It imports no feature**, and Rule M
-in [scripts/architecture_metrics.py](scripts/architecture_metrics.py) is what keeps that true; every
-feature imports it. The Advisor is not in the engine:
-[features/advisor](src/safwa/features/advisor) owns its prompt, the views it may read, and the
-wiring of its own turn, and it declares no `MODULE` because the composition root wires the root
-session directly.
+[ai/](src/safwa/ai) is the other application beside the shell: Safwa's agent engine — what a session
+is, what a tool call costs, what the model may read. **It imports no feature**, and Rule M in
+[scripts/architecture_metrics.py](scripts/architecture_metrics.py) keeps that true; every feature
+imports it. The Advisor is not in the engine:
+[features/advisor](src/safwa/features/advisor) owns its prompt, its views and the wiring of its own
+turn, and declares no `MODULE` because the composition root wires the root session directly.
 
-## Principles
+## The rules that outrank a convenient design
 
-### Telegram is the canonical dialogue store, not SQLite
+Each is a property some mechanism exists to hold. Break one and the mechanism around it stops
+meaning anything, so change the mechanism instead. [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md) is how
+each is held; [docs/DOMAIN.md](docs/DOMAIN.md) is what the words mean.
 
-[adapters/telegram_history.py](src/safwa/adapters/telegram_history.py) re-reads the real private
-chat through Telethon on every advisor turn; `telegram_messages` stores event metadata, never
-persona text.
-
-- **Every bot message is sent registered and marked** with a `MessageKind`. An unregistered or
-  unmarked message is invisible to the LLM; a wrongly-kinded one leaks UI noise into persona history.
-- Only dialogue, Cues and Summaries become dialogue. Everything else — screens, receipts,
-  errors, transient status — is excluded by its kind.
-- The window is a **token budget**, not a message count, and a Summary is written exactly when it
-  fills.
-- Owner text that is still in the chat **is** dialogue: commands and typed field values are deleted,
-  so survival is the evidence.
-- Words that never reached the chat as owner text — a transcript, a drained queue — are posted back
-  as a bot message of the owner's kind, or the advisor never sees them.
-
-### AI mutations are always proposals
-
-The model never mutates and never writes mutation SQL. A mutation tool call becomes a Pydantic
-contract, then `ChangePreparer.prepare` against live data, then an open review, then a review
-screen, and `approve_proposal` calls the *same* use cases the manual UI calls.
-A review is process state, never a row: `ProposalStore` holds it, and a restart ends every one.
-
-- **Every mutation tool belongs to a subagent, never to the Advisor.** `board` owns the board —
-  Cards, Checks, Values, Tags, Requests, Reminders — and `diary` owns the Diary. Preparation runs where the change was authored.
-- **Every proposal screen is exactly Save/Discard.** A screen that needs a field control is the wrong
-  screen.
-- Autoapproval decides only whether a screen is shown; it never bypasses proposal persistence, and
-  any doubt or failure leaves the pending screen untouched.
-- When the decision is the user's, the model **cites** the item in its own prose instead of proposing
-  one. A citation link is built host-side from a validated id, never from model text, and an item
-  that is gone keeps its words and loses its link.
-- Several mutation calls in one turn queue as independent screens, and the model resumes only after
-  the last one resolves, with every result handed back as a tool result.
-- Do not mix an immediate tool and mutation tools in one provider response; runtime rejects the
-  mutations and the model retries them after it has seen the read data.
-- Anything the model must know across an approval belongs in a tool result, not in a receipt.
-
-### A session is the unit, and `route` hands one turn to another
-
-The Advisor is a session ([`AgentSession`](src/agent_runtime/model.py)); a subagent is a session of the
-same shape, reading the same conversation under its own prompt and its own tools. `route(name)` is a
-call that returns: the subagent runs, its proposal is the screen, and what comes back to the caller
-is a receipt — `did`, `text`, `error`. Only the Advisor writes to the chat, and the turn ends only
-when the Advisor answers, so a request naming two domains is two routes and one message. A routed
-subagent has no `route`, so there is no recursion.
-
-- A session is its `agent_runs` row. `state_json` carries the dialogue, transcript, budget and
-  receipts, so a suspended turn resumes from its own record rather than from the screen that
-  suspended it. A suspension hands back an opaque `InteractionRef`, and both halves of it guard the
-  resume: `claimed_at` stops two resumes at once, and the token — minted at the checkpoint, cleared
-  when it is taken — stops one screen being answered twice. Suspend, `resume` and `interrupt` all
-  belong to `AgentManager`; Safwa keeps only the mapping from a screen to its reference.
-- A subagent reads that conversation as **data**: the newest `SUBAGENT_HISTORY_LAST_MESSAGES` come
-  as one `<Conversation>` block, a tag per author, so nothing it did not write reaches it in the
-  `assistant` slot — prose there demonstrates answering in prose. The Advisor is that conversation's
-  assistant and reads the roles as they are. A routed session is also required to open with a tool
-  call; only its first turn, because the loop ends on a turn that calls none.
-- `route` hands the turn to a subagent that **writes**. `call_helper` asks one that only **reads**
-  and answers with rows: it cannot open a screen, so nothing suspends and the caller keeps its turn.
-  A helper is in no routing rule and in no base tool set — the tool result that needed one is what
-  offers it, and `heavy_analyzer` is the only one. It ends by forwarding its own last read, never by
-  retelling it.
-- `parent_run_id` is who routed here. A screen suspends the whole chain; Save resumes the subagent,
-  and its receipt resumes its caller, up to the session that has no parent.
-- A session runs until it answers in words: a turn that stops with nothing is told so and asked
-  again, bounded by the repair rounds. The session that writes to the chat is what guarantees the
-  owner sees something — the receipts, or one `⚠️` line.
-- Approve and Discard resume that session directly. Words typed over the screen do not: every pending
-  proposal in that batch is rejected, and the words **resume the turn that opened the screen** rather
-  than starting a second one — its pending `route` is answered with what was proposed, what was
-  refused, what was already saved, and the words themselves. A screen is never something the owner
-  comes back to: a UI message is only ever the last message in the chat and never moves back up, so
-  anything done below one interrupts it.
-- An interruption leaves the subagent **unfinished, not finished**, so a `route` back on that same
-  turn resumes it with its own plan — which is what makes "the same, but capitalise the name" a
-  correction rather than a rewrite. Its own record says the owner refused *and wrote instead*, or it
-  proposes the same thing again. The turn that routed there is the outer bound: when it answers or
-  fails, it ends whatever it left unfinished.
-- The routing rules in `SYSTEM_PROMPT` are generated from the roster, so a subagent is routed to
-  exactly when its `AgentSpec` is in `MODULES`; its `purpose` **is** the prompt line.
-- A subagent **owns the writes** of its feature, never the reads. The Advisor reads every `ai_*`
-  view, `ai_diary` included, and cites a day as `[16.08.2026](diary:12)`; the `diary` tool belongs to
-  its subagent, and the Advisor holds no mutation tool at all.
-
-### Read-only SQL is triple-guarded
-
-`query_safwa` accepts one `SELECT`/`WITH … SELECT` over the `ai_*` views only, behind regex
-validation, a separate read-only connection with an authorizer allowlist, and result caps
-([ai/sql.py](src/safwa/ai/sql.py)).
-
-A saved Request shares the validation and nothing else: it runs on the ordinary session, and the
-caps do not apply because its result is always a list in the interface and never enters the model's
-history. Those caps exist because a local model pays for what it reads.
-
-The views are dropped and rebuilt on **every startup** — change view shape in the owning feature's
-`views.py`, never with a migration. `ALLOWED_VIEWS` and `CREATE VIEW` both come from those `SqlView`
-declarations, and the composition root hands the catalogue to whoever validates against it. A
-`SqlView` carries its own `doc` too, so the block a model reads about a view lives beside the SELECT.
-**The view list in a prompt is what scopes a reader**: an agent names the views it reads, the
-composition root fills them into `{views}`, and a view no list names is one that reader never learns
-exists. The Diary writes its own list by hand, with columns trimmed on purpose.
-
-### `data/memory.md` is authoritative
-
-[features/continuity/memory.py](src/safwa/features/continuity/memory.py): ordinary UTF-8 text. Each
-trimmed non-empty line is a fact, blank lines are ignored, and a missing file means empty memory. The
-`memory_fact_cache` table is a rebuildable derived cache — never treat it as the source. AI replacements
-write atomically and re-check the file hash so a concurrent local edit is preserved rather than
-overwritten. A file that is not UTF-8, or that is over the token budget, injects no memory and
-records why instead of failing the turn — the budget bounds what is read as well as what is written.
-
-### The prompt prefix must stay byte-stable
-
-`ContextBuilder` ([ai/messages.py](src/safwa/ai/messages.py)) orders context blocks by how often
-they change, so a remote provider can cache the prefix. **New volatile context goes after the
-dialogue, never into a system block** — one timestamp in `messages[0]` costs every cache hit and
-scatters OpenRouter's sticky provider routing.
-
-Only `messages[0]` is a system message. Any other context block goes through `system_note`, which
-sends it as a user message prefixed `[System]: ` — the Qwen3.5 chat template raises on a second
-system message.
-
-### Concurrency and UI state
-
-- `TurnManager` ([turn/](src/safwa/turn)) is the single foreground/background lease. While an
-  answer runs, callbacks are rejected and owner text leaves the chat, which is what makes it not
-  something the owner said. Background work verifies the revision before publishing or committing.
-- `OwnerAndWritingMiddleware` drops anything that is not the owner in a private chat.
-- Every inline button is a single-use `CallbackToken` row that dies with the run of Safwa that
-  drew it; `UiSession` holds transient editor state
-  and manual creation persists nothing until Save.
-- Bot messages are HTML — escape any user or model text.
-- `recover_startup` ([recovery.py](src/safwa/recovery.py)) reconciles interrupted work on every boot.
-
-### Domain invariants
-
-- Card tree: Goal is root-only; Idea may be root or under a Goal; Action may be root or under
-  Goal/Idea and has no children. **Stage**, effort, repeat, categories, energy and **Blocked**
-  belong to an Action alone, and are stripped for Goal/Idea at both the AI and the domain boundary.
-  A Card's parent is set by proposal only; no screen offers the control.
-- A Goal and an Idea show what their **direct children** add up to. Each child already carries its
-  own derived values, so the recursion reaches the Actions, and a child that never started still
-  counts: an Idea with nothing in it is in Backlog and holds its Goal there.
-  `propagate_ancestors` is the one walk that writes it, into the plain `effective_stage`, `blocked`,
-  `effort_points` and `archived_at` columns, so Safwa reads one column that means the same thing on
-  every row. Every path that changes an Action ends there. A parent with nothing under it shows Backlog and
-  never Done or Cancelled, and it has no `blocked_description` of its own. Summing `effort_points`
-  over every row counts each Action again inside every ancestor — a real total says
-  `WHERE kind = 'action'`.
-- `manual_stage` is what the user set, and it is an Action's alone; `effective_stage` is what
-  dashboards and queries read.
-- A Check records a state observation, never planned work: no effort, never in a Sprint, and Pending
-  is derived rather than stored. A Check hangs on **one** Card or on none.
-- Three rules govern a Check across a Card's life: a Card closes when every Check series on it was
-  answered at least once **on this Card**; closing deletes whatever is still Pending; reopening puts
-  each plain Check back to Pending and opens one fresh instance of each repeating series. They live
-  in [features/checks](src/safwa/features/checks), and Cards asks for them by name in
-  `checks/use_cases.py`.
-- **Everything is deleted; only a Card and a Check are also archived**, two Sprints after they
-  closed (`ARCHIVE_AFTER_SPRINTS`). Archived is a matter of sight: it still counts everywhere it
-  counted. A Value, a Tag and a Saved Request carry no `archived_at` at all.
-- **Only an Action is archived; a Goal and an Idea are derived, like everything else they show.**
-  A branch leaves sight when its last Card does and comes back the moment one is reopened, so a
-  parent is never stamped, never restored and never carries a `card_events` row of its own.
-- **A list by stage leaves an archived item out; every other list shows it, marked `[📦]`.** It
-  opens, it reads as archived, and no proposal changes it — only the owner, by reopening or
-  deleting it. `domain.title_marks` is the one place both marks are written, and `ai_cards` and
-  `ai_checks` render the same wording in SQL.
-- A Card owns three link sets of one shape — Values, Tags, Checks — and a Check owns one, its
-  Values. All four are `ReferenceSpec`s: adding another means adding a spec, not a special case.
-  A Check's Values are its own statement about what it measures; nothing is derived between them
-  and the Values of the Cards that Check belongs to.
-- Effort is restricted to `EFFORT_POINTS` and required for Actions; the `Literal` in
-  `ai/contracts.py` mirrors it — change both together.
-- Enums are `StrEnum` but columns store plain strings — always compare/assign `.value`.
-- Entities carry a `version`, and `workspace.revision` is what a pending proposal is checked against
-  before it applies. `StaleStateError` is the expected failure. Only `dialogue_revision` invalidates
-  an in-flight answer, because the answer's own autoapproved change moves `workspace.revision`.
-- Safwa speaks first only because a **Cue** was written for it — a Reminder that came due, a
-  Sprint that ended. The producer writes the finished request into `cues` in its own transaction;
-  `CueRuntime` owns the gate, the lease and the one turn, and deletes the row only once the owner
-  has the words. That row is the single record of what Safwa still owes, so the Reminder poll
-  does schedule arithmetic and nothing else, and one thing waits to be said at a time.
+- **Telegram is the dialogue store, not SQLite.** Every bot message is sent registered and marked
+  with a `MessageKind`, and its kind is the only thing that decides whether the model ever sees it.
+  An unregistered or wrongly-kinded message is a silent bug weeks wide.
+- **The model proposes; it never writes.** Every mutation tool belongs to a subagent, never to the
+  Advisor, and Save calls the *same* use cases the manual UI calls. A proposal screen is exactly
+  Save/Discard: a screen that needs a field control is the wrong screen.
+- **A session is the unit, and only the Advisor writes to the chat.** `route` hands one turn to a
+  subagent and gets a receipt back; a screen suspends the whole chain and a Save resumes it. A
+  session runs until it answers in words.
+- **A reader is scoped by the view list in its prompt.** `query_safwa` takes one read-only SELECT
+  over the `ai_*` views, triple-guarded, and a view no list names is one that reader never learns
+  exists. Views are rebuilt every startup from the owning feature's `views.py`, never migrated.
+- **The prompt prefix is byte-stable.** New volatile context goes after the dialogue, never into a
+  system block — one timestamp in `messages[0]` costs every cache hit.
+- **`data/memory.md` is authoritative.** The `memory_fact_cache` table is a rebuildable derived
+  cache; never treat it as the source.
+- **One lease, and the owner always wins.** `TurnManager` is the single foreground/background lease;
+  background work verifies the revision before it publishes or commits.
 
 ## Schema gotcha
 
@@ -399,7 +212,8 @@ ORM metadata at that point.
   short as the line it replaces. Describe the behavior that exists now — never the design it
   replaced, why the old one was dropped, or how deliberate the new one is.
 - User-facing strings are complete sentences and product-specific ("Card", "Sprint", "Value", "Tag",
-  "Request" are capitalized domain nouns).
+  "Request" are capitalized domain nouns). Bot messages are HTML — escape any user or model text.
+- Enums are `StrEnum` but columns store plain strings — always compare and assign `.value`.
 - Commit subjects in this repo follow `vX.Y <short summary>`.
 - E2E tests use the real migrated SQLite database and real services, replacing only Telegram and the
   provider at their network boundaries. Keep new tests on that pattern rather than mocking domain
@@ -413,6 +227,7 @@ ORM metadata at that point.
 |---|---|
 | Product spec | [tests/brd/](tests/brd) |
 | What a scenario is | [tests/brd/README.md](tests/brd/README.md) |
+| The domain and its invariants | [docs/DOMAIN.md](docs/DOMAIN.md) |
 | The six flows, drawn | [docs/diagrams/](docs/diagrams) |
 | History, memory, summaries | [telegram_history.feature](tests/brd/telegram_history.feature), [continuity.feature](tests/brd/continuity.feature), [features/continuity](src/safwa/features/continuity) |
 | Checks | [checks.feature](tests/brd/checks.feature), [features/checks](src/safwa/features/checks) |
@@ -426,6 +241,7 @@ ORM metadata at that point.
 A feature's own package is a pointer like any other: its `.feature` file is the rule, and the
 package is what keeps it. `docs/` is where anything written from now on goes.
 
-**Keep this file and `README.md` current by deleting, not by adding.** A line that stopped being
-true is removed or replaced in place — never left standing next to its correction. Both files
-name only things that exist; `tests/test_docs.py` checks every link they carry.
+**Keep every document current by deleting, not by adding.** A line that stopped being true is
+removed or replaced in place — never left standing next to its correction. `tests/test_docs.py`
+checks that each link resolves and each code name a document spells still exists, so a rename that
+leaves the prose around it standing fails there.

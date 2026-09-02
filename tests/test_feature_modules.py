@@ -1,8 +1,8 @@
 """The registry itself: what `bootstrap/modules.py` promises about a feature.
 
-Phase 2's claim is that adding an entity the model may change costs one package plus one
-line in `MODULES`.  Rule H proves no other module spells a feature's name; these tests
-prove the registry actually carries what those modules used to enumerate by hand.
+Adding an entity the model may change costs one package plus one line in `MODULES`.  Rule H
+proves no other module spells a feature's name; these tests prove the registry actually
+carries what the rest of the codebase no longer enumerates by hand.
 """
 
 from __future__ import annotations
@@ -110,8 +110,8 @@ def test_the_view_allowlist_is_the_catalogue_the_database_gets(tmp_path):
 
 
 def test_the_routing_rules_are_generated_from_the_roster():
-    # CLAUDE.md warns that a subagent missing from the prompt is never routed to; the
-    # roster is now the only place that can omit one.
+    # A subagent missing from the prompt is never routed to, so the roster is the only
+    # place that can omit one.
     rules = SYSTEM_PROMPT.split("# Routing", 1)[1].split("\n# ", 1)[0]
 
     for agent in AGENTS:

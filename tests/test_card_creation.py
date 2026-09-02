@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import DateTime
 
 from safwa.ai.contracts import CardToolInput
 from safwa.bootstrap.modules import PROPOSALS
@@ -23,6 +22,7 @@ from safwa.features.saved_requests.model import SavedRequest
 from safwa.features.tags.model import Tag
 from safwa.features.values.model import Value
 from safwa.foundation.marks import live_repeat_instance_id
+from safwa.foundation.models import UtcDateTime
 
 
 @pytest.mark.parametrize("stage", ["done", "cancelled"])
@@ -37,10 +37,10 @@ def test_card_move_tool_rejects_a_terminal_stage(stage):
 
 @pytest.mark.parametrize("model", [Card, Tag, Value, SavedRequest, Sprint])
 def test_user_item_timestamp_columns_are_timezone_aware(model):
+    # `UtcDateTime` is what makes a column read back aware; plain `DateTime(timezone=True)`
+    # hands a naive value back from SQLite and every reader has to remember to stamp it.
     for field in ("created_at", "updated_at"):
-        column_type = model.__table__.columns[field].type
-        assert isinstance(column_type, DateTime)
-        assert column_type.timezone is True
+        assert isinstance(model.__table__.columns[field].type, UtcDateTime)
 
 
 async def test_card_field_updates_reject_an_unknown_priority(sessions):
@@ -50,21 +50,6 @@ async def test_card_field_updates_reject_an_unknown_priority(sessions):
             await update_card_fields(session, card.id, {"priority": "urgent"})
         await update_card_fields(session, card.id, {"priority": Priority.CRITICAL})
         assert card.priority == Priority.CRITICAL.value
-
-
-async def test_user_items_have_typed_timestamps(sessions):
-    async with sessions() as session:
-        card = await create_card(
-            session,
-            kind="action",
-            title="Timestamped",
-            effort_points=1,
-        )
-        await session.commit()
-        await session.refresh(card)
-
-        assert card.created_at is not None
-        assert card.updated_at is not None
 
 
 async def test_no_proposal_may_touch_a_closed_repeat(sessions):

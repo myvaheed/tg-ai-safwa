@@ -51,22 +51,6 @@ def test_the_vocabulary_of_the_package_belongs_to_no_application(module: str) ->
     assert not foreign, f"agent_runtime/{module} names {foreign}"
 
 
-def test_no_module_in_the_package_imports_the_application() -> None:
-    offenders = []
-    for path in sorted(PACKAGE.glob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                offenders += [
-                    f"{path.name}: {alias.name}"
-                    for alias in node.names
-                    if alias.name.split(".")[0] == "safwa"
-                ]
-            elif isinstance(node, ast.ImportFrom) and (node.module or "").startswith("safwa"):
-                offenders.append(f"{path.name}: {node.module}")
-    assert not offenders, offenders
-
-
 def _load_example():
     specification = importlib.util.spec_from_file_location("note_keeper", EXAMPLE)
     assert specification is not None and specification.loader is not None
