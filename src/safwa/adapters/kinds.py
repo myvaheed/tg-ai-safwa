@@ -1,14 +1,15 @@
 """What a bot message is: the kinds a reader can tell apart.
 
 `telegram_llm` writes and reads the invisible mark but declares no kinds, so which kinds
-exist and what each means to a reader is the host's. Which number stands for which kind is
-the deployment's instead, in `dialogue_marks.py`, because a number means something only
-against the messages already sent under it.
+exist and what each means to a reader is the host's. The number each is written under
+follows from its name, so this list is the whole of what has to be decided.
 """
 
 from __future__ import annotations
 
 from enum import StrEnum
+
+from telegram_llm import KindMarks
 
 
 class MessageKind(StrEnum):
@@ -24,3 +25,6 @@ class MessageKind(StrEnum):
     # Transient progress the sender deletes again, never part of the conversation.
     STATUS = "status"
     ERROR = "error"
+
+
+MARKS = KindMarks([kind.value for kind in MessageKind])

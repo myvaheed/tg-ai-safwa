@@ -11,7 +11,7 @@ conversation is the host's to say, once, in a `ChatVocabulary`.
 from __future__ import annotations
 
 from .host import ChatHost, Freeze
-from .marking import KindMarks
+from .marking import KindMarks, code_for
 from .notes import Note, NoteStore
 from .text import (
     TELEGRAM_TEXT_LIMIT,
@@ -47,6 +47,7 @@ __all__ = [
     "Freeze",
     "HistoryEntry",
     "KindMarks",
+    "code_for",
     "Note",
     "NoteStore",
     "ProgressCallback",

@@ -10,6 +10,7 @@ from ui_harness import spawn_timer
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
+from safwa.adapters.kinds import MARKS
 from safwa.adapters.telegram_history import TelegramNotes
 from safwa.ai.outcome import AIOutcomeKind
 from safwa.bootstrap.modules import (
@@ -18,7 +19,6 @@ from safwa.bootstrap.modules import (
     PROPOSALS,
     SCREENS,
 )
-from safwa.dialogue_marks import MARKS
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.proposals.telegram import render_proposal

@@ -7,6 +7,7 @@ from marks import mark_kind, mark_message, read_kind_mark
 from sqlalchemy import update
 from telethon.tl.types import MessageEntityTextUrl
 
+from safwa.adapters.kinds import MARKS, MessageKind
 from safwa.adapters.telegram_history import (
     TelegramHistorySource,
     TelegramMessage,
@@ -14,7 +15,6 @@ from safwa.adapters.telegram_history import (
 )
 from safwa.ai.conversation import conversation_block
 from safwa.bootstrap.modules import SCREENS
-from safwa.dialogue_marks import MARKS, MessageKind
 from safwa.features.continuity.model import SUMMARY_HEADER
 from telegram_llm import DialogueMessage, HistoryEntry, restore_citations
 

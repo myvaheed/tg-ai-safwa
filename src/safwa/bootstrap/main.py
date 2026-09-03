@@ -15,12 +15,12 @@ from llm_gateway import OpenAICompatibleConfig, OpenAICompatibleProvider
 from telegram_llm import ChatHost
 
 from ..adapters.asr import build_transcriber
+from ..adapters.kinds import MARKS
 from ..adapters.telegram_history import TelegramHistorySource, TelegramNotes
 from ..ai.autoapproval import AutoApprovalReviewer
 from ..ai.sql import ReadOnlyQueryRunner, create_ai_views
 from ..config import Settings
 from ..constants import AI_APP_TITLE, AI_APP_URL
-from ..dialogue_marks import MARKS
 from ..enums import AIProvider
 from ..features.advisor.session import AIAdvisor
 from ..features.continuity.memory import MemoryFileStore

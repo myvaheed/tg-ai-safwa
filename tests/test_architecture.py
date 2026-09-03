@@ -21,14 +21,14 @@ from pathlib import Path
 import pytest
 from sqlalchemy import UniqueConstraint, inspect
 
+from safwa.adapters.kinds import MARKS
 from safwa.ai.messages import ContextBuilder, StateBlocks
 from safwa.ai.subagents import PERSONA, RoutedSubagent
 from safwa.ai.tools import CALL_HELPER_TOOL, OPEN_TOOL, QUERY_SAFWA_TOOL, ROUTE_TOOL
 from safwa.bootstrap.modules import AGENTS, HEAVY_ANALYZER_PROMPT, PROPOSALS, SYSTEM_PROMPT
-from safwa.dialogue_marks import MARKS, RETIRED_MARK_CODES
 from safwa.foundation.models import Base
 from scripts.architecture_metrics import RULES, cycles
-from telegram_llm import DialogueMessage
+from telegram_llm import DialogueMessage, KindMarks, code_for
 
 SNAPSHOTS = Path(__file__).parent / "snapshots"
 
@@ -223,15 +223,24 @@ def test_the_declared_schema_is_what_a_fresh_database_gets(tmp_path):
 
 def test_rule_o_marker_codes_are_unchanged(request):
     # The code is written into the message text and Telegram is the store, so a code that
-    # changes hands re-labels every message already sent under it and nothing can migrate
-    # them back.  Renumbering is therefore a schema change to a table that has no rows.
+    # moves re-labels every message already sent under it and nothing can migrate them back.
+    # It follows from the kind's name, so the two ways to move one are renaming a kind and
+    # changing the derivation, and this is what notices either.
     produced = {kind: str(code) for kind, code in MARKS.codes.items()}
 
     _snapshot("marker_codes", produced, request.config.getoption("--snapshot-update"))
 
 
-def test_rule_o_no_code_is_shared_or_revived():
-    codes = list(MARKS.codes.values())
-
-    assert len(codes) == len(set(codes))
-    assert RETIRED_MARK_CODES.isdisjoint(codes)
+def test_rule_o_two_kinds_on_one_code_are_refused():
+    # A derived code can only go wrong one way, and it goes wrong silently, so the search
+    # for a colliding pair is worth what it costs.
+    seen: dict[int, str] = {}
+    for index in range(1 << 18):
+        name = f"kind_{index}"
+        code = code_for(name)
+        if code in seen:
+            with pytest.raises(ValueError):
+                KindMarks([seen[code], name])
+            return
+        seen[code] = name
+    pytest.fail("no colliding pair in the searched range")
