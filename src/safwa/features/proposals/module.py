@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ...bootstrap.module_manifest import FeatureModule
+from ...shell.manifest import FeatureModule
 from .remove import REMOVE_TOOL
 from .telegram import PROPOSAL_CALLBACK_ACTIONS
 

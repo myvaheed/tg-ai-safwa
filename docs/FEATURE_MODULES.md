@@ -7,7 +7,7 @@ codebase names a feature: `tests/test_architecture.py` Rule H fails on any modul
 
 ## The manifest
 
-[`bootstrap/module_manifest.py`](../src/safwa/bootstrap/module_manifest.py) holds the wiring DTOs.
+[`shell/manifest.py`](../src/safwa/shell/manifest.py) holds the wiring DTOs.
 It is the outermost layer, so it may know aiogram and SQLAlchemy; nothing that expresses a business
 rule imports it.
 

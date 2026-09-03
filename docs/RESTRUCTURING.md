@@ -118,8 +118,8 @@ Its code is written already, inside `safwa/`: `ai/`, `shell/`, `turn/`, `cues/`,
 
 They cannot simply be moved, because they made **43 imports out of the rest of Safwa**. Move
 the directories and those 43 become `ImportError`. So the whole job is taking them to zero,
-after which the move itself is `git mv` plus import paths. Sixteen are left, and Rule Q
-names each one so a seventeenth cannot arrive unnoticed.
+after which the move itself is `git mv` plus import paths. Nine are left, and Rule Q names
+each one so a tenth cannot arrive unnoticed.
 
 `ai/` and `turn/` are already clean, as are the five `foundation/` files and every
 `features/proposals/` module but `module.py`. Everything left is in `adapters/`, `shell/`
@@ -177,29 +177,33 @@ gone. Without the second half the list stops shrinking and starts growing.
 
 ### Phase 3 — the seams
 
-Each group closed deletes its own block from `RULE_Q_EXCEPTIONS`. A and B are still
-carrying rather than inverting; C, D, E and F are the real work.
+Each group closed deletes its own block from `RULE_Q_EXCEPTIONS`. A, B and G were carrying
+rather than inverting and are done; C, D, E and F are the real work.
 
-- **A — `Settings` becomes the fields each adapter reads** (1, 2, 3). First, because
-  `ASRProvider` cannot join `asr.py` while `asr.py` still imports `config`: that would be a
-  cycle, which is why phase 1 left it behind.
-- **B — the plug contract travels** (14, 15, 16). `bootstrap/module_manifest.py` declares what
-  a feature plugs into rather than which features exist, so it belongs to the shell. Its own
-  `Settings` becomes the four fields it reads.
-- **C — the window** (4, 5, 6, 11). `Services.continuity` is `turn/dialogue.py` calling one
+- **A — `Settings` becomes the fields each adapter reads — done**. `build_transcriber` takes
+  the eight it read, so `ASRProvider` could follow it into `asr.py` and `config.py` reads it
+  from there. `TelegramHistorySource` only ever named `Settings` in a factory and a CLI, and
+  both are the application's: they are `bootstrap/auth.py` and the composition root now.
+- **B — the plug contract travels — done**. The manifest declares what a feature
+  plugs into rather than which features exist, so it is `shell/manifest.py` now. Its
+  `Settings` became the four fields the contexts are actually read for: the owner, the
+  timezone, and whether the scheduler runs and how often.
+- **C — the window**. `Services.continuity` is `turn/dialogue.py` calling one
   method; tg_agent_shell declares that method and Safwa binds it. The Summary's header, its
   token budget and the token estimate arrive the same way. Summary stays a feature —
   tg_agent_shell manages the window, it does not decide what goes in it.
-- **D — the Summary's cut** (7). `shell/chat.py` calls `record_summary`; the callback returns
+- **D — the Summary's cut**. `shell/chat.py` calls `record_summary`; the callback returns
   the message id instead and `PersonaContinuity` records its own cut.
-- **E — the Advisor's session** (9). `features/advisor/session.py` is shell code: eight `ai/`
+- **E — the Advisor's session**. `features/advisor/session.py` is shell code: eight `ai/`
   imports, eight `proposals/` imports, and two Safwa names — `MemoryFileStore`, which the
   `Memory` protocol already covers, and `workspace_context`, which the composition root can
-  hand over. The package keeps `agent.py`, which is what its own `__init__` already says it is.
-- **F — `command_status`** (8, 10, 12). It is the only reason `Services.memory` and `Workspace`
+  hand over. `MAX_TOOL_CALLS` and `SUBAGENT_DEADLINE_SECONDS` have no other reader and travel
+  with it. The package keeps `agent.py`, which is what its own `__init__` already says it is.
+- **F — `command_status`**. It is the only reason `Services.memory` and `Workspace`
   are in the shell at all.
-- **G — `SCHEDULER_POLL_SECONDS`** (13). Read by `cues/` and by `features/reminders/`, so it is
-  cross-feature tuning and stays in `constants.py`; the shell takes it as a parameter.
+- **G — `SCHEDULER_POLL_SECONDS` — done**. Read by `cues/` and by `features/reminders/`, so it
+  stays in `constants.py` as cross-feature tuning. It was only ever a default on a parameter
+  the one caller already passed, so `run_cue_queue` now requires it.
 
 ### Phase 4 — the move
 

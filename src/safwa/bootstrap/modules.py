@@ -49,7 +49,7 @@ from ..foundation.screens import (
     TextInputFlow,
 )
 from ..foundation.workspace import require_workspace
-from .module_manifest import AgentContext, AgentSpec, BackgroundTask, FeatureModule
+from ..shell.manifest import AgentContext, AgentSpec, BackgroundTask, FeatureModule
 
 # Order is what the routing rules and the recovery hooks follow, so it is fixed rather than
 # incidental: Profile settles the Diary's own Reminder before the Reminder rebuild walks the

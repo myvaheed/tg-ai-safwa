@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ...bootstrap.module_manifest import FeatureModule, ProposalContribution
 from ...foundation.screens import ScreenCommand, ScreenSpec
+from ...shell.manifest import FeatureModule, ProposalContribution
 from . import agent, proposal, telegram, views
 from .model import SavedRequest
 from .telegram import REQUEST_CALLBACK_ACTIONS, command_requests, render_saved_request

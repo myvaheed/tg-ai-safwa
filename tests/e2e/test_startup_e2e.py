@@ -55,8 +55,7 @@ class FakeHistory:
 class FakeHistoryFactory:
     instance = FakeHistory()
 
-    @classmethod
-    def from_settings(cls, *_args, **_kwargs):
+    def __new__(cls, *_args, **_kwargs):
         return cls.instance
 
 

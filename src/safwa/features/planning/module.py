@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ...bootstrap.module_manifest import FeatureModule
 from ...foundation.screens import ScreenCommand
+from ...shell.manifest import FeatureModule
 from . import background, telegram, views
 from .telegram import PLANNING_CALLBACK_ACTIONS, render_sprint
 

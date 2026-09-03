@@ -1,8 +1,8 @@
-"""What one Safwa feature plugs into one application.
+"""What one feature plugs into one application.
 
 This is a wiring DTO of the outermost layer, not a domain contract. It may know aiogram
-and SQLAlchemy, and nothing that expresses a business rule imports it. `modules.py` is
-the only place that lists the features themselves.
+and SQLAlchemy, and nothing that expresses a business rule imports it. The application's
+registry is the only place that lists the features themselves.
 
 A new capability does not get a field here by default: it first gets its own mechanism,
 and only a capability several features plug into earns a contribution.
@@ -19,21 +19,21 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..adapters.telegram_history import TelegramHistorySource
 from ..ai.mini import ReadToolSpec
 from ..ai.sql import ReadOnlyQueryRunner, SqlView
-from ..config import Settings
 from ..features.proposals.api import (
     MutationToolSpec,
     ProposalHandler,
     ProposalPresenter,
 )
 from ..foundation.screens import ScreenCommand, ScreenSpec, StartLink, TextInputFlow
-from ..shell import Services
+from .services import Services
 
 
 @dataclass(frozen=True, slots=True)
 class AgentContext:
     """What a feature binds its agent's read tools against in this application."""
 
-    settings: Settings
+    owner_id: int
+    timezone: str
     query_runner: ReadOnlyQueryRunner
     history: TelegramHistorySource
 
@@ -64,7 +64,10 @@ class BackgroundContext:
     feature would rebuild the registry `MODULES` exists to remove.
     """
 
-    settings: Settings
+    owner_id: int
+    timezone: str
+    scheduler_enabled: bool
+    poll_seconds: float
     sessions: async_sessionmaker[AsyncSession]
     bot: Bot
     services: Services

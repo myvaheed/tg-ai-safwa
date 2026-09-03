@@ -76,6 +76,21 @@ def settings_for(**overrides) -> Settings:
     return Settings(_env_file=None, **values)
 
 
+def transcriber_for(**overrides):
+    """The build the composition root does, so what a setting resolves to is still tested."""
+    settings = settings_for(**overrides)
+    return build_transcriber(
+        provider=settings.asr_provider,
+        model=settings.resolved_asr_model,
+        base_url=settings.resolved_asr_base_url,
+        api_key=settings.asr_api_key.get_secret_value(),
+        language=settings.asr_language,
+        device=settings.asr_device,
+        compute_type=settings.asr_compute_type,
+        log_timing=settings.asr_log_timing,
+    )
+
+
 def fake_whisper_model(
     *, cuda: bool, segments: tuple = (), attempts: list | None = None, built: list | None = None
 ):
@@ -221,7 +236,7 @@ async def test_a_failed_decode_becomes_a_transcription_error(monkeypatch) -> Non
 def test_the_offline_engine_needs_no_api_key(monkeypatch) -> None:
     monkeypatch.setattr(asr_module, "_whisper_model_class", lambda: fake_whisper_model(cuda=False))
 
-    transcriber = build_transcriber(settings_for(asr_provider="faster_whisper", asr_language="ru"))
+    transcriber = transcriber_for(asr_provider="faster_whisper", asr_language="ru")
 
     assert isinstance(transcriber, FasterWhisperTranscriber)
     assert transcriber.model_name == FASTER_WHISPER_MODEL
@@ -254,4 +269,4 @@ def test_the_missing_extra_names_its_install_command(monkeypatch) -> None:
     monkeypatch.setitem(sys.modules, "faster_whisper", None)
 
     with pytest.raises(RuntimeError, match="asr-local"):
-        build_transcriber(settings_for(asr_provider="faster_whisper"))
+        transcriber_for(asr_provider="faster_whisper")

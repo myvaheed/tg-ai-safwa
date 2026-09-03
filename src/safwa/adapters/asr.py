@@ -13,6 +13,7 @@ import logging
 import os
 import sys
 import time
+from enum import StrEnum
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -26,10 +27,21 @@ from telegram_llm import (
     TranscriptionResult,
 )
 
-from ..config import Settings
-from ..enums import ASRProvider
-
 logger = logging.getLogger(__name__)
+
+
+class ASRProvider(StrEnum):
+    """Where a voice message is transcribed.
+
+    The first three speak the same OpenAI-compatible API; `faster_whisper` decodes in
+    this process instead of calling one.
+    """
+
+    OFF = "off"
+    OPENAI = "openai"
+    GROQ = "groq"
+    LOCAL = "local"
+    FASTER_WHISPER = "faster_whisper"
 
 # One call covers the upload and the whole file's decode, so the budget follows the audio.
 ASR_TIMEOUT_BASE_SECONDS = 60.0
@@ -314,29 +326,34 @@ class FasterWhisperTranscriber:
         self.model = None
 
 
-def build_transcriber(settings: Settings) -> Transcriber | None:
+def build_transcriber(
+    *,
+    provider: ASRProvider,
+    model: str,
+    base_url: str,
+    api_key: str,
+    language: str,
+    device: str = "auto",
+    compute_type: str = "",
+    log_timing: bool = True,
+) -> Transcriber | None:
     """The configured transcriber, or None when voice input is off."""
-    if not settings.asr_enabled:
+    if provider is ASRProvider.OFF:
         return None
-    if settings.asr_provider is ASRProvider.FASTER_WHISPER:
+    if provider is ASRProvider.FASTER_WHISPER:
         return FasterWhisperTranscriber(
-            model=settings.resolved_asr_model,
-            device=settings.asr_device,
-            compute_type=settings.asr_compute_type,
-            language=settings.asr_language,
-            log_timing=settings.asr_log_timing,
+            model=model,
+            device=device,
+            compute_type=compute_type,
+            language=language,
+            log_timing=log_timing,
         )
-    if (
-        settings.asr_provider is not ASRProvider.LOCAL
-        and not settings.asr_api_key.get_secret_value()
-    ):
-        raise RuntimeError(
-            f"SAFWA_ASR_PROVIDER={settings.asr_provider.value} needs SAFWA_ASR_API_KEY"
-        )
+    if provider is not ASRProvider.LOCAL and not api_key:
+        raise RuntimeError(f"SAFWA_ASR_PROVIDER={provider.value} needs SAFWA_ASR_API_KEY")
     return OpenAITranscriber(
-        base_url=settings.resolved_asr_base_url,
-        api_key=settings.asr_api_key.get_secret_value(),
-        model=settings.resolved_asr_model,
-        language=settings.asr_language,
-        log_timing=settings.asr_log_timing,
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+        language=language,
+        log_timing=log_timing,
     )

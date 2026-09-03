@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ...bootstrap.module_manifest import FeatureModule
+from ...shell.manifest import FeatureModule
 from . import agent
 
 MODULE = FeatureModule(name="workspace_mutator", agents=(agent.MUTATOR_AGENT,))

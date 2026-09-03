@@ -8,11 +8,8 @@ the `telegram_messages` table the notes live in.
 
 from __future__ import annotations
 
-import asyncio
-import getpass
 from collections.abc import AsyncIterator, Collection, Sequence
 from datetime import datetime
-from pathlib import Path
 
 from sqlalchemy import (
     Integer,
@@ -34,7 +31,6 @@ from telegram_llm import (
     Note,
 )
 
-from ..config import Settings
 from ..constants import SUMMARY_TRIGGER_TOKENS
 from ..features.continuity.model import SUMMARY_HEADER
 from ..features.proposals.model import RECEIPT_MEANINGS
@@ -46,7 +42,6 @@ __all__ = [
     "TelegramHistorySource",
     "TelegramMessage",
     "TelegramNotes",
-    "auth_main",
     "register_message",
 ]
 
@@ -216,33 +211,6 @@ class TelegramHistorySource(ChatWindow):
         self.client = client
         self.sessions = sessions
 
-    @classmethod
-    def from_settings(
-        cls,
-        settings: Settings,
-        sessions: async_sessionmaker[AsyncSession],
-        *,
-        marks: KindMarks,
-        bot_user_id: int,
-        citation_types: tuple[str, ...] = (),
-    ) -> TelegramHistorySource:
-        client = None
-        if settings.telegram_history_enabled:
-            client = TelegramClient(
-                str(settings.telegram_user_session_path),
-                settings.telegram_api_id,
-                settings.telegram_api_hash.get_secret_value(),  # type: ignore[union-attr]
-            )
-        return cls(
-            client,
-            sessions,
-            marks=marks,
-            bot_user_id=bot_user_id,
-            owner_id=settings.telegram_owner_id,
-            citation_types=citation_types,
-            timezone=settings.timezone,
-        )
-
     async def messages(self, limit: int) -> AsyncIterator[ChatMessage]:
         # In a private Bot API chat, the chat id is the owner's user ID.  A Telethon user
         # session must read its dialog with the bot peer instead; resolving the chat id
@@ -270,29 +238,3 @@ class TelegramHistorySource(ChatWindow):
     async def close(self) -> None:
         if self.client:
             await self.client.disconnect()
-
-
-def auth_main() -> None:
-    settings = Settings()
-    if not settings.telegram_history_enabled:
-        raise SystemExit("Set SAFWA_TELEGRAM_API_ID and SAFWA_TELEGRAM_API_HASH first")
-
-    async def authenticate() -> None:
-        Path(settings.telegram_user_session_path).parent.mkdir(parents=True, exist_ok=True)
-        client = TelegramClient(
-            str(settings.telegram_user_session_path),
-            settings.telegram_api_id,
-            settings.telegram_api_hash.get_secret_value(),  # type: ignore[union-attr]
-        )
-        await client.start(
-            phone=lambda: input("Telegram phone: "),
-            code_callback=lambda: input("Telegram code: "),
-            password=lambda: getpass.getpass("2FA password: "),
-        )
-        await client.disconnect()
-
-    asyncio.run(authenticate())
-
-
-if __name__ == "__main__":
-    auth_main()

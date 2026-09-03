@@ -8,9 +8,9 @@ from collections.abc import Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ...bootstrap.module_manifest import BackgroundContext, BackgroundTask
 from ...constants import SPRINT_EXPIRY_POLL_SECONDS
 from ...shell import sync_bot_commands
+from ...shell.manifest import BackgroundContext, BackgroundTask
 from .use_cases import expire_due_sprint
 
 logger = logging.getLogger(__name__)

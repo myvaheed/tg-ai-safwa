@@ -163,27 +163,12 @@ async def live_telegram_harness(tmp_path: Path, monkeypatch) -> LiveTelegramHarn
         pytest.fail("Safwa-QA session user does not match SAFWA_QA_TELEGRAM_OWNER_ID")
     bot_entity = await client.get_entity(bot_user.username)
 
-    class SharedHistoryFactory:
-        @classmethod
-        def from_settings(
-            cls,
-            _settings,
-            sessions,
-            *,
-            marks,
-            bot_user_id: int,
-            citation_types: tuple[str, ...] = (),
-        ):
-            return TelegramHistorySource(
-                client,
-                sessions,
-                marks=marks,
-                bot_user_id=bot_user_id,
-                owner_id=settings.telegram_owner_id,
-                citation_types=citation_types,
-            )
+    def shared_history(_client, sessions, **kwargs):
+        # The QA run already holds an authorized session, so the bot reuses it rather
+        # than signing in a second one against the same account.
+        return TelegramHistorySource(client, sessions, **kwargs)
 
-    monkeypatch.setattr(safwa_main, "TelegramHistorySource", SharedHistoryFactory)
+    monkeypatch.setattr(safwa_main, "TelegramHistorySource", shared_history)
     NoAIProvider.calls = 0
     monkeypatch.setattr(safwa_main, "OpenAICompatibleProvider", NoAIProvider)
     monkeypatch.setattr(safwa_main, "BACKGROUND_TASKS", ())

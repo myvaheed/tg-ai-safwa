@@ -11,7 +11,6 @@ from sqlalchemy import select
 from llm_gateway import ToolCall
 from safwa.ai.subagents import RoutedSubagent
 from safwa.ai.tools import ToolAdapters
-from safwa.bootstrap.module_manifest import AgentContext
 from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS, SCREENS, SYSTEM_PROMPT
 from safwa.features.diary.agent import (
     DIARY_AGENT,
@@ -44,6 +43,7 @@ from safwa.features.reminders.use_cases import (
 )
 from safwa.foundation.clock import SystemClock
 from safwa.foundation.errors import DomainError
+from safwa.shell.manifest import AgentContext
 
 
 class FrozenClock:
@@ -338,7 +338,8 @@ def test_di_read_013_the_subagent_reads_both_sources() -> None:
     own, and `query_safwa` is the one read door the adapters publish to every session.
     """
     context = AgentContext(
-        settings=SimpleNamespace(telegram_owner_id=42, timezone="Europe/Istanbul"),
+        owner_id=42,
+        timezone="Europe/Istanbul",
         query_runner=SimpleNamespace(),
         history=RecordingDayReader(),
     )

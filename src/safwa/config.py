@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .adapters.asr import ASRProvider
 from .ai.sql import DEFAULT_CHAR_BUDGET, DEFAULT_ROW_LIMIT
 from .constants import (
     AI_MAX_OUTPUT_TOKENS,
@@ -28,7 +29,7 @@ from .constants import (
     SUMMARY_TRIGGER_TOKENS,
     TOKEN_CHARS_ESTIMATE,
 )
-from .enums import AIProvider, ASRProvider
+from .enums import AIProvider
 
 
 @dataclass(frozen=True)

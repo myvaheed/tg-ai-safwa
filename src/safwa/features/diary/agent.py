@@ -14,9 +14,9 @@ from llm_gateway import ToolCall
 
 from ...ai.contracts import ToolInput, ToolResultStatus
 from ...ai.mini import ReadToolSpec
-from ...bootstrap.module_manifest import AgentContext, AgentSpec
 from ...constants import WEEKDAY_NAMES
 from ...foundation.clock import Clock, SystemClock
+from ...shell.manifest import AgentContext, AgentSpec
 from ..proposals.api import MutationToolSpec, entity_change
 
 DIARY_DAY_TOKEN_BUDGET = 12_000
@@ -186,8 +186,8 @@ def _diary_read_tools(context: AgentContext) -> tuple[ReadToolSpec, ...]:
     return (
         day_read_tool(
             context.history,
-            chat_id=context.settings.telegram_owner_id,
-            timezone=context.settings.timezone,
+            chat_id=context.owner_id,
+            timezone=context.timezone,
         ),
     )
 
@@ -195,7 +195,7 @@ def _diary_read_tools(context: AgentContext) -> tuple[ReadToolSpec, ...]:
 def _diary_clock(context: AgentContext) -> Callable[[], str]:
     # Enough to be told what to change about the day it just proposed; the day itself it
     # reads with `read_day`.
-    return lambda: diary_clock(context.settings.timezone)
+    return lambda: diary_clock(context.timezone)
 
 
 DIARY_AGENT = AgentSpec(

@@ -13,7 +13,6 @@ from collections.abc import Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ..constants import SCHEDULER_POLL_SECONDS
 from .model import Cue
 from .queue import next_cue
 
@@ -60,7 +59,7 @@ async def run_cue_queue(
     gate: Gate,
     speak: Speaker,
     release: LeaseRelease = lambda: None,
-    poll_seconds: float = SCHEDULER_POLL_SECONDS,
+    poll_seconds: float,
 ) -> None:
     while True:
         try:

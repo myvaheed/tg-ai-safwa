@@ -6,13 +6,13 @@ reaches the owner through the Cue queue, like everything else Safwa says first.
 
 from __future__ import annotations
 
-from ...bootstrap.module_manifest import (
+from ...foundation.screens import ScreenCommand
+from ...shell.manifest import (
     BackgroundContext,
     BackgroundTask,
     FeatureModule,
     ProposalContribution,
 )
-from ...foundation.screens import ScreenCommand
 from . import agent, proposal, telegram, views
 from .background import run_scheduler
 from .telegram import REMINDER_CALLBACK_ACTIONS, render_reminders
@@ -20,12 +20,12 @@ from .use_cases import reconcile_reminders
 
 
 async def _poll_due_reminders(context: BackgroundContext) -> None:
-    if not context.settings.scheduler_enabled:
+    if not context.scheduler_enabled:
         return
     await run_scheduler(
         context.sessions,
-        timezone=context.settings.timezone,
-        poll_seconds=context.settings.scheduler_poll_seconds,
+        timezone=context.timezone,
+        poll_seconds=context.poll_seconds,
     )
 
 

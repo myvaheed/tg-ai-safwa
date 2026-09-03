@@ -540,14 +540,6 @@ SHELL_PACKAGES = ("ai", "shell", "turn", "cues", "adapters", "features.proposals
 # deleted takes the rule with it.
 RULE_Q_EXCEPTIONS = frozenset(
     {
-        # A: `Settings` becomes the fields each adapter reads.
-        ("safwa/adapters/asr.py", "safwa.config.Settings"),
-        ("safwa/adapters/asr.py", "safwa.enums.ASRProvider"),
-        ("safwa/adapters/telegram_history.py", "safwa.config.Settings"),
-        # B: the plug contract travels, so `module_manifest.py` comes along.
-        ("safwa/cues/module.py", "safwa.bootstrap.module_manifest.BackgroundContext"),
-        ("safwa/cues/module.py", "safwa.bootstrap.module_manifest.BackgroundTask"),
-        ("safwa/features/proposals/module.py", "safwa.bootstrap.module_manifest.FeatureModule"),
         # C: the window is declared by the shell and bound by the composition root.
         ("safwa/adapters/telegram_history.py", "safwa.constants.SUMMARY_TRIGGER_TOKENS"),
         ("safwa/adapters/telegram_history.py", "safwa.features.continuity.model.SUMMARY_HEADER"),
@@ -561,8 +553,6 @@ RULE_Q_EXCEPTIONS = frozenset(
         ("safwa/shell/commands.py", "safwa.foundation.workspace.Workspace"),
         ("safwa/shell/services.py", "safwa.features.continuity.memory.MemoryFileStore"),
         ("safwa/shell/services.py", "safwa.foundation.workspace.Workspace"),
-        # G: cross-feature tuning stays in `constants.py` and arrives as a parameter.
-        ("safwa/cues/background.py", "safwa.constants.SCHEDULER_POLL_SECONDS"),
     }
 )
 

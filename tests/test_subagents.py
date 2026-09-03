@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -12,9 +11,9 @@ from llm_gateway import ToolCall as ProviderToolCall
 from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.ai.subagents import PERSONA, RoutedSubagent
 from safwa.ai.tools import IMMEDIATE_TOOLS, SAFWA_TOOLS
-from safwa.bootstrap.module_manifest import AgentContext
 from safwa.bootstrap.modules import AGENTS, ALLOWED_VIEWS, PROPOSALS, SYSTEM_PROMPT
 from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
+from safwa.shell.manifest import AgentContext
 
 
 class StubDayReader:
@@ -119,7 +118,8 @@ def test_no_subagent_declares_a_read_tool_the_adapters_already_answer(tmp_path) 
     names before they look at a session's read tools — and its schema would be sent twice.
     """
     context = AgentContext(
-        settings=SimpleNamespace(telegram_owner_id=42, timezone="Europe/Istanbul"),
+        owner_id=42,
+        timezone="Europe/Istanbul",
         query_runner=ReadOnlyQueryRunner(tmp_path / "safwa.db", ALLOWED_VIEWS),
         history=StubDayReader(""),
     )

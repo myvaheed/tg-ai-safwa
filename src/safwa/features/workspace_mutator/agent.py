@@ -7,7 +7,7 @@ the features that own those entities publish.
 
 from __future__ import annotations
 
-from ...bootstrap.module_manifest import AgentSpec
+from ...shell.manifest import AgentSpec
 
 MUTATOR_TOOLS = ("card", "check", "value", "tag", "request", "reminder", "remove")
 

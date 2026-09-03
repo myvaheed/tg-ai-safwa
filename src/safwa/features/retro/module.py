@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ...bootstrap.module_manifest import FeatureModule
 from ...foundation.screens import ScreenSpec
+from ...shell.manifest import FeatureModule
 from ..planning.model import Sprint
 from . import telegram
 

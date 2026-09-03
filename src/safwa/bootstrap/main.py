@@ -40,9 +40,10 @@ from ..shell import (
     router,
     sync_bot_commands,
 )
+from ..shell.manifest import AgentContext, BackgroundContext
 from ..turn import TurnManager
 from ..turn import dialogue as _dialogue  # noqa: F401  registers the owner-message handlers
-from .module_manifest import AgentContext, BackgroundContext
+from .auth import history_client
 from .modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
@@ -181,12 +182,14 @@ async def run(settings: Settings) -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True),
     )
     me = await bot.get_me()
-    history = TelegramHistorySource.from_settings(
-        settings,
+    history = TelegramHistorySource(
+        history_client(settings) if settings.telegram_history_enabled else None,
         database.sessions,
         marks=MARKS,
         bot_user_id=me.id,
+        owner_id=settings.telegram_owner_id,
         citation_types=SCREENS.types,
+        timezone=settings.timezone,
     )
     await history.start()
     # The advisor is built after the history source because a subagent reads through it.
@@ -203,7 +206,12 @@ async def run(settings: Settings) -> None:
         cache_breakpoints=settings.resolved_ai_cache_breakpoints,
         autoapproval=AutoApprovalReviewer(provider),
         subagents=routed_subagents(
-            AgentContext(settings=settings, query_runner=query_runner, history=history)
+            AgentContext(
+                owner_id=settings.telegram_owner_id,
+                timezone=settings.timezone,
+                query_runner=query_runner,
+                history=history,
+            )
         ),
         helpers={
             heavy_analyzer.NAME: heavy_analyzer.build(
@@ -233,7 +241,16 @@ async def run(settings: Settings) -> None:
     # Home is a feature now, and `/start` leads the published list, so its commands come first.
     commands = (*FEATURE_COMMANDS, *SHELL_COMMANDS)
     register_commands(router, commands)
-    transcriber = build_transcriber(settings)
+    transcriber = build_transcriber(
+        provider=settings.asr_provider,
+        model=settings.resolved_asr_model,
+        base_url=settings.resolved_asr_base_url,
+        api_key=settings.asr_api_key.get_secret_value(),
+        language=settings.asr_language,
+        device=settings.asr_device,
+        compute_type=settings.asr_compute_type,
+        log_timing=settings.asr_log_timing,
+    )
     if transcriber is not None:
         logger.info(
             "Voice input enabled: %s %s (language=%s)",
@@ -271,7 +288,10 @@ async def run(settings: Settings) -> None:
     await discard_stale_status(bot, services, settings.telegram_owner_id)
 
     background = BackgroundContext(
-        settings=settings,
+        owner_id=settings.telegram_owner_id,
+        timezone=settings.timezone,
+        scheduler_enabled=settings.scheduler_enabled,
+        poll_seconds=settings.scheduler_poll_seconds,
         sessions=database.sessions,
         bot=bot,
         services=services,

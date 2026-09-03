@@ -10,8 +10,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from ...bootstrap.module_manifest import BackgroundContext, BackgroundTask
 from ...constants import MEMORY_MAINTENANCE_INTERVAL_SECONDS
+from ...shell.manifest import BackgroundContext, BackgroundTask
 from .use_cases import run_due_memory_maintenance
 
 logger = logging.getLogger(__name__)
@@ -33,8 +33,8 @@ async def _maintain_memory(context: BackgroundContext) -> None:
             await run_due_memory_maintenance(
                 context.services.continuity,
                 context.sessions,
-                context.settings.telegram_owner_id,
-                context.settings.timezone,
+                context.owner_id,
+                context.timezone,
                 run_background=context.services.turn.run_background,
             )
         except Exception:
