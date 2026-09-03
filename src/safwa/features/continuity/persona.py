@@ -74,14 +74,15 @@ class PersonaContinuity:
         self.summary_trigger_tokens = summary_trigger_tokens
         self.chars_per_token = chars_per_token
 
-    async def maybe_summarize(
+    async def close_window(
         self,
         chat_id: int,
-        send_summary: Callable[[str, int], Awaitable[None]],
+        write: Callable[[str], Awaitable[None]],
         *,
         force: bool = False,
         still_current: Callable[[], bool] | None = None,
     ) -> bool:
+        """Write a Summary if the dialogue has outgrown the budget, and say whether it did."""
         entries = await self.history.recent(chat_id)
         # The previous Summary is rewritten rather than dropped: the window keeps only
         # the newest one, so anything it alone remembers would be lost with it.
@@ -91,15 +92,15 @@ class PersonaContinuity:
         dialogue = "\n".join(
             f"[{entry.role}]: {entry.text}"
             for entry in entries
-            if entry.kind != MessageKind.SUMMARY.value and not entry.summary_context
+            if entry.kind != MessageKind.SUMMARY.value and not entry.before_edge
         )
         tokens = estimate_tokens(dialogue, self.chars_per_token)
         if not dialogue or (not force and tokens < self.summary_trigger_tokens):
             return False
+        # The window already labelled the previous Summary as what it is; saying so a
+        # second time is one more line for a small model to reconcile.
         request = (
-            f"Previous summary:\n{previous.text}\n\nDialogue since it:\n{dialogue}"
-            if previous
-            else dialogue
+            f"{previous.text}\n\nDialogue since it:\n{dialogue}" if previous else dialogue
         )
         summary = (
             await self.provider.complete(
@@ -120,8 +121,7 @@ class PersonaContinuity:
         if current != snapshot:
             logger.info("Discarding a stale automatic summary")
             return False
-        covered_id = entries[-1].message_id
-        await send_summary(f"{SUMMARY_HEADER}\n{summary}", covered_id)
+        await write(f"{SUMMARY_HEADER}\n{summary}")
         return True
 
     async def maintain_memory(

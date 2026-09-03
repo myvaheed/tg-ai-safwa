@@ -63,7 +63,7 @@ def turn_services(sessions):
     services = services_for(sessions, advisor=None)
     services.advisor = TurnAdvisor(sessions)
     services.history = SimpleNamespace(dialogue=_empty_dialogue)
-    services.continuity = SimpleNamespace(maybe_summarize=_no_summary)
+    services.continuity = SimpleNamespace(close_window=_no_summary)
     return services
 
 

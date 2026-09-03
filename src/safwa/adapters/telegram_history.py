@@ -1,14 +1,14 @@
 """Safwa's chat: the Telethon reader, the note table, and what its kinds mean.
 
 The window itself is `telegram_llm`. This is what Safwa has to tell it — which of its
-message kinds are the conversation, what a Summary is headed, what it cites — plus the two
-things only Safwa can supply: the real private chat through a Telethon user session, and
-the `telegram_messages` table the notes live in.
+message kinds are the conversation and what it cites — plus the two things only Safwa can
+supply: the real private chat through a Telethon user session, and the `telegram_messages`
+table the notes live in. Where the window ends arrives the same way, as a `WindowEdge`.
 """
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Collection, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Sequence
 from datetime import datetime
 
 from sqlalchemy import (
@@ -29,13 +29,11 @@ from telegram_llm import (
     ChatWindow,
     KindMarks,
     Note,
+    WindowEdge,
 )
 
-from ..constants import SUMMARY_TRIGGER_TOKENS
-from ..features.continuity.model import SUMMARY_HEADER
 from ..features.proposals.model import RECEIPT_MEANINGS
 from ..foundation.models import Base, UtcDateTime
-from ..foundation.tokens import estimate_tokens
 from .kinds import MessageKind
 
 __all__ = [
@@ -45,7 +43,7 @@ __all__ = [
     "register_message",
 ]
 
-SUMMARY_CONTEXT_MESSAGE_LIMIT = 20
+EDGE_CONTEXT_MESSAGE_LIMIT = 20
 
 
 class TelegramMessage(Base):
@@ -66,8 +64,6 @@ def vocabulary(citation_types: tuple[str, ...]) -> ChatVocabulary:
     return ChatVocabulary(
         person=MessageKind.DIALOGUE_USER.value,
         assistant=frozenset({MessageKind.DIALOGUE_ASSISTANT.value, MessageKind.CUE.value}),
-        summary=MessageKind.SUMMARY.value,
-        summary_header=SUMMARY_HEADER,
         citation_types=citation_types,
         receipts=RECEIPT_MEANINGS,
     )
@@ -193,6 +189,9 @@ class TelegramHistorySource(ChatWindow):
         marks: KindMarks,
         bot_user_id: int,
         owner_id: int,
+        count_tokens: Callable[[str], int],
+        token_budget: int,
+        edge: WindowEdge,
         citation_types: tuple[str, ...] = (),
         timezone: str = "UTC",
     ) -> None:
@@ -203,9 +202,10 @@ class TelegramHistorySource(ChatWindow):
             vocabulary(citation_types),
             bot_user_id=bot_user_id,
             owner_id=owner_id,
-            count_tokens=estimate_tokens,
-            token_budget=SUMMARY_TRIGGER_TOKENS,
-            summary_context_limit=SUMMARY_CONTEXT_MESSAGE_LIMIT,
+            count_tokens=count_tokens,
+            token_budget=token_budget,
+            edge=edge,
+            edge_context_limit=EDGE_CONTEXT_MESSAGE_LIMIT,
             timezone=timezone,
         )
         self.client = client

@@ -1,12 +1,12 @@
 """How much of the chat the model is given, and in what shape.
 
 The chat is the conversation. Before every answer the window is read back out of it: the
-newest messages that are conversation at all, as far back as a token budget or the newest
-Summary allows, laid out as turns rather than as messages.
+newest messages that are conversation at all, as far back as a token budget or the host's
+own edge allows, laid out as turns rather than as messages.
 
 What counts as conversation is the host's to say — which of its message kinds are the
-person, which are the assistant, and which one is a Summary — and it says it once, in a
-`ChatVocabulary`.
+person and which are the assistant — and it says it once, in a `ChatVocabulary`. Where the
+window ends is the host's too, and it answers that per read, in a `WindowEdge`.
 """
 
 from __future__ import annotations
@@ -55,7 +55,10 @@ class HistoryEntry:
     text: str
     created_at: datetime
     kind: str
-    summary_context: bool = False
+    # Older than the edge and kept anyway, as context for what the edge stands for.
+    before_edge: bool = False
+    # The edge itself. The host wrote this text and it is read exactly as written.
+    edge: bool = False
 
 
 @dataclass(frozen=True)
@@ -63,17 +66,14 @@ class ChatVocabulary:
     """What the host's message kinds mean to the conversation.
 
     Anything not named here is off the record: a screen, a receipt, a progress line. A kind
-    that is `person` or is in `assistant` is something that was said, and `summary` is the
-    one kind that ends the window and stands in for what came before it.
+    that is `person` or is in `assistant` is something that was said. Where the window ends
+    is not a kind and is not here: it is the `WindowEdge`, asked per read.
     """
 
     # What the person's words are, whoever put them in the chat: their own message, or the
     # bot relaying words that never reached it as theirs, such as a transcript.
     person: str
     assistant: frozenset[str]
-    summary: str
-    # The heading a Summary is written under, for the person. The model reads the words.
-    summary_header: str = ""
     # Item types the bot cites, so a link it wrote reads back as the citation it wrote.
     citation_types: tuple[str, ...] = ()
     # Lines the interface writes into the bot's own messages, and what each one means.
@@ -85,6 +85,20 @@ class ChatReader(Protocol):
     """Reading the real chat back, newest message first."""
 
     def messages(self, limit: int) -> AsyncIterator[ChatMessage]: ...
+
+
+class WindowEdge(Protocol):
+    """Where the window ends, and what the model reads in place of everything older.
+
+    Asked of the bot's own messages, newest first, so the host answers out of whatever
+    state it has and what ends the window can be a different thing on every turn. The
+    parts handed to `stands_for` are one message too long for Telegram, oldest first, and
+    what it returns is read as it is written — the host's own word for it included.
+    """
+
+    def ends_window(self, message_id: int, kind: str | None, text: str) -> bool: ...
+
+    def stands_for(self, parts: Sequence[str]) -> str: ...
 
 
 class ChatWindow:
@@ -101,7 +115,8 @@ class ChatWindow:
         owner_id: int,
         count_tokens: Callable[[str], int],
         token_budget: int,
-        summary_context_limit: int,
+        edge: WindowEdge | None = None,
+        edge_context_limit: int = 0,
         timezone: str = "UTC",
     ) -> None:
         self.reader = reader
@@ -112,7 +127,8 @@ class ChatWindow:
         self.owner_id = owner_id
         self.count_tokens = count_tokens
         self.token_budget = token_budget
-        self.summary_context_limit = summary_context_limit
+        self.edge = edge
+        self.edge_context_limit = edge_context_limit
         self.tz = ZoneInfo(timezone)
 
     async def recent(
@@ -123,18 +139,18 @@ class ChatWindow:
         since: datetime | None = None,
         until: datetime | None = None,
         source_message: HistoryEntry | None = None,
-        stop_at_summary: bool = True,
+        stop_at_edge: bool = True,
     ) -> list[HistoryEntry]:
-        """The window: the newest Summary plus as many messages as fit.
+        """The window: the host's edge plus as many messages as fit.
 
-        The scan walks backwards and stops at the first of three edges — ``since``, the
-        newest Summary, or the token budget spent.  The budget is checked before an entry
+        The scan walks backwards and stops at the first of three edges — ``since``, the one
+        the host names, or the token budget spent.  The budget is checked before an entry
         is taken, so the cut always lands between messages.  ``until`` skips everything
         newer instead of stopping, which is what closes a past day at both ends.
 
-        ``stop_at_summary=False`` skips Summaries instead of treating one as an edge, for
-        a caller that asked for a period rather than for a window: a Summary written at
-        noon must not cut that day in half.
+        ``stop_at_edge=False`` reads past the host's edge instead of stopping at it, for a
+        caller that asked for a period rather than for a window: an edge written at noon
+        must not cut that day in half.
         """
         if self.reader is None:
             return [source_message] if source_message else []
@@ -149,9 +165,10 @@ class ChatWindow:
         since = _aware(since) if since else None
         until = _aware(until) if until else None
         selected: list[HistoryEntry] = []
-        summary_context: list[HistoryEntry] = []
-        boundary: HistoryEntry | None = None
-        in_summary_run = False
+        before_edge: list[HistoryEntry] = []
+        edge_parts: list[str] = []
+        edge_seed: tuple[int, int | None, datetime, str | None] | None = None
+        in_edge_run = False
         source_seen = False
         spent = 0
         async for message in self.reader.messages(SCAN_LIMIT):
@@ -179,29 +196,22 @@ class ChatWindow:
             ):
                 source_seen = True
 
-            # A run of Summary parts is broken by any message at all, not only by one that
-            # is conversation: two Summaries with a screen between them are two Summaries.
-            after_summary, in_summary_run = in_summary_run, False
+            # A run of edge parts is broken by any message at all, not only by one that
+            # is conversation: two edges with a screen between them are two edges.
+            after_edge, in_edge_run = in_edge_run, False
             if from_bot:
-                if kind == self.vocabulary.summary:
-                    if not stop_at_summary:
+                if self.edge is not None and self.edge.ends_window(message.id, kind, raw_text):
+                    if not stop_at_edge:
                         continue
-                    summary = self._summary_body(raw_text)
-                    if boundary is None:
-                        boundary = HistoryEntry(
-                            message_id=message.id,
-                            sender_id=sender_id,
-                            role="user",
-                            text=summary,
-                            created_at=created_at,
-                            kind=kind,
-                        )
-                    elif after_summary:
-                        # One Summary too long for a single Telegram message.  Its parts
-                        # are consecutive, and the scan meets them newest first.
-                        boundary = replace(boundary, text=f"{summary}\n{boundary.text}")
-                    # Any older Summary is already represented by the nearest one.
-                    in_summary_run = True
+                    if not edge_parts:
+                        edge_parts = [raw_text]
+                        edge_seed = (message.id, sender_id, created_at, kind)
+                    elif after_edge:
+                        # One edge too long for a single Telegram message.  Its parts are
+                        # consecutive, and the scan meets them newest first.
+                        edge_parts.insert(0, raw_text)
+                    # Anything older is already stood for by the nearest edge.
+                    in_edge_run = True
                     continue
                 if kind == self.vocabulary.person:
                     role = "user"
@@ -231,19 +241,20 @@ class ChatWindow:
                 kind=kind,
             )
             cost = self.count_tokens(entry.text)
-            if (selected or summary_context) and spent + cost > budget:
+            if (selected or before_edge) and spent + cost > budget:
                 break
             spent += cost
-            if boundary is not None:
-                if len(summary_context) >= self.summary_context_limit:
+            if edge_parts:
+                if len(before_edge) >= self.edge_context_limit:
                     break
-                summary_context.append(replace(entry, summary_context=True))
+                before_edge.append(replace(entry, before_edge=True))
             else:
                 selected.append(entry)
 
         selected.reverse()
-        summary_context.reverse()
-        result = ([boundary] + summary_context + selected) if boundary else selected
+        before_edge.reverse()
+        boundary = self._boundary(edge_seed, edge_parts)
+        result = ([boundary] + before_edge + selected) if boundary else selected
         if source_message and not source_seen and not _already_read(result, source_message):
             result.append(source_message)
         return result
@@ -260,7 +271,7 @@ class ChatWindow:
             token_budget=token_budget,
             since=start,
             until=end,
-            stop_at_summary=False,
+            stop_at_edge=False,
         )
         return "\n".join(
             f"[{entry.created_at.astimezone(self.tz):%H:%M}] "
@@ -302,7 +313,7 @@ class ChatWindow:
             if not spoken:
                 continue
             content = self._content(replace(entry, text=spoken), stamp)
-            if entry.role == "assistant" and not entry.summary_context:
+            if entry.role == "assistant" and not entry.before_edge:
                 flush_user()
                 if dialogue and dialogue[-1].role == "assistant":
                     dialogue[-1] = replace(
@@ -315,22 +326,30 @@ class ChatWindow:
         flush_user()
         return dialogue
 
-    def _summary_body(self, text: str) -> str:
-        """A Summary's own words. Its heading is written for the person, not for the model,
-        and only the first message of a Summary too long for one carries it."""
-        header = self.vocabulary.summary_header
-        first, separator, rest = text.partition("\n")
-        if header and separator and first.strip().casefold() == header.casefold():
-            return rest.strip()
-        return text
+    def _boundary(
+        self,
+        seed: tuple[int, int | None, datetime, str | None] | None,
+        parts: Sequence[str],
+    ) -> HistoryEntry | None:
+        """The one entry the window opens with, in the host's own words."""
+        if seed is None or self.edge is None:
+            return None
+        message_id, sender_id, created_at, kind = seed
+        return HistoryEntry(
+            message_id=message_id,
+            sender_id=sender_id,
+            role="user",
+            text=self.edge.stands_for(parts),
+            created_at=created_at,
+            kind=kind or "",
+            edge=True,
+        )
 
     def _content(self, entry: HistoryEntry, stamp: str | None) -> str:
         head = f"[{stamp}] " if stamp else ""
-        if entry.kind == self.vocabulary.summary:
-            return f"{head}[Summary]: {entry.text}"
         # An assistant turn is already an assistant-role message; only the person's words
-        # and the messages packed beside a Summary need to say whose they are.
-        if entry.summary_context or entry.role == "user":
+        # and the messages packed beside the edge need to say whose they are.
+        if entry.before_edge or (entry.role == "user" and not entry.edge):
             return f"{head}[{entry.role.title()}]: {entry.text}"
         return f"{head}{entry.text}"
 

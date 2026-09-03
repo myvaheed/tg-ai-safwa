@@ -60,7 +60,6 @@ from .services import (
     Services,
     audio_payload,
     router,
-    sprint_is_active,
 )
 from .text_input import (
     TextInputAction,
@@ -124,7 +123,6 @@ __all__ = [
     "send_summary",
     "send_toast",
     "short_citation_title",
-    "sprint_is_active",
     "start_payload",
     "sync_bot_commands",
     "token_button",

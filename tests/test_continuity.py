@@ -248,12 +248,12 @@ async def test_owner_message_wins_race_with_in_flight_summary(sessions) -> None:
         summary_trigger_tokens=1,
         chars_per_token=1,
     )
-    sent: list[tuple[str, int]] = []
+    sent: list[str] = []
 
-    async def send_summary(text: str, covered_id: int) -> None:
-        sent.append((text, covered_id))
+    async def write(text: str) -> None:
+        sent.append(text)
 
-    assert await continuity.maybe_summarize(42, send_summary) is False
+    assert await continuity.close_window(42, write) is False
     assert sent == []
 
 
@@ -284,16 +284,16 @@ async def test_new_summary_request_includes_previous_summary(sessions) -> None:
         summary_trigger_tokens=1,
         chars_per_token=1,
     )
-    sent: list[tuple[str, int]] = []
+    sent: list[str] = []
 
-    async def send_summary(text: str, covered_id: int) -> None:
-        sent.append((text, covered_id))
+    async def write(text: str) -> None:
+        sent.append(text)
 
-    assert await continuity.maybe_summarize(42, send_summary) is True
+    assert await continuity.close_window(42, write) is True
     request = provider.requests[0].messages[-1]["content"]
-    assert request.startswith("Previous summary:\nEverything before today.")
+    assert request.startswith("Everything before today.")
     assert "A long enough request" in request
-    assert sent == [(f"{SUMMARY_HEADER}\nThe rewritten summary", 10)]
+    assert sent == [f"{SUMMARY_HEADER}\nThe rewritten summary"]
 
 
 async def test_summary_below_configured_trigger_requires_force(sessions) -> None:
@@ -314,14 +314,14 @@ async def test_summary_below_configured_trigger_requires_force(sessions) -> None
         cast(Any, None),
         summary_trigger_tokens=SUMMARY_TRIGGER_TOKENS,
     )
-    sent: list[tuple[str, int]] = []
+    sent: list[str] = []
 
-    async def send_summary(text: str, covered_id: int) -> None:
-        sent.append((text, covered_id))
+    async def write(text: str) -> None:
+        sent.append(text)
 
-    assert await continuity.maybe_summarize(42, send_summary) is False
-    assert await continuity.maybe_summarize(42, send_summary, force=True) is True
-    assert sent == [(f"{SUMMARY_HEADER}\nForced summary", 10)]
+    assert await continuity.close_window(42, write) is False
+    assert await continuity.close_window(42, write, force=True) is True
+    assert sent == [f"{SUMMARY_HEADER}\nForced summary"]
 
 
 async def test_memory_maintenance_reads_after_its_own_cursor(sessions, tmp_path: Path) -> None:

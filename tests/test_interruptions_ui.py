@@ -131,7 +131,7 @@ async def test_proposal_ui_gives_up_the_turn_before_continuity_work(sessions) ->
     class Continuity:
         called = False
 
-        async def maybe_summarize(self, *_args, **_kwargs):
+        async def close_window(self, *_args, **_kwargs):
             self.called = True
             assert turn.background is True
 
@@ -368,7 +368,7 @@ async def test_typed_words_end_the_review_and_are_then_answered(sessions) -> Non
             return [DialogueMessage(role="user", content="[Initial request]: Rename the Tag")]
 
     class Continuity:
-        async def maybe_summarize(self, *_args, **_kwargs):
+        async def close_window(self, *_args, **_kwargs):
             return None
 
     bot = FakeBot()

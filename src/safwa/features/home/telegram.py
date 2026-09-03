@@ -10,9 +10,9 @@ from ...shell import (
     claimed_link,
     open_citation,
     send_registered,
-    sprint_is_active,
     start_payload,
 )
+from ..planning.api import sprint_is_active
 from .api import menu_markup
 
 

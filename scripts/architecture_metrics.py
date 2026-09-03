@@ -540,19 +540,8 @@ SHELL_PACKAGES = ("ai", "shell", "turn", "cues", "adapters", "features.proposals
 # deleted takes the rule with it.
 RULE_Q_EXCEPTIONS = frozenset(
     {
-        # C: the window is declared by the shell and bound by the composition root.
-        ("safwa/adapters/telegram_history.py", "safwa.constants.SUMMARY_TRIGGER_TOKENS"),
-        ("safwa/adapters/telegram_history.py", "safwa.features.continuity.model.SUMMARY_HEADER"),
-        ("safwa/adapters/telegram_history.py", "safwa.foundation.tokens.estimate_tokens"),
-        ("safwa/shell/services.py", "safwa.features.continuity.persona.PersonaContinuity"),
-        # D: the Summary records its own cut.
-        ("safwa/shell/chat.py", "safwa.features.continuity.use_cases.record_summary"),
         # E: the Advisor's session is shell code and moves in.
         ("safwa/shell/services.py", "safwa.features.advisor.session.AIAdvisor"),
-        # F: `command_status` is the only reader of either.
-        ("safwa/shell/commands.py", "safwa.foundation.workspace.Workspace"),
-        ("safwa/shell/services.py", "safwa.features.continuity.memory.MemoryFileStore"),
-        ("safwa/shell/services.py", "safwa.foundation.workspace.Workspace"),
     }
 )
 
@@ -568,8 +557,8 @@ def rule_q() -> list[Violation]:
     """The shell names nothing of Safwa's but what is already on its way out.
 
     Those modules are one package waiting for a name, and every import out of them is an
-    `ImportError` on the day it moves.  Sixteen are left and each is listed with the group
-    that closes it, so the list shrinks on its own and a seventeenth cannot arrive quietly.
+    `ImportError` on the day it moves.  Each one left is listed with the group that closes
+    it, so the list shrinks on its own and a new one cannot arrive quietly.
     """
     out = []
     closed = set(RULE_Q_EXCEPTIONS)

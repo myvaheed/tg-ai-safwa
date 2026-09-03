@@ -27,11 +27,12 @@ from llm_gateway import (
 )
 from telegram_llm import ChatHost, ChatMessage, ChatVocabulary, ChatWindow, KindMarks, Note
 
-# This bot has three kinds of message and they are all conversation. The codes are its own;
+# This bot has two kinds of message and they are both conversation. The codes are its own;
 # the package needs only that they are distinct and never change once a chat has used them.
-PERSON, BOT, SUMMARY = "person", "bot", "summary"
-MARKS = KindMarks({PERSON: 1, BOT: 2, SUMMARY: 3})
-VOCABULARY = ChatVocabulary(person=PERSON, assistant=frozenset({BOT}), summary=SUMMARY)
+# It declares no `WindowEdge`, so nothing but the token budget ever ends its window.
+PERSON, BOT = "person", "bot"
+MARKS = KindMarks({PERSON: 1, BOT: 2})
+VOCABULARY = ChatVocabulary(person=PERSON, assistant=frozenset({BOT}))
 
 SYSTEM = {"role": "system", "content": "You are a friendly bot. Keep answers short."}
 
@@ -108,7 +109,6 @@ class Talker:
             owner_id=person_id,
             count_tokens=lambda text: max(len(text) // 4, 1),
             token_budget=4_000,
-            summary_context_limit=0,
         )
 
     async def answer(self, message: Message) -> None:

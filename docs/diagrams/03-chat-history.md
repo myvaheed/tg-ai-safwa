@@ -50,9 +50,10 @@ flowchart LR
 ```
 
 Не количество сообщений, а бюджет. Summary пишется ровно тогда, когда бюджет заполнен, и
-следующее окно начинается с него: Summary — единственный вид, который заканчивает окно и стоит
-вместо всего, что было раньше.
+следующее окно начинается с него: Summary — единственное, что заканчивает окно, и стоит вместо
+всего, что было раньше.
 
 Само окно — [`telegram_llm`](../../src/telegram_llm/window.py). Что значат виды Safwa — 
 [`adapters/telegram_history.py`](../../src/safwa/adapters/telegram_history.py), один раз, в
-`ChatVocabulary`.
+`ChatVocabulary`. Где окно кончается — не вид, а ответ, который окно спрашивает на каждом
+чтении: [`features/continuity/window.py`](../../src/safwa/features/continuity/window.py).

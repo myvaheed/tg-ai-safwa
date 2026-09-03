@@ -23,7 +23,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from telegram_llm import Note
 
 from ..adapters.kinds import MessageKind
-from ..features.continuity.use_cases import record_summary
 from ..features.proposals.model import BatchDecision
 from ..features.proposals.render import proposal_outcome_text
 from .layout import Page
@@ -265,18 +264,8 @@ async def discard_stale_status(bot: Bot, services: Services, chat_id: int) -> No
     await services.chat.discard_stale(bot, chat_id, kind=MessageKind.STATUS.value)
 
 
-async def send_summary(
-    message: Message, services: Services, text: str, covered_id: int
-) -> None:
-    """Post one Summary and move the cut place `recent` reads back to.
-
-    The cut place is the **last** part, which is where the backwards read meets it.
-    """
-    sent = await send_prose(
+async def send_summary(message: Message, services: Services, text: str) -> None:
+    """Post one Summary. The chat is where the next read finds it, and the only place."""
+    await send_prose(
         message, services, html.escape(text), kind=MessageKind.SUMMARY, replace=False
     )
-    async with services.sessions() as session:
-        await record_summary(
-            session, message_id=sent.message_id, covered_id=covered_id, text=text
-        )
-        await session.commit()

@@ -20,9 +20,9 @@ from .use_cases import record_memory_run
 async def command_summarize(message: Message, services: Services) -> None:
     """Cut the context deliberately: post a Summary now instead of waiting for the budget."""
     written = await services.turn.run_background(
-        lambda still_current: services.continuity.maybe_summarize(
+        lambda still_current: services.continuity.close_window(
             message.chat.id,
-            lambda text, covered_id: send_summary(message, services, text, covered_id),
+            lambda text: send_summary(message, services, text),
             force=True,
             still_current=still_current,
         )

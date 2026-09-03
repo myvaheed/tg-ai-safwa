@@ -20,15 +20,17 @@ from ..adapters.telegram_history import TelegramHistorySource, TelegramNotes
 from ..ai.autoapproval import AutoApprovalReviewer
 from ..ai.sql import ReadOnlyQueryRunner, create_ai_views
 from ..config import Settings
-from ..constants import AI_APP_TITLE, AI_APP_URL
+from ..constants import AI_APP_TITLE, AI_APP_URL, SUMMARY_TRIGGER_TOKENS
 from ..enums import AIProvider
 from ..features.advisor.session import AIAdvisor
 from ..features.continuity.memory import MemoryFileStore
 from ..features.continuity.persona import PersonaContinuity
+from ..features.continuity.window import SummaryEdge
 from ..features.heavy_analyzer import agent as heavy_analyzer
 from ..features.profile.model import UserProfile
 from ..foundation.database import Database, upgrade_database
 from ..foundation.errors import DomainError
+from ..foundation.tokens import estimate_tokens
 from ..foundation.workspace import Workspace
 from ..recovery import recover_startup
 from ..shell import (
@@ -188,6 +190,9 @@ async def run(settings: Settings) -> None:
         marks=MARKS,
         bot_user_id=me.id,
         owner_id=settings.telegram_owner_id,
+        count_tokens=estimate_tokens,
+        token_budget=SUMMARY_TRIGGER_TOKENS,
+        edge=SummaryEdge(),
         citation_types=SCREENS.types,
         timezone=settings.timezone,
     )

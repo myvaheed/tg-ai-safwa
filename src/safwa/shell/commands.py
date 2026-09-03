@@ -1,13 +1,12 @@
 """The screens the owner opens by name, and what publishing them to Telegram takes.
 
-Safwa's own two commands are here — diagnostics and cancelling a running answer. Every
-other command belongs to the feature that draws the screen behind it and reaches this
-module only as a `ScreenCommand` the composition root collected.
+Cancelling a running answer is the one command here, because the turn is the shell's.
+Every other command belongs to the feature that draws the screen behind it and reaches
+this module only as a `ScreenCommand` the composition root collected.
 """
 
 from __future__ import annotations
 
-import html
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -19,7 +18,6 @@ from sqlalchemy import delete
 
 from ..adapters.kinds import MessageKind
 from ..foundation.screens import ScreenCommand
-from ..foundation.workspace import Workspace
 from .chat import dismiss_prior_ui, remove_turn_notice, send_registered
 from .layout import start_payload
 from .model import UiSession
@@ -61,19 +59,6 @@ async def open_home(message: Message, services: Services) -> None:
     await handler(message, services)
 
 
-async def command_status(message: Message, services: Services) -> None:
-    memory = await services.memory.sync()
-    async with services.sessions() as session:
-        workspace = await session.get(Workspace, 1)
-    await send_registered(
-        message,
-        services,
-        f"<b>Status</b>\nMode: {workspace.mode}\nRevision: {workspace.revision}\n"
-        f"Memory: {html.escape(memory.error or 'OK')}",
-        kind=MessageKind.DASHBOARD,
-    )
-
-
 async def command_cancel(message: Message, services: Services) -> None:
     await remove_turn_notice(message, services, services.turn.cancel())
     await send_registered(
@@ -82,7 +67,6 @@ async def command_cancel(message: Message, services: Services) -> None:
 
 
 SHELL_COMMANDS: tuple[ScreenCommand, ...] = (
-    ScreenCommand(handler=command_status, command="status", description="Safwa diagnostics"),
     ScreenCommand(handler=command_cancel, command="cancel", description="Cancel generation"),
 )
 

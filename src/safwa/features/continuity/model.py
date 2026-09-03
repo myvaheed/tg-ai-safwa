@@ -10,20 +10,9 @@ from sqlalchemy.sql import func
 
 from ...foundation.models import Base, UtcDateTime
 
-# Written on the first message of a Summary, for the owner. The window strips it back off,
-# so the model reads the words alone — one string, written and stripped from here.
+# Written on the first message of a Summary, for the owner. `window.py` strips it back
+# off, so the model reads the words alone — one string, written and stripped from here.
 SUMMARY_HEADER = "📜 Summary"
-
-
-class SummaryState(Base):
-    __tablename__ = "summary_state"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
-    summary_message_id: Mapped[int | None] = mapped_column(Integer)
-    covered_message_id: Mapped[int | None] = mapped_column(Integer)
-    estimated_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    updated_at: Mapped[datetime] = mapped_column(
-        UtcDateTime, server_default=func.now(), onupdate=func.now()
-    )
 
 
 class MemoryFactCache(Base):

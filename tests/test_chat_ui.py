@@ -14,7 +14,7 @@ from ui_harness import (
 from safwa.adapters.kinds import MessageKind
 from safwa.adapters.telegram_history import TelegramMessage
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
-from safwa.features.continuity.model import SUMMARY_HEADER, SummaryState
+from safwa.features.continuity.model import SUMMARY_HEADER
 from safwa.features.proposals.telegram import render_ai_outcome
 from safwa.shell.chat import (
     discard_stale_status,
@@ -62,7 +62,7 @@ async def test_an_over_long_answer_arrives_as_several_dialogue_messages(sessions
     assert len(rows) == len(message.sent_messages)
 
 
-async def test_an_over_long_summary_is_split_and_the_cut_place_is_its_last_part(
+async def test_an_over_long_summary_is_split_and_every_part_is_registered(
     sessions,
 ) -> None:
     """SC-SPLIT-004 — tests/brd/screens.feature"""
@@ -72,16 +72,13 @@ async def test_an_over_long_summary_is_split_and_the_cut_place_is_its_last_part(
     message = FakeMessage(971, bot_message=False, answer_as_new=True)
     text = f"{SUMMARY_HEADER}\n" + "\n".join(f"point {index}" for index in range(600))
 
-    await messaging.send_summary(message, services, text, covered_id=500)
+    await messaging.send_summary(message, services, text)
 
     assert len(message.sent_messages) > 1
     async with sessions() as session:
-        state = await session.get(SummaryState, 1)
         rows = list(await session.scalars(select(TelegramMessage)))
+    # Every part carries the kind, which is what the backwards read meets them as.
     assert [row.kind for row in rows] == [MessageKind.SUMMARY.value] * len(rows)
-    # The backwards read meets the newest part first, so that is the cut place.
-    assert state.summary_message_id == message.sent_messages[-1].message_id
-    assert state.covered_message_id == 500
 
 
 async def test_a_split_cue_is_delivered_only_once_its_last_part_is_in_the_chat(

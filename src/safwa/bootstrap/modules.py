@@ -22,6 +22,7 @@ from ..features.advisor.agent import ADVISOR_VIEWS, SYSTEM_PROMPT_TEMPLATE
 from ..features.cards.module import MODULE as CARDS
 from ..features.checks.module import MODULE as CHECKS
 from ..features.continuity.module import MODULE as CONTINUITY
+from ..features.diagnostics.module import MODULE as DIAGNOSTICS
 from ..features.diary.module import MODULE as DIARY
 from ..features.heavy_analyzer import agent as heavy_analyzer
 from ..features.home.module import MODULE as HOME
@@ -69,6 +70,7 @@ MODULES: tuple[FeatureModule, ...] = (
     SAVED_REQUESTS,
     PROPOSALS_FEATURE,
     CONTINUITY,
+    DIAGNOSTICS,
 )
 
 

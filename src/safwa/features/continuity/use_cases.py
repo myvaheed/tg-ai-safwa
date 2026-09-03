@@ -1,7 +1,6 @@
 """Continuity operations: what is recorded, and when maintenance is due.
 
-Each takes the session or the session factory its caller already owns, so recording a
-Summary lands with the message that carries it.
+Each takes the session or the session factory its caller already owns.
 """
 
 from __future__ import annotations
@@ -12,9 +11,8 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ...foundation.tokens import estimate_tokens
 from ..profile.api import scheduled_memory_time
-from .model import MemorySyncState, SummaryState
+from .model import MemorySyncState
 from .persona import BackgroundMemoryRunner, MemoryMaintenanceResult, PersonaContinuity
 
 logger = logging.getLogger(__name__)
@@ -54,23 +52,6 @@ async def run_due_memory_maintenance(
         return False
     await record_memory_run(sessions, local_now.astimezone(UTC))
     return True
-
-
-async def record_summary(
-    session: AsyncSession, *, message_id: int, covered_id: int, text: str
-) -> None:
-    """Move the cut place `recent` reads back to, once a Summary is in the chat.
-
-    The caller owns the session because posting the Summary and moving the cut have to
-    land together: a recorded cut with no message would hide the dialogue it covered.
-    """
-    state = await session.get(SummaryState, 1)
-    if state is None:
-        state = SummaryState(id=1)
-        session.add(state)
-    state.summary_message_id = message_id
-    state.covered_message_id = covered_id
-    state.estimated_tokens = estimate_tokens(text)
 
 
 async def record_memory_run(

@@ -33,6 +33,7 @@ from .window import (
     ChatWindow,
     DialogueMessage,
     HistoryEntry,
+    WindowEdge,
 )
 
 __all__ = [
@@ -54,6 +55,7 @@ __all__ = [
     "Transcriber",
     "TranscriptionError",
     "TranscriptionResult",
+    "WindowEdge",
     "markdown_to_telegram_html",
     "restore_citations",
     "split_telegram_text",

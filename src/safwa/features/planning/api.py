@@ -1,7 +1,8 @@
 """What another feature may ask of Planning.
 
-Cards calls every one of these after it has written a stage or deleted a Card: the
-commitment rows are the Sprint's, and Cards never touches one itself.
+Cards calls the commitment operations after it has written a stage or deleted a Card: the
+commitment rows are the Sprint's, and Cards never touches one itself. Whether a Sprint is
+running at all is asked by whatever draws a screen that only exists during one.
 """
 
 from __future__ import annotations
@@ -10,13 +11,19 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...foundation.clock import utcnow
-from ...foundation.workspace import require_workspace
+from ...foundation.workspace import Workspace, require_workspace
 from ..cards.api import PLANNED_STAGES, TERMINAL_STAGES, Card, CardStage
 from ..cards.model import CardKind
 from .model import SprintCommitment
 
 # The stages an Action has to be on for a Sprint to have anything to say about it.
 SPRINT_SCOPE = frozenset({CardStage.SPRINT, CardStage.TODAY, CardStage.DONE, CardStage.CANCELLED})
+
+
+async def sprint_is_active(session: AsyncSession) -> bool:
+    """Whether a Sprint is running, which is what makes Today a real screen."""
+    workspace = await session.get(Workspace, 1)
+    return bool(workspace and workspace.active_sprint_id)
 
 
 async def sync_commitment_for_stage(

@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from aiogram import BaseMiddleware, Router
 from aiogram.exceptions import TelegramAPIError
@@ -21,11 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from telegram_llm import ChatHost, Transcriber
 
 from ..adapters.telegram_history import TelegramHistorySource
+from ..ai.messages import Memory
 from ..features.advisor.session import AIAdvisor
-from ..features.continuity.memory import MemoryFileStore
-from ..features.continuity.persona import PersonaContinuity
 from ..foundation.screens import ScreenCatalogue, ScreenCommand, StartLink, TextInputFlow
-from ..foundation.workspace import Workspace
 from ..turn import TurnManager
 
 logger = logging.getLogger(__name__)
@@ -37,10 +35,22 @@ def audio_payload(message: Message) -> Audio | Voice | VideoNote | None:
     return message.voice or message.audio or message.video_note
 
 
-async def sprint_is_active(session: AsyncSession) -> bool:
-    """Whether a Sprint is running, which is what makes Today a real screen."""
-    workspace = await session.get(Workspace, 1)
-    return bool(workspace and workspace.active_sprint_id)
+class WindowKeeper(Protocol):
+    """What the shell asks after an answer: close the window if it has grown too long.
+
+    Whether anything is written, and what it says, is the application's. The shell hands
+    over the chat and one way to put a message in it, and is told whether it wrote. The
+    application binds its own object here; only what the shell calls is declared.
+    """
+
+    async def close_window(
+        self,
+        chat_id: int,
+        write: Callable[[str], Awaitable[None]],
+        *,
+        force: bool = False,
+        still_current: Callable[[], bool] | None = None,
+    ) -> bool: ...
 
 
 @dataclass
@@ -48,8 +58,8 @@ class Services:
     sessions: async_sessionmaker[AsyncSession]
     advisor: AIAdvisor
     history: TelegramHistorySource
-    memory: MemoryFileStore
-    continuity: PersonaContinuity
+    memory: Memory
+    continuity: WindowKeeper
     owner_id: int
     turn: TurnManager
     chat: ChatHost

@@ -21,11 +21,11 @@ from ....shell import (
     open_home,
     render_text_input,
     send_registered,
-    sprint_is_active,
     token_button,
 )
 from ....shell.model import UiSession
 from ...home.api import menu_markup
+from ...planning.api import sprint_is_active
 from ...tags.model import Tag
 from ...values.model import Value
 from ..model import CardKind

@@ -118,8 +118,8 @@ Its code is written already, inside `safwa/`: `ai/`, `shell/`, `turn/`, `cues/`,
 
 They cannot simply be moved, because they made **43 imports out of the rest of Safwa**. Move
 the directories and those 43 become `ImportError`. So the whole job is taking them to zero,
-after which the move itself is `git mv` plus import paths. Nine are left, and Rule Q names
-each one so a tenth cannot arrive unnoticed.
+after which the move itself is `git mv` plus import paths. One is left, and Rule Q names it
+so a second cannot arrive unnoticed.
 
 `ai/` and `turn/` are already clean, as are the five `foundation/` files and every
 `features/proposals/` module but `module.py`. Everything left is in `adapters/`, `shell/`
@@ -134,16 +134,15 @@ reason but history, so twelve shell modules reach outside for it. Cut, paste, re
 import lines. Nothing is decided along the way.
 
 **Seams.** The shell genuinely needs something of Safwa's, and moving it is not an option
-because it *is* Safwa. `shell/chat.py` calls `record_summary`. Summary is a feature — another
-project may want none, or a different one. But the shell does need to say "this conversation
-grew long, here is where I cut it", so the dependency inverts instead: the shell declares
-what it needs, and the composition root binds Safwa's feature to it. The shell never learns
-that what it got is a summary.
+because it *is* Safwa. The window used to end at a Summary, and a Summary is a feature —
+another project may want none, or a different one. But a window does have to end somewhere,
+so the dependency inverts instead: the shell declares what it needs, and the composition root
+binds Safwa's feature to it. The shell never learns that what it got is a summary.
 
 Two facts make the seams cheaper than they look. `ai/messages.py` already declares `Memory`
 as a protocol and takes `workspace_state` as a callable, so *told, not importing* is the
-house style. And `maybe_summarize` already takes `send_summary` as a callback, so the history
-seam is half inverted already.
+house style. And `close_window` already takes what writes as a callback, so the half of a
+seam that hands work back was there before any of this.
 
 ### Phase 1 — the moves — **done**, 43 imports down to 16
 
@@ -154,7 +153,7 @@ Twenty-seven of the 43, and nothing to decide in any of them.
   cycle. Twelve imports. `TelegramHistorySource` is handed the table rather than importing
   it, which is what a second project needs in order to bring its own kinds.
 - Fifteen constants have exactly one reader each and go to it — ten ASR and faster-whisper
-  settings to `adapters/asr.py`, `SUMMARY_CONTEXT_MESSAGE_LIMIT` to
+  settings to `adapters/asr.py`, `EDGE_CONTEXT_MESSAGE_LIMIT` to
   `adapters/telegram_history.py`, `TOAST_SECONDS` to `shell/chat.py`, `PAGE_SIZE` to
   `shell/layout.py`, and the two ASR limits to `turn/dialogue.py`.
 
@@ -172,13 +171,14 @@ with sixteen exceptions can be read and one with forty-three cannot.
 that closes each — and those blocks are the order phase 3 is written in. It is not copied
 here, because two copies of a shrinking list is one copy too many.
 
-The rule refuses a seventeenth import, and equally an exception whose import is already
-gone. Without the second half the list stops shrinking and starts growing.
+The rule refuses one more import, and equally an exception whose import is already gone.
+Without the second half the list stops shrinking and starts growing.
 
 ### Phase 3 — the seams
 
 Each group closed deletes its own block from `RULE_Q_EXCEPTIONS`. A, B and G were carrying
-rather than inverting and are done; C, D, E and F are the real work.
+rather than inverting, C and D were the window, and F was one command in the wrong package. E
+is what is left.
 
 - **A — `Settings` becomes the fields each adapter reads — done**. `build_transcriber` takes
   the eight it read, so `ASRProvider` could follow it into `asr.py` and `config.py` reads it
@@ -188,19 +188,27 @@ rather than inverting and are done; C, D, E and F are the real work.
   plugs into rather than which features exist, so it is `shell/manifest.py` now. Its
   `Settings` became the four fields the contexts are actually read for: the owner, the
   timezone, and whether the scheduler runs and how often.
-- **C — the window**. `Services.continuity` is `turn/dialogue.py` calling one
-  method; tg_agent_shell declares that method and Safwa binds it. The Summary's header, its
-  token budget and the token estimate arrive the same way. Summary stays a feature —
-  tg_agent_shell manages the window, it does not decide what goes in it.
-- **D — the Summary's cut**. `shell/chat.py` calls `record_summary`; the callback returns
-  the message id instead and `PersonaContinuity` records its own cut.
+- **C — the window — done**. Where the window ends was four things the package knew: which
+  kind, the heading to strip off it, the stripping, and the label the model reads in its
+  place. All four are one `WindowEdge` the host is asked on every read, so what ends the
+  window can be a different thing on every turn and the package holds no literal of Safwa's.
+  `Services.continuity` is the `WindowKeeper` protocol and `close_window` the one method the
+  shell calls; the token budget and the token estimate arrive as parameters.
+- **D — the Summary's cut — done**. There was no cut to record. The state written on every
+  Summary was read nowhere: the window has always found its edge by reading the chat, which
+  is where the rule says the dialogue lives. That table, the operation that filled it and the
+  message id threaded up to them are gone, and `send_summary` posts and nothing else.
 - **E — the Advisor's session**. `features/advisor/session.py` is shell code: eight `ai/`
   imports, eight `proposals/` imports, and two Safwa names — `MemoryFileStore`, which the
   `Memory` protocol already covers, and `workspace_context`, which the composition root can
   hand over. `MAX_TOOL_CALLS` and `SUBAGENT_DEADLINE_SECONDS` have no other reader and travel
   with it. The package keeps `agent.py`, which is what its own `__init__` already says it is.
-- **F — `command_status`**. It is the only reason `Services.memory` and `Workspace`
-  are in the shell at all.
+- **F — `command_status` — done**. It reports the workspace mode, the revision and whether
+  `memory.md` can be read — three things of Safwa's, so it is `features/diagnostics` now and the
+  shell publishes one command, `/cancel`, because the turn is the shell's. `sprint_is_active`
+  sat in `shell/services.py` and was called only by two features, so it is a door on
+  `features/planning/api.py`. `Services.memory` is `Memory`, the protocol `ai/messages.py`
+  already declared.
 - **G — `SCHEDULER_POLL_SECONDS` — done**. Read by `cues/` and by `features/reminders/`, so it
   stays in `constants.py` as cross-feature tuning. It was only ever a default on a parameter
   the one caller already passed, so `run_cue_queue` now requires it.
@@ -249,8 +257,8 @@ offered by the shape of a SQL query is a wart the first other project would inhe
     both are the shell's rather than a feature's.
 17. **check** — `backup.py`, `qa.py` and `recovery.py` sit at the package root; `recovery.py` is
     lifecycle and belongs under `bootstrap/`.
-18. **plan** — `Services` names `advisor`, `memory` and `continuity` as fields; each stops
-    being a feature name for a different reason, all three in the plan.
+18. **plan** — `Services` names `advisor` as a field; `memory` and `continuity` are protocols
+    now, and `advisor` stops being a feature name when its session moves into the shell.
 19. **check** — `features/workspace_mutator/state.py` builds one block out of every entity, the
     other place a single module knows the whole roster.
 20. **yes** — the package profile, the file profile_settings.feature and the "⚙️ Settings" button
@@ -266,3 +274,7 @@ offered by the shape of a SQL query is a wart the first other project would inhe
     of their own.
 25. **no** — values and tags are the same nine modules twice, but each keeps its own rules, and
     `RecordToolInput` is already the whole of what they share.
+26. **yes** — the slash list is longer than it needs to be: `/backlog` and `/settings` go, and
+    `/sprint` joins `/today` in cards. `/tags`, `/values` and `/reminders` already sit with the
+    feature each names, so what is left is two deletions and one move. Whether a command that
+    goes keeps its menu button is `ScreenCommand.command = None` and is not settled here.
