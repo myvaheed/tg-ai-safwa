@@ -19,6 +19,7 @@ from safwa.bootstrap.modules import MODULES
 
 REPO = Path(__file__).resolve().parents[1]
 SRC = REPO / "src"
+RULE_FILE = "scripts/architecture_metrics.py"
 SAFWA = SRC / "safwa"
 FEATURES = SAFWA / "features"
 
@@ -530,6 +531,75 @@ def rule_p() -> list[Violation]:
     return out
 
 
+# Rule Q: the modules that become tg_agent_shell, and every import still leaving them. The
+# five portable `foundation/` files travel too, for the reason Rule N already lists them.
+SHELL_PACKAGES = ("ai", "shell", "turn", "cues", "adapters", "features.proposals")
+
+# Rule Q's exceptions: the imports left to close, grouped by what closes each. The groups are
+# phase 3 of `docs/RESTRUCTURING.md`; closing one deletes its block, and the last block
+# deleted takes the rule with it.
+RULE_Q_EXCEPTIONS = frozenset(
+    {
+        # A: `Settings` becomes the fields each adapter reads.
+        ("safwa/adapters/asr.py", "safwa.config.Settings"),
+        ("safwa/adapters/asr.py", "safwa.enums.ASRProvider"),
+        ("safwa/adapters/telegram_history.py", "safwa.config.Settings"),
+        # B: the plug contract travels, so `module_manifest.py` comes along.
+        ("safwa/cues/module.py", "safwa.bootstrap.module_manifest.BackgroundContext"),
+        ("safwa/cues/module.py", "safwa.bootstrap.module_manifest.BackgroundTask"),
+        ("safwa/features/proposals/module.py", "safwa.bootstrap.module_manifest.FeatureModule"),
+        # C: the window is declared by the shell and bound by the composition root.
+        ("safwa/adapters/telegram_history.py", "safwa.constants.SUMMARY_TRIGGER_TOKENS"),
+        ("safwa/adapters/telegram_history.py", "safwa.features.continuity.model.SUMMARY_HEADER"),
+        ("safwa/adapters/telegram_history.py", "safwa.foundation.tokens.estimate_tokens"),
+        ("safwa/shell/services.py", "safwa.features.continuity.persona.PersonaContinuity"),
+        # D: the Summary records its own cut.
+        ("safwa/shell/chat.py", "safwa.features.continuity.use_cases.record_summary"),
+        # E: the Advisor's session is shell code and moves in.
+        ("safwa/shell/services.py", "safwa.features.advisor.session.AIAdvisor"),
+        # F: `command_status` is the only reader of either.
+        ("safwa/shell/commands.py", "safwa.foundation.workspace.Workspace"),
+        ("safwa/shell/services.py", "safwa.features.continuity.memory.MemoryFileStore"),
+        ("safwa/shell/services.py", "safwa.foundation.workspace.Workspace"),
+        # G: cross-feature tuning stays in `constants.py` and arrives as a parameter.
+        ("safwa/cues/background.py", "safwa.constants.SCHEDULER_POLL_SECONDS"),
+    }
+)
+
+
+def _shell_name(path: str) -> bool:
+    """Whether a dotted `safwa.` name belongs to the set rather than to the rest of Safwa."""
+    if any(path.startswith(f"safwa.{package}.") for package in SHELL_PACKAGES):
+        return True
+    return any(path == item or path.startswith(f"{item}.") for item in PORTABLE_FOUNDATION)
+
+
+def rule_q() -> list[Violation]:
+    """The shell names nothing of Safwa's but what is already on its way out.
+
+    Those modules are one package waiting for a name, and every import out of them is an
+    `ImportError` on the day it moves.  Sixteen are left and each is listed with the group
+    that closes it, so the list shrinks on its own and a seventeenth cannot arrive quietly.
+    """
+    out = []
+    closed = set(RULE_Q_EXCEPTIONS)
+    for module in modules():
+        dotted = module.rel.removesuffix(".py").replace("/", ".")
+        if dotted not in PORTABLE_FOUNDATION and not _shell_name(dotted):
+            continue
+        for path, line in module.imported_paths():
+            if not path.startswith("safwa.") or _shell_name(path):
+                continue
+            if (module.rel, path) in RULE_Q_EXCEPTIONS:
+                closed.discard((module.rel, path))
+                continue
+            out.append(Violation("Rule Q", module.rel, line, f"imports {path}"))
+    # An exception outliving its import is how a list of sixteen becomes a list of forty.
+    for rel, path in sorted(closed):
+        out.append(Violation("Rule Q", RULE_FILE, 0, f"{rel} no longer imports {path}"))
+    return out
+
+
 RULES = {
     "Rule A": rule_a,
     "Rule C": rule_c,
@@ -542,6 +612,7 @@ RULES = {
     "Rule M": rule_m,
     "Rule N": rule_n,
     "Rule P": rule_p,
+    "Rule Q": rule_q,
 }
 # Rules I, J and O are snapshots of built artefacts rather than of the source tree, so they
 # live with their baselines in `tests/test_architecture.py`.

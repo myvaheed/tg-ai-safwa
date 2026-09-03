@@ -99,8 +99,8 @@ importing the registry. Travelling together is what was actually wanted, and Rul
 ## tg-agent-shell — the plan
 
 The engine, the review flow, the shell, the turn lease and the cues are one reusable thing:
-`llm_gateway <- agent_runtime <- tg_agent_shell <- safwa`. Phase 1 is done; phases 2 to 4 are
-not started.
+`llm_gateway <- agent_runtime <- tg_agent_shell <- safwa`. Phases 1 and 2 are done; phases 3
+and 4 are not started.
 
 tg-agent-shell is the distribution and tg_agent_shell the package, because an import name
 cannot carry a hyphen. Neither is backticked below: the name is planned, and a backtick here
@@ -117,9 +117,13 @@ Its code is written already, inside `safwa/`: `ai/`, `shell/`, `turn/`, `cues/`,
 `features/proposals/`, and five files of `foundation/`. Fifty-five modules.
 
 They cannot simply be moved, because they made **43 imports out of the rest of Safwa**. Move
-the directories and those 43 become `ImportError`. So the whole job is taking the 43 to zero,
-after which the move itself is `git mv` plus import paths. No rule covers this set yet, so
-nothing today reports the 43 or refuses a forty-fourth.
+the directories and those 43 become `ImportError`. So the whole job is taking them to zero,
+after which the move itself is `git mv` plus import paths. Sixteen are left, and Rule Q
+names each one so a seventeenth cannot arrive unnoticed.
+
+`ai/` and `turn/` are already clean, as are the five `foundation/` files and every
+`features/proposals/` module but `module.py`. Everything left is in `adapters/`, `shell/`
+and `cues/`.
 
 ### Two kinds of import, and only one of them is work
 
@@ -158,34 +162,44 @@ Two constants that look like the others are not moves and stay: `SUMMARY_TRIGGER
 `SCHEDULER_POLL_SECONDS` each have a reader on both sides of the boundary, which makes them
 cross-feature tuning and so `constants.py`'s. The shell takes them as parameters, in phase 3.
 
-### Phase 2 — the ratchet
+### Phase 2 — the ratchet — **done**
 
-A rule saying the 55 modules import nothing outside themselves, with the sixteen that are
-left listed as named exceptions the way `RULE_H_EXCEPTION` is.
+Rule Q: the 55 modules import nothing outside themselves, with the sixteen as named
+exceptions the way `RULE_H_EXCEPTION` is. After phase 1 rather than before, because a rule
+with sixteen exceptions can be read and one with forty-three cannot.
 
-After phase 1 rather than before, because a rule with sixteen exceptions can be read and one
-with forty-three cannot. What it buys is that a forty-fourth import cannot arrive unnoticed.
+`RULE_Q_EXCEPTIONS` is the list, in `scripts/architecture_metrics.py`, blocked by the group
+that closes each — and those blocks are the order phase 3 is written in. It is not copied
+here, because two copies of a shrinking list is one copy too many.
+
+The rule refuses a seventeenth import, and equally an exception whose import is already
+gone. Without the second half the list stops shrinking and starts growing.
 
 ### Phase 3 — the seams
 
-Sixteen imports, and each closed one deletes its own exception from the phase 2 rule.
+Each group closed deletes its own block from `RULE_Q_EXCEPTIONS`. A and B are still
+carrying rather than inverting; C, D, E and F are the real work.
 
-- **The Advisor's session.** `features/advisor/session.py` is shell code: eight `ai/` imports,
-  eight `proposals/` imports, and two Safwa names — `MemoryFileStore`, which the `Memory`
-  protocol already covers, and `workspace_context`, which the composition root can hand over.
-  The package keeps `agent.py`, which is what its own `__init__` already says it is.
-- **The Summary's cut.** `shell/chat.py` calls `record_summary`; the callback returns the message
-  id instead and `PersonaContinuity` records its own cut.
-- **The window.** `Services.continuity` is `turn/dialogue.py` calling one method;
-  tg_agent_shell declares that method and Safwa binds it. Summary stays a feature —
+- **A — `Settings` becomes the fields each adapter reads** (1, 2, 3). First, because
+  `ASRProvider` cannot join `asr.py` while `asr.py` still imports `config`: that would be a
+  cycle, which is why phase 1 left it behind.
+- **B — the plug contract travels** (14, 15, 16). `bootstrap/module_manifest.py` declares what
+  a feature plugs into rather than which features exist, so it belongs to the shell. Its own
+  `Settings` becomes the four fields it reads.
+- **C — the window** (4, 5, 6, 11). `Services.continuity` is `turn/dialogue.py` calling one
+  method; tg_agent_shell declares that method and Safwa binds it. The Summary's header, its
+  token budget and the token estimate arrive the same way. Summary stays a feature —
   tg_agent_shell manages the window, it does not decide what goes in it.
-
-Beside them: `adapters/asr.py` and `adapters/telegram_history.py` take `Settings`, which
-becomes the fields each one reads, and that has to come first because `ASRProvider` cannot
-join `asr.py` while `asr.py` still imports `config`; `bootstrap/module_manifest.py` is the
-plug contract rather than the roster and travels with the package; `command_status` is the
-only reason `Services.memory` and `Workspace` are in the shell; and `estimate_tokens` defaults
-to the shared `TOKEN_CHARS_ESTIMATE`, so it arrives as a parameter rather than an import.
+- **D — the Summary's cut** (7). `shell/chat.py` calls `record_summary`; the callback returns
+  the message id instead and `PersonaContinuity` records its own cut.
+- **E — the Advisor's session** (9). `features/advisor/session.py` is shell code: eight `ai/`
+  imports, eight `proposals/` imports, and two Safwa names — `MemoryFileStore`, which the
+  `Memory` protocol already covers, and `workspace_context`, which the composition root can
+  hand over. The package keeps `agent.py`, which is what its own `__init__` already says it is.
+- **F — `command_status`** (8, 10, 12). It is the only reason `Services.memory` and `Workspace`
+  are in the shell at all.
+- **G — `SCHEDULER_POLL_SECONDS`** (13). Read by `cues/` and by `features/reminders/`, so it is
+  cross-feature tuning and stays in `constants.py`; the shell takes it as a parameter.
 
 ### Phase 4 — the move
 
@@ -194,8 +208,8 @@ to the shared `TOKEN_CHARS_ESTIMATE`, so it arrives as a parameter rather than a
 the same name, and what is in there is the aiogram surface rather than the idea;
 `features/proposals/telegram/` lands beside it as the second adapter of the one transport.
 
-Rule F then covers the package, and Rule N and the phase 2 rule are deleted rather than
-extended: both existed only to make this move possible.
+Rule F then covers the package, and Rules N and Q are deleted rather than extended: both
+existed only to make this move possible.
 
 Candidates 6, 12, 16, 18 and 22 are answered by the phases above, so none is worth doing on
 its own. Candidate 8 is not, and blocks nothing: its only tie to the move is that a helper
@@ -225,8 +239,8 @@ offered by the shape of a SQL query is a wart the first other project would inhe
     the shell side of the plan, which is where the duplicate is decided.
 13. **yes** — `heavy_analyzer` has no `module.py` and `bootstrap/modules.py` imports its agent
     directly, which is the second exception to the registry after the Advisor.
-15. **yes** — `constants.py` still keeps `SPRINT_LENGTH_DAYS`, `ARCHIVE_AFTER_SPRINTS`,
-    `DIARY_TIME_DEFAULT` and `SUMMARY_TRIGGER_TOKENS`, which one feature each reads.
+15. **yes** — `constants.py` still keeps `SPRINT_LENGTH_DAYS`, `ARCHIVE_AFTER_SPRINTS` and
+    `DIARY_TIME_DEFAULT`, which one feature each reads.
 16. **plan** — `adapters/` is two unrelated boundaries, voice input and Telethon history, and
     both are the shell's rather than a feature's.
 17. **check** — `backup.py`, `qa.py` and `recovery.py` sit at the package root; `recovery.py` is
