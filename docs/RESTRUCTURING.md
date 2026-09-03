@@ -96,11 +96,16 @@ importing the registry. Travelling together is what was actually wanted, and Rul
 - Two scenarios said Card and Check where they meant a mechanism; they say the mechanism, and
   `cards.feature` says which of Cards' changes is the destructive one.
 
-## tg_harness — a plan, not a schedule
+## tg-agent-shell — a plan, not a schedule
 
 The engine, the review flow, the shell, the turn lease and the cues are one reusable thing:
-`llm_gateway <- agent_runtime <- tg_harness <- safwa`. Nothing below is started. It is written
-down because the measurement is the expensive part and it is already done.
+`llm_gateway <- agent_runtime <- tg_agent_shell <- safwa`. Nothing below is started. It is
+written down because the measurement is the expensive part and it is already done.
+
+tg-agent-shell is the distribution and tg_agent_shell the package, because an import name
+cannot carry a hyphen. Neither is backticked below: the name is planned, and a backtick here
+means a name the code already carries. It is a shell rather than a harness — a harness drives
+a model, which is `agent_runtime` one layer down, and this is where a person reaches the agent.
 
 The candidate set is 49 modules — `ai/` 11, `features/proposals/` 15, `shell/` 10, `cues/` 6,
 `turn/` 4, `adapters/` 3 — plus `foundation/{clock,errors,models,references,screens}.py`. It
@@ -111,25 +116,28 @@ the history seam is half inverted already.
 
 Mechanical, and none of it moves anything:
 
-- `MessageKind` is the dialogue store's vocabulary and `AIProvider`/`ASRProvider` are the
-  harness's; they leave `enums.py`.
+- `MessageKind` is the dialogue store's vocabulary and `AIProvider`/`ASRProvider` are
+  tg_agent_shell's; they leave `enums.py`.
 - `constants` reaches `shell`, `turn` and `cues`; each constant goes where it is read.
 - `adapters/telegram_history.py` imports `SUMMARY_HEADER`; the header becomes a parameter.
 - `bootstrap/module_manifest.py` is the plug contract, not the roster; its `Settings` becomes the
-  four fields the harness actually reads.
+  four fields tg_agent_shell actually reads.
+- `shell/` becomes `tg_agent_shell/telegram/`, because a package named for the shell cannot hold
+  a directory of the same name, and what is in there is the aiogram surface rather than the idea.
+  `features/proposals/telegram/` lands beside it as the second adapter of the one transport.
 - `command_status` is the only reason `Services.memory` and `Workspace` are in the shell.
 
 Three seams, and they are the real work:
 
-- **The Advisor's session.** `features/advisor/session.py` is harness code: eight `ai/` imports,
+- **The Advisor's session.** `features/advisor/session.py` is shell code: eight `ai/` imports,
   eight `proposals/` imports, and two Safwa names — `MemoryFileStore`, which the `Memory`
   protocol already covers, and `workspace_context`, which the composition root can hand over.
   The package keeps `agent.py`, which is what its own `__init__` already says it is.
 - **The Summary's cut.** `shell/chat.py` calls `record_summary`; the callback returns the message
   id instead and `PersonaContinuity` records its own cut.
-- **The window.** `Services.continuity` is `turn/dialogue.py` calling one method; the harness
-  declares that method and Safwa binds it. Summary stays a feature — the harness manages the
-  window, it does not decide what goes in it.
+- **The window.** `Services.continuity` is `turn/dialogue.py` calling one method;
+  tg_agent_shell declares that method and Safwa binds it. Summary stays a feature —
+  tg_agent_shell manages the window, it does not decide what goes in it.
 
 Then the move, and Rule F covers the package: Rule N is deleted rather than extended. Candidates 6,
 12, 16, 18 and 22 are answered by the three seams, so none is worth doing on its own.
@@ -138,8 +146,8 @@ Then the move, and Rule F covers the package: Rule N is deleted rather than exte
 
 2. **no** — the review flow travels with the engine rather than into it; Rule N is what says
    so, and moving the package would reverse `shell`, `bootstrap` and `MutationCatalogue`.
-6. **plan** — the split to make is not spec-from-spec: `AIAdvisor` is harness and
-   `features/advisor` keeps its prompt, which is the tg_harness plan's first seam.
+6. **plan** — the split to make is not spec-from-spec: `AIAdvisor` is shell code and
+   `features/advisor` keeps its prompt, which is the tg-agent-shell plan's first seam.
 7. **yes** — continuity splits into summary and memory once continuity.feature does; the two share
    only `persona.py`.
 8. **first** — the trigger is hardcoded in `ai/tools.py` as `agent.kind` plus `is_complex_read`, so
@@ -155,13 +163,13 @@ Then the move, and Rule F covers the package: Rule N is deleted rather than exte
     `TagToolInput`, `RequestToolInput` and `ReminderToolInput`: every feature's contract sits in
     the engine that owns no feature.
 12. **plan** — `RoutedSubagent` and `AgentSpec` are one concept declared twice; both land on
-    the harness side of the plan, which is where the duplicate is decided.
+    the shell side of the plan, which is where the duplicate is decided.
 13. **yes** — `heavy_analyzer` has no `module.py` and `bootstrap/modules.py` imports its agent
     directly, which is the second exception to the registry after the Advisor.
 15. **yes** — `constants.py` still keeps `SPRINT_LENGTH_DAYS`, `ARCHIVE_AFTER_SPRINTS`,
     `DIARY_TIME_DEFAULT` and `SUMMARY_TRIGGER_TOKENS`, which one feature each reads.
 16. **plan** — `adapters/` is two unrelated boundaries, voice input and Telethon history, and
-    both are the harness's rather than a feature's.
+    both are the shell's rather than a feature's.
 17. **check** — `backup.py`, `qa.py` and `recovery.py` sit at the package root; `recovery.py` is
     lifecycle and belongs under `bootstrap/`.
 18. **plan** — `Services` names `advisor`, `memory` and `continuity` as fields; each stops
@@ -174,7 +182,7 @@ Then the move, and Rule F covers the package: Rule N is deleted rather than exte
     and advisor, workspace_mutator, home and retro have no scenario file, against one package
     per scenario file.
 22. **plan** — `Services` is the whole application's container but lives in `shell/`; the shell
-    is harness, so the container is too and the import is right after the move.
+    moves, so the container moves with it and the import is right after the move.
 23. **check** — `foundation/screens.py` carries `ScreenCommand`, `ScreenSpec` and
     `TextInputFlow`, which is Telegram vocabulary in the layer under the domain.
 24. **check** — `features/cards/telegram` is eleven modules; the stage lists may want a package
