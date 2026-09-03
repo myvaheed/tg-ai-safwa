@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import ast
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -428,6 +428,7 @@ RULE_H_EXCEPTION = (
 
 
 def rule_h() -> list[Violation]:
+    """Nothing outside a feature fans out over entity names."""
     return [
         item
         for item in entity_dispatch_points()
@@ -486,6 +487,49 @@ def rule_n() -> list[Violation]:
     return out
 
 
+# Rule P: the aiogram calls that put a message in the chat.  `answer` is one of them, but a
+# tap acknowledgement carries the same name and writes nothing, so its receivers are named.
+TELEGRAM_SENDS = (
+    "answer",
+    "delete_message",
+    "edit_message_text",
+    "edit_text",
+    "reply",
+    "send_message",
+    "send_photo",
+)
+TAP_ACKNOWLEDGERS = frozenset({"callback", "event"})
+
+
+def rule_p() -> list[Violation]:
+    """Every bot message goes through the one place that marks it.
+
+    A message's kind is written into its own text by `telegram_llm`, and that kind is the
+    only thing deciding whether the model ever reads the message back.  A raw aiogram send
+    is therefore a message with no kind — invisible to the reader, and unfixable later
+    because Telegram is the store rather than a cache of one.
+    """
+    out = []
+    for module in modules():
+        if module.rel.startswith("telegram_llm/"):
+            continue
+        if all(root != "aiogram" for root, _ in module.imported_roots()):
+            continue
+        for call in _calls_named(module.tree, *TELEGRAM_SENDS):
+            function = call.func
+            if not isinstance(function, ast.Attribute):
+                continue
+            acknowledges = (
+                function.attr == "answer"
+                and isinstance(function.value, ast.Name)
+                and function.value.id in TAP_ACKNOWLEDGERS
+            )
+            if acknowledges:
+                continue
+            out.append(Violation("Rule P", module.rel, call.lineno, f"sends via {function.attr}"))
+    return out
+
+
 RULES = {
     "Rule A": rule_a,
     "Rule C": rule_c,
@@ -497,8 +541,9 @@ RULES = {
     "Rule K": rule_k,
     "Rule M": rule_m,
     "Rule N": rule_n,
+    "Rule P": rule_p,
 }
-# Rules I and J are snapshots of built artefacts rather than of the source tree, so they
+# Rules I, J and O are snapshots of built artefacts rather than of the source tree, so they
 # live with their baselines in `tests/test_architecture.py`.
 
 
@@ -621,13 +666,19 @@ def _assigns_only(node: ast.Assign, name: str) -> bool:
     return all(isinstance(target, ast.Name) and target.id == name for target in node.targets)
 
 
+def _purpose(check: Callable[[], list[Violation]]) -> str:
+    """What a rule is for, taken from its own first line so the report needs no second copy."""
+    return (check.__doc__ or "").strip().splitlines()[0]
+
+
 def report() -> str:
     found = violations()
     lines = ["# Architecture metrics", ""]
     lines.append(f"Modules scanned: {len(modules())}")
     lines.append(f"Rule violations: {len(found)}")
-    for rule in RULES:
-        lines.append(f"  {rule}: {sum(1 for item in found if item.rule == rule)}")
+    for rule, check in RULES.items():
+        count = sum(1 for item in found if item.rule == rule)
+        lines.append(f"  {rule}: {count:<3} {_purpose(check)}")
     lines += ["", "## Largest modules"]
     for name, size in module_sizes()[:10]:
         lines.append(f"  {size:>5}  {name}")

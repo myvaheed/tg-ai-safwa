@@ -65,8 +65,10 @@ class TelegramMessage(Base):
     __table_args__ = (UniqueConstraint("chat_id", "message_id"),)
 
 
-# Codes are append-only: a released code must never be reused for another kind.  1, 2, 7 and
-# 13 belonged to retired kinds and stay out of circulation.
+# Codes are append-only.  A code that has reached a real chat is written into messages that
+# outlive the kind, so giving it to a second kind rewrites what those messages mean.  Rule O
+# holds both halves: the live codes never move, and a retired one never comes back.
+RETIRED_MARK_CODES = frozenset({1, 2, 7, 13})
 MARKS = KindMarks(
     {
         MessageKind.DIALOGUE_USER.value: 3,

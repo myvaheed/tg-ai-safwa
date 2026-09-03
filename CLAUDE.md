@@ -94,8 +94,8 @@ uv run python scripts/architecture_metrics.py   # the architecture rules and the
 ```
 
 Every architecture rule reads zero. `tests/test_architecture.py` fails on any violation, and on a
-change to the prompt-prefix or schema snapshot under `tests/snapshots/`. Rewrite a snapshot only in
-a batch declared to change that artefact:
+change to the prompt-prefix, schema or marker-code snapshot under `tests/snapshots/`. Rewrite a
+snapshot only in a batch declared to change that artefact:
 
 ```powershell
 uv run pytest tests/test_architecture.py --snapshot-update
@@ -167,7 +167,8 @@ each is held; [docs/DOMAIN.md](docs/DOMAIN.md) is what the words mean.
 
 - **Telegram is the dialogue store, not SQLite.** Every bot message is sent registered and marked
   with a `MessageKind`, and its kind is the only thing that decides whether the model ever sees it.
-  An unregistered or wrongly-kinded message is a silent bug weeks wide.
+  An unregistered or wrongly-kinded message is a silent bug weeks wide. Rule P keeps the send path
+  single, and Rule O keeps a released `MARKS` code from ever meaning something else.
 - **The model proposes; it never writes.** Every mutation tool belongs to a subagent, never to the
   Advisor, and Save calls the *same* use cases the manual UI calls. A proposal screen is exactly
   Save/Discard: a screen that needs a field control is the wrong screen.

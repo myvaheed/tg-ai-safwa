@@ -1,0 +1,13 @@
+{
+  "approval": "11",
+  "cue": "5",
+  "dashboard": "9",
+  "dialogue_assistant": "4",
+  "dialogue_user": "3",
+  "editor": "10",
+  "error": "14",
+  "receipt": "12",
+  "status": "15",
+  "summary": "6",
+  "ui_input": "8"
+}
