@@ -166,11 +166,18 @@ async def live_telegram_harness(tmp_path: Path, monkeypatch) -> LiveTelegramHarn
     class SharedHistoryFactory:
         @classmethod
         def from_settings(
-            cls, _settings, sessions, *, bot_user_id: int, citation_types: tuple[str, ...] = ()
+            cls,
+            _settings,
+            sessions,
+            *,
+            marks,
+            bot_user_id: int,
+            citation_types: tuple[str, ...] = (),
         ):
             return TelegramHistorySource(
                 client,
                 sessions,
+                marks=marks,
                 bot_user_id=bot_user_id,
                 owner_id=settings.telegram_owner_id,
                 citation_types=citation_types,

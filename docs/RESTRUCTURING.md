@@ -145,9 +145,12 @@ seam is half inverted already.
 
 Twenty-seven of the 43, and nothing to decide in any of them.
 
-- `MessageKind`, with the `MARKS` table pairing each kind to its wire code, leaves `enums.py`
-  for `adapters/kinds.py`. Not `shell/`: `shell/services.py` imports `adapters/`, so the
-  reverse edge would be a cycle. Twelve imports.
+- `MessageKind` leaves `enums.py` for `adapters/kinds.py`. Not `shell/`: `shell/services.py`
+  imports `adapters/`, so the reverse edge would be a cycle. Twelve imports. `MARKS` went the
+  other way, out of the set to `dialogue_marks.py`: the kinds are the shell's vocabulary, but
+  which number stands for which kind means something only against the messages already sent
+  under it, so the table is the deployment's. `TelegramHistorySource` takes it as a parameter,
+  which is why moving it out cost no import.
 - Fifteen constants have exactly one reader each and go to it — ten ASR and faster-whisper
   settings to `adapters/asr.py`, `SUMMARY_CONTEXT_MESSAGE_LIMIT` to
   `adapters/telegram_history.py`, `TOAST_SECONDS` to `shell/chat.py`, `PAGE_SIZE` to

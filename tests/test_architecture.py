@@ -21,11 +21,11 @@ from pathlib import Path
 import pytest
 from sqlalchemy import UniqueConstraint, inspect
 
-from safwa.adapters.kinds import MARKS, RETIRED_MARK_CODES
 from safwa.ai.messages import ContextBuilder, StateBlocks
 from safwa.ai.subagents import PERSONA, RoutedSubagent
 from safwa.ai.tools import CALL_HELPER_TOOL, OPEN_TOOL, QUERY_SAFWA_TOOL, ROUTE_TOOL
 from safwa.bootstrap.modules import AGENTS, HEAVY_ANALYZER_PROMPT, PROPOSALS, SYSTEM_PROMPT
+from safwa.dialogue_marks import MARKS, RETIRED_MARK_CODES
 from safwa.foundation.models import Base
 from scripts.architecture_metrics import RULES, cycles
 from telegram_llm import DialogueMessage

@@ -15,12 +15,12 @@ from llm_gateway import OpenAICompatibleConfig, OpenAICompatibleProvider
 from telegram_llm import ChatHost
 
 from ..adapters.asr import build_transcriber
-from ..adapters.kinds import MARKS
 from ..adapters.telegram_history import TelegramHistorySource, TelegramNotes
 from ..ai.autoapproval import AutoApprovalReviewer
 from ..ai.sql import ReadOnlyQueryRunner, create_ai_views
 from ..config import Settings
 from ..constants import AI_APP_TITLE, AI_APP_URL
+from ..dialogue_marks import MARKS
 from ..enums import AIProvider
 from ..features.advisor.session import AIAdvisor
 from ..features.continuity.memory import MemoryFileStore
@@ -182,7 +182,11 @@ async def run(settings: Settings) -> None:
     )
     me = await bot.get_me()
     history = TelegramHistorySource.from_settings(
-        settings, database.sessions, bot_user_id=me.id, citation_types=SCREENS.types
+        settings,
+        database.sessions,
+        marks=MARKS,
+        bot_user_id=me.id,
+        citation_types=SCREENS.types,
     )
     await history.start()
     # The advisor is built after the history source because a subagent reads through it.

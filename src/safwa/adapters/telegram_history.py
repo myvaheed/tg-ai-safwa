@@ -30,6 +30,7 @@ from telegram_llm import (
     ChatMessage,
     ChatVocabulary,
     ChatWindow,
+    KindMarks,
     Note,
 )
 
@@ -39,7 +40,7 @@ from ..features.continuity.model import SUMMARY_HEADER
 from ..features.proposals.model import RECEIPT_MEANINGS
 from ..foundation.models import Base, UtcDateTime
 from ..foundation.tokens import estimate_tokens
-from .kinds import MARKS, MessageKind
+from .kinds import MessageKind
 
 __all__ = [
     "TelegramHistorySource",
@@ -194,6 +195,7 @@ class TelegramHistorySource(ChatWindow):
         client: TelegramClient | None,
         sessions: async_sessionmaker[AsyncSession],
         *,
+        marks: KindMarks,
         bot_user_id: int,
         owner_id: int,
         citation_types: tuple[str, ...] = (),
@@ -202,7 +204,7 @@ class TelegramHistorySource(ChatWindow):
         super().__init__(
             self if client is not None else None,
             TelegramNotes(sessions),
-            MARKS,
+            marks,
             vocabulary(citation_types),
             bot_user_id=bot_user_id,
             owner_id=owner_id,
@@ -220,6 +222,7 @@ class TelegramHistorySource(ChatWindow):
         settings: Settings,
         sessions: async_sessionmaker[AsyncSession],
         *,
+        marks: KindMarks,
         bot_user_id: int,
         citation_types: tuple[str, ...] = (),
     ) -> TelegramHistorySource:
@@ -233,6 +236,7 @@ class TelegramHistorySource(ChatWindow):
         return cls(
             client,
             sessions,
+            marks=marks,
             bot_user_id=bot_user_id,
             owner_id=settings.telegram_owner_id,
             citation_types=citation_types,

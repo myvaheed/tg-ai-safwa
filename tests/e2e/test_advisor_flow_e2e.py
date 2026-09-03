@@ -10,7 +10,6 @@ from ui_harness import spawn_timer
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.adapters.kinds import MARKS
 from safwa.adapters.telegram_history import TelegramNotes
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.ai.runs import AgentRun, AgentStep
@@ -23,6 +22,7 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
 )
 from safwa.constants import MAX_TOOL_CALLS
+from safwa.dialogue_marks import MARKS
 from safwa.features.cards.model import Card, CardCategory, CardEnergyType, CardStage
 from safwa.features.cards.use_cases import create_card, finish_action, move_card
 from safwa.features.planning.use_cases import finish_sprint, sprint_metrics, start_sprint

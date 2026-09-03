@@ -15,13 +15,13 @@ from ui_harness import (
     voice_message_for,
 )
 
-from safwa.adapters.kinds import MARKS, MessageKind
 from safwa.adapters.telegram_history import TelegramMessage, TelegramNotes
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.bootstrap.modules import (
     FEATURE_TEXT_INPUTS,
     PROPOSALS,
 )
+from safwa.dialogue_marks import MARKS, MessageKind
 from safwa.features.proposals.model import ChangeAction, ProposalChange
 from safwa.features.proposals.store import ProposalStore
 from safwa.foundation.workspace import Workspace

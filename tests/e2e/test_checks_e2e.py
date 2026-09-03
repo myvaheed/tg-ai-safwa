@@ -9,7 +9,6 @@ from ui_harness import spawn_timer
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.adapters.kinds import MARKS, MessageKind
 from safwa.adapters.telegram_history import TelegramMessage, TelegramNotes
 from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.bootstrap.modules import (
@@ -18,6 +17,7 @@ from safwa.bootstrap.modules import (
     FEATURE_TEXT_INPUTS,
     SCREENS,
 )
+from safwa.dialogue_marks import MARKS, MessageKind
 from safwa.features.cards.model import Card, CardStage
 from safwa.features.cards.use_cases import create_card, finish_action, toggle_card_check
 from safwa.features.checks.model import Check, CheckOutcome
