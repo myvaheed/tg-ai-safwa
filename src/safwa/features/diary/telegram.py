@@ -9,8 +9,8 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...adapters.kinds import MessageKind
 from ...ai.contracts import AgentChange
-from ...enums import MessageKind
 from ...foundation.errors import DomainError
 from ...shell import Services, send_registered
 from ..proposals.api import (

@@ -7,8 +7,8 @@ import html
 from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import select
 
+from ....adapters.kinds import MessageKind
 from ....constants import REQUEST_RESULT_LIMIT
-from ....enums import MessageKind
 from ....foundation.errors import DomainError
 from ....shell import (
     CallbackContext,

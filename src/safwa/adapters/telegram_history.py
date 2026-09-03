@@ -30,26 +30,26 @@ from telegram_llm import (
     ChatMessage,
     ChatVocabulary,
     ChatWindow,
-    KindMarks,
     Note,
 )
 
 from ..config import Settings
-from ..constants import SUMMARY_CONTEXT_MESSAGE_LIMIT, SUMMARY_TRIGGER_TOKENS
-from ..enums import MessageKind
+from ..constants import SUMMARY_TRIGGER_TOKENS
 from ..features.continuity.model import SUMMARY_HEADER
 from ..features.proposals.model import RECEIPT_MEANINGS
 from ..foundation.models import Base, UtcDateTime
 from ..foundation.tokens import estimate_tokens
+from .kinds import MARKS, MessageKind
 
 __all__ = [
-    "MARKS",
     "TelegramHistorySource",
     "TelegramMessage",
     "TelegramNotes",
     "auth_main",
     "register_message",
 ]
+
+SUMMARY_CONTEXT_MESSAGE_LIMIT = 20
 
 
 class TelegramMessage(Base):
@@ -63,27 +63,6 @@ class TelegramMessage(Base):
     related_id: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, server_default=func.now())
     __table_args__ = (UniqueConstraint("chat_id", "message_id"),)
-
-
-# Codes are append-only.  A code that has reached a real chat is written into messages that
-# outlive the kind, so giving it to a second kind rewrites what those messages mean.  Rule O
-# holds both halves: the live codes never move, and a retired one never comes back.
-RETIRED_MARK_CODES = frozenset({1, 2, 7, 13})
-MARKS = KindMarks(
-    {
-        MessageKind.DIALOGUE_USER.value: 3,
-        MessageKind.DIALOGUE_ASSISTANT.value: 4,
-        MessageKind.CUE.value: 5,
-        MessageKind.SUMMARY.value: 6,
-        MessageKind.UI_INPUT.value: 8,
-        MessageKind.DASHBOARD.value: 9,
-        MessageKind.EDITOR.value: 10,
-        MessageKind.APPROVAL.value: 11,
-        MessageKind.RECEIPT.value: 12,
-        MessageKind.ERROR.value: 14,
-        MessageKind.STATUS.value: 15,
-    }
-)
 
 
 def vocabulary(citation_types: tuple[str, ...]) -> ChatVocabulary:

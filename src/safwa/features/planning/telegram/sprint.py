@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....enums import MessageKind
+from ....adapters.kinds import MessageKind
 from ....foundation.clock import utcnow
 from ....foundation.errors import DomainError
 from ....foundation.screens import TextInputFlow

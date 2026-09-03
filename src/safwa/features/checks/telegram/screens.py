@@ -8,8 +8,8 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 
+from ....adapters.kinds import MessageKind
 from ....constants import CHECK_LIST_LIMIT, SELECTOR_PAGE_SIZE
-from ....enums import MessageKind
 from ....foundation.errors import DomainError
 from ....foundation.marks import live_repeat_instance_id, title_marks
 from ....shell import (

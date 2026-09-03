@@ -10,10 +10,10 @@ from datetime import date, timedelta
 import pytest
 from sqlalchemy import select
 
+from safwa.adapters.kinds import MessageKind
 from safwa.adapters.telegram_history import TelegramMessage
 from safwa.ai.runs import AgentRun
 from safwa.bootstrap.modules import PROPOSALS
-from safwa.enums import MessageKind
 from safwa.features.cards.model import Card, CardStage
 from safwa.features.cards.use_cases import archive_subtree, create_card, finish_action
 from safwa.features.checks.model import CheckOutcome

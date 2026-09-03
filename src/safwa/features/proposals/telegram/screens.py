@@ -6,7 +6,7 @@ import html
 
 from aiogram.types import InlineKeyboardMarkup, Message
 
-from ....enums import MessageKind
+from ....adapters.kinds import MessageKind
 from ....foundation.errors import DomainError
 from ....shell import (
     Services,

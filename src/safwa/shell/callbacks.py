@@ -17,7 +17,7 @@ from aiogram import F
 from aiogram.types import CallbackQuery
 from sqlalchemy import select, update
 
-from ..enums import MessageKind
+from ..adapters.kinds import MessageKind
 from ..foundation.errors import DomainError
 from .chat import send_registered
 from .commands import open_home

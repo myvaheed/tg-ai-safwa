@@ -12,7 +12,8 @@ from sqlalchemy import select
 
 import safwa
 import safwa.features.planning.telegram.plan as plan_module
-from safwa.adapters.telegram_history import MARKS, TelegramNotes
+from safwa.adapters.kinds import MARKS
+from safwa.adapters.telegram_history import TelegramNotes
 from safwa.ai.sql import create_ai_views
 from safwa.bootstrap.modules import (
     AI_VIEWS,

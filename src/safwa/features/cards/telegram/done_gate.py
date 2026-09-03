@@ -14,7 +14,7 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import delete, select
 
-from ....enums import MessageKind
+from ....adapters.kinds import MessageKind
 from ....foundation.errors import DomainError
 from ....shell import (
     CallbackContext,

@@ -11,7 +11,7 @@ import logging
 
 from aiogram.types import InlineKeyboardMarkup
 
-from ....enums import MessageKind
+from ....adapters.kinds import MessageKind
 from ....foundation.errors import DomainError, StaleStateError
 from ....shell import (
     CallbackContext,

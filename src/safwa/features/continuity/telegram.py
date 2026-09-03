@@ -10,7 +10,7 @@ import html
 
 from aiogram.types import Message
 
-from ...enums import MessageKind
+from ...adapters.kinds import MessageKind
 from ...shell import Services, send_registered, send_summary
 from .memory import MemoryFileError
 from .persona import MemoryMaintenanceResult

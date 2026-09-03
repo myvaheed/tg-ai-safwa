@@ -46,7 +46,6 @@ DIARY_TIME_DEFAULT = "22:00"
 # the message budget itself, so a Summary is written exactly when the window is full.
 SUMMARY_TOKEN_CEILING = 2_000
 SUMMARY_TRIGGER_TOKENS = 6_000
-SUMMARY_CONTEXT_MESSAGE_LIMIT = 20
 # --- Summaries and memory -------------------------------------------------
 MEMORY_TOKEN_BUDGET = 4_000
 # A tokenizer splits Latin at roughly 4 characters and Cyrillic at roughly 2, so a mixed
@@ -76,14 +75,11 @@ REMINDER_CATCHUP_GRACE_MINUTES = 120
 REMINDER_MIN_INTERVAL_MINUTES = 5
 
 # --- Telegram UI ----------------------------------------------------------
-PAGE_SIZE = 5
 SELECTOR_PAGE_SIZE = 10
 # The Sprint plan puts both columns in one table, so a row is one Card on each side.
 SPRINT_PLAN_PAGE_SIZE = 10
 SPRINT_PLAN_TITLE_LIMIT = 24
 REQUEST_RESULT_LIMIT = 25
-# How long a Toast stays on screen before it removes itself.
-TOAST_SECONDS = 5
 # A tap on a link starts the bot through the owner's own account, and Telegram rate limits
 # that per account for hours at a time. This many taps inside the window earns a warning.
 PLAN_LINK_BURST_TAPS = 8
@@ -104,15 +100,6 @@ AI_APP_URL = "https://github.com/myvaheed/tg-ai-safwa"
 AI_APP_TITLE = "Safwa"
 
 # --- Speech recognition ---------------------------------------------------
-# One call covers the upload and the whole file's decode, so the budget follows the audio.
-ASR_TIMEOUT_BASE_SECONDS = 60.0
-ASR_TIMEOUT_PER_AUDIO_SECOND = 1.0
-# Longer audio is refused with a plain message rather than left to time out.
-ASR_MAX_DURATION_SECONDS = 1_800
-# The Bot API refuses to serve a file larger than this, whatever the provider accepts.
-ASR_MAX_FILE_BYTES = 20 * 1024 * 1024
-# An upload is expensive to repeat, so a failure is retried less eagerly than a chat call.
-ASR_MAX_RETRIES = 2
 OPENAI_ASR_BASE_URL = "https://api.openai.com/v1"
 GROQ_ASR_BASE_URL = "https://api.groq.com/openai/v1"
 # The default for a whisper server the owner runs themselves.
@@ -122,15 +109,3 @@ GROQ_ASR_MODEL = "whisper-large-v3-turbo"
 LOCAL_ASR_MODEL = "Systran/faster-whisper-small"
 # The in-process engine. `small` fits ~1 GB; `large-v3-turbo` is the upgrade.
 FASTER_WHISPER_MODEL = "small"
-# CTranslate2 has no float16 kernel on the CPU, so each device carries its own default.
-FASTER_WHISPER_CPU_COMPUTE_TYPE = "int8"
-FASTER_WHISPER_CUDA_COMPUTE_TYPE = "float16"
-# A CPU fallback drops these rather than let CTranslate2 silently widen them to float32.
-FASTER_WHISPER_CUDA_ONLY_COMPUTE_TYPES = frozenset({"float16", "int8_float16"})
-# The `nvidia-*-cu12` wheels of the asr-cuda extra, whose DLLs CTranslate2 loads by name.
-CUDA_RUNTIME_PACKAGES = ("cublas", "cudnn", "cuda_nvrtc")
-FASTER_WHISPER_BEAM_SIZE = 5
-# A local decode is silent for minutes, so it reports a percentage. Shorter audio
-# finishes before the first edit would land, and Telegram rate-limits edits.
-ASR_PROGRESS_MIN_AUDIO_SECONDS = 60.0
-ASR_PROGRESS_MIN_INTERVAL_SECONDS = 5.0

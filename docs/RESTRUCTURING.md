@@ -96,38 +96,78 @@ importing the registry. Travelling together is what was actually wanted, and Rul
 - Two scenarios said Card and Check where they meant a mechanism; they say the mechanism, and
   `cards.feature` says which of Cards' changes is the destructive one.
 
-## tg-agent-shell — a plan, not a schedule
+## tg-agent-shell — the plan
 
 The engine, the review flow, the shell, the turn lease and the cues are one reusable thing:
-`llm_gateway <- agent_runtime <- tg_agent_shell <- safwa`. Nothing below is started. It is
-written down because the measurement is the expensive part and it is already done.
+`llm_gateway <- agent_runtime <- tg_agent_shell <- safwa`. Phase 1 is done; phases 2 to 4 are
+not started.
 
 tg-agent-shell is the distribution and tg_agent_shell the package, because an import name
 cannot carry a hyphen. Neither is backticked below: the name is planned, and a backtick here
 means a name the code already carries. It is a shell rather than a harness — a harness drives
 a model, which is `agent_runtime` one layer down, and this is where a person reaches the agent.
 
-The candidate set is 49 modules — `ai/` 11, `features/proposals/` 15, `shell/` 10, `cues/` 6,
-`turn/` 4, `adapters/` 3 — plus `foundation/{clock,errors,models,references,screens}.py`. It
-names Safwa in eight places. Two facts make the rest cheap: `ai/messages.py` already declares
-`Memory` as a protocol and takes `workspace_state` as a callable, so *told, not importing* is
-already the house style; and `maybe_summarize` already takes `send_summary` as a callback, so
-the history seam is half inverted already.
+### What the move actually is
 
-Mechanical, and none of it moves anything:
+`src/` holds four packages. Three of them — `llm_gateway`, `agent_runtime`, `telegram_llm` —
+are already self-contained, and Rule F is what keeps them so. The goal is a fourth of the
+same kind.
 
-- `MessageKind` is the dialogue store's vocabulary and `AIProvider`/`ASRProvider` are
-  tg_agent_shell's; they leave `enums.py`.
-- `constants` reaches `shell`, `turn` and `cues`; each constant goes where it is read.
-- `adapters/telegram_history.py` imports `SUMMARY_HEADER`; the header becomes a parameter.
-- `bootstrap/module_manifest.py` is the plug contract, not the roster; its `Settings` becomes the
-  four fields tg_agent_shell actually reads.
-- `shell/` becomes `tg_agent_shell/telegram/`, because a package named for the shell cannot hold
-  a directory of the same name, and what is in there is the aiogram surface rather than the idea.
-  `features/proposals/telegram/` lands beside it as the second adapter of the one transport.
-- `command_status` is the only reason `Services.memory` and `Workspace` are in the shell.
+Its code is written already, inside `safwa/`: `ai/`, `shell/`, `turn/`, `cues/`, `adapters/`,
+`features/proposals/`, and five files of `foundation/`. Fifty-five modules.
 
-Three seams, and they are the real work:
+They cannot simply be moved, because they made **43 imports out of the rest of Safwa**. Move
+the directories and those 43 become `ImportError`. So the whole job is taking the 43 to zero,
+after which the move itself is `git mv` plus import paths. No rule covers this set yet, so
+nothing today reports the 43 or refuses a forty-fourth.
+
+### Two kinds of import, and only one of them is work
+
+**Moves.** The imported thing already belongs to the shell and only sits in the wrong file.
+`MessageKind` names the kinds of bot message — dialogue, cue, summary, dashboard, screen —
+which is the vocabulary of whatever sends and marks them. It lives in `enums.py` for no
+reason but history, so twelve shell modules reach outside for it. Cut, paste, rewrite the
+import lines. Nothing is decided along the way.
+
+**Seams.** The shell genuinely needs something of Safwa's, and moving it is not an option
+because it *is* Safwa. `shell/chat.py` calls `record_summary`. Summary is a feature — another
+project may want none, or a different one. But the shell does need to say "this conversation
+grew long, here is where I cut it", so the dependency inverts instead: the shell declares
+what it needs, and the composition root binds Safwa's feature to it. The shell never learns
+that what it got is a summary.
+
+Two facts make the seams cheaper than they look. `ai/messages.py` already declares `Memory`
+as a protocol and takes `workspace_state` as a callable, so *told, not importing* is the
+house style. And `maybe_summarize` already takes `send_summary` as a callback, so the history
+seam is half inverted already.
+
+### Phase 1 — the moves — **done**, 43 imports down to 16
+
+Twenty-seven of the 43, and nothing to decide in any of them.
+
+- `MessageKind`, with the `MARKS` table pairing each kind to its wire code, leaves `enums.py`
+  for `adapters/kinds.py`. Not `shell/`: `shell/services.py` imports `adapters/`, so the
+  reverse edge would be a cycle. Twelve imports.
+- Fifteen constants have exactly one reader each and go to it — ten ASR and faster-whisper
+  settings to `adapters/asr.py`, `SUMMARY_CONTEXT_MESSAGE_LIMIT` to
+  `adapters/telegram_history.py`, `TOAST_SECONDS` to `shell/chat.py`, `PAGE_SIZE` to
+  `shell/layout.py`, and the two ASR limits to `turn/dialogue.py`.
+
+Two constants that look like the others are not moves and stay: `SUMMARY_TRIGGER_TOKENS` and
+`SCHEDULER_POLL_SECONDS` each have a reader on both sides of the boundary, which makes them
+cross-feature tuning and so `constants.py`'s. The shell takes them as parameters, in phase 3.
+
+### Phase 2 — the ratchet
+
+A rule saying the 55 modules import nothing outside themselves, with the sixteen that are
+left listed as named exceptions the way `RULE_H_EXCEPTION` is.
+
+After phase 1 rather than before, because a rule with sixteen exceptions can be read and one
+with forty-three cannot. What it buys is that a forty-fourth import cannot arrive unnoticed.
+
+### Phase 3 — the seams
+
+Sixteen imports, and each closed one deletes its own exception from the phase 2 rule.
 
 - **The Advisor's session.** `features/advisor/session.py` is shell code: eight `ai/` imports,
   eight `proposals/` imports, and two Safwa names — `MemoryFileStore`, which the `Memory`
@@ -139,8 +179,26 @@ Three seams, and they are the real work:
   tg_agent_shell declares that method and Safwa binds it. Summary stays a feature —
   tg_agent_shell manages the window, it does not decide what goes in it.
 
-Then the move, and Rule F covers the package: Rule N is deleted rather than extended. Candidates 6,
-12, 16, 18 and 22 are answered by the three seams, so none is worth doing on its own.
+Beside them: `adapters/asr.py` and `adapters/telegram_history.py` take `Settings`, which
+becomes the fields each one reads, and that has to come first because `ASRProvider` cannot
+join `asr.py` while `asr.py` still imports `config`; `bootstrap/module_manifest.py` is the
+plug contract rather than the roster and travels with the package; `command_status` is the
+only reason `Services.memory` and `Workspace` are in the shell; and `estimate_tokens` defaults
+to the shared `TOKEN_CHARS_ESTIMATE`, so it arrives as a parameter rather than an import.
+
+### Phase 4 — the move
+
+`git mv`, the import paths, and an entry in `pyproject.toml`. `shell/` becomes
+`tg_agent_shell/telegram/`, because a package named for the shell cannot hold a directory of
+the same name, and what is in there is the aiogram surface rather than the idea;
+`features/proposals/telegram/` lands beside it as the second adapter of the one transport.
+
+Rule F then covers the package, and Rule N and the phase 2 rule are deleted rather than
+extended: both existed only to make this move possible.
+
+Candidates 6, 12, 16, 18 and 22 are answered by the phases above, so none is worth doing on
+its own. Candidate 8 is not, and blocks nothing: its only tie to the move is that a helper
+offered by the shape of a SQL query is a wart the first other project would inherit.
 
 ## Candidates — from the owner
 

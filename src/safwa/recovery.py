@@ -8,9 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_runtime import RunStatus
 
+from .adapters.kinds import MessageKind
 from .adapters.telegram_history import TelegramMessage
 from .ai.runs import AgentRun
-from .enums import MessageKind
 from .shell.model import CallbackToken, UiSession
 
 

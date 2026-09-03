@@ -11,9 +11,9 @@ from ui_harness import (
     services_for,
 )
 
+from safwa.adapters.kinds import MessageKind
 from safwa.adapters.telegram_history import TelegramMessage
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
-from safwa.enums import MessageKind
 from safwa.features.continuity.model import SUMMARY_HEADER, SummaryState
 from safwa.features.proposals.telegram import render_ai_outcome
 from safwa.shell.chat import (

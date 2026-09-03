@@ -13,7 +13,7 @@ from typing import Any
 
 from aiogram.types import InlineKeyboardMarkup, Message
 
-from ..enums import MessageKind
+from ..adapters.kinds import MessageKind
 from .chat import paging_row, send_registered, token_button
 from .layout import Page
 from .services import Services

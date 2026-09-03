@@ -22,8 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from telegram_llm import Note
 
-from ..constants import TOAST_SECONDS
-from ..enums import MessageKind
+from ..adapters.kinds import MessageKind
 from ..features.continuity.use_cases import record_summary
 from ..features.proposals.model import BatchDecision
 from ..features.proposals.render import proposal_outcome_text
@@ -32,6 +31,9 @@ from .model import CallbackToken, UiSession
 from .services import Services
 
 logger = logging.getLogger(__name__)
+
+# How long a Toast stays on screen before it removes itself.
+TOAST_SECONDS = 5
 
 _SCREEN_KINDS = frozenset(
     {

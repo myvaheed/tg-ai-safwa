@@ -6,7 +6,7 @@ from typing import Any
 
 from aiogram.types import InlineKeyboardMarkup
 
-from ....enums import MessageKind
+from ....adapters.kinds import MessageKind
 from ....foundation.errors import DomainError
 from ....shell import (
     CallbackContext,

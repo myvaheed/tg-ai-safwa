@@ -15,7 +15,8 @@ from llm_gateway import OpenAICompatibleConfig, OpenAICompatibleProvider
 from telegram_llm import ChatHost
 
 from ..adapters.asr import build_transcriber
-from ..adapters.telegram_history import MARKS, TelegramHistorySource, TelegramNotes
+from ..adapters.kinds import MARKS
+from ..adapters.telegram_history import TelegramHistorySource, TelegramNotes
 from ..ai.autoapproval import AutoApprovalReviewer
 from ..ai.sql import ReadOnlyQueryRunner, create_ai_views
 from ..config import Settings

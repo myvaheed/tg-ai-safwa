@@ -10,7 +10,7 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....enums import MessageKind
+from ....adapters.kinds import MessageKind
 from ....foundation.errors import DomainError
 from ....foundation.marks import title_marks
 from ....foundation.workspace import Workspace

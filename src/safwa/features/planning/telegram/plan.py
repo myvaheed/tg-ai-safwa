@@ -22,13 +22,13 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ....adapters.kinds import MessageKind
 from ....constants import (
     PLAN_LINK_BURST_SECONDS,
     PLAN_LINK_BURST_TAPS,
     SPRINT_PLAN_PAGE_SIZE,
     SPRINT_PLAN_TITLE_LIMIT,
 )
-from ....enums import MessageKind
 from ....foundation.screens import StartLink
 from ....shell import (
     CallbackContext,

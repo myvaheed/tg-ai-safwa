@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from aiogram.types import Message
 
-from ...enums import MessageKind
+from ...adapters.kinds import MessageKind
 from ...shell import (
     Services,
     claimed_link,

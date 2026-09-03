@@ -12,8 +12,8 @@ from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ....adapters.kinds import MessageKind
 from ....constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
-from ....enums import MessageKind
 from ....foundation.clock import SystemClock
 from ....foundation.errors import DomainError
 from ....foundation.screens import TextInputFlow

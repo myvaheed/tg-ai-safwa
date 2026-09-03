@@ -17,7 +17,7 @@ from aiogram.filters import Command
 from aiogram.types import BotCommand, CallbackQuery, Message
 from sqlalchemy import delete
 
-from ..enums import MessageKind
+from ..adapters.kinds import MessageKind
 from ..foundation.screens import ScreenCommand
 from ..foundation.workspace import Workspace
 from .chat import dismiss_prior_ui, remove_turn_notice, send_registered

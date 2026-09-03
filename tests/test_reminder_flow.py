@@ -7,12 +7,12 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from safwa.adapters.kinds import MessageKind
 from safwa.adapters.telegram_history import TelegramMessage
 from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.ai.runs import AgentRun
 from safwa.constants import REMINDER_CATCHUP_GRACE_MINUTES
 from safwa.cues.runtime import CueRuntime
-from safwa.enums import MessageKind
 from safwa.features.proposals.store import ProposalStore
 from safwa.features.proposals.use_cases import open_batch
 from safwa.features.reminders.background import Firing, format_cue

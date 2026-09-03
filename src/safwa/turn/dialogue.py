@@ -13,8 +13,7 @@ from sqlalchemy import select
 
 from telegram_llm import AudioClip, HistoryEntry, TranscriptionError
 
-from ..constants import ASR_MAX_DURATION_SECONDS, ASR_MAX_FILE_BYTES
-from ..enums import MessageKind
+from ..adapters.kinds import MessageKind
 from ..features.proposals.telegram import render_ai_outcome
 from ..shell import (
     Services,
@@ -33,6 +32,11 @@ from ..shell import (
 from ..shell.model import UiSession
 
 logger = logging.getLogger(__name__)
+
+# Longer audio is refused with a plain message rather than left to time out.
+ASR_MAX_DURATION_SECONDS = 1_800
+# The Bot API refuses to serve a file larger than this, whatever the provider accepts.
+ASR_MAX_FILE_BYTES = 20 * 1024 * 1024
 
 
 @router.message(F.text & ~F.text.startswith("/"))

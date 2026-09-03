@@ -16,8 +16,8 @@ from aiogram.types import Message
 
 from telegram_llm import markdown_to_telegram_html
 
+from ....adapters.kinds import MessageKind
 from ....ai.outcome import AIOutcome
-from ....enums import MessageKind
 from ....foundation.errors import failure_reason
 from ....shell import (
     Services,

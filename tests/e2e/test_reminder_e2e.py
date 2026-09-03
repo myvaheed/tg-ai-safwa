@@ -10,7 +10,8 @@ from ui_harness import spawn_timer
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.adapters.telegram_history import MARKS, TelegramNotes
+from safwa.adapters.kinds import MARKS
+from safwa.adapters.telegram_history import TelegramNotes
 from safwa.ai.outcome import AIOutcomeKind
 from safwa.bootstrap.modules import (
     FEATURE_CALLBACK_ACTIONS,

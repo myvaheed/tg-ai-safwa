@@ -12,8 +12,8 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ....adapters.kinds import MessageKind
 from ....adapters.telegram_history import TelegramMessage
-from ....enums import MessageKind
 from ....shell.model import UiSession
 from ...saved_requests.api import request_cards
 from ...saved_requests.model import SavedRequest

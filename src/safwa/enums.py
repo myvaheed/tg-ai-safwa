@@ -27,18 +27,3 @@ class ActorType(StrEnum):
 
     USER_UI = "user_ui"
     AI = "ai"
-
-
-class MessageKind(StrEnum):
-    DIALOGUE_USER = "dialogue_user"
-    DIALOGUE_ASSISTANT = "dialogue_assistant"
-    CUE = "cue"
-    SUMMARY = "summary"
-    UI_INPUT = "ui_input"
-    DASHBOARD = "dashboard"
-    EDITOR = "editor"
-    APPROVAL = "approval"
-    RECEIPT = "receipt"
-    # Transient progress the sender deletes again, never part of the conversation.
-    STATUS = "status"
-    ERROR = "error"

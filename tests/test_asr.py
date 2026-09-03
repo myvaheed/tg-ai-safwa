@@ -7,6 +7,10 @@ import pytest
 
 import safwa.adapters.asr as asr_module
 from safwa.adapters.asr import (
+    ASR_PROGRESS_MIN_AUDIO_SECONDS,
+    ASR_TIMEOUT_BASE_SECONDS,
+    ASR_TIMEOUT_PER_AUDIO_SECOND,
+    FASTER_WHISPER_CPU_COMPUTE_TYPE,
     AudioClip,
     FasterWhisperTranscriber,
     OpenAITranscriber,
@@ -15,13 +19,7 @@ from safwa.adapters.asr import (
     clip_timeout,
 )
 from safwa.config import Settings
-from safwa.constants import (
-    ASR_PROGRESS_MIN_AUDIO_SECONDS,
-    ASR_TIMEOUT_BASE_SECONDS,
-    ASR_TIMEOUT_PER_AUDIO_SECOND,
-    FASTER_WHISPER_CPU_COMPUTE_TYPE,
-    FASTER_WHISPER_MODEL,
-)
+from safwa.constants import FASTER_WHISPER_MODEL
 
 
 def transcriber_with(reply: str, *, language: str = "") -> tuple[OpenAITranscriber, list[dict]]:

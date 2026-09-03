@@ -8,8 +8,7 @@ from typing import Any
 
 from aiogram.types import InlineKeyboardButton
 
-from ..constants import PAGE_SIZE
-
+PAGE_SIZE = 5
 CITATION_TITLE_LIMIT = 25
 
 

@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import select
 
-from ....enums import MessageKind
+from ....adapters.kinds import MessageKind
 from ....foundation.errors import DomainError
 from ....foundation.workspace import Workspace
 from ....shell import (

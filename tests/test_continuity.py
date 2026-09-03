@@ -6,8 +6,8 @@ from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 from llm_gateway import CompletionRequest, CompletionTurn
+from safwa.adapters.kinds import MessageKind
 from safwa.constants import MEMORY_READ_TOKEN_BUDGET, SUMMARY_TRIGGER_TOKENS
-from safwa.enums import MessageKind
 from safwa.features.continuity.memory import MemoryFileStore
 from safwa.features.continuity.model import SUMMARY_HEADER, MemorySyncState
 from safwa.features.continuity.persona import MemoryMaintenanceResult, PersonaContinuity

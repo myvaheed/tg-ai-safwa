@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from llm_gateway import CompletionRequest, LlmProvider
 
+from ...adapters.kinds import MessageKind
 from ...constants import (
     MEMORY_READ_TOKEN_BUDGET,
     MEMORY_RETELL_CHUNK_TOKENS,
@@ -28,7 +29,6 @@ from ...constants import (
     SUMMARY_TRIGGER_TOKENS,
     TOKEN_CHARS_ESTIMATE,
 )
-from ...enums import MessageKind
 from ...foundation.tokens import estimate_tokens
 from .agent import MEMORY_PROMPT, RETELL_PROMPT, SUMMARY_PROMPT
 from .memory import MemoryFileError, MemoryFileStore

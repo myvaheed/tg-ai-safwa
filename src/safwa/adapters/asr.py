@@ -27,21 +27,27 @@ from telegram_llm import (
 )
 
 from ..config import Settings
-from ..constants import (
-    ASR_MAX_RETRIES,
-    ASR_PROGRESS_MIN_AUDIO_SECONDS,
-    ASR_PROGRESS_MIN_INTERVAL_SECONDS,
-    ASR_TIMEOUT_BASE_SECONDS,
-    ASR_TIMEOUT_PER_AUDIO_SECOND,
-    CUDA_RUNTIME_PACKAGES,
-    FASTER_WHISPER_BEAM_SIZE,
-    FASTER_WHISPER_CPU_COMPUTE_TYPE,
-    FASTER_WHISPER_CUDA_COMPUTE_TYPE,
-    FASTER_WHISPER_CUDA_ONLY_COMPUTE_TYPES,
-)
 from ..enums import ASRProvider
 
 logger = logging.getLogger(__name__)
+
+# One call covers the upload and the whole file's decode, so the budget follows the audio.
+ASR_TIMEOUT_BASE_SECONDS = 60.0
+ASR_TIMEOUT_PER_AUDIO_SECOND = 1.0
+# An upload is expensive to repeat, so a failure is retried less eagerly than a chat call.
+ASR_MAX_RETRIES = 2
+# CTranslate2 has no float16 kernel on the CPU, so each device carries its own default.
+FASTER_WHISPER_CPU_COMPUTE_TYPE = "int8"
+FASTER_WHISPER_CUDA_COMPUTE_TYPE = "float16"
+# A CPU fallback drops these rather than let CTranslate2 silently widen them to float32.
+FASTER_WHISPER_CUDA_ONLY_COMPUTE_TYPES = frozenset({"float16", "int8_float16"})
+# The `nvidia-*-cu12` wheels of the asr-cuda extra, whose DLLs CTranslate2 loads by name.
+CUDA_RUNTIME_PACKAGES = ("cublas", "cudnn", "cuda_nvrtc")
+FASTER_WHISPER_BEAM_SIZE = 5
+# A local decode is silent for minutes, so it reports a percentage. Shorter audio
+# finishes before the first edit would land, and Telegram rate-limits edits.
+ASR_PROGRESS_MIN_AUDIO_SECONDS = 60.0
+ASR_PROGRESS_MIN_INTERVAL_SECONDS = 5.0
 
 
 def clip_timeout(clip: AudioClip) -> float:
