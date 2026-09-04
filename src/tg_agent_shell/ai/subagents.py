@@ -18,8 +18,6 @@ class RoutedSubagent:
     """One subagent `route(name)` can hand the turn to."""
 
     name: str
-    # One line for the routing rules in the root session's prompt.
-    purpose: str
     # The whole of what this subagent reads before the conversation, composed by the
     # application: no voice of any product is written here.
     prompt: str

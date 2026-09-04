@@ -34,7 +34,13 @@ from tg_agent_shell.proposals.api import (
     World,
 )
 from tg_agent_shell.proposals.module import MODULE as PROPOSALS_FEATURE
-from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec, BackgroundTask, FeatureModule
+from tg_agent_shell.telegram.manifest import (
+    AgentContext,
+    AgentSpec,
+    BackgroundTask,
+    FeatureModule,
+    HelperSpec,
+)
 
 from ..features.advisor.agent import ADVISOR_VIEWS, PERSONA, SYSTEM_PROMPT_TEMPLATE
 from ..features.cards.module import MODULE as CARDS
@@ -42,7 +48,7 @@ from ..features.checks.module import MODULE as CHECKS
 from ..features.continuity.module import MODULE as CONTINUITY
 from ..features.diagnostics.module import MODULE as DIAGNOSTICS
 from ..features.diary.module import MODULE as DIARY
-from ..features.heavy_analyzer import agent as heavy_analyzer
+from ..features.heavy_analyzer.module import MODULE as HEAVY_ANALYZER
 from ..features.home.module import MODULE as HOME
 from ..features.planning.module import MODULE as PLANNING
 from ..features.profile.module import MODULE as PROFILE
@@ -73,6 +79,7 @@ MODULES: tuple[FeatureModule, ...] = (
     PROPOSALS_FEATURE,
     CONTINUITY,
     DIAGNOSTICS,
+    HEAVY_ANALYZER,
 )
 
 
@@ -205,21 +212,35 @@ def _autoapprovals() -> dict[tuple[str, str], AutoApprovalRule]:
 AUTOAPPROVALS: dict[tuple[str, str], AutoApprovalRule] = _autoapprovals()
 
 
-def _with_catalogue(agent: AgentSpec) -> AgentSpec:
-    """Fill a subagent's `{views}` in, once, so what it reads is what the snapshot hashes."""
-    if not agent.views:
-        return agent
-    if "{views}" not in agent.instructions:
-        raise RuntimeError(f"The {agent.name} subagent names views but has no {{views}} to fill")
+def _with_catalogue[Spec: (AgentSpec, HelperSpec)](spec: Spec) -> Spec:
+    """Fill a prompt's `{views}` in, once, so what it reads is what the snapshot hashes."""
+    if not spec.views:
+        return spec
+    if "{views}" not in spec.instructions:
+        raise RuntimeError(f"The {spec.name} prompt names views but has no {{views}} to fill")
     return replace(
-        agent,
-        instructions=agent.instructions.replace(
-            "{views}", view_catalogue(AI_VIEWS, agent.views)
+        spec,
+        instructions=spec.instructions.replace(
+            "{views}", view_catalogue(AI_VIEWS, spec.views)
         ),
     )
 
 
 AGENTS = tuple(_with_catalogue(agent) for module in MODULES for agent in module.agents)
+
+
+def _helpers() -> dict[str, HelperSpec]:
+    helpers: dict[str, HelperSpec] = {}
+    for module in MODULES:
+        for helper in module.helpers:
+            if helper.name in helpers:
+                raise RuntimeError(f"Two features publish the {helper.name} helper")
+            helpers[helper.name] = _with_catalogue(helper)
+    return helpers
+
+
+# A helper is called rather than routed, so it is in no routing rule and not in `AGENTS`.
+HELPERS: dict[str, HelperSpec] = _helpers()
 
 
 def _routing_rules() -> str:
@@ -240,13 +261,6 @@ SYSTEM_PROMPT: str = SYSTEM_PROMPT_TEMPLATE.replace(
     "{routes}", _routing_rules()
 ).replace("{views}", view_catalogue(AI_VIEWS, ADVISOR_VIEWS))
 
-# The one helper, which is not a subagent: it is called rather than routed, so it is not
-# in `AGENTS` and no routing rule ever names it. A second helper is what earns a field on
-# `FeatureModule`; one does not.
-HEAVY_ANALYZER_PROMPT: str = heavy_analyzer.PROMPT_TEMPLATE.replace(
-    "{views}", view_catalogue(AI_VIEWS, heavy_analyzer.VIEWS)
-)
-
 RECOVERY_HOOKS: tuple[Callable[..., Awaitable[None]], ...] = tuple(
     module.recover for module in MODULES if module.recover is not None
 )
@@ -265,15 +279,4 @@ def routed_prompt(agent: AgentSpec) -> str:
 
 def routed_subagents(context: AgentContext) -> tuple[RoutedSubagent, ...]:
     """Bind every declared subagent to this application's read tools and clock."""
-    return tuple(
-        RoutedSubagent(
-            name=agent.name,
-            purpose=agent.purpose,
-            prompt=routed_prompt(agent),
-            read_tools=agent.read_tools(context) if agent.read_tools else (),
-            mutation_tools=agent.mutation_tools,
-            workspace_state=agent.workspace_state,
-            clock=agent.clock(context) if agent.clock else None,
-        )
-        for agent in AGENTS
-    )
+    return tuple(agent.bind(context, prompt=routed_prompt(agent)) for agent in AGENTS)

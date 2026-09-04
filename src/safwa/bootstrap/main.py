@@ -41,7 +41,6 @@ from ..enums import AIProvider
 from ..features.continuity.memory import MemoryFileStore
 from ..features.continuity.persona import PersonaContinuity
 from ..features.continuity.window import SummaryEdge
-from ..features.heavy_analyzer import agent as heavy_analyzer
 from ..features.planning.api import available_screens
 from ..features.profile.model import UserProfile
 from ..features.workspace_mutator.state import workspace_context
@@ -59,7 +58,7 @@ from .modules import (
     FEATURE_COMMANDS,
     FEATURE_START_LINKS,
     FEATURE_TEXT_INPUTS,
-    HEAVY_ANALYZER_PROMPT,
+    HELPERS,
     PROPOSALS,
     RECOVERY_HOOKS,
     SCREENS,
@@ -225,9 +224,8 @@ async def run(settings: Settings) -> None:
             )
         ),
         helpers={
-            heavy_analyzer.NAME: heavy_analyzer.build(
-                provider, query_runner, prompt=HEAVY_ANALYZER_PROMPT
-            )
+            name: helper.build(provider, query_runner, prompt=helper.instructions)
+            for name, helper in HELPERS.items()
         },
     )
     continuity = PersonaContinuity(

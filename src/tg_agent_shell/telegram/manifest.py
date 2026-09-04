@@ -20,6 +20,8 @@ from ..adapters.telegram_history import TelegramHistorySource
 from ..ai.autoapproval import AutoApprovalRule
 from ..ai.mini import ReadToolSpec
 from ..ai.sql import ReadOnlyQueryRunner, SqlView
+from ..ai.subagents import RoutedSubagent
+from ..ai.tools import Helper
 from ..foundation.screens import ScreenCommand, ScreenSpec, StartLink, TextInputFlow
 from ..proposals.api import (
     MutationToolSpec,
@@ -41,7 +43,7 @@ class AgentContext:
 
 @dataclass(frozen=True, slots=True)
 class AgentSpec:
-    """One subagent `route(name)` can hand the turn to."""
+    """One subagent as a feature declares it, before an application binds it."""
 
     name: str
     # The line the Advisor's prompt carries under `route("<name>")`.
@@ -54,6 +56,29 @@ class AgentSpec:
     workspace_state: bool = False
     read_tools: Callable[[AgentContext], tuple[ReadToolSpec, ...]] | None = None
     clock: Callable[[AgentContext], Callable[[], str]] | None = None
+
+    def bind(self, context: AgentContext, *, prompt: str) -> RoutedSubagent:
+        """The session this declaration runs as here: its read tools and its clock, bound."""
+        return RoutedSubagent(
+            name=self.name,
+            prompt=prompt,
+            read_tools=self.read_tools(context) if self.read_tools else (),
+            mutation_tools=self.mutation_tools,
+            workspace_state=self.workspace_state,
+            clock=self.clock(context) if self.clock else None,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class HelperSpec:
+    """One helper `call_helper(name)` runs: a mini session, never handed the turn."""
+
+    name: str
+    instructions: str
+    # Bound to this application's provider and query runner, with the prompt already filled.
+    build: Callable[..., Helper]
+    # The views this helper is told about, filled into `{views}` in its instructions.
+    views: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +127,8 @@ class FeatureModule:
 
     # AI
     agents: tuple[AgentSpec, ...] = ()
+    # A helper the root session calls instead of handing the turn to a subagent.
+    helpers: tuple[HelperSpec, ...] = ()
     proposals: tuple[ProposalContribution, ...] = ()
     # A mutation tool whose change lands on an entity another feature owns.
     mutation_tools: tuple[MutationToolSpec, ...] = ()

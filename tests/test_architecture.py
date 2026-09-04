@@ -22,7 +22,7 @@ import pytest
 from sqlalchemy import UniqueConstraint, inspect
 from vocabulary import public_names, words
 
-from safwa.bootstrap.modules import AGENTS, HEAVY_ANALYZER_PROMPT, PROPOSALS, SYSTEM_PROMPT
+from safwa.bootstrap.modules import AGENTS, HELPERS, PROPOSALS, SYSTEM_PROMPT
 from safwa.features.advisor.agent import PERSONA
 from scripts.architecture_metrics import RULES, cycles
 from telegram_llm import DialogueMessage, KindMarks, code_for
@@ -79,7 +79,7 @@ def test_rule_i_prompt_prefix_is_byte_stable(request):
     produced = {
         "SYSTEM_PROMPT": _digest(SYSTEM_PROMPT),
         "PERSONA": _digest(PERSONA),
-        "HEAVY_ANALYZER_PROMPT": _digest(HEAVY_ANALYZER_PROMPT),
+        "HEAVY_ANALYZER_PROMPT": _digest(HELPERS["heavy_analyzer"].instructions),
         "tool:open": _digest(json.dumps(OPEN_TOOL, sort_keys=True)),
         "tool:route": _digest(json.dumps(ROUTE_TOOL, sort_keys=True)),
         "tool:query_data": _digest(json.dumps(QUERY_TOOL, sort_keys=True)),
@@ -156,7 +156,6 @@ async def test_rule_i_neither_the_clock_nor_a_receipt_reaches_a_routed_prefix():
     def subagent(clock: str) -> RoutedSubagent:
         return RoutedSubagent(
             name="cards",
-            purpose="Change Cards.",
             prompt="Save what the owner asked for.",
             clock=lambda: clock,
         )

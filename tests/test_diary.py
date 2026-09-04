@@ -351,7 +351,6 @@ def test_di_read_013_the_subagent_reads_both_sources() -> None:
     )
     routed = RoutedSubagent(
         name="diary",
-        purpose=DIARY_AGENT.purpose,
         prompt=routed_prompt(DIARY_AGENT),
         read_tools=DIARY_AGENT.read_tools(context),
         mutation_tools=DIARY_AGENT.mutation_tools,

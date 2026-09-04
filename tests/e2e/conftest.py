@@ -15,14 +15,13 @@ from safwa.bootstrap.modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
     AUTOAPPROVALS,
-    HEAVY_ANALYZER_PROMPT,
+    HELPERS,
     PROPOSALS,
     SCREENS,
     SYSTEM_PROMPT,
     routed_prompt,
 )
 from safwa.features.continuity.memory import MemoryFileStore
-from safwa.features.heavy_analyzer import agent as heavy_analyzer
 from safwa.features.workspace_mutator.agent import MUTATOR_TOOLS
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.database import Database, upgrade_database
@@ -130,7 +129,6 @@ class E2EHarness:
         """The real workspace mutator: every mutation tool lives behind `route("workspace_mutator")`."""
         return RoutedSubagent(
             name="workspace_mutator",
-            purpose="every change to the planning data",
             # The instructions as assembled, `{views}` filled in: what the application runs.
             prompt=next(
                 routed_prompt(agent) for agent in AGENTS if agent.name == "workspace_mutator"
@@ -172,12 +170,10 @@ class E2EHarness:
 
     def analyzer(self, provider) -> dict[str, object]:
         """The real heavy analyzer, reading the real views through the same runner."""
+        runner = ReadOnlyQueryRunner(self.database_path, ALLOWED_VIEWS, timezone=TIMEZONE)
         return {
-            heavy_analyzer.NAME: heavy_analyzer.build(
-                provider,
-                ReadOnlyQueryRunner(self.database_path, ALLOWED_VIEWS, timezone=TIMEZONE),
-                prompt=HEAVY_ANALYZER_PROMPT,
-            )
+            name: helper.build(provider, runner, prompt=helper.instructions)
+            for name, helper in HELPERS.items()
         }
 
 

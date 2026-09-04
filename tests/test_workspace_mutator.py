@@ -14,7 +14,7 @@ import pytest
 from safwa.bootstrap.modules import (
     AGENTS,
     ALLOWED_VIEWS,
-    HEAVY_ANALYZER_PROMPT,
+    HELPERS,
     PROPOSALS,
     SYSTEM_PROMPT,
 )
@@ -39,7 +39,7 @@ def test_the_board_judges_a_change_against_the_state_it_is_given():
 # Every prompt a model reads a view list from, however that list was written.
 CATALOGUE_PROMPTS = {
     "advisor": SYSTEM_PROMPT,
-    "heavy_analyzer": HEAVY_ANALYZER_PROMPT,
+    **{name: helper.instructions for name, helper in HELPERS.items()},
     **{agent.name: agent.instructions for agent in AGENTS},
 }
 

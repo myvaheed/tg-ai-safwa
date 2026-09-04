@@ -302,6 +302,30 @@ other three packages have is switched on over all 58 modules.
 - `action`, `request`, `summary`, `value` and `workspace` are not on the foreign list:
   generic code needs those words for its own things, and a list that cries wolf is not read.
 
+## Batch 6 — landed
+
+One way to declare a subagent, and a registry whose only exception left is the root
+session's own prompt.
+
+12. **done** — `AgentSpec` is the declaration, `RoutedSubagent` is the session, and
+    `AgentSpec.bind` is the one place the second is built from the first.
+13. **done** — `heavy_analyzer` declares a `HelperSpec` in its own `module.py`, and
+    `HELPERS` is derived from `MODULES` like every other registry.
+
+### Benefits
+
+- The two dataclasses carried the same docstring and seven fields each. What each is
+  says so now: one is what a feature writes, the other what a session runs on.
+- `purpose` was written at six construction sites and read at none — the routing rules
+  are built from `AgentSpec`, which is the only place a purpose was ever needed.
+- The composition root imports one name per feature and reaches into no feature's
+  `agent.py`, so the last registry exception is `features/advisor`, which the root
+  session is wired with directly.
+- `{views}` is filled by one function for a subagent and a helper alike, so a helper's
+  prompt cannot fall behind the catalogue its views are built from.
+- The prompt-prefix snapshot did not move: the helper's prompt changed address, not a
+  byte.
+
 ## Candidates — from the owner
 
 2. **no** — the review flow travelled with the engine rather than into it, and moving the
@@ -322,10 +346,10 @@ other three packages have is switched on over all 58 modules.
 
 11. **done** — every feature's contract sat in the engine that owns no feature; each is in
     its own `agent.py` now. Batch 3.
-12. **yes** — `RoutedSubagent` and `AgentSpec` are one concept declared twice, seven fields
-    each; both are in `tg_agent_shell` now, so the duplicate is one package's to settle.
-13. **yes** — `heavy_analyzer` has no `module.py` and `bootstrap/modules.py` imports its agent
-    directly, which is the second exception to the registry after the Advisor.
+12. **done** — the declaration is `AgentSpec`, the session is `RoutedSubagent`, and
+    `AgentSpec.bind` is what turns one into the other. Batch 6.
+13. **done** — the helper is a `HelperSpec` in `heavy_analyzer`'s own `module.py`, so
+    `MODULES` reaches every feature. Batch 6.
 15. **yes** — `constants.py` still keeps `SPRINT_LENGTH_DAYS`, `ARCHIVE_AFTER_SPRINTS` and
     `DIARY_TIME_DEFAULT`, which one feature each reads.
 16. **yes** — `adapters/` is two unrelated boundaries, voice input and Telethon history, under

@@ -44,7 +44,6 @@ class FixedClock:
 def diary_routed(history: StubDayReader, timezone: str = "Europe/Istanbul") -> RoutedSubagent:
     return RoutedSubagent(
         name="diary",
-        purpose="the Diary",
         prompt=DIARY_PROMPT,
         read_tools=(day_read_tool(history, chat_id=42, timezone=timezone),),
         mutation_tools=("diary",),

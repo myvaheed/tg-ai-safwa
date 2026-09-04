@@ -79,7 +79,6 @@ def diary_subagent(
     """The real Diary subagent: the same session shape the Advisor runs on."""
     return RoutedSubagent(
         name="diary",
-        purpose="the Diary",
         prompt=routed_prompt(DIARY_AGENT),
         read_tools=(
             day_read_tool(
@@ -387,7 +386,6 @@ async def test_a_subagent_that_runs_too_long_is_stopped_by_the_clock(e2e_harness
 
     slow = RoutedSubagent(
         name="diary",
-        purpose="the Diary",
         prompt=routed_prompt(DIARY_AGENT),
         read_tools=(
             ReadToolSpec(
@@ -506,7 +504,6 @@ async def test_a_failed_subagent_comes_back_as_an_error_the_advisor_reports(e2e_
 
     diary = RoutedSubagent(
         name="diary",
-        purpose="the Diary",
         prompt=routed_prompt(DIARY_AGENT),
         read_tools=(day_read_tool(ExplodingReader(), chat_id=42),),
         mutation_tools=("diary",),
