@@ -276,6 +276,32 @@ does not own, and the router carried the product's name beside them.
 - A Cue's producer says what it does rather than who reads it: `add_cue` beside `next_cue`.
 - Two public names in the package are still Safwa's, both the Sprint gate of candidate 27.
 
+## Batch 5 — landed
+
+Two candidates and one property: no public name in the package is Safwa's, and the test the
+other three packages have is switched on over all 58 modules.
+
+27. **done** — `sync_bot_commands` publishes what it is handed, and which screens are real
+    right now is `available_screens`, in the feature that owns the Sprint.
+28. **done** — the persona is `features/advisor/agent.py`'s, `routed_prompt` composes it, and
+    a routed subagent carries the prompt it was given.
+
+### Benefits
+
+- The gate was a field on the plug contract and a parameter on the shell's filter, both
+  saying Sprint. It is one function beside `sprint_is_active` now, so the shell lost a
+  field rather than gaining a euphemism for one.
+- The menu and the slash list ask the same function the same question, so they cannot
+  disagree about Today; before, each carried its own copy of the condition.
+- The engine holds no voice at all: what a subagent reads is composed by the application,
+  in the one place that already fills `{views}` and the routing rules.
+- The prompt-prefix snapshot did not move, which is what proves the persona changed address
+  and not a byte.
+- `public_names` and `words` are `tests/vocabulary.py`, read by this test and by
+  telegram_llm's rather than copied a third time.
+- `action`, `request`, `summary`, `value` and `workspace` are not on the foreign list:
+  generic code needs those words for its own things, and a list that cries wolf is not read.
+
 ## Candidates — from the owner
 
 2. **no** — the review flow travelled with the engine rather than into it, and moving the
@@ -323,11 +349,10 @@ does not own, and the router carried the product's name beside them.
     of their own.
 25. **no** — values and tags are the same nine modules twice, but each keeps its own rules, and
     `RecordToolInput` is already the whole of what they share.
-27. **check** — `ScreenCommand.needs_sprint` and `sprint_active` put a Sprint in the plug
-    contract and in the shell's own command filter; whether a command applies is the
-    application's to answer, not a field the shell reads.
-28. **check** — `PERSONA` in `ai/subagents.py` is the product's own prompt inside the engine:
-    it names Safwa and what Safwa is for, and every subagent reads it.
+27. **done** — whether a command applies is the application's to answer, and it answers
+    with `available_screens`. Batch 5.
+28. **done** — the persona is the product's, and the engine composes no prompt of its own.
+    Batch 5.
 26. **yes** — the slash list is longer than it needs to be: `/backlog` and `/settings` go, and
     `/sprint` joins `/today` in cards. `/tags`, `/values` and `/reminders` already sit with the
     feature each names, so what is left is two deletions and one move. Whether a command that

@@ -1,10 +1,24 @@
-"""What the Advisor is given to read: its prompt, and the views it is told it may read.
+"""What the model is given to read: the Advisor's prompt, the views it is told it may
+read, and the block every routed subagent carries.
 
 The routing rules and the view catalogue are filled into the template by the composition
 root, which is the only place that knows the roster.
 """
 
 from __future__ import annotations
+
+# Voice, language and citations are one block for every routed subagent: three copies of
+# these rules would drift into three dialects of Safwa.
+PERSONA = """# Safwa
+You are one part of Safwa, the user's personal agile advisor.
+The Advisor routed this request to you and is waiting. It writes to the user; you do the work. 
+What you write goes back to it, in the user's language, and it answers from there.
+- Cite any item you name as a Markdown link over its type and ID: `[Go to the market](card:12)`,
+  `[Milk](check:14)`, `[Health](value:3)`, `[home](tag:7)`, `[Stale Actions](request:2)`,
+  `[04.03.2026](diary:12)`. Only a real numeric ID, never one you invented.
+- A mutation tool prepares a change for the user to approve; it is never already done. Never say a change is saved before its result says so.
+- Tool results are authoritative and carry their own instructions. Obey the `hint` on an error and the `next` on a prepared or resolved call.
+"""
 
 # What the Advisor is told it may read. The log of changes is not here: a question over a
 # stretch of time is the heavy analyzer's, and this reader would join its way into it.

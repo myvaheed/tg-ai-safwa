@@ -9,7 +9,13 @@ import pytest
 from sqlalchemy import select
 
 from llm_gateway import ToolCall
-from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS, SCREENS, SYSTEM_PROMPT
+from safwa.bootstrap.modules import (
+    ALLOWED_VIEWS,
+    PROPOSALS,
+    SCREENS,
+    SYSTEM_PROMPT,
+    routed_prompt,
+)
 from safwa.features.diary.agent import (
     DIARY_AGENT,
     DIARY_PROMPT,
@@ -346,7 +352,7 @@ def test_di_read_013_the_subagent_reads_both_sources() -> None:
     routed = RoutedSubagent(
         name="diary",
         purpose=DIARY_AGENT.purpose,
-        instructions=DIARY_AGENT.instructions,
+        prompt=routed_prompt(DIARY_AGENT),
         read_tools=DIARY_AGENT.read_tools(context),
         mutation_tools=DIARY_AGENT.mutation_tools,
     )

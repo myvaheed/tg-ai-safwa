@@ -8,10 +8,17 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.bootstrap.modules import AGENTS, ALLOWED_VIEWS, PROPOSALS, SYSTEM_PROMPT
+from safwa.bootstrap.modules import (
+    AGENTS,
+    ALLOWED_VIEWS,
+    PROPOSALS,
+    SYSTEM_PROMPT,
+    routed_prompt,
+)
+from safwa.features.advisor.agent import PERSONA
 from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
-from tg_agent_shell.ai.subagents import PERSONA, RoutedSubagent
+from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS, ROOT_SESSION_TOOLS
 from tg_agent_shell.telegram.manifest import AgentContext
 
@@ -38,7 +45,7 @@ def diary_routed(history: StubDayReader, timezone: str = "Europe/Istanbul") -> R
     return RoutedSubagent(
         name="diary",
         purpose="the Diary",
-        instructions=DIARY_PROMPT,
+        prompt=DIARY_PROMPT,
         read_tools=(day_read_tool(history, chat_id=42, timezone=timezone),),
         mutation_tools=("diary",),
         clock=lambda: diary_clock(timezone),
@@ -52,9 +59,10 @@ def test_the_routing_rules_name_every_subagent_that_can_be_routed_to() -> None:
 
 
 def test_a_routed_prompt_carries_the_one_persona_block() -> None:
-    routed = diary_routed(StubDayReader(""))
-    assert routed.prompt.startswith(PERSONA)
-    assert "You keep the user's Diary" in routed.prompt
+    for agent in AGENTS:
+        assert routed_prompt(agent).startswith(PERSONA)
+    diary = next(agent for agent in AGENTS if agent.name == "diary")
+    assert "You keep the user's Diary" in routed_prompt(diary)
     # Voice and citation rules are stated once, where every subagent gets the same copy.
     assert "(card:12)" in PERSONA
     assert "(diary:12)" in PERSONA

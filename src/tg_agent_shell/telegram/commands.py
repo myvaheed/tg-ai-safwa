@@ -82,15 +82,13 @@ def register_commands(target: Router, commands: tuple[ScreenCommand, ...]) -> No
             target.message.register(screen.handler, Command(screen.command))
 
 
-async def sync_bot_commands(
-    bot: Bot, commands: tuple[ScreenCommand, ...], *, sprint_active: bool
-) -> None:
-    """Publish the command list. Today is dropped while the workspace is in Planning."""
+async def sync_bot_commands(bot: Bot, commands: tuple[ScreenCommand, ...]) -> None:
+    """Publish the command list. Which screens are real right now is the application's."""
     await bot.set_my_commands(
         [
             BotCommand(command=screen.command, description=screen.description)
             for screen in commands
-            if screen.command is not None and (sprint_active or not screen.needs_sprint)
+            if screen.command is not None
         ]
     )
 

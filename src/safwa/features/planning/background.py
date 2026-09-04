@@ -12,6 +12,7 @@ from tg_agent_shell.telegram import sync_bot_commands
 from tg_agent_shell.telegram.manifest import BackgroundContext, BackgroundTask
 
 from ...constants import SPRINT_EXPIRY_POLL_SECONDS
+from .api import available_screens
 from .use_cases import expire_due_sprint
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,9 @@ async def run_sprint_expiry(
 async def _expire_and_close_today(context: BackgroundContext) -> None:
     async def announce(number: int) -> None:
         # Today belongs to a running Sprint, so the command list changes the moment one ends.
-        await sync_bot_commands(context.bot, context.services.commands, sprint_active=False)
+        await sync_bot_commands(
+            context.bot, available_screens(context.services.commands, sprint_active=False)
+        )
 
     await run_sprint_expiry(context.sessions, announce=announce)
 

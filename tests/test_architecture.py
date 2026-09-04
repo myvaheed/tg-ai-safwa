@@ -20,13 +20,15 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import UniqueConstraint, inspect
+from vocabulary import public_names, words
 
 from safwa.bootstrap.modules import AGENTS, HEAVY_ANALYZER_PROMPT, PROPOSALS, SYSTEM_PROMPT
+from safwa.features.advisor.agent import PERSONA
 from scripts.architecture_metrics import RULES, cycles
 from telegram_llm import DialogueMessage, KindMarks, code_for
 from tg_agent_shell.adapters.kinds import MARKS
 from tg_agent_shell.ai.messages import ContextBuilder, StateBlocks
-from tg_agent_shell.ai.subagents import PERSONA, RoutedSubagent
+from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.ai.tools import CALL_HELPER_TOOL, OPEN_TOOL, QUERY_TOOL, ROUTE_TOOL
 from tg_agent_shell.foundation.models import Base
 
@@ -155,7 +157,7 @@ async def test_rule_i_neither_the_clock_nor_a_receipt_reaches_a_routed_prefix():
         return RoutedSubagent(
             name="cards",
             purpose="Change Cards.",
-            instructions="Save what the owner asked for.",
+            prompt="Save what the owner asked for.",
             clock=lambda: clock,
         )
 
@@ -244,3 +246,36 @@ def test_rule_o_two_kinds_on_one_code_are_refused():
             return
         seen[code] = name
     pytest.fail("no colliding pair in the searched range")
+
+
+# ------------------------------------------------- the package names no application
+
+
+SHELL = Path(__file__).resolve().parents[1] / "src" / "tg_agent_shell"
+SHELL_MODULES = sorted(path.relative_to(SHELL).as_posix() for path in SHELL.rglob("*.py"))
+
+# Safwa's vocabulary. `action`, `request`, `summary`, `value` and `workspace` are not on it:
+# generic code needs those words for its own things, and a list that cries wolf is not read.
+FOREIGN = frozenset(
+    {
+        "advisor",
+        "backlog",
+        "card",
+        "check",
+        "diary",
+        "planning",
+        "reminder",
+        "retro",
+        "safwa",
+        "sprint",
+        "tag",
+    }
+)
+
+
+@pytest.mark.parametrize("module", SHELL_MODULES)
+def test_the_vocabulary_of_the_package_belongs_to_no_application(module: str) -> None:
+    """Rule F says the package imports no Safwa. This says it does not name one either."""
+    foreign = [name for name in public_names(SHELL / module) if words(name) & FOREIGN]
+
+    assert not foreign, f"tg_agent_shell/{module} names {foreign}"

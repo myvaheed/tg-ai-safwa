@@ -8,6 +8,7 @@ from tg_agent_shell.telegram import CallbackContext, CallbackHandler, sync_bot_c
 from tg_agent_shell.telegram.model import UiSession
 
 from ....foundation.workspace import Workspace
+from ..api import available_screens
 from ..use_cases import finish_sprint, start_sprint
 from .plan import (
     on_plan_card,
@@ -55,7 +56,7 @@ async def _on_start(context: CallbackContext) -> None:
         await session.commit()
         number, end_date = sprint.number, sprint.planned_end_date
     await sync_bot_commands(
-        context.message.bot, context.services.commands, sprint_active=True
+        context.message.bot, available_screens(context.services.commands, sprint_active=True)
     )
     await render_sprint(
         context.message,
@@ -70,7 +71,7 @@ async def _on_finish(context: CallbackContext) -> None:
         await session.commit()
         number = sprint.number
     await sync_bot_commands(
-        context.message.bot, context.services.commands, sprint_active=False
+        context.message.bot, available_screens(context.services.commands, sprint_active=False)
     )
     await render_sprint(
         context.message, context.services, notice=f"Sprint {number} finished early."

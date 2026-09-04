@@ -24,6 +24,7 @@ from safwa.bootstrap.modules import (
     SCREENS,
 )
 from safwa.features.home.api import MENU_LAYOUT, menu_markup
+from safwa.features.planning.api import available_screens
 from tg_agent_shell.ai.contracts import OpenInput
 from tg_agent_shell.telegram import (
     SHELL_COMMANDS,
@@ -172,7 +173,7 @@ def test_the_menu_draws_every_label_a_screen_declared() -> None:
         screen.nav for screen in commands if screen.title is not None
     )
 
-    rows = menu_markup(commands, sprint_active=True).inline_keyboard
+    rows = menu_markup(available_screens(commands, sprint_active=True)).inline_keyboard
     drawn = [button.callback_data.split(":", 1)[1] for row in rows for button in row]
     assert drawn == placed
     # Home is the one action reached without a menu button of its own.
@@ -186,7 +187,9 @@ def test_the_menu_draws_every_label_a_screen_declared() -> None:
 def test_today_leaves_the_menu_with_the_sprint_that_makes_it_a_screen() -> None:
     planning = [
         button.callback_data
-        for row in menu_markup(FEATURE_COMMANDS, sprint_active=False).inline_keyboard
+        for row in menu_markup(
+            available_screens(FEATURE_COMMANDS, sprint_active=False)
+        ).inline_keyboard
         for button in row
     ]
 

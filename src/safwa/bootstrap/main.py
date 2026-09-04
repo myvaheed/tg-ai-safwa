@@ -42,6 +42,7 @@ from ..features.continuity.memory import MemoryFileStore
 from ..features.continuity.persona import PersonaContinuity
 from ..features.continuity.window import SummaryEdge
 from ..features.heavy_analyzer import agent as heavy_analyzer
+from ..features.planning.api import available_screens
 from ..features.profile.model import UserProfile
 from ..features.workspace_mutator.state import workspace_context
 from ..foundation.database import Database, upgrade_database
@@ -294,7 +295,7 @@ async def run(settings: Settings) -> None:
     async with database.sessions() as session:
         workspace = await session.get(Workspace, 1)
         sprint_active = bool(workspace and workspace.active_sprint_id)
-    await sync_bot_commands(bot, commands, sprint_active=sprint_active)
+    await sync_bot_commands(bot, available_screens(commands, sprint_active=sprint_active))
     await discard_stale_status(bot, services, settings.telegram_owner_id)
 
     background = BackgroundContext(

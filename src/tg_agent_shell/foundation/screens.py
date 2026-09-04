@@ -100,8 +100,6 @@ class ScreenCommand:
     nav: str | None = None
     # What this screen is called wherever it is offered as a button.
     title: str | None = None
-    # Today is a real screen only while a Sprint is running.
-    needs_sprint: bool = False
 
 
 @dataclass(frozen=True, slots=True)

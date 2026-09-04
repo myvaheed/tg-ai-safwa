@@ -11,6 +11,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.foundation.screens import ScreenCommand
 
 from ...foundation.workspace import Workspace, require_workspace
 from ..cards.api import PLANNED_STAGES, TERMINAL_STAGES, Card, CardStage
@@ -19,6 +20,21 @@ from .model import SprintCommitment
 
 # The stages an Action has to be on for a Sprint to have anything to say about it.
 SPRINT_SCOPE = frozenset({CardStage.SPRINT, CardStage.TODAY, CardStage.DONE, CardStage.CANCELLED})
+
+
+# The screens that exist only while a Sprint runs, by the `nav` each of them declared.
+SPRINT_ONLY_SCREENS = frozenset({"today"})
+
+
+def available_screens(
+    commands: tuple[ScreenCommand, ...], *, sprint_active: bool
+) -> tuple[ScreenCommand, ...]:
+    """The screens that are real right now: in Planning, Today is not one of them."""
+    return tuple(
+        screen
+        for screen in commands
+        if sprint_active or screen.nav not in SPRINT_ONLY_SCREENS
+    )
 
 
 async def sprint_is_active(session: AsyncSession) -> bool:

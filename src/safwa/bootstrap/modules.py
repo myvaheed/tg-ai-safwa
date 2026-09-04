@@ -36,7 +36,7 @@ from tg_agent_shell.proposals.api import (
 from tg_agent_shell.proposals.module import MODULE as PROPOSALS_FEATURE
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec, BackgroundTask, FeatureModule
 
-from ..features.advisor.agent import ADVISOR_VIEWS, SYSTEM_PROMPT_TEMPLATE
+from ..features.advisor.agent import ADVISOR_VIEWS, PERSONA, SYSTEM_PROMPT_TEMPLATE
 from ..features.cards.module import MODULE as CARDS
 from ..features.checks.module import MODULE as CHECKS
 from ..features.continuity.module import MODULE as CONTINUITY
@@ -258,13 +258,18 @@ BACKGROUND_TASKS: tuple[BackgroundTask, ...] = (
 )
 
 
+def routed_prompt(agent: AgentSpec) -> str:
+    """What a routed subagent reads: the one persona block, then its own instructions."""
+    return f"{PERSONA}\n{agent.instructions}"
+
+
 def routed_subagents(context: AgentContext) -> tuple[RoutedSubagent, ...]:
     """Bind every declared subagent to this application's read tools and clock."""
     return tuple(
         RoutedSubagent(
             name=agent.name,
             purpose=agent.purpose,
-            instructions=agent.instructions,
+            prompt=routed_prompt(agent),
             read_tools=agent.read_tools(context) if agent.read_tools else (),
             mutation_tools=agent.mutation_tools,
             workspace_state=agent.workspace_state,

@@ -9,10 +9,10 @@ from sqlalchemy import select
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.bootstrap.modules import PROPOSALS
+from safwa.bootstrap.modules import PROPOSALS, routed_prompt
 from safwa.features.cards.model import Card, CardKind, CardStage
 from safwa.features.cards.use_cases import create_card, finish_action
-from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
+from safwa.features.diary.agent import DIARY_AGENT, day_read_tool, diary_clock
 from safwa.features.diary.model import DiaryEntry
 from telegram_llm import DialogueMessage
 from tg_agent_shell.ai.mini import ReadToolSpec
@@ -80,7 +80,7 @@ def diary_subagent(
     return RoutedSubagent(
         name="diary",
         purpose="the Diary",
-        instructions=DIARY_PROMPT,
+        prompt=routed_prompt(DIARY_AGENT),
         read_tools=(
             day_read_tool(
                 StubDayReader(transcript), chat_id=42, timezone="Europe/Istanbul"
@@ -388,7 +388,7 @@ async def test_a_subagent_that_runs_too_long_is_stopped_by_the_clock(e2e_harness
     slow = RoutedSubagent(
         name="diary",
         purpose="the Diary",
-        instructions=DIARY_PROMPT,
+        prompt=routed_prompt(DIARY_AGENT),
         read_tools=(
             ReadToolSpec(
                 schema={
@@ -507,7 +507,7 @@ async def test_a_failed_subagent_comes_back_as_an_error_the_advisor_reports(e2e_
     diary = RoutedSubagent(
         name="diary",
         purpose="the Diary",
-        instructions=DIARY_PROMPT,
+        prompt=routed_prompt(DIARY_AGENT),
         read_tools=(day_read_tool(ExplodingReader(), chat_id=42),),
         mutation_tools=("diary",),
     )

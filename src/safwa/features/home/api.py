@@ -19,17 +19,10 @@ MENU_LAYOUT: tuple[tuple[str, ...], ...] = (
 )
 
 
-def menu_markup(
-    commands: tuple[ScreenCommand, ...], *, sprint_active: bool
-) -> InlineKeyboardMarkup:
-    """The menu: every title the screens declared, in the order this layout names them.
-
-    Today belongs to a running Sprint, so it is left out while there is none.
-    """
+def menu_markup(commands: tuple[ScreenCommand, ...]) -> InlineKeyboardMarkup:
+    """The menu: every title the screens declared, in the order this layout names them."""
     titles = {
-        screen.nav: screen.title
-        for screen in commands
-        if screen.title is not None and (sprint_active or not screen.needs_sprint)
+        screen.nav: screen.title for screen in commands if screen.title is not None
     }
     rows = [
         [

@@ -50,7 +50,6 @@ MODULE = FeatureModule(
             description="Today dashboard",
             nav="today",
             title="☀️ Today",
-            needs_sprint=True,
         ),
         # Add is a menu button and nothing else: a Card is created on a screen.
         ScreenCommand(

@@ -13,7 +13,7 @@ from tg_agent_shell.telegram import (
     start_payload,
 )
 
-from ..planning.api import sprint_is_active
+from ..planning.api import available_screens, sprint_is_active
 from .api import menu_markup
 
 
@@ -33,5 +33,5 @@ async def render_home(message: Message, services: Services) -> None:
         services,
         "<b>Safwa</b>\nYour personal agile advisor. Choose a dashboard or just write to me.",
         kind=MessageKind.DASHBOARD,
-        markup=menu_markup(services.commands, sprint_active=sprint_active),
+        markup=menu_markup(available_screens(services.commands, sprint_active=sprint_active)),
     )

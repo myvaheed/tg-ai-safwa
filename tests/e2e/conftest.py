@@ -19,6 +19,7 @@ from safwa.bootstrap.modules import (
     PROPOSALS,
     SCREENS,
     SYSTEM_PROMPT,
+    routed_prompt,
 )
 from safwa.features.continuity.memory import MemoryFileStore
 from safwa.features.heavy_analyzer import agent as heavy_analyzer
@@ -131,7 +132,9 @@ class E2EHarness:
             name="workspace_mutator",
             purpose="every change to the planning data",
             # The instructions as assembled, `{views}` filled in: what the application runs.
-            instructions=next(agent.instructions for agent in AGENTS if agent.name == "workspace_mutator"),
+            prompt=next(
+                routed_prompt(agent) for agent in AGENTS if agent.name == "workspace_mutator"
+            ),
             # No read tool of its own: `query_data` is published by the adapters.
             mutation_tools=MUTATOR_TOOLS,
             workspace_state=True,

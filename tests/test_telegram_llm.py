@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import ast
 import importlib.util
-import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from vocabulary import public_names, words
 
 from llm_gateway import CompletionTurn, ScriptedProvider
 from telegram_llm import TELEGRAM_TEXT_LIMIT
@@ -39,7 +39,6 @@ FOREIGN = frozenset(
         "sqlalchemy",
     }
 )
-_WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z][a-z]*|[a-z]+")
 
 # The package is the chat of an aiogram bot. Where the notes are kept and how the chat is
 # read back are the two things it asks an application for, so neither the database Safwa
@@ -50,32 +49,12 @@ BOT_ID = 4242
 PERSON_ID = 77
 
 
-def _public_names(path: Path) -> list[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    names: list[str] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef):
-            names.append(node.name)
-        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            names.append(node.name)
-            names.extend(argument.arg for argument in node.args.args)
-            names.extend(argument.arg for argument in node.args.kwonlyargs)
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            names.append(node.target.id)
-    return [name for name in names if not name.startswith("_")]
-
-
-def _words(name: str) -> set[str]:
-    """A name's own words. `discard` is not about a Card, and a substring match says it is."""
-    return {part.lower().rstrip("s") for part in _WORD.findall(name)}
-
-
 @pytest.mark.parametrize("module", sorted(path.name for path in PACKAGE.glob("*.py")))
 def test_the_vocabulary_of_the_package_belongs_to_no_application(module: str) -> None:
     foreign = [
         name
-        for name in _public_names(PACKAGE / module)
-        if _words(name) & FOREIGN
+        for name in public_names(PACKAGE / module)
+        if words(name) & FOREIGN
     ]
     assert not foreign, f"telegram_llm/{module} names {foreign}"
 
