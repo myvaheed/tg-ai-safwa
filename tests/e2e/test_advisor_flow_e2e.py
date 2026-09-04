@@ -22,7 +22,6 @@ from safwa.bootstrap.modules import (
     SCREENS,
     SYSTEM_PROMPT,
 )
-from safwa.constants import MAX_TOOL_CALLS
 from safwa.features.cards.model import Card, CardCategory, CardEnergyType, CardStage
 from safwa.features.cards.use_cases import create_card, finish_action, move_card
 from safwa.features.planning.use_cases import finish_sprint, sprint_metrics, start_sprint
@@ -43,6 +42,7 @@ from safwa.foundation.errors import StaleStateError
 from safwa.foundation.marks import title_marks
 from safwa.foundation.workspace import Workspace
 from safwa.recovery import recover_startup
+from safwa.session import MAX_TOOL_CALLS
 from safwa.shell import callback_token_handler, dismiss_prior_ui
 from safwa.shell.model import CallbackToken
 from safwa.turn import TurnManager

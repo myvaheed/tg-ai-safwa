@@ -22,8 +22,8 @@ from telegram_llm import ChatHost, Transcriber
 
 from ..adapters.telegram_history import TelegramHistorySource
 from ..ai.messages import Memory
-from ..features.advisor.session import AIAdvisor
 from ..foundation.screens import ScreenCatalogue, ScreenCommand, StartLink, TextInputFlow
+from ..session import RootSession
 from ..turn import TurnManager
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ class WindowKeeper(Protocol):
 @dataclass
 class Services:
     sessions: async_sessionmaker[AsyncSession]
-    advisor: AIAdvisor
+    advisor: RootSession
     history: TelegramHistorySource
     memory: Memory
     continuity: WindowKeeper

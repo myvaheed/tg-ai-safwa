@@ -118,8 +118,8 @@ Its code is written already, inside `safwa/`: `ai/`, `shell/`, `turn/`, `cues/`,
 
 They cannot simply be moved, because they made **43 imports out of the rest of Safwa**. Move
 the directories and those 43 become `ImportError`. So the whole job is taking them to zero,
-after which the move itself is `git mv` plus import paths. One is left, and Rule Q names it
-so a second cannot arrive unnoticed.
+after which the move itself is `git mv` plus import paths. None are left; Rule Q holds with
+an empty list so a new one cannot arrive unnoticed, and phase 4 is what deletes it.
 
 `ai/` and `turn/` are already clean, as are the five `foundation/` files and every
 `features/proposals/` module but `module.py`. Everything left is in `adapters/`, `shell/`
@@ -176,9 +176,9 @@ Without the second half the list stops shrinking and starts growing.
 
 ### Phase 3 — the seams
 
-Each group closed deletes its own block from `RULE_Q_EXCEPTIONS`. A, B and G were carrying
-rather than inverting, C and D were the window, and F was one command in the wrong package. E
-is what is left.
+Each group closed deleted its own block from `RULE_Q_EXCEPTIONS`, and the list is empty.
+A, B and G were carrying rather than inverting, C and D were the window, F was one command in
+the wrong package, and E was the root session.
 
 - **A — `Settings` becomes the fields each adapter reads — done**. `build_transcriber` takes
   the eight it read, so `ASRProvider` could follow it into `asr.py` and `config.py` reads it
@@ -198,11 +198,15 @@ is what is left.
   Summary was read nowhere: the window has always found its edge by reading the chat, which
   is where the rule says the dialogue lives. That table, the operation that filled it and the
   message id threaded up to them are gone, and `send_summary` posts and nothing else.
-- **E — the Advisor's session**. `features/advisor/session.py` is shell code: eight `ai/`
-  imports, eight `proposals/` imports, and two Safwa names — `MemoryFileStore`, which the
-  `Memory` protocol already covers, and `workspace_context`, which the composition root can
-  hand over. `MAX_TOOL_CALLS` and `SUBAGENT_DEADLINE_SECONDS` have no other reader and travel
-  with it. The package keeps `agent.py`, which is what its own `__init__` already says it is.
+- **E — the Advisor's session — done**. It was eight `ai/` imports, eight `proposals/`
+  imports and two Safwa names, so it is `safwa/session.py` and the class is `RootSession`:
+  what it composes is the engine and the review flow, and neither the prompt nor the persona
+  is in it. `MemoryFileStore` is the `Memory` protocol, `workspace_context` is handed in as
+  `workspace_state`, and `MAX_TOOL_CALLS` and `SUBAGENT_DEADLINE_SECONDS` had no other reader
+  and travel with it. `features/advisor/` keeps `agent.py`, which is what its own `__init__`
+  already said it is. It is a module rather than a package because `ai/` may not name the
+  review flow and `shell/` is the aiogram surface, so in phase 4 it lands at the top of the
+  new package, beside the two halves it composes rather than inside either.
 - **F — `command_status` — done**. It reports the workspace mode, the revision and whether
   `memory.md` can be read — three things of Safwa's, so it is `features/diagnostics` now and the
   shell publishes one command, `/cancel`, because the turn is the shell's. `sprint_is_active`
@@ -231,8 +235,8 @@ offered by the shape of a SQL query is a wart the first other project would inhe
 
 2. **no** — the review flow travels with the engine rather than into it; Rule N is what says
    so, and moving the package would reverse `shell`, `bootstrap` and `MutationCatalogue`.
-6. **plan** — the split to make is not spec-from-spec: `AIAdvisor` is shell code and
-   `features/advisor` keeps its prompt, which is the tg-agent-shell plan's first seam.
+6. **done** — the split was not spec-from-spec: the session is shell code and
+   `features/advisor` keeps its prompt. Group E.
 7. **yes** — continuity splits into summary and memory once continuity.feature does; the two share
    only `persona.py`.
 8. **first** — the trigger is hardcoded in `ai/tools.py` as `agent.kind` plus `is_complex_read`, so

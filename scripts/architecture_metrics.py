@@ -532,33 +532,34 @@ def rule_p() -> list[Violation]:
 
 
 # Rule Q: the modules that become tg_agent_shell, and every import still leaving them. The
-# five portable `foundation/` files travel too, for the reason Rule N already lists them.
+# five portable `foundation/` files travel too, for the reason Rule N already lists them,
+# and so does the root session, which is the whole of what the two travelling halves are
+# composed into.
 SHELL_PACKAGES = ("ai", "shell", "turn", "cues", "adapters", "features.proposals")
+SHELL_MODULES = ("safwa.session",)
 
-# Rule Q's exceptions: the imports left to close, grouped by what closes each. The groups are
-# phase 3 of `docs/RESTRUCTURING.md`; closing one deletes its block, and the last block
-# deleted takes the rule with it.
-RULE_Q_EXCEPTIONS = frozenset(
-    {
-        # E: the Advisor's session is shell code and moves in.
-        ("safwa/shell/services.py", "safwa.features.advisor.session.AIAdvisor"),
-    }
-)
+# Rule Q's exceptions: the imports left to close, grouped by what closes each. Phase 3 of
+# `docs/RESTRUCTURING.md` closed the last of them, so the set is empty and stays empty --
+# phase 4 is what deletes the rule, once the modules are a package Rule F covers.
+RULE_Q_EXCEPTIONS: frozenset[tuple[str, str]] = frozenset()
 
 
 def _shell_name(path: str) -> bool:
     """Whether a dotted `safwa.` name belongs to the set rather than to the rest of Safwa."""
     if any(path.startswith(f"safwa.{package}.") for package in SHELL_PACKAGES):
         return True
-    return any(path == item or path.startswith(f"{item}.") for item in PORTABLE_FOUNDATION)
+    return any(
+        path == item or path.startswith(f"{item}.")
+        for item in (*PORTABLE_FOUNDATION, *SHELL_MODULES)
+    )
 
 
 def rule_q() -> list[Violation]:
     """The shell names nothing of Safwa's but what is already on its way out.
 
     Those modules are one package waiting for a name, and every import out of them is an
-    `ImportError` on the day it moves.  Each one left is listed with the group that closes
-    it, so the list shrinks on its own and a new one cannot arrive quietly.
+    `ImportError` on the day it moves.  There are none left, so the rule now says only that
+    a new one cannot arrive quietly.
     """
     out = []
     closed = set(RULE_Q_EXCEPTIONS)

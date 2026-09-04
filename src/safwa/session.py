@@ -1,15 +1,18 @@
-"""The Advisor: the one session that writes to the chat, and what the interface calls.
+"""The root session: the one that writes to the chat, and what the interface calls.
 
 It owns no mutation tool. It reads, it routes, and it answers. The loop and the routed
 chain belong to `agent_runtime`; what is here is the wiring — which store, which tools,
 which context — and the two entry points the interface uses: a turn (`handle`) and a
 decision on an open review (`resolve_approval`).
+
+Everything it composes is the engine and the review flow, so it names no application of
+its own: what it says it is, and what the world looks like to it, are handed in.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -23,33 +26,37 @@ from agent_runtime import (
 from llm_gateway import LlmProvider
 from telegram_llm import DialogueMessage
 
-from ...ai.autoapproval import AutoApprovalReviewer
-from ...ai.messages import ContextBuilder
-from ...ai.outcome import AIOutcome, AIOutcomeKind
-from ...ai.runs import AgentRunStore, AgentStepTrail
-from ...ai.sql import ReadOnlyQueryRunner
-from ...ai.subagents import RoutedSubagent
-from ...ai.tools import Helper, ToolAdapters
-from ...constants import MAX_TOOL_CALLS, SUBAGENT_DEADLINE_SECONDS
-from ...foundation.errors import failure_reason
-from ...foundation.screens import ScreenCatalogue
-from ..continuity.memory import MemoryFileStore
-from ..proposals.api import ProposalDescription, ProposalRegistry
-from ..proposals.materialize import MAX_REPAIR_ROUNDS, ProposalMaterializer
-from ..proposals.model import RECEIPT_MEANINGS, BatchDecision
-from ..proposals.prepare import ChangePreparer
-from ..proposals.reducer import INTERRUPTED
-from ..proposals.render import (
+from .ai.autoapproval import AutoApprovalReviewer
+from .ai.messages import ContextBuilder, Memory, StateBlocks
+from .ai.outcome import AIOutcome, AIOutcomeKind
+from .ai.runs import AgentRunStore, AgentStepTrail
+from .ai.sql import ReadOnlyQueryRunner
+from .ai.subagents import RoutedSubagent
+from .ai.tools import Helper, ToolAdapters
+from .features.proposals.api import ProposalDescription, ProposalRegistry
+from .features.proposals.materialize import MAX_REPAIR_ROUNDS, ProposalMaterializer
+from .features.proposals.model import RECEIPT_MEANINGS, BatchDecision
+from .features.proposals.prepare import ChangePreparer
+from .features.proposals.reducer import INTERRUPTED
+from .features.proposals.render import (
     ProposalRenderer,
     compose_display_outcome,
     resolved_tool_result,
     results_summary,
 )
-from ..proposals.store import ProposalStore
-from ..proposals.use_cases import decide_batch_item, interrupt_batch
-from ..workspace_mutator.state import workspace_context
+from .features.proposals.store import ProposalStore
+from .features.proposals.use_cases import decide_batch_item, interrupt_batch
+from .foundation.errors import failure_reason
+from .foundation.screens import ScreenCatalogue
 
 logger = logging.getLogger(__name__)
+
+# How many tool calls one session may spend before the loop stops it.
+MAX_TOOL_CALLS = 64
+
+# A subagent blocks the session that routed to it, so the clock bounds it rather than a
+# call count.
+SUBAGENT_DEADLINE_SECONDS = 300.0
 
 # The one line an interrupted session reads about what happened to it. It has to say the
 # owner wrote *instead* of deciding: on "rejected" alone the session reads its own record
@@ -66,16 +73,17 @@ REPAIR_EXHAUSTED_ON_RESUME = (
 )
 
 
-class AIAdvisor:
+class RootSession:
     def __init__(
         self,
         sessions: async_sessionmaker[AsyncSession],
         provider: LlmProvider,
-        memory: MemoryFileStore,
+        memory: Memory,
         query_runner: ReadOnlyQueryRunner,
         proposals: ProposalRegistry,
         *,
         screens: ScreenCatalogue,
+        workspace_state: Callable[[AsyncSession], Awaitable[StateBlocks]],
         system_prompt: str,
         model_name: str,
         provider_name: str = "openai-compatible",
@@ -110,7 +118,7 @@ class AIAdvisor:
         self.context = ContextBuilder(
             sessions,
             memory,
-            workspace_context,
+            workspace_state,
             system_prompt=system_prompt,
             subagents=self.subagents,
             cache_breakpoints=cache_breakpoints,

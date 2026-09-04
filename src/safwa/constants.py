@@ -29,13 +29,6 @@ WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 # How many critical Cards the workspace state names before the model has to query for more.
 CONTEXT_CRITICAL_CARD_LIMIT = 10
 
-# --- AI agent loop --------------------------------------------------------
-MAX_TOOL_CALLS = 64
-
-# --- Subagents ------------------------------------------------------------
-# A subagent blocks the advisor's turn, so the clock bounds it instead of a call count.
-SUBAGENT_DEADLINE_SECONDS = 300.0
-
 # Local clock the Diary's system Reminder fires on out of the box; Settings moves it,
 # and `off` there removes the row.
 DIARY_TIME_DEFAULT = "22:00"

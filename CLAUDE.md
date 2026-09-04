@@ -155,9 +155,10 @@ is, what a tool call costs, what the model may read. **It imports no feature**, 
 imports it. The engine and [features/proposals](src/safwa/features/proposals) are meant to be
 lifted into the next project together, so Rule N holds both to naming no Safwa entity: what they
 may reach is the `PORTABLE_FOUNDATION` list, and the review flow's `telegram/` and `module.py` are
-the port that stays behind. The Advisor is not in the engine:
-[features/advisor](src/safwa/features/advisor) owns its prompt, its views and the wiring of its own
-turn, and declares no `MODULE` because the composition root wires the root session directly.
+the port that stays behind. The session that composes the two is
+[session.py](src/safwa/session.py), which names no feature either;
+[features/advisor](src/safwa/features/advisor) owns the prompt and the views it is wired with, and
+declares no `MODULE` because the composition root wires the root session directly.
 
 ## The rules that outrank a convenient design
 

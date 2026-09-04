@@ -66,7 +66,7 @@ flowchart LR
     S["Settings"] --> DB["Database<br/>create_all"]
     DB --> BOOT["bootstrap_workspace<br/>recover_startup<br/>create_ai_views"]
     BOOT --> INFRA["provider · memory<br/>query_runner · history"]
-    INFRA --> ADV["AIAdvisor<br/>+ routed subagents"]
+    INFRA --> ADV["RootSession<br/>+ routed subagents"]
     ADV --> SV["Services"]
     SV --> DP["Dispatcher"]
     DP --> POLL["long polling"]

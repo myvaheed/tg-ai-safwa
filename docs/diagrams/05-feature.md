@@ -37,7 +37,8 @@ features/<x>/
 ```
 
 `features/workspace_mutator/` — это `agent.py`, `module.py` и `state.py`: субагент рабочего пространства и его состояние,
-и больше ничего. `features/advisor/` — промпт и обвязка корневой сессии, и `MODULE` он не объявляет.
+и больше ничего. `features/advisor/` — промпт и вьюхи корневой сессии, и `MODULE` он не объявляет; сама сессия
+в [`safwa/session.py`](../../src/safwa/session.py).
 
 ## Три слоя, и дверь открывается не выше своего
 

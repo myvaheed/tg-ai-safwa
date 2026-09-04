@@ -379,7 +379,7 @@ async def test_route_cannot_share_its_response_with_another_call(e2e_harness):
 
 async def test_a_subagent_that_runs_too_long_is_stopped_by_the_clock(e2e_harness, monkeypatch):
     """AG-BUDGET-012 — tests/brd/agents.feature"""
-    monkeypatch.setattr("safwa.features.advisor.session.SUBAGENT_DEADLINE_SECONDS", 0.05)
+    monkeypatch.setattr("safwa.session.SUBAGENT_DEADLINE_SECONDS", 0.05)
 
     async def never_returns_in_time(_call):
         await asyncio.sleep(1.0)

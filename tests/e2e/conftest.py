@@ -22,12 +22,13 @@ from safwa.bootstrap.modules import (
     SCREENS,
     SYSTEM_PROMPT,
 )
-from safwa.features.advisor.session import AIAdvisor
 from safwa.features.continuity.memory import MemoryFileStore
 from safwa.features.heavy_analyzer import agent as heavy_analyzer
 from safwa.features.proposals.store import ProposalStore
 from safwa.features.workspace_mutator.agent import MUTATOR_TOOLS
+from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.database import Database, upgrade_database
+from safwa.session import RootSession
 
 
 class ScriptedProvider:
@@ -143,17 +144,18 @@ class E2EHarness:
         subagents: tuple[RoutedSubagent, ...] | None = None,
         helpers: dict[str, object] | None = None,
         autoapprove: bool = False,
-    ) -> tuple[AIAdvisor, ScriptedProvider]:
+    ) -> tuple[RootSession, ScriptedProvider]:
         subagents = (self.workspace(),) if subagents is None else subagents
         provider = ScriptedProvider(responses)
         # One harness is one running bot, so every advisor it builds shares its reviews.
-        advisor = AIAdvisor(
+        advisor = RootSession(
             self.sessions,
             provider,
             self.memory,
             ReadOnlyQueryRunner(self.database_path, ALLOWED_VIEWS, timezone=TIMEZONE),
             PROPOSALS,
             screens=SCREENS,
+            workspace_state=workspace_context,
             system_prompt=SYSTEM_PROMPT,
             model_name="e2e-scripted-model",
             cache_breakpoints=cache_breakpoints,
