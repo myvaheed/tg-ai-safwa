@@ -16,9 +16,9 @@ from telegram_llm import (
     TELEGRAM_TEXT_LIMIT,
     split_telegram_text,
 )
-from tg_agent_shell.adapters.kinds import MessageKind
-from tg_agent_shell.adapters.telegram_history import TelegramMessage
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
+from tg_agent_shell.foundation.kinds import MessageKind
+from tg_agent_shell.history import TelegramMessage
 from tg_agent_shell.proposals.telegram import render_ai_outcome
 from tg_agent_shell.telegram.chat import (
     discard_stale_status,

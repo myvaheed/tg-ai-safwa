@@ -26,10 +26,10 @@ from safwa.bootstrap.modules import AGENTS, HELPERS, PROPOSALS, SYSTEM_PROMPT
 from safwa.features.advisor.agent import PERSONA
 from scripts.architecture_metrics import RULES, cycles
 from telegram_llm import DialogueMessage, KindMarks, code_for
-from tg_agent_shell.adapters.kinds import MARKS
 from tg_agent_shell.ai.messages import ContextBuilder, StateBlocks
 from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.ai.tools import CALL_HELPER_TOOL, OPEN_TOOL, QUERY_TOOL, ROUTE_TOOL
+from tg_agent_shell.foundation.kinds import MARKS
 from tg_agent_shell.foundation.models import Base
 
 SNAPSHOTS = Path(__file__).parent / "snapshots"

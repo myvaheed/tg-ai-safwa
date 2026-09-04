@@ -11,8 +11,8 @@ import logging
 
 from aiogram.types import InlineKeyboardMarkup
 
-from ...adapters.kinds import MessageKind
 from ...foundation.errors import DomainError, StaleStateError
+from ...foundation.kinds import MessageKind
 from ...telegram import (
     CallbackContext,
     CallbackHandler,

@@ -16,7 +16,7 @@ from aiogram.filters import Command
 from aiogram.types import BotCommand, CallbackQuery, Message
 from sqlalchemy import delete
 
-from ..adapters.kinds import MessageKind
+from ..foundation.kinds import MessageKind
 from ..foundation.screens import ScreenCommand
 from .chat import dismiss_prior_ui, remove_turn_notice, send_registered
 from .layout import start_payload
@@ -74,7 +74,7 @@ SHELL_COMMANDS: tuple[ScreenCommand, ...] = (
 def register_commands(target: Router, commands: tuple[ScreenCommand, ...]) -> None:
     """Bind every declared screen to its command line, once, when the application is built.
 
-    Registered before `turn.dialogue.ordinary_text` would ever see the message, because that
+    Registered before `dialogue.ordinary_text` would ever see the message, because that
     handler declines anything starting with a slash in its own filter.
     """
     for screen in commands:

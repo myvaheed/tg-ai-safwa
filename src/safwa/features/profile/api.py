@@ -11,8 +11,7 @@ from datetime import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...constants import SPRINT_LENGTH_DAYS
-from .model import UserProfile
+from .model import SPRINT_LENGTH_DAYS, UserProfile
 
 
 async def scheduled_memory_time(session: AsyncSession) -> time | None:

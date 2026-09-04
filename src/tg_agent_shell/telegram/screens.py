@@ -7,8 +7,8 @@ import re
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..adapters.kinds import MessageKind
 from ..foundation.errors import DomainError
+from ..foundation.kinds import MessageKind
 from .chat import send_registered
 from .services import Services
 

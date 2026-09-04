@@ -26,9 +26,9 @@ from safwa.features.checks.use_cases import (
 )
 from safwa.features.home.telegram import render_home
 from telegram_llm import ChatHost, DialogueMessage
-from tg_agent_shell.adapters.kinds import MARKS, MessageKind
-from tg_agent_shell.adapters.telegram_history import TelegramMessage, TelegramNotes
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
+from tg_agent_shell.foundation.kinds import MARKS, MessageKind
+from tg_agent_shell.history import TelegramMessage, TelegramNotes
 from tg_agent_shell.proposals.telegram import render_ai_outcome, render_proposal
 from tg_agent_shell.telegram import callback_token_handler
 from tg_agent_shell.telegram.model import CallbackToken

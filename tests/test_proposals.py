@@ -17,10 +17,10 @@ from safwa.features.checks.model import CheckOutcome
 from safwa.features.checks.use_cases import archive_check, create_check, resolve_check
 from safwa.features.planning.use_cases import expire_due_sprint, start_sprint
 from safwa.recovery import recover_startup
-from tg_agent_shell.adapters.kinds import MessageKind
-from tg_agent_shell.adapters.telegram_history import TelegramMessage
 from tg_agent_shell.ai.runs import AgentRun
 from tg_agent_shell.foundation.errors import StaleStateError
+from tg_agent_shell.foundation.kinds import MessageKind
+from tg_agent_shell.history import TelegramMessage
 from tg_agent_shell.proposals.api import ToolPreparationError
 from tg_agent_shell.proposals.model import ChangeProposal
 from tg_agent_shell.proposals.prepare import ChangePreparer

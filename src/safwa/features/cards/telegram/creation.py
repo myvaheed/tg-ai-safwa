@@ -10,8 +10,8 @@ from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tg_agent_shell.adapters.kinds import MessageKind
 from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,

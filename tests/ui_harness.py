@@ -23,9 +23,9 @@ from safwa.bootstrap.modules import (
 )
 from safwa.features.cards.use_cases import create_card
 from telegram_llm import ChatHost, TranscriptionError, TranscriptionResult
-from tg_agent_shell.adapters.kinds import MARKS
-from tg_agent_shell.adapters.telegram_history import TelegramNotes
 from tg_agent_shell.ai.sql import create_ai_views
+from tg_agent_shell.foundation.kinds import MARKS
+from tg_agent_shell.history import TelegramNotes
 from tg_agent_shell.proposals.api import ProposalDescription
 from tg_agent_shell.proposals.store import ProposalStore
 from tg_agent_shell.telegram import SHELL_COMMANDS
@@ -290,7 +290,7 @@ def voice_message_for(
 
 def capture_dialogue_turns(monkeypatch) -> list[tuple[str, object]]:
     """Stop at the handler's edge: the advisor loop itself is the text path's test."""
-    import tg_agent_shell.turn.dialogue as dialogue_module
+    import tg_agent_shell.telegram.dialogue as dialogue_module
 
     turns: list[tuple[str, object]] = []
 

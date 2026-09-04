@@ -147,7 +147,7 @@ the engine, the review flow, the root session, the aiogram surface, the turn lea
 [telegram/](src/tg_agent_shell/telegram) is what a feature's Telegram adapter imports besides
 `telegram_llm`. Only
 [telegram/commands.py](src/tg_agent_shell/telegram/commands.py), [telegram/callbacks.py](src/tg_agent_shell/telegram/callbacks.py)
-and [turn/dialogue.py](src/tg_agent_shell/turn/dialogue.py) register `@router` handlers, and each is imported
+and [telegram/dialogue.py](src/tg_agent_shell/telegram/dialogue.py) register `@router` handlers, and each is imported
 for that side effect alone — dropping one silently unregisters its handlers. A leading underscore
 means module-local: a name a sibling module uses carries none, even though the package stays private
 behind its `__init__`.
@@ -238,7 +238,7 @@ ORM metadata at that point.
 | Checks | [checks.feature](tests/brd/checks.feature), [features/checks](src/safwa/features/checks) |
 | Diary | [diary.feature](tests/brd/diary.feature), [features/diary](src/safwa/features/diary) |
 | Reminders | [reminders.feature](tests/brd/reminders.feature), [features/reminders](src/safwa/features/reminders) |
-| Voice input | [agents.feature](tests/brd/agents.feature), [adapters/asr.py](src/tg_agent_shell/adapters/asr.py) |
+| Voice input | [agents.feature](tests/brd/agents.feature), [asr.py](src/tg_agent_shell/asr.py) |
 | Sessions, routing, helpers, cues, history | [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md) |
 | How a feature plugs in | [docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md) |
 | LLM provider boundary | [docs/LLM_GATEWAY.md](docs/LLM_GATEWAY.md) |

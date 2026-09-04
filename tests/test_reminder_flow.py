@@ -27,12 +27,12 @@ from safwa.features.reminders.use_cases import (
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.workspace import Workspace
 from telegram_llm import DialogueMessage
-from tg_agent_shell.adapters.kinds import MessageKind
-from tg_agent_shell.adapters.telegram_history import TelegramMessage
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
 from tg_agent_shell.ai.runs import AgentRun
 from tg_agent_shell.cues.runtime import CueRuntime
 from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.foundation.kinds import MessageKind
+from tg_agent_shell.history import TelegramMessage
 from tg_agent_shell.proposals.store import ProposalStore
 from tg_agent_shell.proposals.use_cases import open_batch
 from tg_agent_shell.turn import TurnManager

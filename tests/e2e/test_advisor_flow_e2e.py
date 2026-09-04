@@ -31,11 +31,11 @@ from safwa.foundation.marks import title_marks
 from safwa.foundation.workspace import Workspace
 from safwa.recovery import recover_startup
 from telegram_llm import ChatHost, DialogueMessage
-from tg_agent_shell.adapters.kinds import MARKS
-from tg_agent_shell.adapters.telegram_history import TelegramNotes
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
 from tg_agent_shell.ai.runs import AgentRun, AgentStep
 from tg_agent_shell.foundation.errors import StaleStateError
+from tg_agent_shell.foundation.kinds import MARKS
+from tg_agent_shell.history import TelegramNotes
 from tg_agent_shell.proposals.model import (
     BatchDecision,
     ChangeAction,

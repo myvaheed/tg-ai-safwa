@@ -29,9 +29,9 @@ from safwa.foundation.workspace import Workspace
 from telegram_llm import (
     HistoryEntry,
 )
-from tg_agent_shell.adapters.kinds import MessageKind
-from tg_agent_shell.adapters.telegram_history import TelegramMessage
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
+from tg_agent_shell.foundation.kinds import MessageKind
+from tg_agent_shell.history import TelegramMessage
 from tg_agent_shell.proposals.store import ProposalStore
 from tg_agent_shell.telegram import (
     dismiss_prior_ui,
@@ -42,7 +42,7 @@ from tg_agent_shell.telegram.chat import (
     remove_turn_notice,
     send_owner_turn,
 )
-from tg_agent_shell.turn.dialogue import run_dialogue_turn, voice_message
+from tg_agent_shell.telegram.dialogue import run_dialogue_turn, voice_message
 
 
 class TurnAdvisor:
@@ -247,7 +247,7 @@ async def test_a_cancelled_generation_still_gives_up_its_lease(sessions, monkeyp
     A turn left behind is invisible: the middleware silently deletes every command after
     it, so the bot looks alive while `/start` and every deep link do nothing.
     """
-    import tg_agent_shell.turn.dialogue as dialogue_module
+    import tg_agent_shell.telegram.dialogue as dialogue_module
 
     async def cancelled(*_args, **_kwargs):
         raise asyncio.CancelledError

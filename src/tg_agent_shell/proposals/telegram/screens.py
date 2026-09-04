@@ -6,8 +6,8 @@ import html
 
 from aiogram.types import InlineKeyboardMarkup, Message
 
-from ...adapters.kinds import MessageKind
 from ...foundation.errors import DomainError
+from ...foundation.kinds import MessageKind
 from ...telegram import (
     Services,
     edit_registered_message,

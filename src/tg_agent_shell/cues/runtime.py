@@ -15,9 +15,9 @@ from sqlalchemy import func, select
 
 from telegram_llm import DialogueMessage
 
-from ..adapters.kinds import MessageKind
-from ..adapters.telegram_history import TelegramMessage
 from ..ai.runs import AgentRun
+from ..foundation.kinds import MessageKind
+from ..history import TelegramMessage
 from ..proposals.telegram import render_ai_outcome
 from ..telegram import Services
 

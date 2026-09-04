@@ -13,12 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_gateway import OpenAICompatibleConfig, OpenAICompatibleProvider
 from telegram_llm import ChatHost
-from tg_agent_shell.adapters.asr import build_transcriber
-from tg_agent_shell.adapters.kinds import MARKS
-from tg_agent_shell.adapters.telegram_history import TelegramHistorySource, TelegramNotes
 from tg_agent_shell.ai.autoapproval import AutoApprovalReviewer
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
+from tg_agent_shell.asr import build_transcriber
 from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.foundation.kinds import MARKS
+from tg_agent_shell.history import TelegramHistorySource, TelegramNotes
 from tg_agent_shell.session import RootSession
 from tg_agent_shell.telegram import (
     SHELL_COMMANDS,
@@ -29,11 +29,11 @@ from tg_agent_shell.telegram import (
     router,
     sync_bot_commands,
 )
-from tg_agent_shell.telegram.manifest import AgentContext, BackgroundContext
-from tg_agent_shell.turn import TurnManager
-from tg_agent_shell.turn import (
+from tg_agent_shell.telegram import (
     dialogue as _dialogue,  # noqa: F401  registers the owner-message handlers
 )
+from tg_agent_shell.telegram.manifest import AgentContext, BackgroundContext
+from tg_agent_shell.turn import TurnManager
 
 from ..config import Settings
 from ..constants import AI_APP_TITLE, AI_APP_URL, SUMMARY_TRIGGER_TOKENS

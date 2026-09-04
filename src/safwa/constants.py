@@ -12,26 +12,16 @@ defaults.  Everything else is fixed at the code level.
 
 from __future__ import annotations
 
-# The default Sprint length; the owner overrides it per workspace in Settings.
-SPRINT_LENGTH_DAYS = 14
+# What Settings accepts as a Sprint length, and what Planning plans one for.
 SPRINT_LENGTH_MIN_DAYS = 2
 SPRINT_LENGTH_MAX_DAYS = 60
-# How many Sprint endings a closed Card or Check waits before it leaves the screens.
-ARCHIVE_AFTER_SPRINTS = 2
-# What a title carries after it wherever it is read: the model sees the marks in
-# `ai_cards`/`ai_checks`, the owner sees them on a screen and in a citation link.
-# The tail of that marker, empty when the series has ended and there is no open one.
 # Weekday tokens as stored in `reminders.weekdays`, indexed by `date.weekday()`.
-# Mirrored by the Literal in ai/contracts.py.
+# Mirrored by the Literal in `reminders/agent.py`.
 WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 # --- AI context -----------------------------------------------------------
 # How many critical Cards the workspace state names before the model has to query for more.
 CONTEXT_CRITICAL_CARD_LIMIT = 10
-
-# Local clock the Diary's system Reminder fires on out of the box; Settings moves it,
-# and `off` there removes the row.
-DIARY_TIME_DEFAULT = "22:00"
 
 # --- Telegram history -----------------------------------------------------
 # The advisor window is a token budget rather than a message count: a Summary of at most
@@ -69,10 +59,6 @@ REMINDER_MIN_INTERVAL_MINUTES = 5
 
 # --- Telegram UI ----------------------------------------------------------
 SELECTOR_PAGE_SIZE = 10
-# The Sprint plan puts both columns in one table, so a row is one Card on each side.
-SPRINT_PLAN_PAGE_SIZE = 10
-SPRINT_PLAN_TITLE_LIMIT = 24
-REQUEST_RESULT_LIMIT = 25
 # A tap on a link starts the bot through the owner's own account, and Telegram rate limits
 # that per account for hours at a time. This many taps inside the window earns a warning.
 PLAN_LINK_BURST_TAPS = 8

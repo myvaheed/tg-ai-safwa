@@ -13,7 +13,7 @@ from safwa.features.continuity.persona import MemoryMaintenanceResult, PersonaCo
 from safwa.features.continuity.use_cases import run_due_memory_maintenance
 from safwa.features.profile.model import UserProfile
 from telegram_llm import HistoryEntry
-from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.turn import TurnManager
 
 NOT_TEXT = b"\xff\xfe not text at all"

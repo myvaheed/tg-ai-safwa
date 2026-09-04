@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from telegram_llm import Note
 
-from ..adapters.kinds import MessageKind
+from ..foundation.kinds import MessageKind
 from ..proposals.model import BatchDecision
 from ..proposals.render import proposal_outcome_text
 from .layout import Page

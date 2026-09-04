@@ -32,9 +32,9 @@ from telegram_llm import (
     WindowEdge,
 )
 
-from ..foundation.models import Base, UtcDateTime
-from ..proposals.model import RECEIPT_MEANINGS
-from .kinds import MessageKind
+from .foundation.kinds import MessageKind
+from .foundation.models import Base, UtcDateTime
+from .proposals.model import RECEIPT_MEANINGS
 
 __all__ = [
     "TelegramHistorySource",

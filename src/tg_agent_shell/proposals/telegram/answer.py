@@ -16,9 +16,9 @@ from aiogram.types import Message
 
 from telegram_llm import markdown_to_telegram_html
 
-from ...adapters.kinds import MessageKind
 from ...ai.outcome import AIOutcome
 from ...foundation.errors import failure_reason
+from ...foundation.kinds import MessageKind
 from ...telegram import (
     Services,
     end_turn,

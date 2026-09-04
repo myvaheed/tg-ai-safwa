@@ -19,11 +19,7 @@ from tg_agent_shell.cues.queue import add_cue
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 
-from ...constants import (
-    ARCHIVE_AFTER_SPRINTS,
-    SPRINT_LENGTH_MAX_DAYS,
-    SPRINT_LENGTH_MIN_DAYS,
-)
+from ...constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ...foundation.workspace import Workspace, WorkspaceMode, require_workspace
 from ..cards.api import CardStage, action_titles, planned_actions
 from ..cards.use_cases import archive_settled_cards
@@ -32,6 +28,8 @@ from ..profile.api import sprint_length_days as _profile_sprint_length_days
 from ..reminders.use_cases import create_sprint_reminder, delete_sprint_reminders
 from .model import Sprint, SprintCommitment, SprintStatus
 
+# How many Sprint endings a closed Card or Check waits before it leaves the screens.
+ARCHIVE_AFTER_SPRINTS = 2
 # How many unfinished Actions the end-of-Sprint summary names before it counts the rest.
 SUMMARY_OPEN_TITLES = 5
 

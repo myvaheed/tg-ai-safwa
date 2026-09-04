@@ -13,13 +13,13 @@ from safwa.features.continuity.model import SUMMARY_HEADER
 from safwa.features.continuity.window import SummaryEdge
 from safwa.foundation.tokens import estimate_tokens
 from telegram_llm import DialogueMessage, HistoryEntry, restore_citations
-from tg_agent_shell.adapters.kinds import MARKS, MessageKind
-from tg_agent_shell.adapters.telegram_history import (
+from tg_agent_shell.ai.conversation import conversation_block
+from tg_agent_shell.foundation.kinds import MARKS, MessageKind
+from tg_agent_shell.history import (
     TelegramHistorySource,
     TelegramMessage,
     register_message,
 )
-from tg_agent_shell.ai.conversation import conversation_block
 
 
 @dataclass

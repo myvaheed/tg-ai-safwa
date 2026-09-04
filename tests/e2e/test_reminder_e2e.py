@@ -21,10 +21,10 @@ from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import schedule_of
 from telegram_llm import ChatHost, DialogueMessage
-from tg_agent_shell.adapters.kinds import MARKS
-from tg_agent_shell.adapters.telegram_history import TelegramNotes
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.foundation.clock import SystemClock
+from tg_agent_shell.foundation.kinds import MARKS
+from tg_agent_shell.history import TelegramNotes
 from tg_agent_shell.proposals.telegram import render_proposal
 from tg_agent_shell.proposals.use_cases import approve_proposal
 from tg_agent_shell.telegram import callback_token_handler

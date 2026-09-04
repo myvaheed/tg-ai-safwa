@@ -7,8 +7,8 @@ import html
 from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import select
 
-from tg_agent_shell.adapters.kinds import MessageKind
 from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
@@ -18,10 +18,12 @@ from tg_agent_shell.telegram import (
     token_button,
 )
 
-from ....constants import REQUEST_RESULT_LIMIT
 from ...cards.telegram import kind_label
 from ..api import request_cards
 from ..model import SavedRequest
+
+# How many matching Cards one Request screen lists before it only counts the rest.
+REQUEST_RESULT_LIMIT = 25
 
 
 async def command_requests(message: Message, services: Services) -> None:

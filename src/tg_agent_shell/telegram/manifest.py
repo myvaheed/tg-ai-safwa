@@ -16,13 +16,13 @@ from dataclasses import dataclass, field
 from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ..adapters.telegram_history import TelegramHistorySource
 from ..ai.autoapproval import AutoApprovalRule
 from ..ai.mini import ReadToolSpec
 from ..ai.sql import ReadOnlyQueryRunner, SqlView
 from ..ai.subagents import RoutedSubagent
 from ..ai.tools import Helper
 from ..foundation.screens import ScreenCommand, ScreenSpec, StartLink, TextInputFlow
+from ..history import TelegramHistorySource
 from ..proposals.api import (
     MutationToolSpec,
     ProposalHandler,

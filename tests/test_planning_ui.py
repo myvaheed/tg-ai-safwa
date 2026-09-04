@@ -35,8 +35,8 @@ from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.telegram import callback_token_handler
+from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import UiSession
-from tg_agent_shell.turn.dialogue import ordinary_text
 
 
 async def test_pl_mode_001_the_menu_offers_today_only_while_a_sprint_runs(sessions) -> None:

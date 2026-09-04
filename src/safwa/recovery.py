@@ -7,9 +7,9 @@ from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_runtime import RunStatus
-from tg_agent_shell.adapters.kinds import MessageKind
-from tg_agent_shell.adapters.telegram_history import TelegramMessage
 from tg_agent_shell.ai.runs import AgentRun
+from tg_agent_shell.foundation.kinds import MessageKind
+from tg_agent_shell.history import TelegramMessage
 from tg_agent_shell.telegram.model import CallbackToken, UiSession
 
 

@@ -20,7 +20,7 @@ from typing import Any, Protocol
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from llm_gateway import CompletionRequest, LlmProvider
-from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.foundation.kinds import MessageKind
 
 from ...constants import (
     MEMORY_READ_TOKEN_BUDGET,

@@ -7,8 +7,8 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from tg_agent_shell.adapters.asr import ASRProvider
 from tg_agent_shell.ai.sql import DEFAULT_CHAR_BUDGET, DEFAULT_ROW_LIMIT
+from tg_agent_shell.asr import ASRProvider
 
 from .constants import (
     AI_MAX_OUTPUT_TOKENS,

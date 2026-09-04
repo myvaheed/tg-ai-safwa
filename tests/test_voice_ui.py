@@ -10,9 +10,9 @@ from ui_harness import (
     voice_message_for,
 )
 
-from tg_agent_shell.adapters.kinds import MessageKind
-from tg_agent_shell.adapters.telegram_history import TelegramMessage
-from tg_agent_shell.turn.dialogue import ASR_MAX_DURATION_SECONDS, voice_message
+from tg_agent_shell.foundation.kinds import MessageKind
+from tg_agent_shell.history import TelegramMessage
+from tg_agent_shell.telegram.dialogue import ASR_MAX_DURATION_SECONDS, voice_message
 
 
 async def test_voice_message_becomes_one_owner_dialogue_turn(sessions, monkeypatch) -> None:

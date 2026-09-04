@@ -7,14 +7,13 @@ from datetime import time
 from sqlalchemy import select
 from ui_harness import FakeCallback, FakeMessage, services_for
 
-from safwa.constants import DIARY_TIME_DEFAULT
-from safwa.features.profile.model import ProfileField, UserProfile
+from safwa.features.profile.model import DIARY_TIME_DEFAULT, ProfileField, UserProfile
 from safwa.features.profile.telegram import command_settings
 from safwa.features.profile.use_cases import set_profile_field
 from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.telegram import callback_token_handler
+from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import UiSession
-from tg_agent_shell.turn.dialogue import ordinary_text
 
 
 async def test_valid_settings_input_updates_selected_field_and_auto_closes_prompt(

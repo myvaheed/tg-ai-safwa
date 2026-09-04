@@ -41,8 +41,8 @@ from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.telegram import render_value
 from safwa.features.values.use_cases import create_value
 from tg_agent_shell.telegram import callback_token_handler
+from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import CallbackToken, UiSession
-from tg_agent_shell.turn.dialogue import ordinary_text
 
 
 def test_every_card_relationship_is_wired_to_both_selector_surfaces() -> None:

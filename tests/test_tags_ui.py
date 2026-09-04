@@ -9,10 +9,10 @@ from safwa.features.cards.use_cases import create_card, toggle_card_tag
 from safwa.features.tags.telegram import render_tag
 from safwa.features.tags.telegram.screens import render_tag_text_prompt
 from safwa.features.tags.use_cases import create_tag
-from tg_agent_shell.adapters.kinds import MessageKind
-from tg_agent_shell.adapters.telegram_history import TelegramMessage
+from tg_agent_shell.foundation.kinds import MessageKind
+from tg_agent_shell.history import TelegramMessage
+from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import UiSession
-from tg_agent_shell.turn.dialogue import ordinary_text
 
 
 async def test_tag_field_input_reuses_editor_message_and_deletes_input(sessions) -> None:

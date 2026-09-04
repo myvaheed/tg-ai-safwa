@@ -142,14 +142,14 @@ seam that hands work back was there before any of this.
 
 Twenty-seven of the 43, and nothing to decide in any of them.
 
-- `MessageKind` leaves `enums.py` for `adapters/kinds.py`, and `MARKS` is built there out of
-  it. Not `shell/`: `telegram/services.py` imports `adapters/`, so the reverse edge would be a
+- `MessageKind` leaves `enums.py` for `foundation/kinds.py`, and `MARKS` is built there out
+  of it. Not `shell/`: `telegram/services.py` imports it, so the reverse edge would be a
   cycle. Twelve imports. `TelegramHistorySource` is handed the table rather than importing
   it, which is what a second project needs in order to bring its own kinds.
 - Fifteen constants have exactly one reader each and go to it — ten ASR and faster-whisper
-  settings to `adapters/asr.py`, `EDGE_CONTEXT_MESSAGE_LIMIT` to
-  `adapters/telegram_history.py`, `TOAST_SECONDS` to `telegram/chat.py`, `PAGE_SIZE` to
-  `telegram/layout.py`, and the two ASR limits to `turn/dialogue.py`.
+  settings to `asr.py`, `EDGE_CONTEXT_MESSAGE_LIMIT` to `history.py`, `TOAST_SECONDS` to
+  `telegram/chat.py`, `PAGE_SIZE` to `telegram/layout.py`, and the two ASR limits to
+  `telegram/dialogue.py`.
 
 Two constants that look like the others are not moves and stay: `SUMMARY_TRIGGER_TOKENS` and
 `SCHEDULER_POLL_SECONDS` each have a reader on both sides of the boundary, which makes them
@@ -326,6 +326,47 @@ session's own prompt.
 - The prompt-prefix snapshot did not move: the helper's prompt changed address, not a
   byte.
 
+## Batch 7 — landed
+
+A limit one module owns lives in that module, and the owner's message handlers moved to
+the surface that registers them.
+
+9. **done** — `dialogue.py` is `telegram/dialogue.py`, beside `commands.py` and
+   `callbacks.py`, the two other modules that register `@router` handlers. `turn/` is
+   the lease and its row.
+15. **done** — six constants left `constants.py` for the module that reads them, and
+    each of the four candidate 15 raised was checked on its reader count first.
+
+### Benefits
+
+- `SPRINT_LENGTH_DAYS` and `DIARY_TIME_DEFAULT` are the defaults of two columns and now
+  sit above those columns in `profile/model.py`, where a reader of either finds both.
+- `ARCHIVE_AFTER_SPRINTS` is Planning's, `SPRINT_PLAN_PAGE_SIZE` and
+  `SPRINT_PLAN_TITLE_LIMIT` belong to the one screen that draws that table, and
+  `REQUEST_RESULT_LIMIT` to the one screen that lists those rows.
+- `SPRINT_LENGTH_MIN_DAYS` and `SPRINT_LENGTH_MAX_DAYS` stayed: Planning and the Profile
+  both read them, which is what `constants.py` is for.
+- Three comment lines described marks that left in batch 2, and one pointed at
+  `ai/contracts.py`, which batch 3 emptied. Both are gone.
+- `telegram/dialogue.py` imports its siblings by module rather than the package it is
+  inside, so nothing about it is different from `commands.py` any more.
+
+## Batch 8 — landed
+
+`adapters/` was two boundaries and a vocabulary under a name that said none of them.
+
+16. **done** — `asr.py` and `history.py` are one module each at the package root, and
+    what a bot message is went to `foundation/kinds.py`.
+
+### Benefits
+
+- The two boundaries are named for what is on the other side of them: a speech service
+  and a Telethon session reading the real chat.
+- `MessageKind` is not a boundary and never was. It is vocabulary every layer names, so
+  it sits with the clock, the errors and the base row, where `ai/` may reach it.
+- An import says where a thing lives again: `from tg_agent_shell.history import
+  TelegramMessage` rather than a package that also held the microphone.
+
 ## Candidates — from the owner
 
 2. **no** — the review flow travelled with the engine rather than into it, and moving the
@@ -336,8 +377,8 @@ session's own prompt.
    only `persona.py`.
 8. **first** — the trigger is hardcoded in `ai/tools.py` as `agent.kind` plus `is_complex_read`, so
    a helper needs its own spec with a predicate — not a hook framework for one subscriber.
-9. **split** — `turn/` and `cues/` are the runtime and sit beside the engine now. What is left
-   is the second half: `turn/dialogue.py` is a Telegram handler and belongs in `telegram/`.
+9. **done** — `turn/` and `cues/` are the runtime beside the engine, and the handlers are
+   `telegram/dialogue.py`. Batch 7.
 10. **done** — `remove` named six entities from outside a feature, which is what Rule H started
     reading the moment the package left `features/`. It is `workspace_mutator/remove.py` and the
     subagent that calls it publishes it; proposals keeps the flow and publishes no tool.
@@ -350,10 +391,10 @@ session's own prompt.
     `AgentSpec.bind` is what turns one into the other. Batch 6.
 13. **done** — the helper is a `HelperSpec` in `heavy_analyzer`'s own `module.py`, so
     `MODULES` reaches every feature. Batch 6.
-15. **yes** — `constants.py` still keeps `SPRINT_LENGTH_DAYS`, `ARCHIVE_AFTER_SPRINTS` and
-    `DIARY_TIME_DEFAULT`, which one feature each reads.
-16. **yes** — `adapters/` is two unrelated boundaries, voice input and Telethon history, under
-    one name that says neither. Both are the shell's, so splitting them is all that is left.
+15. **done** — those three plus `SPRINT_PLAN_PAGE_SIZE`, `SPRINT_PLAN_TITLE_LIMIT` and
+    `REQUEST_RESULT_LIMIT` live with the module that reads them. Batch 7.
+16. **done** — `asr.py`, `history.py` and `foundation/kinds.py`, each named for what it
+    is. Batch 8.
 17. **check** — `backup.py`, `qa.py` and `recovery.py` sit at the package root; `recovery.py` is
     lifecycle and belongs under `bootstrap/`.
 18. **done** — the three names spelled `advisor` and the router's own name are the

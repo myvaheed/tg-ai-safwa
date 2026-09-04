@@ -13,23 +13,21 @@ from sqlalchemy import select
 
 from telegram_llm import AudioClip, HistoryEntry, TranscriptionError
 
-from ..adapters.kinds import MessageKind
+from ..foundation.kinds import MessageKind
 from ..proposals.telegram import render_ai_outcome
-from ..telegram import (
-    Services,
-    audio_payload,
+from .chat import (
     delete_screen,
     dismiss_prior_ui,
     edit_registered_message,
     end_turn,
-    handle_text_input,
     open_turn_notice,
-    router,
     send_owner_turn,
     send_registered,
     send_summary,
 )
-from ..telegram.model import UiSession
+from .model import UiSession
+from .services import Services, audio_payload, router
+from .text_input import handle_text_input
 
 logger = logging.getLogger(__name__)
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.foundation.kinds import MessageKind
 
 from .model import SUMMARY_HEADER
 

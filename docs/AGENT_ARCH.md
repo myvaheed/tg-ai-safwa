@@ -336,7 +336,7 @@ flowchart LR
     SUM --> WINDOW
 ```
 
-- `adapters/telegram_history.py` re-reads the real chat on every advisor turn.
+- `history.py` re-reads the real chat on every advisor turn.
   `telegram_messages` stores event metadata, never persona text.
 - **Every bot message is sent registered and marked** with a `MessageKind`. An unregistered or
   unmarked message is invisible to the LLM; a wrongly-kinded one leaks UI noise into persona history.

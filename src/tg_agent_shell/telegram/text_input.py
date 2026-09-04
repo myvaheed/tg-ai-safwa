@@ -11,8 +11,8 @@ from typing import Any
 from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import delete
 
-from ..adapters.kinds import MessageKind
 from ..foundation.errors import DomainError
+from ..foundation.kinds import MessageKind
 from .chat import delete_text_input, edit_registered_message, token_button
 from .model import UiSession
 from .services import Services

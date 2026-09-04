@@ -20,9 +20,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from telegram_llm import ChatHost, Transcriber
 
-from ..adapters.telegram_history import TelegramHistorySource
 from ..ai.messages import Memory
 from ..foundation.screens import ScreenCatalogue, ScreenCommand, StartLink, TextInputFlow
+from ..history import TelegramHistorySource
 from ..session import RootSession
 from ..turn import TurnManager
 

@@ -24,18 +24,18 @@ from telegram_llm import (
     ChatHost,
     DialogueMessage,
 )
-from tg_agent_shell.adapters.kinds import MARKS, MessageKind
-from tg_agent_shell.adapters.telegram_history import TelegramMessage, TelegramNotes
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
+from tg_agent_shell.foundation.kinds import MARKS, MessageKind
+from tg_agent_shell.history import TelegramMessage, TelegramNotes
 from tg_agent_shell.proposals.model import ChangeAction, ProposalChange
 from tg_agent_shell.proposals.store import ProposalStore
 from tg_agent_shell.telegram import (
     OwnerAndWritingMiddleware,
     dismiss_prior_ui,
 )
+from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import CallbackToken
 from tg_agent_shell.turn import TurnManager
-from tg_agent_shell.turn.dialogue import ordinary_text
 
 
 async def test_ag_turn_010_nothing_that_arrives_during_an_answer_joins_it(
