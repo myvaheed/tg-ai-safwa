@@ -454,6 +454,26 @@ One screen had three names. The owner's name is Profile.
 - The prompt-prefix snapshot moved once, deliberately: the Advisor's prompt told the model
   to send the owner to Settings for a Sprint config.
 
+## Batch 13 — landed
+
+A screen the menu already offers does not also need a command line.
+
+26. **done** — `/backlog` and `/profile` are menu buttons and nothing else. `/sprint`
+    stayed where it is.
+
+### Benefits
+
+- The published slash list is thirteen instead of fifteen, and every command left is
+  something the menu cannot do: a dashboard the owner types straight into, or an
+  operation with no screen at all.
+- `ScreenCommand.command = None` was already the shape — Add has been a menu button and
+  nothing else since batch 1 — so the two deletions are two fields each and no mechanism.
+- `tests/e2e/test_startup_e2e.py` now asserts what is published *and* what is not, so a
+  command line added back by accident fails there.
+- `/sprint` did not move to cards. The candidate's own rule is that a command sits with
+  the feature it names, and the Sprint screen is Planning's: declaring it in `cards`
+  would make the Cards manifest contribute a Planning screen and make Cards import it.
+
 ## Candidates — from the owner
 
 2. **no** — the review flow travelled with the engine rather than into it, and moving the
@@ -505,7 +525,5 @@ One screen had three names. The owner's name is Profile.
     with `available_screens`. Batch 5.
 28. **done** — the persona is the product's, and the engine composes no prompt of its own.
     Batch 5.
-26. **yes** — the slash list is longer than it needs to be: `/backlog` and `/profile` go, and
-    `/sprint` joins `/today` in cards. `/tags`, `/values` and `/reminders` already sit with the
-    feature each names, so what is left is two deletions and one move. Whether a command that
-    goes keeps its menu button is `ScreenCommand.command = None` and is not settled here.
+26. **done** — `/backlog` and `/profile` keep their menu button and lose their command
+    line; `/sprint` stayed with Planning, which is the feature it names. Batch 13.

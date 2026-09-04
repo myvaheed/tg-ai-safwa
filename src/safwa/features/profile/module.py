@@ -22,13 +22,8 @@ MODULE = FeatureModule(
     name="profile",
     recover=_reconcile_diary_trigger,
     commands=(
-        ScreenCommand(
-            handler=command_profile,
-            command="profile",
-            description="Profile and reminders",
-            nav="profile",
-            title="⚙️ Profile",
-        ),
+        # The Profile is one tap away in the menu, so it needs no command line too.
+        ScreenCommand(handler=command_profile, nav="profile", title="⚙️ Profile"),
     ),
     callback_actions=PROFILE_CALLBACK_ACTIONS,
     text_inputs=(telegram.TEXT_INPUT,),

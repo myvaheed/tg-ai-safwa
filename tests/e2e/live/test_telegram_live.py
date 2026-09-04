@@ -208,9 +208,14 @@ async def test_qa_status_and_manual_card_review_flow(live_telegram_harness):
         )
         assert "Memory: OK" in status.raw_text
 
-        profile_command = await qa.send("/profile")
-        profile = await qa.wait_for_bot(
-            profile_command.id,
+        menu_command = await qa.send("/start")
+        menu = await qa.wait_for_bot(
+            menu_command.id,
+            lambda message: "Safwa" in message.raw_text and has_button(message, "Profile"),
+        )
+        await click_button(menu, "Profile")
+        profile = await qa.wait_for_existing_bot_message(
+            menu.id,
             lambda message: "Profile" in message.raw_text and has_button(message, "Menu"),
         )
         await click_button(profile, "Menu")
@@ -351,9 +356,13 @@ async def test_qa_check_gate_blocks_done_until_every_check_is_answered(live_tele
         )
         _seed_linked_check(qa.database_path, title, check_title)
 
-        backlog_command = await qa.send("/backlog")
-        dashboard = await qa.wait_for_bot(
-            backlog_command.id, lambda message: has_button(message, title)
+        menu_command = await qa.send("/start")
+        menu = await qa.wait_for_bot(
+            menu_command.id, lambda message: has_button(message, "Backlog")
+        )
+        await click_button(menu, "Backlog")
+        dashboard = await qa.wait_for_existing_bot_message(
+            menu.id, lambda message: has_button(message, title)
         )
         await click_button(dashboard, title)
         card = await qa.wait_for_existing_bot_message(

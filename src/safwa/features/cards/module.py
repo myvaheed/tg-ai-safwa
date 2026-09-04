@@ -38,13 +38,8 @@ MODULE = FeatureModule(
         ),
     ),
     commands=(
-        ScreenCommand(
-            handler=command_backlog,
-            command="backlog",
-            description="Backlog dashboard",
-            nav="backlog",
-            title="📚 Backlog",
-        ),
+        # The Backlog is one tap away in the menu, so it needs no command line too.
+        ScreenCommand(handler=command_backlog, nav="backlog", title="📚 Backlog"),
         ScreenCommand(
             handler=command_today,
             command="today",
