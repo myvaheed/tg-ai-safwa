@@ -13,7 +13,7 @@ sequenceDiagram
 
     O->>TM: текст
     TM->>A: аренда хода взята
-    A->>A: читает (query_safwa, ai_*)
+    A->>A: читает (query_data, ai_*)
     A->>S: route("workspace_mutator")
     S->>UI: предложение
     UI-->>O: Save / Discard

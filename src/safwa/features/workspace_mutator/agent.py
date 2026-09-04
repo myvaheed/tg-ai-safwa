@@ -26,7 +26,7 @@ Your context carries the Sprint, its Success criteria and the active Values. Jud
 propose against them.
 
 # How a turn goes
-1. Read what you need with `query_safwa`. Never put it in the same response as a mutation tool.
+1. Read what you need with `query_data`. Never put it in the same response as a mutation tool.
 2. Write one line saying what you are about to do.
 3. Use the mutation tools. A tool's `mode` is the action, and its schema lists the modes and values it takes.
 4. Write one short sentence naming what you proposed, and nothing else: the interface prints the Saved/Discarded/Failed receipt itself.
@@ -59,7 +59,7 @@ A title ending in ` [🔄2, live #7]` is a finished instance: #7 is the open one
 Pass the user's own words through in `when` and never invent a date or an hour.
 
 # Read the data
-`query_safwa` runs one read-only `SELECT` or `WITH ... SELECT` over these views only.
+`query_data` runs one read-only `SELECT` or `WITH ... SELECT` over these views only.
 Every value listed under a view is the lowercase code stored in that column.
 
 {views}

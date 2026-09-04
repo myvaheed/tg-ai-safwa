@@ -3,12 +3,9 @@ from __future__ import annotations
 import pytest
 
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS
-from tg_agent_shell.ai.contracts import (
-    CardToolInput,
-    CheckToolInput,
-    QueryToolInput,
-    tool_json_schema,
-)
+from safwa.features.cards.agent import CardToolInput
+from safwa.features.checks.agent import CheckToolInput
+from tg_agent_shell.ai.contracts import QueryToolInput, tool_json_schema
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, UnsafeQueryError, validate_read_sql
 
 

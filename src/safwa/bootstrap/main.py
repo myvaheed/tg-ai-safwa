@@ -52,6 +52,7 @@ from .auth import history_client
 from .modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
+    AUTOAPPROVALS,
     BACKGROUND_TASKS,
     FEATURE_CALLBACK_ACTIONS,
     FEATURE_COMMANDS,
@@ -213,7 +214,7 @@ async def run(settings: Settings) -> None:
         model_name=settings.ai_model,
         provider_name=settings.ai_provider.value,
         cache_breakpoints=settings.resolved_ai_cache_breakpoints,
-        autoapproval=AutoApprovalReviewer(provider),
+        autoapproval=AutoApprovalReviewer(provider, AUTOAPPROVALS),
         subagents=routed_subagents(
             AgentContext(
                 owner_id=settings.telegram_owner_id,

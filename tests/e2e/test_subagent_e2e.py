@@ -193,7 +193,7 @@ async def test_a_routed_subagent_proposes_for_itself(e2e_harness):
             turn(("route", {"name": "diary"})),
             turn(
                 ("read_day", {}),
-                ("query_safwa", {"sql": "SELECT card_id, operation FROM ai_card_events"}),
+                ("query_data", {"sql": "SELECT card_id, operation FROM ai_card_events"}),
                 prefix="diary",
             ),
             turn(
@@ -270,7 +270,7 @@ async def test_a_routed_subagent_is_offered_only_its_own_tools(e2e_harness):
     await advisor.handle("Запиши сегодняшний день")
 
     offered = {tool["function"]["name"] for tool in provider.options[1]["tools"]}
-    assert offered == {"read_day", "query_safwa", "diary"}
+    assert offered == {"read_day", "query_data", "diary"}
     # No recursion, and no reach into the workspace.
     assert "route" not in offered
     assert "card" not in offered
@@ -290,10 +290,10 @@ async def test_the_board_owns_every_mutation_tool(e2e_harness):
     assert outcome.kind is AIOutcomeKind.PROPOSAL
     # The Advisor has no way to describe a change instead of routing it: it has no tool.
     advisor_tools = {tool["function"]["name"] for tool in provider.options[0]["tools"]}
-    assert advisor_tools == {"query_safwa", "open", "route"}
+    assert advisor_tools == {"query_data", "open", "route"}
     board_tools = {tool["function"]["name"] for tool in provider.options[1]["tools"]}
     assert board_tools == {
-        "query_safwa",
+        "query_data",
         "card",
         "check",
         "value",
@@ -354,7 +354,7 @@ async def test_route_cannot_share_its_response_with_another_call(e2e_harness):
     """AG-ROUTE-005 — tests/brd/agents.feature"""
     advisor, provider = e2e_harness.advisor(
         [
-            turn(("route", {"name": "diary"}), ("query_safwa", {"sql": "SELECT 1"})),
+            turn(("route", {"name": "diary"}), ("query_data", {"sql": "SELECT 1"})),
             turn(("route", {"name": "diary"})),
             "Записал.",
             "Готово.",
@@ -427,7 +427,7 @@ async def test_route_is_not_offered_without_a_roster(e2e_harness):
     await advisor.handle("Привет")
 
     offered = {tool["function"]["name"] for tool in provider.options[0]["tools"]}
-    assert "query_safwa" in offered
+    assert "query_data" in offered
     assert "route" not in offered
     # The Diary belongs to its subagent, so the Advisor cannot write a day either.
     assert "diary" not in offered
@@ -765,7 +765,7 @@ async def test_saving_finishes_the_subagent_and_the_next_route_starts_fresh(e2e_
 async def test_every_session_reads_through_the_one_door_and_no_one_declares_it_twice(
     e2e_harness,
 ) -> None:
-    """`query_safwa` comes from the adapters, so the Advisor and a subagent share one door."""
+    """`query_data` comes from the adapters, so the Advisor and a subagent share one door."""
     advisor, _ = e2e_harness.advisor(
         ["Готово."], subagents=(e2e_harness.workspace(), diary_subagent(e2e_harness))
     )
@@ -773,6 +773,6 @@ async def test_every_session_reads_through_the_one_door_and_no_one_declares_it_t
     for kind in ("advisor", "workspace_mutator", "diary"):
         definition = advisor.adapters.definition(kind)
         names = [tool["function"]["name"] for tool in definition.tools]
-        assert names.count("query_safwa") == 1, kind
+        assert names.count("query_data") == 1, kind
         # A session's own read tools are its own: none of them is a name the adapters answer.
         assert not set(definition.read_specs) & IMMEDIATE_TOOLS, kind

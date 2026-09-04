@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 
 from safwa.bootstrap.modules import PROPOSALS
+from safwa.features.cards.agent import CardToolInput
 from safwa.features.cards.model import (
     Card,
     CardCategory,
@@ -48,7 +49,6 @@ from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import CardValue, Value
 from safwa.features.values.use_cases import create_value, delete_value, set_value_focus
 from safwa.foundation.marks import live_repeat_instance_id, title_marks
-from tg_agent_shell.ai.contracts import CardToolInput
 from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.proposals.api import ToolPreparationError

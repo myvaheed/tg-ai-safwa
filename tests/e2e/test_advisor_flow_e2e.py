@@ -471,7 +471,7 @@ async def test_ai_read_query_round_trip_uses_safe_view(e2e_harness):
         tool_calls=(
             ProviderToolCall(
                 id="read-1",
-                name="query_safwa",
+                name="query_data",
                 arguments_json=json.dumps(
                     {"sql": "SELECT committed, completed FROM ai_current_sprint_metrics"}
                 ),
@@ -511,7 +511,7 @@ async def test_a_turn_that_stops_without_words_is_asked_again(e2e_harness):
         tool_calls=(
             ProviderToolCall(
                 id="read-1",
-                name="query_safwa",
+                name="query_data",
                 arguments_json=json.dumps({"sql": "SELECT id FROM ai_cards"}),
             ),
         ),
@@ -546,7 +546,7 @@ async def test_read_and_mutation_in_one_turn_rejects_only_the_mutation(e2e_harne
         tool_calls=(
             ProviderToolCall(
                 id="mixed-read",
-                name="query_safwa",
+                name="query_data",
                 arguments_json=json.dumps({"sql": "SELECT id FROM ai_cards LIMIT 1"}),
             ),
             ProviderToolCall(
@@ -572,7 +572,7 @@ async def test_read_and_mutation_in_one_turn_rejects_only_the_mutation(e2e_harne
         for item in provider.calls[1]
         if item.get("role") == "tool"
     }
-    assert isinstance(tool_results["query_safwa"], list)
+    assert isinstance(tool_results["query_data"], list)
     assert tool_results["card"]["code"] == "mixed_read_and_mutation_tools"
     assert tool_results["card"]["retryable"] is True
 
@@ -959,7 +959,7 @@ async def test_ai_create_tag_and_links_are_reviewed_as_separate_proposals(e2e_ha
         tool_calls=(
             ProviderToolCall(
                 id="recent-cards",
-                name="query_safwa",
+                name="query_data",
                 arguments_json=json.dumps(
                     {
                         "sql": "SELECT id, title, created_at FROM ai_cards "
@@ -1140,7 +1140,7 @@ async def test_ai_can_query_saved_requests_through_the_safe_view(e2e_harness):
             tool_calls=(
                 ProviderToolCall(
                     id="read-requests",
-                    name="query_safwa",
+                    name="query_data",
                     arguments_json=json.dumps({"sql": "SELECT name FROM ai_requests"}),
                 ),
             ),
@@ -1321,7 +1321,7 @@ async def test_advisor_sends_layered_system_blocks_and_canonical_dialogue(e2e_ha
     assert "T" not in timestamp and timestamp.count(":") == 1
     system = str(messages[0]["content"])
     assert system == SYSTEM_PROMPT
-    assert "query_safwa" in system
+    assert "query_data" in system
     assert "ai_cards(id, title" in system
     assert "Current local time" not in system
     assert "Current local time" not in str(messages[1]["content"])
@@ -1333,7 +1333,7 @@ async def test_advisor_sends_layered_system_blocks_and_canonical_dialogue(e2e_ha
     tools = provider.options[0]["tools"]
     # The Advisor reads, shows and routes; every mutation tool belongs to the subagent that owns it.
     assert isinstance(tools, list) and [tool["function"]["name"] for tool in tools] == [
-        "query_safwa",
+        "query_data",
         "open",
         "route",
     ]
@@ -1355,7 +1355,7 @@ async def test_mixed_query_and_mutation_resumes_only_after_approval(e2e_harness)
             ),
             ProviderToolCall(
                 id="recent-cards",
-                name="query_safwa",
+                name="query_data",
                 arguments_json=json.dumps(
                     {"sql": "SELECT id, title FROM ai_cards ORDER BY created_at DESC LIMIT 10"}
                 ),
@@ -1389,7 +1389,7 @@ async def test_mixed_query_and_mutation_resumes_only_after_approval(e2e_harness)
     assert "The tag was saved." in resumed.message
     assert len(provider.calls) == 3
     tool_messages = [message for message in provider.calls[1] if message["role"] == "tool"]
-    assert [message["name"] for message in tool_messages] == ["tag", "query_safwa"]
+    assert [message["name"] for message in tool_messages] == ["tag", "query_data"]
     assert "mixed_read_and_mutation_tools" in str(tool_messages[0]["content"])
     assert f'"id": {card.id}' in str(tool_messages[1]["content"])
     approved_messages = [
@@ -1581,7 +1581,7 @@ async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_h
             ),
             ProviderToolCall(
                 id="find-recent",
-                name="query_safwa",
+                name="query_data",
                 arguments_json=json.dumps(
                     {"sql": "SELECT id, title FROM ai_cards ORDER BY created_at DESC LIMIT 10"}
                 ),
@@ -1866,8 +1866,8 @@ async def test_read_queries_beside_a_proposal_still_resume_the_agent(e2e_harness
         [
             mutation_turn(
                 ("tag", {"mode": "create", "name": "VrWalk"}),
-                ("query_safwa", {"sql": "SELECT missing_column FROM ai_cards"}),
-                ("query_safwa", {"sql": "SELECT id FROM ai_cards"}),
+                ("query_data", {"sql": "SELECT missing_column FROM ai_cards"}),
+                ("query_data", {"sql": "SELECT id FROM ai_cards"}),
             ),
             mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
             "The VrWalk tag was saved; I will retry the query.",
@@ -1908,7 +1908,7 @@ async def test_read_queries_beside_a_proposal_still_resume_the_agent(e2e_harness
     resumed_query_results = [
         str(item["content"])
         for item in provider.calls[-1]
-        if item.get("role") == "tool" and item.get("name") == "query_safwa"
+        if item.get("role") == "tool" and item.get("name") == "query_data"
     ]
     # The model can only repair the read if the failure came back as a tool result.
     assert "missing_column" in resumed_query_results[0]
@@ -2309,7 +2309,7 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
                 tool_calls=(
                     ProviderToolCall(
                         id="broken-read",
-                        name="query_safwa",
+                        name="query_data",
                         arguments_json=json.dumps({"sql": "DELETE FROM cards"}),
                     ),
                 ),
@@ -2382,7 +2382,7 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
     assert f'"affected_ids": {json.dumps(goal_ids)}' in str(last[3]["content"])
     assert "Do not propose it again" in str(last[3]["content"])
     # Step 2: the failed read is still visible, with a bounded instruction.
-    assert last[4]["tool_calls"][0]["function"]["name"] == "query_safwa"
+    assert last[4]["tool_calls"][0]["function"]["name"] == "query_data"
     assert '"code": "unsafe_query"' in str(last[5]["content"])
     assert "do not restart the request" in str(last[5]["content"])
     # Step 3: the steps speak for themselves, so no progress digest is restated on top.

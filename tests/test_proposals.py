@@ -65,7 +65,7 @@ async def test_pr_target_001_an_archived_item_is_not_changed_automatically(sessi
             # The id was right, so the model is not sent looking for it again: it names
             # the item to the owner, who opens it and changes it by hand.
             assert "not changed automatically" in error.hint
-            assert "query_safwa" not in error.hint
+            assert "query_data" not in error.hint
         assert f"[title](card:{card.id})" in (
             await _refused(session, "card", {"mode": "update", "id": card.id, "title": "x"})
         ).hint
@@ -78,7 +78,7 @@ async def test_pr_target_001_an_id_that_matches_nothing_is_a_different_refusal(s
 
         assert error.code == "target_not_found"
         assert str(error) == "Card #999 does not exist."
-        assert "Find the current numeric ID with query_safwa" in error.hint
+        assert "Find the current numeric ID with query_data" in error.hint
 
 
 async def _proposal_for(

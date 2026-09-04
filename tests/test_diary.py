@@ -335,7 +335,7 @@ def test_di_read_013_the_subagent_reads_both_sources() -> None:
     """DI-READ-013 — tests/brd/diary.feature
 
     What the session is given, not what the feature declares: `read_day` is the Diary's
-    own, and `query_safwa` is the one read door the adapters publish to every session.
+    own, and `query_data` is the one read door the adapters publish to every session.
     """
     context = AgentContext(
         owner_id=42,
@@ -357,7 +357,7 @@ def test_di_read_013_the_subagent_reads_both_sources() -> None:
 
     offered = {tool["function"]["name"] for tool in adapters.definition("diary").tools}
 
-    assert offered - set(DIARY_AGENT.mutation_tools) == {"read_day", "query_safwa"}
+    assert offered - set(DIARY_AGENT.mutation_tools) == {"read_day", "query_data"}
 
 
 async def test_di_read_015_a_silent_day_reads_as_empty() -> None:

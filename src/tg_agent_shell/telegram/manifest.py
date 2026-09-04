@@ -17,6 +17,7 @@ from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..adapters.telegram_history import TelegramHistorySource
+from ..ai.autoapproval import AutoApprovalRule
 from ..ai.mini import ReadToolSpec
 from ..ai.sql import ReadOnlyQueryRunner, SqlView
 from ..foundation.screens import ScreenCommand, ScreenSpec, StartLink, TextInputFlow
@@ -83,11 +84,14 @@ class BackgroundTask:
 
 @dataclass(frozen=True, slots=True)
 class ProposalContribution:
-    """Binds the three proposal responsibilities of one entity, only here."""
+    """Binds the proposal responsibilities of one entity, only here."""
 
     handler: ProposalHandler
     tool: MutationToolSpec
     presenter: ProposalPresenter
+    # Which of this entity's actions may be saved without the owner seeing the screen,
+    # by action. Anything absent takes the review screen.
+    autoapprovals: Mapping[str, AutoApprovalRule] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

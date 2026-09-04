@@ -316,7 +316,7 @@ async def test_di_read_006_advisor_reads_and_cites_day(e2e_harness):
 
     advisor, provider = e2e_harness.advisor(
         [
-            turn(("query_safwa", {"sql": "SELECT id, entry_date, body FROM ai_diary"})),
+            turn(("query_data", {"sql": "SELECT id, entry_date, body FROM ai_diary"})),
             f"Вчера — [{yesterday.strftime('%d.%m.%Y')}](diary:{entry_id}).",
         ],
         subagents=(e2e_harness.workspace(), diary_subagent(e2e_harness)),
@@ -347,7 +347,7 @@ async def test_di_open_010_advisor_opens_day_without_routing(e2e_harness):
         [
             turn(
                 (
-                    "query_safwa",
+                    "query_data",
                     {
                         "sql": (
                             "SELECT id FROM ai_diary "
@@ -378,7 +378,7 @@ async def test_di_open_010_missing_day_is_reported_without_routing(e2e_harness):
         [
             turn(
                 (
-                    "query_safwa",
+                    "query_data",
                     {"sql": f"SELECT id FROM ai_diary WHERE entry_date = '{TODAY}'"},
                 )
             ),

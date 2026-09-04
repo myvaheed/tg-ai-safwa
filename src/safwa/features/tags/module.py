@@ -15,6 +15,7 @@ MODULE = FeatureModule(
         ProposalContribution(
             handler=proposal.TagProposalHandler(),
             tool=agent.TAG_TOOL,
+            autoapprovals=agent.TAG_AUTOAPPROVALS,
             presenter=telegram.TagProposalPresenter(),
         ),
     ),

@@ -138,7 +138,7 @@ async def require_target(
         raise ToolPreparationError(
             "target_not_found",
             f"{change.entity.title()} #{change.id} does not exist.",
-            "Find the current numeric ID with query_safwa and retry. If nothing matches, say so "
+            "Find the current numeric ID with query_data and retry. If nothing matches, say so "
             "instead of proposing again.",
         )
     if entity is not None and getattr(entity, "archived_at", None) is not None:
@@ -220,7 +220,7 @@ class ProposalRegistry:
     handlers: Mapping[str, ProposalHandler]
     presenters: Mapping[str, ProposalPresenter]
     tools: Mapping[str, MutationToolSpec]
-    # The read surface both `query_safwa` and a saved Request are validated against.
+    # The read surface both `query_data` and a saved Request are validated against.
     views: frozenset[str]
     # How the application reports the state a proposal is made and saved against.
     world: WorldReader
@@ -404,7 +404,7 @@ def reference_details(values: Mapping[str, Any], prefix: str) -> list[str]:
 # ------------------------------------------------- preparing a change over references
 
 REFERENCE_HINT = (
-    "Find the item with query_safwa and retry this call with its numeric ID. If you "
+    "Find the item with query_data and retry this call with its numeric ID. If you "
     "proposed it earlier in this same turn, wait for that result and use the ID it returns."
 )
 
@@ -437,7 +437,7 @@ async def validate_named_references(
         raise ToolPreparationError(
             "reference_ambiguous",
             f"{spec.label} '{resolved.ambiguous[0]}' matched more than one item.",
-            f"Use query_safwa to choose one {spec.label} and retry with its numeric ID.",
+            f"Use query_data to choose one {spec.label} and retry with its numeric ID.",
         )
     if spec.refusal is None:
         return

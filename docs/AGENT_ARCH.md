@@ -113,8 +113,8 @@ sequenceDiagram
     A-->>O: one message, citations rendered
 ```
 
-`IMMEDIATE_TOOLS` are `query_safwa`, `route`, `open` and `call_helper` — the tools `ToolAdapters`
-answers itself, and they run inside the turn. `query_safwa` is published to every session it runs,
+`IMMEDIATE_TOOLS` are `query_data`, `route`, `open` and `call_helper` — the tools `ToolAdapters`
+answers itself, and they run inside the turn. `query_data` is published to every session it runs,
 the Advisor's and a subagent's alike, so a feature declares only its own readers.
 The Advisor holds no mutation tool: every write is a proposal authored by a subagent.
 
@@ -153,7 +153,7 @@ sequenceDiagram
     participant S as Screen
     participant O as Owner
     A->>B: route("workspace_mutator")
-    B->>B: query_safwa, then one mutation tool per change
+    B->>B: query_data, then one mutation tool per change
     B->>S: open review → review screen
     Note over A,B: whole chain suspends, status awaiting_approval
     O->>S: Save / Discard
@@ -190,11 +190,11 @@ exactly when its `AgentSpec` is in `MODULES`; its `purpose` **is** the prompt li
 
 ```mermaid
 flowchart LR
-    Q[query_safwa result] -->|JOIN, GROUP BY, subquery, or capped| OFFER[notice names call_helper]
+    Q[query_data result] -->|JOIN, GROUP BY, subquery, or capped| OFFER[notice names call_helper]
     OFFER --> TOOLS[tool added to this session]
     TOOLS --> CALL[call_helper]
     CALL --> HA[heavy_analyzer mini session]
-    HA -->|query_safwa ×N| DB[(ai_* views)]
+    HA -->|query_data ×N| DB[(ai_* views)]
     HA -->|forward_output| ROWS[rows + the SQL]
     HA -->|report_failure| ERR[one sentence]
     ROWS --> A[Advisor keeps its turn]
@@ -235,7 +235,8 @@ flowchart LR
 - **Every proposal screen is exactly Save/Discard.** A screen that needs a field control is the
   wrong screen.
 - Autoapproval decides only whether a screen is shown. It never bypasses proposal persistence, and
-  any doubt or failure leaves the pending screen untouched.
+  any doubt or failure leaves the pending screen untouched. Which actions are eligible is each
+  feature's `ProposalContribution.autoapprovals`; a create is never one of them.
 - `approve_proposal` checks `workspace.revision` before any handler runs; `StaleStateError` is
   the expected failure.
 - Several mutation calls in one turn queue as independent screens; the model resumes only after the
@@ -385,7 +386,7 @@ flowchart LR
   never learns exists. The Diary writes its own list by hand, with columns trimmed on purpose.
 - `view_catalogue` refuses a name no feature publishes and a view with no `doc`.
 
-`query_safwa` is triple-guarded: regex validation of one `SELECT`/`WITH … SELECT` over the `ai_*`
+`query_data` is triple-guarded: regex validation of one `SELECT`/`WITH … SELECT` over the `ai_*`
 views, a separate read-only connection with an authorizer allowlist, and result caps
 (`DEFAULT_ROW_LIMIT = 50`, `DEFAULT_CHAR_BUDGET = 12000`, `QUERY_TIMEOUT_SECONDS = 2`). The caps
 exist because a local model pays for what it reads.

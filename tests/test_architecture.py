@@ -27,7 +27,7 @@ from telegram_llm import DialogueMessage, KindMarks, code_for
 from tg_agent_shell.adapters.kinds import MARKS
 from tg_agent_shell.ai.messages import ContextBuilder, StateBlocks
 from tg_agent_shell.ai.subagents import PERSONA, RoutedSubagent
-from tg_agent_shell.ai.tools import CALL_HELPER_TOOL, OPEN_TOOL, QUERY_SAFWA_TOOL, ROUTE_TOOL
+from tg_agent_shell.ai.tools import CALL_HELPER_TOOL, OPEN_TOOL, QUERY_TOOL, ROUTE_TOOL
 from tg_agent_shell.foundation.models import Base
 
 SNAPSHOTS = Path(__file__).parent / "snapshots"
@@ -80,7 +80,7 @@ def test_rule_i_prompt_prefix_is_byte_stable(request):
         "HEAVY_ANALYZER_PROMPT": _digest(HEAVY_ANALYZER_PROMPT),
         "tool:open": _digest(json.dumps(OPEN_TOOL, sort_keys=True)),
         "tool:route": _digest(json.dumps(ROUTE_TOOL, sort_keys=True)),
-        "tool:query_safwa": _digest(json.dumps(QUERY_SAFWA_TOOL, sort_keys=True)),
+        "tool:query_data": _digest(json.dumps(QUERY_TOOL, sort_keys=True)),
         "tool:call_helper": _digest(json.dumps(CALL_HELPER_TOOL, sort_keys=True)),
     }
     # The instructions as assembled, not as written: `{views}` is filled in at import

@@ -23,6 +23,7 @@ MODULE = FeatureModule(
         ProposalContribution(
             handler=proposal.CardProposalHandler(),
             tool=agent.CARD_TOOL,
+            autoapprovals=agent.CARD_AUTOAPPROVALS,
             presenter=telegram.CardProposalPresenter(),
         ),
     ),

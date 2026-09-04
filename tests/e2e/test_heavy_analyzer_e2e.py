@@ -21,7 +21,7 @@ def read(sql: str, call_id: str = "q1") -> CompletionTurn:
     return CompletionTurn(
         content="",
         tool_calls=(
-            ToolCall(id=call_id, name="query_safwa", arguments_json=json.dumps({"sql": sql})),
+            ToolCall(id=call_id, name="query_data", arguments_json=json.dumps({"sql": sql})),
         ),
     )
 

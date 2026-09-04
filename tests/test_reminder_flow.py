@@ -328,7 +328,7 @@ def test_a_batch_is_numbered():
 def test_the_main_advisor_is_told_to_verify_named_items_first():
     """RM-FIRE-011 — tests/brd/reminders.feature"""
     text = format_cue([_firing(instruction="Review Card #88.")], now=NOW)
-    assert "check their current state with query_safwa" in text
+    assert "check their current state with query_data" in text
     assert "it may no longer apply" in text
 
 

@@ -14,6 +14,7 @@ from safwa.bootstrap.modules import (
     AGENTS,
     AI_VIEWS,
     ALLOWED_VIEWS,
+    AUTOAPPROVALS,
     HEAVY_ANALYZER_PROMPT,
     PROPOSALS,
     SCREENS,
@@ -131,7 +132,7 @@ class E2EHarness:
             purpose="every change to the planning data",
             # The instructions as assembled, `{views}` filled in: what the application runs.
             instructions=next(agent.instructions for agent in AGENTS if agent.name == "workspace_mutator"),
-            # No read tool of its own: `query_safwa` is published by the adapters.
+            # No read tool of its own: `query_data` is published by the adapters.
             mutation_tools=MUTATOR_TOOLS,
             workspace_state=True,
         )
@@ -159,7 +160,7 @@ class E2EHarness:
             system_prompt=SYSTEM_PROMPT,
             model_name="e2e-scripted-model",
             cache_breakpoints=cache_breakpoints,
-            autoapproval=AutoApprovalReviewer(provider) if autoapprove else None,
+            autoapproval=AutoApprovalReviewer(provider, AUTOAPPROVALS) if autoapprove else None,
             subagents=subagents,
             helpers=helpers,
             reviews=self.reviews,

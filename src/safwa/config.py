@@ -106,7 +106,7 @@ class Settings(BaseSettings):
     ai_send_temperature: bool | None = None
     ai_cache_breakpoints: bool | None = None
     ai_reasoning_effort: str | None = None
-    # query_safwa result caps. A capped result is returned with a notice telling the
+    # query_data result caps. A capped result is returned with a notice telling the
     # model to narrow the query, so raise these only if the model has context to spare.
     ai_query_row_limit: int = Field(default=DEFAULT_ROW_LIMIT, gt=0)
     ai_query_char_budget: int = Field(default=DEFAULT_CHAR_BUDGET, gt=0)

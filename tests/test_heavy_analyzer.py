@@ -9,7 +9,7 @@ from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.bootstrap.modules import AGENTS, HEAVY_ANALYZER_PROMPT, SYSTEM_PROMPT
 from safwa.features.heavy_analyzer import agent as heavy_analyzer
 from tg_agent_shell.ai.sql import is_complex_read
-from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS, SAFWA_TOOLS
+from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS, ROOT_SESSION_TOOLS
 
 
 class ScriptedMini:
@@ -30,7 +30,7 @@ def query(sql: str, call_id: str = "q1") -> CompletionTurn:
     return CompletionTurn(
         content="",
         tool_calls=(
-            ToolCall(id=call_id, name="query_safwa", arguments_json=json.dumps({"sql": sql})),
+            ToolCall(id=call_id, name="query_data", arguments_json=json.dumps({"sql": sql})),
         ),
     )
 
@@ -226,7 +226,7 @@ async def test_han_ask_009_the_helper_holds_no_tool_that_changes_anything(read_v
     )
 
     offered = {tool["function"]["name"] for tool in provider.requests[0].tools}
-    assert offered == {"query_safwa", "forward_output", "report_failure"}
+    assert offered == {"query_data", "forward_output", "report_failure"}
 
 
 def test_han_ask_010_no_routing_rule_names_a_helper() -> None:
@@ -236,7 +236,7 @@ def test_han_ask_010_no_routing_rule_names_a_helper() -> None:
     assert heavy_analyzer.NAME not in rules
     assert heavy_analyzer.NAME not in SYSTEM_PROMPT
     # And the tool is not something the Advisor carries into a turn either.
-    assert "call_helper" not in {tool["function"]["name"] for tool in SAFWA_TOOLS}
+    assert "call_helper" not in {tool["function"]["name"] for tool in ROOT_SESSION_TOOLS}
     assert "call_helper" not in SYSTEM_PROMPT
 
 

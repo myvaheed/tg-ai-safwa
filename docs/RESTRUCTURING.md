@@ -11,7 +11,7 @@ something else has to happen before it can. **no** — ruled out, kept so it is 
 
 ## Batch 1 — landed
 
-1. **done** — `QUERY_SAFWA_TOOL` and `query_read_tool` sit in `ai/tools.py`; the runner stayed in
+1. **done** — `QUERY_TOOL` and `query_read_tool` sit in `ai/tools.py`; the runner stayed in
    `ai/sql.py`.
 3. **done** — `features/home` owns the menu screen and `MENU_LAYOUT`; a screen declares a `title`
    and never a row.
@@ -224,11 +224,39 @@ only to make this move possible. Rule M stayed and changed target — the engine
 no feature and now imports nothing of the package built on top of it, which is the same
 property said where it can still be broken.
 
-The move is what makes the rest visible rather than what finishes it. `ai/` still carries
-Safwa's vocabulary in `tools.py`, `contracts.py` and `autoapproval.py`, so the test the other
-three packages have — the vocabulary of the package belongs to no application — cannot be
-switched on yet. Candidate 8 blocks nothing: its only tie to the move is that a helper offered
-by the shape of a SQL query is a wart the first other project would inherit.
+The move is what makes the rest visible rather than what finishes it: batch 3 is what the
+package needed before the test the other three have could be written at all. Candidate 8
+blocks nothing — its only tie to the move is that a helper offered by the shape of a SQL
+query is a wart the first other project would inherit.
+
+## Batch 3 — landed
+
+The package names no product in what the model reads, and no feature's fields in what the
+engine declares.
+
+11. **done** — the six contracts are each in their own feature's `agent.py`, where
+    `DiaryToolInput` already was. `ai/contracts.py` went from 547 lines to 294, and what is
+    left is the shape of a tool call rather than the fields of one.
+27. **done** — the read tool is `query_data`. Its old name was a product's, in the tool list
+    every session is shown, so a second project would have inherited it; the schema, the four
+    prompts naming it and the snapshot moved together.
+28. **done** — `ai/autoapproval.py` keeps how a rule is read — `SCALAR_UPDATE` and
+    `RELATIONSHIP_LINK` — and which of an entity's actions has one is a
+    `ProposalContribution` field, declared beside the tool whose fields it names.
+
+### Benefits
+
+- Two hardcoded field-name lists in the normalizer are one look at the annotation: a field
+  that takes only a list is one a bare value belongs inside, which is what the type already
+  said. The third is `content_fields`, declared by the model that has such a field.
+- The autoapproval allowlist was the last table keyed by entity name outside a feature.
+  Adding an entity no longer means editing it, and a feature that wants none writes nothing.
+- The prompt-prefix snapshot moved by exactly five entries — the read tool and the four
+  prompts that name it — which is what proves the other six schemas did not change while
+  their classes did.
+- Five public names in the package are still Safwa's: three are `advisor` (candidate 18) and
+  two are the Sprint gate (candidate 27 below). Until those, the vocabulary test cannot be
+  switched on, and that is now the whole of the list rather than an estimate.
 
 ## Candidates — from the owner
 
@@ -248,9 +276,8 @@ by the shape of a SQL query is a wart the first other project would inherit.
 
 ## Candidates — found in the same pass
 
-11. **yes** — `ai/contracts.py` declares `CardToolInput`, `CheckToolInput`, `ValueToolInput`,
-    `TagToolInput`, `RequestToolInput` and `ReminderToolInput`: every feature's contract sits in
-    the engine that owns no feature.
+11. **done** — every feature's contract sat in the engine that owns no feature; each is in
+    its own `agent.py` now. Batch 3.
 12. **yes** — `RoutedSubagent` and `AgentSpec` are one concept declared twice, seven fields
     each; both are in `tg_agent_shell` now, so the duplicate is one package's to settle.
 13. **yes** — `heavy_analyzer` has no `module.py` and `bootstrap/modules.py` imports its agent
@@ -278,6 +305,11 @@ by the shape of a SQL query is a wart the first other project would inherit.
     of their own.
 25. **no** — values and tags are the same nine modules twice, but each keeps its own rules, and
     `RecordToolInput` is already the whole of what they share.
+27. **check** — `ScreenCommand.needs_sprint` and `sprint_active` put a Sprint in the plug
+    contract and in the shell's own command filter; whether a command applies is the
+    application's to answer, not a field the shell reads.
+28. **check** — `PERSONA` in `ai/subagents.py` is the product's own prompt inside the engine:
+    it names Safwa and what Safwa is for, and every subagent reads it.
 26. **yes** — the slash list is longer than it needs to be: `/backlog` and `/settings` go, and
     `/sprint` joins `/today` in cards. `/tags`, `/values` and `/reminders` already sit with the
     feature each names, so what is left is two deletions and one move. Whether a command that

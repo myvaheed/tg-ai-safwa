@@ -93,7 +93,7 @@ def test_an_unowned_entity_is_refused_rather_than_silently_dropped():
 
 
 def test_the_view_allowlist_is_the_catalogue_the_database_gets(tmp_path):
-    # One source: what `query_safwa` may name is exactly what startup created.
+    # One source: what `query_data` may name is exactly what startup created.
     assert ALLOWED_VIEWS == {view.name for view in AI_VIEWS}
     assert len(AI_VIEWS) == len({view.name for view in AI_VIEWS})
 

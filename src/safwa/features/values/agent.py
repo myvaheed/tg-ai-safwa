@@ -2,8 +2,23 @@
 
 from __future__ import annotations
 
-from tg_agent_shell.ai.contracts import ValueToolInput
+from tg_agent_shell.ai.autoapproval import SCALAR_UPDATE, AutoApprovalRule
+from tg_agent_shell.ai.contracts import RecordToolInput
 from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
+
+
+class ValueToolInput(RecordToolInput):
+    content_fields = frozenset({"name", "description"})
+    create_requires = ("name",)
+
+    name: str | None = None
+    description: str | None = None
+    active: bool | None = None
+
+
+VALUE_AUTOAPPROVALS = {
+    "update": AutoApprovalRule(SCALAR_UPDATE, frozenset({"name", "description", "active"}))
+}
 
 VALUE_TOOL = MutationToolSpec(
     name="value",

@@ -12,7 +12,7 @@ from safwa.bootstrap.modules import AGENTS, ALLOWED_VIEWS, PROPOSALS, SYSTEM_PRO
 from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
 from tg_agent_shell.ai.subagents import PERSONA, RoutedSubagent
-from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS, SAFWA_TOOLS
+from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS, ROOT_SESSION_TOOLS
 from tg_agent_shell.telegram.manifest import AgentContext
 
 
@@ -62,7 +62,7 @@ def test_a_routed_prompt_carries_the_one_persona_block() -> None:
 
 def test_the_diary_is_written_only_by_its_subagent() -> None:
     """AG-ROUTE-001 — tests/brd/agents.feature"""
-    advisor_tools = {tool["function"]["name"] for tool in SAFWA_TOOLS}
+    advisor_tools = {tool["function"]["name"] for tool in ROOT_SESSION_TOOLS}
     assert "diary" not in advisor_tools
     assert "diary" in PROPOSALS.tools
     assert diary_routed(StubDayReader("")).mutation_tools == ("diary",)
@@ -112,7 +112,7 @@ def test_the_clock_is_the_only_volatile_line_a_diary_session_gets() -> None:
 
 
 def test_no_subagent_declares_a_read_tool_the_adapters_already_answer(tmp_path) -> None:
-    """`query_safwa` is Safwa's one read door, published to every session by `ToolAdapters`.
+    """`query_data` is Safwa's one read door, published to every session by `ToolAdapters`.
 
     A subagent that declared it again would be shadowed — the adapters answer their own
     names before they look at a session's read tools — and its schema would be sent twice.

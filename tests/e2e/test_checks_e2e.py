@@ -170,7 +170,7 @@ async def test_completion_is_refused_while_checks_are_pending(e2e_harness):
     outcome = await advisor.handle("I finished the market run, close it")
 
     # The preparation error is model-visible, retryable, and carries the titles so the
-    # model does not need a query_safwa round to discover them.
+    # model does not need a query_data round to discover them.
     tool_result = json.loads(provider.calls[-1][-1]["content"])
     assert tool_result["status"] == "error"
     assert tool_result["code"] == "pending_checks"

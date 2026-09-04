@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import select, text
 
-from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
+from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, AUTOAPPROVALS
 from safwa.features.cards.model import Card
 from safwa.features.saved_requests.api import request_cards
 from safwa.features.saved_requests.model import SavedRequest
@@ -174,7 +174,7 @@ async def test_a_request_name_is_taken_whatever_its_case(sessions):
 
 def test_a_request_query_is_never_allowlisted_for_autoapproval():
     """SR-AI-010 — tests/brd/saved_requests.feature"""
-    reviewer = AutoApprovalReviewer(provider=None)
+    reviewer = AutoApprovalReviewer(provider=None, rules=AUTOAPPROVALS)
 
     def candidate(action: str, values: dict[str, object]) -> AutoApprovalCandidate:
         return AutoApprovalCandidate(

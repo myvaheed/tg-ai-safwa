@@ -4,7 +4,7 @@ The view catalogue is data, not a constant here. Each feature owns its `SqlView`
 composition root collects them, and both the allowlist and `CREATE VIEW` come from that
 one source — so a new view is never registered twice.
 
-`query_safwa` is that surface as a tool, and every session that may read comes through
+`query_data` is that surface as a tool, and every session that may read comes through
 `read_query`: one door, and one wording for a read that was refused.
 """
 
@@ -388,7 +388,7 @@ class ReadOnlyQueryRunner:
 
 @dataclass
 class QueryRead:
-    """One `query_safwa` call: the SQL it asked for, and the rows the model reads back.
+    """One `query_data` call: the SQL it asked for, and the rows the model reads back.
 
     `sql` is empty when the call never named one, which is how a caller tells a refused
     SELECT from a call whose arguments were not a query at all.
@@ -399,7 +399,7 @@ class QueryRead:
 
 
 async def read_query(runner: ReadOnlyQueryRunner, call: ToolCall) -> QueryRead:
-    """Answer one `query_safwa` call. Every session that may read comes through here.
+    """Answer one `query_data` call. Every session that may read comes through here.
 
     A rejected or broken read is the model's to repair, so it comes back as a retryable
     tool result rather than an exception: raising would end the whole request, including
@@ -411,7 +411,7 @@ async def read_query(runner: ReadOnlyQueryRunner, call: ToolCall) -> QueryRead:
         sql = query.sql
         outcome = await runner.run(sql)
         if outcome.notice:
-            logger.info("AI TOOL query_safwa capped: %s", outcome.notice)
+            logger.info("AI TOOL query_data capped: %s", outcome.notice)
         return QueryRead(sql, outcome.as_tool_result())
     # ``UnsafeQueryError`` is a ``ValueError``, so it has to be caught before the
     # argument-shape clause or a rejected SELECT is reported as a bad argument and the
@@ -425,7 +425,7 @@ async def read_query(runner: ReadOnlyQueryRunner, call: ToolCall) -> QueryRead:
                     "code": "unsafe_query" if isinstance(error, UnsafeQueryError) else "query_failed",
                     "error": str(error),
                     "hint": (
-                        "Fix only this SELECT and call query_safwa again. One read-only "
+                        "Fix only this SELECT and call query_data again. One read-only "
                         "SELECT or WITH … SELECT over the ai_* views, no other statement. "
                         "This failure changed nothing: every step of the request already "
                         "resolved above still stands, so do not restart the request."
@@ -448,7 +448,7 @@ async def read_query(runner: ReadOnlyQueryRunner, call: ToolCall) -> QueryRead:
                     ),
                     "hint": (
                         'Send exactly one string argument, e.g. {"sql": "SELECT id, title '
-                        'FROM ai_cards LIMIT 20"}, and call query_safwa again.'
+                        'FROM ai_cards LIMIT 20"}, and call query_data again.'
                     ),
                     "retryable": True,
                 }

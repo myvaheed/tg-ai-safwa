@@ -53,7 +53,7 @@ The Advisor could not write it. Its question is in `<Request from AI>`, and the 
 before it says what the user actually asked.
 
 # How a turn goes
-1. Read with `query_safwa` until one result answers the question.
+1. Read with `query_data` until one result answers the question.
 2. Call `forward_output`. That last result goes to the Advisor as it is.
 3. If you cannot answer it, call `report_failure` with one sentence saying why.
 
@@ -61,7 +61,7 @@ Never write the answer in words. Nothing you type reaches the Advisor — only t
 Aim for a result of a few rows: aggregate, group and count rather than listing everything.
 
 # Read the data
-`query_safwa` runs one read-only `SELECT` or `WITH ... SELECT` over these views only.
+`query_data` runs one read-only `SELECT` or `WITH ... SELECT` over these views only.
 Every value listed under a view is the lowercase code stored in that column.
 
 {views}
@@ -84,7 +84,7 @@ class ReportFailureInput(ToolInput):
 
 FORWARD_OUTPUT = TerminalTool(
     name="forward_output",
-    description="Send your last query_safwa result to the Advisor as the answer.",
+    description="Send your last query_data result to the Advisor as the answer.",
     model=ForwardOutputInput,
 )
 
@@ -118,7 +118,7 @@ def _is_error(rows: list[Any]) -> bool:
 
 
 def _recording_read_tool(runner: ReadOnlyQueryRunner, last: _LastRead) -> ReadToolSpec:
-    """`query_safwa`, remembering its own newest result so a terminal can forward it."""
+    """`query_data`, remembering its own newest result so a terminal can forward it."""
     inner = query_read_tool(runner)
 
     async def read(call: ToolCall) -> Any:

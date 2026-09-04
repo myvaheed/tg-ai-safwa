@@ -15,6 +15,7 @@ from dataclasses import replace
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.ai.autoapproval import AutoApprovalRule
 from tg_agent_shell.ai.sql import SqlView, view_catalogue
 from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.cues.module import CUE_QUEUE
@@ -185,6 +186,23 @@ def _proposals() -> ProposalRegistry:
 
 
 PROPOSALS: ProposalRegistry = _proposals()
+
+
+def _autoapprovals() -> dict[tuple[str, str], AutoApprovalRule]:
+    rules: dict[tuple[str, str], AutoApprovalRule] = {}
+    for module in MODULES:
+        for contribution in module.proposals:
+            entity = contribution.handler.entity
+            rules.update(
+                ((entity, action), rule)
+                for action, rule in contribution.autoapprovals.items()
+            )
+    return rules
+
+
+# The whole of what may be saved without the owner seeing it. A feature that declares
+# nothing has nothing here, and every other change takes the review screen.
+AUTOAPPROVALS: dict[tuple[str, str], AutoApprovalRule] = _autoapprovals()
 
 
 def _with_catalogue(agent: AgentSpec) -> AgentSpec:

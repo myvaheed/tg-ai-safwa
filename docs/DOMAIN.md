@@ -40,7 +40,7 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
 - `manual_stage` is what the user set, and it is an Action's alone; `effective_stage` is what
   dashboards and queries read.
 - Effort is restricted to `EFFORT_POINTS` and required for Actions; the `Literal` in
-  [ai/contracts.py](../src/tg_agent_shell/ai/contracts.py) mirrors it — change both together.
+  [cards/agent.py](../src/safwa/features/cards/agent.py) mirrors it — change both together.
 
 ## Checks
 

@@ -54,7 +54,7 @@ def _config(**overrides) -> OpenAICompatibleConfig:
 def _request(**overrides) -> CompletionRequest:
     values = {
         "messages": ({"role": "system", "content": "hi"},),
-        "tools": ({"type": "function", "function": {"name": "query_safwa", "parameters": {}}},),
+        "tools": ({"type": "function", "function": {"name": "query_data", "parameters": {}}},),
     }
     values.update(overrides)
     return CompletionRequest(**values)
@@ -139,7 +139,7 @@ async def test_tool_call_keeps_invalid_arguments_json_raw():
         {
             "id": "call-1",
             "type": "function",
-            "function": {"name": "query_safwa", "arguments": "{invalid json"},
+            "function": {"name": "query_data", "arguments": "{invalid json"},
         }
     ]
     respx.post(COMPLETIONS).mock(return_value=httpx.Response(200, json=response))
@@ -149,7 +149,7 @@ async def test_tool_call_keeps_invalid_arguments_json_raw():
     finally:
         await provider.aclose()
 
-    assert turn.tool_calls == (ToolCall("call-1", "query_safwa", "{invalid json"),)
+    assert turn.tool_calls == (ToolCall("call-1", "query_data", "{invalid json"),)
 
 
 @respx.mock

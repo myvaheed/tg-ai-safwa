@@ -54,7 +54,7 @@ from .use_cases import (
 )
 
 PARENT_HINT = (
-    "Find the parent with query_safwa and retry with its numeric parent_id, or drop the "
+    "Find the parent with query_data and retry with its numeric parent_id, or drop the "
     "parent. If you proposed it earlier in this same turn, wait for that result first."
 )
 
@@ -168,7 +168,7 @@ async def _resolve_parent_reference(
                 raise ToolPreparationError(
                     "reference_ambiguous",
                     f"Parent Card '{parent_query}' matched more than one Card.",
-                    "Use query_safwa to choose one parent and retry with its numeric ID.",
+                    "Use query_data to choose one parent and retry with its numeric ID.",
                 )
             values["parent_id"] = matches[0].id
 
@@ -196,7 +196,7 @@ async def _guard_pending_checks(
     """Refuse to prepare a completion while a Check series on the Card has no answer.
 
     The error is model-visible and retryable, and it carries the titles so the model
-    does not have to spend a `query_safwa` round discovering them.
+    does not have to spend a `query_data` round discovering them.
     """
     completing = change.action is ChangeAction.COMPLETE or (
         change.action in {ChangeAction.MOVE, ChangeAction.UPDATE} and values.get("stage") == CardStage.DONE.value

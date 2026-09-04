@@ -172,7 +172,7 @@ def format_cue(firings: list[Firing], *, now: datetime) -> str:
     blocks = [
         header,
         (
-            "If a Reminder mentions Safwa items, check their current state with query_safwa "
+            "If a Reminder mentions Safwa items, check their current state with query_data "
             "first: it may no longer apply. Then answer it as you would answer the user."
         ),
         "",

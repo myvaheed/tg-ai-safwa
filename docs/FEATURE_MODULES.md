@@ -14,7 +14,7 @@ rule imports it.
 | Field | What it contributes |
 |---|---|
 | `agents` | an `AgentSpec` — the subagent `route(name)` reaches, and the line the Advisor's prompt carries |
-| `proposals` | a `ProposalContribution` per entity: handler, mutation tool, presenter |
+| `proposals` | a `ProposalContribution` per entity: handler, mutation tool, presenter, and which of its actions save without a screen |
 | `mutation_tools` | a mutation tool whose change lands on an entity another feature owns (`remove`) |
 | `views` | the `ai_*` views this feature publishes |
 | `screens` | a `ScreenSpec` per item type the owner can be taken to, and how it reads when cited |

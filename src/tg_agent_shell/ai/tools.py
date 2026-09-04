@@ -1,9 +1,8 @@
-"""Safwa's side of the tool port: what the application does when a session calls a tool.
+"""The tool port: what happens when a session calls a tool.
 
 A session runs a loop and knows only that a tool call comes back with a result. What that
 result *is* — a read over the `ai_*` views, an item on the screen, a helper's rows, a
-prepared change — is Safwa's, and none of it can live in a package that must work without
-Safwa. So the loop asks, and this module answers.
+prepared change — is answered here, out of what the composition root bound.
 
 `ToolAdapters` is the runtime's `ToolRunner`: it says what each kind of session may call,
 runs one call, and supplies the few sentences the loop has to say about tools.
@@ -57,12 +56,12 @@ SUBAGENT_HISTORY_LAST_MESSAGES = 10
 Helper = Callable[..., Awaitable[dict[str, Any]]]
 
 
-QUERY_SAFWA_TOOL: dict[str, Any] = {
+QUERY_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
-        "name": "query_safwa",
+        "name": "query_data",
         "description": (
-            "Read Safwa's current data with one read-only SELECT over the ai_* views listed "
+            "Read the current data with one read-only SELECT over the ai_* views listed "
             "in your instructions. Use it before you answer or propose anything."
         ),
         "parameters": tool_json_schema(QueryToolInput),
@@ -103,17 +102,17 @@ CALL_HELPER_TOOL: dict[str, Any] = {
         "parameters": tool_json_schema(CallHelperInput),
     },
 }
-# The Advisor reads and routes. Every mutation tool belongs to the subagent that owns that
-# feature, so judging *which* change to propose happens where the change is authored.
-SAFWA_TOOLS = (QUERY_SAFWA_TOOL, OPEN_TOOL)
+# The root session reads and routes. Every mutation tool belongs to the subagent that owns
+# that feature, so judging *which* change to propose happens where the change is authored.
+ROOT_SESSION_TOOLS = (QUERY_TOOL, OPEN_TOOL)
 # The tools the adapters answer themselves, and the ones that run during the turn instead
 # of becoming a proposal the owner approves. A session's own read tools are immediate too,
 # but they are its own: a subagent that named one of these would never be heard.
-IMMEDIATE_TOOLS = frozenset({"query_safwa", "route", "open", "call_helper"})
+IMMEDIATE_TOOLS = frozenset({"query_data", "route", "open", "call_helper"})
 
 
 def query_read_tool(query_runner: ReadOnlyQueryRunner) -> ReadToolSpec:
-    """`query_safwa` as a read tool a mini session declares for itself.
+    """`query_data` as a read tool a mini session declares for itself.
 
     A mini session never runs through `ToolAdapters`, so this is how it reaches the same
     door: the runner, its caps and its wording are `ai/sql.py`'s for every reader.
@@ -122,7 +121,7 @@ def query_read_tool(query_runner: ReadOnlyQueryRunner) -> ReadToolSpec:
     async def read(call: ToolCall) -> list[dict[str, Any]]:
         return (await read_query(query_runner, call)).rows
 
-    return ReadToolSpec(QUERY_SAFWA_TOOL, read)
+    return ReadToolSpec(QUERY_TOOL, read)
 
 
 REPAIR_EXHAUSTED = (
@@ -183,7 +182,7 @@ def mutation_repair_details(
 
 
 class ToolAdapters:
-    """One method per tool Safwa answers. Each takes the calling session and its call."""
+    """One method per tool the application answers, each taking a session and its call."""
 
     def __init__(
         self,
@@ -204,7 +203,9 @@ class ToolAdapters:
         self.trail = trail
         self.subagents = dict(subagents or {})
         # An empty roster means there is nothing to route to, so the tool is not offered.
-        self.advisor_tools = (*SAFWA_TOOLS, ROUTE_TOOL) if self.subagents else SAFWA_TOOLS
+        self.root_tools = (
+            (*ROOT_SESSION_TOOLS, ROUTE_TOOL) if self.subagents else ROOT_SESSION_TOOLS
+        )
         self.helpers = dict(helpers or {})
         # Built once: the offer is the whole of what the model is ever told about helpers,
         # so it has to name the tool in the shape the tool actually takes.
@@ -217,24 +218,24 @@ class ToolAdapters:
     # ------------------------------------------------------------- the tool port
 
     def definition(self, kind: str) -> AgentDefinition:
-        """What a session of this kind may call. The Advisor reads and routes; a subagent
-        gets its own reads and the mutation tools of the features it owns.
+        """What a session of this kind may call. The root session reads and routes; a
+        subagent gets its own reads and the mutation tools of the features it owns.
 
-        `query_safwa` is Safwa's one read door rather than any feature's read tool, so it
-        is published here to every session. `IMMEDIATE_TOOLS` is the whole set the adapters
+        `query_data` is the one read door rather than any feature's read tool, so it is
+        published here to every session. `IMMEDIATE_TOOLS` is the whole set the adapters
         answer themselves, and a subagent declares none of them.
         """
         routed = self.subagents.get(kind)
         if routed is None:
             return AgentDefinition(
-                kind=kind, tools=self.advisor_tools, helper_tool=CALL_HELPER_TOOL
+                kind=kind, tools=self.root_tools, helper_tool=CALL_HELPER_TOOL
             )
         # No helper tool: a helper is offered by a complex read, and only the Advisor's
         # reads are ever offered one.
         return AgentDefinition(
             kind=kind,
             tools=(
-                QUERY_SAFWA_TOOL,
+                QUERY_TOOL,
                 *(spec.schema for spec in routed.read_tools),
                 *(self.proposals.tools[name].schema() for name in routed.mutation_tools),
             ),
@@ -246,7 +247,7 @@ class ToolAdapters:
 
     async def run(self, agent: AgentSession, call: ToolCall) -> ToolOutcome:
         """Run one call. Anything that is not a read is a change waiting for the owner."""
-        if call.name == "query_safwa":
+        if call.name == "query_data":
             return ToolOutcome(result=await self.query(agent, call))
         if call.name == "open":
             return ToolOutcome(result=await self.open(agent, call))
@@ -385,7 +386,7 @@ class ToolAdapters:
         return result
 
     async def query(self, agent: AgentSession, call: ToolCall) -> list[dict[str, Any]]:
-        """Safwa's one read door, for every session the adapters run.
+        """The one read door, for every session the adapters run.
 
         The read itself is `ai/sql.py`'s. What is here is the session's half of it: the
         helper a complex read earns, and the trail that keeps the SQL a local model wrote
@@ -397,7 +398,7 @@ class ToolAdapters:
             agent.offer_helper()
             add_notice(rows, self.helper_offer)
         logger.info(
-            "AI TOOL query_safwa -> rows=%d sql=%s",
+            "AI TOOL query_data -> rows=%d sql=%s",
             len(rows),
             log_preview(sql, 700),
         )
@@ -440,7 +441,7 @@ class ToolAdapters:
                     "status": ToolResultStatus.ERROR.value,
                     "code": "not_found",
                     "error": f"There is no {request.item_type} #{request.id}.",
-                    "hint": "Find the id with query_safwa, then call open again.",
+                    "hint": "Find the id with query_data, then call open again.",
                     "retryable": True,
                 }
             item_id = item.id

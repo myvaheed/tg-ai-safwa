@@ -15,6 +15,7 @@ MODULE = FeatureModule(
         ProposalContribution(
             handler=proposal.CheckProposalHandler(),
             tool=agent.CHECK_TOOL,
+            autoapprovals=agent.CHECK_AUTOAPPROVALS,
             presenter=telegram.CheckProposalPresenter(),
         ),
     ),

@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from safwa.bootstrap.modules import PROPOSALS
+from safwa.features.cards.agent import CardToolInput
 from safwa.features.cards.model import Card, CardStage, Priority
 from safwa.features.cards.use_cases import (
     create_card,
@@ -18,7 +19,6 @@ from safwa.features.saved_requests.model import SavedRequest
 from safwa.features.tags.model import Tag
 from safwa.features.values.model import Value
 from safwa.foundation.marks import live_repeat_instance_id
-from tg_agent_shell.ai.contracts import CardToolInput
 from tg_agent_shell.foundation.models import UtcDateTime
 from tg_agent_shell.proposals.api import ToolPreparationError
 from tg_agent_shell.proposals.prepare import ChangePreparer

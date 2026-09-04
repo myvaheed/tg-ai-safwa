@@ -19,7 +19,13 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class AutoApprovalRule:
-    """One operation shape the semantic reviewer is allowed to approve."""
+    """One action a feature says may be saved without the owner ever seeing it.
+
+    Declaring one is a data change and nothing else: name the action, and for an update
+    name the fields that action may alter.  A create is never declared — a new item is the
+    one change the owner cannot read as a correction of something they already know, so
+    every create takes the review screen.
+    """
 
     criteria: str
     allowed_fields: frozenset[str] | None = None
@@ -28,70 +34,16 @@ class AutoApprovalRule:
         return self.allowed_fields is None or set(values).issubset(self.allowed_fields)
 
 
-_SCALAR_UPDATE = (
+# How a rule is read, so a feature naming its own fields does not also write out how they
+# are to be judged.
+SCALAR_UPDATE = (
     "Approve only when every changed field and its exact new value are clearly requested. "
     "Do not infer an additional edit from what would merely be useful."
 )
-_RELATIONSHIP_LINK = (
+RELATIONSHIP_LINK = (
     "Approve when this proposal links exactly the relationship type and referenced items requested. "
     "The creation or editing of those items may be handled by separate proposals."
 )
-
-# This is the only operation allowlist. Extending autoapproval is deliberately a data change:
-# add an (entity, action) entry and, for updates, name the fields that action may alter.
-# Creation is deliberately absent: a new item is the one change the owner cannot spot as a
-# correction of something they already know, so every create takes the review screen.
-DEFAULT_AUTOAPPROVAL_RULES: dict[tuple[str, str], AutoApprovalRule] = {
-    (
-        "card",
-        "link",
-    ): AutoApprovalRule(
-        _RELATIONSHIP_LINK,
-        frozenset(
-            {
-                "value_id",
-                "value_ids",
-                "value_query",
-                "tag_id",
-                "tag_ids",
-                "tag_query",
-                "check_id",
-                "check_ids",
-                "check_query",
-            }
-        ),
-    ),
-    (
-        "card",
-        "update",
-    ): AutoApprovalRule(
-        _SCALAR_UPDATE,
-        frozenset(
-            {
-                "title",
-                "note",
-                "priority",
-                "hard_time",
-                "blocked",
-                "blocked_description",
-                "effort_points",
-                "repeatable",
-            }
-        ),
-    ),
-    ("check", "update"): AutoApprovalRule(
-        _SCALAR_UPDATE, frozenset({"title", "repeatable"})
-    ),
-    ("tag", "update"): AutoApprovalRule(
-        _SCALAR_UPDATE, frozenset({"name", "description"})
-    ),
-    ("value", "update"): AutoApprovalRule(
-        _SCALAR_UPDATE, frozenset({"name", "description", "active"})
-    ),
-    ("request", "update"): AutoApprovalRule(
-        _SCALAR_UPDATE, frozenset({"name", "description"})
-    ),
-}
 
 
 @dataclass(frozen=True)
@@ -128,7 +80,7 @@ _REQUIRE_REVIEW = TerminalTool(
     model=_ReviewReason,
 )
 
-AUTOAPPROVAL_PROMPT = """You decide one thing about this Safwa proposal: it is saved without the
+AUTOAPPROVAL_PROMPT = """You decide one thing about this proposal: it is saved without the
 user seeing it, or it is shown to them as Save/Discard. Call exactly one tool.
 
 Call autoapprove only when all of these hold:
@@ -153,7 +105,7 @@ class AutoApprovalReviewer:
     def __init__(
         self,
         provider: LlmProvider,
-        rules: Mapping[tuple[str, str], AutoApprovalRule] = DEFAULT_AUTOAPPROVAL_RULES,
+        rules: Mapping[tuple[str, str], AutoApprovalRule],
     ) -> None:
         self.provider = provider
         self.rules = dict(rules)

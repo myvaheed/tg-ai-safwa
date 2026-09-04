@@ -8,7 +8,7 @@ flowchart TD
     REG["bootstrap/modules.py<br/><b>MODULES</b>"]
     MOD --> REG
 
-    REG --> V["AI_VIEWS + ALLOWED_VIEWS<br/><i>что CREATE VIEW создаст<br/>и что query_safwa примет</i>"]
+    REG --> V["AI_VIEWS + ALLOWED_VIEWS<br/><i>что CREATE VIEW создаст<br/>и что query_data примет</i>"]
     REG --> P["PROPOSALS<br/><i>handler · tool · presenter</i>"]
     REG --> A["AGENTS + правила маршрутизации<br/><i>строка route() в промпте</i>"]
     REG --> S["SCREENS + команды<br/>callback-действия · ввод текста<br/>start-ссылки"]

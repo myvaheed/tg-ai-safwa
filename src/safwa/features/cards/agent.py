@@ -2,10 +2,150 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
-from tg_agent_shell.ai.contracts import CardToolInput
+from pydantic import Field, PositiveInt, model_validator
+
+from tg_agent_shell.ai.autoapproval import RELATIONSHIP_LINK, SCALAR_UPDATE, AutoApprovalRule
+from tg_agent_shell.ai.contracts import ToolInput
 from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
+
+
+class CardToolInput(ToolInput):
+    content_fields = frozenset({"title", "note", "blocked_description"})
+    semantic_null_fields = frozenset({"parent_id"})
+
+    mode: Literal["create", "update", "move", "complete", "cancel", "reopen", "link", "unlink"] = (
+        Field(
+            description=(
+                "move changes only the stage; update changes every other field. complete and "
+                "cancel are how a Card reaches Done and Cancelled, and reopen brings it back. "
+                "link and unlink attach one relationship type. Archiving is the remove tool."
+            )
+        )
+    )
+    id: PositiveInt | None = None
+    kind: Literal["goal", "idea", "action"] | None = None
+    title: str | None = None
+    note: str | None = None
+    stage: Literal["backlog", "sprint", "today", "done", "cancelled"] | None = None
+    priority: Literal["critical", "medium", "low"] | None = None
+    hard_time: bool | None = None
+    blocked: bool | None = None
+    blocked_description: str | None = None
+    effort_points: Literal[1, 2, 3, 5, 8, 13] | None = None
+    repeatable: bool | None = None
+    categories: list[Literal["self", "contribution", "work", "rest"]] | None = None
+    energy_types: list[Literal["physical", "cognitive", "social", "values"]] | None = None
+    value_id: PositiveInt | None = None
+    value_ids: list[PositiveInt] | None = None
+    value_query: str | list[str] | None = Field(
+        default=None, description="One or more exact Value names; this is not SQL."
+    )
+    tag_id: PositiveInt | None = None
+    tag_ids: list[PositiveInt] | None = None
+    tag_query: str | list[str] | None = Field(
+        default=None, description="One or more exact Tag names; this is not SQL."
+    )
+    check_id: PositiveInt | None = None
+    check_ids: list[PositiveInt] | None = None
+    check_query: str | list[str] | None = Field(
+        default=None, description="One or more exact Check titles; this is not SQL."
+    )
+    parent_id: PositiveInt | None = Field(
+        default=None,
+        description=(
+            "Parent Card ID. On create, omit this when there is no parent. On update, send null "
+            "to remove the current parent and make the Card root-level."
+        ),
+    )
+    parent_query: str | None = Field(
+        default=None,
+        description=(
+            "A safe read-only SELECT over ai_cards that returns exactly one id, for example "
+            "SELECT id FROM ai_cards WHERE title = 'My Goal'. An exact Card title is also accepted."
+        ),
+    )
+    @model_validator(mode="after")
+    def validate_target(self) -> CardToolInput:
+        supplied = set(self.model_fields_set) - {"mode", "id"}
+        if self.mode == "create":
+            if self.id is not None:
+                raise ValueError("a new Card must not include an id")
+            if self.kind is None or not (self.title or "").strip():
+                raise ValueError("a new Card needs kind and title")
+            if self.kind == "action" and self.effort_points is None:
+                raise ValueError("a new Action needs effort_points")
+            if self.blocked and not (self.blocked_description or "").strip():
+                raise ValueError("a blocked Card needs blocked_description")
+            if self.parent_id is not None and self.parent_query is not None:
+                raise ValueError("use either parent_id or parent_query, not both")
+            return self
+        if self.id is None:
+            raise ValueError(f"card mode '{self.mode}' needs an id")
+        editable = {
+            "title",
+            "note",
+            "stage",
+            "priority",
+            "hard_time",
+            "blocked",
+            "blocked_description",
+            "effort_points",
+            "repeatable",
+            "categories",
+            "energy_types",
+            "value_id",
+            "value_ids",
+            "value_query",
+            "tag_id",
+            "tag_ids",
+            "tag_query",
+            "check_id",
+            "check_ids",
+            "check_query",
+            "parent_id",
+            "parent_query",
+        }
+        if self.mode == "update":
+            if not supplied:
+                raise ValueError("an updated Card needs at least one proposed field")
+            if unsupported := supplied - editable:
+                raise ValueError("Card update does not accept: " + ", ".join(sorted(unsupported)))
+            if self.stage in {"done", "cancelled"}:
+                raise ValueError("use complete or cancel mode for a terminal Card stage")
+            if self.blocked and not (self.blocked_description or "").strip():
+                raise ValueError("a blocked Card needs blocked_description")
+            if self.parent_id is not None and self.parent_query is not None:
+                raise ValueError("use either parent_id or parent_query, not both")
+        elif self.mode == "move":
+            if supplied != {"stage"} or self.stage is None:
+                raise ValueError("Card move needs only a stage")
+            if self.stage in {"done", "cancelled"}:
+                raise ValueError("use complete or cancel mode for a terminal Card stage")
+        elif self.mode in {"complete", "cancel"}:
+            if supplied:
+                raise ValueError(f"Card {self.mode} does not accept fields")
+        elif self.mode == "reopen":
+            if supplied - {"stage"}:
+                raise ValueError("Card reopen accepts only an optional stage")
+            if self.stage in {"done", "cancelled"}:
+                raise ValueError("a reopened Card returns to a live stage")
+        elif self.mode in {"link", "unlink"}:
+            groups = [
+                supplied & {"value_id", "value_ids", "value_query"},
+                supplied & {"tag_id", "tag_ids", "tag_query"},
+                supplied & {"check_id", "check_ids", "check_query"},
+            ]
+            selected = [group for group in groups if group]
+            if len(selected) != 1:
+                raise ValueError(f"Card {self.mode} needs exactly one relationship type")
+            allowed = selected[0]
+            if supplied - allowed:
+                raise ValueError(f"Card {self.mode} mixes unrelated fields")
+            if not any(getattr(self, field_name) for field_name in allowed):
+                raise ValueError(f"Card {self.mode} needs at least one relationship reference")
+        return self
 
 
 def _has_explicit_tool_value(value: Any) -> bool:
@@ -70,6 +210,41 @@ def _card_repair(arguments: dict[str, Any]) -> dict[str, Any]:
             "Send only relationships that the user actually requested or that were resolved from data.",
         ],
     }
+
+
+CARD_AUTOAPPROVALS = {
+    "link": AutoApprovalRule(
+        RELATIONSHIP_LINK,
+        frozenset(
+            {
+                "value_id",
+                "value_ids",
+                "value_query",
+                "tag_id",
+                "tag_ids",
+                "tag_query",
+                "check_id",
+                "check_ids",
+                "check_query",
+            }
+        ),
+    ),
+    "update": AutoApprovalRule(
+        SCALAR_UPDATE,
+        frozenset(
+            {
+                "title",
+                "note",
+                "priority",
+                "hard_time",
+                "blocked",
+                "blocked_description",
+                "effort_points",
+                "repeatable",
+            }
+        ),
+    ),
+}
 
 
 # One line each: what this tool owns, because seven of them compete.  Mode semantics live in

@@ -69,7 +69,7 @@ DIARY_PROMPT = """You keep the user's Diary. One day, one entry, in their own vo
 2. Read it from every source — work done with buttons never reaches the conversation, and how the
    day felt never reaches the database.
    - `read_day(date)` — that day's conversation.
-   - `query_safwa` — one read-only SELECT over these views only:
+   - `query_data` — one read-only SELECT over these views only:
      `ai_diary(id, entry_date, body, feeling_score, created_at, updated_at)` — the saved days;
      `ai_card_events(id, card_id, sprint_id, actor, operation, created_at)` — work done;
      `ai_checks(id, title, repeatable, status, resolved_at, series_id, card_id)` — what held;

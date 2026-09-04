@@ -8,15 +8,74 @@ The model never names a schedule shape — it is derived from which parameters c
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from zoneinfo import ZoneInfo
 
+from pydantic import Field, PositiveInt
+
 from llm_gateway import LlmProvider
-from tg_agent_shell.ai.contracts import NotClearEnoughInput, ReminderConfigInput, ReminderToolInput
+from tg_agent_shell.ai.contracts import NotClearEnoughInput, RecordToolInput, ToolInput
 from tg_agent_shell.ai.mini import MINI_SESSION_MAX_TOOL_CALLS, TerminalTool, run_mini_session
 from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 
 from ...constants import WEEKDAY_NAMES
 from .schedule import Schedule, ScheduleError, resolve
+
+
+class ReminderToolInput(RecordToolInput):
+    create_requires = ("when",)
+
+    instruction: str = Field(
+        description=(
+            "What Safwa should do when the time comes, handed to the advisor as a request. "
+            "The bounded conversation is available then, but the instruction should remain clear "
+            "after time has passed and must name every Safwa item it concerns by #id."
+        )
+    )
+    when: str | None = Field(
+        default=None,
+        description=(
+            "The timing in plain words, e.g. 'every weekday at 8am' or 'in 90 minutes'. "
+            "Required to create. Omit it on update to leave the schedule untouched."
+        ),
+    )
+
+
+class ReminderConfigInput(ToolInput):
+    """The setup session's terminal call: free text resolved into parameters.
+
+    `schedule_kind` is derived from which of these are present, so the model cannot name a
+    shape that contradicts its own parameters.
+    """
+
+    days: list[Literal["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]] | None = Field(
+        default=None, description="Weekdays to fire on; all seven means every day."
+    )
+    time: str | None = Field(
+        default=None,
+        description=(
+            "Local wall clock HH:MM. With days it is the time it fires at; otherwise it is "
+            "when the schedule starts."
+        ),
+    )
+    date: str | None = Field(
+        default=None,
+        description=(
+            "Local calendar date dd.mm.yyyy. Always the START date when the schedule "
+            "repeats, and the date itself when it does not. Needs time as well."
+        ),
+    )
+    interval_minutes: PositiveInt | None = Field(
+        default=None, description="Repeat every N minutes."
+    )
+    quiet_windows: list[str] | None = Field(
+        default=None,
+        description=(
+            "Local HH:MM-HH:MM ranges when it must not fire, e.g. ['22:00-09:00']. "
+            "Interval schedules only. The end is exclusive."
+        ),
+    )
+
 
 REMINDER_TOOL = MutationToolSpec(
     name="reminder",
