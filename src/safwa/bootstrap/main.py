@@ -36,7 +36,6 @@ from tg_agent_shell.telegram.manifest import AgentContext, BackgroundContext
 from tg_agent_shell.turn import TurnManager
 
 from ..config import Settings
-from ..constants import AI_APP_TITLE, AI_APP_URL, SUMMARY_TRIGGER_TOKENS
 from ..enums import AIProvider
 from ..features.continuity.memory import MemoryFileStore
 from ..features.continuity.persona import PersonaContinuity
@@ -150,7 +149,11 @@ async def run(settings: Settings) -> None:
 
     headers: tuple[tuple[str, str], ...] = ()
     if settings.ai_provider is AIProvider.OPENROUTER:
-        headers = (("HTTP-Referer", AI_APP_URL), ("X-Title", AI_APP_TITLE))
+        # Sent to OpenRouter as HTTP-Referer/X-Title for request attribution.
+        headers = (
+            ("HTTP-Referer", "https://github.com/myvaheed/tg-ai-safwa"),
+            ("X-Title", "Safwa"),
+        )
     provider = OpenAICompatibleProvider(
         OpenAICompatibleConfig(
             base_url=settings.resolved_ai_base_url,
@@ -195,7 +198,7 @@ async def run(settings: Settings) -> None:
         bot_user_id=me.id,
         owner_id=settings.telegram_owner_id,
         count_tokens=estimate_tokens,
-        token_budget=SUMMARY_TRIGGER_TOKENS,
+        token_budget=settings.summary_trigger_tokens,
         edge=SummaryEdge(),
         citation_types=SCREENS.types,
         timezone=settings.timezone,

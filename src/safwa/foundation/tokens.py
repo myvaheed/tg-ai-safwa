@@ -7,7 +7,9 @@ belongs to a tokenizer the local and the remote provider do not share.
 
 from __future__ import annotations
 
-from ..constants import TOKEN_CHARS_ESTIMATE
+# A tokenizer splits Latin at roughly 4 characters and Cyrillic at roughly 2, so a mixed
+# dialogue is counted low by the generous end and would overrun its budget.
+TOKEN_CHARS_ESTIMATE = 2.5
 
 
 def estimate_tokens(text: str, chars_per_token: float = TOKEN_CHARS_ESTIMATE) -> int:

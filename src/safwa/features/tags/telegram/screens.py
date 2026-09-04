@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
-from tg_agent_shell.foundation.screens import TextInputFlow
 from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
@@ -27,6 +26,7 @@ from tg_agent_shell.telegram import (
     send_registered,
     token_button,
 )
+from tg_agent_shell.telegram.contributions import TextInputFlow
 from tg_agent_shell.telegram.model import UiSession
 
 from ..model import Tag

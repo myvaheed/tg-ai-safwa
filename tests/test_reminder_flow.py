@@ -7,10 +7,10 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from safwa.constants import REMINDER_CATCHUP_GRACE_MINUTES
 from safwa.features.reminders.background import Firing, format_cue
 from safwa.features.reminders.model import Reminder, ScheduleKind
 from safwa.features.reminders.schedule import (
+    REMINDER_CATCHUP_GRACE_MINUTES,
     resolve,
     schedule_columns,
     schedule_from_payload,

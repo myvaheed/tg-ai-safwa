@@ -17,10 +17,15 @@ from datetime import date as date_type
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from ...constants import REMINDER_MIN_INTERVAL_MINUTES, WEEKDAY_NAMES
+from ...constants import WEEKDAY_NAMES
 from .model import ScheduleKind
 
 MINUTES_PER_DAY = 24 * 60
+REMINDER_MIN_INTERVAL_MINUTES = 5
+# How late a missed *repeat* may still fire.  Past this it rolls forward silently, so a
+# weekend offline cannot produce 32 messages at once.  A one-shot ignores this and
+# always fires, however late.
+REMINDER_CATCHUP_GRACE_MINUTES = 120
 _WORKWEEK = ("Mon", "Tue", "Wed", "Thu", "Fri")
 
 

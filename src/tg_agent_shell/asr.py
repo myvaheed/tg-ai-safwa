@@ -13,6 +13,7 @@ import logging
 import os
 import sys
 import time
+from dataclasses import dataclass
 from enum import StrEnum
 from io import BytesIO
 from pathlib import Path
@@ -42,6 +43,34 @@ class ASRProvider(StrEnum):
     GROQ = "groq"
     LOCAL = "local"
     FASTER_WHISPER = "faster_whisper"
+
+
+@dataclass(frozen=True)
+class ASRDefaults:
+    """Where one provider is reached and what it decodes with, left unset."""
+
+    base_url: str
+    model: str
+
+
+OPENAI_ASR_BASE_URL = "https://api.openai.com/v1"
+GROQ_ASR_BASE_URL = "https://api.groq.com/openai/v1"
+# The default for a whisper server the owner runs themselves.
+LOCAL_ASR_BASE_URL = "http://127.0.0.1:8000/v1"
+OPENAI_ASR_MODEL = "gpt-4o-mini-transcribe"
+GROQ_ASR_MODEL = "whisper-large-v3-turbo"
+LOCAL_ASR_MODEL = "Systran/faster-whisper-small"
+# The in-process engine. `small` fits ~1 GB; `large-v3-turbo` is the upgrade.
+FASTER_WHISPER_MODEL = "small"
+
+ASR_DEFAULTS: dict[ASRProvider, ASRDefaults] = {
+    ASRProvider.OFF: ASRDefaults(base_url="", model=""),
+    ASRProvider.OPENAI: ASRDefaults(base_url=OPENAI_ASR_BASE_URL, model=OPENAI_ASR_MODEL),
+    ASRProvider.GROQ: ASRDefaults(base_url=GROQ_ASR_BASE_URL, model=GROQ_ASR_MODEL),
+    ASRProvider.LOCAL: ASRDefaults(base_url=LOCAL_ASR_BASE_URL, model=LOCAL_ASR_MODEL),
+    # In-process: there is no endpoint to reach, so no base URL either.
+    ASRProvider.FASTER_WHISPER: ASRDefaults(base_url="", model=FASTER_WHISPER_MODEL),
+}
 
 # One call covers the upload and the whole file's decode, so the budget follows the audio.
 ASR_TIMEOUT_BASE_SECONDS = 60.0

@@ -11,7 +11,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.clock import utcnow
-from tg_agent_shell.foundation.screens import ScreenCommand
+from tg_agent_shell.telegram.contributions import ScreenCommand
 
 from ...foundation.workspace import Workspace, require_workspace
 from ..cards.api import PLANNED_STAGES, TERMINAL_STAGES, Card, CardStage

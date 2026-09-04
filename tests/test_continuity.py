@@ -6,10 +6,14 @@ from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 from llm_gateway import CompletionRequest, CompletionTurn
-from safwa.constants import MEMORY_READ_TOKEN_BUDGET, SUMMARY_TRIGGER_TOKENS
+from safwa.constants import SUMMARY_TRIGGER_TOKENS
 from safwa.features.continuity.memory import MemoryFileStore
 from safwa.features.continuity.model import SUMMARY_HEADER, MemorySyncState
-from safwa.features.continuity.persona import MemoryMaintenanceResult, PersonaContinuity
+from safwa.features.continuity.persona import (
+    MEMORY_READ_TOKEN_BUDGET,
+    MemoryMaintenanceResult,
+    PersonaContinuity,
+)
 from safwa.features.continuity.use_cases import run_due_memory_maintenance
 from safwa.features.profile.model import UserProfile
 from telegram_llm import HistoryEntry

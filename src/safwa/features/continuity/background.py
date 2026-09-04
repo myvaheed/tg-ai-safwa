@@ -12,10 +12,11 @@ import logging
 
 from tg_agent_shell.telegram.manifest import BackgroundContext, BackgroundTask
 
-from ...constants import MEMORY_MAINTENANCE_INTERVAL_SECONDS
 from .use_cases import run_due_memory_maintenance
 
 logger = logging.getLogger(__name__)
+
+MEMORY_MAINTENANCE_INTERVAL_SECONDS = 60.0
 
 
 async def _poll_memory_file(context: BackgroundContext) -> None:

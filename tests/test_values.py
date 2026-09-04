@@ -5,7 +5,6 @@ from pydantic import ValidationError
 from sqlalchemy import select, text
 
 from safwa.bootstrap.modules import AI_VIEWS
-from safwa.constants import CONTEXT_CRITICAL_CARD_LIMIT
 from safwa.features.cards.model import Card, CardCheck, CardStage
 from safwa.features.cards.use_cases import (
     archive_subtree,
@@ -27,7 +26,10 @@ from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import CardValue, CheckValue, Value
 from safwa.features.values.use_cases import create_value, delete_value, update_value_fields
 from safwa.features.workspace_mutator.remove import RemoveToolInput
-from safwa.features.workspace_mutator.state import workspace_context
+from safwa.features.workspace_mutator.state import (
+    CONTEXT_CRITICAL_CARD_LIMIT,
+    workspace_context,
+)
 from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.foundation.errors import DomainError
 

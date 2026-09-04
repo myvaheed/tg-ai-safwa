@@ -15,13 +15,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.messages import StateBlocks
 
-from ...constants import CONTEXT_CRITICAL_CARD_LIMIT
 from ...foundation.workspace import Workspace
 from ..cards.model import Card, CardKind, CardStage, Priority
 from ..planning.model import Sprint
 from ..profile.model import UserProfile
 from ..tags.model import Tag
 from ..values.model import CardValue, Value
+
+# How many critical Cards the workspace state names before the model has to query for more.
+CONTEXT_CRITICAL_CARD_LIMIT = 10
 
 
 def citation(name: str, kind: str, item_id: int) -> str:

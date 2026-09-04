@@ -3,7 +3,8 @@
 This is what a feature's Telegram adapter is allowed to import besides `telegram_llm`.
 Nothing here belongs to one feature: the router and the middleware, the verbs that put a
 message in the chat under a `MessageKind`, the layout a screen is drawn in, the editor that
-takes one typed value, and the dispatch that opens a cited item.
+takes one typed value, the dispatch that opens a cited item, and what a feature declares
+to reach a screen by name, by link or by a typed value.
 """
 
 from __future__ import annotations

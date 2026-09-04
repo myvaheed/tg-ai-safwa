@@ -23,7 +23,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.kinds import MessageKind
-from tg_agent_shell.foundation.screens import StartLink
 from tg_agent_shell.telegram import (
     CallbackContext,
     Page,
@@ -34,8 +33,8 @@ from tg_agent_shell.telegram import (
     send_toast,
     token_button,
 )
+from tg_agent_shell.telegram.contributions import StartLink
 
-from ....constants import PLAN_LINK_BURST_SECONDS, PLAN_LINK_BURST_TAPS
 from ...cards.api import CardStage, actions_on_stages
 from ...cards.model import Card
 from ...cards.telegram import render_card
@@ -54,6 +53,10 @@ from .state import (
 # The Sprint plan puts both columns in one table, so a row is one Card on each side.
 SPRINT_PLAN_PAGE_SIZE = 10
 SPRINT_PLAN_TITLE_LIMIT = 24
+# A tap on a link starts the bot through the owner's own account, and Telegram rate limits
+# that per account for hours at a time. This many taps inside the window earns a warning.
+PLAN_LINK_BURST_TAPS = 8
+PLAN_LINK_BURST_SECONDS = 10
 
 _RETURN = "↩️ Return"
 _INTO_SPRINT = "📥 Into Sprint"

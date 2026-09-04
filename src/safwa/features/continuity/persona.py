@@ -22,19 +22,19 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from llm_gateway import CompletionRequest, LlmProvider
 from tg_agent_shell.foundation.kinds import MessageKind
 
-from ...constants import (
-    MEMORY_READ_TOKEN_BUDGET,
-    MEMORY_RETELL_CHUNK_TOKENS,
-    MEMORY_RETELL_OVERLAP_TOKENS,
-    SUMMARY_TRIGGER_TOKENS,
-    TOKEN_CHARS_ESTIMATE,
-)
-from ...foundation.tokens import estimate_tokens
+from ...constants import SUMMARY_TRIGGER_TOKENS
+from ...foundation.tokens import TOKEN_CHARS_ESTIMATE, estimate_tokens
 from .agent import MEMORY_PROMPT, RETELL_PROMPT, SUMMARY_PROMPT
 from .memory import MemoryFileError, MemoryFileStore
 from .model import SUMMARY_HEADER, MemorySyncState
 
 logger = logging.getLogger(__name__)
+
+MEMORY_RETELL_CHUNK_TOKENS = 2_000
+MEMORY_RETELL_OVERLAP_TOKENS = 500
+# Memory reads back to its own cursor rather than to a fixed message count; this only caps
+# how much one catch-up run may swallow after a long gap.
+MEMORY_READ_TOKEN_BUDGET = 20_000
 
 
 class ContinuityHistory(Protocol):

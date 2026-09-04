@@ -11,11 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tg_agent_shell.telegram import sync_bot_commands
 from tg_agent_shell.telegram.manifest import BackgroundContext, BackgroundTask
 
-from ...constants import SPRINT_EXPIRY_POLL_SECONDS
 from .api import available_screens
 from .use_cases import expire_due_sprint
 
 logger = logging.getLogger(__name__)
+
+# A Sprint expires at a local midnight, so this poll only has to be finer than a night.
+SPRINT_EXPIRY_POLL_SECONDS = 300.0
 
 Announcer = Callable[[int], Awaitable[None]]
 

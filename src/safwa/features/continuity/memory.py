@@ -9,9 +9,11 @@ from pathlib import Path
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ...constants import MEMORY_POLL_SECONDS, MEMORY_TOKEN_BUDGET, TOKEN_CHARS_ESTIMATE
-from ...foundation.tokens import estimate_tokens
+from ...foundation.tokens import TOKEN_CHARS_ESTIMATE, estimate_tokens
 from .model import MemoryFactCache, MemorySyncState
+
+MEMORY_TOKEN_BUDGET = 4_000
+MEMORY_POLL_SECONDS = 5.0
 
 
 class MemoryFileError(ValueError):

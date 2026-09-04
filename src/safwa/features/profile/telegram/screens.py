@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
-from tg_agent_shell.foundation.screens import TextInputFlow
 from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
@@ -28,6 +27,7 @@ from tg_agent_shell.telegram import (
     token_button,
     with_notice,
 )
+from tg_agent_shell.telegram.contributions import TextInputFlow
 from tg_agent_shell.telegram.model import UiSession
 
 from ....constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS

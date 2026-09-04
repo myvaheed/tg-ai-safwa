@@ -21,13 +21,14 @@ from ..ai.mini import ReadToolSpec
 from ..ai.sql import ReadOnlyQueryRunner, SqlView
 from ..ai.subagents import RoutedSubagent
 from ..ai.tools import Helper
-from ..foundation.screens import ScreenCommand, ScreenSpec, StartLink, TextInputFlow
+from ..foundation.screens import ScreenSpec
 from ..history import TelegramHistorySource
 from ..proposals.api import (
     MutationToolSpec,
     ProposalHandler,
     ProposalPresenter,
 )
+from .contributions import ScreenCommand, StartLink, TextInputFlow
 from .services import Services
 
 

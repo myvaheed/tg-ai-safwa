@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from safwa.config import Settings
-from safwa.constants import LMSTUDIO_BASE_URL, OPENROUTER_BASE_URL
+from safwa.config import LMSTUDIO_BASE_URL, OPENROUTER_BASE_URL, Settings
 from safwa.enums import AIProvider
 
 

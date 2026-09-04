@@ -21,10 +21,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from telegram_llm import ChatHost, Transcriber
 
 from ..ai.messages import Memory
-from ..foundation.screens import ScreenCatalogue, ScreenCommand, StartLink, TextInputFlow
+from ..foundation.screens import ScreenCatalogue
 from ..history import TelegramHistorySource
 from ..session import RootSession
 from ..turn import TurnManager
+from .contributions import ScreenCommand, StartLink, TextInputFlow
 
 logger = logging.getLogger(__name__)
 router = Router(name="tg_agent_shell")

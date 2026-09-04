@@ -7,9 +7,11 @@ codebase names a feature: `tests/test_architecture.py` Rule H fails on any modul
 
 ## The manifest
 
-[`telegram/manifest.py`](../src/tg_agent_shell/telegram/manifest.py) holds the wiring DTOs.
-It is the outermost layer, so it may know aiogram and SQLAlchemy; nothing that expresses a business
-rule imports it.
+[`telegram/manifest.py`](../src/tg_agent_shell/telegram/manifest.py) holds the wiring DTOs,
+with the three a feature declares to reach one screen — `ScreenCommand`, `StartLink` and
+`TextInputFlow` — in [`telegram/contributions.py`](../src/tg_agent_shell/telegram/contributions.py),
+under both the manifest and the container. It is the outermost layer, so it may know aiogram
+and SQLAlchemy; nothing that expresses a business rule imports it.
 
 | Field | What it contributes |
 |---|---|

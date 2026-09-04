@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tg_agent_shell.foundation.screens import ScreenCommand
+from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import FeatureModule
 
 from .telegram import command_status

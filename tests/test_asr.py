@@ -7,12 +7,12 @@ import pytest
 
 import tg_agent_shell.asr as asr_module
 from safwa.config import Settings
-from safwa.constants import FASTER_WHISPER_MODEL
 from tg_agent_shell.asr import (
     ASR_PROGRESS_MIN_AUDIO_SECONDS,
     ASR_TIMEOUT_BASE_SECONDS,
     ASR_TIMEOUT_PER_AUDIO_SECOND,
     FASTER_WHISPER_CPU_COMPUTE_TYPE,
+    FASTER_WHISPER_MODEL,
     AudioClip,
     FasterWhisperTranscriber,
     OpenAITranscriber,

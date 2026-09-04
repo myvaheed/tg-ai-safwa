@@ -21,7 +21,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
-from tg_agent_shell.foundation.screens import TextInputFlow
 from tg_agent_shell.telegram import (
     Services,
     TextInputScreen,
@@ -33,6 +32,7 @@ from tg_agent_shell.telegram import (
     token_button,
     with_notice,
 )
+from tg_agent_shell.telegram.contributions import TextInputFlow
 
 from ....foundation.workspace import Workspace
 from ...cards.api import CardStage, actions_on_stages

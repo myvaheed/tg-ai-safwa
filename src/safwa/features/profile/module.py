@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.clock import SystemClock
-from tg_agent_shell.foundation.screens import ScreenCommand
+from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import FeatureModule
 
 from . import telegram

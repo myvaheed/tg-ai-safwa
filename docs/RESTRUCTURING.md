@@ -367,6 +367,55 @@ the surface that registers them.
 - An import says where a thing lives again: `from tg_agent_shell.history import
   TelegramMessage` rather than a package that also held the microphone.
 
+## Batch 9 — landed
+
+The fifteen constants batch 7 counted and left. Every limit with one reading module went
+to it, and what is left in `constants.py` is read on both sides of a boundary.
+
+15. **done** — `constants.py` is six names: two Sprint bounds, the weekday tokens, the
+    selector page, and the two the advisor window is measured in.
+
+### Benefits
+
+- A budget is read where it is spent: `MEMORY_TOKEN_BUDGET` and `MEMORY_POLL_SECONDS` in
+  `continuity/memory.py`, the three retell limits in `persona.py`, and each background
+  loop's interval at the top of the loop.
+- `TOKEN_CHARS_ESTIMATE` sits in `foundation/tokens.py`, which is the one estimate every
+  budget in Safwa is measured against and now says so in one place.
+- `REMINDER_MIN_INTERVAL_MINUTES` and `REMINDER_CATCHUP_GRACE_MINUTES` are schedule
+  arithmetic, so they are in `schedule.py` with `MINUTES_PER_DAY`; `use_cases.py` and
+  `background.py` already imported it.
+- Speech recognition brought its own defaults: `ASRDefaults` and the endpoint and model
+  per provider are in `tg_agent_shell/asr.py`, beside `ASRProvider`, and Safwa's settings
+  take their defaults from there. A second application gets them without copying a table.
+- The provider endpoints are `config.py`'s, which is where `PROVIDER_DEFAULTS` reads
+  them, and the two OpenRouter attribution headers are spelled where they are sent.
+- `SUMMARY_TRIGGER_TOKENS` and `SCHEDULER_POLL_SECONDS` stayed, as the earlier phases
+  recorded: each has a reader on both sides of the boundary. `SUMMARY_TOKEN_CEILING`
+  joined them, because it is the other half of the same window.
+- The history source is sized by `settings.summary_trigger_tokens` rather than the
+  constant behind it, so the setting moves the window and the Summary trigger together
+  instead of only the second.
+
+## Batch 10 — landed
+
+`foundation/` is what every layer above may name, and the engine is one of those layers.
+
+23. **done** — `ScreenCommand`, `StartLink` and `TextInputFlow` are
+    `telegram/contributions.py`; `ScreenSpec` and `ScreenCatalogue` stay in
+    `foundation/screens.py`.
+
+### Benefits
+
+- The split is the engine's reach: `ai/tools.py` names `ScreenCatalogue` to answer
+  `open`, and Rule M lets it reach `foundation/` and no further. Nothing under `ai/` ever
+  named a slash command, a deep link or an editor.
+- `contributions.py` imports nothing of its own package, so both `Services`, which stores
+  the three, and `FeatureModule`, which declares them, sit above it and neither imports
+  the other.
+- A feature's `module.py` now reads where each half lives: what can be cited comes from
+  `foundation/`, what the owner taps comes from `telegram/`.
+
 ## Candidates — from the owner
 
 2. **no** — the review flow travelled with the engine rather than into it, and moving the
@@ -408,8 +457,8 @@ the surface that registers them.
     per scenario file.
 22. **done** — the container moved with the shell, so there is no import left to reverse.
     What the fields are called is candidate 18.
-23. **check** — `foundation/screens.py` carries `ScreenCommand`, `ScreenSpec` and
-    `TextInputFlow`, which is Telegram vocabulary in the layer under the domain.
+23. **done** — the Telegram half is `telegram/contributions.py`, and `foundation/`
+    keeps what the engine names. Batch 10.
 24. **check** — `features/cards/telegram` is eleven modules; the stage lists may want a package
     of their own.
 25. **no** — values and tags are the same nine modules twice, but each keeps its own rules, and

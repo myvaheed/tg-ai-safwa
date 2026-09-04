@@ -7,21 +7,22 @@ from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy import select
 
-from safwa.constants import (
-    REMINDER_CATCHUP_GRACE_MINUTES,
-    REMINDER_FIRE_BATCH,
-    REMINDER_MIN_INTERVAL_MINUTES,
-)
 from safwa.features.profile.model import UserProfile
 from safwa.features.reminders import background
 from safwa.features.reminders.background import (
+    REMINDER_FIRE_BATCH,
     prepare,
     run_scheduler,
     settle,
     tick,
 )
 from safwa.features.reminders.model import Reminder
-from safwa.features.reminders.schedule import resolve, schedule_columns
+from safwa.features.reminders.schedule import (
+    REMINDER_CATCHUP_GRACE_MINUTES,
+    REMINDER_MIN_INTERVAL_MINUTES,
+    resolve,
+    schedule_columns,
+)
 from safwa.foundation.workspace import Workspace
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.cues.queue import add_cue

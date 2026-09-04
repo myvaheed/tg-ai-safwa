@@ -8,29 +8,21 @@ from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from tg_agent_shell.ai.sql import DEFAULT_CHAR_BUDGET, DEFAULT_ROW_LIMIT
-from tg_agent_shell.asr import ASRProvider
+from tg_agent_shell.asr import ASR_DEFAULTS, ASRDefaults, ASRProvider
 
-from .constants import (
-    AI_MAX_OUTPUT_TOKENS,
-    AI_MAX_RETRIES_LOCAL,
-    AI_MAX_RETRIES_REMOTE,
-    AI_TIMEOUT_SECONDS,
-    FASTER_WHISPER_MODEL,
-    GROQ_ASR_BASE_URL,
-    GROQ_ASR_MODEL,
-    LMSTUDIO_BASE_URL,
-    LOCAL_ASR_BASE_URL,
-    LOCAL_ASR_MODEL,
-    MEMORY_POLL_SECONDS,
-    MEMORY_TOKEN_BUDGET,
-    OPENAI_ASR_BASE_URL,
-    OPENAI_ASR_MODEL,
-    OPENROUTER_BASE_URL,
-    SCHEDULER_POLL_SECONDS,
-    SUMMARY_TRIGGER_TOKENS,
-    TOKEN_CHARS_ESTIMATE,
-)
+from .constants import SCHEDULER_POLL_SECONDS, SUMMARY_TRIGGER_TOKENS
 from .enums import AIProvider
+from .features.continuity.memory import MEMORY_POLL_SECONDS, MEMORY_TOKEN_BUDGET
+from .foundation.tokens import TOKEN_CHARS_ESTIMATE
+
+AI_TIMEOUT_SECONDS = 120.0
+AI_MAX_OUTPUT_TOKENS = 4096
+LMSTUDIO_BASE_URL = "http://localhost:1234/v1"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+# A local server either answers or is down; a metered remote returns 429/502 and
+# is worth retrying with the SDK's backoff.
+AI_MAX_RETRIES_LOCAL = 1
+AI_MAX_RETRIES_REMOTE = 3
 
 
 @dataclass(frozen=True)
@@ -58,22 +50,6 @@ PROVIDER_DEFAULTS: dict[AIProvider, ProviderDefaults] = {
         send_temperature=False,
         cache_breakpoints=True,
     ),
-}
-
-
-@dataclass(frozen=True)
-class ASRDefaults:
-    base_url: str
-    model: str
-
-
-ASR_DEFAULTS: dict[ASRProvider, ASRDefaults] = {
-    ASRProvider.OFF: ASRDefaults(base_url="", model=""),
-    ASRProvider.OPENAI: ASRDefaults(base_url=OPENAI_ASR_BASE_URL, model=OPENAI_ASR_MODEL),
-    ASRProvider.GROQ: ASRDefaults(base_url=GROQ_ASR_BASE_URL, model=GROQ_ASR_MODEL),
-    ASRProvider.LOCAL: ASRDefaults(base_url=LOCAL_ASR_BASE_URL, model=LOCAL_ASR_MODEL),
-    # In-process: there is no endpoint to reach, so no base URL either.
-    ASRProvider.FASTER_WHISPER: ASRDefaults(base_url="", model=FASTER_WHISPER_MODEL),
 }
 
 

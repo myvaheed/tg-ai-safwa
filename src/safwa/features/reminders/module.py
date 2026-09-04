@@ -6,7 +6,7 @@ reaches the owner through the Cue queue, like everything else Safwa says first.
 
 from __future__ import annotations
 
-from tg_agent_shell.foundation.screens import ScreenCommand
+from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import (
     BackgroundContext,
     BackgroundTask,

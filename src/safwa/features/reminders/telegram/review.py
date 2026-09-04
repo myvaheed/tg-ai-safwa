@@ -13,7 +13,6 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.contracts import AgentChange
-from tg_agent_shell.foundation.screens import TextInputFlow
 from tg_agent_shell.proposals.api import (
     ACTION_VERBS,
     ChangeAction,
@@ -23,6 +22,7 @@ from tg_agent_shell.proposals.api import (
     result_value,
 )
 from tg_agent_shell.telegram import required_text
+from tg_agent_shell.telegram.contributions import TextInputFlow
 
 from ..model import Reminder
 from ..use_cases import update_reminder_text

@@ -21,12 +21,15 @@ from tg_agent_shell.telegram import (
     with_notice,
 )
 
-from ....constants import CHECK_LIST_LIMIT, SELECTOR_PAGE_SIZE
+from ....constants import SELECTOR_PAGE_SIZE
 from ....foundation.marks import live_repeat_instance_id, title_marks
 from ...cards.api import card_labels, card_title
 from ...values.model import Value
 from ..model import CHECK_OUTCOME_LABELS, Check, CheckOutcome
 from ..use_cases import card_checks, check_card_id, check_value_ids
+
+# How many Checks one Card's screen lists before it only counts the rest.
+CHECK_LIST_LIMIT = 25
 
 CHECK_STATUS_EMOJIS = {
     "pending": "⬜",

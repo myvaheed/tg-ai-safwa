@@ -17,8 +17,8 @@ from aiogram.types import BotCommand, CallbackQuery, Message
 from sqlalchemy import delete
 
 from ..foundation.kinds import MessageKind
-from ..foundation.screens import ScreenCommand
 from .chat import dismiss_prior_ui, remove_turn_notice, send_registered
+from .contributions import ScreenCommand
 from .layout import start_payload
 from .model import UiSession
 from .services import Services, router

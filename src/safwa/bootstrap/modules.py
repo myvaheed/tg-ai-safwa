@@ -19,13 +19,7 @@ from tg_agent_shell.ai.autoapproval import AutoApprovalRule
 from tg_agent_shell.ai.sql import SqlView, view_catalogue
 from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.cues.module import CUE_QUEUE
-from tg_agent_shell.foundation.screens import (
-    ScreenCatalogue,
-    ScreenCommand,
-    ScreenSpec,
-    StartLink,
-    TextInputFlow,
-)
+from tg_agent_shell.foundation.screens import ScreenCatalogue, ScreenSpec
 from tg_agent_shell.proposals.api import (
     MutationToolSpec,
     ProposalHandler,
@@ -34,6 +28,11 @@ from tg_agent_shell.proposals.api import (
     World,
 )
 from tg_agent_shell.proposals.module import MODULE as PROPOSALS_FEATURE
+from tg_agent_shell.telegram.contributions import (
+    ScreenCommand,
+    StartLink,
+    TextInputFlow,
+)
 from tg_agent_shell.telegram.manifest import (
     AgentContext,
     AgentSpec,

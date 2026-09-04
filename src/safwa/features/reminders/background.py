@@ -28,15 +28,20 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tg_agent_shell.cues.queue import add_cue, next_cue
 
-from ...constants import (
-    REMINDER_CATCHUP_GRACE_MINUTES,
-    REMINDER_FIRE_BATCH,
-    SCHEDULER_POLL_SECONDS,
-)
+from ...constants import SCHEDULER_POLL_SECONDS
 from .model import Reminder
-from .schedule import describe, roll_forward, schedule_of
+from .schedule import (
+    REMINDER_CATCHUP_GRACE_MINUTES,
+    describe,
+    roll_forward,
+    schedule_of,
+)
 
 logger = logging.getLogger(__name__)
+
+# How many due Reminders one Cue may carry.  Everything the poll found goes over
+# in a single advisor turn; the rest stay overdue and the next tick takes them.
+REMINDER_FIRE_BATCH = 3
 
 
 @dataclass(frozen=True, slots=True)

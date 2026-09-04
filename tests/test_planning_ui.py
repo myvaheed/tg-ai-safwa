@@ -13,7 +13,6 @@ from ui_harness import (
 )
 
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
-from safwa.constants import PLAN_LINK_BURST_TAPS
 from safwa.features.cards.model import Card, CardStage
 from safwa.features.cards.telegram import command_today
 from safwa.features.cards.use_cases import create_card
@@ -24,7 +23,7 @@ from safwa.features.planning.telegram import (
     render_plan,
     render_sprint,
 )
-from safwa.features.planning.telegram.plan import claims_plan_payload
+from safwa.features.planning.telegram.plan import PLAN_LINK_BURST_TAPS, claims_plan_payload
 from safwa.features.planning.use_cases import set_sprint_success_criteria, start_sprint
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from tg_agent_shell.foundation.screens import ScreenCommand, ScreenSpec
+from tg_agent_shell.foundation.screens import ScreenSpec
+from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import FeatureModule, ProposalContribution
 
 from . import agent, proposal, telegram, views
