@@ -1,4 +1,4 @@
-"""The Settings screen and its focused field prompts."""
+"""The Profile screen and its focused field prompts."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from sqlalchemy import select
 from ui_harness import FakeCallback, FakeMessage, services_for
 
 from safwa.features.profile.model import DIARY_TIME_DEFAULT, ProfileField, UserProfile
-from safwa.features.profile.telegram import command_settings
+from safwa.features.profile.telegram import command_profile
 from safwa.features.profile.use_cases import set_profile_field
 from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.telegram import callback_token_handler
@@ -16,10 +16,10 @@ from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import UiSession
 
 
-async def test_valid_settings_input_updates_selected_field_and_auto_closes_prompt(
+async def test_valid_profile_input_updates_selected_field_and_auto_closes_prompt(
     sessions,
 ) -> None:
-    """PS-UI-SAVE-008 — tests/brd/profile_settings.feature"""
+    """PS-UI-SAVE-008 — tests/brd/profile.feature"""
     services = services_for(sessions)
     async with sessions() as session:
         await set_profile_field(
@@ -30,7 +30,7 @@ async def test_valid_settings_input_updates_selected_field_and_auto_closes_promp
         )
         await session.commit()
     message = FakeMessage(921, bot_message=True, answer_as_new=True)
-    await command_settings(message, services)
+    await command_profile(message, services)
 
     button = next(
         item
@@ -56,9 +56,9 @@ async def test_valid_settings_input_updates_selected_field_and_auto_closes_promp
 
 
 async def test_settings_shows_timezone_without_a_timezone_edit_action(sessions) -> None:
-    """PS-TIMEZONE-010 — tests/brd/profile_settings.feature"""
+    """PS-TIMEZONE-010 — tests/brd/profile.feature"""
     message = FakeMessage(923, bot_message=True, answer_as_new=True)
-    await command_settings(message, services_for(sessions))
+    await command_profile(message, services_for(sessions))
 
     rendered, markup = message.edits[-1]
     labels = {item.text for row in markup.inline_keyboard for item in row}
@@ -67,10 +67,10 @@ async def test_settings_shows_timezone_without_a_timezone_edit_action(sessions) 
 
 
 async def test_invalid_settings_input_keeps_data_and_the_same_prompt(sessions) -> None:
-    """PS-UI-INVALID-009 — tests/brd/profile_settings.feature"""
+    """PS-UI-INVALID-009 — tests/brd/profile.feature"""
     services = services_for(sessions)
     message = FakeMessage(930, bot_message=True, answer_as_new=True)
-    await command_settings(message, services)
+    await command_profile(message, services)
     button = next(
         item
         for row in message.edits[-1][1].inline_keyboard

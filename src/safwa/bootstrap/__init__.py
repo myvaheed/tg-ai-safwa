@@ -1,1 +1,1 @@
-"""The composition root: the only place that knows which features exist."""
+"""The composition root: what the application is built from, and what a boot reconciles."""

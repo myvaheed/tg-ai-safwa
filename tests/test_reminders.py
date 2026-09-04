@@ -346,11 +346,11 @@ def test_describe_tolerates_an_empty_schedule():
     ("raw", "expected"),
     [("03:00", time(3, 0)), ("23:59", time(23, 59)), ("off", None), ("OFF", None)],
 )
-def test_a_settings_clock_reads_a_time_or_the_off_switch(raw, expected) -> None:
+def test_a_profile_clock_reads_a_time_or_the_off_switch(raw, expected) -> None:
     assert parse_clock_or_off(raw) == expected
 
 
 @pytest.mark.parametrize("raw", ["", "24:00", "tomorrow"])
-def test_a_settings_clock_rejects_anything_else(raw) -> None:
+def test_a_profile_clock_rejects_anything_else(raw) -> None:
     with pytest.raises(ScheduleError):
         parse_clock_or_off(raw)

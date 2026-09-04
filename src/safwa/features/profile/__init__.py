@@ -1,1 +1,1 @@
-"""Owner profile and persistent application Settings."""
+"""The owner's Profile: what they tell Safwa outright."""

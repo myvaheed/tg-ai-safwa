@@ -1,4 +1,4 @@
-"""Owner profile and Settings, including their startup reconciliation."""
+"""The owner's Profile, including its startup reconciliation."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import FeatureModule
 
 from . import telegram
-from .telegram import SETTINGS_CALLBACK_ACTIONS, command_settings
+from .telegram import PROFILE_CALLBACK_ACTIONS, command_profile
 from .use_cases import sync_diary_reminder
 
 
@@ -23,13 +23,13 @@ MODULE = FeatureModule(
     recover=_reconcile_diary_trigger,
     commands=(
         ScreenCommand(
-            handler=command_settings,
-            command="settings",
+            handler=command_profile,
+            command="profile",
             description="Profile and reminders",
-            nav="settings",
-            title="⚙️ Settings",
+            nav="profile",
+            title="⚙️ Profile",
         ),
     ),
-    callback_actions=SETTINGS_CALLBACK_ACTIONS,
+    callback_actions=PROFILE_CALLBACK_ACTIONS,
     text_inputs=(telegram.TEXT_INPUT,),
 )

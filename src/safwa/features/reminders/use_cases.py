@@ -86,7 +86,7 @@ async def _editable_reminder(session: AsyncSession, reminder_id: int) -> Reminde
     if reminder is None:
         raise DomainError("Reminder does not exist")
     if reminder.system:
-        raise DomainError("That Reminder belongs to Safwa; change it in Settings")
+        raise DomainError("That Reminder belongs to Safwa; change it in the Profile")
     return reminder
 
 

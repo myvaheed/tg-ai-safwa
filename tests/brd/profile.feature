@@ -1,28 +1,28 @@
-Feature: Profile and Settings
-  Settings is where the owner tells Safwa things outright, rather than leaving Safwa to infer them.
+Feature: Profile
+  Profile is where the owner tells Safwa things outright, rather than leaving Safwa to infer them.
   There are seven of them, each edited on its own, each checked before it is stored.
 
   Numbers below name the constant they come from; the tests read the constant.
 
   Background:
-    Given a workspace whose Settings hold the seven things the owner can tell Safwa outright
+    Given a workspace whose Profile holds the seven things the owner can tell Safwa outright
 
   Scenario: PS-CONTEXT-001 — What the owner said outright outranks what Safwa remembered
-    Given memory.md and Settings say different things about the owner
+    Given memory.md and the Profile say different things about the owner
     When Safwa is given its context
     Then what it remembered comes first
     And About me and Advisor instructions come after it, so they are what it goes by
 
-  Scenario: PS-FIELD-002 — Settings writes only the settings it has
-    Given the seven settings
+  Scenario: PS-FIELD-002 — Profile writes only the fields it has
+    Given the seven fields
     When anything tries to write a name that is not one of them
-    Then it is refused, no setting changes, and nothing is recorded as having changed
+    Then it is refused, no field changes, and nothing is recorded as having changed
 
   Scenario: PS-SPRINT-LENGTH-003 — A Sprint is between 2 and 60 days long
     Given a whole number of days from 2 through 60
       (SPRINT_LENGTH_MIN_DAYS = 2, SPRINT_LENGTH_MAX_DAYS = 60)
     Then it is accepted
-    But 1 day and 61 days are refused, and the setting keeps what it had
+    But 1 day and 61 days are refused, and the field keeps what it had
 
   Scenario: PS-CAPACITY-004 — Sprint capacity is a real number of points, or off
     Given a whole number of at least 1 effort point
@@ -42,28 +42,28 @@ Feature: Profile and Settings
     Then Safwa's own Diary Reminder is changed to match, and it is the only one changed
     And turning the Diary time off deletes that one Reminder and leaves every other one alone
 
-  Scenario: PS-UI-SAVE-008 — A valid answer saves that one setting and closes its prompt
-    Given one Settings prompt is open
+  Scenario: PS-UI-SAVE-008 — A valid answer saves that one field and closes its prompt
+    Given one Profile prompt is open
     When the owner types something valid
-    Then only the setting they were asked for changes
+    Then only the field they were asked for changes
     And the prompt closes itself
-    And Settings is redrawn with the new value
+    And Profile is redrawn with the new value
 
   Scenario: PS-UI-INVALID-009 — A rejected answer changes nothing and asks again
-    Given one Settings prompt is open
+    Given one Profile prompt is open
     When the owner types something invalid
-    Then no setting changes
+    Then no field changes
     And the same prompt is still there, now saying what was wrong with it
 
   Scenario: PS-TIMEZONE-010 — The timezone is shown but not editable here
     Given the workspace timezone is Europe/Istanbul
-    When Settings is drawn
+    When Profile is drawn
     Then Europe/Istanbul is on the screen
     And there is no button to change it
 
-  Scenario: PS-REVISION-011 — One saved setting counts as one change
+  Scenario: PS-REVISION-011 — One saved field counts as one change
     Given the workspace carries a change count that anything pending is checked against
-    When one setting is saved
+    When one field is saved
     Then that count goes up by exactly one, so one edit never looks like two
 
   Scenario: PS-DIARY-012 — The Diary Reminder is due at the next Diary time, never one in the past

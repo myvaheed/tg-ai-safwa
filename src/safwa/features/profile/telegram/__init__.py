@@ -1,19 +1,19 @@
-"""The profile's Telegram adapter: the Settings screen and its focused field prompts."""
+"""The Profile's Telegram adapter: the screen and its focused field prompts."""
 
 from __future__ import annotations
 
 from .screens import (
-    SETTINGS_CALLBACK_ACTIONS,
+    PROFILE_CALLBACK_ACTIONS,
     TEXT_INPUT,
-    command_settings,
-    render_settings_field_prompt,
-    settings_text,
+    command_profile,
+    profile_text,
+    render_profile_field_prompt,
 )
 
 __all__ = [
-    "SETTINGS_CALLBACK_ACTIONS",
+    "PROFILE_CALLBACK_ACTIONS",
     "TEXT_INPUT",
-    "command_settings",
-    "render_settings_field_prompt",
-    "settings_text",
+    "command_profile",
+    "render_profile_field_prompt",
+    "profile_text",
 ]

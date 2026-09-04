@@ -7,17 +7,17 @@ import pytest
 from sqlalchemy import select
 
 from safwa.bootstrap.modules import RECOVERY_HOOKS
+from safwa.bootstrap.recovery import recover_startup
 from safwa.features.cards.use_cases import create_card
 from safwa.features.planning.use_cases import start_sprint
 from safwa.features.profile.model import ProfileField, UserProfile
-from safwa.features.profile.telegram.screens import SETTINGS_FIELDS
+from safwa.features.profile.telegram.screens import PROFILE_FIELDS
 from safwa.features.profile.use_cases import profile_field, set_profile_field
 from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import resolve
 from safwa.features.reminders.use_cases import create_reminder
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.workspace import Workspace
-from safwa.recovery import recover_startup
 from tg_agent_shell.ai.messages import ordered_owner_context
 from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.foundation.errors import DomainError
@@ -32,7 +32,7 @@ class FrozenClock:
 
 
 async def test_explicit_profile_context_is_after_memory_in_the_prompt(sessions) -> None:
-    """PS-CONTEXT-001 — tests/brd/profile_settings.feature"""
+    """PS-CONTEXT-001 — tests/brd/profile.feature"""
     async with sessions() as session:
         await set_profile_field(
             session, ProfileField.ABOUT_ME, "Current About Me", clock=SystemClock()
@@ -58,7 +58,7 @@ async def test_explicit_profile_context_is_after_memory_in_the_prompt(sessions) 
 
 
 async def test_profile_rejects_an_undeclared_field_without_changes(sessions) -> None:
-    """PS-FIELD-002 — tests/brd/profile_settings.feature"""
+    """PS-FIELD-002 — tests/brd/profile.feature"""
     async with sessions() as session:
         profile = await session.get(UserProfile, 1)
         workspace = await session.get(Workspace, 1)
@@ -75,12 +75,12 @@ async def test_profile_rejects_an_undeclared_field_without_changes(sessions) -> 
 
 
 def test_the_declared_fields_are_exactly_the_editable_settings() -> None:
-    """PS-FIELD-002 — tests/brd/profile_settings.feature"""
-    assert {field.value for field in ProfileField} == set(SETTINGS_FIELDS)
+    """PS-FIELD-002 — tests/brd/profile.feature"""
+    assert {field.value for field in ProfileField} == set(PROFILE_FIELDS)
 
 
 async def test_sprint_length_accepts_2_to_60_days_only(sessions) -> None:
-    """PS-SPRINT-LENGTH-003 — tests/brd/profile_settings.feature"""
+    """PS-SPRINT-LENGTH-003 — tests/brd/profile.feature"""
     async with sessions() as session:
         profile = await set_profile_field(
             session, ProfileField.SPRINT_LENGTH_DAYS, 2, clock=SystemClock()
@@ -101,7 +101,7 @@ async def test_sprint_length_accepts_2_to_60_days_only(sessions) -> None:
 
 
 async def test_sprint_capacity_accepts_positive_points_or_off(sessions) -> None:
-    """PS-CAPACITY-004 — tests/brd/profile_settings.feature"""
+    """PS-CAPACITY-004 — tests/brd/profile.feature"""
     async with sessions() as session:
         profile = await set_profile_field(
             session, ProfileField.CAPACITY_EFFORT_POINTS, 1, clock=SystemClock()
@@ -122,9 +122,9 @@ async def test_sprint_capacity_accepts_positive_points_or_off(sessions) -> None:
 
 
 def test_scheduled_profile_clocks_accept_hhmm_or_off() -> None:
-    """PS-CLOCK-005 — tests/brd/profile_settings.feature"""
-    memory_clock = SETTINGS_FIELDS["memory_update_time"].parse
-    diary_clock = SETTINGS_FIELDS["diary_time"].parse
+    """PS-CLOCK-005 — tests/brd/profile.feature"""
+    memory_clock = PROFILE_FIELDS["memory_update_time"].parse
+    diary_clock = PROFILE_FIELDS["diary_time"].parse
 
     assert memory_clock("00:00") == time(0, 0)
     assert diary_clock("23:59") == time(23, 59)
@@ -137,7 +137,7 @@ def test_scheduled_profile_clocks_accept_hhmm_or_off() -> None:
 
 
 async def test_a_scheduled_clock_field_refuses_a_value_that_is_not_a_time(sessions) -> None:
-    """PS-CLOCK-005 — tests/brd/profile_settings.feature"""
+    """PS-CLOCK-005 — tests/brd/profile.feature"""
     async with sessions() as session:
         for field in (ProfileField.MEMORY_UPDATE_TIME, ProfileField.DIARY_TIME):
             with pytest.raises(DomainError, match="clock time"):
@@ -145,7 +145,7 @@ async def test_a_scheduled_clock_field_refuses_a_value_that_is_not_a_time(sessio
 
 
 async def test_diary_reminder_settings_sync_only_the_diary_system_reminder(sessions) -> None:
-    """PS-DIARY-006 — tests/brd/profile_settings.feature"""
+    """PS-DIARY-006 — tests/brd/profile.feature"""
     async with sessions() as session:
         await create_card(session, kind="action", title="Planned", stage="sprint", effort_points=3)
         sprint = await start_sprint(session, success_criteria="Keep the Sprint reminders")
@@ -201,7 +201,7 @@ async def test_diary_reminder_settings_sync_only_the_diary_system_reminder(sessi
 
 
 async def test_the_diary_trigger_is_scheduled_from_the_clock_it_is_given(sessions) -> None:
-    """PS-DIARY-012 — tests/brd/profile_settings.feature"""
+    """PS-DIARY-012 — tests/brd/profile.feature"""
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
         workspace.timezone = "Europe/Istanbul"
@@ -223,7 +223,7 @@ async def test_the_diary_trigger_is_scheduled_from_the_clock_it_is_given(session
 async def test_startup_reconciles_the_diary_trigger_before_rebuilding_reminders(
     sessions,
 ) -> None:
-    """PS-DIARY-013 — tests/brd/profile_settings.feature"""
+    """PS-DIARY-013 — tests/brd/profile.feature"""
     zone = ZoneInfo("Europe/Istanbul")
     async with sessions() as session:
         await set_profile_field(
@@ -251,7 +251,7 @@ async def test_startup_reconciles_the_diary_trigger_before_rebuilding_reminders(
 
 
 async def test_profile_update_bumps_workspace_revision_once(sessions) -> None:
-    """PS-REVISION-011 — tests/brd/profile_settings.feature"""
+    """PS-REVISION-011 — tests/brd/profile.feature"""
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
         revision = workspace.revision

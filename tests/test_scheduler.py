@@ -269,7 +269,7 @@ async def test_the_loop_survives_a_failing_tick(sessions, monkeypatch):
 
 
 async def test_memory_update_time_column_accepts_a_time(sessions) -> None:
-    """Guards the /setmemtime round-trip the settings screen renders."""
+    """Guards the /setmemtime round-trip the Profile screen renders."""
     async with sessions() as session:
         profile = await session.get(UserProfile, 1)
         profile.memory_update_time = time(3, 0)

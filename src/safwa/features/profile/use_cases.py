@@ -1,6 +1,6 @@
 """How the owner profile is written.
 
-Every write names one declared field, because that is what the Settings screen does and
+Every write names one declared field, because that is what the Profile screen does and
 nothing else writes the Profile at all: the AI holds no profile tool.  A single field also
 makes the value's type the field's own business instead of a bag of optional keyword
 arguments that each caller has to be trusted to fill correctly.

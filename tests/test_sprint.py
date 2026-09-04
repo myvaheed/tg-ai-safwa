@@ -193,7 +193,7 @@ async def test_a_sprints_end_warnings_belong_to_safwa(sessions):
         # So the owner never sees a trigger they cannot own, and the model never reads one
         # it cannot name: the Sprint that authored them is what removes them.
         for reminder in reminders:
-            with pytest.raises(DomainError, match="change it in Settings"):
+            with pytest.raises(DomainError, match="change it in the Profile"):
                 await delete_reminder(session, reminder.id)
 
         await finish_sprint(session, reason="finished_early")

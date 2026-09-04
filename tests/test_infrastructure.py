@@ -7,9 +7,9 @@ import pytest
 from sqlalchemy import create_engine, inspect, select
 
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
+from safwa.bootstrap.recovery import recover_startup
 from safwa.features.tags.model import Tag
 from safwa.foundation.database import Database, upgrade_database
-from safwa.recovery import recover_startup
 from tg_agent_shell.ai.runs import AgentRun
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from tg_agent_shell.foundation.models import Base

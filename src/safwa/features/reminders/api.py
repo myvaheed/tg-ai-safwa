@@ -12,5 +12,5 @@ from .schedule import parse_clock
 
 
 def parse_clock_or_off(raw: str) -> time | None:
-    """A daily Settings clock. ``off`` is None, which is how that setting is switched off."""
+    """A daily Profile clock. ``off`` is None, which is how that field is switched off."""
     return None if raw.strip().lower() == "off" else parse_clock(raw)

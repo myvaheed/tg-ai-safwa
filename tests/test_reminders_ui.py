@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from ui_harness import FakeCallback, FakeMessage, button_texts, services_for
 
 from safwa.features.profile.model import ProfileField
-from safwa.features.profile.telegram import command_settings
+from safwa.features.profile.telegram import command_profile
 from safwa.features.profile.use_cases import DIARY_REMINDER_INSTRUCTION, set_profile_field
 from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import resolve
@@ -106,7 +106,7 @@ async def test_the_reminders_screen_lists_opens_and_confirms_a_delete(sessions) 
         assert await session.get(Reminder, soon_id) is not None  # one confirmation, not none
 
 
-async def test_the_reminders_screen_and_settings_hide_safwas_own_reminder(sessions) -> None:
+async def test_the_reminders_screen_and_profile_hide_safwas_own_reminder(sessions) -> None:
     """RM-SYSTEM-022 — tests/brd/reminders.feature"""
     # The owner sets the Diary in Settings; the Reminder behind it is not theirs to see.
     async with sessions() as session:
@@ -124,7 +124,7 @@ async def test_the_reminders_screen_and_settings_hide_safwas_own_reminder(sessio
     listing = FakeMessage(910, bot_message=True)
     await render_reminders(listing, services_for(sessions))
     settings = FakeMessage(911, bot_message=True)
-    await command_settings(settings, services_for(sessions))
+    await command_profile(settings, services_for(sessions))
 
     labels = button_texts(listing.edits[-1][1])
     assert any("Check my posture" in label for label in labels)

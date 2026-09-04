@@ -208,17 +208,17 @@ async def test_qa_status_and_manual_card_review_flow(live_telegram_harness):
         )
         assert "Memory: OK" in status.raw_text
 
-        settings_command = await qa.send("/settings")
-        settings = await qa.wait_for_bot(
-            settings_command.id,
-            lambda message: "Settings" in message.raw_text and has_button(message, "Menu"),
+        profile_command = await qa.send("/profile")
+        profile = await qa.wait_for_bot(
+            profile_command.id,
+            lambda message: "Profile" in message.raw_text and has_button(message, "Menu"),
         )
-        await click_button(settings, "Menu")
+        await click_button(profile, "Menu")
         home = await qa.wait_for_existing_bot_message(
-            settings.id,
+            profile.id,
             lambda message: "Safwa" in message.raw_text and has_button(message, "Add"),
         )
-        assert home.id == settings.id
+        assert home.id == profile.id
 
         await click_button(home, "Add")
         review = await qa.wait_for_existing_bot_message(

@@ -18,6 +18,7 @@ from safwa.bootstrap.modules import (
     SCREENS,
     SYSTEM_PROMPT,
 )
+from safwa.bootstrap.recovery import recover_startup
 from safwa.features.cards.model import Card, CardCategory, CardEnergyType, CardStage
 from safwa.features.cards.use_cases import create_card, finish_action, move_card
 from safwa.features.planning.use_cases import finish_sprint, sprint_metrics, start_sprint
@@ -29,7 +30,6 @@ from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import CardValue, Value
 from safwa.foundation.marks import title_marks
 from safwa.foundation.workspace import Workspace
-from safwa.recovery import recover_startup
 from telegram_llm import ChatHost, DialogueMessage
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
 from tg_agent_shell.ai.runs import AgentRun, AgentStep

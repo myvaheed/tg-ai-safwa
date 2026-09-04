@@ -40,7 +40,7 @@ class Reminder(Base, TimestampMixin):
     sprint_id: Mapped[int | None] = mapped_column(
         ForeignKey("sprints.id", ondelete="CASCADE"), index=True
     )
-    # A Reminder no owner set — the Settings trigger, a Sprint's end warnings: hidden from
+    # A Reminder no owner set — the Profile trigger, a Sprint's end warnings: hidden from
     # `/reminders` and from `ai_reminders`, and refused by the edit and delete paths.
     system: Mapped[bool] = mapped_column(Boolean, default=False)
 

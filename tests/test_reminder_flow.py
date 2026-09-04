@@ -575,7 +575,7 @@ async def test_every_write_path_refuses_a_reminder_safwa_derived(sessions):
             reschedule_reminder(session, reminder_id, schedule=schedule, tz=TZ),
             delete_reminder(session, reminder_id),
         ):
-            with pytest.raises(DomainError, match="change it in Settings"):
+            with pytest.raises(DomainError, match="change it in the Profile"):
                 await attempt
         assert await session.get(Reminder, reminder_id) is not None
 

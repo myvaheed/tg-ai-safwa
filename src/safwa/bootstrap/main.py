@@ -46,7 +46,6 @@ from ..features.workspace_mutator.state import workspace_context
 from ..foundation.database import Database, upgrade_database
 from ..foundation.tokens import estimate_tokens
 from ..foundation.workspace import Workspace
-from ..recovery import recover_startup
 from .auth import history_client
 from .modules import (
     AI_VIEWS,
@@ -64,6 +63,7 @@ from .modules import (
     SYSTEM_PROMPT,
     routed_subagents,
 )
+from .recovery import recover_startup
 
 logger = logging.getLogger(__name__)
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"

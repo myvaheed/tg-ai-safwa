@@ -416,6 +416,44 @@ to it, and what is left in `constants.py` is read on both sides of a boundary.
 - A feature's `module.py` now reads where each half lives: what can be cited comes from
   `foundation/`, what the owner taps comes from `telegram/`.
 
+## Batch 11 — landed
+
+What runs during startup lives with the startup.
+
+17. **done** — `recovery.py` is `bootstrap/recovery.py`. `backup.py` and `qa.py` stay at
+    the root: neither runs during a boot.
+
+### Benefits
+
+- The only module that imported it is `bootstrap/main.py`, which calls it between the
+  feature hooks and the run machinery. It is a sibling now rather than a reach upwards.
+- `qa.py` stays beside `config.py`, which is what it guards: a QA `Settings` that reused
+  the production token or session path is what it hard-fails on.
+- `backup.py` operates on the data directory rather than on a running application, so it
+  belongs to neither the composition root nor a feature.
+
+## Batch 12 — landed
+
+One screen had three names. The owner's name is Profile.
+
+20. **done** — the package was already `profile`; the file, the command, the button, the
+    header and every scenario that named the screen say Profile now.
+
+### Benefits
+
+- `profile_settings.feature` is `profile.feature`, so the file and the package that keeps
+  it are the same word. The `PS` prefix stayed: it identifies scenarios the owner already
+  refers to, and `PR` is Proposals'.
+- The lowercase half went with it. A value on that screen is a *field*, which is what the
+  code has always called it — `ProfileField`, `set_profile_field`, `PROFILE_FIELDS` — so
+  the scenarios say field rather than setting.
+- The screen's descriptor for one editable value could not take the name `ProfileField`,
+  which is the enum those values are named by, so it is `EditableField`.
+- `Settings` still means one thing in this codebase: the `SAFWA_*` environment, in
+  `config.py`. Nothing on a screen answers to that name any more.
+- The prompt-prefix snapshot moved once, deliberately: the Advisor's prompt told the model
+  to send the owner to Settings for a Sprint config.
+
 ## Candidates — from the owner
 
 2. **no** — the review flow travelled with the engine rather than into it, and moving the
@@ -444,14 +482,14 @@ to it, and what is left in `constants.py` is read on both sides of a boundary.
     `REQUEST_RESULT_LIMIT` live with the module that reads them. Batch 7.
 16. **done** — `asr.py`, `history.py` and `foundation/kinds.py`, each named for what it
     is. Batch 8.
-17. **check** — `backup.py`, `qa.py` and `recovery.py` sit at the package root; `recovery.py` is
-    lifecycle and belongs under `bootstrap/`.
+17. **done** — `recovery.py` is `bootstrap/recovery.py`; the other two stay at the root.
+    Batch 11.
 18. **done** — the three names spelled `advisor` and the router's own name are the
     package's now. Batch 4.
 19. **check** — `features/workspace_mutator/state.py` builds one block out of every entity, the
     other place a single module knows the whole roster.
-20. **yes** — the package profile, the file profile_settings.feature and the "⚙️ Settings" button
-    are three names for one screen.
+20. **done** — the screen is Profile everywhere: the package, `profile.feature`, `/profile`
+    and the "⚙️ Profile" button. Batch 12.
 21. **check** — agents.feature, screens.feature and telegram_history.feature have no package,
     and advisor, workspace_mutator, home and retro have no scenario file, against one package
     per scenario file.
@@ -467,7 +505,7 @@ to it, and what is left in `constants.py` is read on both sides of a boundary.
     with `available_screens`. Batch 5.
 28. **done** — the persona is the product's, and the engine composes no prompt of its own.
     Batch 5.
-26. **yes** — the slash list is longer than it needs to be: `/backlog` and `/settings` go, and
+26. **yes** — the slash list is longer than it needs to be: `/backlog` and `/profile` go, and
     `/sprint` joins `/today` in cards. `/tags`, `/values` and `/reminders` already sit with the
     feature each names, so what is left is two deletions and one move. Whether a command that
     goes keeps its menu button is `ScreenCommand.command = None` and is not settled here.

@@ -175,7 +175,7 @@ file-backed memory state.
 ## Bot navigation
 
 Use `/start`, `/today`, `/sprint`, `/backlog`, `/values`, `/tags`, `/requests`, `/reminders`,
-`/settings`, `/memory`, `/mem`, `/syncmem`, `/summarize`, `/status`, and `/cancel`.
+`/profile`, `/memory`, `/mem`, `/syncmem`, `/summarize`, `/status`, and `/cancel`.
 Remove or edit durable facts directly in `data/memory.md`; the file watcher imports the change.
 
 The advisor reads a window of the chat bounded by a token budget, so nothing has to be started or

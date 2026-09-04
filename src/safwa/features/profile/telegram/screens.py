@@ -38,7 +38,7 @@ from ..use_cases import profile_field, set_profile_field
 
 
 @dataclass(frozen=True, slots=True)
-class SettingsField:
+class EditableField:
     """One profile value edited through a button and a focused prompt."""
 
     title: str
@@ -75,22 +75,22 @@ def _clock(value: time | None) -> str:
     return value.strftime("%H:%M") if value else "off"
 
 
-SETTINGS_FIELDS: dict[str, SettingsField] = {
-    "about_me": SettingsField(
+PROFILE_FIELDS: dict[str, EditableField] = {
+    "about_me": EditableField(
         title="About me",
         label="👤 About me",
         instruction="Send what Safwa should know about you. Send off to clear it.",
         parse=lambda raw: "" if raw.lower() == "off" else raw,
         show=lambda value: value or "off",
     ),
-    "advisor_instructions": SettingsField(
+    "advisor_instructions": EditableField(
         title="Advisor instructions",
         label="🧭 Advisor instructions",
         instruction="Send standing instructions for Safwa. Send off to clear them.",
         parse=lambda raw: "" if raw.lower() == "off" else raw,
         show=lambda value: value or "off",
     ),
-    "sprint_length_days": SettingsField(
+    "sprint_length_days": EditableField(
         title="Sprint length",
         label="🏁 Sprint length",
         instruction=(
@@ -100,14 +100,14 @@ SETTINGS_FIELDS: dict[str, SettingsField] = {
         parse=_parse_sprint_length,
         show=lambda value: f"{value} days",
     ),
-    "capacity_effort_points": SettingsField(
+    "capacity_effort_points": EditableField(
         title="Sprint capacity",
         label="🎯 Sprint capacity",
         instruction="Send the effort points one Sprint holds, or off to stop tracking it.",
         parse=_parse_capacity,
         show=lambda value: f"{value} EP" if value else "off",
     ),
-    "memory_update_time": SettingsField(
+    "memory_update_time": EditableField(
         title="Memory sync",
         label="🧠 Memory sync",
         instruction=(
@@ -116,7 +116,7 @@ SETTINGS_FIELDS: dict[str, SettingsField] = {
         parse=_parse_daily_time,
         show=_clock,
     ),
-    "diary_time": SettingsField(
+    "diary_time": EditableField(
         title="Diary",
         label="📔 Diary time",
         instruction=(
@@ -125,7 +125,7 @@ SETTINGS_FIELDS: dict[str, SettingsField] = {
         parse=_parse_daily_time,
         show=_clock,
     ),
-    "diary_instructions": SettingsField(
+    "diary_instructions": EditableField(
         title="Diary instruction",
         label="✍️ Diary instruction",
         instruction=(
@@ -138,21 +138,21 @@ SETTINGS_FIELDS: dict[str, SettingsField] = {
 }
 
 
-def settings_text(profile: UserProfile, timezone: str) -> str:
-    """Render the settings values; timezone is deliberately display-only."""
+def profile_text(profile: UserProfile, timezone: str) -> str:
+    """Render the Profile values; timezone is deliberately display-only."""
     lines = [
-        "<b>Settings</b>",
+        "<b>Profile</b>",
         f"About me: {html.escape(profile.about_me or '—')}",
         f"Advisor instructions: {html.escape(profile.advisor_instructions or '—')}",
     ]
-    for name, field in SETTINGS_FIELDS.items():
+    for name, field in PROFILE_FIELDS.items():
         lines.append(f"{field.title}: {html.escape(field.show(getattr(profile, name)))}")
     lines.append(f"Timezone: {html.escape(timezone)}")
     lines.append("Tap a setting to change it.")
     return "\n".join(lines)
 
 
-async def command_settings(
+async def command_profile(
     message: Message,
     services: Services,
     *,
@@ -165,13 +165,13 @@ async def command_settings(
         if profile is None or workspace is None:
             raise DomainError("Workspace is not initialized")
         buttons = []
-        for name, field in SETTINGS_FIELDS.items():
+        for name, field in PROFILE_FIELDS.items():
             buttons.append(
                 await token_button(
-                    session, services.owner_id, field.label, "settings_edit", {"field": name}
+                    session, services.owner_id, field.label, "profile_edit", {"field": name}
                 )
             )
-        rendered = settings_text(profile, workspace.timezone)
+        rendered = profile_text(profile, workspace.timezone)
         await session.commit()
     rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
     text = with_notice(rendered, notice)
@@ -191,10 +191,10 @@ async def command_settings(
         )
 
 
-async def render_settings_field_prompt(
+async def render_profile_field_prompt(
     message: Message, services: Services, field_name: str, *, notice: str | None = None
 ) -> None:
-    field = SETTINGS_FIELDS[field_name]
+    field = PROFILE_FIELDS[field_name]
     async with services.sessions() as session:
         profile = await session.get(UserProfile, 1)
         if profile is None:
@@ -207,22 +207,22 @@ async def render_settings_field_prompt(
             title=field.title,
             current_value=current,
             instruction=field.instruction,
-            back_action="settings_back",
+            back_action="profile_back",
             back_payload={},
         ),
-        state={"flow": "settings", "field": field_name},
+        state={"flow": "profile", "field": field_name},
         notice=notice,
     )
 
 
-def _settings_field(state: Mapping[str, Any]) -> SettingsField:
-    field = SETTINGS_FIELDS.get(str(state["field"]))
+def _editable_field(state: Mapping[str, Any]) -> EditableField:
+    field = PROFILE_FIELDS.get(str(state["field"]))
     if field is None:
         raise DomainError("That setting is no longer available.")
     return field
 
 
-async def _apply_setting(
+async def _apply_field(
     session: AsyncSession, services: Any, state: Mapping[str, Any], value: Any
 ) -> None:
     del services
@@ -231,28 +231,28 @@ async def _apply_setting(
     )
 
 
-async def _render_settings(
+async def _render_profile(
     message: Any, services: Any, state: Mapping[str, Any], value: Any
 ) -> None:
     del value
-    await command_settings(
+    await command_profile(
         message,
         services,
-        notice=f"{_settings_field(state).title} updated.",
+        notice=f"{_editable_field(state).title} updated.",
         replace_message_id=int(state["text_input"]["message_id"]),
     )
 
 
 TEXT_INPUT = TextInputFlow(
-    name="settings",
-    validator=lambda state: _settings_field(state).parse,
-    apply=_apply_setting,
-    render=_render_settings,
+    name="profile",
+    validator=lambda state: _editable_field(state).parse,
+    apply=_apply_field,
+    render=_render_profile,
 )
 
 
 async def _on_edit(context: CallbackContext) -> None:
-    await render_settings_field_prompt(
+    await render_profile_field_prompt(
         context.message, context.services, str(context.payload["field"])
     )
 
@@ -261,10 +261,10 @@ async def _on_back(context: CallbackContext) -> None:
     async with context.sessions() as session:
         await session.execute(delete(UiSession).where(UiSession.owner_id == context.owner_id))
         await session.commit()
-    await command_settings(context.message, context.services)
+    await command_profile(context.message, context.services)
 
 
-SETTINGS_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
-    "settings_edit": _on_edit,
-    "settings_back": _on_back,
+PROFILE_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
+    "profile_edit": _on_edit,
+    "profile_back": _on_back,
 }

@@ -184,7 +184,7 @@ Feature: Reminders
     Then it is not in the list
     And every way of editing, rescheduling or deleting it refuses, and says where to change it
     And it fires exactly like any other Reminder
-    And whatever set it up is what takes it away: Settings for the Diary nudge, finishing the Sprint
+    And whatever set it up is what takes it away: the Profile for the Diary nudge, finishing the Sprint
       for its ending warnings
 
   Scenario: RM-UI-023 — /reminders is a list, a Reminder, and two things to do with it

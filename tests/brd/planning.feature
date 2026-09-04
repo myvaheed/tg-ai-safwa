@@ -23,7 +23,7 @@ Feature: Planning — the Sprint, and the mode without one
     When they ask it to start the Sprint, finish it, or change its dates, its length or its Success criteria
     Then Safwa has no way to do any of it and says where the owner does it themselves
     And no proposal is ever written about a Sprint
-    And starting and finishing happen on the Sprint screen, and the length and the capacity in Settings
+    And starting and finishing happen on the Sprint screen, and the length and the capacity in the Profile
 
   Scenario: PL-CRITERIA-003 — A Sprint starts with words and with work
     Given the next Sprint has no Success criteria and nothing planned
@@ -42,7 +42,7 @@ Feature: Planning — the Sprint, and the mode without one
     And Safwa reads them as a draft and says no Sprint is running
 
   Scenario: PL-START-005 — Starting a Sprint fixes its days and its number
-    Given the Sprint length in Settings is 14 days (SPRINT_LENGTH_DAYS = 14)
+    Given the Sprint length in the Profile is 14 days (SPRINT_LENGTH_DAYS = 14)
     When the owner starts a Sprint
     Then it runs from the owner's today through the 14th day, that day included
     And its number is one higher than the highest number any Sprint has ever had
@@ -139,7 +139,7 @@ Feature: Planning — the Sprint, and the mode without one
     And a Request that was deleted since it was picked is dropped, and the rest still filter
 
   Scenario: PL-PLAN-018 — The plan's cost is shown against the capacity
-    Given the capacity in Settings is 10 points and 13 points are planned
+    Given the capacity in the Profile is 10 points and 13 points are planned
     Then wherever the plan's total effort is shown, the capacity is shown beside it, and the owner is told the plan is above it
     And the Sprint still starts
     When no capacity is set

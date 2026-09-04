@@ -10,9 +10,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from tg_agent_shell.foundation.models import Base, TimestampMixin
 
-# The default Sprint length; the owner overrides it per workspace in Settings.
+# The default Sprint length; the owner overrides it per workspace in the Profile.
 SPRINT_LENGTH_DAYS = 14
-# Local clock the Diary's system Reminder fires on out of the box; Settings moves it,
+# Local clock the Diary's system Reminder fires on out of the box; the Profile moves it,
 # and `off` there removes the row.
 DIARY_TIME_DEFAULT = "22:00"
 

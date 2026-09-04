@@ -11,12 +11,12 @@ import pytest
 from sqlalchemy import select
 
 from safwa.bootstrap.modules import PROPOSALS
+from safwa.bootstrap.recovery import recover_startup
 from safwa.features.cards.model import Card, CardStage
 from safwa.features.cards.use_cases import archive_subtree, create_card, finish_action
 from safwa.features.checks.model import CheckOutcome
 from safwa.features.checks.use_cases import archive_check, create_check, resolve_check
 from safwa.features.planning.use_cases import expire_due_sprint, start_sprint
-from safwa.recovery import recover_startup
 from tg_agent_shell.ai.runs import AgentRun
 from tg_agent_shell.foundation.errors import StaleStateError
 from tg_agent_shell.foundation.kinds import MessageKind
