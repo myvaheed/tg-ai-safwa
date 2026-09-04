@@ -135,8 +135,8 @@ async def test_rule_i_the_clock_never_reaches_the_advisor_prefix():
         DialogueMessage(role="user", content="Close the shopping one."),
     ]
 
-    early = await _builder("Now: Tuesday 09:00.").advisor(dialogue)
-    later = await _builder("Now: Friday 23:41.").advisor(dialogue)
+    early = await _builder("Now: Tuesday 09:00.").root(dialogue)
+    later = await _builder("Now: Friday 23:41.").root(dialogue)
 
     # The state block is what a folded clock would ride in on, so the prefix under test has
     # to still contain it or this passes by holding nothing.

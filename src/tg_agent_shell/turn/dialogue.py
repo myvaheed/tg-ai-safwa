@@ -192,7 +192,7 @@ async def run_dialogue_turn(
         await open_turn_notice(message, services)
         await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
         dialogue = await services.history.dialogue(message.chat.id, source_message=source)
-        outcome = await services.advisor.handle(
+        outcome = await services.root.handle(
             request,
             source_message_id=source.message_id,
             dialogue=dialogue,

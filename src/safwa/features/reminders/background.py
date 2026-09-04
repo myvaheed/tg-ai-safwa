@@ -26,7 +26,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from tg_agent_shell.cues.queue import cue_advisor, next_cue
+from tg_agent_shell.cues.queue import add_cue, next_cue
 
 from ...constants import (
     REMINDER_CATCHUP_GRACE_MINUTES,
@@ -141,7 +141,7 @@ async def tick(
             # Every one of them was a stale repeat, and `prepare` rolled it forward.
             await session.commit()
             return False
-        await cue_advisor(session, text=format_cue(firings, now=moment))
+        await add_cue(session, text=format_cue(firings, now=moment))
         await settle(session, firings, now=moment, tz=tz)
         await session.commit()
         return True

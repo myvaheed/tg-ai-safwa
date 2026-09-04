@@ -12,8 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .model import Cue
 
 
-async def cue_advisor(session: AsyncSession, *, text: str) -> Cue:
-    """Hand the Advisor something to say, to be said once the owner is not busy."""
+async def add_cue(session: AsyncSession, *, text: str) -> Cue:
+    """Queue something to be said, once the owner is not busy."""
     cue = Cue(text=text)
     session.add(cue)
     await session.flush()

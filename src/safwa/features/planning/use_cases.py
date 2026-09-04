@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tg_agent_shell.cues.queue import cue_advisor
+from tg_agent_shell.cues.queue import add_cue
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 
@@ -202,7 +202,7 @@ async def finish_sprint(session: AsyncSession, *, reason: str = "finished") -> S
     workspace.revision += 1
     await session.flush()
     # Written here, so Safwa is told how the Sprint went rather than sent reading tables.
-    await cue_advisor(session, text=await sprint_summary(session, sprint))
+    await add_cue(session, text=await sprint_summary(session, sprint))
     await archive_settled_items(session)
     return sprint
 

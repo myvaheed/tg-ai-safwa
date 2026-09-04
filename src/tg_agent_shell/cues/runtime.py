@@ -41,7 +41,7 @@ class CueRuntime:
         """
         if self.services.turn.active:
             return False
-        if self.services.advisor.reviews.busy:
+        if self.services.root.reviews.busy:
             return False
         async with self.services.sessions() as session:
             # "Resolved completely" includes the model's continuation after the last queue
@@ -91,7 +91,7 @@ class CueRuntime:
             dialogue = [*dialogue, DialogueMessage(role="user", content=text)]
             if not self.still_current():
                 return False
-            outcome = await self.services.advisor.handle(text, dialogue=dialogue)
+            outcome = await self.services.root.handle(text, dialogue=dialogue)
             if not self.still_current():
                 # The owner arrived mid-turn and took the turn. Their message wins.
                 return False

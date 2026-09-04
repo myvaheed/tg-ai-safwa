@@ -142,7 +142,7 @@ async def test_proposal_ui_gives_up_the_turn_before_continuity_work(sessions) ->
         turn=turn,
         chat=ChatHost(TelegramNotes(sessions), MARKS, spawn=spawn_timer),
         text_inputs=FEATURE_TEXT_INPUTS,
-        advisor=Advisor(),
+        root=Advisor(),
         history=History(),
         continuity=continuity,
     )
@@ -203,7 +203,7 @@ async def test_new_dialogue_discards_and_freezes_pending_proposal(sessions) -> N
 
     bot = FakeBot()
     incoming = FakeMessage(11, text="Another question", bot_message=False, bot=bot)
-    await dismiss_prior_ui(incoming, services_for(sessions, reviews=store, advisor=StubAdvisor(store)))
+    await dismiss_prior_ui(incoming, services_for(sessions, reviews=store, root=StubAdvisor(store)))
 
     assert bot.deleted == [9]
     assert bot.edits[0][0] == 10
@@ -252,7 +252,7 @@ async def test_a_command_dismisses_every_other_screen(sessions) -> None:
 
     bot = FakeBot()
     store = ProposalStore()
-    services = services_for(sessions, reviews=store, advisor=StubAdvisor(store))
+    services = services_for(sessions, reviews=store, root=StubAdvisor(store))
     handled: list[str] = []
 
     async def handler(event, _data):
@@ -316,7 +316,7 @@ async def test_the_screen_the_owner_walked_into_is_left_alone(sessions) -> None:
 
     bot = FakeBot()
     dashboard = FakeMessage(9, bot_message=True, bot=bot)
-    await dismiss_prior_ui(dashboard, services_for(sessions, reviews=store, advisor=StubAdvisor(store)))
+    await dismiss_prior_ui(dashboard, services_for(sessions, reviews=store, root=StubAdvisor(store)))
 
     assert bot.deleted == []
     assert bot.edits[0][0] == 10
@@ -378,7 +378,7 @@ async def test_typed_words_end_the_review_and_are_then_answered(sessions) -> Non
         turn=TurnManager(),
         chat=ChatHost(TelegramNotes(sessions), MARKS, spawn=spawn_timer),
         text_inputs=FEATURE_TEXT_INPUTS,
-        advisor=Advisor(store),
+        root=Advisor(store),
         history=History(),
         continuity=Continuity(),
     )

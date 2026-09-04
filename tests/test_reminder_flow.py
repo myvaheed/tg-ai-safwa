@@ -375,7 +375,7 @@ async def test_reminder_advisor_receives_canonical_dialogue(sessions, monkeypatc
     services = SimpleNamespace(
         sessions=sessions,
         history=history,
-        advisor=advisor,
+        root=advisor,
         turn=turn,
     )
     runtime = CueRuntime(services, object(), owner_id=42)
@@ -447,7 +447,7 @@ async def test_a_cue_render_failure_releases_its_pending_proposal(sessions, monk
     services = SimpleNamespace(
         sessions=sessions,
         history=History(),
-        advisor=Advisor(),
+        root=Advisor(),
         turn=TurnManager(),
     )
     runtime = CueRuntime(services, object(), owner_id=42)
@@ -516,7 +516,7 @@ def _gate_runtime(sessions) -> CueRuntime:
     services = SimpleNamespace(
         sessions=sessions,
         history=None,
-        advisor=SimpleNamespace(reviews=ProposalStore()),
+        root=SimpleNamespace(reviews=ProposalStore()),
         turn=TurnManager(),
     )
     return CueRuntime(services, object(), owner_id=42)
@@ -532,7 +532,7 @@ async def test_an_open_question_of_any_shape_closes_the_gate(sessions):
     assert await runtime.can_speak() is False
     runtime.services.turn.end(7)
 
-    reviews = runtime.services.advisor.reviews
+    reviews = runtime.services.root.reviews
     proposal = reviews.open_proposal(
         message="Create Reminder", workspace_revision=1, changes=[]
     )

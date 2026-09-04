@@ -11,7 +11,7 @@ from safwa.features.planning.use_cases import finish_sprint, start_sprint
 from tg_agent_shell.ai.runs import AgentRun
 from tg_agent_shell.cues.background import tick
 from tg_agent_shell.cues.model import Cue
-from tg_agent_shell.cues.queue import cue_advisor, next_cue
+from tg_agent_shell.cues.queue import add_cue, next_cue
 from tg_agent_shell.cues.runtime import CueRuntime
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.proposals.model import ChangeAction, ProposalChange
@@ -48,7 +48,7 @@ def _hooks(recorder: Recorder) -> dict:
 def _runtime(sessions, turn: TurnManager, reviews: ProposalStore) -> CueRuntime:
     """The real gate, over the real turn and the real store; only the bot is absent."""
     services = SimpleNamespace(
-        sessions=sessions, turn=turn, advisor=SimpleNamespace(reviews=reviews)
+        sessions=sessions, turn=turn, root=SimpleNamespace(reviews=reviews)
     )
     return CueRuntime(services, bot=None, owner_id=1)  # type: ignore[arg-type]
 
@@ -95,7 +95,7 @@ async def test_ag_turn_015_an_open_gate_takes_the_background_lease(sessions):
 
 async def write(sessions, text: str) -> int:
     async with sessions() as session:
-        cue = await cue_advisor(session, text=text)
+        cue = await add_cue(session, text=text)
         await session.commit()
         return cue.id
 

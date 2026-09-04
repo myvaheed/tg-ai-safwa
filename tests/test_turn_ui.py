@@ -60,8 +60,8 @@ class TurnAdvisor:
 
 
 def turn_services(sessions):
-    services = services_for(sessions, advisor=None)
-    services.advisor = TurnAdvisor(sessions)
+    services = services_for(sessions, root=None)
+    services.root = TurnAdvisor(sessions)
     services.history = SimpleNamespace(dialogue=_empty_dialogue)
     services.continuity = SimpleNamespace(close_window=_no_summary)
     return services
@@ -120,7 +120,7 @@ async def test_ag_turn_022_the_notice_stands_while_the_answer_is_written(session
 async def test_ag_turn_022_a_cancelled_turn_leaves_no_notice_and_no_answer(sessions) -> None:
     """AG-TURN-022 — tests/brd/agents.feature"""
     services = turn_services(sessions)
-    original_handle = services.advisor.handle
+    original_handle = services.root.handle
 
     async def cancel_then_answer(request, *, source_message_id=None, dialogue=None):
         await remove_turn_notice(message, services, services.turn.cancel())
@@ -128,7 +128,7 @@ async def test_ag_turn_022_a_cancelled_turn_leaves_no_notice_and_no_answer(sessi
             request, source_message_id=source_message_id, dialogue=dialogue
         )
 
-    services.advisor.handle = cancel_then_answer
+    services.root.handle = cancel_then_answer
     message = FakeMessage(961, text="Save it", bot_message=False, answer_as_new=True)
     source = HistoryEntry(
         message_id=961,
@@ -164,7 +164,7 @@ async def test_a_review_that_could_not_be_drawn_ends_and_the_owner_is_told(sessi
             cancelled.append(proposal_id)
 
     services = turn_services(sessions)
-    services.advisor = ProposalAdvisor()
+    services.root = ProposalAdvisor()
     message = FakeMessage(965, text="Save it", bot_message=False, answer_as_new=True)
     source = HistoryEntry(
         message_id=965,
@@ -335,7 +335,7 @@ async def test_what_was_said_is_never_taken_out_of_the_chat(sessions) -> None:
 
     bot = FakeBot()
     store = ProposalStore()
-    services = services_for(sessions, reviews=store, advisor=StubAdvisor(store))
+    services = services_for(sessions, reviews=store, root=StubAdvisor(store))
     message = FakeMessage(53, text="Carry on", bot_message=False, bot=bot)
 
     await dismiss_prior_ui(message, services)

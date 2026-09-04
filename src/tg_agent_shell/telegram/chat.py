@@ -157,14 +157,14 @@ async def _interrupted_review(services: Services, screen: Note) -> tuple[str, st
     """
     if screen.kind != MessageKind.APPROVAL.value:
         return None
-    advisor = services.advisor
-    review = advisor.reviews.proposal(screen.related_id)
+    root = services.root
+    review = root.reviews.proposal(screen.related_id)
     if review is None:
         return None
     async with services.sessions() as session:
-        description = await advisor.describe_proposal(session, review.id)
-    advisor.reviews.end_proposal(review.id)
-    progress = await advisor.cancel_approval_for_proposal(review.id)
+        description = await root.describe_proposal(session, review.id)
+    root.reviews.end_proposal(review.id)
+    progress = await root.cancel_approval_for_proposal(review.id)
     if progress:
         # Earlier items in the queue may already be saved, and this frozen screen becomes
         # assistant history.  Report the whole request.

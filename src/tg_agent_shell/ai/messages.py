@@ -78,14 +78,14 @@ class ContextBuilder:
         routed = self.subagents.get(kind)
         if routed is not None:
             return await self.routed(routed, dialogue, prior_receipts)
-        return await self.advisor(
+        return await self.root(
             [
                 DialogueMessage(role=str(item["role"]), content=str(item["content"]))
                 for item in dialogue
             ]
         )
 
-    async def advisor(self, dialogue: list[DialogueMessage]) -> list[dict[str, Any]]:
+    async def root(self, dialogue: list[DialogueMessage]) -> list[dict[str, Any]]:
         memory = await self.memory.sync()
         async with self.sessions() as session:
             context = await self.workspace_state(session)

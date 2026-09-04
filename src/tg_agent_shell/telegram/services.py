@@ -1,7 +1,7 @@
 """The application container, the router, and who is allowed to reach them.
 
 Everything the whole application shares is assembled once by the composition root and handed
-around on `Services`: the sessions, the advisor, the turn, and every catalogue the features
+around on `Services`: the sessions, the root session, the turn, and every catalogue the features
 declared. A feature's Telegram adapter imports this module and `telegram_llm`, and nothing
 else of the shell.
 """
@@ -27,7 +27,7 @@ from ..session import RootSession
 from ..turn import TurnManager
 
 logger = logging.getLogger(__name__)
-router = Router(name="safwa")
+router = Router(name="tg_agent_shell")
 
 
 def audio_payload(message: Message) -> Audio | Voice | VideoNote | None:
@@ -56,7 +56,7 @@ class WindowKeeper(Protocol):
 @dataclass
 class Services:
     sessions: async_sessionmaker[AsyncSession]
-    advisor: RootSession
+    root: RootSession
     history: TelegramHistorySource
     memory: Memory
     continuity: WindowKeeper

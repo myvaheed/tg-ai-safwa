@@ -24,7 +24,7 @@ from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import resolve, schedule_columns
 from safwa.foundation.workspace import Workspace
 from tg_agent_shell.cues.model import Cue
-from tg_agent_shell.cues.queue import cue_advisor
+from tg_agent_shell.cues.queue import add_cue
 
 TZ = ZoneInfo("Europe/Istanbul")
 NOW = datetime(2026, 8, 13, 9, 0, tzinfo=UTC)  # a Thursday
@@ -70,7 +70,7 @@ async def test_nothing_is_written_while_something_is_still_waiting(sessions):
     """RM-GATE-017 — tests/brd/reminders.feature"""
     reminder_id = await make_reminder(sessions)
     async with sessions() as session:
-        await cue_advisor(session, text="Sprint 1 is over.")
+        await add_cue(session, text="Sprint 1 is over.")
         await session.commit()
 
     assert await tick(sessions, tz=TZ, now=NOW) is False

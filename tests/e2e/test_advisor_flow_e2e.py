@@ -1538,7 +1538,7 @@ async def test_a_review_whose_screen_could_not_be_sent_does_not_stay_open(
     message = _QueueTestMessage()
     services = SimpleNamespace(
         sessions=e2e_harness.sessions,
-        advisor=advisor,
+        root=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
         turn=TurnManager(),
@@ -1732,7 +1732,7 @@ async def test_single_tag_proposal_save_and_discard_callbacks_resume_agent(
     message = _QueueTestMessage()
     services = SimpleNamespace(
         sessions=e2e_harness.sessions,
-        advisor=advisor,
+        root=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
         turn=TurnManager(),
@@ -1772,7 +1772,7 @@ async def test_restart_invalidates_an_unanswered_proposal_button(e2e_harness):
     message = _QueueTestMessage()
     services = SimpleNamespace(
         sessions=e2e_harness.sessions,
-        advisor=advisor,
+        root=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
         turn=TurnManager(),
@@ -1823,7 +1823,7 @@ async def test_a_button_works_once(e2e_harness):
     message = _QueueTestMessage()
     services = SimpleNamespace(
         sessions=e2e_harness.sessions,
-        advisor=advisor,
+        root=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
         turn=TurnManager(),
@@ -1878,7 +1878,7 @@ async def test_read_queries_beside_a_proposal_still_resume_the_agent(e2e_harness
     message = _QueueTestMessage()
     services = SimpleNamespace(
         sessions=e2e_harness.sessions,
-        advisor=advisor,
+        root=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
         turn=TurnManager(),
@@ -1951,7 +1951,7 @@ async def test_discarding_the_last_queued_proposal_still_reports_saved_siblings(
     message = _QueueTestMessage()
     services = SimpleNamespace(
         sessions=e2e_harness.sessions,
-        advisor=advisor,
+        root=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
         turn=TurnManager(),
@@ -2027,7 +2027,7 @@ async def test_new_message_discarding_a_queue_reports_what_was_already_saved(e2e
     screen = _QueueTestMessage()
     services = SimpleNamespace(
         sessions=e2e_harness.sessions,
-        advisor=advisor,
+        root=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
         turn=TurnManager(),
@@ -2081,7 +2081,7 @@ async def test_proposal_ui_queues_mutations_and_reports_dependency_failure(e2e_h
     message = _QueueTestMessage()
     services = SimpleNamespace(
         sessions=e2e_harness.sessions,
-        advisor=advisor,
+        root=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
         turn=TurnManager(),
@@ -2136,7 +2136,7 @@ async def test_single_proposal_save_error_is_reported_and_resolved(e2e_harness):
     message = _QueueTestMessage()
     services = SimpleNamespace(
         sessions=e2e_harness.sessions,
-        advisor=advisor,
+        root=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
         turn=TurnManager(),
@@ -2192,7 +2192,7 @@ async def test_single_tag_callback_never_leaves_dead_buttons_when_follow_up_fail
     message = _QueueTestMessage()
     services = SimpleNamespace(
         sessions=e2e_harness.sessions,
-        advisor=advisor,
+        root=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
         turn=TurnManager(),
@@ -2508,7 +2508,7 @@ async def test_a_resolved_proposal_leaves_one_readable_line_in_the_dialogue(
     message = _QueueTestMessage()
     services = SimpleNamespace(
         sessions=e2e_harness.sessions,
-        advisor=advisor,
+        root=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
         turn=TurnManager(),
@@ -2544,7 +2544,7 @@ async def test_navigating_away_freezes_the_proposal_into_the_same_outcome_text(e
     message = _QueueTestMessage()
     services = SimpleNamespace(
         sessions=e2e_harness.sessions,
-        advisor=advisor,
+        root=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
         turn=TurnManager(),
@@ -2573,7 +2573,7 @@ async def test_navigating_away_freezes_the_proposal_into_the_same_outcome_text(e
 def _screen_services(e2e_harness, advisor) -> SimpleNamespace:
     return SimpleNamespace(
         sessions=e2e_harness.sessions,
-        advisor=advisor,
+        root=advisor,
         history=_QueueTestHistory(),
         owner_id=42,
         turn=TurnManager(),

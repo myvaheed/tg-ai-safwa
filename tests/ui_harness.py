@@ -177,7 +177,7 @@ class StubAdvisor:
         return None
 
 
-def services_for(sessions, *, advisor=None, reviews=None, transcriber=None):
+def services_for(sessions, *, root=None, reviews=None, transcriber=None):
     return SimpleNamespace(
         sessions=sessions,
         owner_id=42,
@@ -189,8 +189,8 @@ def services_for(sessions, *, advisor=None, reviews=None, transcriber=None):
         text_inputs=FEATURE_TEXT_INPUTS,
         views=ALLOWED_VIEWS,
         bot_username="safwa_ai_bot",
-        advisor=advisor
-        if advisor is not None
+        root=root
+        if root is not None
         else SimpleNamespace(
             proposals=PROPOSALS, reviews=reviews if reviews is not None else ProposalStore()
         ),

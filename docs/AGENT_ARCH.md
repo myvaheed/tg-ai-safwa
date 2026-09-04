@@ -319,7 +319,7 @@ the Cue row, exactly as for anything else Safwa says first.
 `finish_sprint` (by hand, or at the local midnight after the planned end date) writes a six-line
 summary from the Sprint's own record — which Sprint and when, how it ended, its Success criteria,
 the five effort figures, how the Actions ended up, the titles of what is still open — and hands it
-over with `cue_advisor`, in the same transaction that ends the Sprint. Nothing dresses it as a
+over with `add_cue`, in the same transaction that ends the Sprint. Nothing dresses it as a
 Reminder that went off: the words are the Sprint's own. Safwa is told how the Sprint went so it does
 not go reading tables to find out, and ends its message with `[Sprint retro](retro:12)`.
 

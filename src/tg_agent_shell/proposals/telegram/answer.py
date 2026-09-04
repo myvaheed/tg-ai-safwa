@@ -50,7 +50,7 @@ async def render_ai_outcome(
             # chat is unanswerable and holds the Cue gate shut for the life of the process,
             # so it ends here; saying what failed stays the caller's.
             try:
-                await services.advisor.cancel_approval_for_proposal(outcome.proposal_id)
+                await services.root.cancel_approval_for_proposal(outcome.proposal_id)
             except Exception:
                 logger.exception("Could not end a review whose screen failed to send")
             raise
@@ -73,7 +73,7 @@ async def continue_agent_approval(
     result: dict[str, Any],
 ) -> bool:
     """Advance an open approval queue, resuming the model only after its last item."""
-    if not services.advisor.has_pending_approval(proposal_id):
+    if not services.root.has_pending_approval(proposal_id):
         return False
     resolved_text = f"{DECISION_RECEIPTS[decision]}."
 
@@ -101,7 +101,7 @@ async def continue_agent_approval(
     try:
         try:
             await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-            outcome = await services.advisor.resolve_approval(
+            outcome = await services.root.resolve_approval(
                 proposal_id,
                 decision=decision,
                 result=result,

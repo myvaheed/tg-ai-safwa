@@ -37,10 +37,10 @@ async def _on_approve(context: CallbackContext) -> None:
     async with context.sessions() as session:
         # Which changes need a second confirmation is the owning feature's rule, not this
         # screen's: a Card deletion takes a whole subtree and its historical contribution.
-        advisor = context.services.advisor
-        review = advisor.reviews.proposal(proposal_id)
+        root = context.services.root
+        review = root.reviews.proposal(proposal_id)
         if review is not None and any(
-            advisor.proposals.needs_confirmation(change) for change in review.changes
+            root.proposals.needs_confirmation(change) for change in review.changes
         ):
             confirm = await token_button(
                 session,
@@ -61,9 +61,9 @@ async def _on_approve(context: CallbackContext) -> None:
             return
         # Read the description before applying: its field lines diff against committed
         # state, which the apply is about to become.
-        description = await context.services.advisor.describe_proposal(session, proposal_id)
+        description = await context.services.root.describe_proposal(session, proposal_id)
         affected = await approve_proposal(
-            session, advisor.reviews, advisor.proposals, proposal_id
+            session, root.reviews, root.proposals, proposal_id
         )
         await session.commit()
     if await continue_agent_approval(
@@ -85,11 +85,11 @@ async def _on_approve(context: CallbackContext) -> None:
 async def _on_delete_confirm(context: CallbackContext) -> None:
     proposal_id = context.payload["id"]
     async with context.sessions() as session:
-        description = await context.services.advisor.describe_proposal(session, proposal_id)
+        description = await context.services.root.describe_proposal(session, proposal_id)
         affected = await approve_proposal(
             session,
-            context.services.advisor.reviews,
-            context.services.advisor.proposals,
+            context.services.root.reviews,
+            context.services.root.proposals,
             proposal_id,
             allow_destructive=True,
         )
@@ -118,8 +118,8 @@ async def _on_delete_confirm(context: CallbackContext) -> None:
 async def _on_reject(context: CallbackContext) -> None:
     proposal_id = context.payload["id"]
     async with context.sessions() as session:
-        description = await context.services.advisor.describe_proposal(session, proposal_id)
-    context.services.advisor.reviews.end_proposal(proposal_id)
+        description = await context.services.root.describe_proposal(session, proposal_id)
+    context.services.root.reviews.end_proposal(proposal_id)
     if await continue_agent_approval(
         context.message,
         context.services,

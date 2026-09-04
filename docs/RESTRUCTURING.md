@@ -254,9 +254,27 @@ engine declares.
 - The prompt-prefix snapshot moved by exactly five entries — the read tool and the four
   prompts that name it — which is what proves the other six schemas did not change while
   their classes did.
-- Five public names in the package are still Safwa's: three are `advisor` (candidate 18) and
-  two are the Sprint gate (candidate 27 below). Until those, the vocabulary test cannot be
-  switched on, and that is now the whole of the list rather than an estimate.
+- Five public names in the package were still Safwa's when this landed: three `advisor`
+  (candidate 18, batch 4) and two the Sprint gate (candidate 27 below). Until those, the
+  vocabulary test cannot be switched on, and that is now the whole of the list rather than an
+  estimate.
+
+## Batch 4 — landed
+
+The three public names spelled `advisor` were the root session's under a persona the package
+does not own, and the router carried the product's name beside them.
+
+18. **done** — the field is `Services.root`, the prompt builder's is `root` beside `routed`,
+    the Cue producer is `add_cue`, and the router is `Router(name="tg_agent_shell")`.
+
+### Benefits
+
+- The field's type has been `RootSession` since group E and the field now says the same, so
+  `services.root` no longer promises a persona `features/advisor` owns.
+- `messages_for` chooses between `root` and `routed`, which is the one distinction the prompt
+  builder makes.
+- A Cue's producer says what it does rather than who reads it: `add_cue` beside `next_cue`.
+- Two public names in the package are still Safwa's, both the Sprint gate of candidate 27.
 
 ## Candidates — from the owner
 
@@ -288,8 +306,8 @@ engine declares.
     one name that says neither. Both are the shell's, so splitting them is all that is left.
 17. **check** — `backup.py`, `qa.py` and `recovery.py` sit at the package root; `recovery.py` is
     lifecycle and belongs under `bootstrap/`.
-18. **yes** — every type on `Services` is generic now; what is left is the field name
-    `advisor` and `Router(name="safwa")` beside it.
+18. **done** — the three names spelled `advisor` and the router's own name are the
+    package's now. Batch 4.
 19. **check** — `features/workspace_mutator/state.py` builds one block out of every entity, the
     other place a single module knows the whole roster.
 20. **yes** — the package profile, the file profile_settings.feature and the "⚙️ Settings" button

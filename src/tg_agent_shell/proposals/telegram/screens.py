@@ -26,7 +26,7 @@ async def render_proposal(
     notice: str | None = None,
     event_id: str | None = None,
 ) -> None:
-    proposal = services.advisor.reviews.proposal(proposal_id)
+    proposal = services.root.reviews.proposal(proposal_id)
     if proposal is None:
         raise DomainError("Proposal is no longer pending")
     async with services.sessions() as session:
@@ -39,7 +39,7 @@ async def render_proposal(
         # the plain list, which needs to know nothing about the entities in it.
         screen = None
         if len(changes) == 1:
-            presenter = services.advisor.proposals.presenter(changes[0].entity)
+            presenter = services.root.proposals.presenter(changes[0].entity)
             if presenter is not None:
                 screen = await presenter.screen(session, changes[0])
         if screen is not None:

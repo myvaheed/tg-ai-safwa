@@ -286,7 +286,7 @@ class _TestHistory:
 def _services(harness, advisor) -> SimpleNamespace:
     return SimpleNamespace(
         sessions=harness.sessions,
-        advisor=advisor,
+        root=advisor,
         history=_TestHistory(),
         owner_id=42,
         turn=TurnManager(),

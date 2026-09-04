@@ -270,7 +270,7 @@ async def run(settings: Settings) -> None:
         )
     services = Services(
         sessions=database.sessions,
-        advisor=advisor,
+        root=advisor,
         history=history,
         memory=memory,
         continuity=continuity,
