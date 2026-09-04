@@ -11,13 +11,13 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, field_validator, model_validator
 
 from llm_gateway import ToolCall
+from tg_agent_shell.ai.contracts import ToolInput, ToolResultStatus
+from tg_agent_shell.ai.mini import ReadToolSpec
+from tg_agent_shell.foundation.clock import Clock, SystemClock
+from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
+from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
 
-from ...ai.contracts import ToolInput, ToolResultStatus
-from ...ai.mini import ReadToolSpec
 from ...constants import WEEKDAY_NAMES
-from ...foundation.clock import Clock, SystemClock
-from ...shell.manifest import AgentContext, AgentSpec
-from ..proposals.api import MutationToolSpec, entity_change
 
 DIARY_DAY_TOKEN_BUDGET = 12_000
 

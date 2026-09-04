@@ -9,17 +9,18 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...adapters.kinds import MessageKind
-from ...ai.contracts import AgentChange
-from ...foundation.errors import DomainError
-from ...shell import Services, send_registered
-from ..proposals.api import (
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.ai.contracts import AgentChange
+from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.proposals.api import (
     ACTION_VERBS,
     ChangeAction,
     ProposalChange,
     ProposalScreen,
     detail_lines,
 )
+from tg_agent_shell.telegram import Services, send_registered
+
 from .model import DiaryEntry
 
 DIARY_MONTH_NAMES = (

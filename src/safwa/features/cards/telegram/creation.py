@@ -10,9 +10,9 @@ from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....adapters.kinds import MessageKind
-from ....foundation.errors import DomainError
-from ....shell import (
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
     Services,
@@ -23,7 +23,8 @@ from ....shell import (
     send_registered,
     token_button,
 )
-from ....shell.model import UiSession
+from tg_agent_shell.telegram.model import UiSession
+
 from ...home.api import menu_markup
 from ...planning.api import sprint_is_active
 from ...tags.model import Tag

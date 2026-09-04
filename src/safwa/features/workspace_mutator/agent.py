@@ -7,7 +7,7 @@ the features that own those entities publish.
 
 from __future__ import annotations
 
-from ...shell.manifest import AgentSpec
+from tg_agent_shell.telegram.manifest import AgentSpec
 
 MUTATOR_TOOLS = ("card", "check", "value", "tag", "request", "reminder", "remove")
 

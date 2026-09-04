@@ -6,9 +6,10 @@ import html
 
 from aiogram.types import Message
 
-from ...adapters.kinds import MessageKind
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.telegram import Services, send_registered
+
 from ...foundation.workspace import Workspace
-from ...shell import Services, send_registered
 from ..continuity.api import memory_health
 
 

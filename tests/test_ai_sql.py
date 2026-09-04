@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from safwa.ai.contracts import (
+from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS
+from tg_agent_shell.ai.contracts import (
     CardToolInput,
     CheckToolInput,
     QueryToolInput,
     tool_json_schema,
 )
-from safwa.ai.sql import ReadOnlyQueryRunner, UnsafeQueryError, validate_read_sql
-from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS
+from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, UnsafeQueryError, validate_read_sql
 
 
 def test_native_mutation_tools_become_typed_change_intents():
@@ -360,8 +360,8 @@ def test_read_sql_accepts_recursive_and_column_list_ctes():
 def _runner_over_cards(tmp_path, count: int, note: str = "", **caps):
     from sqlalchemy import create_engine
 
-    from safwa.ai.sql import create_ai_views
-    from safwa.foundation.models import Base
+    from tg_agent_shell.ai.sql import create_ai_views
+    from tg_agent_shell.foundation.models import Base
 
     path = tmp_path / "caps.db"
     engine = create_engine(f"sqlite:///{path.as_posix()}")

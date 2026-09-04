@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from ...foundation.screens import ScreenSpec
-from ...shell.manifest import FeatureModule
+from tg_agent_shell.foundation.screens import ScreenSpec
+from tg_agent_shell.telegram.manifest import FeatureModule
+
 from ..planning.model import Sprint
 from . import telegram
 

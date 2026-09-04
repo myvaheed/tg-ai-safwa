@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ...ai.contracts import CheckToolInput
-from ..proposals.api import MutationToolSpec, entity_change
+from tg_agent_shell.ai.contracts import CheckToolInput
+from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 
 CHECK_TOOL = MutationToolSpec(
     name="check",

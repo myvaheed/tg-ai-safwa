@@ -10,7 +10,8 @@ from __future__ import annotations
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...foundation.errors import DomainError
+from tg_agent_shell.foundation.errors import DomainError
+
 from ...foundation.workspace import bump_workspace
 from .model import CardValue, CheckValue, Value
 

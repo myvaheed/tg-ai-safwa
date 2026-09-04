@@ -4,11 +4,8 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import select, text
 
-from safwa.ai.autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
-from safwa.ai.sql import RequestQueryError, create_ai_views
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
 from safwa.features.cards.model import Card
-from safwa.features.proposals.remove import RemoveToolInput
 from safwa.features.saved_requests.api import request_cards
 from safwa.features.saved_requests.model import SavedRequest
 from safwa.features.saved_requests.use_cases import (
@@ -17,7 +14,10 @@ from safwa.features.saved_requests.use_cases import (
     update_saved_request,
 )
 from safwa.features.tags.model import CardTag, Tag
-from safwa.foundation.errors import DomainError
+from safwa.features.workspace_mutator.remove import RemoveToolInput
+from tg_agent_shell.ai.autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
+from tg_agent_shell.ai.sql import RequestQueryError, create_ai_views
+from tg_agent_shell.foundation.errors import DomainError
 
 
 async def test_saved_request_runs_a_safe_card_query(sessions):

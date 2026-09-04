@@ -6,13 +6,14 @@ reaches the owner through the Cue queue, like everything else Safwa says first.
 
 from __future__ import annotations
 
-from ...foundation.screens import ScreenCommand
-from ...shell.manifest import (
+from tg_agent_shell.foundation.screens import ScreenCommand
+from tg_agent_shell.telegram.manifest import (
     BackgroundContext,
     BackgroundTask,
     FeatureModule,
     ProposalContribution,
 )
+
 from . import agent, proposal, telegram, views
 from .background import run_scheduler
 from .telegram import REMINDER_CALLBACK_ACTIONS, render_reminders

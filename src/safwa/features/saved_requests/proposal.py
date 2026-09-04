@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...ai.sql import RequestQueryError, normalize_request_sql
-from ...foundation.errors import DomainError, StaleStateError
-from ..proposals.api import (
+from tg_agent_shell.ai.sql import RequestQueryError, normalize_request_sql
+from tg_agent_shell.foundation.errors import DomainError, StaleStateError
+from tg_agent_shell.proposals.api import (
     ApplyContext,
     ChangeAction,
     PreparationContext,
@@ -19,6 +19,7 @@ from ..proposals.api import (
     ToolPreparationError,
     require_target,
 )
+
 from .model import SavedRequest
 from .use_cases import (
     create_saved_request,

@@ -10,7 +10,6 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import func, select
 
-from safwa.ai.contracts import CardToolInput
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.model import (
     Card,
@@ -44,15 +43,16 @@ from safwa.features.planning.model import SprintCommitment
 from safwa.features.planning.use_cases import finish_sprint, start_sprint
 from safwa.features.profile.model import ProfileField, UserProfile
 from safwa.features.profile.use_cases import set_profile_field
-from safwa.features.proposals.api import ToolPreparationError
-from safwa.features.proposals.prepare import ChangePreparer
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import CardValue, Value
 from safwa.features.values.use_cases import create_value, delete_value, set_value_focus
-from safwa.foundation.clock import SystemClock
-from safwa.foundation.errors import DomainError
 from safwa.foundation.marks import live_repeat_instance_id, title_marks
+from tg_agent_shell.ai.contracts import CardToolInput
+from tg_agent_shell.foundation.clock import SystemClock
+from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.proposals.api import ToolPreparationError
+from tg_agent_shell.proposals.prepare import ChangePreparer
 
 
 async def test_cd_kind_001_a_card_stays_the_kind_it_was_created_as(sessions):

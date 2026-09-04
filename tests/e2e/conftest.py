@@ -9,9 +9,6 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
-from safwa.ai.autoapproval import AutoApprovalReviewer
-from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
-from safwa.ai.subagents import RoutedSubagent
 from safwa.bootstrap.main import bootstrap_workspace
 from safwa.bootstrap.modules import (
     AGENTS,
@@ -24,11 +21,14 @@ from safwa.bootstrap.modules import (
 )
 from safwa.features.continuity.memory import MemoryFileStore
 from safwa.features.heavy_analyzer import agent as heavy_analyzer
-from safwa.features.proposals.store import ProposalStore
 from safwa.features.workspace_mutator.agent import MUTATOR_TOOLS
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.database import Database, upgrade_database
-from safwa.session import RootSession
+from tg_agent_shell.ai.autoapproval import AutoApprovalReviewer
+from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
+from tg_agent_shell.ai.subagents import RoutedSubagent
+from tg_agent_shell.proposals.store import ProposalStore
+from tg_agent_shell.session import RootSession
 
 
 class ScriptedProvider:

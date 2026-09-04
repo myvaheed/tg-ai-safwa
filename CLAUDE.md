@@ -142,21 +142,21 @@ to where it is used, and [config.py](src/safwa/config.py) takes a default from w
 lives. [enums.py](src/safwa/enums.py) splits the same way: what several features read is there,
 what one feature owns lives with it.
 
-[shell/](src/safwa/shell) is what a feature's Telegram adapter imports besides `telegram_llm`. Only
-[shell/commands.py](src/safwa/shell/commands.py), [shell/callbacks.py](src/safwa/shell/callbacks.py)
-and [turn/dialogue.py](src/safwa/turn/dialogue.py) register `@router` handlers, and each is imported
+[tg_agent_shell](src/tg_agent_shell) is the fourth package Rule F holds to working without Safwa:
+the engine, the review flow, the root session, the aiogram surface, the turn lease and the cues.
+[telegram/](src/tg_agent_shell/telegram) is what a feature's Telegram adapter imports besides
+`telegram_llm`. Only
+[telegram/commands.py](src/tg_agent_shell/telegram/commands.py), [telegram/callbacks.py](src/tg_agent_shell/telegram/callbacks.py)
+and [turn/dialogue.py](src/tg_agent_shell/turn/dialogue.py) register `@router` handlers, and each is imported
 for that side effect alone — dropping one silently unregisters its handlers. A leading underscore
 means module-local: a name a sibling module uses carries none, even though the package stays private
 behind its `__init__`.
 
-[ai/](src/safwa/ai) is the other application beside the shell: Safwa's agent engine — what a session
-is, what a tool call costs, what the model may read. **It imports no feature**, and Rule M in
+[ai/](src/tg_agent_shell/ai) is the engine at the bottom of that package — what a session is, what
+a tool call costs, what the model may read. **It imports nothing built on it**, and Rule M in
 [scripts/architecture_metrics.py](scripts/architecture_metrics.py) keeps that true; every feature
-imports it. The engine and [features/proposals](src/safwa/features/proposals) are meant to be
-lifted into the next project together, so Rule N holds both to naming no Safwa entity: what they
-may reach is the `PORTABLE_FOUNDATION` list, and the review flow's `telegram/` and `module.py` are
-the port that stays behind. The session that composes the two is
-[session.py](src/safwa/session.py), which names no feature either;
+imports it. The engine and [proposals/](src/tg_agent_shell/proposals) travel together, composed by
+[session.py](src/tg_agent_shell/session.py), which names no feature either;
 [features/advisor](src/safwa/features/advisor) owns the prompt and the views it is wired with, and
 declares no `MODULE` because the composition root wires the root session directly.
 
@@ -238,7 +238,7 @@ ORM metadata at that point.
 | Checks | [checks.feature](tests/brd/checks.feature), [features/checks](src/safwa/features/checks) |
 | Diary | [diary.feature](tests/brd/diary.feature), [features/diary](src/safwa/features/diary) |
 | Reminders | [reminders.feature](tests/brd/reminders.feature), [features/reminders](src/safwa/features/reminders) |
-| Voice input | [agents.feature](tests/brd/agents.feature), [adapters/asr.py](src/safwa/adapters/asr.py) |
+| Voice input | [agents.feature](tests/brd/agents.feature), [adapters/asr.py](src/tg_agent_shell/adapters/asr.py) |
 | Sessions, routing, helpers, cues, history | [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md) |
 | How a feature plugs in | [docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md) |
 | LLM provider boundary | [docs/LLM_GATEWAY.md](docs/LLM_GATEWAY.md) |

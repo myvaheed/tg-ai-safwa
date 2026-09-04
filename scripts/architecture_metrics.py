@@ -37,22 +37,12 @@ DELIVERY_PACKAGES = ("aiogram", "openai", "telethon", "telegram_llm", "llm_gatew
 BUSINESS_FILES = ("rules.py", "model.py", "use_cases.py", "data.py")
 
 # Rule F: packages that must stay usable without Safwa.
-REUSABLE_PACKAGES = ("llm_gateway", "agent_runtime", "telegram_llm")
+REUSABLE_PACKAGES = ("llm_gateway", "agent_runtime", "telegram_llm", "tg_agent_shell")
 
-# Rule N: what `safwa/ai/` and the proposals core may name from Safwa. Each is entity-free
-# on purpose, so the pair can be lifted into another project with these files and nothing else.
-PORTABLE_FOUNDATION = frozenset(
-    {
-        "safwa.foundation.clock",
-        "safwa.foundation.errors",
-        "safwa.foundation.models",
-        "safwa.foundation.references",
-        "safwa.foundation.screens",
-    }
-)
-
-# Rules C and D: processes that live beside the features rather than inside one.
-PROCESS_PACKAGES = ("safwa/turn/", "safwa/cues/")
+# Rules A, C and D: processes that live beside the features rather than inside one. The
+# review flow is one of them: it left `features/` with the package, and everything those
+# rules say about a model, a reducer and a use case is still said about it.
+PROCESS_PACKAGES = ("tg_agent_shell/turn/", "tg_agent_shell/cues/", "tg_agent_shell/proposals/")
 
 # Rule E: how deep into a feature a door reaches, and how deep a module is allowed to reach.
 # Anything not named here is assembly, which is the top and may open every door.
@@ -329,19 +319,25 @@ def rule_f() -> list[Violation]:
     return out
 
 
-def rule_m() -> list[Violation]:
-    """The agent engine knows no feature.
+# Rule M: what the engine may reach, which is the layer every layer may reach.
+ENGINE = "tg_agent_shell/ai/"
+ENGINE_MAY_IMPORT = ("tg_agent_shell.ai.", "tg_agent_shell.foundation.")
 
-    `safwa/ai/` is what a session is and what a tool call costs; a feature is what the
-    owner keeps.  An engine that imports one is an engine only this application can run,
-    and the direction is what proves the claim rather than the intention.
+
+def rule_m() -> list[Violation]:
+    """The agent engine is the bottom of the package and imports none of it.
+
+    `ai/` is what a session is and what a tool call costs.  The review flow, the aiogram
+    surface, the turn lease and the cues are all built on it, so an import back up is an
+    engine that only this shell can run — and the direction is what proves the claim
+    rather than the intention.
     """
     out = []
     for module in modules():
-        if not module.rel.startswith("safwa/ai/"):
+        if not module.rel.startswith(ENGINE):
             continue
         for path, line in module.imported_paths():
-            if path.startswith("safwa.features."):
+            if path.startswith("tg_agent_shell.") and not path.startswith(ENGINE_MAY_IMPORT):
                 out.append(Violation("Rule M", module.rel, line, f"imports {path}"))
     return out
 
@@ -423,7 +419,7 @@ def entity_dispatch_points() -> list[Violation]:
 # written where the model reads it, and generating it from the registry would move
 # `prompt_prefix.json` every time a feature is added. Nothing dispatches on it.
 RULE_H_EXCEPTION = (
-    "safwa/ai/contracts.py",
+    "tg_agent_shell/ai/contracts.py",
     "collection over card, check, diary, request, tag, value",
 )
 
@@ -455,36 +451,6 @@ def rule_k() -> list[Violation]:
         for path, line in module.imported_paths():
             if path.endswith(".use_cases"):
                 out.append(Violation("Rule K", module.rel, line, f"calls the domain via {path}"))
-    return out
-
-
-def rule_n() -> list[Violation]:
-    """The engine and the review flow leave together, and carry only what is generic.
-
-    `safwa/ai/` is the agent engine and `features/proposals/` is how a change it proposes
-    reaches the owner; neither is worth writing twice, so both are meant to be lifted into
-    the next project whole.  What they may name from Safwa is listed here: the review
-    flow's Telegram adapter and its manifest are the port and stay behind, and everything
-    else must be an entity-free module or the pair no longer travels.
-    """
-    out = []
-    for module in modules():
-        travels = module.rel.startswith("safwa/ai/") or (
-            module.rel.startswith("safwa/features/proposals/")
-            and "/telegram/" not in module.rel
-            and not module.rel.endswith("/module.py")
-        )
-        if not travels:
-            continue
-        for path, line in module.imported_paths():
-            if not path.startswith("safwa."):
-                continue
-            if path.startswith(("safwa.ai.", "safwa.features.proposals.")):
-                continue
-            # `imported_paths` carries the imported name, so match on the module it is in.
-            if any(path.startswith(f"{module_path}.") for module_path in PORTABLE_FOUNDATION):
-                continue
-            out.append(Violation("Rule N", module.rel, line, f"imports {path}"))
     return out
 
 
@@ -531,55 +497,6 @@ def rule_p() -> list[Violation]:
     return out
 
 
-# Rule Q: the modules that become tg_agent_shell, and every import still leaving them. The
-# five portable `foundation/` files travel too, for the reason Rule N already lists them,
-# and so does the root session, which is the whole of what the two travelling halves are
-# composed into.
-SHELL_PACKAGES = ("ai", "shell", "turn", "cues", "adapters", "features.proposals")
-SHELL_MODULES = ("safwa.session",)
-
-# Rule Q's exceptions: the imports left to close, grouped by what closes each. Phase 3 of
-# `docs/RESTRUCTURING.md` closed the last of them, so the set is empty and stays empty --
-# phase 4 is what deletes the rule, once the modules are a package Rule F covers.
-RULE_Q_EXCEPTIONS: frozenset[tuple[str, str]] = frozenset()
-
-
-def _shell_name(path: str) -> bool:
-    """Whether a dotted `safwa.` name belongs to the set rather than to the rest of Safwa."""
-    if any(path.startswith(f"safwa.{package}.") for package in SHELL_PACKAGES):
-        return True
-    return any(
-        path == item or path.startswith(f"{item}.")
-        for item in (*PORTABLE_FOUNDATION, *SHELL_MODULES)
-    )
-
-
-def rule_q() -> list[Violation]:
-    """The shell names nothing of Safwa's but what is already on its way out.
-
-    Those modules are one package waiting for a name, and every import out of them is an
-    `ImportError` on the day it moves.  There are none left, so the rule now says only that
-    a new one cannot arrive quietly.
-    """
-    out = []
-    closed = set(RULE_Q_EXCEPTIONS)
-    for module in modules():
-        dotted = module.rel.removesuffix(".py").replace("/", ".")
-        if dotted not in PORTABLE_FOUNDATION and not _shell_name(dotted):
-            continue
-        for path, line in module.imported_paths():
-            if not path.startswith("safwa.") or _shell_name(path):
-                continue
-            if (module.rel, path) in RULE_Q_EXCEPTIONS:
-                closed.discard((module.rel, path))
-                continue
-            out.append(Violation("Rule Q", module.rel, line, f"imports {path}"))
-    # An exception outliving its import is how a list of sixteen becomes a list of forty.
-    for rel, path in sorted(closed):
-        out.append(Violation("Rule Q", RULE_FILE, 0, f"{rel} no longer imports {path}"))
-    return out
-
-
 RULES = {
     "Rule A": rule_a,
     "Rule C": rule_c,
@@ -590,9 +507,7 @@ RULES = {
     "Rule H": rule_h,
     "Rule K": rule_k,
     "Rule M": rule_m,
-    "Rule N": rule_n,
     "Rule P": rule_p,
-    "Rule Q": rule_q,
 }
 # Rules I, J and O are snapshots of built artefacts rather than of the source tree, so they
 # live with their baselines in `tests/test_architecture.py`.

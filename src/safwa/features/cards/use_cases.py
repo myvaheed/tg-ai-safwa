@@ -14,9 +14,10 @@ from typing import Any
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.foundation.errors import DomainError
+
 from ...enums import ActorType
-from ...foundation.clock import utcnow
-from ...foundation.errors import DomainError
 from ...foundation.workspace import bump_workspace, require_workspace
 from ..checks.model import Check
 from ..checks.use_cases import (

@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...enums import ActorType
-from ...foundation.errors import DomainError, StaleStateError
-from ...foundation.marks import closed_repeat_refusal
-from ..proposals.api import (
+from tg_agent_shell.foundation.errors import DomainError, StaleStateError
+from tg_agent_shell.proposals.api import (
     ApplyContext,
     ChangeAction,
     PreparationContext,
@@ -18,6 +16,9 @@ from ..proposals.api import (
     require_target,
     validate_named_references,
 )
+
+from ...enums import ActorType
+from ...foundation.marks import closed_repeat_refusal
 from .model import Check, CheckOutcome
 from .references import CHECK_VALUE_REFERENCE
 from .use_cases import (

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from ...ai.sql import SqlView
+from tg_agent_shell.ai.sql import SqlView
+
 from ...foundation.marks import ARCHIVE_MARKER, LIVE_FORMAT, MARKER_FORMAT
 
 # The open instance of this row's series, already rendered as the marker's tail. See the

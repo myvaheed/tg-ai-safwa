@@ -9,7 +9,7 @@ from sqlalchemy import Boolean, ForeignKey, Integer, Select, String, select
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
-from ...foundation.models import Base, TimestampMixin, UtcDateTime
+from tg_agent_shell.foundation.models import Base, TimestampMixin, UtcDateTime
 
 
 class CheckOutcome(StrEnum):

@@ -6,10 +6,10 @@ from typing import Any
 import pytest
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
-from safwa.ai.sql import is_complex_read
-from safwa.ai.tools import IMMEDIATE_TOOLS, SAFWA_TOOLS
 from safwa.bootstrap.modules import AGENTS, HEAVY_ANALYZER_PROMPT, SYSTEM_PROMPT
 from safwa.features.heavy_analyzer import agent as heavy_analyzer
+from tg_agent_shell.ai.sql import is_complex_read
+from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS, SAFWA_TOOLS
 
 
 class ScriptedMini:

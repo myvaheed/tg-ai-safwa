@@ -7,19 +7,19 @@ from marks import mark_kind, mark_message, read_kind_mark
 from sqlalchemy import update
 from telethon.tl.types import MessageEntityTextUrl
 
-from safwa.adapters.kinds import MARKS, MessageKind
-from safwa.adapters.telegram_history import (
-    TelegramHistorySource,
-    TelegramMessage,
-    register_message,
-)
-from safwa.ai.conversation import conversation_block
 from safwa.bootstrap.modules import SCREENS
 from safwa.constants import SUMMARY_TRIGGER_TOKENS
 from safwa.features.continuity.model import SUMMARY_HEADER
 from safwa.features.continuity.window import SummaryEdge
 from safwa.foundation.tokens import estimate_tokens
 from telegram_llm import DialogueMessage, HistoryEntry, restore_citations
+from tg_agent_shell.adapters.kinds import MARKS, MessageKind
+from tg_agent_shell.adapters.telegram_history import (
+    TelegramHistorySource,
+    TelegramMessage,
+    register_message,
+)
+from tg_agent_shell.ai.conversation import conversation_block
 
 
 @dataclass

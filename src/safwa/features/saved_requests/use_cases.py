@@ -13,8 +13,9 @@ from collections.abc import Collection
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...ai.sql import RequestQueryError, normalize_request_sql
-from ...foundation.errors import DomainError
+from tg_agent_shell.ai.sql import RequestQueryError, normalize_request_sql
+from tg_agent_shell.foundation.errors import DomainError
+
 from ...foundation.workspace import bump_workspace
 from .model import SavedRequest
 

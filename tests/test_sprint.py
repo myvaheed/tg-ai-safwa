@@ -8,7 +8,6 @@ from sqlalchemy import select
 
 from safwa.bootstrap.modules import MODULES
 from safwa.constants import SPRINT_LENGTH_DAYS
-from safwa.cues.model import Cue
 from safwa.features.cards.model import CardStage
 from safwa.features.cards.use_cases import create_card as create_domain_card
 from safwa.features.cards.use_cases import (
@@ -31,9 +30,10 @@ from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.use_cases import delete_reminder
 from safwa.features.values.use_cases import create_value
 from safwa.features.workspace_mutator.state import workspace_context
-from safwa.foundation.clock import SystemClock
-from safwa.foundation.errors import DomainError
 from safwa.foundation.workspace import Workspace
+from tg_agent_shell.cues.model import Cue
+from tg_agent_shell.foundation.clock import SystemClock
+from tg_agent_shell.foundation.errors import DomainError
 
 
 async def create_card(session, **overrides):

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...foundation.errors import DomainError, StaleStateError
-from ..proposals.api import (
+from tg_agent_shell.foundation.errors import DomainError, StaleStateError
+from tg_agent_shell.proposals.api import (
     ApplyContext,
     ChangeAction,
     PreparationContext,
@@ -13,6 +13,7 @@ from ..proposals.api import (
     ProposalChange,
     require_target,
 )
+
 from .model import Value
 from .use_cases import create_value, delete_value, update_value_fields
 

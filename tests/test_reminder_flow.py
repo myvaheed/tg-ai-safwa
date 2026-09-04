@@ -7,14 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from safwa.adapters.kinds import MessageKind
-from safwa.adapters.telegram_history import TelegramMessage
-from safwa.ai.outcome import AIOutcome, AIOutcomeKind
-from safwa.ai.runs import AgentRun
 from safwa.constants import REMINDER_CATCHUP_GRACE_MINUTES
-from safwa.cues.runtime import CueRuntime
-from safwa.features.proposals.store import ProposalStore
-from safwa.features.proposals.use_cases import open_batch
 from safwa.features.reminders.background import Firing, format_cue
 from safwa.features.reminders.model import Reminder, ScheduleKind
 from safwa.features.reminders.schedule import (
@@ -32,10 +25,17 @@ from safwa.features.reminders.use_cases import (
     update_reminder_text,
 )
 from safwa.features.workspace_mutator.state import workspace_context
-from safwa.foundation.errors import DomainError
 from safwa.foundation.workspace import Workspace
-from safwa.turn import TurnManager
 from telegram_llm import DialogueMessage
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.adapters.telegram_history import TelegramMessage
+from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
+from tg_agent_shell.ai.runs import AgentRun
+from tg_agent_shell.cues.runtime import CueRuntime
+from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.proposals.store import ProposalStore
+from tg_agent_shell.proposals.use_cases import open_batch
+from tg_agent_shell.turn import TurnManager
 
 TZ = ZoneInfo("Europe/Istanbul")
 NOW = datetime(2026, 8, 13, 9, 0, tzinfo=UTC)  # a Thursday
@@ -385,7 +385,7 @@ async def test_reminder_advisor_receives_canonical_dialogue(sessions, monkeypatc
         rendered.append((kind, event_id))
 
     monkeypatch.setattr(
-        "safwa.cues.runtime.render_ai_outcome", fake_render
+        "tg_agent_shell.cues.runtime.render_ai_outcome", fake_render
     )
     monkeypatch.setattr(runtime, "_anchor", lambda: object())
 
@@ -452,7 +452,7 @@ async def test_a_cue_render_failure_releases_its_pending_proposal(sessions, monk
     )
     runtime = CueRuntime(services, object(), owner_id=42)
     # Below the guard, not over it: ending an undrawn review is `render_ai_outcome`'s job.
-    monkeypatch.setattr("safwa.features.proposals.telegram.answer.render_proposal", failed_render)
+    monkeypatch.setattr("tg_agent_shell.proposals.telegram.answer.render_proposal", failed_render)
     monkeypatch.setattr(runtime, "_anchor", lambda: object())
 
     assert await runtime.can_speak() is True

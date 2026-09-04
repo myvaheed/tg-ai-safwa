@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ...ai.sql import SqlView
+from tg_agent_shell.ai.sql import SqlView
 
 AI_REQUESTS = SqlView(
     "ai_requests",

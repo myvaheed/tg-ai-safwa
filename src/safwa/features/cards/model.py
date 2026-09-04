@@ -27,7 +27,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
-from ...foundation.models import Base, TimestampMixin, UtcDateTime
+from tg_agent_shell.foundation.models import Base, TimestampMixin, UtcDateTime
 
 
 class CardKind(StrEnum):

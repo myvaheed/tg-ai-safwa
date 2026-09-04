@@ -9,9 +9,6 @@ from ui_harness import spawn_timer
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.adapters.kinds import MARKS, MessageKind
-from safwa.adapters.telegram_history import TelegramMessage, TelegramNotes
-from safwa.ai.sql import ReadOnlyQueryRunner
 from safwa.bootstrap.modules import (
     ALLOWED_VIEWS,
     FEATURE_CALLBACK_ACTIONS,
@@ -28,11 +25,14 @@ from safwa.features.checks.use_cases import (
     resolve_check,
 )
 from safwa.features.home.telegram import render_home
-from safwa.features.proposals.telegram import render_ai_outcome, render_proposal
-from safwa.shell import callback_token_handler
-from safwa.shell.model import CallbackToken
-from safwa.turn import TurnManager
 from telegram_llm import ChatHost, DialogueMessage
+from tg_agent_shell.adapters.kinds import MARKS, MessageKind
+from tg_agent_shell.adapters.telegram_history import TelegramMessage, TelegramNotes
+from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
+from tg_agent_shell.proposals.telegram import render_ai_outcome, render_proposal
+from tg_agent_shell.telegram import callback_token_handler
+from tg_agent_shell.telegram.model import CallbackToken
+from tg_agent_shell.turn import TurnManager
 
 pytestmark = pytest.mark.e2e
 

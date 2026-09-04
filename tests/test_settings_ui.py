@@ -11,10 +11,10 @@ from safwa.constants import DIARY_TIME_DEFAULT
 from safwa.features.profile.model import ProfileField, UserProfile
 from safwa.features.profile.telegram import command_settings
 from safwa.features.profile.use_cases import set_profile_field
-from safwa.foundation.clock import SystemClock
-from safwa.shell import callback_token_handler
-from safwa.shell.model import UiSession
-from safwa.turn.dialogue import ordinary_text
+from tg_agent_shell.foundation.clock import SystemClock
+from tg_agent_shell.telegram import callback_token_handler
+from tg_agent_shell.telegram.model import UiSession
+from tg_agent_shell.turn.dialogue import ordinary_text
 
 
 async def test_valid_settings_input_updates_selected_field_and_auto_closes_prompt(

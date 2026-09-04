@@ -7,7 +7,7 @@ codebase names a feature: `tests/test_architecture.py` Rule H fails on any modul
 
 ## The manifest
 
-[`shell/manifest.py`](../src/safwa/shell/manifest.py) holds the wiring DTOs.
+[`telegram/manifest.py`](../src/tg_agent_shell/telegram/manifest.py) holds the wiring DTOs.
 It is the outermost layer, so it may know aiogram and SQLAlchemy; nothing that expresses a business
 rule imports it.
 
@@ -45,8 +45,8 @@ neither commits nor calls the domain.
 
 What stays generic is the orchestration: the workspace and its revision, the batch and proposal
 rows, the optimistic lock, and the ordered walk over the stored changes
-([`ChangePreparer`](../src/safwa/features/proposals/prepare.py),
-[features/proposals/use_cases.py](../src/safwa/features/proposals/use_cases.py)).
+([`ChangePreparer`](../src/tg_agent_shell/proposals/prepare.py),
+[proposals/use_cases.py](../src/tg_agent_shell/proposals/use_cases.py)).
 
 ## Derived registries
 
@@ -141,7 +141,7 @@ Check is called, and closing an Action asks `checks/use_cases.py` to answer one.
 top door because a screen is public already: `FeatureModule.screens` hands `render_card` to the
 composition root, and Planning draws its Sprint list with the rows Cards draws.
 
-`references.py` declares one [`ReferenceSpec`](../src/safwa/foundation/references.py) per named
+`references.py` declares one [`ReferenceSpec`](../src/tg_agent_shell/foundation/references.py) per named
 relationship — a Card carries Values, Tags and Checks, a Check carries Values — so a payload key,
 its lookup, its junction row and the toggle that writes it are one record. It is separate from
 `api.py` because each spec names a toggle from `use_cases.py`, and `api.py` cannot import those:

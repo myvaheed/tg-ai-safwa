@@ -10,8 +10,9 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from tg_agent_shell.telegram.manifest import BackgroundContext, BackgroundTask
+
 from ...constants import MEMORY_MAINTENANCE_INTERVAL_SECONDS
-from ...shell.manifest import BackgroundContext, BackgroundTask
 from .use_cases import run_due_memory_maintenance
 
 logger = logging.getLogger(__name__)

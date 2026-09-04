@@ -8,11 +8,9 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 
-from ....adapters.kinds import MessageKind
-from ....constants import CHECK_LIST_LIMIT, SELECTOR_PAGE_SIZE
-from ....foundation.errors import DomainError
-from ....foundation.marks import live_repeat_instance_id, title_marks
-from ....shell import (
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.telegram import (
     Services,
     choice_rows,
     choice_screen,
@@ -22,6 +20,9 @@ from ....shell import (
     token_button,
     with_notice,
 )
+
+from ....constants import CHECK_LIST_LIMIT, SELECTOR_PAGE_SIZE
+from ....foundation.marks import live_repeat_instance_id, title_marks
 from ...cards.api import card_labels, card_title
 from ...values.model import Value
 from ..model import CHECK_OUTCOME_LABELS, Check, CheckOutcome

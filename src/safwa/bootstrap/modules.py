@@ -15,9 +15,26 @@ from dataclasses import replace
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..ai.sql import SqlView, view_catalogue
-from ..ai.subagents import RoutedSubagent
-from ..cues.module import CUE_QUEUE
+from tg_agent_shell.ai.sql import SqlView, view_catalogue
+from tg_agent_shell.ai.subagents import RoutedSubagent
+from tg_agent_shell.cues.module import CUE_QUEUE
+from tg_agent_shell.foundation.screens import (
+    ScreenCatalogue,
+    ScreenCommand,
+    ScreenSpec,
+    StartLink,
+    TextInputFlow,
+)
+from tg_agent_shell.proposals.api import (
+    MutationToolSpec,
+    ProposalHandler,
+    ProposalPresenter,
+    ProposalRegistry,
+    World,
+)
+from tg_agent_shell.proposals.module import MODULE as PROPOSALS_FEATURE
+from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec, BackgroundTask, FeatureModule
+
 from ..features.advisor.agent import ADVISOR_VIEWS, SYSTEM_PROMPT_TEMPLATE
 from ..features.cards.module import MODULE as CARDS
 from ..features.checks.module import MODULE as CHECKS
@@ -28,29 +45,13 @@ from ..features.heavy_analyzer import agent as heavy_analyzer
 from ..features.home.module import MODULE as HOME
 from ..features.planning.module import MODULE as PLANNING
 from ..features.profile.module import MODULE as PROFILE
-from ..features.proposals.api import (
-    MutationToolSpec,
-    ProposalHandler,
-    ProposalPresenter,
-    ProposalRegistry,
-    World,
-)
-from ..features.proposals.module import MODULE as PROPOSALS_FEATURE
 from ..features.reminders.module import MODULE as REMINDERS
 from ..features.retro.module import MODULE as RETRO
 from ..features.saved_requests.module import MODULE as SAVED_REQUESTS
 from ..features.tags.module import MODULE as TAGS
 from ..features.values.module import MODULE as VALUES
 from ..features.workspace_mutator.module import MODULE as WORKSPACE_MUTATOR
-from ..foundation.screens import (
-    ScreenCatalogue,
-    ScreenCommand,
-    ScreenSpec,
-    StartLink,
-    TextInputFlow,
-)
 from ..foundation.workspace import require_workspace
-from ..shell.manifest import AgentContext, AgentSpec, BackgroundTask, FeatureModule
 
 # Order is what the routing rules and the recovery hooks follow, so it is fixed rather than
 # incidental: Profile settles the Diary's own Reminder before the Reminder rebuild walks the

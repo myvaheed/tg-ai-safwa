@@ -9,19 +9,19 @@ from sqlalchemy import select
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.ai.mini import ReadToolSpec
-from safwa.ai.outcome import AIOutcomeKind
-from safwa.ai.runs import AgentRun, AgentStep
-from safwa.ai.subagents import RoutedSubagent
-from safwa.ai.tools import IMMEDIATE_TOOLS
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.model import Card, CardKind, CardStage
 from safwa.features.cards.use_cases import create_card, finish_action
 from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
 from safwa.features.diary.model import DiaryEntry
-from safwa.features.proposals.model import BatchDecision
-from safwa.features.proposals.use_cases import approve_proposal
 from telegram_llm import DialogueMessage
+from tg_agent_shell.ai.mini import ReadToolSpec
+from tg_agent_shell.ai.outcome import AIOutcomeKind
+from tg_agent_shell.ai.runs import AgentRun, AgentStep
+from tg_agent_shell.ai.subagents import RoutedSubagent
+from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS
+from tg_agent_shell.proposals.model import BatchDecision
+from tg_agent_shell.proposals.use_cases import approve_proposal
 
 TODAY = date.today().isoformat()
 
@@ -379,7 +379,7 @@ async def test_route_cannot_share_its_response_with_another_call(e2e_harness):
 
 async def test_a_subagent_that_runs_too_long_is_stopped_by_the_clock(e2e_harness, monkeypatch):
     """AG-BUDGET-012 — tests/brd/agents.feature"""
-    monkeypatch.setattr("safwa.session.SUBAGENT_DEADLINE_SECONDS", 0.05)
+    monkeypatch.setattr("tg_agent_shell.session.SUBAGENT_DEADLINE_SECONDS", 0.05)
 
     async def never_returns_in_time(_call):
         await asyncio.sleep(1.0)

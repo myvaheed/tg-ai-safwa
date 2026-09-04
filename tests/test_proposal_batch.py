@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from safwa.features.proposals.model import (
+from tg_agent_shell.proposals.model import (
     BatchDecision,
     BatchState,
     DecideAction,
@@ -18,7 +18,7 @@ from safwa.features.proposals.model import (
     RejectPendingEffect,
     ResolveCallsEffect,
 )
-from safwa.features.proposals.reducer import INTERRUPTED, reduce
+from tg_agent_shell.proposals.reducer import INTERRUPTED, reduce
 
 PENDING = BatchDecision.PENDING
 APPROVED = BatchDecision.APPROVED

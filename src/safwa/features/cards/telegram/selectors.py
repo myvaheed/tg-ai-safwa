@@ -15,9 +15,10 @@ from aiogram.types import Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.telegram import Page, Services, choice_rows, choice_screen, paginate
+
 from ....constants import SELECTOR_PAGE_SIZE
-from ....foundation.errors import DomainError
-from ....shell import Page, Services, choice_rows, choice_screen, paginate
 from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value
 from ..model import (

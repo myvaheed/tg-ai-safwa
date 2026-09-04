@@ -10,8 +10,9 @@ import html
 
 from aiogram.types import Message
 
-from ...adapters.kinds import MessageKind
-from ...shell import Services, send_registered, send_summary
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.telegram import Services, send_registered, send_summary
+
 from .memory import MemoryFileError
 from .persona import MemoryMaintenanceResult
 from .use_cases import record_memory_run

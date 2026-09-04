@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from ...foundation.screens import ScreenCommand
-from ...shell.manifest import FeatureModule
+from tg_agent_shell.foundation.screens import ScreenCommand
+from tg_agent_shell.telegram.manifest import FeatureModule
+
 from .telegram import command_status
 
 MODULE = FeatureModule(

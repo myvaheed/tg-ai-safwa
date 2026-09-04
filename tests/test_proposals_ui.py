@@ -18,13 +18,13 @@ from safwa.features.cards.model import Card, CardCategory, CardEnergyType
 from safwa.features.cards.use_cases import create_card
 from safwa.features.checks.use_cases import create_check
 from safwa.features.diary.use_cases import create_diary_entry
-from safwa.features.proposals.model import ChangeAction, ProposalChange
-from safwa.features.proposals.store import ProposalStore
-from safwa.features.proposals.telegram import render_proposal
-from safwa.features.proposals.use_cases import approve_proposal
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.values.model import CardValue, Value
 from safwa.foundation.workspace import Workspace
+from tg_agent_shell.proposals.model import ChangeAction, ProposalChange
+from tg_agent_shell.proposals.store import ProposalStore
+from tg_agent_shell.proposals.telegram import render_proposal
+from tg_agent_shell.proposals.use_cases import approve_proposal
 
 
 async def test_item_proposal_shows_diffs_and_only_save_discard_footer(sessions) -> None:

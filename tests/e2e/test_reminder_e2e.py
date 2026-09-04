@@ -10,9 +10,6 @@ from ui_harness import spawn_timer
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.adapters.kinds import MARKS
-from safwa.adapters.telegram_history import TelegramNotes
-from safwa.ai.outcome import AIOutcomeKind
 from safwa.bootstrap.modules import (
     FEATURE_CALLBACK_ACTIONS,
     FEATURE_TEXT_INPUTS,
@@ -21,15 +18,18 @@ from safwa.bootstrap.modules import (
 )
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
-from safwa.features.proposals.telegram import render_proposal
-from safwa.features.proposals.use_cases import approve_proposal
 from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import schedule_of
-from safwa.foundation.clock import SystemClock
-from safwa.shell import callback_token_handler
-from safwa.shell.model import CallbackToken
-from safwa.turn import TurnManager
 from telegram_llm import ChatHost, DialogueMessage
+from tg_agent_shell.adapters.kinds import MARKS
+from tg_agent_shell.adapters.telegram_history import TelegramNotes
+from tg_agent_shell.ai.outcome import AIOutcomeKind
+from tg_agent_shell.foundation.clock import SystemClock
+from tg_agent_shell.proposals.telegram import render_proposal
+from tg_agent_shell.proposals.use_cases import approve_proposal
+from tg_agent_shell.telegram import callback_token_handler
+from tg_agent_shell.telegram.model import CallbackToken
+from tg_agent_shell.turn import TurnManager
 
 TZ = ZoneInfo("Europe/Istanbul")
 

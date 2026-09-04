@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from ...foundation.screens import ScreenCommand, ScreenSpec
-from ...shell.manifest import FeatureModule, ProposalContribution
+from tg_agent_shell.foundation.screens import ScreenCommand, ScreenSpec
+from tg_agent_shell.telegram.manifest import FeatureModule, ProposalContribution
+
 from . import agent, proposal, telegram, views
 from .model import SavedRequest
 from .telegram import REQUEST_CALLBACK_ACTIONS, command_requests, render_saved_request

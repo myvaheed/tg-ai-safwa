@@ -18,7 +18,7 @@ flowchart TB
     subgraph RT[agent_runtime]
         MGR[AgentManager · the loop, the routed chain, suspend and resume]
     end
-    subgraph AI[ai · session.py · features/proposals]
+    subgraph AI[tg_agent_shell: ai · session.py · proposals]
         ADV[the root session]
         SUB[Routed subagent session]
         MINI[Mini session]

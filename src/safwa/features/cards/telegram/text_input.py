@@ -8,9 +8,10 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....foundation.screens import TextInputFlow
-from ....shell import TextValidator, required_text
-from ....shell.model import UiSession
+from tg_agent_shell.foundation.screens import TextInputFlow
+from tg_agent_shell.telegram import TextValidator, required_text
+from tg_agent_shell.telegram.model import UiSession
+
 from ..use_cases import edit_card_text, update_card_fields
 from .creation import render_card_creation
 from .draft import sanitize_card_creation_state

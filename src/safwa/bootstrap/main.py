@@ -13,12 +13,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_gateway import OpenAICompatibleConfig, OpenAICompatibleProvider
 from telegram_llm import ChatHost
+from tg_agent_shell.adapters.asr import build_transcriber
+from tg_agent_shell.adapters.kinds import MARKS
+from tg_agent_shell.adapters.telegram_history import TelegramHistorySource, TelegramNotes
+from tg_agent_shell.ai.autoapproval import AutoApprovalReviewer
+from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
+from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.session import RootSession
+from tg_agent_shell.telegram import (
+    SHELL_COMMANDS,
+    OwnerAndWritingMiddleware,
+    Services,
+    discard_stale_status,
+    register_commands,
+    router,
+    sync_bot_commands,
+)
+from tg_agent_shell.telegram.manifest import AgentContext, BackgroundContext
+from tg_agent_shell.turn import TurnManager
+from tg_agent_shell.turn import (
+    dialogue as _dialogue,  # noqa: F401  registers the owner-message handlers
+)
 
-from ..adapters.asr import build_transcriber
-from ..adapters.kinds import MARKS
-from ..adapters.telegram_history import TelegramHistorySource, TelegramNotes
-from ..ai.autoapproval import AutoApprovalReviewer
-from ..ai.sql import ReadOnlyQueryRunner, create_ai_views
 from ..config import Settings
 from ..constants import AI_APP_TITLE, AI_APP_URL, SUMMARY_TRIGGER_TOKENS
 from ..enums import AIProvider
@@ -29,23 +45,9 @@ from ..features.heavy_analyzer import agent as heavy_analyzer
 from ..features.profile.model import UserProfile
 from ..features.workspace_mutator.state import workspace_context
 from ..foundation.database import Database, upgrade_database
-from ..foundation.errors import DomainError
 from ..foundation.tokens import estimate_tokens
 from ..foundation.workspace import Workspace
 from ..recovery import recover_startup
-from ..session import RootSession
-from ..shell import (
-    SHELL_COMMANDS,
-    OwnerAndWritingMiddleware,
-    Services,
-    discard_stale_status,
-    register_commands,
-    router,
-    sync_bot_commands,
-)
-from ..shell.manifest import AgentContext, BackgroundContext
-from ..turn import TurnManager
-from ..turn import dialogue as _dialogue  # noqa: F401  registers the owner-message handlers
 from .auth import history_client
 from .modules import (
     AI_VIEWS,

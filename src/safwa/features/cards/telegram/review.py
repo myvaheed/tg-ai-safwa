@@ -8,9 +8,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....ai.contracts import AgentChange
-from ....foundation.references import resolve_references
-from ...proposals.api import (
+from tg_agent_shell.ai.contracts import AgentChange
+from tg_agent_shell.foundation.references import resolve_references
+from tg_agent_shell.proposals.api import (
     ACTION_VERBS,
     ChangeAction,
     ProposalChange,
@@ -24,6 +24,7 @@ from ...proposals.api import (
     reference_names,
     result_value,
 )
+
 from ...tags.model import CardTag
 from ...values.model import CardValue
 from ..model import Card, CardCategory, CardEnergyType, CardKind, CardStage, Priority

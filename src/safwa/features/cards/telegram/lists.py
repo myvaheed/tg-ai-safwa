@@ -10,11 +10,9 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....adapters.kinds import MessageKind
-from ....foundation.errors import DomainError
-from ....foundation.marks import title_marks
-from ....foundation.workspace import Workspace
-from ....shell import (
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.telegram import (
     Page,
     Services,
     menu_row,
@@ -23,6 +21,9 @@ from ....shell import (
     token_button,
     with_notice,
 )
+
+from ....foundation.marks import title_marks
+from ....foundation.workspace import Workspace
 from ..api import actions_on_stages
 from ..model import LIVE_STAGE_PRECEDENCE, Card, CardStage
 from ..use_cases import card_children

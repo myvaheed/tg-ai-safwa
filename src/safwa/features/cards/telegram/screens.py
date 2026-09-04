@@ -9,18 +9,19 @@ from zoneinfo import ZoneInfo
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import delete, select
 
-from ....adapters.kinds import MessageKind
-from ....foundation.errors import DomainError
-from ....foundation.marks import live_repeat_instance_id, title_marks
-from ....foundation.workspace import Workspace
-from ....shell import (
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.telegram import (
     Services,
     edit_registered_message,
     send_registered,
     token_button,
     with_notice,
 )
-from ....shell.model import UiSession
+from tg_agent_shell.telegram.model import UiSession
+
+from ....foundation.marks import live_repeat_instance_id, title_marks
+from ....foundation.workspace import Workspace
 from ...checks.use_cases import card_checks
 from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value

@@ -8,9 +8,10 @@ from collections.abc import Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from tg_agent_shell.telegram import sync_bot_commands
+from tg_agent_shell.telegram.manifest import BackgroundContext, BackgroundTask
+
 from ...constants import SPRINT_EXPIRY_POLL_SECONDS
-from ...shell import sync_bot_commands
-from ...shell.manifest import BackgroundContext, BackgroundTask
 from .use_cases import expire_due_sprint
 
 logger = logging.getLogger(__name__)

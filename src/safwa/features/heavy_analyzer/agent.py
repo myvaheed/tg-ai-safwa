@@ -15,16 +15,15 @@ from typing import Any
 from pydantic import Field
 
 from llm_gateway import LlmProvider, ToolCall
-
-from ...ai.contracts import ToolInput, ToolResultStatus
-from ...ai.mini import (
+from tg_agent_shell.ai.contracts import ToolInput, ToolResultStatus
+from tg_agent_shell.ai.mini import (
     MiniSessionError,
     ReadToolSpec,
     TerminalTool,
     run_mini_session,
 )
-from ...ai.sql import ReadOnlyQueryRunner
-from ...ai.tools import query_read_tool
+from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
+from tg_agent_shell.ai.tools import query_read_tool
 
 NAME = "heavy_analyzer"
 

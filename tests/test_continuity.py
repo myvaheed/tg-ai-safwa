@@ -6,15 +6,15 @@ from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 from llm_gateway import CompletionRequest, CompletionTurn
-from safwa.adapters.kinds import MessageKind
 from safwa.constants import MEMORY_READ_TOKEN_BUDGET, SUMMARY_TRIGGER_TOKENS
 from safwa.features.continuity.memory import MemoryFileStore
 from safwa.features.continuity.model import SUMMARY_HEADER, MemorySyncState
 from safwa.features.continuity.persona import MemoryMaintenanceResult, PersonaContinuity
 from safwa.features.continuity.use_cases import run_due_memory_maintenance
 from safwa.features.profile.model import UserProfile
-from safwa.turn import TurnManager
 from telegram_llm import HistoryEntry
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.turn import TurnManager
 
 NOT_TEXT = b"\xff\xfe not text at all"
 

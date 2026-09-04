@@ -6,8 +6,9 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....shell import short_citation_title
-from ...proposals.api import NamedItemPresenter
+from tg_agent_shell.proposals.api import NamedItemPresenter
+from tg_agent_shell.telegram import short_citation_title
+
 from ..model import Value
 
 

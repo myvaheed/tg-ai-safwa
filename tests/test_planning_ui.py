@@ -12,10 +12,8 @@ from ui_harness import (
     services_for,
 )
 
-from safwa.ai.sql import create_ai_views
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
 from safwa.constants import PLAN_LINK_BURST_TAPS
-from safwa.cues.model import Cue
 from safwa.features.cards.model import Card, CardStage
 from safwa.features.cards.telegram import command_today
 from safwa.features.cards.use_cases import create_card
@@ -32,11 +30,13 @@ from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.reminders.model import Reminder
 from safwa.features.saved_requests.use_cases import create_saved_request
-from safwa.foundation.clock import SystemClock
 from safwa.foundation.workspace import Workspace
-from safwa.shell import callback_token_handler
-from safwa.shell.model import UiSession
-from safwa.turn.dialogue import ordinary_text
+from tg_agent_shell.ai.sql import create_ai_views
+from tg_agent_shell.cues.model import Cue
+from tg_agent_shell.foundation.clock import SystemClock
+from tg_agent_shell.telegram import callback_token_handler
+from tg_agent_shell.telegram.model import UiSession
+from tg_agent_shell.turn.dialogue import ordinary_text
 
 
 async def test_pl_mode_001_the_menu_offers_today_only_while_a_sprint_runs(sessions) -> None:
@@ -372,7 +372,7 @@ async def test_pl_plan_017_the_filter_screen_toggles_a_request_on_and_off(sessio
 
 async def test_pl_plan_019_a_burst_of_link_taps_earns_a_warning(sessions, monkeypatch) -> None:
     """PL-PLAN-019 — tests/brd/planning.feature"""
-    import safwa.shell.chat as messaging
+    import tg_agent_shell.telegram.chat as messaging
 
     monkeypatch.setattr(messaging, "TOAST_SECONDS", 0)
     ids = await seed_plan(sessions)

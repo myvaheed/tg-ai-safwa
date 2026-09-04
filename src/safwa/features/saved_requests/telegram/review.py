@@ -6,15 +6,16 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....ai.contracts import AgentChange
-from ....shell import short_citation_title, with_citation_fields
-from ...proposals.api import (
+from tg_agent_shell.ai.contracts import AgentChange
+from tg_agent_shell.proposals.api import (
     ProposalChange,
     ProposalScreen,
     detail_lines,
     named_details,
     named_summary,
 )
+from tg_agent_shell.telegram import short_citation_title, with_citation_fields
+
 from ..api import request_cards
 from ..model import SavedRequest
 

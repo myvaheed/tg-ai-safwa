@@ -26,12 +26,13 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from tg_agent_shell.cues.queue import cue_advisor, next_cue
+
 from ...constants import (
     REMINDER_CATCHUP_GRACE_MINUTES,
     REMINDER_FIRE_BATCH,
     SCHEDULER_POLL_SECONDS,
 )
-from ...cues.queue import cue_advisor, next_cue
 from .model import Reminder
 from .schedule import describe, roll_forward, schedule_of
 

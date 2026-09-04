@@ -7,19 +7,19 @@ from sqlalchemy import func, select
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.ai.autoapproval import AutoApprovalReviewer
-from safwa.ai.outcome import AIOutcomeKind
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.model import Card
 from safwa.features.cards.use_cases import create_card
-from safwa.features.proposals.model import (
-    BatchDecision,
-)
-from safwa.features.proposals.use_cases import approve_proposal
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import Value
 from safwa.features.values.use_cases import create_value
+from tg_agent_shell.ai.autoapproval import AutoApprovalReviewer
+from tg_agent_shell.ai.outcome import AIOutcomeKind
+from tg_agent_shell.proposals.model import (
+    BatchDecision,
+)
+from tg_agent_shell.proposals.use_cases import approve_proposal
 
 pytestmark = pytest.mark.e2e
 

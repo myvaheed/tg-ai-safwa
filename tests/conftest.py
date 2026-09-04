@@ -7,7 +7,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from safwa.bootstrap.main import bootstrap_workspace
-from safwa.foundation.models import Base
+from tg_agent_shell.foundation.models import Base
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -78,8 +78,8 @@ async def read_views(tmp_path):
     The views are dropped and rebuilt from the feature declarations, so a test that asks
     what Safwa sees asks the real catalogue rather than a copy of it.
     """
-    from safwa.ai.sql import ReadOnlyQueryRunner, create_ai_views
     from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
+    from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
 
     path = tmp_path / "views.db"
     engine = create_async_engine(f"sqlite+aiosqlite:///{path.as_posix()}")

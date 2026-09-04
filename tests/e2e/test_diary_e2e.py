@@ -9,12 +9,12 @@ from test_subagent_e2e import diary_subagent
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.ai.outcome import AIOutcomeKind
-from safwa.ai.runs import AgentRun
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.diary.model import DiaryEntry
 from safwa.features.diary.use_cases import create_diary_entry
-from safwa.features.proposals.use_cases import approve_proposal
+from tg_agent_shell.ai.outcome import AIOutcomeKind
+from tg_agent_shell.ai.runs import AgentRun
+from tg_agent_shell.proposals.use_cases import approve_proposal
 
 pytestmark = pytest.mark.e2e
 

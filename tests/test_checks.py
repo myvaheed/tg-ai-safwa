@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import select
 
-from safwa.ai.contracts import CheckToolInput
 from safwa.features.cards.model import Card, CardEvent, CardStage
 from safwa.features.cards.use_cases import create_card as create_domain_card
 from safwa.features.cards.use_cases import finish_action, move_card, toggle_card_check
@@ -23,8 +22,9 @@ from safwa.features.checks.use_cases import (
 )
 from safwa.features.planning.use_cases import archive_settled_items, finish_sprint, start_sprint
 from safwa.features.values.use_cases import create_value
-from safwa.foundation.errors import DomainError
 from safwa.foundation.marks import live_repeat_instance_id, title_marks
+from tg_agent_shell.ai.contracts import CheckToolInput
+from tg_agent_shell.foundation.errors import DomainError
 
 
 async def create_action(session, **overrides):

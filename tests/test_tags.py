@@ -6,10 +6,10 @@ from sqlalchemy import select
 
 from safwa.features.cards.model import Card
 from safwa.features.cards.use_cases import create_card, toggle_card_tag
-from safwa.features.proposals.remove import RemoveToolInput
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.tags.use_cases import create_tag, delete_tag, update_tag_fields
-from safwa.foundation.errors import DomainError
+from safwa.features.workspace_mutator.remove import RemoveToolInput
+from tg_agent_shell.foundation.errors import DomainError
 
 
 async def _action(session, title: str, **overrides):

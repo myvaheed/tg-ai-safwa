@@ -6,7 +6,6 @@ from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy import select
 
-from safwa.ai.messages import ordered_owner_context
 from safwa.bootstrap.modules import RECOVERY_HOOKS
 from safwa.features.cards.use_cases import create_card
 from safwa.features.planning.use_cases import start_sprint
@@ -17,10 +16,11 @@ from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import resolve
 from safwa.features.reminders.use_cases import create_reminder
 from safwa.features.workspace_mutator.state import workspace_context
-from safwa.foundation.clock import SystemClock
-from safwa.foundation.errors import DomainError
 from safwa.foundation.workspace import Workspace
 from safwa.recovery import recover_startup
+from tg_agent_shell.ai.messages import ordered_owner_context
+from tg_agent_shell.foundation.clock import SystemClock
+from tg_agent_shell.foundation.errors import DomainError
 
 
 class FrozenClock:

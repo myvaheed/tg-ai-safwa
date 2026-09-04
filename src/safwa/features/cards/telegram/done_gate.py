@@ -14,9 +14,9 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import delete, select
 
-from ....adapters.kinds import MessageKind
-from ....foundation.errors import DomainError
-from ....shell import (
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
     Services,
@@ -25,7 +25,8 @@ from ....shell import (
     token_button,
     with_notice,
 )
-from ....shell.model import UiSession
+from tg_agent_shell.telegram.model import UiSession
+
 from ...checks.api import CheckOutcome
 from ...checks.telegram import (
     CHECK_OUTCOME_LABELS,

@@ -12,7 +12,7 @@ from safwa.features.tags.telegram import render_tag
 from safwa.features.values.model import CardValue, Value
 from safwa.features.values.telegram import render_value
 from safwa.features.values.use_cases import create_value
-from safwa.shell import callback_token_handler
+from tg_agent_shell.telegram import callback_token_handler
 
 
 async def test_the_value_screen_counts_cards_and_checks_and_flips_focus(sessions) -> None:

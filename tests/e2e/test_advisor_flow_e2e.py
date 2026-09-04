@@ -10,10 +10,6 @@ from ui_harness import spawn_timer
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.adapters.kinds import MARKS
-from safwa.adapters.telegram_history import TelegramNotes
-from safwa.ai.outcome import AIOutcome, AIOutcomeKind
-from safwa.ai.runs import AgentRun, AgentStep
 from safwa.bootstrap.modules import (
     ALLOWED_VIEWS,
     FEATURE_CALLBACK_ACTIONS,
@@ -25,28 +21,32 @@ from safwa.bootstrap.modules import (
 from safwa.features.cards.model import Card, CardCategory, CardEnergyType, CardStage
 from safwa.features.cards.use_cases import create_card, finish_action, move_card
 from safwa.features.planning.use_cases import finish_sprint, sprint_metrics, start_sprint
-from safwa.features.proposals.model import (
-    BatchDecision,
-    ChangeAction,
-    ProposalChange,
-)
-from safwa.features.proposals.telegram import render_ai_outcome, render_proposal
-from safwa.features.proposals.use_cases import approve_proposal
 from safwa.features.saved_requests.api import request_cards
 from safwa.features.saved_requests.model import SavedRequest
 from safwa.features.saved_requests.use_cases import create_saved_request
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import CardValue, Value
-from safwa.foundation.errors import StaleStateError
 from safwa.foundation.marks import title_marks
 from safwa.foundation.workspace import Workspace
 from safwa.recovery import recover_startup
-from safwa.session import MAX_TOOL_CALLS
-from safwa.shell import callback_token_handler, dismiss_prior_ui
-from safwa.shell.model import CallbackToken
-from safwa.turn import TurnManager
 from telegram_llm import ChatHost, DialogueMessage
+from tg_agent_shell.adapters.kinds import MARKS
+from tg_agent_shell.adapters.telegram_history import TelegramNotes
+from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
+from tg_agent_shell.ai.runs import AgentRun, AgentStep
+from tg_agent_shell.foundation.errors import StaleStateError
+from tg_agent_shell.proposals.model import (
+    BatchDecision,
+    ChangeAction,
+    ProposalChange,
+)
+from tg_agent_shell.proposals.telegram import render_ai_outcome, render_proposal
+from tg_agent_shell.proposals.use_cases import approve_proposal
+from tg_agent_shell.session import MAX_TOOL_CALLS
+from tg_agent_shell.telegram import callback_token_handler, dismiss_prior_ui
+from tg_agent_shell.telegram.model import CallbackToken
+from tg_agent_shell.turn import TurnManager
 
 pytestmark = pytest.mark.e2e
 
@@ -1534,7 +1534,7 @@ async def test_a_review_whose_screen_could_not_be_sent_does_not_stay_open(
     async def refuse(*_args, **_kwargs):
         raise RuntimeError("Telegram refused the screen")
 
-    monkeypatch.setattr("safwa.features.proposals.telegram.answer.render_proposal", refuse)
+    monkeypatch.setattr("tg_agent_shell.proposals.telegram.answer.render_proposal", refuse)
     message = _QueueTestMessage()
     services = SimpleNamespace(
         sessions=e2e_harness.sessions,

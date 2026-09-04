@@ -12,7 +12,8 @@ from collections.abc import Iterable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...foundation.errors import DomainError
+from tg_agent_shell.foundation.errors import DomainError
+
 from ...foundation.marks import title_marks
 from .model import TERMINAL_STAGES as TERMINAL_STAGES
 from .model import Card as Card

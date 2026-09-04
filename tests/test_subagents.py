@@ -8,12 +8,12 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.ai.sql import ReadOnlyQueryRunner
-from safwa.ai.subagents import PERSONA, RoutedSubagent
-from safwa.ai.tools import IMMEDIATE_TOOLS, SAFWA_TOOLS
 from safwa.bootstrap.modules import AGENTS, ALLOWED_VIEWS, PROPOSALS, SYSTEM_PROMPT
 from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
-from safwa.shell.manifest import AgentContext
+from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
+from tg_agent_shell.ai.subagents import PERSONA, RoutedSubagent
+from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS, SAFWA_TOOLS
+from tg_agent_shell.telegram.manifest import AgentContext
 
 
 class StubDayReader:

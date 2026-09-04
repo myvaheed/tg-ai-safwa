@@ -22,15 +22,9 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....adapters.kinds import MessageKind
-from ....constants import (
-    PLAN_LINK_BURST_SECONDS,
-    PLAN_LINK_BURST_TAPS,
-    SPRINT_PLAN_PAGE_SIZE,
-    SPRINT_PLAN_TITLE_LIMIT,
-)
-from ....foundation.screens import StartLink
-from ....shell import (
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.foundation.screens import StartLink
+from tg_agent_shell.telegram import (
     CallbackContext,
     Page,
     Services,
@@ -39,6 +33,13 @@ from ....shell import (
     send_registered,
     send_toast,
     token_button,
+)
+
+from ....constants import (
+    PLAN_LINK_BURST_SECONDS,
+    PLAN_LINK_BURST_TAPS,
+    SPRINT_PLAN_PAGE_SIZE,
+    SPRINT_PLAN_TITLE_LIMIT,
 )
 from ...cards.api import CardStage, actions_on_stages
 from ...cards.model import Card

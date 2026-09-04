@@ -6,17 +6,17 @@ from types import SimpleNamespace
 
 from sqlalchemy import select
 
-from safwa.ai.runs import AgentRun
-from safwa.cues.background import tick
-from safwa.cues.model import Cue
-from safwa.cues.queue import cue_advisor, next_cue
-from safwa.cues.runtime import CueRuntime
 from safwa.features.cards.use_cases import create_card
 from safwa.features.planning.use_cases import finish_sprint, start_sprint
-from safwa.features.proposals.model import ChangeAction, ProposalChange
-from safwa.features.proposals.store import ProposalStore
-from safwa.foundation.clock import utcnow
-from safwa.turn import TurnManager
+from tg_agent_shell.ai.runs import AgentRun
+from tg_agent_shell.cues.background import tick
+from tg_agent_shell.cues.model import Cue
+from tg_agent_shell.cues.queue import cue_advisor, next_cue
+from tg_agent_shell.cues.runtime import CueRuntime
+from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.proposals.model import ChangeAction, ProposalChange
+from tg_agent_shell.proposals.store import ProposalStore
+from tg_agent_shell.turn import TurnManager
 
 
 class Recorder:

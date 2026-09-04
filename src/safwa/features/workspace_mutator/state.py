@@ -13,7 +13,8 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...ai.messages import StateBlocks
+from tg_agent_shell.ai.messages import StateBlocks
+
 from ...constants import CONTEXT_CRITICAL_CARD_LIMIT
 from ...foundation.workspace import Workspace
 from ..cards.model import Card, CardKind, CardStage, Priority

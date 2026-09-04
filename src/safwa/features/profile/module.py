@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...foundation.clock import SystemClock
-from ...foundation.screens import ScreenCommand
-from ...shell.manifest import FeatureModule
+from tg_agent_shell.foundation.clock import SystemClock
+from tg_agent_shell.foundation.screens import ScreenCommand
+from tg_agent_shell.telegram.manifest import FeatureModule
+
 from . import telegram
 from .telegram import SETTINGS_CALLBACK_ACTIONS, command_settings
 from .use_cases import sync_diary_reminder

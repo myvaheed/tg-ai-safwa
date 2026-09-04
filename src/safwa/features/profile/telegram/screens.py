@@ -12,13 +12,11 @@ from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....adapters.kinds import MessageKind
-from ....constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
-from ....foundation.clock import SystemClock
-from ....foundation.errors import DomainError
-from ....foundation.screens import TextInputFlow
-from ....foundation.workspace import Workspace
-from ....shell import (
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.foundation.clock import SystemClock
+from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.foundation.screens import TextInputFlow
+from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
     Services,
@@ -30,7 +28,10 @@ from ....shell import (
     token_button,
     with_notice,
 )
-from ....shell.model import UiSession
+from tg_agent_shell.telegram.model import UiSession
+
+from ....constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
+from ....foundation.workspace import Workspace
 from ...reminders.api import parse_clock_or_off
 from ..model import UserProfile
 from ..use_cases import profile_field, set_profile_field

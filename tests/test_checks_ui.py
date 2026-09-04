@@ -16,7 +16,7 @@ from safwa.features.checks.use_cases import (
 )
 from safwa.features.values.model import Value
 from safwa.features.values.use_cases import create_value
-from safwa.shell import callback_token_handler
+from tg_agent_shell.telegram import callback_token_handler
 
 
 async def test_ch_archive_016_an_archived_check_keeps_its_answer(sessions) -> None:

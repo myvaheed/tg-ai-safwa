@@ -11,7 +11,8 @@ from collections.abc import Collection
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...ai.sql import RequestQueryError, normalize_request_sql
+from tg_agent_shell.ai.sql import RequestQueryError, normalize_request_sql
+
 from ..cards.model import Card
 
 

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ...ai.contracts import RequestToolInput
-from ..proposals.api import MutationToolSpec, entity_change
+from tg_agent_shell.ai.contracts import RequestToolInput
+from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 
 REQUEST_TOOL = MutationToolSpec(
     name="request",

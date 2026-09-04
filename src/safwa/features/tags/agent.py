@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ...ai.contracts import TagToolInput
-from ..proposals.api import MutationToolSpec, entity_change
+from tg_agent_shell.ai.contracts import TagToolInput
+from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 
 TAG_TOOL = MutationToolSpec(
     name="tag",

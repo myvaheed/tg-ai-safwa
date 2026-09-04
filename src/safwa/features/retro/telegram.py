@@ -12,9 +12,10 @@ from typing import Any
 from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...adapters.kinds import MessageKind
-from ...foundation.errors import DomainError
-from ...shell import Services, menu_row, send_registered
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.telegram import Services, menu_row, send_registered
+
 from ..planning.model import Sprint
 
 

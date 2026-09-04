@@ -9,8 +9,8 @@ from __future__ import annotations
 from datetime import date as calendar_date
 from typing import Any
 
-from ...foundation.errors import DomainError, StaleStateError
-from ..proposals.api import (
+from tg_agent_shell.foundation.errors import DomainError, StaleStateError
+from tg_agent_shell.proposals.api import (
     ApplyContext,
     ChangeAction,
     PreparationContext,
@@ -19,6 +19,7 @@ from ..proposals.api import (
     ToolPreparationError,
     require_target,
 )
+
 from .model import DiaryEntry
 from .use_cases import (
     create_diary_entry,

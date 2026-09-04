@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from safwa.ai.contracts import CardToolInput
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.model import Card, CardStage, Priority
 from safwa.features.cards.use_cases import (
@@ -15,13 +14,14 @@ from safwa.features.cards.use_cases import (
 from safwa.features.checks.model import Check, CheckOutcome
 from safwa.features.checks.use_cases import create_check
 from safwa.features.planning.model import Sprint
-from safwa.features.proposals.api import ToolPreparationError
-from safwa.features.proposals.prepare import ChangePreparer
 from safwa.features.saved_requests.model import SavedRequest
 from safwa.features.tags.model import Tag
 from safwa.features.values.model import Value
 from safwa.foundation.marks import live_repeat_instance_id
-from safwa.foundation.models import UtcDateTime
+from tg_agent_shell.ai.contracts import CardToolInput
+from tg_agent_shell.foundation.models import UtcDateTime
+from tg_agent_shell.proposals.api import ToolPreparationError
+from tg_agent_shell.proposals.prepare import ChangePreparer
 
 
 @pytest.mark.parametrize("stage", ["done", "cancelled"])

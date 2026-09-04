@@ -8,8 +8,9 @@ from enum import StrEnum
 from sqlalchemy import Integer, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column
 
+from tg_agent_shell.foundation.models import Base, TimestampMixin
+
 from ...constants import DIARY_TIME_DEFAULT, SPRINT_LENGTH_DAYS
-from ...foundation.models import Base, TimestampMixin
 
 
 class UserProfile(Base, TimestampMixin):

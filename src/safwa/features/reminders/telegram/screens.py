@@ -15,10 +15,9 @@ from zoneinfo import ZoneInfo
 from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import select
 
-from ....adapters.kinds import MessageKind
-from ....foundation.errors import DomainError
-from ....foundation.workspace import Workspace
-from ....shell import (
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
     Services,
@@ -31,6 +30,8 @@ from ....shell import (
     send_registered,
     token_button,
 )
+
+from ....foundation.workspace import Workspace
 from ..model import Reminder
 from ..schedule import describe, schedule_of
 from ..use_cases import delete_reminder

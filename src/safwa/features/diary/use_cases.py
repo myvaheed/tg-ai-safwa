@@ -7,7 +7,8 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...foundation.errors import DomainError
+from tg_agent_shell.foundation.errors import DomainError
+
 from ...foundation.workspace import bump_workspace
 from .model import DiaryEntry
 

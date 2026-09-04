@@ -8,12 +8,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...ai.sql import RequestQueryError, UnsafeQueryError, normalize_request_sql
-from ...enums import ActorType
-from ...foundation.errors import DomainError, StaleStateError
-from ...foundation.marks import closed_repeat_refusal
-from ..checks.use_cases import unobserved_series
-from ..proposals.api import (
+from tg_agent_shell.ai.sql import RequestQueryError, UnsafeQueryError, normalize_request_sql
+from tg_agent_shell.foundation.errors import DomainError, StaleStateError
+from tg_agent_shell.proposals.api import (
     ApplyContext,
     ChangeAction,
     PreparationContext,
@@ -24,6 +21,10 @@ from ..proposals.api import (
     require_target,
     validate_named_references,
 )
+
+from ...enums import ActorType
+from ...foundation.marks import closed_repeat_refusal
+from ..checks.use_cases import unobserved_series
 from .model import (
     TERMINAL_STAGES,
     Card,

@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from ...adapters.kinds import MessageKind
+from tg_agent_shell.adapters.kinds import MessageKind
+
 from .model import SUMMARY_HEADER
 
 # What the model reads where the window ends. A Summary is neither the person speaking nor

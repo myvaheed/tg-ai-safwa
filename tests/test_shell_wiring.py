@@ -18,19 +18,19 @@ from ui_harness import (
     ui_sources,
 )
 
-from safwa.ai.contracts import OpenInput
 from safwa.bootstrap.modules import (
     FEATURE_COMMANDS,
     FEATURE_TEXT_INPUTS,
     SCREENS,
 )
 from safwa.features.home.api import MENU_LAYOUT, menu_markup
-from safwa.shell import (
+from tg_agent_shell.ai.contracts import OpenInput
+from tg_agent_shell.telegram import (
     SHELL_COMMANDS,
     OwnerAndWritingMiddleware,
     register_commands,
 )
-from safwa.shell.layout import menu_row, start_payload
+from tg_agent_shell.telegram.layout import menu_row, start_payload
 
 
 def _telegram_module_trees() -> list[ast.Module]:
@@ -128,7 +128,7 @@ def test_every_recorded_text_input_flow_has_a_declared_handler() -> None:
 
 
 async def test_every_command_is_deleted_and_still_dispatched(sessions, monkeypatch) -> None:
-    import safwa.shell.services as core_module
+    import tg_agent_shell.telegram.services as core_module
 
     monkeypatch.setattr(core_module, "Message", FakeMessage)
     middleware = OwnerAndWritingMiddleware()

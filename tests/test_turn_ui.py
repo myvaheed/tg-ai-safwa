@@ -20,29 +20,29 @@ from ui_harness import (
     voice_message_for,
 )
 
-from safwa.adapters.kinds import MessageKind
-from safwa.adapters.telegram_history import TelegramMessage
-from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.bootstrap.modules import (
     PROPOSALS,
 )
 from safwa.features.planning.telegram import render_sprint
 from safwa.features.planning.use_cases import set_sprint_success_criteria
-from safwa.features.proposals.store import ProposalStore
 from safwa.foundation.workspace import Workspace
-from safwa.shell import (
+from telegram_llm import (
+    HistoryEntry,
+)
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.adapters.telegram_history import TelegramMessage
+from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
+from tg_agent_shell.proposals.store import ProposalStore
+from tg_agent_shell.telegram import (
     dismiss_prior_ui,
 )
-from safwa.shell.chat import (
+from tg_agent_shell.telegram.chat import (
     TURN_NOTICE,
     edit_registered_message,
     remove_turn_notice,
     send_owner_turn,
 )
-from safwa.turn.dialogue import run_dialogue_turn, voice_message
-from telegram_llm import (
-    HistoryEntry,
-)
+from tg_agent_shell.turn.dialogue import run_dialogue_turn, voice_message
 
 
 class TurnAdvisor:
@@ -247,7 +247,7 @@ async def test_a_cancelled_generation_still_gives_up_its_lease(sessions, monkeyp
     A turn left behind is invisible: the middleware silently deletes every command after
     it, so the bot looks alive while `/start` and every deep link do nothing.
     """
-    import safwa.turn.dialogue as dialogue_module
+    import tg_agent_shell.turn.dialogue as dialogue_module
 
     async def cancelled(*_args, **_kwargs):
         raise asyncio.CancelledError
@@ -272,7 +272,7 @@ async def test_a_cancelled_generation_still_gives_up_its_lease(sessions, monkeyp
 
 async def test_a_toast_leaves_the_screen_alone_and_takes_itself_back(sessions, monkeypatch):
     """SC-KEEP-002 — tests/brd/screens.feature"""
-    import safwa.shell.chat as messaging
+    import tg_agent_shell.telegram.chat as messaging
 
     monkeypatch.setattr(messaging, "TOAST_SECONDS", 0)
     services = services_for(sessions)

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...ai.contracts import CardToolInput
-from ..proposals.api import MutationToolSpec, entity_change
+from tg_agent_shell.ai.contracts import CardToolInput
+from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 
 
 def _has_explicit_tool_value(value: Any) -> bool:

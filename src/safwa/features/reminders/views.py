@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ...ai.sql import SqlView
+from tg_agent_shell.ai.sql import SqlView
 
 # The raw schedule columns, not a rendered `schedule`: `describe()` is the one wording,
 # and duplicating it in SQL would give the model a second one to disagree with.  The next

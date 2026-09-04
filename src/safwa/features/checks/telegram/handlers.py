@@ -6,15 +6,16 @@ import html
 
 from aiogram.types import InlineKeyboardMarkup
 
-from ....adapters.kinds import MessageKind
-from ....foundation.errors import DomainError
-from ....shell import (
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
     go_back_action,
     send_registered,
     token_button,
 )
+
 from ..model import Check, CheckOutcome
 from ..use_cases import delete_check, resolve_check, toggle_check_value, update_check_fields
 from .screens import render_check, render_check_values, render_checks

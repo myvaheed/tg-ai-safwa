@@ -15,14 +15,15 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.cues.queue import cue_advisor
+from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.foundation.errors import DomainError
+
 from ...constants import (
     ARCHIVE_AFTER_SPRINTS,
     SPRINT_LENGTH_MAX_DAYS,
     SPRINT_LENGTH_MIN_DAYS,
 )
-from ...cues.queue import cue_advisor
-from ...foundation.clock import utcnow
-from ...foundation.errors import DomainError
 from ...foundation.workspace import Workspace, WorkspaceMode, require_workspace
 from ..cards.api import CardStage, action_titles, planned_actions
 from ..cards.use_cases import archive_settled_cards

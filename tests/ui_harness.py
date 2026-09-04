@@ -12,9 +12,6 @@ from sqlalchemy import select
 
 import safwa
 import safwa.features.planning.telegram.plan as plan_module
-from safwa.adapters.kinds import MARKS
-from safwa.adapters.telegram_history import TelegramNotes
-from safwa.ai.sql import create_ai_views
 from safwa.bootstrap.modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
@@ -25,12 +22,15 @@ from safwa.bootstrap.modules import (
     SCREENS,
 )
 from safwa.features.cards.use_cases import create_card
-from safwa.features.proposals.api import ProposalDescription
-from safwa.features.proposals.store import ProposalStore
-from safwa.shell import SHELL_COMMANDS
-from safwa.shell.model import UiSession
-from safwa.turn import TurnManager
 from telegram_llm import ChatHost, TranscriptionError, TranscriptionResult
+from tg_agent_shell.adapters.kinds import MARKS
+from tg_agent_shell.adapters.telegram_history import TelegramNotes
+from tg_agent_shell.ai.sql import create_ai_views
+from tg_agent_shell.proposals.api import ProposalDescription
+from tg_agent_shell.proposals.store import ProposalStore
+from tg_agent_shell.telegram import SHELL_COMMANDS
+from tg_agent_shell.telegram.model import UiSession
+from tg_agent_shell.turn import TurnManager
 
 # What the composition root puts together, which is what a live Safwa answers with.
 CALLBACK_ACTIONS = FEATURE_CALLBACK_ACTIONS
@@ -290,7 +290,7 @@ def voice_message_for(
 
 def capture_dialogue_turns(monkeypatch) -> list[tuple[str, object]]:
     """Stop at the handler's edge: the advisor loop itself is the text path's test."""
-    import safwa.turn.dialogue as dialogue_module
+    import tg_agent_shell.turn.dialogue as dialogue_module
 
     turns: list[tuple[str, object]] = []
 

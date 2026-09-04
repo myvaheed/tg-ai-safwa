@@ -11,18 +11,18 @@ from ui_harness import (
     services_for,
 )
 
-from safwa.adapters.kinds import MessageKind
-from safwa.adapters.telegram_history import TelegramMessage
-from safwa.ai.outcome import AIOutcome, AIOutcomeKind
 from safwa.features.continuity.model import SUMMARY_HEADER
-from safwa.features.proposals.telegram import render_ai_outcome
-from safwa.shell.chat import (
-    discard_stale_status,
-    send_registered,
-)
 from telegram_llm import (
     TELEGRAM_TEXT_LIMIT,
     split_telegram_text,
+)
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.adapters.telegram_history import TelegramMessage
+from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
+from tg_agent_shell.proposals.telegram import render_ai_outcome
+from tg_agent_shell.telegram.chat import (
+    discard_stale_status,
+    send_registered,
 )
 
 
@@ -66,7 +66,7 @@ async def test_an_over_long_summary_is_split_and_every_part_is_registered(
     sessions,
 ) -> None:
     """SC-SPLIT-004 — tests/brd/screens.feature"""
-    import safwa.shell.chat as messaging
+    import tg_agent_shell.telegram.chat as messaging
 
     services = services_for(sessions)
     message = FakeMessage(971, bot_message=False, answer_as_new=True)
@@ -85,7 +85,7 @@ async def test_a_split_cue_is_delivered_only_once_its_last_part_is_in_the_chat(
     sessions,
 ) -> None:
     """SC-SPLIT-004 — tests/brd/screens.feature"""
-    import safwa.shell.chat as messaging
+    import tg_agent_shell.telegram.chat as messaging
 
     services = services_for(sessions)
     message = FakeMessage(972, bot_message=False, answer_as_new=True)

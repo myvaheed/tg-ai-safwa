@@ -18,12 +18,11 @@ from zoneinfo import ZoneInfo
 from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....adapters.kinds import MessageKind
-from ....foundation.clock import utcnow
-from ....foundation.errors import DomainError
-from ....foundation.screens import TextInputFlow
-from ....foundation.workspace import Workspace
-from ....shell import (
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.foundation.screens import TextInputFlow
+from tg_agent_shell.telegram import (
     Services,
     TextInputScreen,
     edit_registered_message,
@@ -34,6 +33,8 @@ from ....shell import (
     token_button,
     with_notice,
 )
+
+from ....foundation.workspace import Workspace
 from ...cards.api import CardStage, actions_on_stages
 from ...cards.model import Card
 from ...cards.telegram import stage_list_block

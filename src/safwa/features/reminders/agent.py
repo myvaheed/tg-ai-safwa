@@ -11,11 +11,11 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from llm_gateway import LlmProvider
+from tg_agent_shell.ai.contracts import NotClearEnoughInput, ReminderConfigInput, ReminderToolInput
+from tg_agent_shell.ai.mini import MINI_SESSION_MAX_TOOL_CALLS, TerminalTool, run_mini_session
+from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 
-from ...ai.contracts import NotClearEnoughInput, ReminderConfigInput, ReminderToolInput
-from ...ai.mini import MINI_SESSION_MAX_TOOL_CALLS, TerminalTool, run_mini_session
 from ...constants import WEEKDAY_NAMES
-from ..proposals.api import MutationToolSpec, entity_change
 from .schedule import Schedule, ScheduleError, resolve
 
 REMINDER_TOOL = MutationToolSpec(

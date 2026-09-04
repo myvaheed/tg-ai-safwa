@@ -9,8 +9,6 @@ import pytest
 from sqlalchemy import select
 
 from llm_gateway import ToolCall
-from safwa.ai.subagents import RoutedSubagent
-from safwa.ai.tools import ToolAdapters
 from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS, SCREENS, SYSTEM_PROMPT
 from safwa.features.diary.agent import (
     DIARY_AGENT,
@@ -32,8 +30,6 @@ from safwa.features.diary.use_cases import (
     update_diary_entry,
 )
 from safwa.features.profile.use_cases import sync_diary_reminder
-from safwa.features.proposals.api import ChangeAction, ToolPreparationError
-from safwa.features.proposals.prepare import ChangePreparer
 from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import resolve
 from safwa.features.reminders.use_cases import (
@@ -41,9 +37,13 @@ from safwa.features.reminders.use_cases import (
     reschedule_reminder,
     update_reminder_text,
 )
-from safwa.foundation.clock import SystemClock
-from safwa.foundation.errors import DomainError
-from safwa.shell.manifest import AgentContext
+from tg_agent_shell.ai.subagents import RoutedSubagent
+from tg_agent_shell.ai.tools import ToolAdapters
+from tg_agent_shell.foundation.clock import SystemClock
+from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.proposals.api import ChangeAction, ToolPreparationError
+from tg_agent_shell.proposals.prepare import ChangePreparer
+from tg_agent_shell.telegram.manifest import AgentContext
 
 
 class FrozenClock:

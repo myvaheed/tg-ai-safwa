@@ -6,7 +6,7 @@ They live here so `MARKS` stays the one table both sides agree on.
 
 from __future__ import annotations
 
-from safwa.adapters.kinds import MARKS, MessageKind
+from tg_agent_shell.adapters.kinds import MARKS, MessageKind
 
 
 def mark_kind(text: str, kind: MessageKind, *, event_id: str | None = None) -> str:

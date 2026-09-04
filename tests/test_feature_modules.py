@@ -15,7 +15,6 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, inspect
 
-from safwa.ai.sql import create_ai_views
 from safwa.bootstrap.modules import (
     AGENTS,
     AI_VIEWS,
@@ -26,10 +25,11 @@ from safwa.bootstrap.modules import (
     RECOVERY_HOOKS,
     SYSTEM_PROMPT,
 )
-from safwa.cues.module import CUE_QUEUE
-from safwa.foundation.models import Base
+from tg_agent_shell.ai.sql import create_ai_views
+from tg_agent_shell.cues.module import CUE_QUEUE
+from tg_agent_shell.foundation.models import Base
 
-SRC = Path(__file__).resolve().parents[1] / "src" / "safwa"
+SRC = Path(__file__).resolve().parents[1] / "src"
 TABLENAME = re.compile(r'^\s*__tablename__ = "([a-z_]+)"', re.MULTILINE)
 
 
@@ -51,7 +51,7 @@ def test_importing_the_composition_root_declares_every_table():
             sys.executable,
             "-c",
             "import safwa.bootstrap.modules;"
-            "from safwa.foundation.models import Base;"
+            "from tg_agent_shell.foundation.models import Base;"
             "print(' '.join(sorted(Base.metadata.tables)))",
         ],
         capture_output=True,
@@ -86,7 +86,7 @@ def test_a_mutation_tool_name_belongs_to_exactly_one_feature():
 
 
 def test_an_unowned_entity_is_refused_rather_than_silently_dropped():
-    from safwa.foundation.errors import DomainError
+    from tg_agent_shell.foundation.errors import DomainError
 
     with pytest.raises(DomainError):
         PROPOSALS.handler("habit")

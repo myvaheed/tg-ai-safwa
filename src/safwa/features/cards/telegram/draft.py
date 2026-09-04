@@ -11,8 +11,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....foundation.errors import DomainError
-from ....shell.model import UiSession
+from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.telegram.model import UiSession
+
 from ..model import CardKind, CardStage, Priority
 from ..use_cases import validate_action_fields, validate_blocked_fields
 

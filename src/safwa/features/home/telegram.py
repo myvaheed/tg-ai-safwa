@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from aiogram.types import Message
 
-from ...adapters.kinds import MessageKind
-from ...shell import (
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.telegram import (
     Services,
     claimed_link,
     open_citation,
     send_registered,
     start_payload,
 )
+
 from ..planning.api import sprint_is_active
 from .api import menu_markup
 

@@ -10,23 +10,23 @@ from datetime import date, timedelta
 import pytest
 from sqlalchemy import select
 
-from safwa.adapters.kinds import MessageKind
-from safwa.adapters.telegram_history import TelegramMessage
-from safwa.ai.runs import AgentRun
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.model import Card, CardStage
 from safwa.features.cards.use_cases import archive_subtree, create_card, finish_action
 from safwa.features.checks.model import CheckOutcome
 from safwa.features.checks.use_cases import archive_check, create_check, resolve_check
 from safwa.features.planning.use_cases import expire_due_sprint, start_sprint
-from safwa.features.proposals.api import ToolPreparationError
-from safwa.features.proposals.model import ChangeProposal
-from safwa.features.proposals.prepare import ChangePreparer
-from safwa.features.proposals.store import ProposalStore
-from safwa.features.proposals.use_cases import approve_proposal, prepare_proposal
-from safwa.foundation.errors import StaleStateError
 from safwa.recovery import recover_startup
-from safwa.shell.model import CallbackToken
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.adapters.telegram_history import TelegramMessage
+from tg_agent_shell.ai.runs import AgentRun
+from tg_agent_shell.foundation.errors import StaleStateError
+from tg_agent_shell.proposals.api import ToolPreparationError
+from tg_agent_shell.proposals.model import ChangeProposal
+from tg_agent_shell.proposals.prepare import ChangePreparer
+from tg_agent_shell.proposals.store import ProposalStore
+from tg_agent_shell.proposals.use_cases import approve_proposal, prepare_proposal
+from tg_agent_shell.telegram.model import CallbackToken
 
 
 @pytest.fixture

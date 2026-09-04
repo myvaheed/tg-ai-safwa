@@ -13,9 +13,10 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.foundation.clock import Clock
+from tg_agent_shell.foundation.errors import DomainError
+
 from ...constants import REMINDER_CATCHUP_GRACE_MINUTES, WEEKDAY_NAMES
-from ...foundation.clock import Clock
-from ...foundation.errors import DomainError
 from ...foundation.workspace import Workspace, bump_workspace
 from .model import Reminder, ScheduleKind
 from .schedule import (

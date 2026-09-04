@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from ...foundation.screens import ScreenCommand
+from tg_agent_shell.foundation.screens import ScreenCommand
 
 # One row per line, each naming the `nav` action of a screen that declared a title.
 MENU_LAYOUT: tuple[tuple[str, ...], ...] = (

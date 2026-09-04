@@ -6,9 +6,9 @@ from typing import Any
 
 from aiogram.types import InlineKeyboardMarkup
 
-from ....adapters.kinds import MessageKind
-from ....foundation.errors import DomainError
-from ....shell import (
+from tg_agent_shell.adapters.kinds import MessageKind
+from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
     TextInputScreen,
@@ -20,6 +20,7 @@ from ....shell import (
     token_button,
     with_notice,
 )
+
 from ...checks.use_cases import unobserved_series
 from ..model import Card, CardStage
 from ..use_cases import (

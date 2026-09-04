@@ -13,8 +13,6 @@ from ui_harness import (
     services_for,
 )
 
-from safwa.ai.outcome import AIOutcome, AIOutcomeKind
-from safwa.ai.sql import create_ai_views
 from safwa.bootstrap.modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
@@ -22,14 +20,16 @@ from safwa.bootstrap.modules import (
 from safwa.features.cards.use_cases import create_card
 from safwa.features.checks.use_cases import create_check
 from safwa.features.diary.use_cases import create_diary_entry
-from safwa.features.proposals.telegram import render_ai_outcome
 from safwa.features.saved_requests.use_cases import (
     create_saved_request,
 )
 from safwa.features.tags.use_cases import create_tag, delete_tag
 from safwa.features.values.use_cases import create_value
-from safwa.foundation.errors import DomainError
-from safwa.shell import (
+from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
+from tg_agent_shell.ai.sql import create_ai_views
+from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.proposals.telegram import render_ai_outcome
+from tg_agent_shell.telegram import (
     open_item_screen,
     render_citations,
 )

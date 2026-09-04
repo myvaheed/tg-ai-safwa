@@ -9,7 +9,7 @@ from __future__ import annotations
 from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ...foundation.models import Base, TimestampMixin
+from tg_agent_shell.foundation.models import Base, TimestampMixin
 
 
 class Value(Base, TimestampMixin):

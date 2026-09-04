@@ -9,8 +9,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.telegram import Page, paginate, short_citation_title, with_citation_fields
+
 from ....foundation.marks import title_marks
-from ....shell import Page, paginate, short_citation_title, with_citation_fields
 from ..model import (
     Card,
     CardCategory,

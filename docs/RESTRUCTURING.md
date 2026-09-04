@@ -19,7 +19,7 @@ something else has to happen before it can. **no** — ruled out, kept so it is 
    `features/retro`.
 5. **done** — the subagent is `features/workspace_mutator` and the set it keeps is the workspace.
 
-Candidate 2 did not land. `features/proposals/api.py` dispatches on `Card | Check`, so moving it
+Candidate 2 did not land. `proposals/api.py` dispatches on `Card | Check`, so moving it
 under `ai/` would carry two features into the engine and break Rule M. Rule H does not see it: it
 reads entity names as strings, and this is `isinstance`. Its verdict is now **first**.
 
@@ -50,10 +50,10 @@ reads entity names as strings, and this is `isinstance`. Its verdict is now **fi
 
 ## Batch 2 — landed
 
-`safwa/ai/` and the `features/proposals/` core name nothing of Safwa's, and Rule N in
-`scripts/architecture_metrics.py` reads zero only while that holds. What they may reach is
-`PORTABLE_FOUNDATION`: `foundation/{clock,errors,models,references,screens}.py`, each free of
-any entity. The review flow's `telegram/` and its `module.py` are the port and stay behind.
+`tg_agent_shell/ai/` and the review flow name nothing of Safwa's, and the rule that read zero
+while that held was Rule N. What they could reach was
+`foundation/{clock,errors,models,references,screens}.py`, each free of any entity — the five that
+travelled with them in phase 4, where Rule F took over.
 
 26. **done** — `Card` and `Check` answer `is_closed_repeat`, `live_instance_query` and
     `series_index_query` for themselves, so `foundation/marks.py` names no feature.
@@ -71,12 +71,12 @@ application for the revision it locks against instead of reading Safwa's row.
 Candidate 2 is settled as **no**. The proposals core imports `ai` and is meant to; moving the
 package under it would have reversed three arrows — `proposals/telegram` reads `shell`,
 `module.py` reads `bootstrap`, and `ai/tools.py` already declares `MutationCatalogue` rather than
-importing the registry. Travelling together is what was actually wanted, and Rule N says it.
+importing the registry. Travelling together is what was actually wanted, and one package is it.
 
 ### Benefits
 
 - The engine's dependency on Safwa was invisible because it ran through modules, not names:
-  `ai/sql.py` never imported a Card, it imported `constants.py`, which mentions Sprints. Rule N
+  `ai/sql.py` never imported a Card, it imported `constants.py`, which mentions Sprints. The rule
   reads paths, so the next such import fails instead of being argued about.
 - Three copies of `live_repeat_instance_id` — `cards/api.py`, `checks/api.py` and
   `proposals/api.py` — are one, and the `isinstance` ladder under `foundation/marks.py` is gone
@@ -96,34 +96,28 @@ importing the registry. Travelling together is what was actually wanted, and Rul
 - Two scenarios said Card and Check where they meant a mechanism; they say the mechanism, and
   `cards.feature` says which of Cards' changes is the destructive one.
 
-## tg-agent-shell — the plan
+## tg-agent-shell — landed
 
-The engine, the review flow, the shell, the turn lease and the cues are one reusable thing:
-`llm_gateway <- agent_runtime <- tg_agent_shell <- safwa`. Phases 1 and 2 are done; phases 3
-and 4 are not started.
+The engine, the review flow, the root session, the shell, the turn lease and the cues are one
+reusable thing: `llm_gateway <- agent_runtime <- tg_agent_shell <- safwa`. All four phases are
+done.
 
-tg-agent-shell is the distribution and tg_agent_shell the package, because an import name
-cannot carry a hyphen. Neither is backticked below: the name is planned, and a backtick here
-means a name the code already carries. It is a shell rather than a harness — a harness drives
-a model, which is `agent_runtime` one layer down, and this is where a person reaches the agent.
+tg-agent-shell is the distribution and `tg_agent_shell` the package, because an import name
+cannot carry a hyphen. It is a shell rather than a harness — a harness drives a model, which is
+`agent_runtime` one layer down, and this is where a person reaches the agent.
 
-### What the move actually is
+### What the move actually was
 
-`src/` holds four packages. Three of them — `llm_gateway`, `agent_runtime`, `telegram_llm` —
-are already self-contained, and Rule F is what keeps them so. The goal is a fourth of the
+`src/` held four packages. Three of them — `llm_gateway`, `agent_runtime`, `telegram_llm` —
+were already self-contained, and Rule F is what keeps them so. The goal was a fourth of the
 same kind.
 
-Its code is written already, inside `safwa/`: `ai/`, `shell/`, `turn/`, `cues/`, `adapters/`,
-`features/proposals/`, and five files of `foundation/`. Fifty-five modules.
+Its code was written already, inside `safwa/`: `ai/`, `shell/`, `turn/`, `cues/`, `adapters/`,
+`features/proposals/`, and five files of `foundation/`. Fifty-seven modules.
 
-They cannot simply be moved, because they made **43 imports out of the rest of Safwa**. Move
-the directories and those 43 become `ImportError`. So the whole job is taking them to zero,
-after which the move itself is `git mv` plus import paths. None are left; Rule Q holds with
-an empty list so a new one cannot arrive unnoticed, and phase 4 is what deletes it.
-
-`ai/` and `turn/` are already clean, as are the five `foundation/` files and every
-`features/proposals/` module but `module.py`. Everything left is in `adapters/`, `shell/`
-and `cues/`.
+They could not simply be moved, because they made **43 imports out of the rest of Safwa**. Move
+the directories and those 43 become `ImportError`, so the whole job was taking them to zero —
+after which the move itself was `git mv` plus import paths.
 
 ### Two kinds of import, and only one of them is work
 
@@ -149,13 +143,13 @@ seam that hands work back was there before any of this.
 Twenty-seven of the 43, and nothing to decide in any of them.
 
 - `MessageKind` leaves `enums.py` for `adapters/kinds.py`, and `MARKS` is built there out of
-  it. Not `shell/`: `shell/services.py` imports `adapters/`, so the reverse edge would be a
+  it. Not `shell/`: `telegram/services.py` imports `adapters/`, so the reverse edge would be a
   cycle. Twelve imports. `TelegramHistorySource` is handed the table rather than importing
   it, which is what a second project needs in order to bring its own kinds.
 - Fifteen constants have exactly one reader each and go to it — ten ASR and faster-whisper
   settings to `adapters/asr.py`, `EDGE_CONTEXT_MESSAGE_LIMIT` to
-  `adapters/telegram_history.py`, `TOAST_SECONDS` to `shell/chat.py`, `PAGE_SIZE` to
-  `shell/layout.py`, and the two ASR limits to `turn/dialogue.py`.
+  `adapters/telegram_history.py`, `TOAST_SECONDS` to `telegram/chat.py`, `PAGE_SIZE` to
+  `telegram/layout.py`, and the two ASR limits to `turn/dialogue.py`.
 
 Two constants that look like the others are not moves and stay: `SUMMARY_TRIGGER_TOKENS` and
 `SCHEDULER_POLL_SECONDS` each have a reader on both sides of the boundary, which makes them
@@ -163,20 +157,20 @@ cross-feature tuning and so `constants.py`'s. The shell takes them as parameters
 
 ### Phase 2 — the ratchet — **done**
 
-Rule Q: the 55 modules import nothing outside themselves, with the sixteen as named
+Rule Q: the modules import nothing outside themselves, with the sixteen left as named
 exceptions the way `RULE_H_EXCEPTION` is. After phase 1 rather than before, because a rule
 with sixteen exceptions can be read and one with forty-three cannot.
 
-`RULE_Q_EXCEPTIONS` is the list, in `scripts/architecture_metrics.py`, blocked by the group
-that closes each — and those blocks are the order phase 3 is written in. It is not copied
-here, because two copies of a shrinking list is one copy too many.
+The exception list lived in `scripts/architecture_metrics.py`, blocked by the group that closed
+each — and those blocks were the order phase 3 was written in. It was not copied here, because
+two copies of a shrinking list is one copy too many.
 
-The rule refuses one more import, and equally an exception whose import is already gone.
+The rule refused one more import, and equally an exception whose import was already gone.
 Without the second half the list stops shrinking and starts growing.
 
-### Phase 3 — the seams
+### Phase 3 — the seams — **done**
 
-Each group closed deleted its own block from `RULE_Q_EXCEPTIONS`, and the list is empty.
+Each group closed deleted its own block from the exception list, and the list emptied.
 A, B and G were carrying rather than inverting, C and D were the window, F was one command in
 the wrong package, and E was the root session.
 
@@ -185,7 +179,7 @@ the wrong package, and E was the root session.
   from there. `TelegramHistorySource` only ever named `Settings` in a factory and a CLI, and
   both are the application's: they are `bootstrap/auth.py` and the composition root now.
 - **B — the plug contract travels — done**. The manifest declares what a feature
-  plugs into rather than which features exist, so it is `shell/manifest.py` now. Its
+  plugs into rather than which features exist, so it is `telegram/manifest.py` now. Its
   `Settings` became the four fields the contexts are actually read for: the owner, the
   timezone, and whether the scheduler runs and how often.
 - **C — the window — done**. Where the window ends was four things the package knew: which
@@ -199,70 +193,76 @@ the wrong package, and E was the root session.
   is where the rule says the dialogue lives. That table, the operation that filled it and the
   message id threaded up to them are gone, and `send_summary` posts and nothing else.
 - **E — the Advisor's session — done**. It was eight `ai/` imports, eight `proposals/`
-  imports and two Safwa names, so it is `safwa/session.py` and the class is `RootSession`:
+  imports and two Safwa names, so it is `tg_agent_shell/session.py` and the class is `RootSession`:
   what it composes is the engine and the review flow, and neither the prompt nor the persona
   is in it. `MemoryFileStore` is the `Memory` protocol, `workspace_context` is handed in as
   `workspace_state`, and `MAX_TOOL_CALLS` and `SUBAGENT_DEADLINE_SECONDS` had no other reader
   and travel with it. `features/advisor/` keeps `agent.py`, which is what its own `__init__`
   already said it is. It is a module rather than a package because `ai/` may not name the
-  review flow and `shell/` is the aiogram surface, so in phase 4 it lands at the top of the
-  new package, beside the two halves it composes rather than inside either.
+  review flow and the aiogram surface is not where it belongs either, so it sits at the top of
+  the package, beside the two halves it composes rather than inside one of them.
 - **F — `command_status` — done**. It reports the workspace mode, the revision and whether
   `memory.md` can be read — three things of Safwa's, so it is `features/diagnostics` now and the
   shell publishes one command, `/cancel`, because the turn is the shell's. `sprint_is_active`
-  sat in `shell/services.py` and was called only by two features, so it is a door on
+  sat in `telegram/services.py` and was called only by two features, so it is a door on
   `features/planning/api.py`. `Services.memory` is `Memory`, the protocol `ai/messages.py`
   already declared.
 - **G — `SCHEDULER_POLL_SECONDS` — done**. Read by `cues/` and by `features/reminders/`, so it
   stays in `constants.py` as cross-feature tuning. It was only ever a default on a parameter
   the one caller already passed, so `run_cue_queue` now requires it.
 
-### Phase 4 — the move
+### Phase 4 — the move — **done**
 
-`git mv`, the import paths, and an entry in `pyproject.toml`. `shell/` becomes
+`git mv`, the import paths, and an entry in `pyproject.toml`. `shell/` became
 `tg_agent_shell/telegram/`, because a package named for the shell cannot hold a directory of
 the same name, and what is in there is the aiogram surface rather than the idea;
-`features/proposals/telegram/` lands beside it as the second adapter of the one transport.
+`proposals/telegram/` sits beside it as the second adapter of the one transport. 511 import
+lines in 174 files, and `foundation/` split five travelling files from four that stayed.
 
-Rule F then covers the package, and Rules N and Q are deleted rather than extended: both
-existed only to make this move possible.
+Rule F covers the package, and Rules N and Q are deleted rather than extended: both existed
+only to make this move possible. Rule M stayed and changed target — the engine used to import
+no feature and now imports nothing of the package built on top of it, which is the same
+property said where it can still be broken.
 
-Candidates 6, 12, 16, 18 and 22 are answered by the phases above, so none is worth doing on
-its own. Candidate 8 is not, and blocks nothing: its only tie to the move is that a helper
-offered by the shape of a SQL query is a wart the first other project would inherit.
+The move is what makes the rest visible rather than what finishes it. `ai/` still carries
+Safwa's vocabulary in `tools.py`, `contracts.py` and `autoapproval.py`, so the test the other
+three packages have — the vocabulary of the package belongs to no application — cannot be
+switched on yet. Candidate 8 blocks nothing: its only tie to the move is that a helper offered
+by the shape of a SQL query is a wart the first other project would inherit.
 
 ## Candidates — from the owner
 
-2. **no** — the review flow travels with the engine rather than into it; Rule N is what says
-   so, and moving the package would reverse `shell`, `bootstrap` and `MutationCatalogue`.
+2. **no** — the review flow travelled with the engine rather than into it, and moving the
+   package under `ai/` would reverse `telegram`, `bootstrap` and `MutationCatalogue`.
 6. **done** — the split was not spec-from-spec: the session is shell code and
    `features/advisor` keeps its prompt. Group E.
 7. **yes** — continuity splits into summary and memory once continuity.feature does; the two share
    only `persona.py`.
 8. **first** — the trigger is hardcoded in `ai/tools.py` as `agent.kind` plus `is_complex_read`, so
    a helper needs its own spec with a predicate — not a hook framework for one subscriber.
-9. **yes** — `turn/` and `cues/` are the runtime, not features, and belong beside the engine;
-   `turn/dialogue.py` is a Telegram handler and belongs in `shell/`.
-10. **yes** — `remove` is the vocabulary of the subagent that calls it, so it moves to workspace_mutator;
-    proposals keeps the flow and publishes no tool of its own.
+9. **split** — `turn/` and `cues/` are the runtime and sit beside the engine now. What is left
+   is the second half: `turn/dialogue.py` is a Telegram handler and belongs in `telegram/`.
+10. **done** — `remove` named six entities from outside a feature, which is what Rule H started
+    reading the moment the package left `features/`. It is `workspace_mutator/remove.py` and the
+    subagent that calls it publishes it; proposals keeps the flow and publishes no tool.
 
 ## Candidates — found in the same pass
 
 11. **yes** — `ai/contracts.py` declares `CardToolInput`, `CheckToolInput`, `ValueToolInput`,
     `TagToolInput`, `RequestToolInput` and `ReminderToolInput`: every feature's contract sits in
     the engine that owns no feature.
-12. **plan** — `RoutedSubagent` and `AgentSpec` are one concept declared twice; both land on
-    the shell side of the plan, which is where the duplicate is decided.
+12. **yes** — `RoutedSubagent` and `AgentSpec` are one concept declared twice, seven fields
+    each; both are in `tg_agent_shell` now, so the duplicate is one package's to settle.
 13. **yes** — `heavy_analyzer` has no `module.py` and `bootstrap/modules.py` imports its agent
     directly, which is the second exception to the registry after the Advisor.
 15. **yes** — `constants.py` still keeps `SPRINT_LENGTH_DAYS`, `ARCHIVE_AFTER_SPRINTS` and
     `DIARY_TIME_DEFAULT`, which one feature each reads.
-16. **plan** — `adapters/` is two unrelated boundaries, voice input and Telethon history, and
-    both are the shell's rather than a feature's.
+16. **yes** — `adapters/` is two unrelated boundaries, voice input and Telethon history, under
+    one name that says neither. Both are the shell's, so splitting them is all that is left.
 17. **check** — `backup.py`, `qa.py` and `recovery.py` sit at the package root; `recovery.py` is
     lifecycle and belongs under `bootstrap/`.
-18. **plan** — `Services` names `advisor` as a field; `memory` and `continuity` are protocols
-    now, and `advisor` stops being a feature name when its session moves into the shell.
+18. **yes** — every type on `Services` is generic now; what is left is the field name
+    `advisor` and `Router(name="safwa")` beside it.
 19. **check** — `features/workspace_mutator/state.py` builds one block out of every entity, the
     other place a single module knows the whole roster.
 20. **yes** — the package profile, the file profile_settings.feature and the "⚙️ Settings" button
@@ -270,8 +270,8 @@ offered by the shape of a SQL query is a wart the first other project would inhe
 21. **check** — agents.feature, screens.feature and telegram_history.feature have no package,
     and advisor, workspace_mutator, home and retro have no scenario file, against one package
     per scenario file.
-22. **plan** — `Services` is the whole application's container but lives in `shell/`; the shell
-    moves, so the container moves with it and the import is right after the move.
+22. **done** — the container moved with the shell, so there is no import left to reverse.
+    What the fields are called is candidate 18.
 23. **check** — `foundation/screens.py` carries `ScreenCommand`, `ScreenSpec` and
     `TextInputFlow`, which is Telegram vocabulary in the layer under the domain.
 24. **check** — `features/cards/telegram` is eleven modules; the stage lists may want a package

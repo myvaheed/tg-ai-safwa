@@ -10,9 +10,8 @@ from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from ...foundation.errors import DomainError, StaleStateError
-from ...foundation.workspace import Workspace
-from ..proposals.api import (
+from tg_agent_shell.foundation.errors import DomainError, StaleStateError
+from tg_agent_shell.proposals.api import (
     ApplyContext,
     ChangeAction,
     PreparationContext,
@@ -21,6 +20,8 @@ from ..proposals.api import (
     ToolPreparationError,
     require_target,
 )
+
+from ...foundation.workspace import Workspace
 from .agent import resolve_schedule
 from .model import Reminder
 from .schedule import ScheduleError, describe, schedule_from_payload, schedule_payload
