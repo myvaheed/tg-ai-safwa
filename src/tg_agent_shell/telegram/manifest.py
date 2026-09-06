@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -78,6 +79,10 @@ class HelperSpec:
     instructions: str
     # Bound to this application's provider and query runner, with the prompt already filled.
     build: Callable[..., Helper]
+    # Whether one read earned this helper, and the words the model reads about it. The
+    # engine asks both; the feature that knows why the helper exists answers.
+    offer_when: Callable[[str, list[dict[str, Any]]], bool]
+    offer: str
     # The views this helper is told about, filled into `{views}` in its instructions.
     views: tuple[str, ...] = ()
 

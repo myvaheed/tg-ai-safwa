@@ -8,7 +8,7 @@ import pytest
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.bootstrap.modules import AGENTS, HELPERS, SYSTEM_PROMPT
 from safwa.features.heavy_analyzer import agent as heavy_analyzer
-from tg_agent_shell.ai.sql import is_complex_read
+from safwa.features.heavy_analyzer.agent import worth_a_helper
 from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS, ROOT_SESSION_TOOLS
 
 HEAVY_ANALYZER_PROMPT = HELPERS[heavy_analyzer.NAME].instructions
@@ -81,9 +81,9 @@ def test_a_reader_is_scoped_by_the_list_it_is_given() -> None:
         "SELECT sum(effort_points) FROM ai_cards WHERE kind = 'action'",
     ],
 )
-def test_han_offer_002_a_flat_read_is_not_complex(sql: str) -> None:
+def test_han_offer_002_a_flat_read_earns_nothing(sql: str) -> None:
     """HAN-OFFER-002 — tests/brd/heavy_analyzer.feature"""
-    assert not is_complex_read(sql)
+    assert not worth_a_helper(sql, [{"n": 1}])
 
 
 @pytest.mark.parametrize(
@@ -96,9 +96,16 @@ def test_han_offer_002_a_flat_read_is_not_complex(sql: str) -> None:
         "SELECT id, row_number() OVER (ORDER BY id) FROM ai_cards",
     ],
 )
-def test_han_offer_001_a_read_past_one_flat_scan_is_complex(sql: str) -> None:
+def test_han_offer_001_a_read_past_one_flat_scan_earns_the_helper(sql: str) -> None:
     """HAN-OFFER-001 — tests/brd/heavy_analyzer.feature"""
-    assert is_complex_read(sql)
+    assert worth_a_helper(sql, [{"n": 1}])
+
+
+def test_han_offer_003_a_result_the_row_limit_cut_earns_the_helper() -> None:
+    """HAN-OFFER-003 — tests/brd/heavy_analyzer.feature"""
+    flat = "SELECT id FROM ai_cards"
+    assert not worth_a_helper(flat, [{"id": 1}])
+    assert worth_a_helper(flat, [{"id": 1}, {"notice": "50 rows shown; more matched."}])
 
 
 # ------------------------------------------------------------------ what it hands back

@@ -473,6 +473,31 @@ A screen the menu already offers does not also need a command line.
   the feature it names, and the Sprint screen is Planning's: declaring it in `cards`
   would make the Cards manifest contribute a Planning screen and make Cards import it.
 
+## Batch 22 — landed
+
+The engine decided when a helper was worth calling, and in what words.
+
+The gate ended in `capped or is_complex_read(sql)` — one regular expression that
+was written for the heavy analyzer and stood as the answer for any helper. `HelperSpec` carries
+both halves now: `offer_when(sql, rows)` and the `offer` the model reads. The engine asks each
+helper in the order the features declared them and hands back the first answer.
+
+### Benefits
+
+- The engine holds no opinion about SQL any more. `is_complex_read` and the new `is_capped` stay
+  in `ai/sql.py` as facts about what a read came back as, and `heavy_analyzer/agent.py` composes
+  them into `worth_a_helper`, which is `HAN-OFFER-001`, `002` and `003` in one line, in the
+  feature that owns those scenarios.
+- The offer wording was built from the helper names in `ToolAdapters.__init__`, so the sentence
+  a small model reads was the engine's. It is `OFFER` in the feature, next to the prompt it goes
+  with.
+- `HelperPort` replaces the bare callable the adapters held. One value carrying how to call a
+  helper, when it is earned and in what words beats three mappings keyed by the same name.
+- `AG-TOOL-033` is the half that stayed the engine's, written down for the first time: a result
+  that failed already carries one instruction, and nothing is added beside it. `HAN-OFFER-004`
+  cites it rather than restating it — the rule protects every helper, not this one, and a feature
+  that had to remember it would be the feature that forgets.
+
 ## Batch 21 — landed
 
 Summaries and memory were one package because one class held both.
@@ -531,7 +556,7 @@ let it run. An `after_tool` watcher is given the call and what it produced. Both
 
 The engine decided whether to offer a helper by reading a Safwa word.
 
-`_should_offer_helper` opened with `agent.kind != "advisor"`. It asks whether this is the
+The helper gate opened with `agent.kind != "advisor"`. It asks whether this is the
 session that talks to the owner, and the engine already answers that question elsewhere:
 `definition()` calls a session root when `self.subagents.get(kind) is None`. That is the test
 now.
@@ -655,11 +680,10 @@ Every package has a scenario file, and every scenario file has a package.
 7. **done** — `close_window` never touched the memory store, so the two shared a constructor
    and nothing else. They are `features/summary` and `features/memory`, and
    `continuity.feature` is `summary.feature` and `memory.feature`. Batch 21.
-8. **first** — the trigger was hardcoded in `ai/tools.py` as `agent.kind` plus
-   `is_complex_read`. The kind half is gone: a helper is offered to the root session, which
-   the engine can see. Batch 19. What is left is the predicate and the wording of the offer,
-   which belong to the feature that declared the helper — fields on `HelperSpec`, not a hook
-   framework.
+8. **done** — the trigger was hardcoded in `ai/tools.py` as `agent.kind` plus
+   `is_complex_read`. The kind half went first: a helper is offered to the root session,
+   which the engine can see. Batch 19. The predicate and the wording are `HelperSpec`
+   fields now, answered by the feature that declared the helper. Batch 22.
 9. **done** — `turn/` and `cues/` are the runtime beside the engine, and the handlers are
    `telegram/dialogue.py`. Batch 7.
 10. **done** — `remove` named six entities from outside a feature, which is what Rule H started

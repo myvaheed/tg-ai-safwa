@@ -1,4 +1,4 @@
-"""What a feature sees of a tool call it did not declare.
+"""What the engine does around a tool call: who may answer for it, and what it adds.
 
 The adapters are built with nothing but a trail here: none of these calls reaches a
 database, so the roster the rest of `ToolAdapters` needs is not built either.
@@ -11,8 +11,9 @@ from typing import Any
 import pytest
 
 from llm_gateway import ToolCall
+from tg_agent_shell.ai.contracts import ToolResultStatus
 from tg_agent_shell.ai.mini import ReadToolSpec
-from tg_agent_shell.ai.tools import AgentSession, ToolAdapters
+from tg_agent_shell.ai.tools import AgentSession, HelperPort, ToolAdapters
 
 READ = ToolCall(id="1", name="read_thing", arguments_json="{}")
 
@@ -92,3 +93,23 @@ async def test_ag_tool_032_a_watcher_reads_the_call_and_adds_to_its_result() -> 
 
     assert seen == ["read_thing"]
     assert outcome.result["notice"] == "and one more thing to read"
+
+
+def test_ag_tool_033_a_read_that_failed_earns_no_offer() -> None:
+    """AG-TOOL-033 — tests/brd/tg_agent_shell/agents.feature"""
+    # The gate is asked directly: a scripted read would prove the same thing behind a database.
+    adapters = _adapters(
+        helpers={
+            "any": HelperPort(
+                run=None,  # type: ignore[arg-type]
+                offer_when=lambda sql, rows: True,
+                offer="call the helper",
+            )
+        }
+    )
+    session = AgentSession(run_id=1, tools=())
+    sql = "SELECT nope FROM ai_cards"
+
+    failed = [{"status": ToolResultStatus.ERROR.value, "error": "no such column: nope"}]
+    assert adapters._offered_helper(session, sql, failed) is None
+    assert adapters._offered_helper(session, sql, [{"n": 1}]) == "call the helper"

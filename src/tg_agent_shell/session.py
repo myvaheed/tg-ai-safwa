@@ -32,7 +32,7 @@ from .ai.outcome import AIOutcome, AIOutcomeKind
 from .ai.runs import AgentRunStore, AgentStepTrail
 from .ai.sql import ReadOnlyQueryRunner
 from .ai.subagents import RoutedSubagent
-from .ai.tools import AfterTool, BeforeTool, Helper, ToolAdapters
+from .ai.tools import AfterTool, BeforeTool, HelperPort, ToolAdapters
 from .foundation.errors import failure_reason
 from .foundation.screens import ScreenCatalogue
 from .proposals.api import ProposalDescription, ProposalRegistry
@@ -89,7 +89,7 @@ class RootSession:
         provider_name: str = "openai-compatible",
         cache_breakpoints: bool = False,
         subagents: tuple[RoutedSubagent, ...] = (),
-        helpers: Mapping[str, Helper] | None = None,
+        helpers: Mapping[str, HelperPort] | None = None,
         before_tool: tuple[BeforeTool, ...] = (),
         after_tool: tuple[AfterTool, ...] = (),
         autoapproval: AutoApprovalReviewer | None = None,

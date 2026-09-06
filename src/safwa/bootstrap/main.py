@@ -16,6 +16,7 @@ from llm_gateway import OpenAICompatibleConfig, OpenAICompatibleProvider
 from telegram_llm import ChatHost
 from tg_agent_shell.ai.autoapproval import AutoApprovalReviewer
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
+from tg_agent_shell.ai.tools import HelperPort
 from tg_agent_shell.asr import build_transcriber
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MARKS
@@ -232,8 +233,12 @@ async def run(settings: Settings) -> None:
             )
         ),
         helpers={
-            name: helper.build(provider, query_runner, prompt=helper.instructions)
-            for name, helper in HELPERS.items()
+            name: HelperPort(
+                run=spec.build(provider, query_runner, prompt=spec.instructions),
+                offer_when=spec.offer_when,
+                offer=spec.offer,
+            )
+            for name, spec in HELPERS.items()
         },
         before_tool=BEFORE_TOOL,
         after_tool=AFTER_TOOL,

@@ -24,8 +24,7 @@ Feature: The helper the Advisor calls
   Scenario: HAN-OFFER-004 — A read that failed does not offer the helper
     Given the Advisor runs a read the database refuses
     When it reads the error
-    Then it is told to fix that one SELECT
-    And nothing in the error names call_helper
+    Then nothing in the error names call_helper, by AG-TOOL-033
 
   Scenario: HAN-ASK-006 — The helper is given the question and the conversation
     Given the Advisor calls call_helper with a question of its own

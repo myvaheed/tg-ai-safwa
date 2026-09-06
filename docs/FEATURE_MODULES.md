@@ -16,7 +16,7 @@ and SQLAlchemy; nothing that expresses a business rule imports it.
 | Field | What it contributes |
 |---|---|
 | `agents` | an `AgentSpec` — the subagent `route(name)` reaches, and the line the Advisor's prompt carries |
-| `helpers` | a `HelperSpec` — the mini session `call_helper(name)` runs, called rather than routed |
+| `helpers` | a `HelperSpec` — the mini session `call_helper(name)` runs, called rather than routed, with the read that earns it and the words it is offered in |
 | `proposals` | a `ProposalContribution` per entity: handler, mutation tool, presenter, and which of its actions save without a screen |
 | `mutation_tools` | a mutation tool whose change lands on an entity another feature owns (`remove`) |
 | `before_tool` | a watcher given each tool call before it runs; a result it returns refuses the call |

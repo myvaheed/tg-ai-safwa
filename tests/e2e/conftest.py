@@ -28,6 +28,7 @@ from safwa.foundation.database import Database, upgrade_database
 from tg_agent_shell.ai.autoapproval import AutoApprovalReviewer
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from tg_agent_shell.ai.subagents import RoutedSubagent
+from tg_agent_shell.ai.tools import HelperPort
 from tg_agent_shell.proposals.store import ProposalStore
 from tg_agent_shell.session import RootSession
 
@@ -163,7 +164,15 @@ class E2EHarness:
             cache_breakpoints=cache_breakpoints,
             autoapproval=AutoApprovalReviewer(provider, AUTOAPPROVALS) if autoapprove else None,
             subagents=subagents,
-            helpers=helpers,
+            # A test replaces what a helper does, never how the feature declared it.
+            helpers={
+                name: HelperPort(
+                    run=run,
+                    offer_when=HELPERS[name].offer_when,
+                    offer=HELPERS[name].offer,
+                )
+                for name, run in (helpers or {}).items()
+            },
             reviews=self.reviews,
         )
         return advisor, provider
@@ -172,8 +181,8 @@ class E2EHarness:
         """The real heavy analyzer, reading the real views through the same runner."""
         runner = ReadOnlyQueryRunner(self.database_path, ALLOWED_VIEWS, timezone=TIMEZONE)
         return {
-            name: helper.build(provider, runner, prompt=helper.instructions)
-            for name, helper in HELPERS.items()
+            name: spec.build(provider, runner, prompt=spec.instructions)
+            for name, spec in HELPERS.items()
         }
 
 

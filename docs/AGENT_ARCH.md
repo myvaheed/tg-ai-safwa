@@ -209,7 +209,11 @@ flowchart LR
 - Nothing about helpers is in `SYSTEM_PROMPT`. **The read that needed one is what offers it**, and
   the tool is added to that session's tools there and then (`helper_offered`, which survives a
   suspension).
-- A read that *failed* offers nothing: its `hint` already says to repair that one SELECT.
+- Which read needs one is the helper's own: `HelperSpec.offer_when` reads the SQL and the rows,
+  and `HelperSpec.offer` is the sentence the model is given. `heavy_analyzer` answers both in
+  `worth_a_helper` and `OFFER`.
+- A read that *failed* offers nothing, whatever the helper would have said: its `hint` already
+  says to repair that one SELECT, and that half stays the engine's.
 - `heavy_analyzer` is a **mini session** (`ai/mini.py`), not a routed subagent: read tools plus two
   terminal tools, prose is never accepted, and it is in no routing rule and no base tool set.
 - It never speaks. The answer is the last read itself — fifty rows cannot be retold, and a small

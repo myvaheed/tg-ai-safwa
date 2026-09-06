@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from pydantic import ValidationError
@@ -44,7 +45,7 @@ from .contracts import (
 )
 from .conversation import conversation_block
 from .mini import ReadToolSpec
-from .sql import ReadOnlyQueryRunner, is_complex_read, read_query
+from .sql import ReadOnlyQueryRunner, read_query
 from .subagents import RoutedSubagent
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,23 @@ SUBAGENT_HISTORY_LAST_MESSAGES = 10
 # What a helper is: it reads, it answers with rows, and it cannot open a screen. `route`
 # is the other half — a subagent that writes, and whose screen suspends the whole chain.
 Helper = Callable[..., Awaitable[dict[str, Any]]]
+
+
+@dataclass(frozen=True, slots=True)
+class HelperPort:
+    """One helper as the adapters hold it: how to call it, when it is earned, and in what words.
+
+    When a read earns a helper is not the engine's to know — it is why that helper exists,
+    which is the feature that declared it. The engine asks; this is the answer, bound.
+    """
+
+    run: Helper
+    # (sql, rows) -> whether this read earned the helper.
+    offer_when: Callable[[str, list[dict[str, Any]]], bool]
+    # The whole of what the model is ever told about this helper, so it has to name the
+    # tool in the shape the tool actually takes.
+    offer: str
+
 
 # What a feature is given when the model calls a tool. `BeforeTool` answers with a result
 # to refuse the call, or with nothing to let it run. `AfterTool` is given what the call
@@ -197,7 +215,7 @@ class ToolAdapters:
         proposals: MutationCatalogue,
         trail: Observer,
         screens: ScreenCatalogue,
-        helpers: Mapping[str, Helper] | None = None,
+        helpers: Mapping[str, HelperPort] | None = None,
         subagents: Mapping[str, RoutedSubagent] | None = None,
         before_tool: tuple[BeforeTool, ...] = (),
         after_tool: tuple[AfterTool, ...] = (),
@@ -218,13 +236,6 @@ class ToolAdapters:
             (*ROOT_SESSION_TOOLS, ROUTE_TOOL) if self.subagents else ROOT_SESSION_TOOLS
         )
         self.helpers = dict(helpers or {})
-        # Built once: the offer is the whole of what the model is ever told about helpers,
-        # so it has to name the tool in the shape the tool actually takes.
-        self.helper_offer = (
-            "This read is complex. call_helper("
-            + " or ".join(f'"{name}"' for name in self.helpers)
-            + ', "<your question in words>") writes the query and hands back its result.'
-        )
 
     # ------------------------------------------------------------- the tool port
 
@@ -369,7 +380,7 @@ class ToolAdapters:
         )
         logger.info("HELPER -> %s %s", payload.name, log_preview(payload.request, 200))
         try:
-            return await helper(
+            return await helper.run(
                 conversation=conversation_for(agent.dialogue), request=payload.request
             )
         except Exception as error:
@@ -383,20 +394,24 @@ class ToolAdapters:
                 "hint": "Answer the owner with what you already have.",
             }
 
-    def _should_offer_helper(
+    def _offered_helper(
         self, agent: AgentSession, sql: str, rows: list[dict[str, Any]]
-    ) -> bool:
-        """Whether this read earned the model a helper it was not already carrying.
+    ) -> str | None:
+        """The words for a helper this read earned, if one did.
 
-        A read that failed does not: its `hint` already says to repair that one SELECT, and
-        a second instruction in the same result is the one this model would follow.
+        A read that failed earns nothing: its `hint` already says to repair that one SELECT,
+        and a second instruction in the same result is the one this model would follow.
+        What counts as earning it is each helper's own, asked in the order they were
+        declared.
         """
-        if not self.helpers or self.subagents.get(agent.kind) is not None or not sql:
-            return False
+        if self.subagents.get(agent.kind) is not None or not sql:
+            return None
         if rows and rows[0].get("status") == ToolResultStatus.ERROR:
-            return False
-        capped = bool(rows) and set(rows[-1]) == {"notice"}
-        return capped or is_complex_read(sql)
+            return None
+        for helper in self.helpers.values():
+            if helper.offer_when(sql, rows):
+                return helper.offer
+        return None
 
     async def read(self, agent: AgentSession, call: ToolCall) -> Any:
         """Run one of this session's own read tools and record that it ran."""
@@ -423,9 +438,10 @@ class ToolAdapters:
         """
         read = await read_query(self.query_runner, call)
         sql, rows = read.sql, read.rows
-        if self._should_offer_helper(agent, sql, rows):
+        offer = self._offered_helper(agent, sql, rows)
+        if offer is not None:
             agent.offer_helper()
-            add_notice(rows, self.helper_offer)
+            add_notice(rows, offer)
         logger.info(
             "AI TOOL query_data -> rows=%d sql=%s",
             len(rows),
