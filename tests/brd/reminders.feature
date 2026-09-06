@@ -162,10 +162,10 @@ Feature: Reminders
     And a repeat overdue by less is left for the first check to fire
     And a one-off is never moved
 
-  Scenario: RM-POLL-021 — The checking outlives its own failures
-    Given one check raises
+  Scenario: RM-POLL-021 — Reminders do not stop firing because one check fell over
+    Given one check of the due Reminders raises
     When the next one comes round 30 seconds later (SCHEDULER_POLL_SECONDS = 30)
-    Then it runs, and the failure was written down rather than lost
+    Then it runs, by AG-POLL-030
     And Reminders do not quietly stop firing for the rest of the day
 
   Scenario: RM-SYSTEM-022 — A Reminder the owner did not set belongs to Safwa

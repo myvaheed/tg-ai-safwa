@@ -1,4 +1,4 @@
-"""The Cue poll: one waiting Cue per tick, and the row that outlives a failed turn.
+"""One waiting Cue per tick, and the row that outlives a failed turn.
 
 A Reminder needs none of this — its own `next_fire_at` is what makes it retry. A Cue row
 is for the producer with nothing to fire twice, so the row *is* the retry: it is deleted
@@ -7,16 +7,13 @@ only once the answer reached the owner.
 
 from __future__ import annotations
 
-import asyncio
-import logging
 from collections.abc import Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ..foundation.poll import run_poll
 from .model import Cue
 from .queue import next_cue
-
-logger = logging.getLogger(__name__)
 
 # Supplied by the runtime so this module stays free of the Advisor and the bot.
 Gate = Callable[[], Awaitable[bool]]
@@ -61,12 +58,8 @@ async def run_cue_queue(
     release: LeaseRelease = lambda: None,
     poll_seconds: float,
 ) -> None:
-    while True:
-        try:
-            await tick(sessions, gate=gate, speak=speak, release=release)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            # An error escaping here would silently end every Cue for the rest of the process.
-            logger.exception("Cue poll failed")
-        await asyncio.sleep(poll_seconds)
+    await run_poll(
+        lambda: tick(sessions, gate=gate, speak=speak, release=release),
+        poll_seconds=poll_seconds,
+        name="The Cue poll",
+    )

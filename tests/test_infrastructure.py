@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,6 +14,28 @@ from safwa.foundation.database import Database, upgrade_database
 from tg_agent_shell.ai.runs import AgentRun
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from tg_agent_shell.foundation.models import Base
+from tg_agent_shell.foundation.poll import run_poll
+
+
+async def test_ag_poll_030_a_poll_outlives_a_failing_round_and_ends_on_shutdown():
+    """AG-POLL-030 — tests/brd/tg_agent_shell/agents.feature"""
+    rounds = {"count": 0}
+
+    async def exploding() -> None:
+        rounds["count"] += 1
+        raise RuntimeError("boom")
+
+    task = asyncio.create_task(run_poll(exploding, poll_seconds=0.01, name="The test poll"))
+    for _ in range(200):
+        await asyncio.sleep(0.01)
+        if rounds["count"] >= 2:
+            break
+
+    assert rounds["count"] >= 2
+    # Shutdown still ends it: `CancelledError` is not an `Exception`.
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
 
 
 def test_startup_bootstraps_a_new_database_from_the_models(tmp_path, monkeypatch):

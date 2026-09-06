@@ -474,6 +474,31 @@ A screen the menu already offers does not also need a command line.
   the feature it names, and the Sprint screen is Planning's: declaring it in `cards`
   would make the Cards manifest contribute a Planning screen and make Cards import it.
 
+## Batch 18 — landed
+
+Five background loops were the same six lines, written five times.
+
+`foundation/poll.py` holds `run_poll`: one tick, a log if it raised, and the wait before the
+next. The Cue queue, the Reminder poll, the Sprint expiry poll and both memory polls call it.
+
+### Benefits
+
+- Three of the five carried `except asyncio.CancelledError: raise` ahead of `except Exception`.
+  It never ran: `CancelledError` is a `BaseException`, so `except Exception` was never going to
+  catch it. The two loops without that clause behaved identically, which is the tell. `run_poll`
+  says in its docstring why there is no such clause, so it does not come back.
+- One log line for a poll that fell over, named by the poll. There were five wordings.
+- The tasks stay five. Their intervals run from 5 seconds to 300, and one loop at the finest of
+  those would run the Sprint check sixty times too often and put every poll in one queue, where
+  a slow memory sync delays a Cue. More than that, the Reminder tick writes nothing while a Cue
+  is still waiting — that is `RM-GATE-017`, and merging the two would turn a rule into the order
+  of two statements.
+- The line count barely moves. What moved is that the loop has one home, so a fix to it is one
+  edit rather than five that have to be found first.
+- `AG-POLL-030` is that home written down, with a test of its own: a round that raises does not
+  end the timer, and shutting down still does. `RM-POLL-021` now says only what is the
+  Reminders' own — that they do not stop firing for the rest of the day — and cites it.
+
 ## Batch 17 — landed
 
 A rule the shell keeps and no scenario states is a rule only the code remembers.

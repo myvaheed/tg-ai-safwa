@@ -17,8 +17,6 @@ Reminder waits seconds for a quiet moment, never one of its own cycles.
 
 from __future__ import annotations
 
-import asyncio
-import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -27,6 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tg_agent_shell.cues.queue import add_cue, next_cue
+from tg_agent_shell.foundation.poll import run_poll
 
 from ...constants import SCHEDULER_POLL_SECONDS
 from .model import Reminder
@@ -36,8 +35,6 @@ from .schedule import (
     roll_forward,
     schedule_of,
 )
-
-logger = logging.getLogger(__name__)
 
 # How many due Reminders one Cue may carry.  Everything the poll found goes over
 # in a single advisor turn; the rest stay overdue and the next tick takes them.
@@ -159,15 +156,11 @@ async def run_scheduler(
     poll_seconds: float = SCHEDULER_POLL_SECONDS,
 ) -> None:
     tz = ZoneInfo(timezone)
-    while True:
-        try:
-            await tick(sessions, tz=tz)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            # An error escaping here would silently end reminders for the rest of the process.
-            logger.exception("Reminder poll failed")
-        await asyncio.sleep(poll_seconds)
+    await run_poll(
+        lambda: tick(sessions, tz=tz),
+        poll_seconds=poll_seconds,
+        name="The Reminder poll",
+    )
 
 
 def format_cue(firings: list[Firing], *, now: datetime) -> str:

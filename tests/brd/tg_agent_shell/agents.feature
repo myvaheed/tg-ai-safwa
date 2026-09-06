@@ -235,3 +235,11 @@ Feature: Agents — the session, the hand-over, and what comes back
     When its arrival in the chat has been registered
     Then no later check says it a second time
     And when nothing is owed, no turn is taken at all
+
+  Scenario: AG-POLL-030 — Work on a timer outlives its own failures
+    Given work Safwa does on a timer rather than when the owner asks
+    When one round of it raises
+    Then the failure is written down, and the next round comes at its usual time
+    And it does not quietly stop for the rest of the run, leaving that part of Safwa dead
+    When Safwa is shutting down
+    Then the timer ends with it, because shutting down is not a failure to be survived
