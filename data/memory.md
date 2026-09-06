@@ -1,1 +1,0 @@
-8 of August 2026 is the first day of using Safwa

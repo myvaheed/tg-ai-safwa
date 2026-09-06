@@ -13,7 +13,6 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
-from aiogram import F
 from aiogram.types import CallbackQuery
 from sqlalchemy import select, update
 
@@ -22,7 +21,7 @@ from ..foundation.kinds import MessageKind
 from .chat import send_registered
 from .commands import open_home
 from .model import CallbackToken
-from .services import CallbackContext, Services, router
+from .services import CallbackContext, Services
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +49,6 @@ async def go_back_action(context: CallbackContext) -> None:
     await go_back(context, context.payload.get("back"))
 
 
-@router.callback_query(F.data.startswith("cb:"))
 async def callback_token_handler(callback: CallbackQuery, services: Services) -> None:
     if not callback.message:
         return
@@ -116,6 +114,6 @@ async def callback_token_handler(callback: CallbackQuery, services: Services) ->
         await send_registered(
             context.message,
             services,
-            "Safwa could not finish this action. Reopen the screen and try again.",
+            "This action could not be finished. Reopen the screen and try again.",
             kind=MessageKind.ERROR,
         )

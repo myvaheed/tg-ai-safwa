@@ -261,11 +261,13 @@ class CallHelperInput(ToolInput):
 
 
 class OpenInput(ToolInput):
-    """The one item to put on the screen."""
+    """The one item to put on the screen.
 
-    item_type: Literal["card", "check", "tag", "value", "request", "diary"] = Field(
-        description="What kind of item it is."
-    )
+    `item_type` carries no enum here: which types exist is the screen catalogue's,
+    and `open_tool` fills the enum in from it.
+    """
+
+    item_type: str = Field(description="What kind of item it is.")
     id: int = Field(description="Its numeric id.")
 
 

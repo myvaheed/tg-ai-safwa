@@ -5,6 +5,7 @@ from pydantic import ValidationError
 from sqlalchemy import select, text
 
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, AUTOAPPROVALS
+from safwa.features.cards.api import CardQueryError
 from safwa.features.cards.model import Card
 from safwa.features.saved_requests.api import request_cards
 from safwa.features.saved_requests.model import SavedRequest
@@ -16,7 +17,7 @@ from safwa.features.saved_requests.use_cases import (
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.workspace_mutator.remove import RemoveToolInput
 from tg_agent_shell.ai.autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
-from tg_agent_shell.ai.sql import RequestQueryError, create_ai_views
+from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.foundation.errors import DomainError
 
 
@@ -149,7 +150,7 @@ async def test_a_stored_statement_is_checked_again_before_it_runs(sessions):
     async with sessions() as session:
         stored = await session.get(SavedRequest, request.id)
         assert stored is not None
-        with pytest.raises(RequestQueryError):
+        with pytest.raises(CardQueryError):
             await request_cards(session, stored.query_sql, ALLOWED_VIEWS)
 
 

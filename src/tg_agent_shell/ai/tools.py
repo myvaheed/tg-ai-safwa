@@ -104,18 +104,31 @@ QUERY_TOOL: dict[str, Any] = {
         "parameters": tool_json_schema(QueryToolInput),
     },
 }
-OPEN_TOOL: dict[str, Any] = {
-    "type": "function",
-    "function": {
-        "name": "open",
-        "description": (
-            "Put one item on the screen, exactly as the user opening it by hand. Call it only "
-            "when the user asked to see or open one single item. Otherwise cite the item in "
-            "your answer instead."
-        ),
-        "parameters": tool_json_schema(OpenInput),
-    },
-}
+
+
+def open_tool(screens: ScreenCatalogue) -> dict[str, Any]:
+    """`open` as the model reads it, over the item types the features publish.
+
+    A tool's enum is prompt text, and this one is built from the same catalogue the
+    call is resolved against, so a feature that publishes a screen is offered by
+    name and one that publishes none is spelled out nowhere.
+    """
+    schema = tool_json_schema(OpenInput)
+    schema["properties"]["item_type"]["enum"] = list(screens.openable)
+    return {
+        "type": "function",
+        "function": {
+            "name": "open",
+            "description": (
+                "Put one item on the screen, exactly as the user opening it by hand. Call it "
+                "only when the user asked to see or open one single item. Otherwise cite the "
+                "item in your answer instead."
+            ),
+            "parameters": schema,
+        },
+    }
+
+
 ROUTE_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -139,9 +152,6 @@ CALL_HELPER_TOOL: dict[str, Any] = {
         "parameters": tool_json_schema(CallHelperInput),
     },
 }
-# The root session reads and routes. Every mutation tool belongs to the subagent that owns
-# that feature, so judging *which* change to propose happens where the change is authored.
-ROOT_SESSION_TOOLS = (QUERY_TOOL, OPEN_TOOL)
 # The tools the adapters answer themselves, and the ones that run during the turn instead
 # of becoming a proposal the owner approves. A session's own read tools are immediate too,
 # but they are its own: a subagent that named one of these would never be heard.
@@ -244,10 +254,12 @@ class ToolAdapters:
         # Watched in the order the features were declared.
         self.before_tool = before_tool
         self.after_tool = after_tool
-        # An empty roster means there is nothing to route to, so the tool is not offered.
-        self.root_tools = (
-            (*ROOT_SESSION_TOOLS, ROUTE_TOOL) if self.subagents else ROOT_SESSION_TOOLS
-        )
+        # The root session reads and routes. Every mutation tool belongs to the
+        # subagent that owns that feature, so judging *which* change to propose
+        # happens where the change is authored. An empty roster means there is
+        # nothing to route to, so the tool is not offered.
+        reads = (QUERY_TOOL, open_tool(screens))
+        self.root_tools = (*reads, ROUTE_TOOL) if self.subagents else reads
         self.helpers = dict(helpers or {})
 
     # ------------------------------------------------------------- the tool port
@@ -514,8 +526,17 @@ class ToolAdapters:
                 "hint": 'Send {"item_type": "card", "id": 12}.',
                 "retryable": True,
             }
+        spec = self.screens.by_type.get(request.item_type)
+        if spec is None or not spec.ai_openable:
+            return {
+                "status": ToolResultStatus.ERROR.value,
+                "code": "invalid_arguments",
+                "error": f"There is no item type named {request.item_type}.",
+                "hint": "Use one of: " + ", ".join(self.screens.openable) + ".",
+                "retryable": True,
+            }
         async with self.sessions() as session:
-            item = await session.get(self.screens.by_type[request.item_type].model, request.id)
+            item = await session.get(spec.model, request.id)
             if item is None:
                 return {
                     "status": ToolResultStatus.ERROR.value,

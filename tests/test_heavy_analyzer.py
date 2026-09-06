@@ -6,10 +6,15 @@ from typing import Any
 import pytest
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
-from safwa.bootstrap.modules import AGENTS, HELPERS, SYSTEM_PROMPT
+from safwa.bootstrap.modules import AGENTS, HELPERS, SCREENS, SYSTEM_PROMPT
 from safwa.features.heavy_analyzer import agent as heavy_analyzer
 from safwa.features.heavy_analyzer.agent import worth_a_helper
-from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS, ROOT_SESSION_TOOLS
+from tg_agent_shell.ai.tools import (
+    IMMEDIATE_TOOLS,
+    QUERY_TOOL,
+    ROUTE_TOOL,
+    open_tool,
+)
 
 HEAVY_ANALYZER_PROMPT = HELPERS[heavy_analyzer.NAME].instructions
 
@@ -248,7 +253,8 @@ def test_han_ask_010_no_routing_rule_names_a_helper() -> None:
     assert heavy_analyzer.NAME not in rules
     assert heavy_analyzer.NAME not in SYSTEM_PROMPT
     # And the tool is not something the Advisor carries into a turn either.
-    assert "call_helper" not in {tool["function"]["name"] for tool in ROOT_SESSION_TOOLS}
+    root_tools = (QUERY_TOOL, open_tool(SCREENS), ROUTE_TOOL)
+    assert "call_helper" not in {tool["function"]["name"] for tool in root_tools}
     assert "call_helper" not in SYSTEM_PROMPT
 
 

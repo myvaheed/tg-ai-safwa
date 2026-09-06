@@ -13,10 +13,10 @@ from collections.abc import Collection
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tg_agent_shell.ai.sql import RequestQueryError, normalize_request_sql
 from tg_agent_shell.foundation.errors import DomainError
 
 from ...foundation.workspace import bump_workspace
+from ..cards.api import CardQueryError, normalize_card_query
 from .model import SavedRequest
 
 
@@ -32,8 +32,8 @@ async def create_saved_request(
     if not normalized_name:
         raise DomainError("Request name cannot be empty")
     try:
-        normalized_query = normalize_request_sql(query_sql, views)
-    except RequestQueryError as error:
+        normalized_query = normalize_card_query(query_sql, views)
+    except CardQueryError as error:
         raise DomainError(str(error)) from error
     existing = await session.scalar(
         select(SavedRequest).where(SavedRequest.name.collate("NOCASE") == normalized_name)
@@ -80,8 +80,8 @@ async def update_saved_request(
         request.description = description.strip()
     if query_sql is not None:
         try:
-            request.query_sql = normalize_request_sql(query_sql, views)
-        except RequestQueryError as error:
+            request.query_sql = normalize_card_query(query_sql, views)
+        except CardQueryError as error:
             raise DomainError(str(error)) from error
     request.version += 1
     await bump_workspace(session)

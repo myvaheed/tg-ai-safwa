@@ -363,7 +363,7 @@ async def test_citations_link_live_items_and_drop_missing_ones(e2e_harness):
 
     message.text = "/start nonsense"
     await render_home(message, services)
-    assert "not a Safwa item" in message.sent[-1]
+    assert "not an item" in message.sent[-1]
 
 
 async def test_ai_can_create_and_read_checks(e2e_harness):

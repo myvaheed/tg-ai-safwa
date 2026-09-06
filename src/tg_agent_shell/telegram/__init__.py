@@ -1,7 +1,7 @@
 """The Telegram application: the container, the chat border, the shared screens.
 
 This is what a feature's Telegram adapter is allowed to import besides `telegram_llm`.
-Nothing here belongs to one feature: the router and the middleware, the verbs that put a
+Nothing here belongs to one feature: the middleware, the verbs that put a
 message in the chat under a `MessageKind`, the layout a screen is drawn in, the editor that
 takes one typed value, the dispatch that opens a cited item, and what a feature declares
 to reach a screen by name, by link or by a typed value.
@@ -60,7 +60,6 @@ from .services import (
     OwnerAndWritingMiddleware,
     Services,
     audio_payload,
-    router,
 )
 from .text_input import (
     TextInputAction,
@@ -117,7 +116,6 @@ __all__ = [
     "report_open_failure",
     "required_text",
     "rerender_text_input",
-    "router",
     "send_owner_turn",
     "send_prose",
     "send_registered",

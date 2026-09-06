@@ -52,7 +52,7 @@ class BatchDecision(StrEnum):
 
 
 # The interface owns this line, never the model. History replays it as a tool result
-# rather than as words Safwa said, so each one also says what it meant.
+# rather than as words the assistant said, so each one also says what it meant.
 SAVED_RECEIPT = "✅ Saved"
 AUTO_SAVED_RECEIPT = "⚡ Auto-saved"
 DISCARDED_RECEIPT = "🗑 Discarded"
@@ -83,7 +83,7 @@ class QueueItem:
 
 @dataclass(frozen=True, slots=True)
 class BatchState:
-    """Where the batch stands: its screens, in the order Safwa opened them.
+    """Where the batch stands: its screens, in the order they were opened.
 
     There is no separate status: a batch is over exactly when no screen is still waiting,
     which is `head is None`.

@@ -19,18 +19,23 @@ from tg_agent_shell.telegram import short_citation_title, with_citation_fields
 from ..api import request_cards
 from ..model import SavedRequest
 
+# A Request is its query, and the owner reads that column as SQL.
+REQUEST_LABELS = {"query_sql": "SQL"}
+
 
 class RequestProposalPresenter:
     entity = "request"
 
     def raw_details(self, change: AgentChange) -> list[str]:
-        return detail_lines(dict(change.values))
+        return detail_lines(dict(change.values), REQUEST_LABELS)
 
     async def details(
         self, session: AsyncSession, change: ProposalChange, fallback: AgentChange | None
     ) -> list[str]:
         fallback_lines = self.raw_details(fallback) if fallback is not None else []
-        return await named_details(session, change, fallback_lines, model=SavedRequest)
+        return await named_details(
+            session, change, fallback_lines, model=SavedRequest, labels=REQUEST_LABELS
+        )
 
     async def summary(
         self, session: AsyncSession, change: ProposalChange, details: list[str]

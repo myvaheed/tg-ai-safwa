@@ -66,6 +66,13 @@ class ScreenCatalogue:
     def types(self) -> tuple[str, ...]:
         return tuple(self.by_type)
 
+    @property
+    def openable(self) -> tuple[str, ...]:
+        """The types the `open` tool may name, which is its whole enum."""
+        return tuple(
+            name for name, spec in self.by_type.items() if spec.ai_openable
+        )
+
     def payload(self, item_type: str, item_id: int) -> str:
         return f"{item_type}-{item_id}"
 

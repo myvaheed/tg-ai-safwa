@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tg_agent_shell.ai.sql import RequestQueryError, UnsafeQueryError, normalize_request_sql
+from tg_agent_shell.ai.sql import UnsafeQueryError
 from tg_agent_shell.foundation.errors import DomainError, StaleStateError
 from tg_agent_shell.proposals.api import (
     ApplyContext,
@@ -25,6 +25,7 @@ from tg_agent_shell.proposals.api import (
 from ...enums import ActorType
 from ...foundation.marks import closed_repeat_refusal
 from ..checks.use_cases import unobserved_series
+from .api import CardQueryError, normalize_card_query
 from .model import (
     TERMINAL_STAGES,
     Card,
@@ -115,10 +116,10 @@ async def _resolve_parent_reference(
                 # so a capped result is reported as ambiguous rather than silently used.
                 rows = (
                     await context.query_runner.run(
-                        normalize_request_sql(parent_query, context.views)
+                        normalize_card_query(parent_query, context.views)
                     )
                 ).rows
-            except (RequestQueryError, UnsafeQueryError) as error:
+            except (CardQueryError, UnsafeQueryError) as error:
                 raise ToolPreparationError(
                     "unsafe_query",
                     f"Invalid parent query: {error}",

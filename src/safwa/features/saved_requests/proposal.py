@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from tg_agent_shell.ai.sql import RequestQueryError, normalize_request_sql
 from tg_agent_shell.foundation.errors import DomainError, StaleStateError
 from tg_agent_shell.proposals.api import (
     ApplyContext,
@@ -20,6 +19,7 @@ from tg_agent_shell.proposals.api import (
     require_target,
 )
 
+from ..cards.api import CardQueryError, normalize_card_query
 from .model import SavedRequest
 from .use_cases import (
     create_saved_request,
@@ -37,8 +37,8 @@ class RequestProposalHandler:
         values = dict(change.values)
         if "sql" in values:
             try:
-                values["query_sql"] = normalize_request_sql(values.pop("sql"), context.views)
-            except RequestQueryError as error:
+                values["query_sql"] = normalize_card_query(values.pop("sql"), context.views)
+            except CardQueryError as error:
                 raise ToolPreparationError(
                     "unsafe_query",
                     f"Invalid Request SQL: {error}",

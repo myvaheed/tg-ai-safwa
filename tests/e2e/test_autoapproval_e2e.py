@@ -96,7 +96,7 @@ async def test_an_exact_allowlisted_edit_is_autoapproved(e2e_harness):
     assert resolved["status"] == "approved"
     assert resolved["approval_source"] == "auto"
     # The user pressed nothing, so the model must not report this as their decision.
-    assert resolved["next"].startswith("Safwa saved this one itself")
+    assert resolved["next"].startswith("This one was saved without the user")
     async with e2e_harness.sessions() as session:
         stored = await session.get(Card, card.id)
         proposal = next(iter(e2e_harness.reviews.open_proposals), None)

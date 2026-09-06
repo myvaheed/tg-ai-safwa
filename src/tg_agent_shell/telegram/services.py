@@ -1,9 +1,9 @@
-"""The application container, the router, and who is allowed to reach them.
+"""The application container and who is allowed to reach it.
 
 Everything the whole application shares is assembled once by the composition root and handed
 around on `Services`: the sessions, the root session, the turn, and every catalogue the features
 declared. A feature's Telegram adapter imports this module and `telegram_llm`, and nothing
-else of the shell.
+else of the shell. The router that carries the handlers is `routing.py`'s.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from aiogram import BaseMiddleware, Router
+from aiogram import BaseMiddleware
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import Audio, CallbackQuery, Message, TelegramObject, VideoNote, Voice
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -27,7 +27,6 @@ from ..turn import TurnManager
 from .contributions import AfterTurn, ScreenCommand, StartLink, TextInputFlow
 
 logger = logging.getLogger(__name__)
-router = Router(name="tg_agent_shell")
 
 
 def audio_payload(message: Message) -> Audio | Voice | VideoNote | None:
@@ -104,7 +103,7 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
                         return await handler(event, data)
                 return None
         if isinstance(event, CallbackQuery) and services.turn.active:
-            await event.answer("Safwa is responding. Use /cancel to stop it.", show_alert=True)
+            await event.answer("Still answering. Use /cancel to stop it.", show_alert=True)
             return None
         taken = False
         if isinstance(event, Message) and not services.turn.active:

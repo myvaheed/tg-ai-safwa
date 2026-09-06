@@ -11,7 +11,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from aiogram import Bot, F, Router
+from aiogram import Bot, Router
 from aiogram.filters import Command
 from aiogram.types import BotCommand, CallbackQuery, Message
 from sqlalchemy import delete
@@ -21,7 +21,7 @@ from .chat import dismiss_prior_ui, remove_turn_notice, send_registered
 from .contributions import ScreenCommand
 from .layout import start_payload
 from .model import UiSession
-from .services import Services, router
+from .services import Services
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,6 @@ def claimed_link(services: Services, payload: str | None):
     return next((link for link in services.start_links if link.claims(payload)), None)
 
 
-@router.message.middleware()
 async def dismiss_screens_before_a_command(
     handler: Callable[[Message, dict[str, Any]], Awaitable[Any]],
     event: Message,
@@ -41,7 +40,7 @@ async def dismiss_screens_before_a_command(
 ) -> Any:
     """A command is the owner leaving whatever screen was open, so it answers none of them.
 
-    Registered once here rather than called from twenty handlers.  Ordinary text dismisses
+    Registered once by `build_router` rather than called from twenty handlers.  Ordinary text
     from `run_dialogue_turn`'s caller instead, because typed field input must reach its live
     editor untouched, and a link a feature claims replaces its own screen in place.
     """
@@ -93,7 +92,6 @@ async def sync_bot_commands(bot: Bot, commands: tuple[ScreenCommand, ...]) -> No
     )
 
 
-@router.callback_query(F.data.startswith("nav:"))
 async def navigation(callback: CallbackQuery, services: Services) -> None:
     if not callback.message:
         await callback.answer()

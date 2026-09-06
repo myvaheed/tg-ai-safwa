@@ -34,7 +34,7 @@ async def open_citation(message: Message, services: Services, payload: str) -> N
     """Open the item a cited deep link points at, as its own message."""
     target = services.screens.parse_payload(payload)
     if target is None:
-        await report_open_failure(message, services, DomainError("that link is not a Safwa item"))
+        await report_open_failure(message, services, DomainError("that link is not an item"))
         return
     item_type, item_id = target
     try:

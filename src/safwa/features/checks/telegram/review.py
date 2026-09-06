@@ -38,11 +38,15 @@ async def _value_names(session: AsyncSession, value_ids: list[int]) -> str:
     return ", ".join(result_value(name) for name in names)
 
 
+# A Check's answer reads as its status, not as the column it is stored in.
+CHECK_LABELS = {"outcome": "Status"}
+
+
 class CheckProposalPresenter:
     entity = "check"
 
     def raw_details(self, change: AgentChange) -> list[str]:
-        return detail_lines(dict(change.values))
+        return detail_lines(dict(change.values), CHECK_LABELS)
 
     async def details(
         self, session: AsyncSession, change: ProposalChange, fallback: AgentChange | None
@@ -61,7 +65,7 @@ class CheckProposalPresenter:
             else None
         )
         if change.action is ChangeAction.CREATE or check is None:
-            return detail_lines(proposed)
+            return detail_lines(proposed, CHECK_LABELS)
         if change.action is ChangeAction.ARCHIVE:
             return [f"Check: #{check.id} “{result_value(check.title)}”"]
         before = {
@@ -70,7 +74,7 @@ class CheckProposalPresenter:
             "outcome": check.outcome or "pending",
         }
         return [
-            f"{detail_label(field)}: {detail_value(before.get(field))} → {detail_value(value)}"
+            f"{detail_label(field, CHECK_LABELS)}: {detail_value(before.get(field))} → {detail_value(value)}"
             for field, value in proposed.items()
             if before.get(field) != value
         ]

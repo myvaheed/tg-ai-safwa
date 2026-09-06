@@ -1,7 +1,8 @@
 """What the engine does around a tool call: who may answer for it, and what it adds.
 
-The adapters are built with nothing but a trail here: none of these calls reaches a
-database, so the roster the rest of `ToolAdapters` needs is not built either.
+The adapters are built with nothing but a trail and an empty screen catalogue here: none
+of these calls reaches a database, so the roster the rest of `ToolAdapters` needs is not
+built either.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from tg_agent_shell.ai.tools import (
     ToolAdapters,
     WatcherFailed,
 )
+from tg_agent_shell.foundation.screens import ScreenCatalogue
 
 READ = ToolCall(id="1", name="read_thing", arguments_json="{}")
 
@@ -42,7 +44,7 @@ def _session(ran: list[str]) -> AgentSession:
 
 
 def _adapters(**watchers: Any) -> ToolAdapters:
-    return ToolAdapters(None, None, None, _Trail(), None, **watchers)
+    return ToolAdapters(None, None, None, _Trail(), ScreenCatalogue.of(()), **watchers)
 
 
 async def test_ag_tool_031_a_watcher_that_answers_refuses_the_call() -> None:

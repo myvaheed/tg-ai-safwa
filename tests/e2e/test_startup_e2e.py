@@ -84,12 +84,6 @@ class Observer:
         self.registered.append((handler, *filters))
 
 
-class FakeRouter:
-    def __init__(self) -> None:
-        self.message = Observer()
-        self.callback_query = Observer()
-
-
 class FakeDispatcher:
     instances: list[FakeDispatcher] = []
 
@@ -133,7 +127,6 @@ def _prepared_startup(tmp_path: Path, monkeypatch) -> tuple[Path, Settings]:
     monkeypatch.setattr(safwa_main, "OpenAICompatibleProvider", FakeProvider)
     monkeypatch.setattr(safwa_main, "TelegramHistorySource", FakeHistoryFactory)
     monkeypatch.setattr(safwa_main, "Dispatcher", FakeDispatcher)
-    monkeypatch.setattr(safwa_main, "router", FakeRouter())
     monkeypatch.setattr(memory_background, "run_due_memory_maintenance", wait_until_cancelled)
 
     return database_path, Settings(

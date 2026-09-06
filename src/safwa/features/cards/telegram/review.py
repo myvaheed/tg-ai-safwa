@@ -48,6 +48,13 @@ CARD_DETAIL_FIELDS = (
     "parent_id",
 )
 
+# The three fields a screen words shorter than the field name does.
+CARD_LABELS = {
+    "effort_points": "Effort",
+    "energy_types": "Energy",
+    "parent_id": "Parent ID",
+}
+
 
 # Every Card relationship diffs and renders through its spec, so a new one shows up here
 # without a second table to update.
@@ -258,7 +265,10 @@ class CardProposalPresenter:
 
     def raw_details(self, change: AgentChange) -> list[str]:
         return detail_lines(
-            normalized_card_details(dict(change.values), creating=change.action is ChangeAction.CREATE)
+            normalized_card_details(
+                dict(change.values), creating=change.action is ChangeAction.CREATE
+            ),
+            CARD_LABELS,
         )
 
     async def details(
@@ -266,7 +276,9 @@ class CardProposalPresenter:
     ) -> list[str]:
         values = dict(change.values)
         if change.action is ChangeAction.CREATE:
-            return detail_lines(normalized_card_details(values, creating=True))
+            return detail_lines(
+                normalized_card_details(values, creating=True), CARD_LABELS
+            )
         card = (
             await session.get(Card, change.entity_id)
             if change.entity_id is not None
@@ -275,14 +287,14 @@ class CardProposalPresenter:
         if card is None:
             fallback_lines = self.raw_details(fallback) if fallback is not None else []
             return fallback_lines or detail_lines(
-                normalized_card_details(values, creating=False)
+                normalized_card_details(values, creating=False), CARD_LABELS
             )
         before = await _card_detail_snapshot(session, card)
         if change.action in {ChangeAction.LINK, ChangeAction.UNLINK}:
             relationship = normalized_card_details(values, creating=False)
             verb = "Link" if change.action is ChangeAction.LINK else "Unlink"
             return [
-                f"{verb} {detail_label(field)}: {detail_value(value)}"
+                f"{verb} {detail_label(field, CARD_LABELS)}: {detail_value(value)}"
                 for field, value in relationship.items()
             ]
         proposed = normalized_card_details(values, creating=False)
@@ -297,7 +309,7 @@ class CardProposalPresenter:
         elif change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
             return [f"Card: {card.kind.title()} #{card.id} “{card.title}”"]
         return [
-            f"{detail_label(field)}: {detail_value(before.get(field))} → {detail_value(value)}"
+            f"{detail_label(field, CARD_LABELS)}: {detail_value(before.get(field))} → {detail_value(value)}"
             for field, value in proposed.items()
             if before.get(field) != value
         ]

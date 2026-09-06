@@ -215,7 +215,7 @@ async def test_a_review_that_could_not_be_drawn_ends_and_the_owner_is_told(sessi
 
     assert cancelled == [77]
     assert any(
-        "Your planning data was not changed" in item.text for item in message.sent_messages
+        "Nothing was changed" in item.text for item in message.sent_messages
     )
 
 

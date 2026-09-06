@@ -80,7 +80,7 @@ async def continue_agent_approval(
     await send_registered(
         message,
         services,
-        f"{resolved_text} Safwa is continuing…",
+        f"{resolved_text} Continuing…",
         kind=MessageKind.RECEIPT,
     )
     try:
@@ -114,7 +114,7 @@ async def continue_agent_approval(
                 message,
                 services,
                 f"{resolved_text}\n"
-                "⚠️ The change is resolved, but Safwa could not generate its follow-up "
+                "⚠️ The change is resolved, but the follow-up could not be generated "
                 f"({html.escape(failure_reason(error))}). "
                 "You can continue with a new message.",
                 kind=MessageKind.DIALOGUE_ASSISTANT,

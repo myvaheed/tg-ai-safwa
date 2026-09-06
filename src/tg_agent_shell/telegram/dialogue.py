@@ -5,7 +5,6 @@ import logging
 from datetime import UTC, datetime
 from io import BytesIO
 
-from aiogram import F
 from aiogram.enums import ChatAction
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import Message
@@ -25,7 +24,7 @@ from .chat import (
     send_registered,
 )
 from .model import UiSession
-from .services import Services, audio_payload, router
+from .services import Services, audio_payload
 from .text_input import handle_text_input
 
 logger = logging.getLogger(__name__)
@@ -36,7 +35,6 @@ ASR_MAX_DURATION_SECONDS = 1_800
 ASR_MAX_FILE_BYTES = 20 * 1024 * 1024
 
 
-@router.message(F.text & ~F.text.startswith("/"))
 async def ordinary_text(message: Message, services: Services) -> None:
     async with services.sessions() as session:
         ui = await session.scalar(
@@ -64,7 +62,6 @@ async def ordinary_text(message: Message, services: Services) -> None:
     await run_dialogue_turn(message, services, message.text, source)
 
 
-@router.message(F.voice | F.audio | F.video_note)
 async def voice_message(message: Message, services: Services) -> None:
     audio = audio_payload(message)
     if audio is None:
@@ -82,7 +79,7 @@ async def voice_message(message: Message, services: Services) -> None:
         await send_registered(
             message,
             services,
-            f"That recording is {duration // 60} minutes long. Safwa transcribes up to "
+            f"That recording is {duration // 60} minutes long. Transcription takes up to "
             f"{ASR_MAX_DURATION_SECONDS // 60}.",
             kind=MessageKind.ERROR,
         )
@@ -113,7 +110,7 @@ async def voice_message(message: Message, services: Services) -> None:
         await send_registered(
             message,
             services,
-            "Safwa could not transcribe that recording.\n" + html.escape(str(error)),
+            "That recording could not be transcribed.\n" + html.escape(str(error)),
             kind=MessageKind.ERROR,
         )
         return
@@ -231,7 +228,7 @@ async def run_dialogue_turn(
         await send_registered(
             message,
             services,
-            "Safwa could not complete that request. Your planning data was not changed.\n"
+            "That request could not be completed. Nothing was changed.\n"
             + html.escape(str(error)),
             kind=MessageKind.ERROR,
         )

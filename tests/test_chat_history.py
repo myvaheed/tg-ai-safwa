@@ -540,7 +540,7 @@ async def test_screens_receipts_and_progress_notes_are_not_the_conversation(sess
         ),
         FakeTelegramMessage(
             36,
-            mark_kind("Safwa could not complete that request.", MessageKind.ERROR),
+            mark_kind("That request could not be completed.", MessageKind.ERROR),
             bot_id,
             at + timedelta(minutes=6),
         ),
@@ -552,7 +552,7 @@ async def test_screens_receipts_and_progress_notes_are_not_the_conversation(sess
         ),
         FakeTelegramMessage(
             34,
-            mark_kind("Saved. Safwa is continuing...", MessageKind.RECEIPT),
+            mark_kind("Saved. Continuing...", MessageKind.RECEIPT),
             bot_id,
             at + timedelta(minutes=4),
         ),

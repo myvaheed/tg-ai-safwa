@@ -62,7 +62,7 @@ SUBAGENT_DEADLINE_SECONDS = 300.0
 # owner wrote *instead* of deciding: on "rejected" alone the session reads its own record
 # and proposes the same thing again.
 REFUSED_AND_WROTE = (
-    "The user did not decide this. They wrote to Safwa instead, and their words are the "
+    "The user did not decide this. They wrote to you instead, and their words are the "
     "newest message in the conversation. Read them, then propose what they ask for now. "
     "Never propose the refused change again."
 )
@@ -257,7 +257,7 @@ class RootSession:
                 return AIOutcome(
                     AIOutcomeKind.ANSWER,
                     compose_display_outcome(
-                        f"⚠️ Safwa could not generate its follow-up ({failure_reason(error)}). "
+                        f"⚠️ The follow-up could not be generated ({failure_reason(error)}). "
                         "You can continue with a new message.",
                         [result_summary],
                     ),

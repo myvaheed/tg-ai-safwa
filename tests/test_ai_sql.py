@@ -457,3 +457,31 @@ async def test_uncapped_query_carries_no_notice(tmp_path):
 
     assert outcome.notice is None
     assert outcome.as_tool_result() == [{"id": 1}, {"id": 2}, {"id": 3}]
+
+
+def test_rebuilding_views_leaves_every_other_table_alone(tmp_path):
+    """Rebuilding the read views touches the views and nothing else the database holds."""
+    from sqlalchemy import create_engine
+
+    from tg_agent_shell.ai.sql import create_ai_views
+
+    path = tmp_path / "foreign.db"
+    engine = create_engine(f"sqlite:///{path.as_posix()}")
+    with engine.begin() as connection:
+        connection.exec_driver_sql("CREATE TABLE card_search(id INTEGER PRIMARY KEY)")
+        connection.exec_driver_sql("CREATE TABLE cards(id INTEGER PRIMARY KEY)")
+        connection.exec_driver_sql(
+            "CREATE TRIGGER cards_search_insert AFTER INSERT ON cards BEGIN "
+            "INSERT INTO card_search(id) VALUES (new.id); END"
+        )
+        create_ai_views(connection, ())
+        kept = {
+            row[0]
+            for row in connection.exec_driver_sql(
+                "SELECT name FROM sqlite_master "
+                "WHERE name IN ('card_search', 'cards_search_insert')"
+            )
+        }
+    engine.dispose()
+
+    assert kept == {"card_search", "cards_search_insert"}

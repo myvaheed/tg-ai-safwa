@@ -97,7 +97,7 @@ async def test_failed_transcription_reports_and_changes_nothing(sessions, monkey
 
     await voice_message(message, services)
 
-    assert "could not transcribe" in message.answers[-1]
+    assert "could not be transcribed" in message.answers[-1]
     assert "upstream refused the file" in message.answers[-1]
     assert turns == []
     async with sessions() as session:
@@ -116,4 +116,4 @@ async def test_overlong_recording_is_refused_before_download(sessions, monkeypat
     assert message.bot.downloads == []
     assert transcriber.clips == []
     assert turns == []
-    assert "transcribes up to" in message.answers[-1]
+    assert "Transcription takes up to" in message.answers[-1]

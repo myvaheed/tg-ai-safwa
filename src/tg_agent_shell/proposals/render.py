@@ -1,7 +1,7 @@
 """How a review reads back — to the owner in one sentence, to the model in fields.
 
 Three audiences read the same resolved queue item.  The owner reads a receipt line, the
-model reads IDs and every field Safwa resolved so it does not repeat its own work, and a
+model reads IDs and every field the application resolved so it does not repeat its own work,
 caller that routed here reads the same lines as a receipt.  All three are rendered here,
 from the plain dicts the session layer stores, so the session layer never has to know what
 a proposal is.
@@ -126,7 +126,7 @@ def _results_summary(
             line += f": {result_value(error)}"
         lines.append(line)
         if not for_display:
-            # The detail lines carry what Safwa resolved rather than what the model sent:
+            # The detail lines carry what was resolved rather than what the model sent:
             # parent_query/tag_query turned into IDs, and old → new values for an edit.
             # Trimming them for saved items costs the model information and invites repeats.
             lines.extend(f"  • {detail}" for detail in tool.get("details") or [])
@@ -226,7 +226,10 @@ def resolved_tool_result(
     )
     if decision is BatchDecision.APPROVED and result.get("approval_source") == AUTOAPPROVED:
         # The user pressed nothing, so "you saved it" would be wrong in the reply.
-        payload["next"] = "Safwa saved this one itself; the user did not decide. " + payload["next"]
+        payload["next"] = (
+            "This one was saved without the user; they did not decide it. "
+            + payload["next"]
+        )
     return payload
 
 

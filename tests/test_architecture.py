@@ -22,13 +22,24 @@ import pytest
 from sqlalchemy import UniqueConstraint, inspect
 from vocabulary import public_names, words
 
-from safwa.bootstrap.modules import AGENTS, HELPERS, PROPOSALS, SYSTEM_PROMPT
+from safwa.bootstrap.modules import (
+    AGENTS,
+    HELPERS,
+    PROPOSALS,
+    SCREENS,
+    SYSTEM_PROMPT,
+)
 from safwa.features.advisor.agent import PERSONA
 from scripts.architecture_metrics import RULES, cycles
 from telegram_llm import DialogueMessage, KindMarks, code_for
 from tg_agent_shell.ai.messages import ContextBuilder, StateBlocks
 from tg_agent_shell.ai.subagents import RoutedSubagent
-from tg_agent_shell.ai.tools import CALL_HELPER_TOOL, OPEN_TOOL, QUERY_TOOL, ROUTE_TOOL
+from tg_agent_shell.ai.tools import (
+    CALL_HELPER_TOOL,
+    QUERY_TOOL,
+    ROUTE_TOOL,
+    open_tool,
+)
 from tg_agent_shell.foundation.kinds import MARKS
 from tg_agent_shell.foundation.models import Base
 
@@ -80,7 +91,7 @@ def test_rule_i_prompt_prefix_is_byte_stable(request):
         "SYSTEM_PROMPT": _digest(SYSTEM_PROMPT),
         "PERSONA": _digest(PERSONA),
         "HEAVY_ANALYZER_PROMPT": _digest(HELPERS["heavy_analyzer"].instructions),
-        "tool:open": _digest(json.dumps(OPEN_TOOL, sort_keys=True)),
+        "tool:open": _digest(json.dumps(open_tool(SCREENS), sort_keys=True)),
         "tool:route": _digest(json.dumps(ROUTE_TOOL, sort_keys=True)),
         "tool:query_data": _digest(json.dumps(QUERY_TOOL, sort_keys=True)),
         "tool:call_helper": _digest(json.dumps(CALL_HELPER_TOOL, sort_keys=True)),

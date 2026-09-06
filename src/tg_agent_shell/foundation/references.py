@@ -32,10 +32,10 @@ class ReferenceSpec:
     model: type[Any]
     link_model: type[Any]
     toggle: Callable[..., Awaitable[bool]]
+    # What does the linking, for a screen that counts what carries this item.
+    owner: str
     # A Check is named by `title`, so the column a query_key resolves against varies.
     name_attr: str = "name"
-    # What does the linking, for a screen that counts what carries this item.
-    owner: str = "Card"
     # Only a Check is ever archived; a Value and a Tag are deleted instead, so there is no
     # archived one for a link to be refused against.
     archivable: bool = False

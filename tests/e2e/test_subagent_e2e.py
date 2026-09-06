@@ -644,7 +644,7 @@ async def test_the_resumed_request_is_told_what_was_proposed_and_what_was_refuse
     assert receipt["outcome"] == "error"
     # What became of every change, and that the owner answered with words instead.
     assert any("Discarded" in line for line in receipt["did"])
-    assert "wrote to Safwa instead" in receipt["error"]
+    assert "wrote to you instead" in receipt["error"]
     # Those words are the newest thing the resumed request reads.
     assert "то же, но короче" in json.dumps(provider.calls[3], ensure_ascii=False)
 
@@ -694,13 +694,13 @@ async def test_the_interrupted_session_reads_that_the_owner_wrote_instead(e2e_ha
         run = await session.scalar(select(AgentRun).where(AgentRun.kind == "diary"))
     notice = json.dumps(run.state_json["transcript"], ensure_ascii=False)
     assert "did not decide this" in notice
-    assert "wrote to Safwa instead" in notice
+    assert "wrote to you instead" in notice
     assert "Never propose the refused change again" in notice
 
     await advisor.handle("то же, но короче")
 
     # It read that notice on the way back in, so it corrects instead of repeating itself.
-    assert "wrote to Safwa instead" in json.dumps(provider.calls[4], ensure_ascii=False)
+    assert "wrote to you instead" in json.dumps(provider.calls[4], ensure_ascii=False)
 
 
 async def test_unfinished_work_ends_with_the_request_that_started_it(e2e_harness):

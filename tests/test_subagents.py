@@ -12,6 +12,7 @@ from safwa.bootstrap.modules import (
     AGENTS,
     ALLOWED_VIEWS,
     PROPOSALS,
+    SCREENS,
     SYSTEM_PROMPT,
     routed_prompt,
 )
@@ -19,7 +20,12 @@ from safwa.features.advisor.agent import PERSONA
 from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
 from tg_agent_shell.ai.subagents import RoutedSubagent
-from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS, ROOT_SESSION_TOOLS
+from tg_agent_shell.ai.tools import (
+    IMMEDIATE_TOOLS,
+    QUERY_TOOL,
+    ROUTE_TOOL,
+    open_tool,
+)
 from tg_agent_shell.telegram.manifest import AgentContext
 
 
@@ -70,7 +76,8 @@ def test_a_routed_prompt_carries_the_one_persona_block() -> None:
 
 def test_the_diary_is_written_only_by_its_subagent() -> None:
     """AG-ROUTE-001 — tests/brd/tg_agent_shell/agents.feature"""
-    advisor_tools = {tool["function"]["name"] for tool in ROOT_SESSION_TOOLS}
+    root_tools = (QUERY_TOOL, open_tool(SCREENS), ROUTE_TOOL)
+    advisor_tools = {tool["function"]["name"] for tool in root_tools}
     assert "diary" not in advisor_tools
     assert "diary" in PROPOSALS.tools
     assert diary_routed(StubDayReader("")).mutation_tools == ("diary",)

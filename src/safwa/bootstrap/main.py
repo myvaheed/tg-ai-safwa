@@ -4,8 +4,8 @@ import asyncio
 import logging
 import sys
 from collections.abc import Coroutine
+from dataclasses import dataclass
 from pathlib import Path
-from types import SimpleNamespace
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -24,17 +24,12 @@ from tg_agent_shell.history import TelegramHistorySource, TelegramNotes
 from tg_agent_shell.session import RootSession
 from tg_agent_shell.telegram import (
     SHELL_COMMANDS,
-    OwnerAndWritingMiddleware,
     Services,
     discard_stale_status,
-    register_commands,
-    router,
     sync_bot_commands,
 )
-from tg_agent_shell.telegram import (
-    dialogue as _dialogue,  # noqa: F401  registers the owner-message handlers
-)
 from tg_agent_shell.telegram.manifest import AgentContext, BackgroundContext
+from tg_agent_shell.telegram.routing import build_router
 from tg_agent_shell.turn import TurnManager
 
 from ..config import Settings
@@ -74,6 +69,19 @@ from .recovery import recover_startup
 
 logger = logging.getLogger(__name__)
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
+
+
+@dataclass(frozen=True, slots=True)
+class SafwaFeatures:
+    """What Safwa's own handlers reach for off `Services.features`.
+
+    The shell carries this and never reads it, so what one feature may ask of
+    another across the container is exactly these three fields.
+    """
+
+    summary: DialogueSummary
+    memory: MemoryFileStore
+    memory_upkeep: MemoryUpkeep
 
 
 def configure_logging(level_name: str) -> None:
@@ -272,7 +280,6 @@ async def run(settings: Settings) -> None:
     chat = ChatHost(TelegramNotes(database.sessions), MARKS, spawn=spawn)
     # Home is a feature now, and `/start` leads the published list, so its commands come first.
     commands = (*FEATURE_COMMANDS, *SHELL_COMMANDS)
-    register_commands(router, commands)
     transcriber = build_transcriber(
         provider=settings.asr_provider,
         model=settings.resolved_asr_model,
@@ -303,16 +310,13 @@ async def run(settings: Settings) -> None:
         text_inputs=FEATURE_TEXT_INPUTS,
         after_turn=AFTER_TURN,
         start_links=FEATURE_START_LINKS,
-        # What Safwa's own handlers reach for; the shell carries it and never reads it.
-        features=SimpleNamespace(summary=summary, memory=memory, memory_upkeep=upkeep),
+        features=SafwaFeatures(summary=summary, memory=memory, memory_upkeep=upkeep),
         views=ALLOWED_VIEWS,
         bot_username=settings.telegram_bot_username,
         transcriber=transcriber,
     )
     dispatcher = Dispatcher()
-    router.message.outer_middleware.register(OwnerAndWritingMiddleware())
-    router.callback_query.outer_middleware.register(OwnerAndWritingMiddleware())
-    dispatcher.include_router(router)
+    dispatcher.include_router(build_router(commands))
     dispatcher["services"] = services
     async with database.sessions() as session:
         workspace = await session.get(Workspace, 1)

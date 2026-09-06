@@ -535,7 +535,7 @@ async def test_a_turn_that_never_finds_words_still_reaches_the_owner(e2e_harness
     outcome = await advisor.handle("What is isha?")
 
     assert outcome.kind is AIOutcomeKind.ANSWER
-    assert outcome.message == "⚠️ Safwa had nothing to say about that. You can ask again."
+    assert outcome.message == "⚠️ There was nothing to say about that. You can ask again."
     assert len(provider.calls) == 6
 
 
@@ -1903,7 +1903,7 @@ async def test_read_queries_beside_a_proposal_still_resume_the_agent(e2e_harness
     assert tag is not None
     assert "✅ Saved — New Tag “VrWalk”" in message.rendered[-1]
     assert "The VrWalk tag was saved; I will retry the query." in message.rendered[-1]
-    assert "could not generate its follow-up" not in message.rendered[-1]
+    assert "follow-up could not be generated" not in message.rendered[-1]
     assert len(provider.calls) == 3
     resumed_query_results = [
         str(item["content"])
@@ -2168,7 +2168,7 @@ async def test_single_proposal_save_error_is_reported_and_resolved(e2e_harness):
     assert len(tags) == 1
     assert "⚠️ Failed — New Tag “vrwalk”" in message.rendered[-1]
     assert "already exists" in message.rendered[-1]
-    assert "could not generate its follow-up" in message.rendered[-1]
+    assert "follow-up could not be generated" in message.rendered[-1]
     assert len(provider.calls) == 2
 
 
@@ -2214,7 +2214,7 @@ async def test_single_tag_callback_never_leaves_dead_buttons_when_follow_up_fail
         proposal = advisor.reviews.proposal(outcome.proposal_id)
     assert proposal is None
     assert resolved_text in message.rendered[-1]
-    assert "could not generate its follow-up" in message.rendered[-1]
+    assert "follow-up could not be generated" in message.rendered[-1]
     assert len(provider.calls) == 2
 
 
@@ -2436,7 +2436,7 @@ async def test_the_tool_call_budget_is_carried_across_an_approval(e2e_harness):
     )
 
     assert resumed is not None
-    assert "could not generate its follow-up" in resumed.message
+    assert "follow-up could not be generated" in resumed.message
     async with e2e_harness.sessions() as session:
         run = await session.scalar(select(AgentRun).order_by(AgentRun.id.desc()))
         assert run.status == "failed"

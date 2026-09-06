@@ -19,6 +19,7 @@ from __future__ import annotations
 import html
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any, Protocol
 
 from pydantic import BaseModel
@@ -265,31 +266,9 @@ ACTION_VERBS = {
     ChangeAction.UNLINK: "Unlink",
 }
 
-DETAIL_LABELS = {
-    "kind": "Kind",
-    "title": "Title",
-    "name": "Name",
-    "description": "Description",
-    "note": "Note",
-    "stage": "Stage",
-    "priority": "Priority",
-    "hard_time": "Hard Time",
-    "blocked": "Blocked",
-    "blocked_description": "Blocked Description",
-    "effort_points": "Effort",
-    "repeatable": "Repeatable",
-    "categories": "Categories",
-    "energy_types": "Energy",
-    "parent_id": "Parent ID",
-    "card_id": "Card ID",
-    "outcome": "Status",
-    "values": "Values",
-    "tags": "Tags",
-    "checks": "Checks",
-    "check_ids": "Checks",
-    "active": "Active",
-    "query_sql": "SQL",
-}
+# A feature that words one of its own fields differently passes its map in; nothing here
+# holds a table of every field every feature has.
+NO_LABELS: Mapping[str, str] = MappingProxyType({})
 
 
 def result_value(value: Any) -> str:
@@ -306,12 +285,18 @@ def detail_value(value: Any) -> str:
     return result_value(value)
 
 
-def detail_label(field: str) -> str:
-    return DETAIL_LABELS.get(field, field.replace("_", " ").title())
+def detail_label(field: str, labels: Mapping[str, str] = NO_LABELS) -> str:
+    """A field as its screen label, unless its feature words that one differently."""
+    return labels.get(field) or field.replace("_", " ").title()
 
 
-def detail_lines(fields: Mapping[str, Any]) -> list[str]:
-    return [f"{detail_label(field)}: {detail_value(value)}" for field, value in fields.items()]
+def detail_lines(
+    fields: Mapping[str, Any], labels: Mapping[str, str] = NO_LABELS
+) -> list[str]:
+    return [
+        f"{detail_label(field, labels)}: {detail_value(value)}"
+        for field, value in fields.items()
+    ]
 
 
 def display_diff_value(value: Any) -> str:
@@ -369,20 +354,21 @@ async def named_details(
     fallback_lines: list[str],
     *,
     model: type[Any],
+    labels: Mapping[str, str] = NO_LABELS,
 ) -> list[str]:
     """Field lines for an item whose committed row is what the proposal diffs against."""
     if change.action is ChangeAction.CREATE:
-        return fallback_lines or detail_lines(dict(change.values))
+        return fallback_lines or detail_lines(dict(change.values), labels)
     entity = (
         await session.get(model, change.entity_id) if change.entity_id is not None else None
     )
     if entity is None:
-        return fallback_lines or detail_lines(dict(change.values))
+        return fallback_lines or detail_lines(dict(change.values), labels)
     if change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
         label = getattr(entity, "name", f"#{entity.id}")
         return [f"Item: {result_value(label)}"]
     return [
-        f"{detail_label(field)}: "
+        f"{detail_label(field, labels)}: "
         f"{detail_value(getattr(entity, field, None))} → {detail_value(value)}"
         for field, value in dict(change.values).items()
         if getattr(entity, field, None) != value

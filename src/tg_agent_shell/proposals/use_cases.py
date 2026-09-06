@@ -81,8 +81,8 @@ async def approve_proposal(
     if world.revision != proposal.workspace_revision:
         store.end_proposal(proposal_id)
         raise StaleStateError(
-            "The workspace moved on after Safwa proposed this, so it was not saved. "
-            "Ask Safwa to propose it again."
+            "The workspace moved on after this was proposed, so it was not saved. "
+            "Ask for it again."
         )
     context = ApplyContext(
         session=session,
@@ -108,7 +108,7 @@ def open_batch(
     repair_exhausted: bool,
     request: str = "",
 ) -> ApprovalBatch:
-    """The batch a suspended turn opens, with its screens in the order Safwa made them."""
+    """The batch a suspended turn opens, with its screens in the order they were made."""
     return ApprovalBatch(
         run_id=run_id,
         tool_calls=tool_calls,

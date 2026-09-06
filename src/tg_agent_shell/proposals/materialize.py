@@ -77,7 +77,7 @@ class ProposalMaterializer:
         return as_turn(
             AIOutcome(
                 AIOutcomeKind.ANSWER,
-                composed or "⚠️ Safwa had nothing to say about that. You can ask again.",
+                composed or "⚠️ There was nothing to say about that. You can ask again.",
                 open_item=agent.host_state.get("open_item"),
             )
         )

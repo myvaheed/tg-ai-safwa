@@ -190,7 +190,7 @@ def _recovering(handler: CallbackHandler) -> CallbackHandler:
                     "⚠️ This action failed. The proposal is still pending; "
                     "you can retry or discard it."
                 ),
-                fallback="Safwa could not finish this action. Reopen the screen and try again.",
+                fallback="This action could not be finished. Reopen the screen and try again.",
             )
 
     return guarded

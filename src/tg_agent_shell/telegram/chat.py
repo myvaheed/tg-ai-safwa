@@ -225,7 +225,7 @@ async def delete_screen(message: Message, services: Services, message_id: int) -
 
 
 # `UI_INPUT` keeps it out of the conversation, and `/cancel` is tappable as written.
-TURN_NOTICE = "⏳ Safwa is writing an answer.\n/cancel to stop it."
+TURN_NOTICE = "⏳ Writing an answer.\n/cancel to stop it."
 
 
 async def open_turn_notice(message: Message, services: Services) -> None:

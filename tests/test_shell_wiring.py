@@ -7,9 +7,8 @@ that `MODULES` and `shell/` still add up, which no single feature can answer for
 from __future__ import annotations
 
 import ast
-from typing import get_args
 
-from aiogram import Router
+from aiogram import Dispatcher, Router
 from aiogram.filters import Command
 from ui_harness import (
     CALLBACK_ACTIONS,
@@ -25,13 +24,14 @@ from safwa.bootstrap.modules import (
 )
 from safwa.features.home.api import MENU_LAYOUT, menu_markup
 from safwa.features.planning.api import available_screens
-from tg_agent_shell.ai.contracts import OpenInput
+from tg_agent_shell.ai.tools import open_tool
 from tg_agent_shell.telegram import (
     SHELL_COMMANDS,
     OwnerAndWritingMiddleware,
     register_commands,
 )
 from tg_agent_shell.telegram.layout import menu_row, start_payload
+from tg_agent_shell.telegram.routing import build_router
 
 
 def _telegram_module_trees() -> list[ast.Module]:
@@ -163,6 +163,20 @@ def test_every_declared_command_is_bound_to_its_command_line() -> None:
     assert bound == {screen.command for screen in commands if screen.command is not None}
 
 
+def test_two_applications_each_own_their_router() -> None:
+    """A router is built per application, so a second one starts with the same handlers."""
+    commands = (*SHELL_COMMANDS, *FEATURE_COMMANDS)
+    first = build_router(commands)
+    second = build_router(commands)
+
+    Dispatcher().include_router(first)
+    Dispatcher().include_router(second)
+
+    assert first is not second
+    assert len(first.message.handlers) == len(second.message.handlers)
+    assert len(first.callback_query.handlers) == len(second.callback_query.handlers)
+
+
 def test_the_menu_draws_every_label_a_screen_declared() -> None:
     """HM-MENU-001 — tests/brd/home.feature"""
     # The titles are the features', the layout is Home's, and a title the layout does not
@@ -201,11 +215,11 @@ def test_today_leaves_the_menu_with_the_sprint_that_makes_it_a_screen() -> None:
 
 def test_the_screen_catalogue_is_the_one_list_of_openable_items() -> None:
     """RT-OPEN-002 — tests/brd/retro.feature"""
-    # The features publish what can be opened; only the `open` tool's enum is by hand.
+    # The features publish what can be opened, and the `open` tool's enum is built
+    # from that same catalogue, so a Sprint retro is cited but never opened.
     assert set(SCREENS.types) == {"card", "check", "tag", "value", "request", "diary", "retro"}
-    # A tool's enum is prompt text and stays in ai/contracts.py, so it has to agree here.
-    literal = set(get_args(OpenInput.model_fields["item_type"].annotation))
-    assert literal == {name for name, spec in SCREENS.by_type.items() if spec.ai_openable}
+    enum = open_tool(SCREENS)["function"]["parameters"]["properties"]["item_type"]["enum"]
+    assert set(enum) == {name for name, spec in SCREENS.by_type.items() if spec.ai_openable}
 
 
 def test_start_payload_reads_only_a_command_line() -> None:

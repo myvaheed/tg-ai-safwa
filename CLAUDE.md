@@ -148,10 +148,9 @@ what one feature owns lives with it.
 [tg_agent_shell](src/tg_agent_shell) is the fourth package Rule F holds to working without Safwa:
 the engine, the review flow, the root session, the aiogram surface, the turn lease and the cues.
 [telegram/](src/tg_agent_shell/telegram) is what a feature's Telegram adapter imports besides
-`telegram_llm`. Only
-[telegram/commands.py](src/tg_agent_shell/telegram/commands.py), [telegram/callbacks.py](src/tg_agent_shell/telegram/callbacks.py)
-and [telegram/dialogue.py](src/tg_agent_shell/telegram/dialogue.py) register `@router` handlers, and each is imported
-for that side effect alone — dropping one silently unregisters its handlers. A leading underscore
+`telegram_llm`. [telegram/routing.py](src/tg_agent_shell/telegram/routing.py) builds an application its own
+router and registers every handler by name, so a handler it does not name is one nothing
+reaches. A leading underscore
 means module-local: a name a sibling module uses carries none, even though the package stays private
 behind its `__init__`.
 

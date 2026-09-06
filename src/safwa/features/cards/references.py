@@ -32,8 +32,10 @@ async def _closed_check_refusal(
     )
 
 
-VALUE_REFERENCE = ReferenceSpec("value", "Value", Value, CardValue, toggle_card_value)
-TAG_REFERENCE = ReferenceSpec("tag", "Tag", Tag, CardTag, toggle_card_tag)
+VALUE_REFERENCE = ReferenceSpec(
+    "value", "Value", Value, CardValue, toggle_card_value, owner="Card"
+)
+TAG_REFERENCE = ReferenceSpec("tag", "Tag", Tag, CardTag, toggle_card_tag, owner="Card")
 # A Check is a Card relationship like the other two, so it resolves, diffs and applies
 # through the same spec; only the name column differs.
 CHECK_REFERENCE = ReferenceSpec(
@@ -42,6 +44,7 @@ CHECK_REFERENCE = ReferenceSpec(
     Check,
     CardCheck,
     toggle_card_check,
+    owner="Card",
     name_attr="title",
     archivable=True,
     refusal=_closed_check_refusal,

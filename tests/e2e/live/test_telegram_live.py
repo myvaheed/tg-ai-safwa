@@ -19,7 +19,6 @@ from safwa.bootstrap import main as safwa_main
 from safwa.foundation.database import upgrade_database
 from safwa.qa import resolve_qa_config
 from tg_agent_shell.history import TelegramHistorySource
-from tg_agent_shell.telegram import router as safwa_router
 
 pytestmark = [pytest.mark.e2e, pytest.mark.live_telegram]
 
@@ -189,9 +188,6 @@ async def live_telegram_harness(tmp_path: Path, monkeypatch) -> LiveTelegramHarn
         app_task.cancel()
         with suppress(asyncio.CancelledError):
             await app_task
-        # Aiogram routers are singleton module objects in the application.  A
-        # fresh live harness needs to attach it to its own Dispatcher.
-        safwa_router._parent_router = None  # type: ignore[attr-defined]
         if client.is_connected():
             await client.disconnect()
         assert NoAIProvider.calls == 0

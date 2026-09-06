@@ -414,23 +414,9 @@ def entity_dispatch_points() -> list[Violation]:
     return out
 
 
-# Rule H's one permanent exception, and the whole of it. `OpenInput.item_type` enumerates
-# what the `open` tool may put on the screen, and a tool's enum is prompt text: it is
-# written where the model reads it, and generating it from the registry would move
-# `prompt_prefix.json` every time a feature is added. Nothing dispatches on it.
-RULE_H_EXCEPTION = (
-    "tg_agent_shell/ai/contracts.py",
-    "collection over card, check, diary, request, tag, value",
-)
-
-
 def rule_h() -> list[Violation]:
     """Nothing outside a feature fans out over entity names."""
-    return [
-        item
-        for item in entity_dispatch_points()
-        if (item.path, item.detail) != RULE_H_EXCEPTION
-    ]
+    return entity_dispatch_points()
 
 
 def rule_k() -> list[Violation]:

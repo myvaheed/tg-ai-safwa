@@ -158,7 +158,7 @@ cross-feature tuning and so `constants.py`'s. The shell takes them as parameters
 ### Phase 2 — the ratchet — **done**
 
 Rule Q: the modules import nothing outside themselves, with the sixteen left as named
-exceptions the way `RULE_H_EXCEPTION` is. After phase 1 rather than before, because a rule
+exceptions the way Rule H's own exception was. After phase 1 rather than before, because a rule
 with sixteen exceptions can be read and one with forty-three cannot.
 
 The exception list lived in `scripts/architecture_metrics.py`, blocked by the group that closed
