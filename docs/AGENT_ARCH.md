@@ -357,9 +357,8 @@ flowchart LR
   `telegram_messages` stores event metadata, never persona text.
 - **Every bot message is sent registered and marked** with a `MessageKind`. An unregistered or
   unmarked message is invisible to the LLM; a wrongly-kinded one leaks UI noise into persona history.
-- The window is a **token budget**, not a message count: `HISTORY_TOKEN_BUDGET = SUMMARY_TRIGGER_TOKENS
-  + SUMMARY_TOKEN_CEILING`. A Summary is written exactly when the window fills, and it becomes the
-  far edge of the window.
+- The window is a **token budget**, not a message count: `SUMMARY_TRIGGER_TOKENS` decides when a
+  Summary is written, and the newest Summary becomes the far edge of the window.
 - Owner text still in the chat **is** dialogue: commands and typed field values are deleted, so
   survival is the evidence.
 - Words that never reached the chat as owner text — a voice transcript — are posted back as a bot

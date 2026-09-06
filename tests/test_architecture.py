@@ -52,15 +52,39 @@ def _digest(value: str) -> str:
 
 def _snapshot(name: str, produced: dict[str, str], update: bool) -> None:
     path = SNAPSHOTS / f"{name}.json"
-    if update or not path.exists():
+    if update:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(produced, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         pytest.skip(f"{name} snapshot written")
+    assert path.exists(), (
+        f"{name} snapshot is missing; create it explicitly with "
+        "pytest tests/test_architecture.py --snapshot-update"
+    )
     recorded = json.loads(path.read_text(encoding="utf-8"))
     changed = sorted(
         key for key in recorded.keys() | produced.keys() if recorded.get(key) != produced.get(key)
     )
     assert not changed, f"{name} changed: {changed}"
+
+
+def test_a_missing_snapshot_fails_without_an_explicit_update(monkeypatch, tmp_path):
+    monkeypatch.setattr("test_architecture.SNAPSHOTS", tmp_path)
+
+    with pytest.raises(AssertionError, match="snapshot is missing"):
+        _snapshot("missing", {}, update=False)
+
+    assert not (tmp_path / "missing.json").exists()
+
+
+def test_snapshot_update_is_the_only_way_to_create_a_baseline(monkeypatch, tmp_path):
+    monkeypatch.setattr("test_architecture.SNAPSHOTS", tmp_path)
+
+    with pytest.raises(pytest.skip.Exception):
+        _snapshot("created", {"value": "digest"}, update=True)
+
+    assert json.loads((tmp_path / "created.json").read_text(encoding="utf-8")) == {
+        "value": "digest"
+    }
 
 
 # ------------------------------------------------------------------- Rules A-M

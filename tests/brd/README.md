@@ -115,9 +115,10 @@ constant that moves away from its scenario is visible to whoever reads the two s
 ## The traceability is checked
 
 `tests/test_brd_traceability.py` reads the `.feature` files and every test docstring, and
-fails on an approved scenario with no test, a test citing a scenario that does not exist, a
-docstring in any other shape, a prefix missing from the table above, and a repeated scenario
-title. Without it a renamed scenario or a deleted test stays green.
+fails on an approved scenario with no test, a scenario reference or test citation that does not
+exist, a Safwa package or scenario file without its pair, a docstring in any other shape, a prefix
+missing from the table above, and a repeated scenario title. Without it a renamed scenario or a
+deleted test stays green.
 
 A `.feature` file carries **no Gherkin tags**, and the same test fails on one. No BDD runner
 reads these files, so a `@di_day_011` above a scenario is a lowercase second copy of the
