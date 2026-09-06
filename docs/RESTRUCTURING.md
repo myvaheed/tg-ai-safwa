@@ -728,8 +728,25 @@ Every package has a scenario file, and every scenario file has a package.
     Batch 11.
 18. **done** — the three names spelled `advisor` and the router's own name are the
     package's now. Batch 4.
-19. **check** — `features/workspace_mutator/state.py` builds one block out of every entity, the
-    other place a single module knows the whole roster.
+19. **no** — `state.py` reads six models from five packages, but splitting it into per-feature
+    contributions buys nothing and costs the order. The block is one text a small model reads,
+    stable parts first; contributions in `MODULES` order would put Cards before Values and the
+    Sprint after Tags, and pinning the order back means a list somewhere — the registry the
+    split was meant to remove. The cross-feature knowledge survives it too: critical Cards are
+    ordered by whether they carry an active Value, so that query still reads Values from Cards,
+    and Today Actions appear only while a Sprint runs, so an inline `if` becomes Cards asking
+    Planning. And the cost the candidate assumes has never been paid: `state.py` has five
+    commits, every one a restructuring move, none of them an entity added to the block.
+    Revisit if a feature ever needs its own lines in it without touching the others.
+29. **yes** — most of the block is approved nowhere. `WS-JUDGE-002` covers the mutator being
+    handed it before its first step, and `PS-CONTEXT-001`, `PL-CRITERIA-004`, `PL-CONTEXT-010`
+    and `RM-READ-024` each cover one slice from their own feature's file. What is left over:
+    that the root session reads the block too, and not only a subagent; Values, Tags and the
+    workspace mode, described nowhere; and the critical-Card rules — ten of them, the ones
+    carrying a Value in focus first, Done and Cancelled left out — which are a test with no
+    scenario, so any batch may change them without asking. Nothing states either that every
+    item is written as a link the model may point at in its own reply, which is what
+    `citation()` exists for. Found while answering 19.
 20. **done** — the screen is Profile everywhere: the package, `profile.feature`, `/profile`
     and the "⚙️ Profile" button. Batch 12.
 21. **done** — the shell's scenarios are `tests/brd/tg_agent_shell/`, and advisor,
