@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import re
-
 import pytest
 import pytest_asyncio
+from brd_ids import SCENARIO_ID
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from safwa.bootstrap.main import bootstrap_workspace
@@ -23,9 +22,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         metavar="SCENARIO_ID",
         help="run only the tests that cite one BRD scenario, for example DI-DAY-001",
     )
-
-
-SCENARIO_ID = re.compile(r"^(?P<id>[A-Z]{2}-[A-Z-]+-\d{3})\b")
 
 
 def pytest_configure(config: pytest.Config) -> None:

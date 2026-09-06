@@ -55,7 +55,7 @@ Feature: The conversation in Telegram
     And up to 20 of the messages just before it come along with it
       (SUMMARY_CONTEXT_MESSAGE_LIMIT = 20)
     And which message that is, the window does not decide: in Safwa it is the newest Summary,
-      by CO-SUMMARY-001
+      by SUM-WRITE-001
 
   Scenario: TG-NOTES-007 — The conversation is read from the chat, and from nothing Safwa keeps
     Given every note Safwa kept about this chat is gone

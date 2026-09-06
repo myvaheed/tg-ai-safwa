@@ -13,16 +13,20 @@ import re
 from pathlib import Path
 
 import pytest
+from brd_ids import SCENARIO_ID_TEXT
 
 TESTS = Path(__file__).parent
 BRD = TESTS / "brd"
 README = BRD / "README.md"
+SAFWA_FEATURES = TESTS.parent / "src" / "safwa" / "features"
 
-SCENARIO = re.compile(r"^\s*Scenario: (?P<id>[A-Z]{2,3}-[A-Z-]+-\d{3}) — ")
-IDENTIFIER = re.compile(r"^(?P<id>[A-Z]{2,3}-[A-Z-]+-\d{3})\b")
+SCENARIO = re.compile(rf"^\s*Scenario: (?P<id>{SCENARIO_ID_TEXT}) — ")
+IDENTIFIER = re.compile(rf"^(?P<id>{SCENARIO_ID_TEXT})\b")
 CITATION = re.compile(
-    r"^(?P<id>[A-Z]{2,3}-[A-Z-]+-\d{3}) — (?P<feature>tests/brd/(?:[a-z_]+/)?[a-z_]+\.feature)$"
+    rf"^(?P<id>{SCENARIO_ID_TEXT}) — "
+    r"(?P<feature>tests/brd/(?:[a-z_]+/)?[a-z_]+\.feature)$"
 )
+SCENARIO_REFERENCE = re.compile(rf"\b{SCENARIO_ID_TEXT}\b")
 
 
 def approved_prefixes() -> set[str]:
@@ -39,6 +43,18 @@ def scenarios() -> dict[str, str]:
             if match:
                 found[match.group("id")] = path.relative_to(TESTS.parent).as_posix()
     return found
+
+
+def product_feature_packages() -> set[str]:
+    return {
+        path.name
+        for path in SAFWA_FEATURES.iterdir()
+        if path.is_dir() and (path / "__init__.py").exists()
+    }
+
+
+def product_feature_files() -> set[str]:
+    return {path.stem for path in BRD.glob("*.feature")}
 
 
 def citations() -> list[tuple[str, str, str]]:
@@ -66,6 +82,20 @@ def test_every_approved_scenario_has_at_least_one_test():
     uncovered = sorted(set(scenarios()) - cited)
 
     assert not uncovered, f"approved scenarios with no test: {uncovered}"
+
+
+def test_every_scenario_reference_names_an_approved_scenario():
+    known = scenarios()
+    unknown = sorted(
+        {
+            (match.group(), path.relative_to(TESTS.parent).as_posix())
+            for path in BRD.rglob("*.feature")
+            for match in SCENARIO_REFERENCE.finditer(path.read_text(encoding="utf-8-sig"))
+            if match.group() not in known
+        }
+    )
+
+    assert not unknown, f"scenario references with no approved scenario: {unknown}"
 
 
 def test_every_cited_identifier_names_an_approved_scenario():
@@ -103,6 +133,15 @@ def test_every_scenario_prefix_is_declared_in_the_readme():
     undeclared = sorted({identifier.split("-")[0] for identifier in scenarios()} - approved)
 
     assert not undeclared, f"prefixes missing from tests/brd/README.md: {undeclared}"
+
+
+def test_every_safwa_feature_package_has_one_scenario_file():
+    packages, feature_files = product_feature_packages(), product_feature_files()
+    missing = sorted(packages - feature_files)
+    orphaned = sorted(feature_files - packages)
+
+    assert not missing, f"Safwa packages with no scenario file: {missing}"
+    assert not orphaned, f"scenario files with no Safwa package: {orphaned}"
 
 
 @pytest.mark.parametrize("path", sorted(BRD.rglob("*.feature")), ids=lambda path: path.name)
