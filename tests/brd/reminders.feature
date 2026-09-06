@@ -68,7 +68,7 @@ Feature: Reminders
     And when quiet hours run into each other, a firing is pushed through all of them
 
   Scenario: RM-WRITE-008 — No Reminder is written without the owner seeing it
-    Given Safwa proposes a Reminder
+    Given Safwa proposes a Reminder, by PR-WRITE-002
     When the owner reads the screen
     Then it says the time that was worked out, not the words that were said
     And Save makes the Reminder with exactly that schedule and that first firing
@@ -97,7 +97,7 @@ Feature: Reminders
     When it goes off
     Then Safwa is given the words and the schedule as one request
     And Safwa reads the same conversation it would read for anything the owner said
-    And what it says goes into the chat as Safwa speaking first, not as a reply
+    And what it says goes into the chat as something Safwa said unasked, by TG-KIND-002
     And nothing in between decides what the Reminder meant — that is Safwa's job
 
   Scenario: RM-FIRE-012 — One check is one turn
@@ -113,7 +113,7 @@ Feature: Reminders
     When Safwa is busy, or the turn fails, or the owner speaks in the middle of it
     Then those words are still waiting, and the next check says them, 30 seconds later
       (SCHEDULER_POLL_SECONDS = 30)
-    And once their Telegram delivery is registered, another check never says them again
+    And once they have reached the chat they are never said again, by AG-CUE-029
 
   Scenario: RM-FIRE-014 — A Reminder firing is not a change the owner made
     Given a Reminder went off and moved on
@@ -134,20 +134,11 @@ Feature: Reminders
     And it removes itself the moment its words are written down
     And it never goes off a second time
 
-  Scenario: RM-GATE-017 — Nothing is said on top of an unanswered question
-    Given words are waiting to be said
-    When Safwa is answering, or a screen is waiting for the owner, or a half-finished turn has not
-      been settled
-    Then nothing is said, and they are still waiting at the next check
-    And a Reminder that comes due while they wait writes nothing and stays due
+  Scenario: RM-GATE-017 — A Reminder that comes due while words are already waiting stays due
+    Given words are waiting to be said, and Safwa is not free to say them, by AG-TURN-015
+    When another Reminder comes due
+    Then it writes nothing and stays due, so the words waiting are still the only ones waiting
     And an hour of that is one message when Safwa frees up, not twelve
-
-  Scenario: RM-GATE-018 — The owner always wins
-    Given a Reminder is mid-answer in the background
-    When the owner sends a message
-    Then that answer is cancelled and the owner's message is answered instead
-    And the half-written answer is thrown away and never reaches the chat
-    And the words it was answering are still waiting, and the next check says them
 
   Scenario: RM-CATCHUP-019 — A repeat missed by a little still fires, once
     Given a repeating Reminder that is 90 minutes overdue

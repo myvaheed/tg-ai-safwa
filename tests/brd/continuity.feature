@@ -18,12 +18,6 @@ Feature: Summaries and memory
     When another Summary is written
     Then it is written from both, so nothing the earlier one covered is lost
 
-  Scenario: CO-SUMMARY-003 — If the owner speaks while a Summary is being written, the owner wins
-    Given a Summary is being written from the conversation as it stood
-    When the owner says something before that Summary is stored
-    Then it is thrown away, because it no longer covers the whole conversation
-    And a later attempt covers the owner's words too
-
   Scenario: CO-MEMORY-004 — memory.md is where the facts are
     Given memory.md
     When Safwa reads what it remembers
@@ -62,13 +56,6 @@ Feature: Summaries and memory
     Given the owner set memory upkeep to off
     When the check runs
     Then nothing is read, nothing is written, and nothing is sent to the model
-
-  Scenario: CO-GENERATION-011 — Answering the owner comes before both Summary and memory
-    Given writing a Summary and keeping memory up to date are both background work
-    When Safwa is answering the owner
-    Then neither of them starts, because answering comes first
-    And if the conversation moves on while one of them is already running, its result is thrown
-      away rather than saved
 
   Scenario: CO-MEMORY-012 — A memory.md Safwa cannot use is never written over
     Given memory.md is not text Safwa can read, or is over 4000 tokens (MEMORY_TOKEN_BUDGET = 4000)

@@ -474,6 +474,54 @@ A screen the menu already offers does not also need a command line.
   the feature it names, and the Sprint screen is Planning's: declaring it in `cards`
   would make the Cards manifest contribute a Planning screen and make Cards import it.
 
+## Batch 17 — landed
+
+A rule the shell keeps and no scenario states is a rule only the code remembers.
+
+Batch 16 left seven scenarios leaning on shell machinery with nothing to cite. Five of those
+rules are now written down, and six of the seven cite one.
+
+### Benefits
+
+- `AG-READ-027` is what CLAUDE.md calls "a reader is scoped by the view list in its prompt",
+  approved for the first time. Five tests in `tests/test_ai_sql.py` and
+  `tests/test_heavy_analyzer.py` were proving it under no rule at all.
+- `AG-CUE-029` is the Cue queue: what Safwa owes stays owed until it reached the chat, and is
+  never said twice. Seven tests move onto it, five of them from `PL-END-015` — a scenario about
+  a Sprint ending, which is what the queue was carrying the day it was written.
+- `AG-HELPER-028`, `SC-PAGE-007` and `SC-INPUT-008` do the same for the helper's budget, the
+  paged list and the typed-value screen. Each had a tested mechanism and no rule.
+- `RM-POLL-021` got no target. The loop that survives its own failures is
+  `reminders/background.py`, Safwa's own; the Cue queue has a second one of its own. Two
+  implementations of a habit are not one shell rule, and writing one down to give a reference
+  somewhere to point would be inventing a rule to fit a shape.
+
+## Batch 16 — landed
+
+The scenarios were in the right files; some of the rules in them were not.
+
+Every scenario under `tests/brd/` was read against one question: if this rule changed, whose
+code would have to change? Five answered `tg_agent_shell` and moved; four leaned on a rule
+another scenario already states and now cite it.
+
+### Benefits
+
+- `AG-TURN-024` is the lease CLAUDE.md calls "one lease, and the owner always wins", written
+  down for the first time. It took in `CO-GENERATION-011`, `CO-SUMMARY-003` and twelve tests
+  from three files — eight of which were `TurnManager` unit tests filed under a Reminders
+  scenario.
+- `RM-GATE-018` needed no move: `AG-TURN-015` already said it word for word. A duplicate of an
+  approved rule is worse than a missing one, because nothing fails when the two drift.
+- `AG-HELPER-025` and `AG-HELPER-026` are the helper's session rules, which the heavy analyzer
+  only configures.
+- `TG-SUMMARY-006` is the window's rule again: it ends at the newest message that stands for
+  what came before, and which message that is belongs to whoever fills the seam.
+- Four scenarios that lean on the proposal flow, the turn or the marking now name the rule they
+  lean on, so a reader can tell a rule from a consequence of one.
+- What was left alone is named: `RM-FIRE-013`, `SR-SQL-004`, `TA-PICK-007`, `PS-UI-SAVE-008`,
+  `PS-UI-INVALID-009`, `HAN-ASK-011` and `RM-POLL-021` all rest on shell machinery that no
+  scenario describes, so there is nothing to cite yet.
+
 ## Batches 14 and 15 — landed
 
 Every package has a scenario file, and every scenario file has a package.

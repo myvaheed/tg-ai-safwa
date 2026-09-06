@@ -57,7 +57,7 @@ Feature: Diary
   Scenario: DI-WRITE-008 — Safwa's own writing waits for the owner
     Given nothing is written for 15.08.2026
     When the Diary is asked to write "День до сохранения." for that day
-    Then it comes back as something for the owner to approve
+    Then it comes back as something for the owner to approve, by PR-WRITE-002
     And nothing is in the Diary until they do
 
   Scenario: DI-RECEIPT-009 — The line the owner gets back never quotes the day itself

@@ -105,8 +105,8 @@ async def remaining(sessions) -> list[str]:
         return [cue.text for cue in await session.scalars(select(Cue).order_by(Cue.id))]
 
 
-async def test_pl_end_015_a_waiting_cue_is_said_once_and_then_gone(sessions):
-    """PL-END-015 — tests/brd/planning.feature"""
+async def test_ag_cue_029_a_waiting_cue_is_said_once_and_then_gone(sessions):
+    """AG-CUE-029 — tests/brd/tg_agent_shell/agents.feature"""
     await write(sessions, "Sprint 1 is over.")
     recorder = Recorder()
 
@@ -118,8 +118,8 @@ async def test_pl_end_015_a_waiting_cue_is_said_once_and_then_gone(sessions):
     assert await tick(sessions, **_hooks(recorder)) is False
 
 
-async def test_pl_end_015_a_closed_gate_leaves_the_cue_waiting(sessions):
-    """PL-END-015 — tests/brd/planning.feature"""
+async def test_ag_cue_029_a_closed_gate_leaves_the_cue_waiting(sessions):
+    """AG-CUE-029 — tests/brd/tg_agent_shell/agents.feature"""
     await write(sessions, "Sprint 1 is over.")
     recorder = Recorder(open_gate=False)
 
@@ -131,8 +131,8 @@ async def test_pl_end_015_a_closed_gate_leaves_the_cue_waiting(sessions):
     assert recorder.releases == 0
 
 
-async def test_pl_end_015_a_turn_that_did_not_land_leaves_the_cue_waiting(sessions):
-    """PL-END-015 — tests/brd/planning.feature"""
+async def test_ag_cue_029_a_turn_that_did_not_land_leaves_the_cue_waiting(sessions):
+    """AG-CUE-029 — tests/brd/tg_agent_shell/agents.feature"""
     await write(sessions, "Sprint 1 is over.")
     failing = Recorder(delivered=False)
 
@@ -147,8 +147,8 @@ async def test_pl_end_015_a_turn_that_did_not_land_leaves_the_cue_waiting(sessio
     assert recorder.said == ["Sprint 1 is over."]
 
 
-async def test_pl_end_015_one_tick_says_the_oldest_cue_and_leaves_the_rest(sessions):
-    """PL-END-015 — tests/brd/planning.feature"""
+async def test_ag_cue_029_one_tick_says_the_oldest_cue_and_leaves_the_rest(sessions):
+    """AG-CUE-029 — tests/brd/tg_agent_shell/agents.feature"""
     await write(sessions, "Sprint 1 is over.")
     await write(sessions, "Sprint 2 is over.")
     recorder = Recorder()
@@ -160,8 +160,8 @@ async def test_pl_end_015_one_tick_says_the_oldest_cue_and_leaves_the_rest(sessi
     assert recorder.releases == 1
 
 
-async def test_pl_end_015_an_empty_queue_takes_no_lease(sessions):
-    """PL-END-015 — tests/brd/planning.feature"""
+async def test_ag_cue_029_an_empty_queue_takes_no_lease(sessions):
+    """AG-CUE-029 — tests/brd/tg_agent_shell/agents.feature"""
     recorder = Recorder()
 
     assert await tick(sessions, **_hooks(recorder)) is False

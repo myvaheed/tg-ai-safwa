@@ -242,21 +242,21 @@ async def test_reconcile_is_a_no_op_when_the_timezone_has_not_moved(sessions):
 
 
 def test_a_background_lease_is_marked_background():
-    """RM-GATE-018 — tests/brd/reminders.feature"""
+    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
     turn = TurnManager()
     assert turn.try_begin_background() is True
     assert turn.active and turn.background
 
 
 def test_an_owner_lease_is_not_background():
-    """RM-GATE-018 — tests/brd/reminders.feature"""
+    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
     turn = TurnManager()
     turn.try_begin(101)
     assert turn.active and not turn.background
 
 
 def test_a_background_lease_never_steals_from_the_owner():
-    """RM-GATE-018 — tests/brd/reminders.feature"""
+    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
     turn = TurnManager()
     turn.try_begin(101)
     assert turn.try_begin_background() is False
@@ -264,7 +264,7 @@ def test_a_background_lease_never_steals_from_the_owner():
 
 
 def test_releasing_a_background_lease_gives_the_turn_back():
-    """RM-GATE-018 — tests/brd/reminders.feature"""
+    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
     turn = TurnManager()
     turn.try_begin_background()
     turn.end_background()
@@ -272,7 +272,7 @@ def test_releasing_a_background_lease_gives_the_turn_back():
 
 
 def test_cancelling_a_background_lease_bumps_the_dialogue_revision():
-    """RM-GATE-018 — tests/brd/reminders.feature"""
+    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
     # That bump is how the running turn learns it lost and must discard its answer.
     turn = TurnManager()
     turn.try_begin_background()
@@ -284,7 +284,7 @@ def test_cancelling_a_background_lease_bumps_the_dialogue_revision():
 
 
 def test_ending_background_work_cannot_take_the_owners_turn():
-    """RM-GATE-018 — tests/brd/reminders.feature"""
+    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
     turn = TurnManager()
     turn.try_begin_background()
     turn.cancel()
@@ -402,7 +402,7 @@ async def test_reminder_advisor_receives_canonical_dialogue(sessions, monkeypatc
 
 
 async def test_a_registered_cue_event_is_not_generated_twice(sessions):
-    """RM-FIRE-013 — tests/brd/reminders.feature"""
+    """AG-CUE-029 — tests/brd/tg_agent_shell/agents.feature"""
     event_id = "b" * 32
     async with sessions() as session:
         session.add(
@@ -423,7 +423,7 @@ async def test_a_registered_cue_event_is_not_generated_twice(sessions):
 
 
 async def test_a_cue_render_failure_releases_its_pending_proposal(sessions, monkeypatch):
-    """RM-FIRE-013 — tests/brd/reminders.feature"""
+    """AG-CUE-029 — tests/brd/tg_agent_shell/agents.feature"""
     cancelled: list[int] = []
 
     class History:
@@ -463,7 +463,7 @@ async def test_a_cue_render_failure_releases_its_pending_proposal(sessions, monk
 
 
 async def test_cancelling_a_foreground_lease_aborts_its_task() -> None:
-    """RM-GATE-018 — tests/brd/reminders.feature"""
+    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
     # Bumping the revision only marks the answer stale; the provider calls must stop.
     turn = TurnManager()
     started = asyncio.Event()
@@ -489,7 +489,7 @@ async def test_cancelling_a_foreground_lease_aborts_its_task() -> None:
 
 
 async def test_cancelling_a_background_lease_leaves_its_loop_running() -> None:
-    """RM-GATE-018 — tests/brd/reminders.feature"""
+    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
     # A background holder's task is a long-lived loop; cancelling it would end the loop.
     turn = TurnManager()
     started = asyncio.Event()

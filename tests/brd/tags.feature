@@ -27,8 +27,7 @@ Feature: Tags
   Scenario: TA-PICK-007 — Choosing Tags for a Card shows them a page at a time
     Given a Card is being tagged and there are more Tags than fit on a page
     When the list of Tags opens
-    Then it shows 10 of them and says which page this is (SELECTOR_PAGE_SIZE = 10)
-    And Next reaches the rest, so no Tag is out of reach
+    Then it shows 10 of them a page, by SC-PAGE-007 (SELECTOR_PAGE_SIZE = 10)
     And ticking one on the second page leaves the owner on the second page
     And Back returns to the Card the list was opened from
 

@@ -56,6 +56,23 @@ Feature: Screens
     When a kind that is not one of them is asked for
     Then it is refused, rather than answered with an empty screen
 
+  Scenario: SC-PAGE-007 — A list too long for one screen is offered a page at a time
+    Given more rows than one screen holds
+    When the owner opens that screen
+    Then they get the first page, and it says which page of how many they are on
+    And the way back is not offered on the first page, nor the way on from the last
+    When they walk to the next
+    Then nothing is left out: the last page holds what is left, however few
+
+  Scenario: SC-INPUT-008 — A screen that asks for a typed value answers in place
+    Given a screen asked the owner to type a value, showing what it holds now
+    When they send one that is accepted
+    Then it is kept, their message is taken out of the chat, and that same screen is redrawn in
+      place rather than a second one appearing
+    When what they send is refused
+    Then nothing is kept, the message is still taken out of the chat, and the same screen says what
+      was wrong and goes on waiting
+
   Scenario: SC-FAIL-005 — A review that could not be put on screen does not stay open
     Given Safwa prepared a change and the review screen for it could not be put in the chat
     When that happens

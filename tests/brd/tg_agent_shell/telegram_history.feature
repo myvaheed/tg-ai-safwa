@@ -47,13 +47,15 @@ Feature: The conversation in Telegram
     And the cut falls between two messages, so no message arrives half there
     And a hundred short messages may all fit where three long ones do not
 
-  Scenario: TG-SUMMARY-006 — The newest Summary is where the window ends
-    Given the conversation has a Summary in it
+  Scenario: TG-SUMMARY-006 — The window ends at the newest message that stands for what came before it
+    Given the conversation has a message that stands for everything said before it
     When Safwa reads the conversation back before answering
-    Then it stops at the newest Summary and reads that in place of what came before it
-    And an older Summary is never read
+    Then the window ends there, and that message is read in place of what it stands for
+    And an older one of those is never read
     And up to 20 of the messages just before it come along with it
       (SUMMARY_CONTEXT_MESSAGE_LIMIT = 20)
+    And which message that is, the window does not decide: in Safwa it is the newest Summary,
+      by CO-SUMMARY-001
 
   Scenario: TG-NOTES-007 — The conversation is read from the chat, and from nothing Safwa keeps
     Given every note Safwa kept about this chat is gone

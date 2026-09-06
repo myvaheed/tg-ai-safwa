@@ -141,7 +141,7 @@ async def test_memory_maintenance_off_never_runs(sessions) -> None:
 
 
 async def test_background_gate_does_not_start_work_while_foreground_is_active() -> None:
-    """CO-GENERATION-011 — tests/brd/continuity.feature"""
+    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
     guard = TurnManager()
     guard.begin(101)
     called = False
@@ -156,7 +156,7 @@ async def test_background_gate_does_not_start_work_while_foreground_is_active() 
 
 
 async def test_background_gate_invalidates_currentness_after_dialogue_revision_changes() -> None:
-    """CO-GENERATION-011 — tests/brd/continuity.feature"""
+    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
     guard = TurnManager()
 
     async def background(still_current) -> bool:
@@ -170,7 +170,7 @@ async def test_background_gate_invalidates_currentness_after_dialogue_revision_c
 async def test_due_memory_maintenance_waits_while_foreground_generation_is_active(
     sessions,
 ) -> None:
-    """CO-GENERATION-011 — tests/brd/continuity.feature"""
+    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
     async with sessions() as session:
         profile = await session.get(UserProfile, 1)
         profile.memory_update_time = time(3, 0)
@@ -227,7 +227,7 @@ async def test_stale_memory_write_keeps_local_file_and_cursor_unchanged(
 
 
 async def test_owner_message_wins_race_with_in_flight_summary(sessions) -> None:
-    """CO-SUMMARY-003 — tests/brd/continuity.feature"""
+    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
     first = HistoryEntry(
         message_id=10,
         sender_id=42,

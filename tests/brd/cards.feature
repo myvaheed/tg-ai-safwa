@@ -39,7 +39,7 @@ Feature: Cards
     Given the owner is looking at a Card
     When they look for a way to move it under another Card, or to give it a child
     Then there is none: the screens create, edit, link, and move a Card between stages
-    And the only path that changes a parent is a Card proposal the owner saved
+    And the only path that changes a parent is a Card proposal the owner saved, by PR-WRITE-002
 
   Scenario: CD-TREE-006 — A parent that is archived, or that is not there, is not a parent
     Given a Goal that the owner archived

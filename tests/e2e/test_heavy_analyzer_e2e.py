@@ -172,7 +172,7 @@ async def test_han_ask_007_the_rows_come_back_and_the_advisor_answers(e2e_harnes
 
 
 async def test_han_ask_008_cancelling_the_turn_stops_the_helper(e2e_harness) -> None:
-    """HAN-ASK-008 — tests/brd/heavy_analyzer.feature"""
+    """AG-HELPER-025 — tests/brd/tg_agent_shell/agents.feature"""
     entered = asyncio.Event()
     cancelled = False
 
@@ -246,7 +246,7 @@ async def test_han_ask_011_a_failed_helper_still_leaves_an_answer(e2e_harness) -
 
 
 async def test_han_offer_005_the_offer_outlives_a_screen(e2e_harness) -> None:
-    """HAN-OFFER-005 — tests/brd/heavy_analyzer.feature"""
+    """AG-HELPER-026 — tests/brd/tg_agent_shell/agents.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_card(session, title="Run", kind="action", effort_points=1)
         await session.commit()

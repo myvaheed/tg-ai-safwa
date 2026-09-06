@@ -183,3 +183,55 @@ Feature: Agents — the session, the hand-over, and what comes back
     Given Safwa is working on a request
     When the owner writes, and Telegram refuses to let Safwa take that message out of the chat
     Then the running request is stopped, and what they wrote is answered now
+
+  Scenario: AG-TURN-024 — One lease, and the owner always wins
+    Given work Safwa does on its own, with nothing to say to the owner
+    When a request of the owner's is being answered
+    Then that work does not start, because answering the owner comes first
+    And it can never take the turn away from the owner, however long it has been waiting
+    When it finishes and gives the turn back
+    Then Safwa is free for the next thing
+
+  Scenario: AG-TURN-024 — Work the owner overtook is thrown away rather than saved
+    Given background work that started from the conversation as it stood
+    When the owner says something before it has stored anything
+    Then its result is thrown away, because it no longer covers the whole conversation
+    And a later attempt covers the owner's words too
+
+  Scenario: AG-HELPER-025 — A helper runs inside the owner's turn, not beside it
+    Given Safwa has called a helper
+    Then the owner's turn is still running and no screen is shown
+    And text the owner sends meanwhile is not answered while it runs, by AG-TURN-010
+    When the owner cancels the answer
+    Then the helper stops with the request it belongs to
+
+  Scenario: AG-HELPER-026 — A helper stays offered across a screen the session opened
+    Given Safwa was offered a helper
+    And it then routed a change that opened a screen
+    When the owner saves it and the session resumes
+    Then that helper is still on its tool list
+
+  Scenario: AG-READ-027 — A reader asks with one SELECT, over the views it was given
+    Given a part of Safwa that reads the workspace to answer a question
+    When it asks the database something
+    Then it may send one read-only SELECT, or one WITH … SELECT, and nothing else
+    And it reaches only the views its own list names, so a view no list names is one that reader
+      never learns exists
+    And a word like delete inside quoted text is text, and is not something to refuse over
+
+  Scenario: AG-HELPER-028 — A helper that spends its budget without an answer comes back as a failure
+    Given a helper reading its way to an answer, under the budget its caller gave it
+    When the budget is spent and it has still not ended the session
+    Then it comes back as a failure, not as whatever it happened to say last
+    And a helper that ends the session before it read anything is refused the same way
+
+  Scenario: AG-CUE-029 — Something Safwa owes the owner survives until it is said
+    Given Safwa owes the owner something it was not asked for
+    When it cannot be said yet
+    Then it stays written down, and the next check offers it again
+    And one check offers the oldest and leaves the rest
+    When a turn is started for it and does not reach the chat
+    Then it is still owed, and nothing about it was thrown away
+    When its arrival in the chat has been registered
+    Then no later check says it a second time
+    And when nothing is owed, no turn is taken at all

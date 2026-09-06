@@ -61,7 +61,8 @@ def test_han_read_012_the_event_log_belongs_to_the_helper(read_views) -> None:
 
 
 def test_a_reader_is_scoped_by_the_list_it_is_given() -> None:
-    """The Diary is the Advisor's to read and the workspace's to leave alone."""
+    """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
+    # The Diary is the Advisor's to read and the workspace's to leave alone.
     workspace = next(agent.instructions for agent in AGENTS if agent.name == "workspace_mutator")
 
     assert "ai_diary" in SYSTEM_PROMPT
@@ -167,7 +168,8 @@ async def test_han_ask_011_a_helper_that_gets_nowhere_says_so(read_views) -> Non
 
 
 async def test_a_budget_spent_without_an_answer_is_a_failure(read_views) -> None:
-    """The budget bounds the session (HEAVY_ANALYZER_MAX_TOOL_CALLS = 10), not the first error."""
+    """AG-HELPER-028 — tests/brd/tg_agent_shell/agents.feature"""
+    # The budget bounds the session (HEAVY_ANALYZER_MAX_TOOL_CALLS = 10), not the first error.
     _, runner = read_views
     reads = heavy_analyzer.HEAVY_ANALYZER_MAX_TOOL_CALLS + 1
     provider = ScriptedMini([query("SELECT id FROM ai_cards", f"q{n}") for n in range(reads)])
@@ -182,7 +184,8 @@ async def test_a_budget_spent_without_an_answer_is_a_failure(read_views) -> None
 
 
 async def test_forwarding_before_reading_anything_is_refused(read_views) -> None:
-    """`forward_output` forwards a read; there has to be one."""
+    """AG-HELPER-028 — tests/brd/tg_agent_shell/agents.feature"""
+    # `forward_output` forwards a read; there has to be one.
     _, runner = read_views
     provider = ScriptedMini([terminal("forward_output")])
 
@@ -243,5 +246,5 @@ def test_han_ask_010_no_routing_rule_names_a_helper() -> None:
 
 
 def test_call_helper_runs_inside_the_turn_and_never_becomes_a_proposal() -> None:
-    """HAN-ASK-008 — tests/brd/heavy_analyzer.feature"""
+    """AG-HELPER-025 — tests/brd/tg_agent_shell/agents.feature"""
     assert "call_helper" in IMMEDIATE_TOOLS

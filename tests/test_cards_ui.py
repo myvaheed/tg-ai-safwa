@@ -108,6 +108,7 @@ async def test_card_note_input_updates_same_creation_message(sessions) -> None:
 
 
 async def test_dashboard_paging_walks_between_pages(sessions) -> None:
+    """SC-PAGE-007 — tests/brd/tg_agent_shell/screens.feature"""
     async with sessions() as session:
         for index in range(7):
             await create_card(

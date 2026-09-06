@@ -46,14 +46,13 @@ Feature: Profile
     Given one Profile prompt is open
     When the owner types something valid
     Then only the field they were asked for changes
-    And the prompt closes itself
-    And Profile is redrawn with the new value
+    And the prompt closes itself and Profile is redrawn with the new value, by SC-INPUT-008
 
   Scenario: PS-UI-INVALID-009 — A rejected answer changes nothing and asks again
     Given one Profile prompt is open
     When the owner types something invalid
     Then no field changes
-    And the same prompt is still there, now saying what was wrong with it
+    And the same prompt is still there, now saying what was wrong with it, by SC-INPUT-008
 
   Scenario: PS-TIMEZONE-010 — The timezone is shown but not editable here
     Given the workspace timezone is Europe/Istanbul

@@ -302,6 +302,7 @@ def test_query_tool_rejects_null_empty_and_extra_arguments():
     ],
 )
 def test_read_sql_rejects_unsafe_queries(sql):
+    """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
     with pytest.raises(UnsafeQueryError):
         validate_read_sql(sql, ALLOWED_VIEWS)
 
@@ -318,11 +319,13 @@ def test_read_sql_rejects_unsafe_queries(sql):
     ],
 )
 def test_read_sql_reads_keywords_only_outside_quotes(sql):
-    """A word inside a string literal is text, and one column may start with a keyword."""
+    """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
+    # A word inside a string literal is text, and one column may start with a keyword.
     assert validate_read_sql(sql, ALLOWED_VIEWS)
 
 
 def test_read_sql_accepts_views_and_ctes():
+    """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
     assert validate_read_sql("SELECT title FROM ai_cards LIMIT 5", ALLOWED_VIEWS)
     assert validate_read_sql("SELECT id, title FROM ai_cards LIMIT 5", ALLOWED_VIEWS)
     assert validate_read_sql(
@@ -339,6 +342,7 @@ def test_read_sql_accepts_views_and_ctes():
 
 
 def test_read_sql_accepts_recursive_and_column_list_ctes():
+    """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
     assert validate_read_sql(
         "WITH RECURSIVE tree AS (SELECT id FROM ai_cards WHERE id = 1 "
         "UNION ALL SELECT c.id FROM ai_cards c JOIN tree t ON c.parent_id = t.id) "

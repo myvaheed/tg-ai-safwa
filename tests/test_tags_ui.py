@@ -16,6 +16,7 @@ from tg_agent_shell.telegram.model import UiSession
 
 
 async def test_tag_field_input_reuses_editor_message_and_deletes_input(sessions) -> None:
+    """SC-INPUT-008 — tests/brd/tg_agent_shell/screens.feature"""
     services = services_for(sessions)
     callback = FakeMessage(30, bot_message=True)
     await render_tag(callback, services, mode="create")

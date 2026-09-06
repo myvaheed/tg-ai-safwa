@@ -27,12 +27,6 @@ Feature: The helper the Advisor calls
     Then it is told to fix that one SELECT
     And nothing in the error names call_helper
 
-  Scenario: HAN-OFFER-005 — The offer outlives a screen the Advisor opened
-    Given the Advisor was offered the helper
-    And it then routed a change that opened a screen
-    When the owner saves it and the Advisor's session resumes
-    Then call_helper is still on its tool list
-
   Scenario: HAN-ASK-006 — The helper is given the question and the conversation
     Given the Advisor calls call_helper with a question of its own
     When the helper starts
@@ -44,13 +38,6 @@ Feature: The helper the Advisor calls
     When it ends the session
     Then the Advisor is given those rows and the query that produced them
     And nothing the helper wrote in words reaches the Advisor
-
-  Scenario: HAN-ASK-008 — Nothing happens while the helper runs
-    Given the Advisor has called the helper
-    Then the owner's turn is still running and no screen is shown
-    And owner text that arrives is queued, not answered
-    When the owner cancels the generation
-    Then the helper stops with the request it belongs to
 
   Scenario: HAN-ASK-009 — The helper changes nothing
     Given the owner's question needs a change as well as an answer
@@ -65,7 +52,8 @@ Feature: The helper the Advisor calls
     Then it is refused and told which subagents it may route to
 
   Scenario: HAN-ASK-011 — A helper that gets nowhere does not cost the turn
-    Given the helper spends its whole budget without an answer (HEAVY_ANALYZER_MAX_TOOL_CALLS = 10)
+    Given the helper spends its whole budget without an answer, by AG-HELPER-028
+      (HEAVY_ANALYZER_MAX_TOOL_CALLS = 10)
     When the Advisor reads the result
     Then it carries one sentence saying the helper could not work it out
     And the Advisor still answers the owner

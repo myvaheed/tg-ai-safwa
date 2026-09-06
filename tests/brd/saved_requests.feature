@@ -27,7 +27,7 @@ Feature: Saved Requests
   Scenario: SR-SQL-004 — A Request's query only reads, and it has to come back with Cards
     Given a Request is being saved
     When its query is checked
-    Then it must be a single SELECT, or WITH … SELECT, over the views Safwa is allowed to read
+    Then it is checked the way every read Safwa makes is checked, by AG-READ-027
     And it must ask about Cards
     And it must come back with a column named id, so the answer is Cards and not numbers
     And anything else is refused, and no Request is written
