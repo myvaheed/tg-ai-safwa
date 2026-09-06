@@ -17,6 +17,7 @@ import re
 import sqlite3
 import time
 from collections.abc import Collection, Sequence
+from copy import copy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -119,23 +120,50 @@ def _unquoted(token: str) -> str:
     return token
 
 
-def scan_statement(statement: str) -> set[str]:
-    """Every token-level rule, and the table names the allowlist below is checked against.
+def scan_statement(statement: str) -> tuple[set[str], set[str]]:
+    """Every token-level rule, the table names the allowlist below is checked against, and
+    the CTE names this statement declares.
 
     One pass, because each rule reads the same tokens: a keyword only counts outside a
     string literal, and a table source can be hidden behind a comment, a parenthesized bare
     name or SQLite's legacy comma-separated list. Splitting these into separate regular
-    expressions is what let a query name a base table the FROM/JOIN allowlist never saw.
+    expressions is what let a query name a base table the FROM/JOIN allowlist never saw —
+    the last of them read `'WITH private_rows AS ('` out of a string literal and took it
+    for a declaration. A CTE is a declaration position, not a shape found anywhere in the
+    text: the name after WITH, or after a comma that follows a finished CTE body.
     """
     names: set[str] = set()
+    ctes: set[str] = set()
     depth = 0
     from_depths: set[int] = set()
     expect_name = False  # the previous token was FROM or JOIN
     expect_select = False  # ... and an opening parenthesis followed it
+    cte_depth = -1  # the depth the WITH clause's list of CTEs lives at
+    cte_stage = ""  # name -> as -> body -> inside -> comma, and back to name
+    cte_name = ""
+    cte_body_depth = 0
     for match in SQL_TOKEN.finditer(statement):
         token = match.group()
         if match.lastgroup == "comment":
             raise UnsafeQueryError("SQL comments are not allowed")
+        named = match.lastgroup in {"word", "quoted"}
+        lowered = token.casefold() if match.lastgroup == "word" else ""
+        if cte_stage == "name" and depth == cte_depth and lowered != "recursive":
+            cte_stage, cte_name = ("as", _unquoted(token).casefold()) if named else ("", "")
+        elif cte_stage == "as" and depth == cte_depth and token != "(":
+            # A parenthesis here is the optional column list, and it is skipped by depth.
+            cte_stage = "body" if lowered == "as" else ""
+        elif cte_stage == "body" and depth == cte_depth:
+            cte_stage = "" if token != "(" else "inside"
+            if cte_stage == "inside":
+                ctes.add(cte_name)
+                cte_body_depth = depth
+        elif cte_stage == "inside" and token == ")" and depth == cte_body_depth + 1:
+            cte_stage = "comma"
+        elif cte_stage == "comma" and depth == cte_depth:
+            cte_stage = "name" if token == "," else ""
+        elif cte_stage == "" and lowered == "with":
+            cte_depth, cte_stage = depth, "name"
         if token == "(":
             expect_name, expect_select = False, expect_name or expect_select
             depth += 1
@@ -163,7 +191,7 @@ def scan_statement(statement: str) -> set[str]:
                 from_depths.add(depth)
             elif lowered in FROM_END:
                 from_depths.discard(depth)
-    return names
+    return names, ctes
 
 
 # What a read that is more than one flat scan of one view always contains. A bare
@@ -192,18 +220,9 @@ def validate_read_sql(sql: str, views: Collection[str]) -> str:
         raise UnsafeQueryError("Only one SQL statement is allowed")
     if not re.match(r"^(select|with)\b", statement, re.IGNORECASE):
         raise UnsafeQueryError("Only SELECT queries are allowed")
-    names = scan_statement(statement)
     # A CTE may be recursive and may declare its columns, and both forms name a table
-    # the FROM/JOIN scan below would otherwise report as an unavailable view.
-    cte_names = {
-        match.group(1).casefold()
-        for match in re.finditer(
-            r"(?:\bwith\s+(?:recursive\s+)?|,)\s*([A-Za-z_][A-Za-z0-9_]*)"
-            r"\s*(?:\([^)]*\))?\s+as\s*\(",
-            statement,
-            re.I,
-        )
-    }
+    # the FROM/JOIN scan would otherwise report as an unavailable view.
+    names, cte_names = scan_statement(statement)
     disallowed = names - set(views) - cte_names
     if disallowed:
         raise UnsafeQueryError(
@@ -289,6 +308,21 @@ class ReadOnlyQueryRunner:
         self.cell_limit = cell_limit
         self.timeout = timeout
 
+    def scoped(self, views: Collection[str]) -> ReadOnlyQueryRunner:
+        """The same runner for one reader, over the views that reader declared.
+
+        The list a reader's prompt describes and the list its reads may name are one
+        declaration, so a view it is never told about is one it cannot reach by guessing
+        the name. Every cap travels along, because a reader's scope is the only difference.
+        """
+        narrowed = frozenset(views)
+        unknown = narrowed - self.views
+        if unknown:
+            raise RuntimeError(f"A reader asks for views no feature publishes: {sorted(unknown)}")
+        reader = copy(self)
+        reader.views = narrowed
+        return reader
+
     def _trim(self, rows: list[sqlite3.Row]) -> tuple[list[dict[str, Any]], bool, bool]:
         result: list[dict[str, Any]] = []
         shortened = False
@@ -345,9 +379,11 @@ class ReadOnlyQueryRunner:
                 sqlite3.SQLITE_PRAGMA,
             }:
                 return sqlite3.SQLITE_DENY
-            # SQLite sometimes reports an empty column for a view flattened into a
-            # rowid scan. The statement validator therefore owns columnless table-source
-            # reads; the authorizer independently refuses every attributed base column.
+            # A view flattened into a rowid scan reports its base table with no column and
+            # no view attribution — `('cards', '', None)`, which is the same callback a
+            # bare `count(*)` over a forbidden table makes. The authorizer cannot tell the
+            # two apart, so `scan_statement` owns every table source by name and this
+            # independently refuses every attributed base column.
             if (
                 action == sqlite3.SQLITE_READ
                 and arg1

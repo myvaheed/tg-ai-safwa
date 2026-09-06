@@ -121,6 +121,11 @@ The Advisor holds no mutation tool: every write is a proposal authored by a suba
 An immediate tool and mutation tools must not arrive in one provider response; the runtime rejects
 the mutations and the model retries them once it has seen the read.
 
+A name that is not on the session's own tool list is refused before any dispatch, so the tools sent
+to the model are exactly the tools it can reach: the Advisor cannot prepare a change and a subagent
+cannot `route`. Every call is charged to `MAX_TOOL_CALLS`, a refused one included — a session that
+only ever sends malformed responses is stopped by the budget rather than running on.
+
 A feature may watch what the model calls: `before_tool` is given the call and refuses it by
 answering with a result, `after_tool` is given the call and what it produced. `route` reaches
 neither, because the runtime answers it before the adapters are reached. A watcher that raises
@@ -176,7 +181,9 @@ sequenceDiagram
 - A routed subagent has no `route`, so there is no recursion.
 - A request naming two domains is two routes and one message.
 - `SUBAGENT_DEADLINE_SECONDS = 300` bounds a subagent by the clock, not by a call count, because it
-  blocks the Advisor's turn.
+  blocks the Advisor's turn. It bounds every active stretch, the one after a Save included; the
+  owner's own time deciding is outside it. A subagent the clock stops hands its caller an error
+  receipt, so the turn still answers.
 
 **Words typed over a screen** resume the turn that opened it. Every pending proposal in that batch is
 discarded, the screen is frozen into an account of what the request did, and only then is anything
@@ -392,9 +399,12 @@ flowchart LR
 - The views are dropped and rebuilt on **every startup**. Change a view's shape in the owning
   feature's `views.py`, never with a migration.
 - A `SqlView` carries its own `doc`, so the block a model reads about a view lives beside the SELECT.
-- **The view list in a prompt is what scopes a reader**: a view no list names is one that reader
-  never learns exists. The Diary writes its own list by hand, with columns trimmed on purpose.
-- `view_catalogue` refuses a name no feature publishes and a view with no `doc`.
+- **A reader declares its views once, and that list both describes and scopes it**: it fills the
+  `{views}` block in the prompt and narrows that reader's own `query_data`, so a view no list names
+  is refused rather than merely unmentioned. The Diary writes its block by hand, with columns
+  trimmed on purpose, and still declares the four it may read.
+- `view_catalogue` refuses a name no feature publishes and a view with no `doc`, and a reader that
+  declares no views at all is a wiring error rather than a reader of everything.
 
 `query_data` is triple-guarded: regex validation of one `SELECT`/`WITH … SELECT` over the `ai_*`
 views, a separate read-only connection with an authorizer allowlist, and result caps

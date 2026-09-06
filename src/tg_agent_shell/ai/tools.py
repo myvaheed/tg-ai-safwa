@@ -457,14 +457,21 @@ class ToolAdapters:
         logger.info("AI TOOL %s(%s)", call.name, log_preview(call.arguments_json, 200))
         return result
 
+    def _runner_for(self, agent: AgentSession) -> ReadOnlyQueryRunner:
+        """The reader this session is: a subagent reads over the views it declared."""
+        routed = self.subagents.get(agent.kind)
+        if routed is None or routed.query_runner is None:
+            return self.query_runner
+        return routed.query_runner
+
     async def query(self, agent: AgentSession, call: ToolCall) -> list[dict[str, Any]]:
         """The one read door, for every session the adapters run.
 
-        The read itself is `ai/sql.py`'s. What is here is the session's half of it: the
-        helper a complex read earns, and the trail that keeps the SQL a local model wrote
-        beside the rows it got back.
+        The read itself is `ai/sql.py`'s. What is here is the session's half of it: which
+        reader is asking, the helper a complex read earns, and the trail that keeps the SQL
+        a local model wrote beside the rows it got back.
         """
-        read = await read_query(self.query_runner, call)
+        read = await read_query(self._runner_for(agent), call)
         sql, rows = read.sql, read.rows
         offer = self._offered_helper(agent, sql, rows)
         if offer is not None:

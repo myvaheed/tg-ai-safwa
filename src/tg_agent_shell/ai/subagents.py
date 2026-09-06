@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .mini import ReadToolSpec
+from .sql import ReadOnlyQueryRunner
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,9 @@ class RoutedSubagent:
     # The whole of what this subagent reads before the conversation, composed by the
     # application: no voice of any product is written here.
     prompt: str
+    # `query_data` for this reader alone, over the views it declared. The prompt says what
+    # they are and this refuses everything else, out of the one declaration.
+    query_runner: ReadOnlyQueryRunner | None = None
     read_tools: tuple[ReadToolSpec, ...] = ()
     mutation_tools: tuple[str, ...] = ()
     # Whether the workspace's current state belongs in its context at all.

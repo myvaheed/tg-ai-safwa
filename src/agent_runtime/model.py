@@ -137,6 +137,18 @@ class AgentSession:
         self.tools = (*self.tools, self.helper_tool)
 
     @property
+    def tool_names(self) -> frozenset[str]:
+        """What this session may call: the names of the tools it was actually handed.
+
+        `tools` is the list that goes to the model, so it is also the list a call is
+        checked against — a name that is not here was never offered to this session, and
+        answering it would run a tool of somebody else's on this session's behalf.
+        """
+        return frozenset(
+            str(tool["function"]["name"]) for tool in self.tools if "function" in tool
+        )
+
+    @property
     def transcript(self) -> list[dict[str, Any]]:
         """The assistant/tool exchanges this request produced, without its context prefix.
 

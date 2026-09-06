@@ -202,6 +202,9 @@ DIARY_AGENT = AgentSpec(
     name="diary",
     purpose="write, rewrite or delete a day.",
     instructions=DIARY_PROMPT,
+    # The prompt lists these four itself, with their columns trimmed to what writing a day
+    # needs, so it carries no `{views}`. The list is still what a read is refused against.
+    views=("ai_diary", "ai_card_events", "ai_checks", "ai_cards"),
     mutation_tools=("diary",),
     read_tools=_diary_read_tools,
     clock=_diary_clock,

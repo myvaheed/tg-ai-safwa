@@ -216,11 +216,16 @@ AUTOAPPROVALS: dict[tuple[str, str], AutoApprovalRule] = _autoapprovals()
 
 
 def _with_catalogue[Spec: (AgentSpec, HelperSpec)](spec: Spec) -> Spec:
-    """Fill a prompt's `{views}` in, once, so what it reads is what the snapshot hashes."""
+    """Fill a prompt's `{views}` in, once, so what it reads is what the snapshot hashes.
+
+    `views` is the reader's scope either way: a prompt that spells its own list out, with
+    columns trimmed on purpose, keeps what it wrote, and its reads are refused against the
+    same declaration.
+    """
     if not spec.views:
-        return spec
+        raise RuntimeError(f"The {spec.name} reader declares no views, so it can read nothing")
     if "{views}" not in spec.instructions:
-        raise RuntimeError(f"The {spec.name} prompt names views but has no {{views}} to fill")
+        return spec
     return replace(
         spec,
         instructions=spec.instructions.replace(

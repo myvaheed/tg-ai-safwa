@@ -139,3 +139,22 @@ def test_no_subagent_declares_a_read_tool_the_adapters_already_answer(tmp_path) 
     }
 
     assert not declared & IMMEDIATE_TOOLS
+
+
+def test_a_subagent_reads_only_the_views_its_own_declaration_names(tmp_path) -> None:
+    """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
+    context = AgentContext(
+        owner_id=42,
+        timezone="Europe/Istanbul",
+        query_runner=ReadOnlyQueryRunner(tmp_path / "safwa.db", ALLOWED_VIEWS),
+        history=StubDayReader(""),
+    )
+    bound = {agent.name: agent.bind(context, prompt="") for agent in AGENTS}
+
+    for agent in AGENTS:
+        runner = bound[agent.name].query_runner
+        assert runner is not None and runner.views == frozenset(agent.views)
+    # The Diary spells its four out in its own prompt, and reaches nothing else: the
+    # workspace it may not write to is also the workspace it may not read.
+    assert "ai_reminders" not in bound["diary"].query_runner.views
+    assert "ai_diary" not in bound["workspace_mutator"].query_runner.views

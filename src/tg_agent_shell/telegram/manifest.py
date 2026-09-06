@@ -52,18 +52,20 @@ class AgentSpec:
     purpose: str
     instructions: str
     mutation_tools: tuple[str, ...] = ()
-    # The views this subagent is told about, filled into `{views}` in its instructions.
-    # A prompt that spells its own out leaves this empty and keeps what it wrote.
+    # The views this subagent may read. They are filled into `{views}` in its instructions
+    # when it carries that placeholder; a prompt that spells its own out keeps what it
+    # wrote, and this list is still what its reads are refused against.
     views: tuple[str, ...] = ()
     workspace_state: bool = False
     read_tools: Callable[[AgentContext], tuple[ReadToolSpec, ...]] | None = None
     clock: Callable[[AgentContext], Callable[[], str]] | None = None
 
     def bind(self, context: AgentContext, *, prompt: str) -> RoutedSubagent:
-        """The session this declaration runs as here: its read tools and its clock, bound."""
+        """The session this declaration runs as here: its reads, its scope and its clock."""
         return RoutedSubagent(
             name=self.name,
             prompt=prompt,
+            query_runner=context.query_runner.scoped(self.views),
             read_tools=self.read_tools(context) if self.read_tools else (),
             mutation_tools=self.mutation_tools,
             workspace_state=self.workspace_state,

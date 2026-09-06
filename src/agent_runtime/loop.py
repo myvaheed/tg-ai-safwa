@@ -43,6 +43,17 @@ _STOPPED_WITHOUT_ANSWERING = (
 )
 
 
+def _tool_not_available(agent: AgentSession, name: str) -> dict[str, Any]:
+    """What a call is told when this session was never handed that tool."""
+    return {
+        "status": "error",
+        "code": "tool_not_available",
+        "error": f"You have no tool named {name!r}.",
+        "next": f"Call one of: {', '.join(sorted(agent.tool_names))}.",
+        "retryable": True,
+    }
+
+
 class ToolBudgetExceeded(RuntimeError):
     """The session made more tool calls than one turn is allowed."""
 
@@ -104,31 +115,33 @@ async def run_loop(
                     ],
                 }
             )
-            if len(turn.tool_calls) > 1 and any(call.name == "route" for call in turn.tool_calls):
-                # A route can suspend the whole chain, and a suspended response cannot
-                # carry results for its siblings: the transcript would resume malformed.
-                for call in turn.tool_calls:
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": call.id,
-                            "name": call.name,
-                            "content": json.dumps(_ROUTE_IS_NOT_SHARED, ensure_ascii=False),
-                        }
-                    )
-                continue
+            # A route can suspend the whole chain, and a suspended response cannot carry
+            # results for its siblings: the transcript would resume malformed.
+            route_not_shared = len(turn.tool_calls) > 1 and any(
+                call.name == "route" for call in turn.tool_calls
+            )
             pending_tools: list[PendingTool] = []
+            available = agent.tool_names
             immediate = {
-                call.name: tools.is_immediate(agent, call.name) for call in turn.tool_calls
+                call.name: tools.is_immediate(agent, call.name)
+                for call in turn.tool_calls
+                if call.name in available
             }
             has_reads = any(immediate.values())
             has_mutations = not all(immediate.values())
             for call in turn.tool_calls:
+                # Every call is charged, refused ones included: a response the loop answers
+                # without running anything is still a response, and a session that only ever
+                # sends malformed ones would otherwise never reach its limit.
                 agent.tool_count += 1
                 if agent.tool_count > max_tool_calls:
                     raise ToolBudgetExceeded("The session exceeded the tool-call limit")
                 change = None
-                if call.name == "route":
+                if route_not_shared:
+                    result = _ROUTE_IS_NOT_SHARED
+                elif call.name not in available:
+                    result = _tool_not_available(agent, call.name)
+                elif call.name == "route":
                     result, suspended = await route(agent, call)
                     if suspended is not None:
                         return AgentLoopResult(message="", suspended=suspended)
@@ -148,6 +161,8 @@ async def run_loop(
                         "content": json.dumps(result, ensure_ascii=False, default=str),
                     }
                 )
+            if route_not_shared:
+                continue
             changes = [tool.change for tool in pending_tools if tool.change is not None]
             if changes:
                 return AgentLoopResult(
@@ -157,7 +172,7 @@ async def run_loop(
             invalid_mutations = [
                 tool
                 for tool in pending_tools
-                if not immediate[tool.call.name] and tool.change is None
+                if not immediate.get(tool.call.name, True) and tool.change is None
             ]
             if invalid_mutations:
                 if agent.repair_rounds >= max_repair_rounds:

@@ -39,6 +39,7 @@ from tg_agent_shell.turn import TurnManager
 
 from ..config import Settings
 from ..enums import AIProvider
+from ..features.advisor.agent import ADVISOR_VIEWS
 from ..features.memory.store import MemoryFileStore
 from ..features.memory.upkeep import MemoryUpkeep
 from ..features.planning.api import available_screens
@@ -215,7 +216,7 @@ async def run(settings: Settings) -> None:
         database.sessions,
         provider,
         memory,
-        query_runner,
+        query_runner.scoped(ADVISOR_VIEWS),
         PROPOSALS,
         screens=SCREENS,
         workspace_state=workspace_context,
@@ -234,7 +235,9 @@ async def run(settings: Settings) -> None:
         ),
         helpers={
             name: HelperPort(
-                run=spec.build(provider, query_runner, prompt=spec.instructions),
+                run=spec.build(
+                    provider, query_runner.scoped(spec.views), prompt=spec.instructions
+                ),
                 offer_when=spec.offer_when,
                 offer=spec.offer,
             )

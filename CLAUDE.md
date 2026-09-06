@@ -179,9 +179,10 @@ each is held; [docs/DOMAIN.md](docs/DOMAIN.md) is what the words mean.
 - **A session is the unit, and only the Advisor writes to the chat.** `route` hands one turn to a
   subagent and gets a receipt back; a screen suspends the whole chain and a Save resumes it. A
   session runs until it answers in words.
-- **A reader is scoped by the view list in its prompt.** `query_data` takes one read-only SELECT
-  over the `ai_*` views, triple-guarded, and a view no list names is one that reader never learns
-  exists. Views are rebuilt every startup from the owning feature's `views.py`, never migrated.
+- **A reader is scoped by the view list it declares.** One declaration fills the `{views}` block in
+  its prompt and scopes its own `query_data`, so a view no list names is one that reader is refused,
+  not merely one it was not told about. Views are rebuilt every startup from the owning feature's
+  `views.py`, never migrated.
 - **The prompt prefix is byte-stable.** New volatile context goes after the dialogue, never into a
   system block — one timestamp in `messages[0]` costs every cache hit.
 - **`data/memory.md` is authoritative.** The `memory_fact_cache` table is a rebuildable derived

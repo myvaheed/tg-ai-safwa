@@ -20,7 +20,7 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Coroutine, Mapping
 from typing import Any
 from uuid import uuid4
 
@@ -95,6 +95,33 @@ class AgentManager:
             routed_kinds=self.routed_kinds,
             max_tool_calls=self.max_tool_calls,
             max_repair_rounds=self.max_repair_rounds,
+        )
+
+    async def _run_to_outcome(self, agent: AgentSession, started: float) -> TurnOutcome:
+        """One stretch of a session: its loop, and whatever the host makes of the result."""
+        return await self._complete(agent, await self.run(agent), started)
+
+    async def _bounded(
+        self, agent: AgentSession, work: Coroutine[Any, Any, TurnOutcome]
+    ) -> TurnOutcome:
+        """Bound a subagent's active stretch by the clock. A session with no caller is not.
+
+        Every stretch, not only the first: a session picked up after a screen blocks the
+        turn that routed to it exactly as its first one did. The wait itself is outside the
+        bound — a person taking an hour to decide is not a session taking too long.
+        """
+        if agent.parent_run_id is None:
+            return await work
+        return await asyncio.wait_for(work, timeout=self.child_deadline_seconds)
+
+    def _timed_out(self, name: str) -> dict[str, Any]:
+        """The receipt for a subagent the clock stopped."""
+        logger.warning("SUBAGENT %s timed out after %.0fs", name, self.child_deadline_seconds)
+        return self._receipt(
+            name,
+            "",
+            [],
+            error=f"{name} did not finish within {self.child_deadline_seconds:.0f} seconds.",
         )
 
     def _restore(self, record: RunRecord) -> tuple[AgentSession, list[dict[str, Any]]]:
@@ -277,17 +304,26 @@ class AgentManager:
         agent.result_summaries.extend(value.notes)
         agent.display_result_summaries.extend(value.display_notes)
         try:
-            if value.answer is not None:
-                # The host already knows what is left to say, so the session is ended with
-                # those words rather than being asked for its own.
-                outcome = await self._complete(agent, AgentLoopResult(value.answer), started)
-            else:
-                outcome = await self._continue(
+            # The host already knows what is left to say when it hands an answer over, so
+            # the session is ended with those words rather than being asked for its own.
+            work = (
+                self._complete(agent, AgentLoopResult(value.answer), started)
+                if value.answer is not None
+                else self._continue(
                     agent, _resumed_transcript(transcript, value.results), started
                 )
+            )
+            outcome = await self._bounded(agent, work)
             if outcome.waiting:
                 return outcome
             return await self._hand_up(agent, outcome)
+        except TimeoutError:
+            # A subagent the clock stopped still owes its caller a receipt: losing the turn
+            # would leave the owner with a saved change and no answer about it.
+            await self._fail(agent.run_id, started, "timeout")
+            if agent.parent_run_id is None:
+                raise
+            return await self._deliver_to_parent(agent, self._timed_out(agent.kind))
         except Exception as error:
             logger.exception("Session %s could not be resumed", agent.kind)
             await self._fail(agent.run_id, started, error)
@@ -446,12 +482,7 @@ class AgentManager:
             agent.prefix_len = len(messages)
             messages.extend(transcript)
             agent.messages = messages
-            # The deadline bounds one active stretch of the session, never a suspension:
-            # a session waiting on the person is not a session that is taking too long.
-            result = await asyncio.wait_for(
-                self.run(agent), timeout=self.child_deadline_seconds
-            )
-            outcome = await self._complete(agent, result, started)
+            outcome = await self._bounded(agent, self._run_to_outcome(agent, started))
             if outcome.waiting:
                 return outcome, None
             # The materialized outcome, not the raw loop result: a repair round answers again.
@@ -459,18 +490,8 @@ class AgentManager:
                 name, outcome.message, agent.display_result_summaries
             )
         except TimeoutError:
-            logger.warning(
-                "SUBAGENT %s timed out after %.0fs", name, self.child_deadline_seconds
-            )
             await self._fail(agent.run_id, started, "timeout")
-            return TurnOutcome(message=""), self._receipt(
-                name,
-                "",
-                [],
-                error=(
-                    f"{name} did not finish within {self.child_deadline_seconds:.0f} seconds."
-                ),
-            )
+            return TurnOutcome(message=""), self._timed_out(name)
         except Exception as error:
             logger.exception("Routed subagent %s failed", name)
             await self._fail(agent.run_id, started, error)

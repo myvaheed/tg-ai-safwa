@@ -299,6 +299,10 @@ def test_query_tool_rejects_null_empty_and_extra_arguments():
         "SELECT id FROM ai_cards LIMIT 1 -- and one more",
         "PRAGMA table_info(ai_cards)",
         "SELECT * FROM ai_cards; SELECT * FROM ai_values",
+        # A CTE is a declaration, not a shape found anywhere in the text: neither a string
+        # literal nor a WINDOW clause declares one, however much it reads like one.
+        "SELECT count(*) AS n FROM cards WHERE 'WITH cards AS (' <> ''",
+        "WITH x AS (SELECT 1) SELECT id FROM cards WINDOW cards AS (ORDER BY 1)",
     ],
 )
 def test_read_sql_rejects_unsafe_queries(sql):
@@ -356,6 +360,19 @@ def test_read_sql_accepts_recursive_and_column_list_ctes():
         validate_read_sql(
             "WITH RECURSIVE tree AS (SELECT id FROM cards) SELECT id FROM tree", ALLOWED_VIEWS
         )
+
+
+def test_a_reader_is_scoped_to_the_views_it_declared(tmp_path):
+    """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
+    runner = ReadOnlyQueryRunner(tmp_path / "views.db", ALLOWED_VIEWS)
+    reader = runner.scoped(("ai_cards",))
+
+    assert validate_read_sql("SELECT id FROM ai_cards", reader.views)
+    with pytest.raises(UnsafeQueryError, match="ai_diary"):
+        validate_read_sql("SELECT id FROM ai_diary", reader.views)
+    # A scope is narrowed from the catalogue, so a name no feature publishes is a wiring bug.
+    with pytest.raises(RuntimeError, match="ai_nothing"):
+        runner.scoped(("ai_nothing",))
 
 
 def _runner_over_cards(tmp_path, count: int, note: str = "", **caps):
@@ -423,6 +440,14 @@ async def test_recursive_cte_walks_the_card_tree_under_the_authorizer(tmp_path):
     )
 
     assert outcome.rows == [{"id": 1}]
+
+
+async def test_a_table_named_only_inside_a_string_literal_is_never_read(tmp_path):
+    """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
+    runner = _runner_over_cards(tmp_path, 2)
+
+    with pytest.raises(UnsafeQueryError, match="cards"):
+        await runner.run("SELECT count(*) AS n FROM cards WHERE 'WITH cards AS (' <> ''")
 
 
 async def test_uncapped_query_carries_no_notice(tmp_path):

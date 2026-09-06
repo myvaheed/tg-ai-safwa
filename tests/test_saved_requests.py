@@ -116,6 +116,9 @@ async def test_a_request_returns_each_card_once(sessions):
         "SELECT id FROM cards",
         "SELECT id FROM ai_tags",
         "SELECT title FROM ai_cards",
+        # A Request runs on the ordinary session, under no authorizer, so the shared
+        # validator is the whole of what stops it naming a table nothing published.
+        "SELECT id FROM cards WHERE 'WITH cards AS (' <> ''",
     ],
 )
 async def test_saved_request_rejects_non_read_or_non_card_queries(sessions, query_sql):
