@@ -72,7 +72,7 @@ three days.
 
 The set keeps 0.5 rather than doubling to stay whole, which would leave every other number too large
 to work with. So `effort_points` and `capacity_effort_points` both turn numeric, together with the
-`Literal` in [ai/contracts.py](../src/tg_agent_shell/ai/contracts.py) and the whole-number check in
+`Literal` in [cards/agent.py](../src/safwa/features/cards/agent.py) and the whole-number check in
 [profile/use_cases.py](../src/safwa/features/profile/use_cases.py).
 
 ## The daily summary is a second system Reminder
