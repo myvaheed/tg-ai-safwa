@@ -230,8 +230,8 @@ class ToolAdapters:
             return AgentDefinition(
                 kind=kind, tools=self.root_tools, helper_tool=CALL_HELPER_TOOL
             )
-        # No helper tool: a helper is offered by a complex read, and only the Advisor's
-        # reads are ever offered one.
+        # No helper tool: a helper is offered by a complex read, and only the root
+        # session's reads are ever offered one.
         return AgentDefinition(
             kind=kind,
             tools=(
@@ -362,7 +362,7 @@ class ToolAdapters:
         A read that failed does not: its `hint` already says to repair that one SELECT, and
         a second instruction in the same result is the one this model would follow.
         """
-        if not self.helpers or agent.kind != "advisor" or not sql:
+        if not self.helpers or self.subagents.get(agent.kind) is not None or not sql:
             return False
         if rows and rows[0].get("status") == ToolResultStatus.ERROR:
             return False

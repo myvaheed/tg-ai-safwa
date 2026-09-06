@@ -474,6 +474,28 @@ A screen the menu already offers does not also need a command line.
   the feature it names, and the Sprint screen is Planning's: declaring it in `cards`
   would make the Cards manifest contribute a Planning screen and make Cards import it.
 
+## Batch 19 — landed
+
+The engine decided whether to offer a helper by reading a Safwa word.
+
+`_should_offer_helper` opened with `agent.kind != "advisor"`. It asks whether this is the
+session that talks to the owner, and the engine already answers that question elsewhere:
+`definition()` calls a session root when `self.subagents.get(kind) is None`. That is the test
+now.
+
+### Benefits
+
+- The last behavioural Safwa literal is out of `tg_agent_shell/ai/`. What is left of the word
+  is prose — docstrings, log lines, and the `kind: str = "advisor"` defaults in
+  `agent_runtime` — none of which anything branches on. `ai/conversation.py` still renames the
+  assistant role to `Advisor` in the text the model reads; that is a second literal doing a
+  different job, and it is named here rather than changed.
+- No new field. A helper offer for a second bot's root session works with nothing declared,
+  because being root is something the engine can already see.
+- Behaviour is unchanged: the Advisor is the root session, and no other session reaches
+  `ToolAdapters` — a helper runs as a mini session, which has its own runner and no tool
+  port at all.
+
 ## Batch 18 — landed
 
 Five background loops were the same six lines, written five times.
@@ -579,8 +601,11 @@ Every package has a scenario file, and every scenario file has a package.
    `features/advisor` keeps its prompt. Group E.
 7. **yes** — continuity splits into summary and memory once continuity.feature does; the two share
    only `persona.py`.
-8. **first** — the trigger is hardcoded in `ai/tools.py` as `agent.kind` plus `is_complex_read`, so
-   a helper needs its own spec with a predicate — not a hook framework for one subscriber.
+8. **first** — the trigger was hardcoded in `ai/tools.py` as `agent.kind` plus
+   `is_complex_read`. The kind half is gone: a helper is offered to the root session, which
+   the engine can see. Batch 19. What is left is the predicate and the wording of the offer,
+   which belong to the feature that declared the helper — fields on `HelperSpec`, not a hook
+   framework.
 9. **done** — `turn/` and `cues/` are the runtime beside the engine, and the handlers are
    `telegram/dialogue.py`. Batch 7.
 10. **done** — `remove` named six entities from outside a feature, which is what Rule H started
@@ -614,8 +639,13 @@ Every package has a scenario file, and every scenario file has a package.
     What the fields are called is candidate 18.
 23. **done** — the Telegram half is `telegram/contributions.py`, and `foundation/`
     keeps what the engine names. Batch 10.
-24. **check** — `features/cards/telegram` is eleven modules; the stage lists may want a package
-    of their own.
+24. **no** — eleven modules, and the biggest is 375 lines against a 600 threshold that one
+    module in the repo crosses, none of them here. Inside is a DAG with no cycle:
+    `presentation.py` is the leaf five of them read, `handlers.py` the dispatcher nothing
+    reads. Outside, three imports reach in, all through the package `__init__` and none into
+    a submodule, so there is no boundary to repair. The stage lists are `lists.py`, one
+    module: a package of one is not a package. Revisit if a module here passes 600 lines, or
+    if an import names a submodule.
 25. **no** — values and tags are the same nine modules twice, but each keeps its own rules, and
     `RecordToolInput` is already the whole of what they share.
 27. **done** — whether a command applies is the application's to answer, and it answers
