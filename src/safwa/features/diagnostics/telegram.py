@@ -10,11 +10,11 @@ from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import Services, send_registered
 
 from ...foundation.workspace import Workspace
-from ..continuity.api import memory_health
+from ..memory.api import memory_health, memory_store
 
 
 async def command_status(message: Message, services: Services) -> None:
-    health = await memory_health(services.memory)
+    health = await memory_health(memory_store(services))
     async with services.sessions() as session:
         workspace = await session.get(Workspace, 1)
     await send_registered(

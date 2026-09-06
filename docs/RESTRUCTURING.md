@@ -186,8 +186,7 @@ the wrong package, and E was the root session.
   kind, the heading to strip off it, the stripping, and the label the model reads in its
   place. All four are one `WindowEdge` the host is asked on every read, so what ends the
   window can be a different thing on every turn and the package holds no literal of Safwa's.
-  `Services.continuity` is the `WindowKeeper` protocol and `close_window` the one method the
-  shell calls; the token budget and the token estimate arrive as parameters.
+  The token budget and the token estimate arrive as parameters.
 - **D — the Summary's cut — done**. There was no cut to record. The state written on every
   Summary was read nowhere: the window has always found its edge by reading the chat, which
   is where the rule says the dialogue lives. That table, the operation that filled it and the
@@ -378,7 +377,7 @@ to it, and what is left in `constants.py` is read on both sides of a boundary.
 ### Benefits
 
 - A budget is read where it is spent: `MEMORY_TOKEN_BUDGET` and `MEMORY_POLL_SECONDS` in
-  `continuity/memory.py`, the three retell limits in `persona.py`, and each background
+  `memory/store.py`, the three retell limits in `memory/upkeep.py`, and each background
   loop's interval at the top of the loop.
 - `TOKEN_CHARS_ESTIMATE` sits in `foundation/tokens.py`, which is the one estimate every
   budget in Safwa is measured against and now says so in one place.
@@ -473,6 +472,37 @@ A screen the menu already offers does not also need a command line.
 - `/sprint` did not move to cards. The candidate's own rule is that a command sits with
   the feature it names, and the Sprint screen is Planning's: declaring it in `cards`
   would make the Cards manifest contribute a Planning screen and make Cards import it.
+
+## Batch 21 — landed
+
+Summaries and memory were one package because one class held both.
+
+One class held both, with two public methods and no field they both read: `close_window` never
+touched the memory store. They are `DialogueSummary` in `features/summary` and `MemoryUpkeep`
+in `features/memory`, and the shell learned to say when a turn is over instead of holding one
+of them itself.
+
+### Benefits
+
+- `Services` loses its `continuity` and `memory` fields, and the protocol that typed the first
+  of them. Both were the application's objects sitting in the shell's container, and that
+  protocol was invented for one object. What is left on `Services` is what the shell reads.
+- `after_turn` is what replaces the field: a `FeatureModule` contribution the shell runs once
+  the owner's turn has been answered, reading nothing back. The Summary is its first
+  subscriber, and it takes the background lease itself rather than being handed one.
+- `Services.features` is where Safwa's own objects live now — carried and never read, the way a
+  session carries `host_state`. Each feature reaches its own through its `api.py`, so a handler
+  names one object rather than a container of everything.
+- CO is retired rather than reused. Two packages cannot share a numbering line, and the
+  identifiers are never renumbered inside their own, so `SUM` and `MEM` start at 001 and
+  `tests/brd/README.md` says why the old prefix is gone.
+- The split is 2 scenarios against 9. That is the shape the code already had: the Summary is
+  one provider call over the window, and memory is a file, a cursor, a schedule and a cache.
+- The file-name list in `docs/FEATURE_MODULES.md` calls itself the whole vocabulary and asks
+  a batch that needs a new name to answer for it. Two roles were already in the tree and
+  missing from it: the background tasks four features declare, and the long-lived
+  collaborator the composition root builds, which is what the class split here had been. Both
+  are named there now.
 
 ## Batch 20 — landed
 
@@ -622,8 +652,9 @@ Every package has a scenario file, and every scenario file has a package.
    package under `ai/` would reverse `telegram`, `bootstrap` and `MutationCatalogue`.
 6. **done** — the split was not spec-from-spec: the session is shell code and
    `features/advisor` keeps its prompt. Group E.
-7. **yes** — continuity splits into summary and memory once continuity.feature does; the two share
-   only `persona.py`.
+7. **done** — `close_window` never touched the memory store, so the two shared a constructor
+   and nothing else. They are `features/summary` and `features/memory`, and
+   `continuity.feature` is `summary.feature` and `memory.feature`. Batch 21.
 8. **first** — the trigger was hardcoded in `ai/tools.py` as `agent.kind` plus
    `is_complex_read`. The kind half is gone: a helper is offered to the root session, which
    the engine can see. Batch 19. What is left is the predicate and the wording of the offer,

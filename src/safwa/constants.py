@@ -18,7 +18,7 @@ SELECTOR_PAGE_SIZE = 10
 # The advisor window is a token budget rather than a message count: a Summary of at most
 # SUMMARY_TOKEN_CEILING plus the messages SUMMARY_TRIGGER_TOKENS pays for.  The trigger is
 # the message budget itself, so a Summary is written exactly when the window is full.
-# Continuity writes the Summary; the shell's history source sizes the window.
+# Summary writes it; the shell's history source sizes the window.
 SUMMARY_TOKEN_CEILING = 2_000
 SUMMARY_TRIGGER_TOKENS = 6_000
 # The tick of both the Cue queue and the Reminder poll.

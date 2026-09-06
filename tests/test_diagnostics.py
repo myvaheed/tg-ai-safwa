@@ -28,7 +28,7 @@ def _revision(text: str) -> int:
 
 def _services(sessions, error: str | None = None):
     services = services_for(sessions)
-    services.memory = _Memory(error)
+    services.features = SimpleNamespace(memory=_Memory(error))
     return services
 
 

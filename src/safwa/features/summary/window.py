@@ -11,7 +11,9 @@ from collections.abc import Sequence
 
 from tg_agent_shell.foundation.kinds import MessageKind
 
-from .model import SUMMARY_HEADER
+# Written on the first message of a Summary, for the owner. `stands_for` strips it back
+# off, so the model reads the words alone — one string, written and stripped from here.
+SUMMARY_HEADER = "📜 Summary"
 
 # What the model reads where the window ends. A Summary is neither the person speaking nor
 # the bot answering, so it says what it is.

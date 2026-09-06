@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from safwa.features.continuity.memory import MemoryFileError, MemoryFileStore
-from safwa.features.continuity.model import MemorySyncState
+from safwa.features.memory.model import MemorySyncState
+from safwa.features.memory.store import MemoryFileError, MemoryFileStore
 
 NOT_TEXT = b"\xff\xfe not text at all"
 
 
 async def test_memory_store_reads_non_empty_lines_from_real_text_file(sessions, tmp_path):
-    """CO-MEMORY-004 — tests/brd/continuity.feature"""
+    """MEM-FILE-001 — tests/brd/memory.feature"""
     path = tmp_path / "memory.md"
     store = MemoryFileStore(path, sessions, token_budget=4000)
     assert (await store.sync()).facts == ()
@@ -20,7 +20,7 @@ async def test_memory_store_reads_non_empty_lines_from_real_text_file(sessions, 
 
 
 async def test_next_sync_observes_a_local_memory_edit(sessions, tmp_path):
-    """CO-MEMORY-005 — tests/brd/continuity.feature"""
+    """MEM-FILE-002 — tests/brd/memory.feature"""
     path = tmp_path / "memory.md"
     path.write_text("Likes morning walks.\n", encoding="utf-8")
     store = MemoryFileStore(path, sessions, token_budget=4000)
@@ -31,7 +31,7 @@ async def test_next_sync_observes_a_local_memory_edit(sessions, tmp_path):
 
 
 async def test_ai_memory_write_rejects_a_stale_file_hash(sessions, tmp_path):
-    """CO-MEMORY-006 — tests/brd/continuity.feature"""
+    """MEM-FILE-003 — tests/brd/memory.feature"""
     path = tmp_path / "memory.md"
     path.write_text("First fact.\n", encoding="utf-8")
     store = MemoryFileStore(path, sessions)
@@ -43,7 +43,7 @@ async def test_ai_memory_write_rejects_a_stale_file_hash(sessions, tmp_path):
 
 
 async def test_unreadable_memory_file_yields_no_facts_and_a_reason(sessions, tmp_path):
-    """CO-MEMORY-012 — tests/brd/continuity.feature"""
+    """MEM-FILE-008 — tests/brd/memory.feature"""
     path = tmp_path / "memory.md"
     path.write_bytes(NOT_TEXT)
     store = MemoryFileStore(path, sessions)
@@ -60,7 +60,7 @@ async def test_unreadable_memory_file_yields_no_facts_and_a_reason(sessions, tmp
 
 
 async def test_memory_over_the_token_budget_is_not_injected(sessions, tmp_path):
-    """CO-MEMORY-012 — tests/brd/continuity.feature"""
+    """MEM-FILE-008 — tests/brd/memory.feature"""
     path = tmp_path / "memory.md"
     written = "A durable fact.\n" * 500
     path.write_text(written, encoding="utf-8")
@@ -75,7 +75,7 @@ async def test_memory_over_the_token_budget_is_not_injected(sessions, tmp_path):
 
 
 async def test_a_manual_fact_is_appended_to_the_file(sessions, tmp_path):
-    """CO-MEMORY-014 — tests/brd/continuity.feature"""
+    """MEM-FILE-009 — tests/brd/memory.feature"""
     path = tmp_path / "memory.md"
     path.write_text("Likes morning walks.\nValues honest work.\n", encoding="utf-8")
     store = MemoryFileStore(path, sessions)
@@ -93,7 +93,7 @@ async def test_a_manual_fact_is_appended_to_the_file(sessions, tmp_path):
 
 
 async def test_a_manual_fact_is_refused_when_the_file_could_not_be_read(sessions, tmp_path):
-    """CO-MEMORY-014 — tests/brd/continuity.feature"""
+    """MEM-FILE-009 — tests/brd/memory.feature"""
     path = tmp_path / "memory.md"
     path.write_bytes(NOT_TEXT)
     store = MemoryFileStore(path, sessions)

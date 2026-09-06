@@ -1,4 +1,4 @@
-"""Persisted state for dialogue summaries and authoritative memory synchronization."""
+"""Persisted state for authoritative memory synchronization."""
 
 from __future__ import annotations
 
@@ -9,10 +9,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from tg_agent_shell.foundation.models import Base, UtcDateTime
-
-# Written on the first message of a Summary, for the owner. `window.py` strips it back
-# off, so the model reads the words alone — one string, written and stripped from here.
-SUMMARY_HEADER = "📜 Summary"
 
 
 class MemoryFactCache(Base):

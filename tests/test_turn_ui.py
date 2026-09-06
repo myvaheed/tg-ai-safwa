@@ -63,7 +63,7 @@ def turn_services(sessions):
     services = services_for(sessions, root=None)
     services.root = TurnAdvisor(sessions)
     services.history = SimpleNamespace(dialogue=_empty_dialogue)
-    services.continuity = SimpleNamespace(close_window=_no_summary)
+    services.after_turn = (_no_summary,)
     return services
 
 
@@ -72,8 +72,8 @@ async def _empty_dialogue(_chat_id, *, source_message=None):
     return []
 
 
-async def _no_summary(_chat_id, _send, *, still_current=None):
-    del still_current
+async def _no_summary(_message, _services) -> None:
+    return None
 
 
 async def test_an_autoapproved_change_still_reaches_the_chat(sessions) -> None:

@@ -9,8 +9,7 @@ from telethon.tl.types import MessageEntityTextUrl
 
 from safwa.bootstrap.modules import SCREENS
 from safwa.constants import SUMMARY_TRIGGER_TOKENS
-from safwa.features.continuity.model import SUMMARY_HEADER
-from safwa.features.continuity.window import SummaryEdge
+from safwa.features.summary.window import SUMMARY_HEADER, SummaryEdge
 from safwa.foundation.tokens import estimate_tokens
 from telegram_llm import DialogueMessage, HistoryEntry, restore_citations
 from tg_agent_shell.ai.conversation import conversation_block

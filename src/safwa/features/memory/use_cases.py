@@ -1,4 +1,4 @@
-"""Continuity operations: what is recorded, and when maintenance is due.
+"""Memory operations: what is recorded, and when maintenance is due.
 
 Each takes the session or the session factory its caller already owns.
 """
@@ -13,13 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..profile.api import scheduled_memory_time
 from .model import MemorySyncState
-from .persona import BackgroundMemoryRunner, MemoryMaintenanceResult, PersonaContinuity
+from .upkeep import BackgroundMemoryRunner, MemoryMaintenanceResult, MemoryUpkeep
 
 logger = logging.getLogger(__name__)
 
 
 async def run_due_memory_maintenance(
-    continuity: PersonaContinuity,
+    upkeep: MemoryUpkeep,
     sessions: async_sessionmaker[AsyncSession],
     chat_id: int,
     timezone: str,
@@ -43,7 +43,7 @@ async def run_due_memory_maintenance(
                 return False
 
     result = await run_background(
-        lambda still_current: continuity.maintain_memory(
+        lambda still_current: upkeep.maintain_memory(
             chat_id,
             still_current=still_current,
         )

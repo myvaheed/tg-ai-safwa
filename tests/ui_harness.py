@@ -188,6 +188,7 @@ def services_for(sessions, *, root=None, reviews=None, transcriber=None):
         callback_actions=CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
         views=ALLOWED_VIEWS,
+        after_turn=(),
         bot_username="safwa_ai_bot",
         root=root
         if root is not None

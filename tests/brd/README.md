@@ -26,7 +26,9 @@ is held to working without Safwa: they are what a second bot built on the shell 
 
 The prefix names one package, never a group of them: `PL` used to cover Cards, Checks, Values,
 Tags and the Sprint at once, which meant five packages sharing one numbering line and no way to
-read an identifier and know where its code lives.
+read an identifier and know where its code lives. CO covered Summaries and memory the same way
+and was split into SUM and MEM; it is retired rather than reused, and those two numbering
+lines start at 001.
 
 `src/safwa/features/`:
 
@@ -34,12 +36,13 @@ read an identifier and know where its code lives.
 |---|---|---|---|
 | Cards | `CD` | Reminders | `RM` |
 | Checks | `CH` | Profile | `PS` |
-| Values | `VL` | Continuity and memory | `CO` |
-| Tags | `TA` | Diary | `DI` |
-| Planning — the Sprint and the mode without one | `PL` | Saved Requests | `SR` |
-| The heavy analyzer | `HAN` | The workspace | `WS` |
-| Home — the menu and the way in | `HM` | The Advisor | `AD` |
-| Retro | `RT` | Diagnostics | `DG` |
+| Values | `VL` | The running Summary | `SUM` |
+| Tags | `TA` | Durable memory | `MEM` |
+| Planning — the Sprint and the mode without one | `PL` | Diary | `DI` |
+| The heavy analyzer | `HAN` | Saved Requests | `SR` |
+| Home — the menu and the way in | `HM` | The workspace | `WS` |
+| Retro | `RT` | The Advisor | `AD` |
+| Diagnostics | `DG` | | |
 
 `src/tg_agent_shell/`:
 

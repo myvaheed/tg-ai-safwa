@@ -11,7 +11,7 @@ from ui_harness import (
     services_for,
 )
 
-from safwa.features.continuity.model import SUMMARY_HEADER
+from safwa.features.summary.window import SUMMARY_HEADER
 from telegram_llm import (
     TELEGRAM_TEXT_LIMIT,
     split_telegram_text,

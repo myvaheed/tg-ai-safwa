@@ -56,4 +56,4 @@ flowchart LR
 Само окно — [`telegram_llm`](../../src/telegram_llm/window.py). Что значат виды Safwa — 
 [`history.py`](../../src/tg_agent_shell/history.py), один раз, в
 `ChatVocabulary`. Где окно кончается — не вид, а ответ, который окно спрашивает на каждом
-чтении: [`features/continuity/window.py`](../../src/safwa/features/continuity/window.py).
+чтении: [`features/summary/window.py`](../../src/safwa/features/summary/window.py).

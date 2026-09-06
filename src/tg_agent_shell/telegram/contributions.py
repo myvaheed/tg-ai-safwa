@@ -1,4 +1,4 @@
-"""The three ways one screen is reached and fed: by name, by link, and by a typed value.
+"""What a feature plugs into the chat: three ways a screen is reached, and the turn ending.
 
 Wiring DTOs that both `Services` and `FeatureModule` name, so they sit under each and
 import nothing of the package. What a screen *is* — an item that can be opened and cited —
@@ -10,6 +10,10 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
+
+# (message, services) -> None. Run once the owner's turn has been answered, for work the
+# application does on its own. The shell says the turn is over and reads nothing back.
+AfterTurn = Callable[..., Awaitable[None]]
 
 
 @dataclass(frozen=True, slots=True)

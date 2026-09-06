@@ -93,7 +93,7 @@ async def test_ag_turn_023_words_telegram_refused_to_delete_are_answered_now(
     assert services.turn.active is False
 
 
-async def test_proposal_ui_gives_up_the_turn_before_continuity_work(sessions) -> None:
+async def test_proposal_ui_gives_up_the_turn_before_after_turn_work(sessions) -> None:
     store = ProposalStore()
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
@@ -128,14 +128,12 @@ async def test_proposal_ui_gives_up_the_turn_before_continuity_work(sessions) ->
 
     turn = TurnManager()
 
-    class Continuity:
-        called = False
+    after = {"called": False}
 
-        async def close_window(self, *_args, **_kwargs):
-            self.called = True
-            assert turn.background is True
+    async def close_window(*_args, **_kwargs) -> None:
+        after["called"] = True
+        assert turn.background is True
 
-    continuity = Continuity()
     services = SimpleNamespace(
         sessions=sessions,
         owner_id=42,
@@ -144,13 +142,13 @@ async def test_proposal_ui_gives_up_the_turn_before_continuity_work(sessions) ->
         text_inputs=FEATURE_TEXT_INPUTS,
         root=Advisor(),
         history=History(),
-        continuity=continuity,
+        after_turn=(close_window,),
     )
     message = FakeMessage(20, text="Create a Tag VrWalk", bot_message=False)
 
     await ordinary_text(message, services)
 
-    assert continuity.called is True
+    assert after["called"] is True
     assert turn.active is False
     async with sessions() as session:
         tokens = list(
@@ -367,10 +365,6 @@ async def test_typed_words_end_the_review_and_are_then_answered(sessions) -> Non
         async def dialogue(self, *_args, **_kwargs):
             return [DialogueMessage(role="user", content="[Initial request]: Rename the Tag")]
 
-    class Continuity:
-        async def close_window(self, *_args, **_kwargs):
-            return None
-
     bot = FakeBot()
     services = SimpleNamespace(
         sessions=sessions,
@@ -380,7 +374,7 @@ async def test_typed_words_end_the_review_and_are_then_answered(sessions) -> Non
         text_inputs=FEATURE_TEXT_INPUTS,
         root=Advisor(store),
         history=History(),
-        continuity=Continuity(),
+        after_turn=(),
     )
     message = FakeMessage(11, text="No, call it Home", bot_message=False, bot=bot)
 

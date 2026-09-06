@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 from aiogram import BaseMiddleware, Router
 from aiogram.exceptions import TelegramAPIError
@@ -20,12 +20,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from telegram_llm import ChatHost, Transcriber
 
-from ..ai.messages import Memory
 from ..foundation.screens import ScreenCatalogue
 from ..history import TelegramHistorySource
 from ..session import RootSession
 from ..turn import TurnManager
-from .contributions import ScreenCommand, StartLink, TextInputFlow
+from .contributions import AfterTurn, ScreenCommand, StartLink, TextInputFlow
 
 logger = logging.getLogger(__name__)
 router = Router(name="tg_agent_shell")
@@ -36,31 +35,11 @@ def audio_payload(message: Message) -> Audio | Voice | VideoNote | None:
     return message.voice or message.audio or message.video_note
 
 
-class WindowKeeper(Protocol):
-    """What the shell asks after an answer: close the window if it has grown too long.
-
-    Whether anything is written, and what it says, is the application's. The shell hands
-    over the chat and one way to put a message in it, and is told whether it wrote. The
-    application binds its own object here; only what the shell calls is declared.
-    """
-
-    async def close_window(
-        self,
-        chat_id: int,
-        write: Callable[[str], Awaitable[None]],
-        *,
-        force: bool = False,
-        still_current: Callable[[], bool] | None = None,
-    ) -> bool: ...
-
-
 @dataclass
 class Services:
     sessions: async_sessionmaker[AsyncSession]
     root: RootSession
     history: TelegramHistorySource
-    memory: Memory
-    continuity: WindowKeeper
     owner_id: int
     turn: TurnManager
     chat: ChatHost
@@ -68,7 +47,11 @@ class Services:
     commands: tuple[ScreenCommand, ...]
     callback_actions: Mapping[str, CallbackHandler]
     text_inputs: Mapping[str, TextInputFlow]
+    after_turn: tuple[AfterTurn, ...] = ()
     start_links: tuple[StartLink, ...] = ()
+    # Whatever the application's own handlers need to reach. The shell carries it and
+    # never reads it, the way a session carries `host_state`.
+    features: Any = None
     views: frozenset[str] = frozenset()
     bot_username: str = ""
     transcriber: Transcriber | None = None

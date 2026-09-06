@@ -21,7 +21,7 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
     routed_prompt,
 )
-from safwa.features.continuity.memory import MemoryFileStore
+from safwa.features.memory.store import MemoryFileStore
 from safwa.features.workspace_mutator.agent import MUTATOR_TOOLS
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.database import Database, upgrade_database

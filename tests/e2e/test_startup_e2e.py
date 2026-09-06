@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import safwa.features.continuity.background as continuity_background
+import safwa.features.memory.background as memory_background
 from safwa.bootstrap import main as safwa_main
 from safwa.config import Settings
 from safwa.foundation.database import upgrade_database
@@ -134,7 +134,7 @@ def _prepared_startup(tmp_path: Path, monkeypatch) -> tuple[Path, Settings]:
     monkeypatch.setattr(safwa_main, "TelegramHistorySource", FakeHistoryFactory)
     monkeypatch.setattr(safwa_main, "Dispatcher", FakeDispatcher)
     monkeypatch.setattr(safwa_main, "router", FakeRouter())
-    monkeypatch.setattr(continuity_background, "run_due_memory_maintenance", wait_until_cancelled)
+    monkeypatch.setattr(memory_background, "run_due_memory_maintenance", wait_until_cancelled)
 
     return database_path, Settings(
         _env_file=None,

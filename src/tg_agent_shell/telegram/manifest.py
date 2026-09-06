@@ -28,7 +28,7 @@ from ..proposals.api import (
     ProposalHandler,
     ProposalPresenter,
 )
-from .contributions import ScreenCommand, StartLink, TextInputFlow
+from .contributions import AfterTurn, ScreenCommand, StartLink, TextInputFlow
 from .services import Services
 
 
@@ -152,5 +152,7 @@ class FeatureModule:
     start_links: tuple[StartLink, ...] = ()
 
     # Lifecycle
+    # Work that runs once the owner's turn has been answered.
+    after_turn: tuple[AfterTurn, ...] = ()
     recover: Callable[[AsyncSession], Awaitable[None]] | None = None
     background: tuple[BackgroundTask, ...] = ()

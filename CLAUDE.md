@@ -237,7 +237,7 @@ ORM metadata at that point.
 | What a scenario is | [tests/brd/README.md](tests/brd/README.md) |
 | The domain and its invariants | [docs/DOMAIN.md](docs/DOMAIN.md) |
 | The six flows, drawn | [docs/diagrams/](docs/diagrams) |
-| History, memory, summaries | [telegram_history.feature](tests/brd/tg_agent_shell/telegram_history.feature), [continuity.feature](tests/brd/continuity.feature), [features/continuity](src/safwa/features/continuity) |
+| History, memory, summaries | [telegram_history.feature](tests/brd/tg_agent_shell/telegram_history.feature), [summary.feature](tests/brd/summary.feature), [memory.feature](tests/brd/memory.feature) |
 | Checks | [checks.feature](tests/brd/checks.feature), [features/checks](src/safwa/features/checks) |
 | Diary | [diary.feature](tests/brd/diary.feature), [features/diary](src/safwa/features/diary) |
 | Reminders | [reminders.feature](tests/brd/reminders.feature), [features/reminders](src/safwa/features/reminders) |

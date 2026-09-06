@@ -441,8 +441,8 @@ stateDiagram-v2
 | `cue-queue` | `SCHEDULER_POLL_SECONDS = 30` | `cues/background.py` |
 | `reminder-scheduler` | `SCHEDULER_POLL_SECONDS = 30` | `features/reminders/background.py` |
 | `sprint-expiry` | `SPRINT_EXPIRY_POLL_SECONDS = 300` | `features/planning/background.py` |
-| `memory-file-poll` | `MEMORY_POLL_SECONDS = 5` | `features/continuity/background.py` |
-| `memory-maintenance` | `MEMORY_MAINTENANCE_INTERVAL_SECONDS = 60` | `features/continuity/background.py` |
+| `memory-file-poll` | `MEMORY_POLL_SECONDS = 5` | `features/memory/background.py` |
+| `memory-maintenance` | `MEMORY_MAINTENANCE_INTERVAL_SECONDS = 60` | `features/memory/background.py` |
 
 Each is a `BackgroundTask`. All but the Cue poll are declared in a feature's `module.py`; the Cue
 poll belongs to no feature, so `bootstrap/modules.py` puts it in front of theirs. The composition

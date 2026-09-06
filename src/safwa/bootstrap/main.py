@@ -5,6 +5,7 @@ import logging
 import sys
 from collections.abc import Coroutine
 from pathlib import Path
+from types import SimpleNamespace
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -37,11 +38,12 @@ from tg_agent_shell.turn import TurnManager
 
 from ..config import Settings
 from ..enums import AIProvider
-from ..features.continuity.memory import MemoryFileStore
-from ..features.continuity.persona import PersonaContinuity
-from ..features.continuity.window import SummaryEdge
+from ..features.memory.store import MemoryFileStore
+from ..features.memory.upkeep import MemoryUpkeep
 from ..features.planning.api import available_screens
 from ..features.profile.model import UserProfile
+from ..features.summary.summary import DialogueSummary
+from ..features.summary.window import SummaryEdge
 from ..features.workspace_mutator.state import workspace_context
 from ..foundation.database import Database, upgrade_database
 from ..foundation.tokens import estimate_tokens
@@ -49,6 +51,7 @@ from ..foundation.workspace import Workspace
 from .auth import history_client
 from .modules import (
     AFTER_TOOL,
+    AFTER_TURN,
     AI_VIEWS,
     ALLOWED_VIEWS,
     AUTOAPPROVALS,
@@ -235,12 +238,17 @@ async def run(settings: Settings) -> None:
         before_tool=BEFORE_TOOL,
         after_tool=AFTER_TOOL,
     )
-    continuity = PersonaContinuity(
+    summary = DialogueSummary(
+        history,
+        provider,
+        summary_trigger_tokens=settings.summary_trigger_tokens,
+        chars_per_token=settings.token_chars_estimate,
+    )
+    upkeep = MemoryUpkeep(
         database.sessions,
         history,
         provider,
         memory,
-        summary_trigger_tokens=settings.summary_trigger_tokens,
         chars_per_token=settings.token_chars_estimate,
     )
     turn = TurnManager()
@@ -278,8 +286,6 @@ async def run(settings: Settings) -> None:
         sessions=database.sessions,
         root=advisor,
         history=history,
-        memory=memory,
-        continuity=continuity,
         owner_id=settings.telegram_owner_id,
         turn=turn,
         chat=chat,
@@ -287,7 +293,10 @@ async def run(settings: Settings) -> None:
         commands=commands,
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
+        after_turn=AFTER_TURN,
         start_links=FEATURE_START_LINKS,
+        # What Safwa's own handlers reach for; the shell carries it and never reads it.
+        features=SimpleNamespace(summary=summary, memory=memory, memory_upkeep=upkeep),
         views=ALLOWED_VIEWS,
         bot_username=settings.telegram_bot_username,
         transcriber=transcriber,

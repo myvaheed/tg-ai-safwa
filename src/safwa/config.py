@@ -12,7 +12,7 @@ from tg_agent_shell.asr import ASR_DEFAULTS, ASRDefaults, ASRProvider
 
 from .constants import SCHEDULER_POLL_SECONDS, SUMMARY_TRIGGER_TOKENS
 from .enums import AIProvider
-from .features.continuity.memory import MEMORY_POLL_SECONDS, MEMORY_TOKEN_BUDGET
+from .features.memory.store import MEMORY_POLL_SECONDS, MEMORY_TOKEN_BUDGET
 from .foundation.tokens import TOKEN_CHARS_ESTIMATE
 
 AI_TIMEOUT_SECONDS = 120.0

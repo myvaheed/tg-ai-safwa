@@ -30,6 +30,7 @@ from tg_agent_shell.proposals.api import (
 )
 from tg_agent_shell.proposals.module import MODULE as PROPOSALS_FEATURE
 from tg_agent_shell.telegram.contributions import (
+    AfterTurn,
     ScreenCommand,
     StartLink,
     TextInputFlow,
@@ -45,16 +46,17 @@ from tg_agent_shell.telegram.manifest import (
 from ..features.advisor.agent import ADVISOR_VIEWS, PERSONA, SYSTEM_PROMPT_TEMPLATE
 from ..features.cards.module import MODULE as CARDS
 from ..features.checks.module import MODULE as CHECKS
-from ..features.continuity.module import MODULE as CONTINUITY
 from ..features.diagnostics.module import MODULE as DIAGNOSTICS
 from ..features.diary.module import MODULE as DIARY
 from ..features.heavy_analyzer.module import MODULE as HEAVY_ANALYZER
 from ..features.home.module import MODULE as HOME
+from ..features.memory.module import MODULE as MEMORY
 from ..features.planning.module import MODULE as PLANNING
 from ..features.profile.module import MODULE as PROFILE
 from ..features.reminders.module import MODULE as REMINDERS
 from ..features.retro.module import MODULE as RETRO
 from ..features.saved_requests.module import MODULE as SAVED_REQUESTS
+from ..features.summary.module import MODULE as SUMMARY
 from ..features.tags.module import MODULE as TAGS
 from ..features.values.module import MODULE as VALUES
 from ..features.workspace_mutator.module import MODULE as WORKSPACE_MUTATOR
@@ -77,7 +79,8 @@ MODULES: tuple[FeatureModule, ...] = (
     REMINDERS,
     SAVED_REQUESTS,
     PROPOSALS_FEATURE,
-    CONTINUITY,
+    SUMMARY,
+    MEMORY,
     DIAGNOSTICS,
     HEAVY_ANALYZER,
 )
@@ -260,6 +263,11 @@ def _routing_rules() -> str:
 SYSTEM_PROMPT: str = SYSTEM_PROMPT_TEMPLATE.replace(
     "{routes}", _routing_rules()
 ).replace("{views}", view_catalogue(AI_VIEWS, ADVISOR_VIEWS))
+
+# Everything that runs once the owner's turn has been answered, in `MODULES` order.
+AFTER_TURN: tuple[AfterTurn, ...] = tuple(
+    work for module in MODULES for work in module.after_turn
+)
 
 # Every feature watching the model's tool calls, in `MODULES` order.
 BEFORE_TOOL: tuple[BeforeTool, ...] = tuple(

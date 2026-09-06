@@ -82,6 +82,8 @@ safwa/features/<feature>/
   proposal.py   # ProposalHandler
   telegram.py   # the Telegram adapter: screens, editors, the review screen, the citation label
   reducer.py    # reduce(state, action) -> (state, effects), when the feature has a process
+  background.py # BackgroundTask per loop the polling loop starts and cancels
+  <thing>.py    # a long-lived collaborator the composition root builds, named for what it is
 ```
 
 These names are the whole vocabulary. A feature that wants a file outside this list is saying its
@@ -89,8 +91,8 @@ contents belong to a role the list does not have yet, which is a question for th
 word.
 
 **The adapter is one file until it is more than one file's worth**, and the rest of Safwa
-writes `from .telegram import ...` either way, so the import does not say which it is. Continuity's
-four commands are one file; Cards is ten modules. Two names recur inside a package: `screens.py`
+writes `from .telegram import ...` either way, so the import does not say which it is. Memory's
+three commands are one file; Cards is ten modules. Two names recur inside a package: `screens.py`
 is what the owner is taken to, and `handlers.py` is the callback actions the feature publishes.
 `review.py` is the `ProposalPresenter` and the citation label. Everything else is the feature's own,
 because there is no shared vocabulary of screens to hold it to:

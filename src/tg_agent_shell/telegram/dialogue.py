@@ -23,7 +23,6 @@ from .chat import (
     open_turn_notice,
     send_owner_turn,
     send_registered,
-    send_summary,
 )
 from .model import UiSession
 from .services import Services, audio_payload, router
@@ -203,13 +202,8 @@ async def run_dialogue_turn(
         await render_ai_outcome(message, services, outcome)
         await end_turn(message, services)
 
-        await services.turn.run_background(
-            lambda still_current: services.continuity.close_window(
-                message.chat.id,
-                lambda text: send_summary(message, services, text),
-                still_current=still_current,
-            )
-        )
+        for after in services.after_turn:
+            await after(message, services)
     except Exception as error:
         logger.exception("Could not complete an advisor turn")
         await send_registered(

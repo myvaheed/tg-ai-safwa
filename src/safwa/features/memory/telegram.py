@@ -1,6 +1,6 @@
-"""The four commands that reach the memory file and the dialogue Summaries.
+"""The three commands that reach the memory file.
 
-Continuity draws no buttons: every one of these answers with a receipt and gives the turn
+Memory draws no buttons: every one of these answers with a receipt and gives the turn
 straight back, because the work itself runs in the background under the turn's lease.
 """
 
@@ -11,42 +11,16 @@ import html
 from aiogram.types import Message
 
 from tg_agent_shell.foundation.kinds import MessageKind
-from tg_agent_shell.telegram import Services, send_registered, send_summary
+from tg_agent_shell.telegram import Services, send_registered
 
-from .memory import MemoryFileError
-from .persona import MemoryMaintenanceResult
+from .api import memory_store, memory_upkeep
+from .store import MemoryFileError
+from .upkeep import MemoryMaintenanceResult
 from .use_cases import record_memory_run
 
 
-async def command_summarize(message: Message, services: Services) -> None:
-    """Cut the context deliberately: post a Summary now instead of waiting for the budget."""
-    written = await services.turn.run_background(
-        lambda still_current: services.continuity.close_window(
-            message.chat.id,
-            lambda text: send_summary(message, services, text),
-            force=True,
-            still_current=still_current,
-        )
-    )
-    if written is None:
-        await send_registered(
-            message,
-            services,
-            "Wait for the current advisor response, then retry /summarize.",
-            kind=MessageKind.ERROR,
-        )
-        return
-    if not written:
-        await send_registered(
-            message,
-            services,
-            "There is no new dialogue to summarize.",
-            kind=MessageKind.RECEIPT,
-        )
-
-
 async def command_memory(message: Message, services: Services) -> None:
-    snapshot = await services.memory.sync()
+    snapshot = await memory_store(services).sync()
     text = f"<b>Persistent memory</b> · {snapshot.estimated_tokens}/4000 tokens\n" + (
         "\n".join(f"{i}. {html.escape(fact)}" for i, fact in enumerate(snapshot.facts, 1))
         or "Empty"
@@ -59,7 +33,7 @@ async def command_syncmem(message: Message, services: Services) -> None:
         await send_registered(message, services, "Usage: /syncmem", kind=MessageKind.ERROR)
         return
     result = await services.turn.run_background(
-        lambda still_current: services.continuity.maintain_memory(
+        lambda still_current: memory_upkeep(services).maintain_memory(
             message.chat.id,
             still_current=still_current,
         )
@@ -93,7 +67,7 @@ async def command_remember(message: Message, services: Services) -> None:
         )
         return
     try:
-        await services.memory.append_manual(fact)
+        await memory_store(services).append_manual(fact)
     except MemoryFileError as error:
         await send_registered(message, services, str(error), kind=MessageKind.ERROR)
         return
