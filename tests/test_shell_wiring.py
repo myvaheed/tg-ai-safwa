@@ -164,8 +164,9 @@ def test_every_declared_command_is_bound_to_its_command_line() -> None:
 
 
 def test_the_menu_draws_every_label_a_screen_declared() -> None:
-    """The titles are the features', the layout is Home's, and a title the layout does not
-    name is dropped without a word — so the two lists have to be the same list."""
+    """HM-MENU-001 — tests/brd/home.feature"""
+    # The titles are the features', the layout is Home's, and a title the layout does not
+    # name is dropped without a word.
     commands = (*FEATURE_COMMANDS, *SHELL_COMMANDS)
     placed = [nav for row in MENU_LAYOUT for nav in row]
     assert len(placed) == len(set(placed))
@@ -185,6 +186,7 @@ def test_the_menu_draws_every_label_a_screen_declared() -> None:
 
 
 def test_today_leaves_the_menu_with_the_sprint_that_makes_it_a_screen() -> None:
+    """PL-MODE-001 — tests/brd/planning.feature"""
     planning = [
         button.callback_data
         for row in menu_markup(
@@ -198,7 +200,8 @@ def test_today_leaves_the_menu_with_the_sprint_that_makes_it_a_screen() -> None:
 
 
 def test_the_screen_catalogue_is_the_one_list_of_openable_items() -> None:
-    """The features publish what can be opened; only the `open` tool's enum is by hand."""
+    """RT-OPEN-002 — tests/brd/retro.feature"""
+    # The features publish what can be opened; only the `open` tool's enum is by hand.
     assert set(SCREENS.types) == {"card", "check", "tag", "value", "request", "diary", "retro"}
     # A tool's enum is prompt text and stays in ai/contracts.py, so it has to agree here.
     literal = set(get_args(OpenInput.model_fields["item_type"].annotation))

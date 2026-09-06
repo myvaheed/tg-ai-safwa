@@ -58,6 +58,7 @@ def test_the_routing_rules_name_every_subagent_that_can_be_routed_to() -> None:
 
 
 def test_a_routed_prompt_carries_the_one_persona_block() -> None:
+    """AD-VOICE-001 — tests/brd/advisor.feature"""
     for agent in AGENTS:
         assert routed_prompt(agent).startswith(PERSONA)
     diary = next(agent for agent in AGENTS if agent.name == "diary")
@@ -68,7 +69,7 @@ def test_a_routed_prompt_carries_the_one_persona_block() -> None:
 
 
 def test_the_diary_is_written_only_by_its_subagent() -> None:
-    """AG-ROUTE-001 — tests/brd/agents.feature"""
+    """AG-ROUTE-001 — tests/brd/tg_agent_shell/agents.feature"""
     advisor_tools = {tool["function"]["name"] for tool in ROOT_SESSION_TOOLS}
     assert "diary" not in advisor_tools
     assert "diary" in PROPOSALS.tools

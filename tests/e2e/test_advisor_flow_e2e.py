@@ -123,7 +123,7 @@ async def test_placeholder_heavy_card_tool_payload_stays_a_root_action(e2e_harne
 
 
 async def test_invalid_create_returns_minimal_repair_arguments_to_the_model(e2e_harness):
-    """PR-REPAIR-015 — tests/brd/proposals.feature"""
+    """PR-REPAIR-015 — tests/brd/tg_agent_shell/proposals.feature"""
     invalid = mutation_turn(
         (
             "card",
@@ -281,7 +281,7 @@ async def test_ai_goal_proposal_reports_a_parent_instead_of_dropping_it(e2e_harn
 
 
 async def test_ai_stage_update_to_done_keeps_completion_accounting(e2e_harness):
-    """PR-SAVE-009 — tests/brd/proposals.feature"""
+    """PR-SAVE-009 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         action = await create_manual_card(session, title="Ship", stage="sprint", effort_points=5)
         sprint = await start_sprint(session, success_criteria="Ship the release")
@@ -505,7 +505,7 @@ async def test_ai_read_query_round_trip_uses_safe_view(e2e_harness):
 
 
 async def test_a_turn_that_stops_without_words_is_asked_again(e2e_harness):
-    """AG-ANSWER-013 — tests/brd/agents.feature"""
+    """AG-ANSWER-013 — tests/brd/tg_agent_shell/agents.feature"""
     query_response = ProviderTurn(
         content="",
         tool_calls=(
@@ -530,7 +530,7 @@ async def test_a_turn_that_stops_without_words_is_asked_again(e2e_harness):
 
 
 async def test_a_turn_that_never_finds_words_still_reaches_the_owner(e2e_harness):
-    """AG-ANSWER-013 — tests/brd/agents.feature"""
+    """AG-ANSWER-013 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, provider = e2e_harness.advisor([""] * 6)
     outcome = await advisor.handle("What is isha?")
 
@@ -540,7 +540,7 @@ async def test_a_turn_that_never_finds_words_still_reaches_the_owner(e2e_harness
 
 
 async def test_read_and_mutation_in_one_turn_rejects_only_the_mutation(e2e_harness):
-    """PR-WRITE-002 — tests/brd/proposals.feature"""
+    """PR-WRITE-002 — tests/brd/tg_agent_shell/proposals.feature"""
     mixed = ProviderTurn(
         content="",
         tool_calls=(
@@ -578,7 +578,7 @@ async def test_read_and_mutation_in_one_turn_rejects_only_the_mutation(e2e_harne
 
 
 async def test_multiple_ai_card_creations_are_reviewed_sequentially(e2e_harness):
-    """PR-QUEUE-006 — tests/brd/proposals.feature"""
+    """PR-QUEUE-006 — tests/brd/tg_agent_shell/proposals.feature"""
     first_turn = mutation_turn(
         ("card", {"mode": "create", "kind": "goal", "title": "Быть здоровым"}),
         (
@@ -750,7 +750,7 @@ async def test_current_request_progress_includes_current_card_update_diffs(e2e_h
 
 
 async def test_child_proposal_fails_cleanly_when_earlier_parent_is_discarded(e2e_harness):
-    """PR-FAIL-014 — tests/brd/proposals.feature"""
+    """PR-FAIL-014 — tests/brd/tg_agent_shell/proposals.feature"""
     response = mutation_turn(
         ("card", {"mode": "create", "kind": "goal", "title": "Be healthy"}),
         (
@@ -795,7 +795,7 @@ async def test_child_proposal_fails_cleanly_when_earlier_parent_is_discarded(e2e
 
 
 async def test_new_tag_and_dependent_card_link_use_one_repair_round(e2e_harness):
-    """PR-REPAIR-015 — tests/brd/proposals.feature"""
+    """PR-REPAIR-015 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_manual_card(session, title="Configure environment")
         await session.commit()
@@ -847,7 +847,7 @@ async def test_new_tag_and_dependent_card_link_use_one_repair_round(e2e_harness)
 
 
 async def test_mutation_repair_loop_stops_after_five_rounds(e2e_harness):
-    """PR-REPAIR-016 — tests/brd/proposals.feature"""
+    """PR-REPAIR-016 — tests/brd/tg_agent_shell/proposals.feature"""
     invalid_turn = mutation_turn(
         (
             "card",
@@ -930,7 +930,7 @@ async def test_repeatable_action_preserves_tags_in_e2e_flow(e2e_harness):
 
 
 async def test_ai_approved_tag_proposal_creates_a_reusable_tag(e2e_harness):
-    """PR-SAVE-009 — tests/brd/proposals.feature"""
+    """PR-SAVE-009 — tests/brd/tg_agent_shell/proposals.feature"""
     response = mutation_turn(
         ("tag", {"mode": "create", "name": "Learning", "description": "Study and practice."})
     )
@@ -946,7 +946,7 @@ async def test_ai_approved_tag_proposal_creates_a_reusable_tag(e2e_harness):
 
 
 async def test_ai_create_tag_and_links_are_reviewed_as_separate_proposals(e2e_harness):
-    """PR-QUEUE-005 — tests/brd/proposals.feature"""
+    """PR-QUEUE-005 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         goal = await create_manual_card(
             session, title="Release VrWalk", kind="goal", effort_points=None
@@ -1012,7 +1012,7 @@ async def test_ai_create_tag_and_links_are_reviewed_as_separate_proposals(e2e_ha
 
 
 async def test_ai_create_value_and_link_are_reviewed_as_separate_proposals(e2e_harness):
-    """PR-QUEUE-005 — tests/brd/proposals.feature"""
+    """PR-QUEUE-005 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         action = await create_manual_card(session, title="Morning run", effort_points=2)
         await session.commit()
@@ -1062,7 +1062,7 @@ async def test_ai_create_value_and_link_are_reviewed_as_separate_proposals(e2e_h
 
 
 async def test_ai_request_update_is_rejected_when_the_request_becomes_stale(e2e_harness):
-    """PR-STALE-012 — tests/brd/proposals.feature"""
+    """PR-STALE-012 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         request = await create_saved_request(
             session,
@@ -1340,7 +1340,7 @@ async def test_advisor_sends_layered_system_blocks_and_canonical_dialogue(e2e_ha
 
 
 async def test_mixed_query_and_mutation_resumes_only_after_approval(e2e_harness):
-    """PR-QUEUE-007 — tests/brd/proposals.feature"""
+    """PR-QUEUE-007 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_manual_card(session, title="Release VrWalk", effort_points=3)
         await session.commit()
@@ -1407,7 +1407,7 @@ async def test_mixed_query_and_mutation_resumes_only_after_approval(e2e_harness)
 
 
 async def test_independent_mutations_are_reviewed_in_order_before_one_resume(e2e_harness):
-    """PR-QUEUE-006 — tests/brd/proposals.feature"""
+    """PR-QUEUE-006 — tests/brd/tg_agent_shell/proposals.feature"""
     advisor, provider = e2e_harness.advisor(
         [
             mutation_turn(
@@ -1450,7 +1450,7 @@ async def test_independent_mutations_are_reviewed_in_order_before_one_resume(e2e
 
 
 async def test_discarded_proposal_result_is_returned_with_later_approval(e2e_harness):
-    """PR-SAVE-010 — tests/brd/proposals.feature"""
+    """PR-SAVE-010 — tests/brd/tg_agent_shell/proposals.feature"""
     advisor, provider = e2e_harness.advisor(
         [
             mutation_turn(
@@ -1490,7 +1490,7 @@ async def test_discarded_proposal_result_is_returned_with_later_approval(e2e_har
 
 
 async def test_new_dialogue_cancels_every_unresolved_item_in_suspended_batch(e2e_harness):
-    """PR-INTERRUPT-017 — tests/brd/proposals.feature"""
+    """PR-INTERRUPT-017 — tests/brd/tg_agent_shell/proposals.feature"""
     advisor, provider = e2e_harness.advisor(
         [
             mutation_turn(
@@ -1523,7 +1523,7 @@ async def test_new_dialogue_cancels_every_unresolved_item_in_suspended_batch(e2e
 async def test_a_review_whose_screen_could_not_be_sent_does_not_stay_open(
     e2e_harness, monkeypatch
 ):
-    """SC-FAIL-005 — tests/brd/screens.feature"""
+    """SC-FAIL-005 — tests/brd/tg_agent_shell/screens.feature"""
     advisor, _provider = e2e_harness.advisor(
         [mutation_turn(("tag", {"mode": "create", "name": "VrWalk"}))]
     )
@@ -1563,7 +1563,7 @@ async def test_a_review_whose_screen_could_not_be_sent_does_not_stay_open(
 
 
 async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_harness):
-    """PR-QUEUE-007 — tests/brd/proposals.feature"""
+    """PR-QUEUE-007 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         goal = await create_manual_card(
             session, title="Release VrWalk", kind="goal", effort_points=None
@@ -1720,7 +1720,7 @@ async def test_single_tag_proposal_save_and_discard_callbacks_resume_agent(
     callback_action,
     final_text,
 ):
-    """PR-SCREEN-003 — tests/brd/proposals.feature"""
+    """PR-SCREEN-003 — tests/brd/tg_agent_shell/proposals.feature"""
     advisor, provider = e2e_harness.advisor(
         [
             mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
@@ -1763,7 +1763,7 @@ async def test_single_tag_proposal_save_and_discard_callbacks_resume_agent(
 
 
 async def test_restart_invalidates_an_unanswered_proposal_button(e2e_harness):
-    """SC-BUTTON-003 — tests/brd/screens.feature"""
+    """SC-BUTTON-003 — tests/brd/tg_agent_shell/screens.feature"""
     advisor, provider = e2e_harness.advisor(
         [mutation_turn(("tag", {"mode": "create", "name": "VrWalk"}))]
     )
@@ -1811,7 +1811,7 @@ async def test_restart_invalidates_an_unanswered_proposal_button(e2e_harness):
 
 
 async def test_a_button_works_once(e2e_harness):
-    """SC-BUTTON-003 — tests/brd/screens.feature"""
+    """SC-BUTTON-003 — tests/brd/tg_agent_shell/screens.feature"""
     advisor, _provider = e2e_harness.advisor(
         [
             mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
@@ -1854,7 +1854,7 @@ async def test_a_button_works_once(e2e_harness):
 
 
 async def test_read_queries_beside_a_proposal_still_resume_the_agent(e2e_harness):
-    """PR-QUEUE-007 — tests/brd/proposals.feature
+    """PR-QUEUE-007 — tests/brd/tg_agent_shell/proposals.feature
 
     A read call in the same turn stores rows, not an outcome; the receipt must survive it.
     """
@@ -1933,7 +1933,7 @@ async def _resolve_queued_proposal(
 
 
 async def test_discarding_the_last_queued_proposal_still_reports_saved_siblings(e2e_harness):
-    """PR-SAVE-010 — tests/brd/proposals.feature"""
+    """PR-SAVE-010 — tests/brd/tg_agent_shell/proposals.feature"""
     advisor, provider = e2e_harness.advisor(
         [
             mutation_turn(
@@ -1979,7 +1979,7 @@ async def test_discarding_the_last_queued_proposal_still_reports_saved_siblings(
 
 
 async def test_failed_call_result_states_that_its_siblings_are_still_queued(e2e_harness):
-    """PR-REPAIR-015 — tests/brd/proposals.feature"""
+    """PR-REPAIR-015 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_manual_card(session, title="Release VrWalk", effort_points=3)
         await session.commit()
@@ -2006,7 +2006,7 @@ async def test_failed_call_result_states_that_its_siblings_are_still_queued(e2e_
 
 
 async def test_new_message_discarding_a_queue_reports_what_was_already_saved(e2e_harness):
-    """PR-INTERRUPT-018 — tests/brd/proposals.feature"""
+    """PR-INTERRUPT-018 — tests/brd/tg_agent_shell/proposals.feature"""
     advisor, provider = e2e_harness.advisor(
         [
             mutation_turn(
@@ -2062,7 +2062,7 @@ async def test_new_message_discarding_a_queue_reports_what_was_already_saved(e2e
 
 
 async def test_proposal_ui_queues_mutations_and_reports_dependency_failure(e2e_harness):
-    """PR-FAIL-014 — tests/brd/proposals.feature"""
+    """PR-FAIL-014 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_manual_card(session, title="Release VrWalk", effort_points=3)
         await session.commit()
@@ -2123,7 +2123,7 @@ async def test_proposal_ui_queues_mutations_and_reports_dependency_failure(e2e_h
 
 
 async def test_single_proposal_save_error_is_reported_and_resolved(e2e_harness):
-    """PR-FAIL-014 — tests/brd/proposals.feature"""
+    """PR-FAIL-014 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         session.add(Tag(name="VrWalk"))
         await session.commit()
@@ -2297,7 +2297,7 @@ async def test_application_owned_saved_receipt_is_rendered_once_when_model_echoe
 
 
 async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
-    """PR-RESULT-011 — tests/brd/proposals.feature
+    """PR-RESULT-011 — tests/brd/tg_agent_shell/proposals.feature
 
     A multi-step request must keep every step it already took across each approval.
     """
@@ -2391,7 +2391,7 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
 
 
 async def test_suspended_batch_persists_the_request_dialogue_and_transcript(e2e_harness):
-    """AG-SESSION-008 — tests/brd/agents.feature"""
+    """AG-SESSION-008 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, _provider = e2e_harness.advisor(
         [mutation_turn(("tag", {"mode": "create", "name": "VrWalk"}))]
     )
@@ -2413,7 +2413,7 @@ async def test_suspended_batch_persists_the_request_dialogue_and_transcript(e2e_
 
 
 async def test_the_tool_call_budget_is_carried_across_an_approval(e2e_harness):
-    """AG-BUDGET-011 — tests/brd/agents.feature"""
+    """AG-BUDGET-011 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, _provider = e2e_harness.advisor(
         [
             mutation_turn(("tag", {"mode": "create", "name": "Budget"})),
@@ -2457,7 +2457,7 @@ async def test_a_session_can_only_be_claimed_once(e2e_harness):
 
 
 async def test_ending_a_session_ends_every_unfinished_one_below_it(e2e_harness):
-    """AG-WORDS-020 — tests/brd/agents.feature
+    """AG-WORDS-020 — tests/brd/tg_agent_shell/agents.feature
 
     A subagent holds no `route`, so nothing routes three deep today. The store closes the
     branch whole anyway: the depth of a chain is its business, not its caller's.
@@ -2500,7 +2500,7 @@ async def _standalone_tag_proposal(e2e_harness, advisor, name: str) -> int:
 async def test_a_resolved_proposal_leaves_one_readable_line_in_the_dialogue(
     e2e_harness, action, heading
 ):
-    """PR-RESULT-011 — tests/brd/proposals.feature"""
+    """PR-RESULT-011 — tests/brd/tg_agent_shell/proposals.feature"""
     advisor, _provider = e2e_harness.advisor(
         [mutation_turn(("tag", {"mode": "create", "name": "VrWalk"}))]
     )
@@ -2536,7 +2536,7 @@ async def test_a_resolved_proposal_leaves_one_readable_line_in_the_dialogue(
 
 
 async def test_navigating_away_freezes_the_proposal_into_the_same_outcome_text(e2e_harness):
-    """SC-LIVE-001 — tests/brd/screens.feature"""
+    """SC-LIVE-001 — tests/brd/tg_agent_shell/screens.feature"""
     advisor, _provider = e2e_harness.advisor(
         [mutation_turn(("tag", {"mode": "create", "name": "VrWalk"}))]
     )
@@ -2585,7 +2585,7 @@ def _screen_services(e2e_harness, advisor) -> SimpleNamespace:
 
 
 async def test_a_proposal_screen_lists_its_fields_behind_save_and_discard(e2e_harness):
-    """PR-SCREEN-003 — tests/brd/proposals.feature"""
+    """PR-SCREEN-003 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_manual_card(session, title="Release VrWalk", effort_points=3)
         await session.commit()
@@ -2607,7 +2607,7 @@ async def test_a_proposal_screen_lists_its_fields_behind_save_and_discard(e2e_ha
 
 
 async def test_a_proposal_holding_two_changes_lists_both_on_one_screen(e2e_harness):
-    """PR-SCREEN-003 — tests/brd/proposals.feature"""
+    """PR-SCREEN-003 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         workspace = await session.get(Workspace, 1)
     proposal_id = e2e_harness.reviews.open_proposal(
@@ -2631,7 +2631,7 @@ async def test_a_proposal_holding_two_changes_lists_both_on_one_screen(e2e_harne
 
 
 async def test_one_call_setting_several_fields_is_one_proposal(e2e_harness):
-    """PR-QUEUE-005 — tests/brd/proposals.feature"""
+    """PR-QUEUE-005 — tests/brd/tg_agent_shell/proposals.feature"""
     advisor, _provider = e2e_harness.advisor(
         [
             mutation_turn(
@@ -2666,7 +2666,7 @@ async def test_one_call_setting_several_fields_is_one_proposal(e2e_harness):
 
 
 async def test_saving_one_proposal_leaves_the_queued_ones_saveable(e2e_harness):
-    """PR-QUEUE-008 — tests/brd/proposals.feature"""
+    """PR-QUEUE-008 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_manual_card(session, title="Release", effort_points=3)
         await session.commit()
@@ -2706,7 +2706,7 @@ async def test_saving_one_proposal_leaves_the_queued_ones_saveable(e2e_harness):
 
 
 async def test_deleting_a_card_asks_once_more_before_it_goes(e2e_harness):
-    """PR-SCREEN-004 — tests/brd/proposals.feature"""
+    """PR-SCREEN-004 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_manual_card(session, title="Release VrWalk", effort_points=3)
         tag = await create_tag(session, "VrWalk")
@@ -2757,7 +2757,7 @@ async def test_deleting_a_card_asks_once_more_before_it_goes(e2e_harness):
 
 
 async def test_a_failed_save_with_no_waiting_request_brings_the_screen_back(e2e_harness):
-    """PR-FAIL-014 — tests/brd/proposals.feature"""
+    """PR-FAIL-014 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_manual_card(session, title="Release VrWalk", effort_points=3)
         workspace = await session.get(Workspace, 1)

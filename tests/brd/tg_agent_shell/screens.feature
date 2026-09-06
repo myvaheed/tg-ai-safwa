@@ -47,6 +47,15 @@ Feature: Screens
     And no bold, italic or code formatting is left open across a split
     And the conversation reads it back as one turn, not as several
 
+  Scenario: SC-OPEN-006 — Opening an item means its real screen, not a copy of it
+    Given the owner asked to see one item Safwa can point at
+    When it is opened
+    Then what arrives is the screen the owner would have reached by hand, buttons and all,
+      and never a read-only retelling of it
+    And every kind of item that can be cited opens the same way
+    When a kind that is not one of them is asked for
+    Then it is refused, rather than answered with an empty screen
+
   Scenario: SC-FAIL-005 — A review that could not be put on screen does not stay open
     Given Safwa prepared a change and the review screen for it could not be put in the chat
     When that happens

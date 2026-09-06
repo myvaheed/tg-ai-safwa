@@ -27,7 +27,7 @@ from tg_agent_shell.telegram.chat import (
 
 
 def test_a_split_falls_on_a_line_break_and_closes_what_it_opened() -> None:
-    """SC-SPLIT-004 — tests/brd/screens.feature"""
+    """SC-SPLIT-004 — tests/brd/tg_agent_shell/screens.feature"""
     body = "\n".join(f"line {index} of the answer" for index in range(400))
     text = f"<b>Heading</b>\n<i>{body}</i>"
 
@@ -46,7 +46,7 @@ def test_a_split_falls_on_a_line_break_and_closes_what_it_opened() -> None:
 
 
 async def test_an_over_long_answer_arrives_as_several_dialogue_messages(sessions) -> None:
-    """SC-SPLIT-004 — tests/brd/screens.feature"""
+    """SC-SPLIT-004 — tests/brd/tg_agent_shell/screens.feature"""
     services = services_for(sessions)
     message = FakeMessage(970, bot_message=False, answer_as_new=True)
     answer = " ".join(f"word{index}" for index in range(1_500))
@@ -65,7 +65,7 @@ async def test_an_over_long_answer_arrives_as_several_dialogue_messages(sessions
 async def test_an_over_long_summary_is_split_and_every_part_is_registered(
     sessions,
 ) -> None:
-    """SC-SPLIT-004 — tests/brd/screens.feature"""
+    """SC-SPLIT-004 — tests/brd/tg_agent_shell/screens.feature"""
     import tg_agent_shell.telegram.chat as messaging
 
     services = services_for(sessions)
@@ -84,7 +84,7 @@ async def test_an_over_long_summary_is_split_and_every_part_is_registered(
 async def test_a_split_cue_is_delivered_only_once_its_last_part_is_in_the_chat(
     sessions,
 ) -> None:
-    """SC-SPLIT-004 — tests/brd/screens.feature"""
+    """SC-SPLIT-004 — tests/brd/tg_agent_shell/screens.feature"""
     import tg_agent_shell.telegram.chat as messaging
 
     services = services_for(sessions)

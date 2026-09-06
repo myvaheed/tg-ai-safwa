@@ -54,7 +54,7 @@ def _runtime(sessions, turn: TurnManager, reviews: ProposalStore) -> CueRuntime:
 
 
 async def test_ag_turn_015_the_gate_is_shut_while_anything_of_the_owners_is_open(sessions):
-    """AG-TURN-015 — tests/brd/agents.feature"""
+    """AG-TURN-015 — tests/brd/tg_agent_shell/agents.feature"""
     turn, reviews = TurnManager(), ProposalStore()
 
     turn.begin(7)
@@ -80,7 +80,7 @@ async def test_ag_turn_015_the_gate_is_shut_while_anything_of_the_owners_is_open
 
 
 async def test_ag_turn_015_an_open_gate_takes_the_background_lease(sessions):
-    """AG-TURN-015 — tests/brd/agents.feature"""
+    """AG-TURN-015 — tests/brd/tg_agent_shell/agents.feature"""
     turn = TurnManager()
     runtime = _runtime(sessions, turn, ProposalStore())
 

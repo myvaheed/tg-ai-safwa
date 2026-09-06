@@ -43,7 +43,7 @@ async def _refused(session, tool: str, arguments: dict) -> ToolPreparationError:
 
 
 async def test_pr_target_001_an_archived_item_is_not_changed_automatically(sessions, reviews):
-    """PR-TARGET-001 — tests/brd/proposals.feature"""
+    """PR-TARGET-001 — tests/brd/tg_agent_shell/proposals.feature"""
     async with sessions() as session:
         card = await create_card(
             session, kind="action", title="Walk", effort_points=2, stage="today"
@@ -72,7 +72,7 @@ async def test_pr_target_001_an_archived_item_is_not_changed_automatically(sessi
 
 
 async def test_pr_target_001_an_id_that_matches_nothing_is_a_different_refusal(sessions, reviews):
-    """PR-TARGET-001 — tests/brd/proposals.feature"""
+    """PR-TARGET-001 — tests/brd/tg_agent_shell/proposals.feature"""
     async with sessions() as session:
         error = await _refused(session, "card", {"mode": "update", "id": 999, "title": "Ghost"})
 
@@ -95,7 +95,7 @@ async def _proposal_for(
 
 
 async def test_a_sprint_closing_itself_overnight_refuses_the_waiting_proposal(sessions, reviews):
-    """PR-STALE-012 — tests/brd/proposals.feature"""
+    """PR-STALE-012 — tests/brd/tg_agent_shell/proposals.feature"""
     async with sessions() as session:
         card = await create_card(
             session, kind="action", title="Walk", effort_points=2, stage="today"
@@ -126,7 +126,7 @@ async def test_a_sprint_closing_itself_overnight_refuses_the_waiting_proposal(se
 
 
 async def test_a_proposal_does_not_expire_while_its_process_is_running(sessions, reviews):
-    """PR-STALE-013 — tests/brd/proposals.feature"""
+    """PR-STALE-013 — tests/brd/tg_agent_shell/proposals.feature"""
     async with sessions() as session:
         card = await create_card(
             session, kind="action", title="Walk", effort_points=2, stage="today"
@@ -147,7 +147,7 @@ async def test_a_proposal_does_not_expire_while_its_process_is_running(sessions,
 
 
 async def test_startup_clears_what_an_unanswered_review_left_behind(sessions, reviews):
-    """PR-STALE-013 — tests/brd/proposals.feature
+    """PR-STALE-013 — tests/brd/tg_agent_shell/proposals.feature
 
     A restart ends the reviews themselves, because they only ever lived in the process
     that opened them.  What outlives them is what pointed at one: the button that would

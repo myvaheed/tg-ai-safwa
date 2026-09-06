@@ -474,6 +474,30 @@ A screen the menu already offers does not also need a command line.
   the feature it names, and the Sprint screen is Planning's: declaring it in `cards`
   would make the Cards manifest contribute a Planning screen and make Cards import it.
 
+## Batches 14 and 15 — landed
+
+Every package has a scenario file, and every scenario file has a package.
+
+21. **done** — the four files that describe the shell are `tests/brd/tg_agent_shell/`, and the
+    five packages that had no scenarios have their own. Batches 14 and 15.
+
+### Benefits
+
+- The rule reads both ways now, so a package nobody wrote a rule for is as visible as a rule
+  whose package is gone. `tests/test_brd_traceability.py` walks the tree rather than one
+  directory, and a citation names the file it is actually in.
+- A second bot built on the shell inherits four scenario files and leaves the rest behind. The
+  directory is what says which is which, and it is the same boundary Rule F already holds.
+- The `/status` command had no rule anywhere and no test of its own. It has two of each.
+- Five packages were having their rules read out of other features' scenarios. Where that was
+  the right home it stayed there: the workspace state block is still described line by line by
+  the features that own each line, and Today leaving the menu is still `PL-MODE-001`. What was
+  written down is only what no file was stating — the menu as a list, the deep link back in,
+  the retro screen, the one voice every part of Safwa answers in, and the one way to delete.
+  What opening an item means went to `screens.feature` rather than to the Advisor: the tool
+  and the screen behind it are both the shell's, and only the line saying *when* to call it
+  is Safwa's.
+
 ## Candidates — from the owner
 
 2. **no** — the review flow travelled with the engine rather than into it, and moving the
@@ -510,9 +534,9 @@ A screen the menu already offers does not also need a command line.
     other place a single module knows the whole roster.
 20. **done** — the screen is Profile everywhere: the package, `profile.feature`, `/profile`
     and the "⚙️ Profile" button. Batch 12.
-21. **check** — agents.feature, screens.feature and telegram_history.feature have no package,
-    and advisor, workspace_mutator, home and retro have no scenario file, against one package
-    per scenario file.
+21. **done** — the shell's scenarios are `tests/brd/tg_agent_shell/`, and advisor,
+    workspace_mutator, home, retro and diagnostics have a scenario file each. Batches 14
+    and 15.
 22. **done** — the container moved with the shell, so there is no import left to reverse.
     What the fields are called is candidate 18.
 23. **done** — the Telegram half is `telegram/contributions.py`, and `foundation/`

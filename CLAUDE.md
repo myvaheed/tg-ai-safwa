@@ -6,7 +6,7 @@ It carries the principles only. Every mechanism has a document that owns it, lis
 
 ## Read first
 
-`tests/brd/*.feature` is what Safwa does, one approved rule per `Scenario`. Read the ones for the
+`tests/brd/` is what Safwa does, one approved rule per `Scenario`. Read the ones for the
 feature you are changing before you change it, and [tests/brd/README.md](tests/brd/README.md) for
 what a scenario is.
 
@@ -131,9 +131,12 @@ A feature owns its model, use cases, agent contract and Telegram adapter, and it
 mutation paths call the same operations — [features/diary](src/safwa/features/diary) is the shape
 to copy.
 
-**`tests/brd/*.feature` is the product spec.** An approved scenario outranks the code, the tests
-and every document, and changing one needs the owner. **One package per `.feature` file**, so a
-rule and the code that keeps it are found together.
+**`tests/brd/` is the product spec.** An approved scenario outranks the code, the tests and
+every document, and changing one needs the owner. **One package per `.feature` file, and one
+file per package**, so a rule and the code that keeps it are found together. A file directly
+under `tests/brd/` is a package under `src/safwa/features/`; the four under
+`tests/brd/tg_agent_shell/` are the rules the shell keeps, which is what a second bot built on
+it would inherit.
 
 Where a shared thing goes is decided by how many features read it. Cross-feature tuning — token
 budgets, poll intervals, shared timeouts — lives in [constants.py](src/safwa/constants.py), which
@@ -234,11 +237,11 @@ ORM metadata at that point.
 | What a scenario is | [tests/brd/README.md](tests/brd/README.md) |
 | The domain and its invariants | [docs/DOMAIN.md](docs/DOMAIN.md) |
 | The six flows, drawn | [docs/diagrams/](docs/diagrams) |
-| History, memory, summaries | [telegram_history.feature](tests/brd/telegram_history.feature), [continuity.feature](tests/brd/continuity.feature), [features/continuity](src/safwa/features/continuity) |
+| History, memory, summaries | [telegram_history.feature](tests/brd/tg_agent_shell/telegram_history.feature), [continuity.feature](tests/brd/continuity.feature), [features/continuity](src/safwa/features/continuity) |
 | Checks | [checks.feature](tests/brd/checks.feature), [features/checks](src/safwa/features/checks) |
 | Diary | [diary.feature](tests/brd/diary.feature), [features/diary](src/safwa/features/diary) |
 | Reminders | [reminders.feature](tests/brd/reminders.feature), [features/reminders](src/safwa/features/reminders) |
-| Voice input | [agents.feature](tests/brd/agents.feature), [asr.py](src/tg_agent_shell/asr.py) |
+| Voice input | [agents.feature](tests/brd/tg_agent_shell/agents.feature), [asr.py](src/tg_agent_shell/asr.py) |
 | Sessions, routing, helpers, cues, history | [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md) |
 | How a feature plugs in | [docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md) |
 | LLM provider boundary | [docs/LLM_GATEWAY.md](docs/LLM_GATEWAY.md) |

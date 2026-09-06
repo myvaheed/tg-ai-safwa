@@ -41,7 +41,7 @@ from tg_agent_shell.turn import TurnManager
 async def test_ag_turn_010_nothing_that_arrives_during_an_answer_joins_it(
     sessions, monkeypatch
 ) -> None:
-    """AG-TURN-010 — tests/brd/agents.feature"""
+    """AG-TURN-010 — tests/brd/tg_agent_shell/agents.feature"""
     import tg_agent_shell.telegram.services as core_module
 
     monkeypatch.setattr(core_module, "Message", FakeMessage)
@@ -68,7 +68,7 @@ async def test_ag_turn_010_nothing_that_arrives_during_an_answer_joins_it(
 async def test_ag_turn_023_words_telegram_refused_to_delete_are_answered_now(
     sessions, monkeypatch
 ) -> None:
-    """AG-TURN-023 — tests/brd/agents.feature"""
+    """AG-TURN-023 — tests/brd/tg_agent_shell/agents.feature"""
     import tg_agent_shell.telegram.services as core_module
 
     monkeypatch.setattr(core_module, "Message", FakeMessage)
@@ -164,7 +164,7 @@ async def test_proposal_ui_gives_up_the_turn_before_continuity_work(sessions) ->
 
 
 async def test_new_dialogue_discards_and_freezes_pending_proposal(sessions) -> None:
-    """PR-INTERRUPT-017 — tests/brd/proposals.feature"""
+    """PR-INTERRUPT-017 — tests/brd/tg_agent_shell/proposals.feature"""
     store = ProposalStore()
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
@@ -225,7 +225,7 @@ async def test_new_dialogue_discards_and_freezes_pending_proposal(sessions) -> N
 
 
 async def test_a_command_dismisses_every_other_screen(sessions) -> None:
-    """SC-LIVE-001 — tests/brd/screens.feature
+    """SC-LIVE-001 — tests/brd/tg_agent_shell/screens.feature
 
     A command is the owner walking away, so the middleware answers the open screens.
     """
@@ -274,7 +274,7 @@ async def test_a_command_dismisses_every_other_screen(sessions) -> None:
 
 
 async def test_the_screen_the_owner_walked_into_is_left_alone(sessions) -> None:
-    """SC-LIVE-001 — tests/brd/screens.feature
+    """SC-LIVE-001 — tests/brd/tg_agent_shell/screens.feature
 
     The selector is every *other* screen, so the one the event belongs to is redrawn in
     place rather than taken away underneath the owner.
@@ -324,7 +324,7 @@ async def test_the_screen_the_owner_walked_into_is_left_alone(sessions) -> None:
 
 
 async def test_typed_words_end_the_review_and_are_then_answered(sessions) -> None:
-    """PR-INTERRUPT-017 — tests/brd/proposals.feature
+    """PR-INTERRUPT-017 — tests/brd/tg_agent_shell/proposals.feature
 
     Ending the review is half of it. The words that ended it are the next request.
     """

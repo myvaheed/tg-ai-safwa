@@ -18,22 +18,37 @@ The **topic is the aspect the rule is about**, never the package's own name writ
 nothing a reader can use, and a package whose scenarios all share one topic has not been read
 carefully enough to say what each of them is about.
 
-One `.feature` file is one package under `src/safwa/features/`, so a rule and the code that keeps
-it are found in one place. `screens.feature` is the one exception: it is owned by
-`src/safwa/telegram`, which Phase 8 turns into a package of its own. The prefix names that package, never a group of them: `PL` used to cover
-Cards, Checks, Values, Tags and the Sprint at once, which meant five packages sharing one numbering
-line and no way to read an identifier and know where its code lives.
+One `.feature` file is one package and every package has one, so a rule and the code that keeps
+it are found together and neither can go missing without the other being noticed.
+A file directly under `tests/brd/` is a package under `src/safwa/features/`. The four under
+`tests/brd/tg_agent_shell/` are the rules that package keeps, in their own directory because it
+is held to working without Safwa: they are what a second bot built on the shell would inherit.
+
+The prefix names one package, never a group of them: `PL` used to cover Cards, Checks, Values,
+Tags and the Sprint at once, which meant five packages sharing one numbering line and no way to
+read an identifier and know where its code lives.
+
+`src/safwa/features/`:
 
 | Area | Prefix | Area | Prefix |
 |---|---|---|---|
-| Cards | `CD` | Proposals | `PR` |
-| Checks | `CH` | Agents and routing | `AG` |
-| Values | `VL` | Telegram history | `TG` |
-| Tags | `TA` | Continuity and memory | `CO` |
-| Planning — the Sprint and the mode without one | `PL` | Diary | `DI` |
-| Reminders | `RM` | Saved Requests | `SR` |
-| Profile | `PS` | The heavy analyzer | `HAN` |
-| Screens | `SC` | | |
+| Cards | `CD` | Reminders | `RM` |
+| Checks | `CH` | Profile | `PS` |
+| Values | `VL` | Continuity and memory | `CO` |
+| Tags | `TA` | Diary | `DI` |
+| Planning — the Sprint and the mode without one | `PL` | Saved Requests | `SR` |
+| The heavy analyzer | `HAN` | The workspace | `WS` |
+| Home — the menu and the way in | `HM` | The Advisor | `AD` |
+| Retro | `RT` | Diagnostics | `DG` |
+
+`src/tg_agent_shell/`:
+
+| Area | Prefix |
+|---|---|
+| Agents and routing | `AG` |
+| Proposals | `PR` |
+| Screens | `SC` |
+| Telegram history | `TG` |
 
 `tests/test_brd_traceability.py` reads this table, so a prefix that is not in it is not a
 scenario identifier.

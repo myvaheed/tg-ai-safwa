@@ -82,7 +82,7 @@ async def backdate(sessions, chat_id: int, moment: datetime) -> None:
 
 
 async def test_surviving_owner_text_is_what_the_owner_said(sessions) -> None:
-    """TG-OWNER-003 — tests/brd/telegram_history.feature"""
+    """TG-OWNER-003 — tests/brd/tg_agent_shell/telegram_history.feature"""
     chat_id, owner_id, bot_id = 100, 42, 99
     at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
     messages = [
@@ -116,7 +116,7 @@ async def test_surviving_owner_text_is_what_the_owner_said(sessions) -> None:
 
 
 async def test_summary_is_pinned_first_with_twenty_prior_messages(sessions) -> None:
-    """TG-SUMMARY-006 — tests/brd/telegram_history.feature"""
+    """TG-SUMMARY-006 — tests/brd/tg_agent_shell/telegram_history.feature"""
     chat_id, owner_id, bot_id = 101, 42, 99
     at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
     older = [
@@ -175,7 +175,7 @@ async def test_summary_is_pinned_first_with_twenty_prior_messages(sessions) -> N
 async def test_the_window_is_cut_on_a_message_boundary_when_the_budget_runs_out(
     sessions,
 ) -> None:
-    """TG-WINDOW-005 — tests/brd/telegram_history.feature"""
+    """TG-WINDOW-005 — tests/brd/tg_agent_shell/telegram_history.feature"""
     chat_id, owner_id, bot_id = 107, 42, 99
     at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
     messages = [
@@ -201,7 +201,7 @@ async def test_the_window_is_cut_on_a_message_boundary_when_the_budget_runs_out(
 
 
 async def test_the_answered_message_is_not_read_twice(sessions) -> None:
-    """TG-CURRENT-008 — tests/brd/telegram_history.feature"""
+    """TG-CURRENT-008 — tests/brd/tg_agent_shell/telegram_history.feature"""
     chat_id, owner_id, bot_id = 105, 42, 99
     at = datetime(2026, 8, 9, 12, 47, tzinfo=UTC)
     # The Bot API numbered the owner's message 13; a Telethon session calls it 95_003.
@@ -234,7 +234,7 @@ async def test_the_answered_message_is_not_read_twice(sessions) -> None:
 
 
 async def test_dialogue_groups_every_user_message_until_the_next_ai_response(sessions) -> None:
-    """TG-SHAPE-010 — tests/brd/telegram_history.feature"""
+    """TG-SHAPE-010 — tests/brd/tg_agent_shell/telegram_history.feature"""
     source = history_source(None, sessions, bot_user_id=99, owner_id=42)
     at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
     entries = [
@@ -259,7 +259,7 @@ async def test_dialogue_groups_every_user_message_until_the_next_ai_response(ses
 
 
 async def test_kind_marks_rebuild_history_without_registrations(sessions) -> None:
-    """TG-NOTES-007 — tests/brd/telegram_history.feature"""
+    """TG-NOTES-007 — tests/brd/tg_agent_shell/telegram_history.feature"""
     chat_id, owner_id, bot_id = 100, 42, 99
     at = datetime(2026, 8, 11, 12, 0, tzinfo=UTC)
     messages = [
@@ -289,7 +289,7 @@ async def test_kind_marks_rebuild_history_without_registrations(sessions) -> Non
 
 
 async def test_the_read_reaches_past_every_note_safwa_kept(sessions) -> None:
-    """TG-NOTES-007 — tests/brd/telegram_history.feature"""
+    """TG-NOTES-007 — tests/brd/tg_agent_shell/telegram_history.feature"""
     chat_id, owner_id, bot_id = 114, 42, 99
     at = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
     messages = [
@@ -319,7 +319,7 @@ async def test_the_read_reaches_past_every_note_safwa_kept(sessions) -> None:
 
 
 async def test_a_summary_too_long_for_one_message_reads_as_one(sessions) -> None:
-    """SC-SPLIT-004 — tests/brd/screens.feature"""
+    """SC-SPLIT-004 — tests/brd/tg_agent_shell/screens.feature"""
     chat_id, owner_id, bot_id = 115, 42, 99
     at = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
     messages = [
@@ -355,7 +355,7 @@ async def test_a_summary_too_long_for_one_message_reads_as_one(sessions) -> None
 
 
 async def test_an_older_summary_with_only_a_screen_between_them_is_not_read(sessions) -> None:
-    """TG-SUMMARY-006 — tests/brd/telegram_history.feature"""
+    """TG-SUMMARY-006 — tests/brd/tg_agent_shell/telegram_history.feature"""
     chat_id, owner_id, bot_id = 116, 42, 99
     at = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
     messages = [
@@ -393,7 +393,7 @@ async def test_an_older_summary_with_only_a_screen_between_them_is_not_read(sess
 
 
 async def test_item_links_read_back_as_the_citations_the_model_wrote(sessions) -> None:
-    """TG-CITE-011 — tests/brd/telegram_history.feature"""
+    """TG-CITE-011 — tests/brd/tg_agent_shell/telegram_history.feature"""
     chat_id, owner_id, bot_id = 100, 42, 99
     at = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
     reply = "🎯 Answer Milk, then close Market."
@@ -421,7 +421,7 @@ async def test_item_links_read_back_as_the_citations_the_model_wrote(sessions) -
 
 
 def test_restore_citations_only_rewrites_safwa_deep_links() -> None:
-    """TG-CITE-011 — tests/brd/telegram_history.feature"""
+    """TG-CITE-011 — tests/brd/tg_agent_shell/telegram_history.feature"""
     assert restore_citations("Milk", None, SCREENS.types) == "Milk"
     assert (
         restore_citations(
@@ -437,7 +437,7 @@ def test_restore_citations_only_rewrites_safwa_deep_links() -> None:
 
 
 def test_a_compact_diary_label_round_trips_as_a_citation() -> None:
-    """TG-CITE-011 — tests/brd/telegram_history.feature"""
+    """TG-CITE-011 — tests/brd/tg_agent_shell/telegram_history.feature"""
     restored = restore_citations(
         "Тот день: 4 марта · 🙂6.",
         [MessageEntityTextUrl(10, 13, "https://t.me/x?start=diary-12")],
@@ -453,7 +453,7 @@ def test_a_compact_diary_label_round_trips_as_a_citation() -> None:
 
 
 def test_kind_mark_round_trips_and_is_invisible() -> None:
-    """TG-MARK-001 — tests/brd/telegram_history.feature"""
+    """TG-MARK-001 — tests/brd/tg_agent_shell/telegram_history.feature"""
     for kind in MessageKind:
         marked = mark_kind("Visible text", kind)
         assert marked.startswith("Visible text")
@@ -462,7 +462,7 @@ def test_kind_mark_round_trips_and_is_invisible() -> None:
 
 
 def test_event_marker_survives_message_edits() -> None:
-    """TG-MARK-001 — tests/brd/telegram_history.feature"""
+    """TG-MARK-001 — tests/brd/tg_agent_shell/telegram_history.feature"""
     original, event_id = mark_message("Original", MessageKind.DIALOGUE_ASSISTANT)
     edited = mark_kind("Edited", MessageKind.DIALOGUE_ASSISTANT, event_id=event_id)
 
@@ -477,7 +477,7 @@ def test_event_marker_survives_message_edits() -> None:
 async def test_a_receipt_reads_back_as_a_tool_result_rather_than_as_safwa_words(
     sessions,
 ) -> None:
-    """TG-RECEIPT-009 — tests/brd/telegram_history.feature"""
+    """TG-RECEIPT-009 — tests/brd/tg_agent_shell/telegram_history.feature"""
     source = history_source(None, sessions, bot_user_id=99, owner_id=42)
     at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
     entries = [
@@ -509,7 +509,7 @@ async def test_a_receipt_reads_back_as_a_tool_result_rather_than_as_safwa_words(
 
 
 async def test_unmarked_bot_prose_is_excluded(sessions) -> None:
-    """TG-MARK-001 — tests/brd/telegram_history.feature"""
+    """TG-MARK-001 — tests/brd/tg_agent_shell/telegram_history.feature"""
     chat_id, owner_id, bot_id = 100, 42, 99
     at = datetime(2026, 8, 12, 12, 0, tzinfo=UTC)
     messages = [
@@ -529,7 +529,7 @@ async def test_unmarked_bot_prose_is_excluded(sessions) -> None:
 
 
 async def test_screens_receipts_and_progress_notes_are_not_the_conversation(sessions) -> None:
-    """TG-KIND-002 — tests/brd/telegram_history.feature"""
+    """TG-KIND-002 — tests/brd/tg_agent_shell/telegram_history.feature"""
     chat_id, owner_id, bot_id = 110, 42, 99
     at = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
     messages = [
@@ -587,7 +587,7 @@ async def test_screens_receipts_and_progress_notes_are_not_the_conversation(sess
 async def test_a_command_left_standing_in_the_chat_is_still_not_the_conversation(
     sessions,
 ) -> None:
-    """TG-OWNER-003 — tests/brd/telegram_history.feature"""
+    """TG-OWNER-003 — tests/brd/tg_agent_shell/telegram_history.feature"""
     chat_id, owner_id, bot_id = 111, 42, 99
     at = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
     messages = [
@@ -604,7 +604,7 @@ async def test_a_command_left_standing_in_the_chat_is_still_not_the_conversation
 
 
 async def test_two_answers_with_nothing_between_them_read_as_one(sessions) -> None:
-    """TG-SHAPE-010 — tests/brd/telegram_history.feature"""
+    """TG-SHAPE-010 — tests/brd/tg_agent_shell/telegram_history.feature"""
     source = history_source(None, sessions, bot_user_id=99, owner_id=42)
     at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
     entries = [
@@ -628,7 +628,7 @@ async def test_two_answers_with_nothing_between_them_read_as_one(sessions) -> No
 async def test_the_answered_message_is_added_when_the_chat_read_has_not_caught_up(
     sessions,
 ) -> None:
-    """TG-CURRENT-008 — tests/brd/telegram_history.feature"""
+    """TG-CURRENT-008 — tests/brd/tg_agent_shell/telegram_history.feature"""
     chat_id, owner_id, bot_id = 112, 42, 99
     at = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
     messages = [

@@ -192,7 +192,7 @@ async def test_di_delete_005_missing_day_is_retryable(e2e_harness):
 
 
 async def test_a_correction_reaches_the_session_that_wrote_the_refused_day(e2e_harness):
-    """AG-WORDS-018 — tests/brd/agents.feature"""
+    """AG-WORDS-018 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, provider = e2e_harness.advisor(
         [
             turn(("route", {"name": "diary"})),
@@ -238,7 +238,7 @@ async def test_a_correction_reaches_the_session_that_wrote_the_refused_day(e2e_h
 
 
 async def test_a_refused_day_is_over_once_the_advisor_answers_something_else(e2e_harness):
-    """AG-WORDS-020 — tests/brd/agents.feature"""
+    """AG-WORDS-020 — tests/brd/tg_agent_shell/agents.feature"""
     subagent = diary_subagent(e2e_harness)
     advisor, _ = e2e_harness.advisor(
         [turn(("route", {"name": "diary"})), write(TODAY, "встретил ахмета на рынке.")],

@@ -20,7 +20,9 @@ README = BRD / "README.md"
 
 SCENARIO = re.compile(r"^\s*Scenario: (?P<id>[A-Z]{2,3}-[A-Z-]+-\d{3}) — ")
 IDENTIFIER = re.compile(r"^(?P<id>[A-Z]{2,3}-[A-Z-]+-\d{3})\b")
-CITATION = re.compile(r"^(?P<id>[A-Z]{2,3}-[A-Z-]+-\d{3}) — (?P<feature>tests/brd/[a-z_]+\.feature)$")
+CITATION = re.compile(
+    r"^(?P<id>[A-Z]{2,3}-[A-Z-]+-\d{3}) — (?P<feature>tests/brd/(?:[a-z_]+/)?[a-z_]+\.feature)$"
+)
 
 
 def approved_prefixes() -> set[str]:
@@ -31,11 +33,11 @@ def approved_prefixes() -> set[str]:
 def scenarios() -> dict[str, str]:
     """Every approved scenario identifier, and the feature file that carries it."""
     found: dict[str, str] = {}
-    for path in sorted(BRD.glob("*.feature")):
+    for path in sorted(BRD.rglob("*.feature")):
         for line in path.read_text(encoding="utf-8-sig").splitlines():
             match = SCENARIO.match(line)
             if match:
-                found[match.group("id")] = f"tests/brd/{path.name}"
+                found[match.group("id")] = path.relative_to(TESTS.parent).as_posix()
     return found
 
 
@@ -103,7 +105,7 @@ def test_every_scenario_prefix_is_declared_in_the_readme():
     assert not undeclared, f"prefixes missing from tests/brd/README.md: {undeclared}"
 
 
-@pytest.mark.parametrize("path", sorted(BRD.glob("*.feature")), ids=lambda path: path.name)
+@pytest.mark.parametrize("path", sorted(BRD.rglob("*.feature")), ids=lambda path: path.name)
 def test_a_feature_file_numbers_each_scenario_once_per_identifier(path: Path):
     """Two Scenario blocks may share an identifier — one rule, two observable cases — but
     the wording after the identifier has to differ, or one of them is a copy."""
@@ -116,7 +118,7 @@ def test_a_feature_file_numbers_each_scenario_once_per_identifier(path: Path):
     assert len(titles) == len(set(titles)), f"repeated scenario titles in {path.name}"
 
 
-@pytest.mark.parametrize("path", sorted(BRD.glob("*.feature")), ids=lambda path: path.name)
+@pytest.mark.parametrize("path", sorted(BRD.rglob("*.feature")), ids=lambda path: path.name)
 def test_a_feature_file_carries_no_gherkin_tags(path: Path):
     """No BDD runner reads these files, so a `@tag` is a lowercase second copy of the
     identifier that nothing keeps in step. The Scenario line is where the identifier is."""

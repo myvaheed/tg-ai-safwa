@@ -233,6 +233,7 @@ async def test_answering_checks_by_proposal_then_completing(e2e_harness):
 
 
 async def test_a_cited_item_opens_its_manual_screen(e2e_harness):
+    """HM-OPEN-002 — tests/brd/home.feature"""
     card_id, check_ids = await _market_card_with_checks(e2e_harness)
     advisor, _provider = e2e_harness.advisor(
         [f"Answer the [Milk](check:{check_ids[0]}) Check when you get home."]
@@ -330,6 +331,7 @@ async def test_a_closed_repeat_is_marked_everywhere_it_is_read(e2e_harness):
 
 
 async def test_citations_link_live_items_and_drop_missing_ones(e2e_harness):
+    """HM-OPEN-002 — tests/brd/home.feature"""
     card_id, check_ids = await _market_card_with_checks(e2e_harness)
     advisor, _provider = e2e_harness.advisor(
         [

@@ -59,7 +59,7 @@ async def action(e2e_harness, title: str = "Buy milk") -> Card:
 
 
 async def test_an_exact_allowlisted_edit_is_autoapproved(e2e_harness):
-    """PR-AUTO-024 — tests/brd/proposals.feature"""
+    """PR-AUTO-024 — tests/brd/tg_agent_shell/proposals.feature"""
     card = await action(e2e_harness)
     request = "Rename Buy milk to Buy oat milk"
     advisor, provider = e2e_harness.advisor(
@@ -105,7 +105,7 @@ async def test_an_exact_allowlisted_edit_is_autoapproved(e2e_harness):
 
 
 async def test_creation_is_never_autoapproved(e2e_harness):
-    """PR-AUTO-025 — tests/brd/proposals.feature"""
+    """PR-AUTO-025 — tests/brd/tg_agent_shell/proposals.feature"""
     advisor, provider = e2e_harness.advisor(
         [
             mutation_turn(
@@ -133,7 +133,7 @@ async def test_creation_is_never_autoapproved(e2e_harness):
 
 
 async def test_reviewer_doubt_leaves_the_original_proposal_pending(e2e_harness):
-    """PR-AUTO-026 — tests/brd/proposals.feature"""
+    """PR-AUTO-026 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         tag = await create_tag(session, name="Work")
         await session.commit()
@@ -157,7 +157,7 @@ async def test_reviewer_doubt_leaves_the_original_proposal_pending(e2e_harness):
 
 
 async def test_batch_is_reviewed_head_first_without_a_bulk_block(e2e_harness):
-    """PR-AUTO-027 — tests/brd/proposals.feature"""
+    """PR-AUTO-027 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         tag = await create_tag(session, name="Work")
         value = await create_value(session, name="Freedom")
@@ -192,7 +192,7 @@ async def test_batch_is_reviewed_head_first_without_a_bulk_block(e2e_harness):
 
 
 async def test_next_head_is_autoapproved_after_a_manual_save(e2e_harness):
-    """PR-AUTO-027 — tests/brd/proposals.feature"""
+    """PR-AUTO-027 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         tag = await create_tag(session, name="Work")
         value = await create_value(session, name="Freedom")
@@ -230,7 +230,7 @@ async def test_next_head_is_autoapproved_after_a_manual_save(e2e_harness):
 
 
 async def test_multi_step_request_can_be_autoapproved_one_proposal_at_a_time(e2e_harness):
-    """PR-AUTO-027 — tests/brd/proposals.feature"""
+    """PR-AUTO-027 — tests/brd/tg_agent_shell/proposals.feature"""
     card = await action(e2e_harness, "Enter university")
     async with e2e_harness.sessions() as session:
         tag = await create_tag(session, name="Study")
@@ -260,7 +260,7 @@ async def test_multi_step_request_can_be_autoapproved_one_proposal_at_a_time(e2e
 
 
 async def test_non_allowlisted_operation_does_not_call_the_reviewer(e2e_harness):
-    """PR-AUTO-025 — tests/brd/proposals.feature"""
+    """PR-AUTO-025 — tests/brd/tg_agent_shell/proposals.feature"""
     card = await action(e2e_harness)
 
     advisor, provider = e2e_harness.advisor(
@@ -278,7 +278,7 @@ async def test_non_allowlisted_operation_does_not_call_the_reviewer(e2e_harness)
 
 
 async def test_autoapproval_that_cannot_decide_leaves_the_screen_standing(e2e_harness):
-    """PR-AUTO-026 — tests/brd/proposals.feature
+    """PR-AUTO-026 — tests/brd/tg_agent_shell/proposals.feature
 
     The branch exists so a failure here costs the owner a button press, not their data.
     """
@@ -308,7 +308,7 @@ async def test_autoapproval_that_cannot_decide_leaves_the_screen_standing(e2e_ha
 
 
 async def test_the_third_in_a_queue_is_not_read_while_the_second_is_on_screen(e2e_harness):
-    """PR-AUTO-027 — tests/brd/proposals.feature"""
+    """PR-AUTO-027 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         tag = await create_tag(session, name="Work")
         value = await create_value(session, name="Freedom")

@@ -91,7 +91,7 @@ def diary_subagent(
 
 
 async def test_a_routed_subagent_hands_its_words_back_and_the_advisor_speaks(e2e_harness):
-    """AG-RECEIPT-006 — tests/brd/agents.feature"""
+    """AG-RECEIPT-006 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, provider = e2e_harness.advisor(
         [
             turn(("route", {"name": "diary"})),
@@ -133,7 +133,7 @@ async def test_a_routed_subagent_hands_its_words_back_and_the_advisor_speaks(e2e
 
 
 async def test_an_autoapproved_board_route_hands_back_its_receipt(e2e_harness):
-    """AG-RECEIPT-006 — tests/brd/agents.feature"""
+    """AG-RECEIPT-006 — tests/brd/tg_agent_shell/agents.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_card(
             session, kind=CardKind.ACTION, title="Купить молоко", effort_points=1
@@ -179,7 +179,7 @@ async def test_an_autoapproved_board_route_hands_back_its_receipt(e2e_harness):
 
 
 async def test_a_routed_subagent_proposes_for_itself(e2e_harness):
-    """AG-ROUTE-001 — tests/brd/agents.feature"""
+    """AG-ROUTE-001 — tests/brd/tg_agent_shell/agents.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_card(
             session, kind=CardKind.ACTION, title="Сходить на рынок", effort_points=2
@@ -260,7 +260,7 @@ async def test_an_unknown_route_target_is_repaired_in_the_next_response(e2e_harn
 
 
 async def test_a_routed_subagent_is_offered_only_its_own_tools(e2e_harness):
-    """AG-ROUTE-004 — tests/brd/agents.feature"""
+    """AG-ROUTE-004 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, provider = e2e_harness.advisor(
         [turn(("route", {"name": "diary"})), "Записал.", "Готово."],
         subagents=(diary_subagent(e2e_harness),),
@@ -276,7 +276,7 @@ async def test_a_routed_subagent_is_offered_only_its_own_tools(e2e_harness):
 
 
 async def test_the_board_owns_every_mutation_tool(e2e_harness):
-    """PR-WRITE-002 — tests/brd/proposals.feature"""
+    """PR-WRITE-002 — tests/brd/tg_agent_shell/proposals.feature"""
     advisor, provider = e2e_harness.advisor(
         [
             turn(("route", {"name": "workspace_mutator"})),
@@ -310,7 +310,7 @@ async def test_the_board_owns_every_mutation_tool(e2e_harness):
 
 
 async def test_a_subagent_reads_the_tail_of_the_conversation_as_tagged_data(e2e_harness):
-    """AG-ROUTE-002 — tests/brd/agents.feature"""
+    """AG-ROUTE-002 — tests/brd/tg_agent_shell/agents.feature"""
     dialogue = [
         DialogueMessage(role="user", content=f"[User]: сообщение {index}")
         if index % 2 == 0
@@ -337,7 +337,7 @@ async def test_a_subagent_reads_the_tail_of_the_conversation_as_tagged_data(e2e_
 
 
 async def test_a_subagent_is_required_to_open_with_a_tool_call(e2e_harness):
-    """AG-ANSWER-014 — tests/brd/agents.feature"""
+    """AG-ANSWER-014 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, provider = e2e_harness.advisor(
         [turn(("tag", {"mode": "create", "name": "VrWalk"}))],
         subagents=(e2e_harness.workspace(),),
@@ -350,7 +350,7 @@ async def test_a_subagent_is_required_to_open_with_a_tool_call(e2e_harness):
 
 
 async def test_route_cannot_share_its_response_with_another_call(e2e_harness):
-    """AG-ROUTE-005 — tests/brd/agents.feature"""
+    """AG-ROUTE-005 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, provider = e2e_harness.advisor(
         [
             turn(("route", {"name": "diary"}), ("query_data", {"sql": "SELECT 1"})),
@@ -377,7 +377,7 @@ async def test_route_cannot_share_its_response_with_another_call(e2e_harness):
 
 
 async def test_a_subagent_that_runs_too_long_is_stopped_by_the_clock(e2e_harness, monkeypatch):
-    """AG-BUDGET-012 — tests/brd/agents.feature"""
+    """AG-BUDGET-012 — tests/brd/tg_agent_shell/agents.feature"""
     monkeypatch.setattr("tg_agent_shell.session.SUBAGENT_DEADLINE_SECONDS", 0.05)
 
     async def never_returns_in_time(_call):
@@ -434,7 +434,7 @@ async def test_route_is_not_offered_without_a_roster(e2e_harness):
 
 
 async def test_two_domains_in_one_request_are_both_finished(e2e_harness):
-    """AG-ROUTE-003 — tests/brd/agents.feature"""
+    """AG-ROUTE-003 — tests/brd/tg_agent_shell/agents.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_card(
             session, kind=CardKind.ACTION, title="Приготовить еду", effort_points=2
@@ -497,7 +497,7 @@ async def test_two_domains_in_one_request_are_both_finished(e2e_harness):
 
 
 async def test_a_failed_subagent_comes_back_as_an_error_the_advisor_reports(e2e_harness):
-    """AG-RECEIPT-007 — tests/brd/agents.feature"""
+    """AG-RECEIPT-007 — tests/brd/tg_agent_shell/agents.feature"""
     class ExplodingReader:
         async def day_transcript(self, *_args, **_kwargs):
             raise RuntimeError("history is unreachable")
@@ -532,7 +532,7 @@ async def test_a_failed_subagent_comes_back_as_an_error_the_advisor_reports(e2e_
 
 
 async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
-    """AG-ROUTE-003 — tests/brd/agents.feature"""
+    """AG-ROUTE-003 — tests/brd/tg_agent_shell/agents.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_card(
             session, kind=CardKind.ACTION, title="Приготовить еду", effort_points=2
@@ -609,7 +609,7 @@ async def _interrupted_diary(e2e_harness, *, then: list):
 
 
 async def test_words_over_a_screen_continue_the_request_that_opened_it(e2e_harness):
-    """AG-WORDS-016 — tests/brd/agents.feature"""
+    """AG-WORDS-016 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, provider, frozen = await _interrupted_diary(
         e2e_harness, then=["Понял, перепишу короче."]
     )
@@ -632,7 +632,7 @@ async def test_words_over_a_screen_continue_the_request_that_opened_it(e2e_harne
 
 
 async def test_the_resumed_request_is_told_what_was_proposed_and_what_was_refused(e2e_harness):
-    """AG-WORDS-017 — tests/brd/agents.feature"""
+    """AG-WORDS-017 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, provider, _frozen = await _interrupted_diary(
         e2e_harness, then=["Понял, перепишу короче."]
     )
@@ -650,7 +650,7 @@ async def test_the_resumed_request_is_told_what_was_proposed_and_what_was_refuse
 
 
 async def test_a_correction_reaches_the_session_that_wrote_the_refused_proposal(e2e_harness):
-    """AG-WORDS-018 — tests/brd/agents.feature"""
+    """AG-WORDS-018 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, provider, _frozen = await _interrupted_diary(
         e2e_harness,
         then=[
@@ -681,7 +681,7 @@ async def test_a_correction_reaches_the_session_that_wrote_the_refused_proposal(
 
 
 async def test_the_interrupted_session_reads_that_the_owner_wrote_instead(e2e_harness):
-    """AG-WORDS-019 — tests/brd/agents.feature"""
+    """AG-WORDS-019 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, provider, _frozen = await _interrupted_diary(
         e2e_harness,
         then=[
@@ -704,7 +704,7 @@ async def test_the_interrupted_session_reads_that_the_owner_wrote_instead(e2e_ha
 
 
 async def test_unfinished_work_ends_with_the_request_that_started_it(e2e_harness):
-    """AG-WORDS-020 — tests/brd/agents.feature"""
+    """AG-WORDS-020 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, _provider, _frozen = await _interrupted_diary(
         e2e_harness, then=["Хорошо, забудем про день."]
     )
@@ -722,7 +722,7 @@ async def test_unfinished_work_ends_with_the_request_that_started_it(e2e_harness
 
 
 async def test_saving_finishes_the_subagent_and_the_next_route_starts_fresh(e2e_harness):
-    """AG-WORDS-021 — tests/brd/agents.feature"""
+    """AG-WORDS-021 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, provider = e2e_harness.advisor(
         [
             turn(("route", {"name": "diary"})),

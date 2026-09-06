@@ -97,7 +97,7 @@ async def test_an_autoapproved_change_still_reaches_the_chat(sessions) -> None:
 
 
 async def test_ag_turn_022_the_notice_stands_while_the_answer_is_written(sessions) -> None:
-    """AG-TURN-022 — tests/brd/agents.feature"""
+    """AG-TURN-022 — tests/brd/tg_agent_shell/agents.feature"""
     services = turn_services(sessions)
     message = FakeMessage(966, text="Save it", bot_message=False, answer_as_new=True)
     source = HistoryEntry(
@@ -118,7 +118,7 @@ async def test_ag_turn_022_the_notice_stands_while_the_answer_is_written(session
 
 
 async def test_ag_turn_022_a_cancelled_turn_leaves_no_notice_and_no_answer(sessions) -> None:
-    """AG-TURN-022 — tests/brd/agents.feature"""
+    """AG-TURN-022 — tests/brd/tg_agent_shell/agents.feature"""
     services = turn_services(sessions)
     original_handle = services.root.handle
 
@@ -148,7 +148,7 @@ async def test_ag_turn_022_a_cancelled_turn_leaves_no_notice_and_no_answer(sessi
 
 
 async def test_a_review_that_could_not_be_drawn_ends_and_the_owner_is_told(sessions) -> None:
-    """SC-FAIL-005 — tests/brd/screens.feature"""
+    """SC-FAIL-005 — tests/brd/tg_agent_shell/screens.feature"""
     cancelled: list[int] = []
 
     class ProposalAdvisor:
@@ -271,7 +271,7 @@ async def test_a_cancelled_generation_still_gives_up_its_lease(sessions, monkeyp
 
 
 async def test_a_toast_leaves_the_screen_alone_and_takes_itself_back(sessions, monkeypatch):
-    """SC-KEEP-002 — tests/brd/screens.feature"""
+    """SC-KEEP-002 — tests/brd/tg_agent_shell/screens.feature"""
     import tg_agent_shell.telegram.chat as messaging
 
     monkeypatch.setattr(messaging, "TOAST_SECONDS", 0)
@@ -307,7 +307,7 @@ async def test_a_toast_leaves_the_screen_alone_and_takes_itself_back(sessions, m
 
 
 async def test_what_was_said_is_never_taken_out_of_the_chat(sessions) -> None:
-    """SC-KEEP-002 — tests/brd/screens.feature"""
+    """SC-KEEP-002 — tests/brd/tg_agent_shell/screens.feature"""
     async with sessions() as session:
         session.add_all(
             [

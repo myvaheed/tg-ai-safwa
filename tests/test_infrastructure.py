@@ -27,7 +27,7 @@ def test_startup_bootstraps_a_new_database_from_the_models(tmp_path, monkeypatch
 
 
 async def test_startup_ends_the_session_a_crash_left_running(sessions):
-    """AG-SESSION-009 — tests/brd/agents.feature"""
+    """AG-SESSION-009 — tests/brd/tg_agent_shell/agents.feature"""
     async with sessions() as session:
         run = AgentRun(
             provider="test",
@@ -49,7 +49,7 @@ async def test_startup_ends_the_session_a_crash_left_running(sessions):
 
 
 async def test_startup_closes_every_session_waiting_on_a_process_local_screen(sessions):
-    """AG-SESSION-009 — tests/brd/agents.feature"""
+    """AG-SESSION-009 — tests/brd/tg_agent_shell/agents.feature"""
     async with sessions() as session:
         waiting = AgentRun(provider="test", model="test", status="awaiting_approval")
         session.add(waiting)

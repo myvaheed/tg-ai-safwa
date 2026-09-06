@@ -1,7 +1,7 @@
 # The domain, and the words for it
 
 What a Card, a Check and a Sprint are, and the invariants every write path has to hold. The rule
-itself is `tests/brd/*.feature`; this is the shape those scenarios add up to, in one place.
+itself is `tests/brd/`; this is the shape those scenarios add up to, in one place.
 
 ## The workspace and Planning are not the same word
 

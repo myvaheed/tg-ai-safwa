@@ -36,6 +36,7 @@ from tg_agent_shell.telegram import (
 
 
 async def test_open_item_screen_renders_the_manual_screen_of_every_item(sessions) -> None:
+    """SC-OPEN-006 — tests/brd/tg_agent_shell/screens.feature"""
     async with sessions() as session:
         await (await session.connection()).run_sync(
             lambda connection: create_ai_views(connection, AI_VIEWS)

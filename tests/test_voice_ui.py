@@ -16,7 +16,7 @@ from tg_agent_shell.telegram.dialogue import ASR_MAX_DURATION_SECONDS, voice_mes
 
 
 async def test_voice_message_becomes_one_owner_dialogue_turn(sessions, monkeypatch) -> None:
-    """TG-RELAY-004 — tests/brd/telegram_history.feature"""
+    """TG-RELAY-004 — tests/brd/tg_agent_shell/telegram_history.feature"""
     turns = capture_dialogue_turns(monkeypatch)
     transcriber = ScriptedTranscriber("Renew the passport this week.")
     services = services_for(sessions, transcriber=transcriber)
