@@ -123,8 +123,9 @@ the mutations and the model retries them once it has seen the read.
 
 A feature may watch what the model calls: `before_tool` is given the call and refuses it by
 answering with a result, `after_tool` is given the call and what it produced. `route` reaches
-neither, because the runtime answers it before the adapters are reached. No feature declares one
-yet (`AG-TOOL-031`, `AG-TOOL-032`).
+neither, because the runtime answers it before the adapters are reached. A watcher that raises
+ends the turn as `WatcherFailed`, which names it and the call. No feature declares one yet
+(`AG-TOOL-031`, `AG-TOOL-032`).
 
 ## Context, and why its order is fixed
 

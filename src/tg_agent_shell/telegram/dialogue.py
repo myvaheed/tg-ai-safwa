@@ -174,6 +174,29 @@ def _audio_filename(message: Message) -> str:
     return (message.audio.file_name if message.audio else None) or "audio.mp3"
 
 
+async def run_after_turn(message: Message, services: Services) -> None:
+    """Run the work the application does once the owner has been answered.
+
+    The answer is already in the chat and the turn is already given back, so a failure
+    here is not a failure of the request. It is said as itself, and the rest still runs:
+    one broken piece of after-work must not silence the others, and must never tell the
+    owner their request did not go through.
+    """
+    for after in services.after_turn:
+        name = getattr(after, "__qualname__", None) or repr(after)
+        try:
+            await after(message, services)
+        except Exception as error:
+            logger.exception("The after-turn work %s failed", name)
+            await send_registered(
+                message,
+                services,
+                f"{html.escape(name)}, which runs after the answer, failed: "
+                f"{html.escape(str(error))}\nYour answer above stands.",
+                kind=MessageKind.ERROR,
+            )
+
+
 async def run_dialogue_turn(
     message: Message, services: Services, request: str, source: HistoryEntry
 ) -> None:
@@ -202,8 +225,7 @@ async def run_dialogue_turn(
         await render_ai_outcome(message, services, outcome)
         await end_turn(message, services)
 
-        for after in services.after_turn:
-            await after(message, services)
+        await run_after_turn(message, services)
     except Exception as error:
         logger.exception("Could not complete an advisor turn")
         await send_registered(

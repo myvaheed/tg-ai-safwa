@@ -13,7 +13,12 @@ import pytest
 from llm_gateway import ToolCall
 from tg_agent_shell.ai.contracts import ToolResultStatus
 from tg_agent_shell.ai.mini import ReadToolSpec
-from tg_agent_shell.ai.tools import AgentSession, HelperPort, ToolAdapters
+from tg_agent_shell.ai.tools import (
+    AgentSession,
+    HelperPort,
+    ToolAdapters,
+    WatcherFailed,
+)
 
 READ = ToolCall(id="1", name="read_thing", arguments_json="{}")
 
@@ -67,17 +72,36 @@ async def test_ag_tool_031_a_watcher_that_answers_with_nothing_lets_the_call_run
     assert outcome.result == {"rows": "what the tool found"}
 
 
-async def test_ag_tool_031_a_watcher_that_fails_ends_the_turn() -> None:
+async def test_ag_tool_031_a_watcher_that_fails_ends_the_turn_and_is_named() -> None:
     """AG-TOOL-031 — tests/brd/tg_agent_shell/agents.feature"""
     ran: list[str] = []
 
     async def broken(agent: AgentSession, call: ToolCall) -> None:
         raise RuntimeError("the watcher never decided")
 
-    with pytest.raises(RuntimeError, match="never decided"):
+    with pytest.raises(WatcherFailed) as failure:
         await _adapters(before_tool=(broken,)).run(_session(ran), READ)
 
     assert ran == []
+    said = str(failure.value)
+    assert "broken" in said and "before" in said and "read_thing" in said
+    assert "the watcher never decided" in said
+
+
+async def test_ag_tool_032_a_watcher_that_fails_after_the_call_is_named_too() -> None:
+    """AG-TOOL-032 — tests/brd/tg_agent_shell/agents.feature"""
+    ran: list[str] = []
+
+    async def broken(agent: AgentSession, call: ToolCall, result: Any) -> None:
+        raise RuntimeError("nothing was added")
+
+    with pytest.raises(WatcherFailed) as failure:
+        await _adapters(after_tool=(broken,)).run(_session(ran), READ)
+
+    # The call itself ran: only what watched it fell over.
+    assert ran == ["read_thing"]
+    said = str(failure.value)
+    assert "broken" in said and "after" in said and "read_thing" in said
 
 
 async def test_ag_tool_032_a_watcher_reads_the_call_and_adds_to_its_result() -> None:

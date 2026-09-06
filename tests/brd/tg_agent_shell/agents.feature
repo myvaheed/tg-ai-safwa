@@ -252,14 +252,25 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then the tool runs as it would have with nobody watching
     When it fails while deciding
     Then the turn ends there, and the call it had not allowed is not run
+    And what the owner is told names that feature's watcher and the call it fell over on
 
   Scenario: AG-TOOL-032 — A feature may read what a tool call produced
     Given a feature watching what the model's calls come back with
     When a tool has run
     Then that feature is given the call and the result it produced
     And what it adds to that result is what the model reads
+    When it fails instead
+    Then the turn ends there too, and the owner is told which watcher and which call,
+      by AG-TOOL-031
 
   Scenario: AG-TOOL-033 — A read that failed is not also offered something else to do
     Given a read the model made came back as a failure
     Then it is told how to repair that one read, and nothing else is added to the result
     And an offer the read would otherwise have earned waits for a read that worked
+
+  Scenario: AG-TURN-034 — Work after the answer cannot take the answer back
+    Given the owner has been answered and the turn has been given back
+    When work the application runs after that fails
+    Then what they are told names that work, and says their answer stands
+    And it never says the request could not be completed
+    And the rest of that work still runs

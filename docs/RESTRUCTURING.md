@@ -473,6 +473,28 @@ A screen the menu already offers does not also need a command line.
   the feature it names, and the Sprint screen is Planning's: declaring it in `cards`
   would make the Cards manifest contribute a Planning screen and make Cards import it.
 
+## Batch 23 — landed
+
+A failure in an extension point was reported as a failure of the owner's request.
+
+Work that runs after the answer sat inside the turn's own `try`, so a Summary that could not
+be written told the owner "Safwa could not complete that request. Your planning data was not
+changed." — after the answer was in the chat and the change was saved. And a watcher that
+raised reached them as its bare exception text, naming neither the feature nor the call.
+
+### Benefits
+
+- `run_after_turn` runs each piece under its own `except`. A failure says which work failed and
+  that the answer stands, and the pieces after it still run. One broken subscriber cannot
+  silence the rest, which is what a list of them is for.
+- `WatcherFailed` names the watcher and the call it fell over on, before or after. The owner
+  reads which feature broke rather than a sentence with no subject.
+- The turn still ends when a watcher raises. That half was right: a refusal that did not finish
+  is not a decision to allow the call, and the request genuinely did not complete.
+- `AG-TURN-034` is the rule that was missing, and the two watcher scenarios say what the owner
+  is told. The old wording had been true of the Summary since long before it was a
+  contribution; making it an extension point is what made it worth fixing.
+
 ## Batch 22 — landed
 
 The engine decided when a helper was worth calling, and in what words.

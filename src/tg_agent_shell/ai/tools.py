@@ -80,6 +80,19 @@ BeforeTool = Callable[[AgentSession, ToolCall], Awaitable[dict[str, Any] | None]
 AfterTool = Callable[[AgentSession, ToolCall, Any], Awaitable[None]]
 
 
+class WatcherFailed(RuntimeError):
+    """A feature watching a tool call raised.
+
+    The turn ends either way. What this adds is the half the owner cannot work out from
+    the exception alone: which feature's watcher it was, and which call it fell over on.
+    """
+
+
+def watcher_name(watch: object) -> str:
+    """What to call a watcher in a message. A lambda has no name worth reading."""
+    return getattr(watch, "__qualname__", None) or repr(watch)
+
+
 QUERY_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -277,13 +290,28 @@ class ToolAdapters:
         reached.
         """
         for watch in self.before_tool:
-            refusal = await watch(agent, call)
+            refusal = await self._watched(watch(agent, call), watch, call, "before")
             if refusal is not None:
                 return ToolOutcome(result=refusal)
         outcome = await self._dispatch(agent, call)
         for watch in self.after_tool:
-            await watch(agent, call, outcome.result)
+            await self._watched(
+                watch(agent, call, outcome.result), watch, call, "after"
+            )
         return outcome
+
+    @staticmethod
+    async def _watched(
+        work: Awaitable[Any], watch: object, call: ToolCall, when: str
+    ) -> Any:
+        """Run one watcher, and name it if it raises."""
+        try:
+            return await work
+        except Exception as error:
+            raise WatcherFailed(
+                f"The watcher {watcher_name(watch)}, which runs {when} the {call.name} "
+                f"tool call, failed: {error}"
+            ) from error
 
     async def _dispatch(self, agent: AgentSession, call: ToolCall) -> ToolOutcome:
         """Anything that is not a read is a change waiting for the owner."""

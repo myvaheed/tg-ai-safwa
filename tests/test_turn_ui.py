@@ -96,6 +96,42 @@ async def test_an_autoapproved_change_still_reaches_the_chat(sessions) -> None:
         assert (await session.get(Workspace, 1)).revision > 0
 
 
+async def test_ag_turn_034_after_turn_work_that_fails_leaves_the_answer_standing(
+    sessions,
+) -> None:
+    """AG-TURN-034 — tests/brd/tg_agent_shell/agents.feature"""
+    ran_after: list[str] = []
+
+    async def write_the_summary(_message, _services) -> None:
+        raise RuntimeError("the provider was unreachable")
+
+    async def keep_going(_message, _services) -> None:
+        ran_after.append("second")
+
+    services = turn_services(sessions)
+    services.after_turn = (write_the_summary, keep_going)
+    message = FakeMessage(970, text="Save it", bot_message=False, answer_as_new=True)
+    source = HistoryEntry(
+        message_id=970,
+        sender_id=42,
+        role="user",
+        text="Save it",
+        created_at=datetime.now(UTC),
+        kind=MessageKind.DIALOGUE_USER.value,
+    )
+
+    await run_dialogue_turn(message, services, "Save it", source)
+
+    said = [item.text for item in message.sent_messages]
+    assert any("Auto-saved" in text for text in said)
+    failure = next(text for text in said if "the provider was unreachable" in text)
+    assert "write_the_summary" in failure
+    assert "Your answer above stands" in failure
+    assert not any("could not complete" in text for text in said)
+    # One broken piece of after-work does not silence the rest.
+    assert ran_after == ["second"]
+
+
 async def test_ag_turn_022_the_notice_stands_while_the_answer_is_written(sessions) -> None:
     """AG-TURN-022 — tests/brd/tg_agent_shell/agents.feature"""
     services = turn_services(sessions)
