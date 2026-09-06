@@ -19,6 +19,8 @@ and SQLAlchemy; nothing that expresses a business rule imports it.
 | `helpers` | a `HelperSpec` — the mini session `call_helper(name)` runs, called rather than routed |
 | `proposals` | a `ProposalContribution` per entity: handler, mutation tool, presenter, and which of its actions save without a screen |
 | `mutation_tools` | a mutation tool whose change lands on an entity another feature owns (`remove`) |
+| `before_tool` | a watcher given each tool call before it runs; a result it returns refuses the call |
+| `after_tool` | a watcher given each call and the result it produced, to write on the session or add to that result |
 | `views` | the `ai_*` views this feature publishes |
 | `screens` | a `ScreenSpec` per item type the owner can be taken to, and how it reads when cited |
 | `commands` | a `ScreenCommand` per screen the owner opens by name: a slash command, a menu button, or both |

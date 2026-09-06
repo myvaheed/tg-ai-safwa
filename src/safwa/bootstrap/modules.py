@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.ai.autoapproval import AutoApprovalRule
 from tg_agent_shell.ai.sql import SqlView, view_catalogue
 from tg_agent_shell.ai.subagents import RoutedSubagent
+from tg_agent_shell.ai.tools import AfterTool, BeforeTool
 from tg_agent_shell.cues.module import CUE_QUEUE
 from tg_agent_shell.foundation.screens import ScreenCatalogue, ScreenSpec
 from tg_agent_shell.proposals.api import (
@@ -259,6 +260,14 @@ def _routing_rules() -> str:
 SYSTEM_PROMPT: str = SYSTEM_PROMPT_TEMPLATE.replace(
     "{routes}", _routing_rules()
 ).replace("{views}", view_catalogue(AI_VIEWS, ADVISOR_VIEWS))
+
+# Every feature watching the model's tool calls, in `MODULES` order.
+BEFORE_TOOL: tuple[BeforeTool, ...] = tuple(
+    watch for module in MODULES for watch in module.before_tool
+)
+AFTER_TOOL: tuple[AfterTool, ...] = tuple(
+    watch for module in MODULES for watch in module.after_tool
+)
 
 RECOVERY_HOOKS: tuple[Callable[..., Awaitable[None]], ...] = tuple(
     module.recover for module in MODULES if module.recover is not None

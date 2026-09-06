@@ -48,10 +48,12 @@ from ..foundation.tokens import estimate_tokens
 from ..foundation.workspace import Workspace
 from .auth import history_client
 from .modules import (
+    AFTER_TOOL,
     AI_VIEWS,
     ALLOWED_VIEWS,
     AUTOAPPROVALS,
     BACKGROUND_TASKS,
+    BEFORE_TOOL,
     FEATURE_CALLBACK_ACTIONS,
     FEATURE_COMMANDS,
     FEATURE_START_LINKS,
@@ -230,6 +232,8 @@ async def run(settings: Settings) -> None:
             name: helper.build(provider, query_runner, prompt=helper.instructions)
             for name, helper in HELPERS.items()
         },
+        before_tool=BEFORE_TOOL,
+        after_tool=AFTER_TOOL,
     )
     continuity = PersonaContinuity(
         database.sessions,

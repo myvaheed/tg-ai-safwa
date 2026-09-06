@@ -55,6 +55,12 @@ SUBAGENT_HISTORY_LAST_MESSAGES = 10
 # is the other half — a subagent that writes, and whose screen suspends the whole chain.
 Helper = Callable[..., Awaitable[dict[str, Any]]]
 
+# What a feature is given when the model calls a tool. `BeforeTool` answers with a result
+# to refuse the call, or with nothing to let it run. `AfterTool` is given what the call
+# produced, and writes on the session or that result rather than replacing it.
+BeforeTool = Callable[[AgentSession, ToolCall], Awaitable[dict[str, Any] | None]]
+AfterTool = Callable[[AgentSession, ToolCall, Any], Awaitable[None]]
+
 
 QUERY_TOOL: dict[str, Any] = {
     "type": "function",
@@ -193,6 +199,8 @@ class ToolAdapters:
         screens: ScreenCatalogue,
         helpers: Mapping[str, Helper] | None = None,
         subagents: Mapping[str, RoutedSubagent] | None = None,
+        before_tool: tuple[BeforeTool, ...] = (),
+        after_tool: tuple[AfterTool, ...] = (),
     ) -> None:
         self.sessions = sessions
         self.query_runner = query_runner
@@ -202,6 +210,9 @@ class ToolAdapters:
         # The same trail the runtime writes `route` to: one record of what a session did.
         self.trail = trail
         self.subagents = dict(subagents or {})
+        # Watched in the order the features were declared.
+        self.before_tool = before_tool
+        self.after_tool = after_tool
         # An empty roster means there is nothing to route to, so the tool is not offered.
         self.root_tools = (
             (*ROOT_SESSION_TOOLS, ROUTE_TOOL) if self.subagents else ROOT_SESSION_TOOLS
@@ -246,7 +257,25 @@ class ToolAdapters:
         return name in IMMEDIATE_TOOLS or name in agent.read_specs
 
     async def run(self, agent: AgentSession, call: ToolCall) -> ToolOutcome:
-        """Run one call. Anything that is not a read is a change waiting for the owner."""
+        """Run one call, in front of the features watching for it.
+
+        A `BeforeTool` that answers refuses the call: the tool does not run, and what the
+        watcher wrote is what the model reads in its place. A watcher that raises ends the
+        turn rather than being stepped over, because a refusal that failed is not a pass.
+        `route` is not seen here at all — the runtime answers it before the adapters are
+        reached.
+        """
+        for watch in self.before_tool:
+            refusal = await watch(agent, call)
+            if refusal is not None:
+                return ToolOutcome(result=refusal)
+        outcome = await self._dispatch(agent, call)
+        for watch in self.after_tool:
+            await watch(agent, call, outcome.result)
+        return outcome
+
+    async def _dispatch(self, agent: AgentSession, call: ToolCall) -> ToolOutcome:
+        """Anything that is not a read is a change waiting for the owner."""
         if call.name == "query_data":
             return ToolOutcome(result=await self.query(agent, call))
         if call.name == "open":

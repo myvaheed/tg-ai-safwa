@@ -474,6 +474,29 @@ A screen the menu already offers does not also need a command line.
   the feature it names, and the Sprint screen is Planning's: declaring it in `cards`
   would make the Cards manifest contribute a Planning screen and make Cards import it.
 
+## Batch 20 — landed
+
+Three places in the shell were extension points named after their one subscriber.
+
+`ToolAdapters.run` now runs two lists around the call it dispatches. A `before_tool` watcher
+is given the session and the call, and answers with a result to refuse it or with nothing to
+let it run. An `after_tool` watcher is given the call and what it produced. Both are
+`FeatureModule` fields, collected in `MODULES` order like every other contribution.
+
+### Benefits
+
+- The refusal needs no new vocabulary. `refuse_mixed` already hands the model a result in
+  place of a tool's, so a watcher answers in the shape the model already reads.
+- A watcher that raises ends the turn rather than being stepped over. A refusal that did not
+  finish is not a decision to allow the call, and a broken watcher is a bug in the feature
+  that declared it, so it fails loudly.
+- `AG-TOOL-031` and `AG-TOOL-032` are the mechanism written down, with four tests in
+  `tests/test_tool_watchers.py`. No feature declares a watcher yet; this is the same shape
+  `run_poll` landed in, where the shell rule has a scenario and a test of its own.
+- `route` reaches neither list, and that stays a fact of `agent_runtime/loop.py` — it answers
+  a route before the adapters are reached. It is in the `run` docstring rather than in a
+  scenario, because it is not a rule this mechanism keeps.
+
 ## Batch 19 — landed
 
 The engine decided whether to offer a helper by reading a Safwa word.

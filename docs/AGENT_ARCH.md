@@ -121,6 +121,11 @@ The Advisor holds no mutation tool: every write is a proposal authored by a suba
 An immediate tool and mutation tools must not arrive in one provider response; the runtime rejects
 the mutations and the model retries them once it has seen the read.
 
+A feature may watch what the model calls: `before_tool` is given the call and refuses it by
+answering with a result, `after_tool` is given the call and what it produced. `route` reaches
+neither, because the runtime answers it before the adapters are reached. No feature declares one
+yet (`AG-TOOL-031`, `AG-TOOL-032`).
+
 ## Context, and why its order is fixed
 
 `ContextBuilder` builds the request in order of how often each block changes, so a remote provider

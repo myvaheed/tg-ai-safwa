@@ -243,3 +243,18 @@ Feature: Agents — the session, the hand-over, and what comes back
     And it does not quietly stop for the rest of the run, leaving that part of Safwa dead
     When Safwa is shutting down
     Then the timer ends with it, because shutting down is not a failure to be survived
+
+  Scenario: AG-TOOL-031 — A feature may answer a tool call instead of letting it run
+    Given a feature watching the calls the model makes
+    When the model calls a tool and that feature answers with a result of its own
+    Then the tool does not run, and what the feature wrote is what the model reads back
+    When it answers with nothing
+    Then the tool runs as it would have with nobody watching
+    When it fails while deciding
+    Then the turn ends there, and the call it had not allowed is not run
+
+  Scenario: AG-TOOL-032 — A feature may read what a tool call produced
+    Given a feature watching what the model's calls come back with
+    When a tool has run
+    Then that feature is given the call and the result it produced
+    And what it adds to that result is what the model reads

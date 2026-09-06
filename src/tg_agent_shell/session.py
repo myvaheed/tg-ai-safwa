@@ -32,7 +32,7 @@ from .ai.outcome import AIOutcome, AIOutcomeKind
 from .ai.runs import AgentRunStore, AgentStepTrail
 from .ai.sql import ReadOnlyQueryRunner
 from .ai.subagents import RoutedSubagent
-from .ai.tools import Helper, ToolAdapters
+from .ai.tools import AfterTool, BeforeTool, Helper, ToolAdapters
 from .foundation.errors import failure_reason
 from .foundation.screens import ScreenCatalogue
 from .proposals.api import ProposalDescription, ProposalRegistry
@@ -90,6 +90,8 @@ class RootSession:
         cache_breakpoints: bool = False,
         subagents: tuple[RoutedSubagent, ...] = (),
         helpers: Mapping[str, Helper] | None = None,
+        before_tool: tuple[BeforeTool, ...] = (),
+        after_tool: tuple[AfterTool, ...] = (),
         autoapproval: AutoApprovalReviewer | None = None,
         reviews: ProposalStore | None = None,
     ) -> None:
@@ -114,6 +116,8 @@ class RootSession:
             screens,
             helpers,
             subagents=self.subagents,
+            before_tool=before_tool,
+            after_tool=after_tool,
         )
         self.context = ContextBuilder(
             sessions,

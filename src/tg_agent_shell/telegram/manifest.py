@@ -20,7 +20,7 @@ from ..ai.autoapproval import AutoApprovalRule
 from ..ai.mini import ReadToolSpec
 from ..ai.sql import ReadOnlyQueryRunner, SqlView
 from ..ai.subagents import RoutedSubagent
-from ..ai.tools import Helper
+from ..ai.tools import AfterTool, BeforeTool, Helper
 from ..foundation.screens import ScreenSpec
 from ..history import TelegramHistorySource
 from ..proposals.api import (
@@ -133,6 +133,10 @@ class FeatureModule:
     proposals: tuple[ProposalContribution, ...] = ()
     # A mutation tool whose change lands on an entity another feature owns.
     mutation_tools: tuple[MutationToolSpec, ...] = ()
+    # Watching the calls the model makes: before one runs, to refuse it, and after one
+    # ran, to write on the session or add to what the model reads.
+    before_tool: tuple[BeforeTool, ...] = ()
+    after_tool: tuple[AfterTool, ...] = ()
 
     # Data
     views: tuple[SqlView, ...] = ()
