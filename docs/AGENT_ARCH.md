@@ -5,6 +5,74 @@ subsystem around it owns. Everything here describes the code as it stands.
 
 The rules behind these mechanisms live in [CLAUDE.md](../CLAUDE.md); this file is the shape.
 
+## The five packages
+
+`src/` holds five. Four of them import no Safwa at all, so they can be taken to another project:
+
+```mermaid
+flowchart TD
+    LG["llm_gateway<br/><i>one request to a model</i>"]
+    AR["agent_runtime<br/><i>the session, the loop, the suspension</i>"]
+    TL["telegram_llm<br/><i>the chat, the screen, the button</i>"]
+    AI["tg_agent_shell/ai<br/><i>the agent engine</i>"]
+    SH["tg_agent_shell/telegram<br/><i>the Telegram application</i>"]
+    FE["safwa/features/*<br/><i>what the owner keeps</i>"]
+    BS["safwa/bootstrap<br/><i>the composition root</i>"]
+
+    AR --> LG
+    AI --> AR
+    AI --> LG
+    SH --> TL
+    FE --> AI
+    FE --> SH
+    FE --> TL
+    BS --> FE
+    BS --> AI
+    BS --> SH
+```
+
+**An arrow down is "imports".** There is not one pointing back, and that is read:
+
+| Rule | What it forbids |
+|---|---|
+| F | a module of the four upper packages importing `safwa` |
+| M | a module of `tg_agent_shell/ai/` importing what is built on it |
+| E | a feature module opening a door above its own layer |
+| H | a module outside a feature fanning out over entity names |
+
+- **`llm_gateway`** — reaching a model has no state, so the contract is tiny: one completion call,
+  neutral messages, an unparsed `arguments_json`, and an adapter holding the SDK, the URL and the key.
+- **`agent_runtime`** — the session that can stop on a person and be continued. It knows neither
+  what a tool does nor what a proposal is: a suspension hands out an opaque `InteractionRef`, and
+  the resume comes back carrying it.
+- **`telegram_llm`** — the chat between the bot and the person: every outgoing message sent
+  registered and marked, a button used once, a screen replaced or taken down. What each kind means
+  the host says once, in a `ChatVocabulary`.
+- **`tg_agent_shell`** — six subpackages: `ai/` the engine, `proposals/` the review flow,
+  `telegram/` the application, `turn/` the single foreground lease, `cues/` and `foundation/`; plus
+  `session.py`, `history.py` and `asr.py` at its root.
+- **`safwa/features/*`** — `MODULES` lists seventeen: sixteen Safwa features, each with its rules in
+  `tests/brd/`, and the shell's own `proposals`. `advisor` is the seventeenth feature package and is
+  in no registry — it is the root session's prompt and the views it is told it may read, wired
+  directly by the composition root.
+
+## Assembly
+
+```mermaid
+flowchart LR
+    S["Settings"] --> DB["Database · create_all"]
+    DB --> BOOT["bootstrap_workspace<br/>recover_startup<br/>create_ai_views"]
+    BOOT --> INFRA["provider · memory<br/>query_runner · history"]
+    INFRA --> ADV["the root session<br/>+ routed subagents"]
+    ADV --> SV["Services"]
+    SV --> DP["Dispatcher"]
+    DP --> POLL["long polling"]
+    SV --> BG["background tasks<br/>cancelled in finally"]
+```
+
+All of it is [bootstrap/main.py](../src/safwa/bootstrap/main.py). Which features exist,
+[bootstrap/modules.py](../src/safwa/bootstrap/modules.py) knows — and nobody else.
+
 ## The map
 
 ```mermaid
@@ -68,6 +136,19 @@ row. The row is what survives a suspension:
 | `state_json` | dialogue, transcript, tool count, repair rounds, receipts, `host_state`, `helper_offered`, `interaction_token` |
 | `claimed_at` | the atomic claim that stops two resumes of one session |
 | `status` | `running`, `awaiting_approval`, `interrupted`, `completed`, `failed`, `abandoned` |
+
+```mermaid
+stateDiagram-v2
+    [*] --> running
+    running --> awaiting_approval: a screen is open
+    awaiting_approval --> running: Save / Discard
+    running --> completed: answered in words
+    awaiting_approval --> interrupted: the owner wrote instead of deciding
+    interrupted --> running: route back on the same turn
+    interrupted --> abandoned: the turn ended without coming back
+    running --> failed
+    completed --> [*]
+```
 
 `AgentSession.restore` rebuilds a suspended run from its own row. The context prefix is **not**
 restored — it is rebuilt from live state, so the workspace and the clock are current while the session's
@@ -231,12 +312,20 @@ flowchart LR
 - A helper that breaks returns an error, not an exception: losing the turn would be worse than the
   answer the Advisor can still give from what it read itself.
 
+| | `route` | `call_helper` |
+|---|---|---|
+| what it does | hands the turn to a subagent that **writes** | asks one that only **reads** |
+| a screen | it may open one | it cannot |
+| the caller's turn | suspends | stays with the caller |
+| in the tool set | by the roster | only where a read offered it |
+
 ## Proposals — the only way anything is written
 
 ```mermaid
 flowchart LR
     T[mutation tool call] --> C[Pydantic contract]
     C --> P[ChangePreparer.prepare against live data]
+    P -->|refused| ERR[one retryable tool error, and the turn goes on]
     P --> R[open review in ProposalStore]
     R --> AUTO{autoapproval?}
     AUTO -->|allowlisted and approved| APPLY
@@ -251,9 +340,13 @@ flowchart LR
   `diary` owns the Diary. Preparation runs where the change was authored.
 - **Every proposal screen is exactly Save/Discard.** A screen that needs a field control is the
   wrong screen.
-- Autoapproval decides only whether a screen is shown. It never bypasses proposal persistence, and
-  any doubt or failure leaves the pending screen untouched. Which actions are eligible is each
-  feature's `ProposalContribution.autoapprovals`; a create is never one of them.
+- **Autoapproval is the one exception to `PR-WRITE-002`, and `PR-AUTO-024` is where it is
+  approved.** It decides only whether a screen is shown: it never bypasses preparation or the
+  stored proposal, and any doubt or failure leaves the pending screen untouched. Which actions are
+  eligible is each feature's `ProposalContribution.autoapprovals`; a create is never one of them.
+- **`PR-TARGET-001` is a shell rule the feature keeps.** The generic walk carries no entity, so
+  loading the target, `archived_at` and the closed repeat are the owning feature's
+  `ProposalHandler.prepare`, and `target_not_found` is the one refusal `proposals/` raises itself.
 - `approve_proposal` checks `workspace.revision` before any handler runs; `StaleStateError` is
   the expected failure.
 - Several mutation calls in one turn queue as independent screens; the model resumes only after the
@@ -300,6 +393,9 @@ it again.
 - The answer is posted with `MessageKind.CUE`: it stays in dialogue, marked as something Safwa
   volunteered rather than a reply to a message that is not there.
 - One waiting Cue is said per tick, oldest first.
+- The Cue reaches the Advisor as an ordinary request from the system, answered the way the owner's
+  own would be. A fired Reminder is the one that names items: the prompt tells the Advisor to read
+  their current state with `query_data` before repeating an instruction that may no longer apply.
 
 ### Reminders — the poll is the alarm clock and nothing else
 
@@ -357,8 +453,15 @@ flowchart LR
   `telegram_messages` stores event metadata, never persona text.
 - **Every bot message is sent registered and marked** with a `MessageKind`. An unregistered or
   unmarked message is invisible to the LLM; a wrongly-kinded one leaks UI noise into persona history.
-- The window is a **token budget**, not a message count: `SUMMARY_TRIGGER_TOKENS` decides when a
-  Summary is written, and the newest Summary becomes the far edge of the window.
+- The window is a **token budget**, not a message count. There is no one budget split between the
+  blocks: the dialogue is worth `SUMMARY_TRIGGER_TOKENS = 6000`, which is also what says when a
+  Summary is written, and a Summary is asked to stay under `SUMMARY_TOKEN_CEILING = 2000`; memory
+  is capped separately at `MEMORY_TOKEN_BUDGET`. The newest Summary is the far edge of the window,
+  and up to `EDGE_CONTEXT_MESSAGE_LIMIT = 20` of the messages just before it come along with it.
+- The window itself is [`telegram_llm/window.py`](../src/telegram_llm/window.py) and knows nothing
+  of Summaries; which message ends it is answered on every read by
+  [`features/summary/window.py`](../src/safwa/features/summary/window.py), and what each
+  `MessageKind` means is said once in `history.py`.
 - Owner text still in the chat **is** dialogue: commands and typed field values are deleted, so
   survival is the evidence.
 - Words that never reached the chat as owner text — a voice transcript — are posted back as a bot

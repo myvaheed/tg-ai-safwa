@@ -53,7 +53,7 @@ Feature: The conversation in Telegram
     Then the window ends there, and that message is read in place of what it stands for
     And an older one of those is never read
     And up to 20 of the messages just before it come along with it
-      (SUMMARY_CONTEXT_MESSAGE_LIMIT = 20)
+      (EDGE_CONTEXT_MESSAGE_LIMIT = 20)
     And which message that is, the window does not decide: in Safwa it is the newest Summary,
       by SUM-WRITE-001
 

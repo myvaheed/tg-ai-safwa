@@ -18,11 +18,15 @@ The **topic is the aspect the rule is about**, never the package's own name writ
 nothing a reader can use, and a package whose scenarios all share one topic has not been read
 carefully enough to say what each of them is about.
 
-One `.feature` file is one package and every package has one, so a rule and the code that keeps
-it are found together and neither can go missing without the other being noticed.
-A file directly under `tests/brd/` is a package under `src/safwa/features/`. The four under
-`tests/brd/tg_agent_shell/` are the rules that package keeps, in their own directory because it
-is held to working without Safwa: they are what a second bot built on the shell would inherit.
+**One `.feature` file is one package under `src/safwa/features/`, and every one of those has one**,
+so a rule and the code that keeps it are found together and neither can go missing without the
+other being noticed. That pairing is what `tests/test_brd_traceability.py` checks, and it is all it
+checks: a file directly under `tests/brd/` is a Safwa feature package, in both directions.
+
+The four under `tests/brd/tg_agent_shell/` group that package's rules by area — agents and routing,
+proposals, screens, the conversation — and not by subpackage: the shell has six subpackages, and no
+rule says each of them owns a file. They are in their own directory because the package is held to
+working without Safwa, and they are what a second bot built on it would inherit.
 
 The prefix names one package, never a group of them: `PL` used to cover Cards, Checks, Values,
 Tags and the Sprint at once, which meant five packages sharing one numbering line and no way to

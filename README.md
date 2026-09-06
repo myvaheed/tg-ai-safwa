@@ -87,10 +87,10 @@ name>`, or just `User` when Telegram gives none.
 
 ## Architecture
 
-`src/` holds four packages. `llm_gateway`, `agent_runtime` and `telegram_llm` import no Safwa at
-all and are checked on it; `safwa` is the application built on them. The six flows are drawn in
-[docs/diagrams/](docs/diagrams), a feature's wiring is [docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md),
-and sessions and routing are [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md).
+`src/` holds five packages. `llm_gateway`, `agent_runtime`, `telegram_llm` and `tg_agent_shell`
+import no Safwa at all and are checked on it; `safwa` is the application built on them. The
+packages, the sessions and the flows they run are [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md), and a
+feature's wiring is [docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md).
 
 ```powershell
 uv run python scripts/architecture_metrics.py
@@ -101,25 +101,26 @@ That prints the rules and the module graph. Every rule reads zero, and
 
 ### Definition of Done
 
-The fourteen criteria this codebase is held to. `architecture_metrics.py` prints #1, #2, #3 and
-#13 on every run; the rest are a rule, a snapshot or a review.
+The fourteen criteria this codebase is held to. #1, #2, #3 and #13 are counted by
+`architecture_metrics.py` on every run, so their current figures are read there rather than kept
+here; the rest are a rule, a snapshot or a review.
 
-| # | Criterion | How it is measured | Result |
-|---|---|---|---|
-| 1 | Places to edit to add an entity | Rule H | one package plus one line in `MODULES` |
-| 2 | No base Use Case | search for `UseCaseBase`, `class UseCase`, `def execute(self` | 0 |
-| 3 | Largest module | `architecture_metrics.py` | 1 over 600: `features/cards/use_cases.py`, so every writer of an Action's stage is in one file |
-| 4 | No module holds two of rules, data, use cases, manager, adapter | Rules A and K | 0 violations |
-| 5 | Process state is a frozen union with one writer | Rule C | 0 violations |
-| 6 | One Manager per process, each with a named identity | review | 3: `AgentManager` (a session), `TurnManager` (the turn), `CueRuntime` (what Safwa still owes) |
-| 7 | A reducer only where a pure function simplifies the transitions | review | no quota, and none added without one |
-| 8 | The shared packages work without Safwa | Rule F plus a running example | `examples/plain_chat_bot/` and `examples/note_keeper/`, both run by tests |
-| 9 | Every rule cites a scenario | `tests/test_brd_traceability.py` | enforced |
-| 10 | A test is replaced only on the owner's decision | review | the only one here nothing measures: the batch that drops a test names what still covers its scenario |
-| 11 | The schema did not change outside a schema batch | Rule J | snapshot under `tests/snapshots/` |
-| 12 | The prompt prefix is byte-stable | Rule I | snapshot under `tests/snapshots/` |
-| 13 | No old path running beside a new one | search for facades | 0 |
-| 14 | `ruff check .` and `pytest -q` | CI | green |
+| # | Criterion | How it is measured |
+|---|---|---|
+| 1 | Places to edit to add an entity — one package plus one line in `MODULES` | Rule H, counted by the scanner |
+| 2 | No base Use Case | counted by the scanner |
+| 3 | No module over 600 lines | counted by the scanner, which also lists the largest |
+| 4 | No module holds two of rules, data, use cases, manager, adapter | Rules A and K |
+| 5 | Process state is a frozen union with one writer | Rule C |
+| 6 | One Manager per process, each with a named identity | review: `AgentManager` (a session), `TurnManager` (the turn), `CueRuntime` (what Safwa still owes) |
+| 7 | A reducer only where a pure function simplifies the transitions | review — no quota, and none added without one |
+| 8 | The shared packages work without Safwa | Rule F, plus `examples/plain_chat_bot/` on the three libraries and `examples/note_keeper/` on the runtime, both run by tests. No example runs the whole shell yet |
+| 9 | Every rule cites a scenario | `tests/test_brd_traceability.py` |
+| 10 | A test is replaced only on the owner's decision | review — the one nothing measures: the batch that drops a test names what still covers its scenario |
+| 11 | The schema did not change outside a schema batch | Rule J, snapshot under `tests/snapshots/` |
+| 12 | The prompt prefix is byte-stable | Rule I, snapshot under `tests/snapshots/` |
+| 13 | No old path running beside a new one | counted by the scanner |
+| 14 | `ruff check .` and `pytest -q` | CI |
 
 ## Tests
 

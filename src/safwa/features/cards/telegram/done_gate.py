@@ -27,7 +27,7 @@ from tg_agent_shell.telegram import (
 )
 from tg_agent_shell.telegram.model import UiSession
 
-from ...checks.api import CheckOutcome
+from ...checks.model import CheckOutcome
 from ...checks.telegram import (
     CHECK_OUTCOME_LABELS,
     CHECK_STATUS_EMOJIS,

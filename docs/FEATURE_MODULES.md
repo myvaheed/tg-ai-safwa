@@ -27,6 +27,7 @@ and SQLAlchemy; nothing that expresses a business rule imports it.
 | `callback_actions` | the inline-button actions this feature's screens draw |
 | `text_inputs` | a `TextInputFlow` per editor field the owner types a value into |
 | `start_links` | a `StartLink` — a `/start <payload>` this feature answers instead of it opening a cited item |
+| `after_turn` | an `AfterTurn` run once the owner's turn has been answered, for work the application does on its own; the shell reads nothing back. Summary's `close_window_after_turn` is the only one |
 | `recover` | one hook `recover_startup` runs before the run machinery is reconciled |
 | `background` | tasks the polling loop starts and cancels |
 
@@ -122,9 +123,16 @@ where a unit of work begins and ends — it mints its single-use `CallbackToken`
 `token_button` before it sends. What may never commit is the agent contract, which builds a
 proposal and hands it on; Rule K is what says so.
 
-`api.py` **defines** what it publishes. It exists only when another feature actually calls in, and
-it hands over the answer rather than the row: `scheduled_memory_time(session)`, not `UserProfile`.
-A module that only re-exports is counted as a leftover path by Definition of Done #13.
+`api.py` **defines** what it publishes, and it exists only when another feature actually calls in.
+Two kinds of thing are on it, and the second is the one that surprises:
+
+- **An answer rather than a row** wherever an answer will do: `scheduled_memory_time(session)`, not
+  `UserProfile`.
+- **A write of this feature's own rows, driven by another feature's operation**: `attach_values`,
+  `attach_tags`, `sync_commitment_for_stage`, `delete_commitments_of_cards`. The Card owns saving a
+  Card; the junction row is Values', and the Sprint commitment is Planning's. Saving a Card is one
+  operation, so it reaches each of those through its owner's door rather than writing another
+  feature's table itself.
 
 **Rule E is a layer, and there are three of them.** `model.py` and `api.py` are what a thing is
 called; `use_cases.py` is what may be done to it; everything else — the adapter, the agent contract,
@@ -142,9 +150,10 @@ on top of it has the whole feature behind it, and two such doors facing each oth
 cycle — which is exactly what `cards/api.py` importing `cards/use_cases.py` would close, through
 `planning/api.py`.
 
-The consequence is a door's contents: **a door carries the vocabulary and the reads that need no
-operation, and an operation is asked for at the operations layer.** So `checks/api.py` says what a
-Check is called, and closing an Action asks `checks/use_cases.py` to answer one. Screens are the
+The consequence is what a door may not hold: **the entity's own operation, which is asked for at
+the operations layer.** So `checks/model.py` says what a Check is called — a name another feature
+has to type comes from `model.py`, which every layer may reach, and there is no `api.py` standing
+in front of it — while closing an Action asks `checks/use_cases.py` to answer one. Screens are the
 top door because a screen is public already: `FeatureModule.screens` hands `render_card` to the
 composition root, and Planning draws its Sprint list with the rows Cards draws.
 
@@ -163,8 +172,13 @@ One rule, because the alternative is a reentrancy question with no good answer:
 - The **caller owns the transaction.** `Database.transaction()` is that boundary, and opening one
   inside another raises rather than silently joining — a joined block has no savepoint, so a caught
   inner failure would ride along into the outer commit.
-- A use case that has to know the time **takes a `Clock`.** The composition root binds
-  `SystemClock()`; near midnight and across a timezone change the result is then reproducible.
+- A use case whose **answer** turns on the time **takes it as an argument**, and one that only
+  records when something happened does not. Profile and Reminders take a `Clock` the composition
+  root binds to `SystemClock()`, because the scheduled hour and the next fire are decided against
+  the owner's local midnight and timezone. Cards, Checks and Planning call `utcnow()` where they
+  stamp `archived_at`, `resolved_at` or `actual_ended_at`, and nothing reads a stamp back to decide
+  anything. `sprint_is_due` is the line between the two: it takes an optional `now`, because whether
+  a Sprint is over is a decision.
 
 Then one line in `MODULES`. That is the whole edit in central code: the mutation tool and its
 schema, the review screen, the view and its allowlist entry, the routing line, the recovery hook and

@@ -19,6 +19,8 @@ Feature: Proposals
     Then nothing is written: a review screen appears with the proposal on it
     And what it proposes happens only once the owner has saved it
     And the tool that proposed it belongs to a subagent, never to Safwa's own voice
+    And the only change that is saved without that screen is one PR-AUTO-024 covers, which is
+      proposed and stored the same way before it is saved
 
   Scenario: PR-SCREEN-003 — A review screen shows everything the proposal would do, behind Save and Discard
     Given a review screen is open on a proposal

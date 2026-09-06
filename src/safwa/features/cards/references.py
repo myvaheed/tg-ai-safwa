@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.foundation.references import ReferenceSpec
 
 from ...foundation.marks import live_instance_hint
-from ..checks.api import Check
+from ..checks.model import Check
 from ..tags.api import CardTag, Tag
 from ..values.api import CardValue, Value
 from .model import CardCheck
