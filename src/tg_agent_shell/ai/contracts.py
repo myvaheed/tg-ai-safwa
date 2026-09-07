@@ -18,6 +18,8 @@ from pydantic import (
 )
 from pydantic.fields import FieldInfo
 
+from ..foundation.screens import ScreenCatalogue
+
 
 class ChangeAction(StrEnum):
     """What one change does. Every mutation tool's `mode` is one of these, spelled the same.
@@ -209,6 +211,19 @@ class QueryToolInput(ToolInput):
         return value
 
 
+QUERY_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "query_data",
+        "description": (
+            "Read the current data with one read-only SELECT over the ai_* views listed "
+            "in your instructions. Use it before you answer or propose anything."
+        ),
+        "parameters": tool_json_schema(QueryToolInput),
+    },
+}
+
+
 class AgentChange(BaseModel):
     """One command intent, before it becomes a proposal."""
 
@@ -253,11 +268,38 @@ class RouteInput(ToolInput):
     name: str = Field(description="The subagent to hand the turn to, spelled as listed.")
 
 
+ROUTE_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "route",
+        "description": (
+            "Hand this turn to a subagent. It reads this same conversation, does the work, "
+            "and comes back with a receipt of what it did. You write the message the user "
+            "sees. You just pass the name of the subagent."
+        ),
+        "parameters": tool_json_schema(RouteInput),
+    },
+}
+
+
 class CallHelperInput(ToolInput):
     name: str = Field(description="The helper to ask, spelled as the notice gave it.")
     request: str = Field(
         description="Your question in words. Say exactly what to count and over what."
     )
+
+
+CALL_HELPER_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "call_helper",
+        "description": (
+            "Ask a helper a question one simple read could not answer. It writes the query "
+            "and hands back its result. You keep the turn and you write the answer."
+        ),
+        "parameters": tool_json_schema(CallHelperInput),
+    },
+}
 
 
 class OpenInput(ToolInput):
@@ -269,6 +311,29 @@ class OpenInput(ToolInput):
 
     item_type: str = Field(description="What kind of item it is.")
     id: int = Field(description="Its numeric id.")
+
+
+def open_tool(screens: ScreenCatalogue) -> dict[str, Any]:
+    """`open` as the model reads it, over the item types the features publish.
+
+    A tool's enum is prompt text, and this one is built from the same catalogue the
+    call is resolved against, so a feature that publishes a screen is offered by
+    name and one that publishes none is spelled out nowhere.
+    """
+    schema = tool_json_schema(OpenInput)
+    schema["properties"]["item_type"]["enum"] = list(screens.openable)
+    return {
+        "type": "function",
+        "function": {
+            "name": "open",
+            "description": (
+                "Put one item on the screen, exactly as the user opening it by hand. Call it "
+                "only when the user asked to see or open one single item. Otherwise cite the "
+                "item in your answer instead."
+            ),
+            "parameters": schema,
+        },
+    }
 
 
 @dataclass(frozen=True, slots=True)

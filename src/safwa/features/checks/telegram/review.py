@@ -13,6 +13,8 @@ from tg_agent_shell.proposals.api import (
     ChangeAction,
     ProposalChange,
     ProposalScreen,
+)
+from tg_agent_shell.proposals.render import (
     detail_label,
     detail_lines,
     detail_value,

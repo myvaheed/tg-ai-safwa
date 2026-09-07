@@ -5,14 +5,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, inspect, select
+from sqlalchemy import create_engine, inspect
 
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
-from safwa.features.tags.model import Tag
 from safwa.foundation.models import Base
 from tg_agent_shell.ai.runs import AgentRun
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
-from tg_agent_shell.foundation.database import Database, upgrade_database
+from tg_agent_shell.foundation.database import upgrade_database
 from tg_agent_shell.foundation.poll import run_poll
 from tg_agent_shell.recovery import recover_startup
 
@@ -114,55 +113,3 @@ async def test_read_only_query_runner_reads_only_ai_views(tmp_path):
     assert (await runner.run("SELECT name FROM ai_tags")).rows == [{"name": "Family"}]
     assert (await runner.run("SELECT name FROM ai_requests")).rows == [{"name": "Family actions"}]
     engine.dispose()
-
-
-async def test_transaction_commits_the_whole_block(tmp_path):
-    url = f"sqlite+aiosqlite:///{(tmp_path / 'tx.db').as_posix()}"
-    upgrade_database(url.replace("sqlite+aiosqlite:", "sqlite:"), Base.metadata)
-    database = Database(url)
-    try:
-        async with database.transaction() as session:
-            session.add(Tag(name="Family"))
-
-        async with database.sessions() as session:
-            assert await session.scalar(select(Tag.name)) == "Family"
-    finally:
-        await database.dispose()
-
-
-async def test_transaction_discards_the_whole_block_when_the_body_raises(tmp_path):
-    url = f"sqlite+aiosqlite:///{(tmp_path / 'tx.db').as_posix()}"
-    upgrade_database(url.replace("sqlite+aiosqlite:", "sqlite:"), Base.metadata)
-    database = Database(url)
-    try:
-        with pytest.raises(RuntimeError):
-            async with database.transaction() as session:
-                session.add(Tag(name="Family"))
-                await session.flush()
-                raise RuntimeError("half a use case is not a use case")
-
-        async with database.sessions() as session:
-            assert await session.scalar(select(Tag.name)) is None
-    finally:
-        await database.dispose()
-
-
-async def test_a_second_transaction_inside_one_is_refused_rather_than_joined(tmp_path):
-    """Joining would commit the inner work with the outer block and leave a caught inner
-    failure in a dirty session. An operation the caller composes takes the session."""
-    url = f"sqlite+aiosqlite:///{(tmp_path / 'tx.db').as_posix()}"
-    upgrade_database(url.replace("sqlite+aiosqlite:", "sqlite:"), Base.metadata)
-    database = Database(url)
-    try:
-        with pytest.raises(RuntimeError, match="already open"):
-            async with database.transaction():
-                async with database.transaction():
-                    pass
-
-        # The refusal releases the boundary rather than wedging it shut.
-        async with database.transaction() as session:
-            session.add(Tag(name="Family"))
-        async with database.sessions() as session:
-            assert await session.scalar(select(Tag.name)) == "Family"
-    finally:
-        await database.dispose()

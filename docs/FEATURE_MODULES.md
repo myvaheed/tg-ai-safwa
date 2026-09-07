@@ -94,6 +94,7 @@ safwa/features/<feature>/
   module.py     # MODULE = FeatureModule(...)
   model.py      # feature-owned ORM entities, their field enums and value constants
   use_cases.py  # business operations shared by every adapter
+  hierarchy.py  # Cards only: the derived-value walk, a second module of the operations layer
   api.py        # what another feature may call for business
   references.py # ReferenceSpec per named relationship the feature carries
   views.py      # SqlView per ai_* view
@@ -107,7 +108,11 @@ safwa/features/<feature>/
 
 These names are the whole vocabulary. A feature that wants a file outside this list is saying its
 contents belong to a role the list does not have yet, which is a question for the batch, not a new
-word.
+word. `hierarchy.py` is the one answer given so far: Cards keeps the walk that writes a parent's
+derived columns apart from the operations that end at it. Splitting the operations layer costs
+three lines in [architecture_metrics.py](../scripts/architecture_metrics.py) — the name in
+`BUSINESS_FILES`, in `MODULE_LAYERS` and in `DOOR_LAYERS` — because Rules A, E and K reach a file
+by name, and a module the list does not know is a module those rules stop asking about.
 
 **The adapter is one file until it is more than one file's worth**, and the rest of Safwa
 writes `from .telegram import ...` either way, so the import does not say which it is. Memory's
@@ -187,9 +192,11 @@ One rule, because the alternative is a reentrancy question with no good answer:
 
 - A **use case takes an `AsyncSession` and never commits.** It is composable, which is what lets
   `ProposalHandler.apply`, a recovery hook and a Telegram handler all run the same operation.
-- The **caller owns the transaction.** `Database.transaction()` is that boundary, and opening one
-  inside another raises rather than silently joining — a joined block has no savepoint, so a caught
-  inner failure would ride along into the outer commit.
+- The **caller owns the transaction.** Whoever opened the session commits it: a Telegram handler
+  around `sessions()`, a background tick, `approve_proposal` around the operations one Save
+  applies. Nothing opens a second boundary inside one — an operation a use case has to call takes
+  the session it was given, and a nested block would have no savepoint to roll a caught inner
+  failure back to.
 - A use case whose **answer** turns on the time **takes it as an argument**, and one that only
   records when something happened does not. Profile and Reminders take a `Clock` the composition
   root binds to `SystemClock()`, because the scheduled hour and the next fire are decided against

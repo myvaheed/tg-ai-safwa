@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tg_agent_shell.proposals.api import NamedItemPresenter
+from tg_agent_shell.proposals.render import NamedItemPresenter
 from tg_agent_shell.telegram import short_citation_title
 
 from ..model import Tag

@@ -5,6 +5,12 @@ model reads IDs and every field the application resolved so it does not repeat i
 caller that routed here reads the same lines as a receipt.  All three are rendered here,
 from the plain dicts the session layer stores, so the session layer never has to know what
 a proposal is.
+
+The wording a feature writes its own `ProposalPresenter` out of is here too, under one
+heading: a field's label, a value the owner reads instead of a `None`, an `old → new` line,
+and `NamedItemPresenter` for the items a name is the whole of.  It reads
+[api.py](api.py) and nothing in those contracts reads it back, which is what keeps how a
+proposal reads out of what a proposal is.
 """
 
 from __future__ import annotations
@@ -12,17 +18,22 @@ from __future__ import annotations
 import html
 import json
 import logging
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..ai.contracts import AgentChange, ToolResultStatus
-from .api import ProposalDescription, ProposalRegistry, detail_lines, result_value
+from ..foundation.references import ReferenceSpec, resolve_references
+from .api import ProposalDescription, ProposalRegistry, ProposalScreen
 from .model import (
     AUTO_SAVED_RECEIPT,
     DECISION_RECEIPTS,
     RECEIPT_MEANINGS,
     BatchDecision,
+    ChangeAction,
     ProposalChange,
 )
 from .store import ProposalStore
@@ -57,6 +68,229 @@ _DECISION_NEXT_STEPS = {
         "this call, and retry it once; every other resolved call in this request stands."
     ),
 }
+
+
+# ------------------------------------------------------------------ shared wording
+
+# The receipt renders one line under any outcome, so the verb stays imperative:
+# "🗑 Discarded — New Tag “X”" cannot be misread as a Tag that now exists.
+ACTION_VERBS = {
+    ChangeAction.CREATE: "New",
+    ChangeAction.UPDATE: "Edit",
+    ChangeAction.MOVE: "Move",
+    ChangeAction.COMPLETE: "Complete",
+    ChangeAction.CANCEL: "Cancel",
+    ChangeAction.REOPEN: "Reopen",
+    ChangeAction.ARCHIVE: "Archive",
+    ChangeAction.DELETE: "Delete",
+    ChangeAction.LINK: "Link",
+    ChangeAction.UNLINK: "Unlink",
+}
+
+# A feature that words one of its own fields differently passes its map in; nothing here
+# holds a table of every field every feature has.
+NO_LABELS: Mapping[str, str] = MappingProxyType({})
+
+
+def result_value(value: Any) -> str:
+    return " ".join(str(value).split())[:100]
+
+
+def detail_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if value is None or value == "" or value == []:
+        return "—"
+    if isinstance(value, list):
+        return ", ".join(result_value(item) for item in value) or "—"
+    return result_value(value)
+
+
+def detail_label(field: str, labels: Mapping[str, str] = NO_LABELS) -> str:
+    """A field as its screen label, unless its feature words that one differently."""
+    return labels.get(field) or field.replace("_", " ").title()
+
+
+def detail_lines(
+    fields: Mapping[str, Any], labels: Mapping[str, str] = NO_LABELS
+) -> list[str]:
+    return [
+        f"{detail_label(field, labels)}: {detail_value(value)}"
+        for field, value in fields.items()
+    ]
+
+
+def display_diff_value(value: Any) -> str:
+    """How one side of a review-screen diff reads. Empty is a dash, never a blank."""
+    if value is None or value == "":
+        return "—"
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    return str(value)
+
+
+def field_diffs(
+    current: Mapping[str, Any], proposed: Mapping[str, Any]
+) -> tuple[str, ...]:
+    """The review screen's `old → new` lines for an item with no shape of its own."""
+    return tuple(
+        f"• {field.replace('_', ' ').title()}: "
+        f"{html.escape(display_diff_value(current.get(field)))} → "
+        f"{html.escape(display_diff_value(new_value))}"
+        for field, new_value in proposed.items()
+        if current.get(field) != new_value
+    )
+
+
+async def named_summary(
+    session: AsyncSession,
+    change: ProposalChange,
+    details: list[str],
+    *,
+    model: type[Any] | None,
+) -> str:
+    """The receipt line for an item the owner knows by its name."""
+    entity = (
+        await session.get(model, change.entity_id)
+        if model is not None and change.entity_id is not None
+        else None
+    )
+    values = dict(change.values)
+    name = (
+        values.get("name")
+        or values.get("title")
+        or getattr(entity, "name", None)
+        or getattr(entity, "title", None)
+    )
+    label = change.entity.title()
+    head = f"{label} “{result_value(name)}”" if name else f"{label} #{change.entity_id}"
+    tail = [] if change.action is ChangeAction.CREATE else list(details)
+    verb = ACTION_VERBS.get(change.action, change.action.title())
+    return f"{verb} {head}" + (f" ({' · '.join(tail)})" if tail else "")
+
+
+async def named_details(
+    session: AsyncSession,
+    change: ProposalChange,
+    fallback_lines: list[str],
+    *,
+    model: type[Any],
+    labels: Mapping[str, str] = NO_LABELS,
+) -> list[str]:
+    """Field lines for an item whose committed row is what the proposal diffs against."""
+    if change.action is ChangeAction.CREATE:
+        return fallback_lines or detail_lines(dict(change.values), labels)
+    entity = (
+        await session.get(model, change.entity_id) if change.entity_id is not None else None
+    )
+    if entity is None:
+        return fallback_lines or detail_lines(dict(change.values), labels)
+    if change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
+        label = getattr(entity, "name", f"#{entity.id}")
+        return [f"Item: {result_value(label)}"]
+    return [
+        f"{detail_label(field, labels)}: "
+        f"{detail_value(getattr(entity, field, None))} → {detail_value(value)}"
+        for field, value in dict(change.values).items()
+        if getattr(entity, field, None) != value
+    ]
+
+
+def reference_details(values: Mapping[str, Any], prefix: str) -> list[str]:
+    result: list[str] = []
+    singular = values.get(f"{prefix}_id")
+    if singular is not None:
+        result.append(f"#{singular}")
+    result.extend(f"#{item}" for item in values.get(f"{prefix}_ids") or [])
+    query = values.get(f"{prefix}_query")
+    if query is not None:
+        result.extend(str(item) for item in (query if isinstance(query, list) else [query]))
+    return result
+
+
+async def reference_names(session: AsyncSession, spec: ReferenceSpec, value: Any) -> list[str]:
+    ids = list(value or [])
+    entities = (
+        list(await session.scalars(select(spec.model).where(spec.model.id.in_(ids))))
+        if ids
+        else []
+    )
+    by_id = {entity.id: getattr(entity, spec.name_attr) for entity in entities}
+    return [by_id[item_id] for item_id in ids if item_id in by_id]
+
+
+async def reference_groups(
+    session: AsyncSession,
+    values: dict[str, Any],
+    specs: tuple[ReferenceSpec, ...],
+) -> list[str]:
+    """Name the items a payload points at, for the owner."""
+    groups: list[str] = []
+    for spec in specs:
+        if not spec.mentioned_in(values):
+            continue
+        resolved = await resolve_references(session, spec, values)
+        names: list[str] = []
+        for entity_id in sorted(resolved.ids):
+            entity = await session.get(spec.model, entity_id)
+            if entity is not None:
+                names.append(result_value(getattr(entity, spec.name_attr)))
+        names.extend(result_value(name) for name in resolved.unresolved)
+        if len(names) == 1:
+            groups.append(f"{spec.label} “{names[0]}”")
+        elif names:
+            groups.append(f"{spec.label}s {', '.join(f'“{name}”' for name in names)}")
+    return groups
+
+
+class NamedItemPresenter:
+    """Tag and Value read the same way: a name, a description, and a field diff."""
+
+    entity = ""
+    model: type[Any]
+    label = ""
+
+    def raw_details(self, change: AgentChange) -> list[str]:
+        return detail_lines(dict(change.values))
+
+    async def details(
+        self, session: AsyncSession, change: ProposalChange, fallback: AgentChange | None
+    ) -> list[str]:
+        fallback_lines = self.raw_details(fallback) if fallback is not None else []
+        return await named_details(session, change, fallback_lines, model=self.model)
+
+    async def summary(
+        self, session: AsyncSession, change: ProposalChange, details: list[str]
+    ) -> str:
+        return await named_summary(session, change, details, model=self.model)
+
+    def _current(self, item: Any) -> dict[str, Any]:
+        raise NotImplementedError
+
+    async def screen(
+        self, session: AsyncSession, change: ProposalChange
+    ) -> ProposalScreen | None:
+        current: dict[str, Any] = {}
+        archived = False
+        if change.entity_id:
+            item = await session.get(self.model, change.entity_id)
+            if item is not None:
+                archived = getattr(item, "archived_at", None) is not None
+                current = self._current(item)
+        proposed = {**current, **dict(change.values)}
+        if change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
+            current["status"] = "Archived" if archived else "Active"
+            proposed["status"] = "Archived" if change.action is ChangeAction.ARCHIVE else "Deleted"
+        return ProposalScreen(
+            mode="Create" if change.action is ChangeAction.CREATE else "Edit",
+            item=self.label,
+            blocks=(
+                f"Name: {html.escape(display_diff_value(proposed.get('name')))}\n"
+                f"Description: "
+                f"{html.escape(display_diff_value(proposed.get('description')))}",
+            ),
+            diffs=field_diffs(current, proposed),
+        )
 
 
 def _json_safe(value: Any) -> Any:

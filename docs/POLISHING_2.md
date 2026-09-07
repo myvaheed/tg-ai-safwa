@@ -326,6 +326,37 @@ Cards; пакет shell отвечает, незарегистрированно
 исчезнувший тест либо проверял удалённый механизм, либо его сценарий покрыт другим тестом.
 Число файлов и лимит строк сами по себе не являются критерием успешного упрощения.
 
+**Сделано.** [cards/hierarchy.py](../src/safwa/features/cards/hierarchy.py) — что показывает
+родитель и обход, который это держит: `propagate_ancestors` с двумя чистыми расчётами под ним и
+чтения ветки, которые отвечает тот же обход. Операции записи остались явными в
+[use_cases.py](../src/safwa/features/cards/use_cases.py) (816 строк стало 688), finish и repeat не
+разделены — `finish_action` и `_copy_repeat_successor` делят Checks, Sprint и propagate, и второй
+файл был бы прокладкой между ними. Сканер узнал имя нового модуля, иначе переезд тихо вынес бы его
+из-под правил: `hierarchy.py` в `BUSINESS_FILES` (Rule A) и в `MODULE_LAYERS`/`DOOR_LAYERS` слоем
+операций, а Rule K больше не ищет буквальное `use_cases` — `OPERATION_DOORS` читается из
+`DOOR_LAYERS`, поэтому `agent.py` не может дотянуться и до второго модуля операций.
+
+Контракты предложений отделены от представления: [api.py](../src/tg_agent_shell/proposals/api.py)
+(546 → 322) — протоколы, контексты, реестр и подготовка ссылок;
+[render.py](../src/tg_agent_shell/proposals/render.py) (365 → 599) — вся формулировка, которой
+владелец читает предложение: `ACTION_VERBS`, `detail_lines`, `field_diffs`, `named_summary`,
+`named_details`, `reference_groups` и `NamedItemPresenter`. Направление сохранено: render читает
+api, ни один контракт не читает render.
+Разрез совпал с тем, как фичи уже разложены — `proposal.py` каждой фичи и wallet-примера импортирует
+только контракты, `telegram/review.py` только формулировку.
+
+Четыре встроенных объявления инструментов (`query_data`, `open`, `route`, `call_helper`) уехали из
+[ai/tools.py](../src/tg_agent_shell/ai/tools.py) (608 → 557) в
+[ai/contracts.py](../src/tg_agent_shell/ai/contracts.py), каждое под свою входную модель и рядом с
+`MutationToolSpec.schema()`: имя, описание и параметры одного инструмента теперь в одном месте, а
+tools.py остался тем, что происходит при вызове. Текст не менялся, поэтому digest'ы `tool:*` в
+[prompt_prefix.json](../tests/snapshots/prompt_prefix.json) те же.
+
+`Database.transaction` удалён вместе со своим ContextVar и тремя тестами, которые проверяли только
+его: ни одного вызова в production не появилось — сессию открывает и фиксирует тот, кто её открыл, и
+[раздел про транзакцию](FEATURE_MODULES.md) теперь называет этих владельцев вместо удалённой двери.
+В сканере удалены неиспользуемые константа пути к файлу правил и `Violation.key`.
+
 ## 8. P3 — Исправить документацию и инструкции ИИ
 
 ### 8.1. Устранить противоречия и ложные образцы

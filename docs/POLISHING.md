@@ -80,7 +80,7 @@ Ruff проходит; архитектурный сканер — 0 наруш�
 - P1 внутри этого этапа: [create_ai_views](../src/tg_agent_shell/ai/sql.py) даже с пустым каталогом удаляет card_search и три старых триггера Safwa. Убрать эту очистку из библиотеки; если ещё нужна, оставить явно вызываемой процедурой приложения.
 - Требование ai_cards ушло в [normalize_card_query](../src/safwa/features/cards/api.py) на стороне Safwa; общий `validate_read_sql` остался в shell.
 - Строить схему `OpenInput` из [ScreenCatalogue](../src/tg_agent_shell/foundation/screens.py), проверять наличие типа и `ai_openable`; убрать фиксированный enum Safwa и соответствующее исключение Rule H.
-- Предметные подписи ушли к presenters — `CARD_LABELS`, `CHECK_LABELS`, `REQUEST_LABELS`; в [proposals/api.py](../src/tg_agent_shell/proposals/api.py) остался fallback из имени поля.
+- Предметные подписи ушли к presenters — `CARD_LABELS`, `CHECK_LABELS`, `REQUEST_LABELS`; в [proposals/render.py](../src/tg_agent_shell/proposals/render.py) остался fallback из имени поля.
 - Сделать владельца [ReferenceSpec](../src/tg_agent_shell/foundation/references.py) явным: дефолт Card влияет на имя ключа связи. Строки, обращающиеся к Safwa, заменить нейтральными либо передавать из приложения там, где имя нужно пользователю.
 - Готово: пересоздание views сохраняет посторонние таблицы; новая сущность открывается и получает review без изменения shell; стандартные ошибки не называют чужого бота. Ожидаемые изменения prompt snapshots проверяются вместе с этим пунктом.
 

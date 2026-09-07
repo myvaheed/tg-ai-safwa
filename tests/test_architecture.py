@@ -35,6 +35,7 @@ from safwa.bootstrap.modules import (
 from safwa.features.advisor.agent import PERSONA
 from safwa.foundation.models import Base
 from scripts.architecture_metrics import (
+    BUSINESS_FILES,
     RULES,
     SRC,
     Module,
@@ -42,18 +43,19 @@ from scripts.architecture_metrics import (
     business_imports,
     cycles,
     feature_map,
+    process_modules,
     readers,
     unregistered_packages,
 )
 from telegram_llm import DialogueMessage, KindMarks, code_for
-from tg_agent_shell.ai.messages import ContextBuilder, StateBlocks
-from tg_agent_shell.ai.subagents import RoutedSubagent
-from tg_agent_shell.ai.tools import (
+from tg_agent_shell.ai.contracts import (
     CALL_HELPER_TOOL,
     QUERY_TOOL,
     ROUTE_TOOL,
     open_tool,
 )
+from tg_agent_shell.ai.messages import ContextBuilder, StateBlocks
+from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.foundation.kinds import MARKS
 from tg_agent_shell.foundation.models import Base as ShellBase
 
@@ -142,6 +144,9 @@ def test_rule_a_reads_the_settings_module_where_it_lives(source: str, caught: bo
         ("from .use_cases import create_diary_entry", True),
         ("from . import use_cases", True),
         ("import safwa.features.diary.use_cases as writes", True),
+        # A feature whose operations are two modules is still the operations layer: Cards
+        # keeps its derived-value walk in `hierarchy.py`, and an agent may not reach it.
+        ("from ..cards.hierarchy import propagate_ancestors", True),
         ("from .model import DiaryEntry", False),
         ("from .api import day_read_tool", False),
     ],
@@ -150,6 +155,15 @@ def test_rule_k_catches_a_domain_call_however_it_is_imported(source: str, caught
     found = agent_domain_calls(_example("safwa/features/diary/agent.py", source))
 
     assert bool(found) is caught, found
+
+
+def test_a_second_operations_module_is_under_the_business_rules_too():
+    # Cards keeps its derived-value walk in `hierarchy.py`. Rule A reaches a file by name,
+    # so a feature that splits its operations out of `use_cases.py` leaves that rule
+    # unless the name is in the list.
+    scanned = {module.rel for module in process_modules(*BUSINESS_FILES)}
+
+    assert "safwa/features/cards/hierarchy.py" in scanned
 
 
 def test_rule_r_asks_only_about_safwa_feature_packages():

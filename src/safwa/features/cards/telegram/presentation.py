@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.telegram import Page, paginate, short_citation_title, with_citation_fields
 
 from ....foundation.marks import title_marks
+from ..hierarchy import card_progress
 from ..model import (
     Card,
     CardCategory,
@@ -22,7 +23,6 @@ from ..model import (
     EnergyType,
     Priority,
 )
-from ..use_cases import card_progress
 
 _KIND_EMOJIS = {
     CardKind.GOAL.value: "🎯",

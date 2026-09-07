@@ -18,14 +18,14 @@ from safwa.bootstrap.modules import (
 )
 from safwa.features.advisor.agent import PERSONA
 from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
-from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
-from tg_agent_shell.ai.subagents import RoutedSubagent
-from tg_agent_shell.ai.tools import (
-    IMMEDIATE_TOOLS,
+from tg_agent_shell.ai.contracts import (
     QUERY_TOOL,
     ROUTE_TOOL,
     open_tool,
 )
+from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
+from tg_agent_shell.ai.subagents import RoutedSubagent
+from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS
 from tg_agent_shell.telegram.manifest import AgentContext
 
 

@@ -24,7 +24,7 @@ from safwa.bootstrap.modules import (
 )
 from safwa.features.home.api import MENU_LAYOUT, menu_markup
 from safwa.features.planning.api import available_screens
-from tg_agent_shell.ai.tools import open_tool
+from tg_agent_shell.ai.contracts import open_tool
 from tg_agent_shell.telegram import (
     SHELL_COMMANDS,
     OwnerAndWritingMiddleware,

@@ -23,7 +23,6 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 SRC = REPO / "src"
-RULE_FILE = "scripts/architecture_metrics.py"
 SAFWA = SRC / "safwa"
 FEATURES = SAFWA / "features"
 
@@ -51,7 +50,7 @@ ENTITIES = tuple(
 # a business file that reads it takes its decisions from the environment instead of from
 # its arguments; `safwa/config.py` is where this application keeps it.
 DELIVERY_PACKAGES = ("aiogram", "openai", "telethon", "telegram_llm", "llm_gateway")
-BUSINESS_FILES = ("rules.py", "model.py", "use_cases.py", "data.py")
+BUSINESS_FILES = ("rules.py", "model.py", "use_cases.py", "hierarchy.py", "data.py")
 SETTINGS_MODULE = "safwa.config"
 
 # Rule F: packages that import no Safwa. That is what the rule proves — not that the
@@ -72,8 +71,14 @@ PROCESS_PACKAGES = ("tg_agent_shell/turn/", "tg_agent_shell/cues/", "tg_agent_sh
 
 # Rule E: how deep into a feature a door reaches, and how deep a module is allowed to reach.
 # Anything not named here is assembly, which is the top and may open every door.
-DOOR_LAYERS = {"api": 1, "use_cases": 2, "telegram": 3}
-MODULE_LAYERS = {"model.py": 1, "api.py": 1, "use_cases.py": 2}
+DOOR_LAYERS = {"api": 1, "use_cases": 2, "hierarchy": 2, "telegram": 3}
+MODULE_LAYERS = {"model.py": 1, "api.py": 1, "use_cases.py": 2, "hierarchy.py": 2}
+
+# Rule K: the doors at the operations layer, which is what an `agent.py` may not reach
+# for.  Read from `DOOR_LAYERS` rather than spelled again, so a feature that splits its
+# operations into a second module — Cards keeps its derived-value walk in `hierarchy.py` —
+# declares that name once and every rule about the layer follows.
+OPERATION_DOORS = frozenset(door for door, depth in DOOR_LAYERS.items() if depth == 2)
 
 HTML_TAG = re.compile(r"</?(?:b|i|u|s|a|code|pre|blockquote|tg-spoiler)\b")
 EMOJI = re.compile("[\U0001f000-\U0001faff←-⇿☀-➿]")
@@ -85,9 +90,6 @@ class Violation:
     path: str
     line: int
     detail: str
-
-    def key(self) -> str:
-        return f"{self.rule}|{self.path}|{self.detail}"
 
     def __str__(self) -> str:
         return f"{self.rule}  {self.path}:{self.line}  {self.detail}"
@@ -493,7 +495,7 @@ def agent_domain_calls(module: Module) -> list[Violation]:
         # `from .use_cases import create_diary_entry` resolves to a path that ends in the
         # function, and `import ... .use_cases as writes` to one that ends in the module,
         # so the segment is what says the door was opened rather than how the path ends.
-        if "use_cases" in path.split("."):
+        if OPERATION_DOORS & set(path.split(".")):
             out.append(Violation("Rule K", module.rel, line, f"calls the domain via {path}"))
     return out
 

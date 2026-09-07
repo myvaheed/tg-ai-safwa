@@ -25,8 +25,8 @@ from ....foundation.workspace import Workspace
 from ...checks.use_cases import card_checks
 from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value
+from ..hierarchy import blocking_actions, card_progress
 from ..model import Card, CardCategory, CardEnergyType, CardKind, CardStage
-from ..use_cases import blocking_actions, card_progress
 from .presentation import card_overview_text
 
 

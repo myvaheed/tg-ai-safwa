@@ -12,10 +12,12 @@ from tg_agent_shell.ai.contracts import AgentChange
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.proposals.api import (
-    ACTION_VERBS,
     ChangeAction,
     ProposalChange,
     ProposalScreen,
+)
+from tg_agent_shell.proposals.render import (
+    ACTION_VERBS,
     detail_lines,
 )
 from tg_agent_shell.telegram import Services, send_registered

@@ -8,22 +8,12 @@ is the application's own decision, written where that application's rules are.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from contextvars import ContextVar
 from pathlib import Path
 
 from sqlalchemy import Connection, MetaData, create_engine, event
-from sqlalchemy.ext.asyncio import (
-    AsyncEngine,
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from .models import Base
-
-_in_transaction: ContextVar[bool] = ContextVar("shell_in_transaction", default=False)
 
 
 def create_schema(connection: Connection, *metadata: MetaData) -> None:
@@ -64,28 +54,3 @@ class Database:
 
     async def dispose(self) -> None:
         await self.engine.dispose()
-
-    @asynccontextmanager
-    async def transaction(self) -> AsyncIterator[AsyncSession]:
-        """One business transaction: the block commits on success and discards on failure.
-
-        `sessions()` stays for reads and for callers that commit in steps; this is the
-        boundary a use case opens when its whole body has to land or not land at all.
-
-        Opening one inside another is refused rather than joined.  Joining would commit
-        the inner work with the outer block and leave a caught inner failure sitting in a
-        dirty session, because a joined block has no savepoint to roll back to.  An
-        operation a use case has to call takes the session instead of opening its own.
-        """
-        if _in_transaction.get():
-            raise RuntimeError(
-                "A transaction is already open here. Call the operation with this "
-                "session instead of opening a second transaction."
-            )
-        token = _in_transaction.set(True)
-        try:
-            async with self.sessions() as session:
-                yield session
-                await session.commit()
-        finally:
-            _in_transaction.reset(token)

@@ -25,8 +25,8 @@ from tg_agent_shell.telegram import (
 from ....foundation.marks import title_marks
 from ....foundation.workspace import Workspace
 from ..api import actions_on_stages
+from ..hierarchy import card_children
 from ..model import LIVE_STAGE_PRECEDENCE, Card, CardStage
-from ..use_cases import card_children
 from .presentation import kind_label, paginate_cards
 
 

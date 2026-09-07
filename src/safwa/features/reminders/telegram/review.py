@@ -14,10 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.contracts import AgentChange
 from tg_agent_shell.proposals.api import (
-    ACTION_VERBS,
     ChangeAction,
     ProposalChange,
     ProposalScreen,
+)
+from tg_agent_shell.proposals.render import (
+    ACTION_VERBS,
     detail_lines,
     result_value,
 )

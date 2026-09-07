@@ -11,10 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.ai.contracts import AgentChange
 from tg_agent_shell.foundation.references import resolve_references
 from tg_agent_shell.proposals.api import (
-    ACTION_VERBS,
     ChangeAction,
     ProposalChange,
     ProposalScreen,
+)
+from tg_agent_shell.proposals.render import (
+    ACTION_VERBS,
     detail_label,
     detail_lines,
     detail_value,
@@ -27,9 +29,9 @@ from tg_agent_shell.proposals.api import (
 
 from ...tags.model import CardTag
 from ...values.model import CardValue
+from ..hierarchy import card_progress
 from ..model import Card, CardCategory, CardEnergyType, CardKind, CardStage, Priority
 from ..references import CARD_REFERENCE_SPECS
-from ..use_cases import card_progress
 from .presentation import card_overview_text, category_expression, energy_expression
 
 CARD_DETAIL_FIELDS = (

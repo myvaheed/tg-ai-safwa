@@ -9,12 +9,12 @@ from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.bootstrap.modules import AGENTS, HELPERS, SCREENS, SYSTEM_PROMPT
 from safwa.features.heavy_analyzer import agent as heavy_analyzer
 from safwa.features.heavy_analyzer.agent import worth_a_helper
-from tg_agent_shell.ai.tools import (
-    IMMEDIATE_TOOLS,
+from tg_agent_shell.ai.contracts import (
     QUERY_TOOL,
     ROUTE_TOOL,
     open_tool,
 )
+from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS
 
 HEAVY_ANALYZER_PROMPT = HELPERS[heavy_analyzer.NAME].instructions
 

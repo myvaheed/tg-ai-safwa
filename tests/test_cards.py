@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.agent import CardToolInput
+from safwa.features.cards.hierarchy import blocking_actions, card_children, card_progress
 from safwa.features.cards.model import (
     Card,
     CardCategory,
@@ -24,9 +25,6 @@ from safwa.features.cards.model import (
 from safwa.features.cards.use_cases import (
     EFFORT_POINTS,
     archive_subtree,
-    blocking_actions,
-    card_children,
-    card_progress,
     create_card,
     delete_subtree,
     edit_card_text,

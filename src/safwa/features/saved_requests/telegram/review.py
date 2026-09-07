@@ -10,6 +10,8 @@ from tg_agent_shell.ai.contracts import AgentChange
 from tg_agent_shell.proposals.api import (
     ProposalChange,
     ProposalScreen,
+)
+from tg_agent_shell.proposals.render import (
     detail_lines,
     named_details,
     named_summary,

@@ -6,6 +6,11 @@ prepared change — is answered here, out of what the composition root bound.
 
 `ToolAdapters` is the runtime's `ToolRunner`: it says what each kind of session may call,
 runs one call, and supplies the few sentences the loop has to say about tools.
+
+What the model is *offered* is not here. Each tool's name, its one-line description and
+its parameters are declared under the input model whose shape they publish, in
+[contracts.py](contracts.py), beside `MutationToolSpec.schema()` — so the wording a small
+model reads is written in one place and this file is only what happens when it answers.
 """
 
 from __future__ import annotations
@@ -33,13 +38,16 @@ from telegram_llm import DialogueMessage
 from ..foundation.errors import failure_reason
 from ..foundation.screens import ScreenCatalogue
 from .contracts import (
+    CALL_HELPER_TOOL,
+    QUERY_TOOL,
+    ROUTE_TOOL,
     AgentChange,
     CallHelperInput,
     MutationToolSpec,
     OpenInput,
-    QueryToolInput,
     RouteInput,
     ToolResultStatus,
+    open_tool,
     tool_json_schema,
     validation_error_summary,
 )
@@ -93,65 +101,6 @@ def watcher_name(watch: object) -> str:
     return getattr(watch, "__qualname__", None) or repr(watch)
 
 
-QUERY_TOOL: dict[str, Any] = {
-    "type": "function",
-    "function": {
-        "name": "query_data",
-        "description": (
-            "Read the current data with one read-only SELECT over the ai_* views listed "
-            "in your instructions. Use it before you answer or propose anything."
-        ),
-        "parameters": tool_json_schema(QueryToolInput),
-    },
-}
-
-
-def open_tool(screens: ScreenCatalogue) -> dict[str, Any]:
-    """`open` as the model reads it, over the item types the features publish.
-
-    A tool's enum is prompt text, and this one is built from the same catalogue the
-    call is resolved against, so a feature that publishes a screen is offered by
-    name and one that publishes none is spelled out nowhere.
-    """
-    schema = tool_json_schema(OpenInput)
-    schema["properties"]["item_type"]["enum"] = list(screens.openable)
-    return {
-        "type": "function",
-        "function": {
-            "name": "open",
-            "description": (
-                "Put one item on the screen, exactly as the user opening it by hand. Call it "
-                "only when the user asked to see or open one single item. Otherwise cite the "
-                "item in your answer instead."
-            ),
-            "parameters": schema,
-        },
-    }
-
-
-ROUTE_TOOL: dict[str, Any] = {
-    "type": "function",
-    "function": {
-        "name": "route",
-        "description": (
-            "Hand this turn to a subagent. It reads this same conversation, does the work, "
-            "and comes back with a receipt of what it did. You write the message the user "
-            "sees. You just pass the name of the subagent."
-        ),
-        "parameters": tool_json_schema(RouteInput),
-    },
-}
-CALL_HELPER_TOOL: dict[str, Any] = {
-    "type": "function",
-    "function": {
-        "name": "call_helper",
-        "description": (
-            "Ask a helper a question one simple read could not answer. It writes the query "
-            "and hands back its result. You keep the turn and you write the answer."
-        ),
-        "parameters": tool_json_schema(CallHelperInput),
-    },
-}
 # The tools the adapters answer themselves, and the ones that run during the turn instead
 # of becoming a proposal the owner approves. A session's own read tools are immediate too,
 # but they are its own: a subagent that named one of these would never be heard.
