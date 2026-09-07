@@ -14,14 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_gateway import OpenAICompatibleConfig, OpenAICompatibleProvider
 from telegram_llm import ChatHost
-from tg_agent_shell.ai.autoapproval import AutoApprovalReviewer
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
-from tg_agent_shell.ai.tools import HelperPort
 from tg_agent_shell.asr import build_transcriber
+from tg_agent_shell.foundation.database import Database, upgrade_database
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MARKS
 from tg_agent_shell.history import TelegramHistorySource, TelegramNotes
-from tg_agent_shell.session import RootSession
+from tg_agent_shell.recovery import recover_startup
 from tg_agent_shell.telegram import (
     SHELL_COMMANDS,
     Services,
@@ -42,30 +41,25 @@ from ..features.profile.model import UserProfile
 from ..features.summary.summary import DialogueSummary
 from ..features.summary.window import SummaryEdge
 from ..features.workspace_mutator.state import workspace_context
-from ..foundation.database import Database, upgrade_database
+from ..foundation.models import Base
 from ..foundation.tokens import estimate_tokens
 from ..foundation.workspace import Workspace
 from .auth import history_client
 from .modules import (
-    AFTER_TOOL,
     AFTER_TURN,
     AI_VIEWS,
     ALLOWED_VIEWS,
-    AUTOAPPROVALS,
     BACKGROUND_TASKS,
-    BEFORE_TOOL,
     FEATURE_CALLBACK_ACTIONS,
     FEATURE_COMMANDS,
     FEATURE_START_LINKS,
     FEATURE_TEXT_INPUTS,
-    HELPERS,
-    PROPOSALS,
     RECOVERY_HOOKS,
+    REGISTRY,
     SCREENS,
     SYSTEM_PROMPT,
     routed_subagents,
 )
-from .recovery import recover_startup
 
 logger = logging.getLogger(__name__)
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
@@ -220,19 +214,17 @@ async def run(settings: Settings) -> None:
     )
     await history.start()
     # The advisor is built after the history source because a subagent reads through it.
-    advisor = RootSession(
+    advisor = REGISTRY.root_session(
         database.sessions,
         provider,
         memory,
-        query_runner.scoped(ADVISOR_VIEWS),
-        PROPOSALS,
-        screens=SCREENS,
+        query_runner,
+        views=ADVISOR_VIEWS,
         workspace_state=workspace_context,
         system_prompt=SYSTEM_PROMPT,
         model_name=settings.ai_model,
         provider_name=settings.ai_provider.value,
         cache_breakpoints=settings.resolved_ai_cache_breakpoints,
-        autoapproval=AutoApprovalReviewer(provider, AUTOAPPROVALS),
         subagents=routed_subagents(
             AgentContext(
                 owner_id=settings.telegram_owner_id,
@@ -241,18 +233,7 @@ async def run(settings: Settings) -> None:
                 history=history,
             )
         ),
-        helpers={
-            name: HelperPort(
-                run=spec.build(
-                    provider, query_runner.scoped(spec.views), prompt=spec.instructions
-                ),
-                offer_when=spec.offer_when,
-                offer=spec.offer,
-            )
-            for name, spec in HELPERS.items()
-        },
-        before_tool=BEFORE_TOOL,
-        after_tool=AFTER_TOOL,
+        helpers=REGISTRY.helper_ports(provider, query_runner),
     )
     summary = DialogueSummary(
         history,
@@ -357,7 +338,7 @@ async def run(settings: Settings) -> None:
 
 def main() -> None:
     settings = Settings()
-    upgrade_database(settings.database_url)
+    upgrade_database(settings.database_url, Base.metadata)
     asyncio.run(run(settings))
 
 

@@ -8,7 +8,7 @@ from enum import StrEnum
 from sqlalchemy import Date, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from tg_agent_shell.foundation.models import Base, TimestampMixin, UtcDateTime
+from ...foundation.models import Base, TimestampMixin, UtcDateTime
 
 
 class SprintStatus(StrEnum):

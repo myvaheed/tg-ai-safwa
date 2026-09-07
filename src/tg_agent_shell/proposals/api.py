@@ -115,6 +115,9 @@ class ProposalHandler(Protocol):
     # again for these, and `ApplyContext.allow_destructive` is what that answer sets.
     # Optional: a handler that declares nothing has nothing a second press could add.
     destructive_actions: frozenset[ChangeAction]
+    # The one sentence the second confirmation shows. What is actually lost is the owning
+    # feature's to say — the screen knows only that this is the last press.
+    destructive_warning: str
 
     async def prepare(
         self, context: PreparationContext, change: AgentChange
@@ -235,11 +238,14 @@ class ProposalRegistry:
     def presenter(self, entity: str) -> ProposalPresenter | None:
         return self.presenters.get(entity)
 
-    def needs_confirmation(self, change: ProposalChange) -> bool:
-        """Whether the owning feature refuses this change without a second confirmation."""
+    def confirmation(self, change: ProposalChange) -> str | None:
+        """What the owning feature warns before this change, or None to save it outright."""
         handler = self.handlers.get(change.entity)
-        declared = getattr(handler, "destructive_actions", frozenset())
-        return change.action in declared
+        if change.action not in getattr(handler, "destructive_actions", frozenset()):
+            return None
+        return getattr(handler, "destructive_warning", "") or (
+            f"This permanently removes the {change.entity} it names."
+        )
 
     def change_from_tool(self, name: str, arguments: dict[str, Any]) -> AgentChange:
         """Validate a model tool call and convert it into an application command intent."""

@@ -72,8 +72,10 @@ rows, the optimistic lock, and the ordered walk over the stored changes
 
 ## Derived registries
 
-`bootstrap/modules.py` builds these from `MODULES` at import time, and fails fast on a duplicate
-entity, tool or view:
+[`Registry.of`](../src/tg_agent_shell/registry.py) builds these from `MODULES` at import time and
+fails fast on a duplicate entity, tool or view, or on a list without exactly one home screen. The
+deriving is the shell's, so a second application gets the same registries from its own list;
+`bootstrap/modules.py` publishes them under the names the rest of Safwa reads them by:
 
 - `AI_VIEWS` and `ALLOWED_VIEWS` — one catalogue behind both `CREATE VIEW` and the read allowlist.
   It is passed as data to whoever validates against it, so `ai/sql.py` stays a leaf.

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Coroutine
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 from sqlalchemy import select
+from telegram_fakes import spawn_timer
 
 import safwa
 import safwa.features.planning.telegram.plan as plan_module
@@ -34,11 +33,6 @@ from tg_agent_shell.turn import TurnManager
 
 # What the composition root puts together, which is what a live Safwa answers with.
 CALLBACK_ACTIONS = FEATURE_CALLBACK_ACTIONS
-
-
-def spawn_timer(work: Coroutine[None, None, None], name: str) -> asyncio.Task[None]:
-    """The Toast timer a test's host starts: no test shuts down, so no test cancels one."""
-    return asyncio.create_task(work, name=name)
 
 
 class FakeBot:

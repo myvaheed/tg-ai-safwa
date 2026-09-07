@@ -16,8 +16,9 @@ from telethon.tl.custom.message import Message
 from telethon.tl.types import User
 
 from safwa.bootstrap import main as safwa_main
-from safwa.foundation.database import upgrade_database
+from safwa.foundation.models import Base
 from safwa.qa import resolve_qa_config
+from tg_agent_shell.foundation.database import upgrade_database
 from tg_agent_shell.history import TelegramHistorySource
 
 pytestmark = [pytest.mark.e2e, pytest.mark.live_telegram]
@@ -137,7 +138,7 @@ async def live_telegram_harness(tmp_path: Path, monkeypatch) -> LiveTelegramHarn
     except (ValueError, OSError) as error:
         pytest.fail(f"Invalid Safwa-QA configuration: {error}")
     settings = resolved.settings
-    upgrade_database(settings.database_url)
+    upgrade_database(settings.database_url, Base.metadata)
 
     probe = Bot(token=settings.telegram_bot_token.get_secret_value())
     try:

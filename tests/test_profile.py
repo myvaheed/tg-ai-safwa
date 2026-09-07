@@ -7,7 +7,6 @@ import pytest
 from sqlalchemy import select
 
 from safwa.bootstrap.modules import RECOVERY_HOOKS
-from safwa.bootstrap.recovery import recover_startup
 from safwa.features.cards.use_cases import create_card
 from safwa.features.planning.use_cases import start_sprint
 from safwa.features.profile.model import ProfileField, UserProfile
@@ -21,6 +20,7 @@ from safwa.foundation.workspace import Workspace
 from tg_agent_shell.ai.messages import ordered_owner_context
 from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.recovery import recover_startup
 
 
 class FrozenClock:

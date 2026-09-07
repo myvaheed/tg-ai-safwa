@@ -25,9 +25,9 @@ from safwa.bootstrap.modules import (
     RECOVERY_HOOKS,
     SYSTEM_PROMPT,
 )
+from safwa.foundation.models import Base
 from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.cues.module import CUE_QUEUE
-from tg_agent_shell.foundation.models import Base
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 TABLENAME = re.compile(r'^\s*__tablename__ = "([a-z_]+)"', re.MULTILINE)
@@ -51,8 +51,9 @@ def test_importing_the_composition_root_declares_every_table():
             sys.executable,
             "-c",
             "import safwa.bootstrap.modules;"
-            "from tg_agent_shell.foundation.models import Base;"
-            "print(' '.join(sorted(Base.metadata.tables)))",
+            "from safwa.foundation.models import Base;"
+            "from tg_agent_shell.foundation.models import Base as Shell;"
+            "print(' '.join(sorted(Base.metadata.tables | Shell.metadata.tables)))",
         ],
         capture_output=True,
         text=True,

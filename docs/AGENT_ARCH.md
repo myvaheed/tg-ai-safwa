@@ -71,7 +71,40 @@ flowchart LR
 ```
 
 All of it is [bootstrap/main.py](../src/safwa/bootstrap/main.py). Which features exist,
-[bootstrap/modules.py](../src/safwa/bootstrap/modules.py) knows — and nobody else.
+[bootstrap/modules.py](../src/safwa/bootstrap/modules.py) knows — and nobody else. Everything
+that *follows* from that list is [registry.py](../src/tg_agent_shell/registry.py), which is the
+shell's: `Registry.of(MODULES, world=…)` derives the view catalogue and its allowlist, the screens,
+the commands, the callbacks, the text inputs, the proposal capabilities, the subagent roster, the
+hooks and the background tasks, refusing each collision where it happens.
+
+## What an application gives the shell
+
+The shell runs an application it knows nothing about. This is the whole of what it asks for, and
+[examples/wallet/app.py](../examples/wallet/app.py) is the second answer to it — a ledger of
+wallets and entries, with none of Safwa's nouns in it.
+
+| What the shell asks for | The type that carries it | Safwa's answer |
+|---|---|---|
+| which features exist | `tuple[FeatureModule, ...]` handed to `Registry.of` | `MODULES` |
+| what a proposal is made against | `WorldReader` → `World(revision, timezone)` | the `workspace` row |
+| the database | its own `Base`, plus `upgrade_database(url, Base.metadata)` | `safwa/foundation/models.py` |
+| durable notes | `Memory` — one `sync()` returning something with `.text` | `data/memory.md` |
+| the state a session reads first | `(session) -> StateBlocks(state, clock)` | `workspace_context` |
+| the chat, and where its window ends | `TelegramHistorySource` with `MARKS` and a `WindowEdge` | `SummaryEdge` |
+| what the model is told it is | one system prompt, with `Registry.routes` filling the routes in | `SYSTEM_PROMPT` |
+| the container every handler reads | `Services`, filled from the registry | `bootstrap/main.py` |
+| the home screen | exactly one `ScreenCommand` with `nav=HOME_NAV` | the `home` feature |
+| a restart | `recover_startup(session, registry.recovery)` | called before polling starts |
+| a shutdown | cancel the background tasks, close the history, the provider and the bot | the polling `finally` |
+
+Everything else is the application's own: the persona, the provider, the product dependencies,
+and the startup itself — Safwa's carries ASR, Telethon and OpenRouter headers, and the example's
+carries none of them, which is why the shell holds no `run()` of its own.
+
+**A second application declares its tables on a `Base` of its own**, and `upgrade_database` takes
+that metadata beside the shell's. Two applications in one process then create their own tables and
+never each other's; `tests/shell/` runs the example with `safwa` unimportable and counts what a
+fresh database gets.
 
 ## The map
 
@@ -570,14 +603,15 @@ stateDiagram-v2
 | `memory-maintenance` | `MEMORY_MAINTENANCE_INTERVAL_SECONDS = 60` | `features/memory/background.py` |
 
 Each is a `BackgroundTask`. All but the Cue poll are declared in a feature's `module.py`; the Cue
-poll belongs to no feature, so `bootstrap/modules.py` puts it in front of theirs. The composition
+poll belongs to no feature, so the registry puts it in front of theirs. The composition
 root starts them and cancels them in the polling `finally`. A feature that needs its own objects takes them off
 `services`, the container the whole application already shares.
 
 ## Recovery
 
-`recover_startup` reconciles interrupted work on every boot: each feature contributes a `recover`
-callable through its `FeatureModule`.
+[`recover_startup`](../src/tg_agent_shell/recovery.py) reconciles interrupted work on every
+boot: each feature contributes a `recover` callable through its `FeatureModule`, and everything
+after those hooks is the shell's own — the run rows, the buttons and the screens it wrote.
 
 **A restart ends every session.** One left `running` and one left `awaiting_approval` are both
 recorded `abandoned`, and their claims are released. Nothing picks either up: a screen is process

@@ -30,6 +30,7 @@ and restore are [README.md](README.md); here is what a change is checked with.
 ```powershell
 uv run pytest -q
 uv run pytest tests\e2e -q
+uv run pytest tests\shell -q            # the example bot on the shell, with no Safwa imported
 uv run ruff check .
 uv run python scripts/architecture_metrics.py
 uv run python scripts/architecture_metrics.py cards   # one feature: its sources, scenarios, tests, views and wiring
@@ -119,8 +120,11 @@ meaning anything, so change the mechanism instead.
 ## Schema
 
 There are no migrations and no Alembic. The ORM model modules are the schema source: startup calls
-`upgrade_database` ([foundation/database.py](src/safwa/foundation/database.py)), which is
-`Base.metadata.create_all`. It adds missing tables and indexes and **never alters an existing one**,
+`upgrade_database` ([foundation/database.py](src/tg_agent_shell/foundation/database.py)) with
+Safwa's own metadata, and it creates the shell's tables and then Safwa's — every Safwa table hangs
+on the `Base` in [foundation/models.py](src/safwa/foundation/models.py), so a second application on
+the shell creates its own tables and never these. It adds missing tables and indexes and **never
+alters an existing one**,
 so a fresh database always matches the declared models while a changed column will not touch an
 existing `data/safwa.db`. A schema change means editing the owning model and rebuilding the database
 (back it up first with `uv run safwa-backup`).

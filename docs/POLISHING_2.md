@@ -172,6 +172,33 @@ SELECT 1 AS amount FROM c
 Контракт позволяет собрать пример без чтения бизнес-фич Safwa. Решение об отдельном wheel и
 зависимостях принять по потребностям этого потребителя; пять релизных циклов заранее не вводить.
 
+**Сделано.** [examples/wallet](../examples/wallet/app.py) — второе приложение: две фичи,
+`wallets` держит кошельки и категории, которые владелец правит руками, `ledger` держит проводки,
+которые только предлагает модель. Общая сборка переехала в shell: `Registry.of(MODULES, world=…)`
+([registry.py](../src/tg_agent_shell/registry.py)) выводит из списка фич views и allowlist, экраны,
+команды, коллбэки, текстовые вводы, предложения, автоодобрения, реестр подагентов, хуки и фоновые
+задачи, а `Registry.root_session` собирает корневую сессию; `safwa/bootstrap/modules.py` остался
+списком фич, промптом и тем, что такое World. Туда же переехали `Database`, `upgrade_database`
+([foundation/database.py](../src/tg_agent_shell/foundation/database.py)) и `recover_startup`
+([recovery.py](../src/tg_agent_shell/recovery.py)) — ничего Safwa-специфичного в них не было.
+Скрытые предположения Safwa убраны: исключение `add` в навигации было мёртвым — экран, который
+открывает свой редактор, пишет состояние после очистки, — а текст destructive-подтверждения теперь
+даёт владеющая фича (`destructive_warning`), shell рисует только заголовок. Контракт домашнего
+экрана стал явным: `HOME_NAV`, и `Registry.of` отвергает список без ровно одного такого экрана.
+Каждое приложение объявляет свои таблицы на собственном `Base`, а `upgrade_database` принимает его
+metadata рядом с shell-овой, поэтому два приложения в одном процессе не создают таблицы друг друга.
+Раздел «What an application gives the shell» в [AGENT_ARCH.md](AGENT_ARCH.md) перечисляет всё, что
+shell спрашивает, и чем это отвечено в обоих приложениях. Проверки в
+[tests/shell](../tests/shell/test_wallet_flow.py): чтение → предложение → Save/Discard →
+продолжение сессии → открытие проводки, ручное добавление кошелька и категории с отказом на
+неверном значении, перезапуск и устаревшая кнопка
+([test_wallet_restart.py](../tests/shell/test_wallet_restart.py)), и
+[test_standalone.py](../tests/shell/test_standalone.py) — весь путь в подпроцессе, где импорт
+`safwa` запрещён, с проверкой, что свежая база получила таблицы shell и приложения и никакие
+другие. Фикстуры Safwa из `tests/conftest.py` ушли внутрь своих фикстур, а фейки Telegram и
+скриптованные ходы вынесены в [telegram_fakes.py](../tests/telegram_fakes.py) и
+[agent_turns.py](../tests/agent_turns.py), одной копией на оба приложения.
+
 ## 5. P2 — Привести проверки к заявленным гарантиям
 
 ### 5.1. Использовать ту же сборку в production и E2E

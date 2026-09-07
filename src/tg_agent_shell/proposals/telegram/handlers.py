@@ -35,13 +35,16 @@ _APPLYING = frozenset({"proposal_approve", "proposal_delete_confirm"})
 async def _on_approve(context: CallbackContext) -> None:
     proposal_id = context.payload["id"]
     async with context.sessions() as session:
-        # Which changes need a second confirmation is the owning feature's rule, not this
-        # screen's: a Card deletion takes a whole subtree and its historical contribution.
+        # Which changes need a second confirmation, and what it warns about, are both the
+        # owning feature's: this screen knows only that the next press is the last one.
         root = context.services.root
         review = root.reviews.proposal(proposal_id)
-        if review is not None and any(
-            root.proposals.needs_confirmation(change) for change in review.changes
-        ):
+        warned = [
+            warning
+            for change in (review.changes if review is not None else ())
+            if (warning := root.proposals.confirmation(change))
+        ]
+        if warned:
             confirm = await token_button(
                 session,
                 context.owner_id,
@@ -53,8 +56,8 @@ async def _on_approve(context: CallbackContext) -> None:
             await send_registered(
                 context.message,
                 context.services,
-                "<b>Final destructive confirmation</b>\nThis permanently removes the "
-                "selected tree and its historical contribution.",
+                "<b>Final destructive confirmation</b>\n"
+                + "\n".join(dict.fromkeys(warned)),
                 kind=MessageKind.APPROVAL,
                 markup=InlineKeyboardMarkup(inline_keyboard=[[confirm]]),
             )

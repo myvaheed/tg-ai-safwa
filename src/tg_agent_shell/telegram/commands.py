@@ -18,7 +18,7 @@ from sqlalchemy import delete
 
 from ..foundation.kinds import MessageKind
 from .chat import dismiss_prior_ui, remove_turn_notice, send_registered
-from .contributions import ScreenCommand
+from .contributions import HOME_NAV, ScreenCommand
 from .layout import start_payload
 from .model import UiSession
 from .services import Services
@@ -54,7 +54,7 @@ async def dismiss_screens_before_a_command(
 
 async def open_home(message: Message, services: Services) -> None:
     """Draw the menu screen, whichever feature owns it. The shell holds no list of them."""
-    handler = next(screen.handler for screen in services.commands if screen.nav == "home")
+    handler = next(screen.handler for screen in services.commands if screen.nav == HOME_NAV)
     await handler(message, services)
 
 
@@ -106,10 +106,11 @@ async def navigation(callback: CallbackQuery, services: Services) -> None:
         await callback.answer("This action is no longer available.", show_alert=True)
         return
     await callback.answer()
-    # Walking into the menu is an answer too: whatever else was open is refused.
+    # Walking into the menu is an answer too: whatever else was open is refused, and the
+    # editor state behind it goes with the screen. A screen that opens an editor of its
+    # own writes that state after this, so it needs no exception here.
     await dismiss_prior_ui(callback.message, services)
-    if action != "add":
-        async with services.sessions() as session:
-            await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
-            await session.commit()
+    async with services.sessions() as session:
+        await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
+        await session.commit()
     await handler(callback.message, services)

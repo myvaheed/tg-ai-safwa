@@ -19,7 +19,6 @@ from safwa.bootstrap.modules import (
     FEATURE_TEXT_INPUTS,
     SCREENS,
 )
-from safwa.bootstrap.recovery import recover_startup
 from safwa.features.tags.model import Tag
 from safwa.foundation.workspace import Workspace
 from telegram_llm import ChatHost
@@ -31,6 +30,7 @@ from tg_agent_shell.proposals.model import (
     ProposalChange,
 )
 from tg_agent_shell.proposals.telegram import render_ai_outcome, render_proposal
+from tg_agent_shell.recovery import recover_startup
 from tg_agent_shell.telegram import callback_token_handler, dismiss_prior_ui
 from tg_agent_shell.telegram.model import CallbackToken
 from tg_agent_shell.turn import TurnManager

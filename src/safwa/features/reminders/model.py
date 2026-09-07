@@ -8,7 +8,7 @@ from enum import StrEnum
 from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column
 
-from tg_agent_shell.foundation.models import Base, TimestampMixin, UtcDateTime
+from ...foundation.models import Base, TimestampMixin, UtcDateTime
 
 
 class ScheduleKind(StrEnum):

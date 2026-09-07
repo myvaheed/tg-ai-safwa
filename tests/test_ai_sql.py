@@ -386,8 +386,8 @@ def test_a_reader_is_scoped_to_the_views_it_declared(tmp_path):
 def _runner_over_cards(tmp_path, count: int, note: str = "", **caps):
     from sqlalchemy import create_engine
 
+    from safwa.foundation.models import Base
     from tg_agent_shell.ai.sql import create_ai_views
-    from tg_agent_shell.foundation.models import Base
 
     path = tmp_path / "caps.db"
     engine = create_engine(f"sqlite:///{path.as_posix()}")

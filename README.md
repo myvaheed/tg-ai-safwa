@@ -115,7 +115,7 @@ here; the rest are a rule, a snapshot or a review.
 | 5 | Process state is a frozen union with one writer | Rule C |
 | 6 | One Manager per process, each with a named identity | review: `AgentManager` (a session), `TurnManager` (the turn), `CueRuntime` (what Safwa still owes) |
 | 7 | A reducer only where a pure function simplifies the transitions | review — no quota, and none added without one |
-| 8 | The shared packages work without Safwa | Rule F proves they import no Safwa, which is all an import graph can show. That a second application runs on them is shown by `examples/plain_chat_bot/` on the three libraries and `examples/note_keeper/` on the runtime, both run by tests. No example runs the whole shell yet |
+| 8 | The shared packages work without Safwa | Rule F proves they import no Safwa, which is all an import graph can show. That a second application runs on them is shown by `examples/plain_chat_bot/` on the three libraries, `examples/note_keeper/` on the runtime, and `examples/wallet/` on the whole shell — a ledger of wallets and entries whose read, proposal, Save, restart and stale button `tests/shell/` runs with `safwa` unimportable |
 | 9 | Every rule cites a scenario | `tests/test_brd_traceability.py` |
 | 10 | A test is replaced only on the owner's decision | review — the one nothing measures: the batch that drops a test names what still covers its scenario |
 | 11 | The schema did not change outside a schema batch | Rule J, snapshot under `tests/snapshots/` |
@@ -128,6 +128,7 @@ here; the rest are a rule, a snapshot or a review.
 ```powershell
 uv run pytest -q
 uv run pytest tests\e2e -q
+uv run pytest tests\shell -q
 uv run ruff check .
 ```
 

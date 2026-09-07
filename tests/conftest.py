@@ -5,8 +5,10 @@ import pytest_asyncio
 from brd_ids import SCENARIO_ID
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from safwa.bootstrap.main import bootstrap_workspace
-from tg_agent_shell.foundation.models import Base
+from tg_agent_shell.foundation.database import create_schema
+
+# Safwa is imported inside the fixtures that need it, never here: `tests/shell/` runs the
+# example application, and a collection that pulled Safwa in would create its tables too.
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -56,12 +58,14 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 @pytest_asyncio.fixture
 async def sessions():
+    from safwa.bootstrap.main import bootstrap_workspace
     from safwa.bootstrap.modules import AI_VIEWS
+    from safwa.foundation.models import Base
     from tg_agent_shell.ai.sql import create_ai_views
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+        await connection.run_sync(create_schema, Base.metadata)
         # A saved query is compiled against the `ai_*` views before it is stored, so a test
         # database without them is not the database the code under test runs on.
         await connection.run_sync(lambda sync: create_ai_views(sync, AI_VIEWS))
@@ -80,13 +84,15 @@ async def read_views(tmp_path):
     The views are dropped and rebuilt from the feature declarations, so a test that asks
     what Safwa sees asks the real catalogue rather than a copy of it.
     """
+    from safwa.bootstrap.main import bootstrap_workspace
     from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
+    from safwa.foundation.models import Base
     from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
 
     path = tmp_path / "views.db"
     engine = create_async_engine(f"sqlite+aiosqlite:///{path.as_posix()}")
     async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+        await connection.run_sync(create_schema, Base.metadata)
         await connection.run_sync(lambda sync: create_ai_views(sync, AI_VIEWS))
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:

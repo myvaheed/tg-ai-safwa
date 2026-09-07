@@ -33,6 +33,7 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
 )
 from safwa.features.advisor.agent import PERSONA
+from safwa.foundation.models import Base
 from scripts.architecture_metrics import (
     RULES,
     SRC,
@@ -54,7 +55,7 @@ from tg_agent_shell.ai.tools import (
     open_tool,
 )
 from tg_agent_shell.foundation.kinds import MARKS
-from tg_agent_shell.foundation.models import Base
+from tg_agent_shell.foundation.models import Base as ShellBase
 
 SNAPSHOTS = Path(__file__).parent / "snapshots"
 
@@ -309,8 +310,9 @@ async def test_rule_i_neither_the_clock_nor_a_receipt_reaches_a_routed_prefix():
 
 
 def test_rule_j_schema_is_unchanged_outside_a_schema_batch(request):
+    # A Safwa database holds the shell's tables and Safwa's, so the snapshot covers both.
     produced = {}
-    for name, table in Base.metadata.tables.items():
+    for name, table in {**ShellBase.metadata.tables, **Base.metadata.tables}.items():
         columns = [
             f"{column.name}:{column.type!s}:"
             f"{'null' if column.nullable else 'notnull'}:"
@@ -339,10 +341,10 @@ def test_the_declared_schema_is_what_a_fresh_database_gets(tmp_path):
     # that a rebuilt database matches `models.py`.  This is that guarantee, asserted.
     from sqlalchemy import create_engine
 
-    from safwa.foundation.database import upgrade_database
+    from tg_agent_shell.foundation.database import upgrade_database
 
     url = f"sqlite:///{(tmp_path / 'fresh.db').as_posix()}"
-    upgrade_database(url)
+    upgrade_database(url, Base.metadata)
     engine = create_engine(url)
     try:
         built = set(inspect(engine).get_table_names())

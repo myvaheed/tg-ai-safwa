@@ -14,21 +14,19 @@ from safwa.bootstrap.modules import (
     AGENTS,
     AI_VIEWS,
     ALLOWED_VIEWS,
-    AUTOAPPROVALS,
     HELPERS,
-    PROPOSALS,
-    SCREENS,
+    REGISTRY,
     SYSTEM_PROMPT,
     routed_prompt,
 )
 from safwa.features.advisor.agent import ADVISOR_VIEWS
 from safwa.features.memory.store import MemoryFileStore
 from safwa.features.workspace_mutator.state import workspace_context
-from safwa.foundation.database import Database, upgrade_database
-from tg_agent_shell.ai.autoapproval import AutoApprovalReviewer
+from safwa.foundation.models import Base
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.ai.tools import HelperPort
+from tg_agent_shell.foundation.database import Database, upgrade_database
 from tg_agent_shell.proposals.store import ProposalStore
 from tg_agent_shell.session import RootSession
 from tg_agent_shell.telegram.manifest import AgentContext
@@ -117,19 +115,19 @@ class E2EHarness:
         # A test about what happens *during* a turn needs the boundary to hold still, so
         # which scripted provider answers the script is the test's to say.
         provider = provider_factory(responses)
-        # One harness is one running bot, so every advisor it builds shares its reviews.
-        advisor = RootSession(
+        # One harness is one running bot, so every advisor it builds shares its reviews,
+        # and it is assembled through the same registry the composition root uses.
+        advisor = REGISTRY.root_session(
             self.sessions,
             provider,
             self.memory,
-            self.runner().scoped(ADVISOR_VIEWS),
-            PROPOSALS,
-            screens=SCREENS,
+            self.runner(),
+            views=ADVISOR_VIEWS,
             workspace_state=workspace_context,
             system_prompt=SYSTEM_PROMPT,
             model_name="e2e-scripted-model",
             cache_breakpoints=cache_breakpoints,
-            autoapproval=AutoApprovalReviewer(provider, AUTOAPPROVALS) if autoapprove else None,
+            autoapprove=autoapprove,
             subagents=subagents,
             # A test replaces what a helper does, never how the feature declared it.
             helpers={
@@ -160,7 +158,7 @@ async def e2e_harness(tmp_path: Path, monkeypatch) -> E2EHarness:
     repository_root = Path(__file__).parents[2]
     monkeypatch.chdir(repository_root)
     database_path = tmp_path / "safwa-e2e.db"
-    upgrade_database(f"sqlite:///{database_path.as_posix()}")
+    upgrade_database(f"sqlite:///{database_path.as_posix()}", Base.metadata)
     database = Database(f"sqlite+aiosqlite:///{database_path.as_posix()}")
     async with database.sessions() as session:
         await bootstrap_workspace(session, 42, TIMEZONE)

@@ -8,7 +8,7 @@ from sqlalchemy import Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
-from tg_agent_shell.foundation.models import Base, UtcDateTime
+from ...foundation.models import Base, UtcDateTime
 
 
 class MemoryFactCache(Base):

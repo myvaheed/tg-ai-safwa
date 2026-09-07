@@ -1,3 +1,10 @@
+"""What a restart has to reconcile before the first message is taken.
+
+Everything here is the shell's own: the run rows, the buttons and the screens it wrote.
+A feature that has interrupted work of its own says so with `FeatureModule.recover`, and
+those hooks run first, in registration order.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable
@@ -7,10 +14,11 @@ from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_runtime import RunStatus
-from tg_agent_shell.ai.runs import AgentRun
-from tg_agent_shell.foundation.kinds import MessageKind
-from tg_agent_shell.history import TelegramMessage
-from tg_agent_shell.telegram.model import CallbackToken, UiSession
+
+from .ai.runs import AgentRun
+from .foundation.kinds import MessageKind
+from .history import TelegramMessage
+from .telegram.model import CallbackToken, UiSession
 
 
 async def recover_startup(
@@ -18,8 +26,8 @@ async def recover_startup(
 ) -> None:
     """Reconcile interrupted work: each feature's own hook first, then the run machinery.
 
-    The hooks run in `MODULES` order, so Profile settles the Diary's own Reminder before
-    the Reminder rebuild walks the whole table.
+    The hooks run in registration order, so a feature that settles another one's row is
+    registered before the feature that walks the whole table.
     """
     now = datetime.now(UTC)
     for hook in hooks:
@@ -44,8 +52,8 @@ async def recover_startup(
         .values(related_id=None)
         .execution_options(synchronize_session=False)
     )
-    # A screen is a view of state a running Safwa was holding, so a restart makes every
-    # one of them out of date and every button on them unanswerable.
+    # A screen is a view of state a running application was holding, so a restart makes
+    # every one of them out of date and every button on them unanswerable.
     await session.execute(delete(CallbackToken).execution_options(synchronize_session=False))
     await session.execute(
         delete(UiSession)

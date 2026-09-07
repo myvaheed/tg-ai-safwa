@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from tg_agent_shell.foundation.errors import DomainError
-from tg_agent_shell.foundation.models import Base, TimestampMixin
+
+from .models import Base, TimestampMixin
 
 
 class WorkspaceMode(StrEnum):

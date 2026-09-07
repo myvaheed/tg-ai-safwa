@@ -15,6 +15,10 @@ from typing import Any
 # application does on its own. The shell says the turn is over and reads nothing back.
 AfterTurn = Callable[..., Awaitable[None]]
 
+# The one screen every application has to publish. `go_back` and the shell's own returns
+# lead here, so which screen it is has to be answerable without naming a feature.
+HOME_NAV = "home"
+
 
 @dataclass(frozen=True, slots=True)
 class ScreenCommand:
@@ -58,7 +62,8 @@ class TextInputFlow:
     name: str
     # (state) -> the validator for this field, or None to accept any trimmed text.
     validator: Callable[..., Any]
-    # (services, state, value) -> None. Writes the value and ends the editor's session.
+    # (session, services, state, value) -> None. Writes the value; the editor's own
+    # UiSession is already gone by the time this runs.
     apply: Callable[..., Awaitable[None]]
     # (message, services, state, value) -> None. Redraws the screen the editor replaced.
     render: Callable[..., Awaitable[None]]

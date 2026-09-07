@@ -10,7 +10,8 @@ import pytest
 import safwa.features.memory.background as memory_background
 from safwa.bootstrap import main as safwa_main
 from safwa.config import Settings
-from safwa.foundation.database import upgrade_database
+from safwa.foundation.models import Base
+from tg_agent_shell.foundation.database import upgrade_database
 
 pytestmark = pytest.mark.e2e
 
@@ -117,7 +118,7 @@ def _prepared_startup(tmp_path: Path, monkeypatch) -> tuple[Path, Settings]:
     monkeypatch.chdir(repository_root)
     database_path = tmp_path / "startup-e2e.db"
     database_url = f"sqlite:///{database_path.as_posix()}"
-    upgrade_database(database_url)
+    upgrade_database(database_url, Base.metadata)
 
     FakeBot.instances.clear()
     FakeProvider.instances.clear()

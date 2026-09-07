@@ -288,6 +288,9 @@ class CardProposalHandler:
     version_model: type[Any] | None = Card
     # Deleting a Card takes its whole subtree and that subtree's historical contribution.
     destructive_actions = frozenset({ChangeAction.DELETE})
+    destructive_warning = (
+        "This permanently removes the selected tree and its historical contribution."
+    )
 
     async def prepare(
         self, context: PreparationContext, change: Any

@@ -8,7 +8,7 @@ from enum import StrEnum
 from sqlalchemy import Integer, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column
 
-from tg_agent_shell.foundation.models import Base, TimestampMixin
+from ...foundation.models import Base, TimestampMixin
 
 # The default Sprint length; the owner overrides it per workspace in the Profile.
 SPRINT_LENGTH_DAYS = 14

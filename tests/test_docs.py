@@ -39,7 +39,7 @@ MODULE_PATH = re.compile(
 )
 SCENARIO_ID = re.compile(r"\b[A-Z]{2,3}-[A-Z-]+-\d{3}\b")
 PLACEHOLDER = re.compile(r"<[A-Z]+>")
-SOURCE = ("src", "tests", "scripts")
+SOURCE = ("src", "tests", "scripts", "examples")
 # `UseCaseBase` is named by the Definition of Done to say the codebase must not have one.
 ABSENT_ON_PURPOSE = frozenset({"UseCaseBase"})
 
