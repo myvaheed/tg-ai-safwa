@@ -32,6 +32,7 @@ from tg_agent_shell.proposals.model import (
 from tg_agent_shell.proposals.telegram import render_ai_outcome, render_proposal
 from tg_agent_shell.recovery import recover_startup
 from tg_agent_shell.telegram import callback_token_handler, dismiss_prior_ui
+from tg_agent_shell.telegram.commands import navigation
 from tg_agent_shell.telegram.model import CallbackToken
 from tg_agent_shell.turn import TurnManager
 
@@ -132,6 +133,28 @@ async def test_restart_invalidates_an_unanswered_proposal_button(e2e_harness):
     assert message.markups[-1] is None
     assert not [alert for _text, alert in callback.answers if alert]
     assert len(provider.calls) == 2
+
+
+async def test_a_navigation_button_neither_expires_nor_dies_with_the_run(e2e_harness):
+    """SC-BUTTON-003 — tests/brd/tg_agent_shell/screens.feature"""
+    advisor, _provider = e2e_harness.advisor([])
+    services = review_services(e2e_harness, advisor)
+    message = QueueTestMessage()
+
+    await navigation(QueueTestCallback("home", message, prefix="nav"), services)
+    async with e2e_harness.sessions() as session:
+        await recover_startup(session)
+        await session.commit()
+    second = QueueTestCallback("home", message, prefix="nav")
+    await navigation(second, services)
+
+    # A nav button carries the name of a screen rather than a token, so there is nothing
+    # about it to spend and nothing for a restart to clear: the menu is drawn both times.
+    assert len(message.rendered) == 2
+    assert message.rendered[0] == message.rendered[-1]
+    assert not [alert for _text, alert in second.answers if alert]
+    async with e2e_harness.sessions() as session:
+        assert await session.scalar(select(func.count(CallbackToken.token))) == 0
 
 
 async def test_a_button_works_once(e2e_harness):

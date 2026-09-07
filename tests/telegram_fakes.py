@@ -126,8 +126,9 @@ class QueueTestMessage:
 
 
 class QueueTestCallback:
-    def __init__(self, token: str, message: QueueTestMessage) -> None:
-        self.data = f"cb:{token}"
+    def __init__(self, token: str, message: QueueTestMessage, *, prefix: str = "cb") -> None:
+        # `cb:` is one spent token; `nav:` is a permanent screen name and spends nothing.
+        self.data = f"{prefix}:{token}"
         self.message = message
         self.answers: list[tuple[str | None, bool]] = []
 

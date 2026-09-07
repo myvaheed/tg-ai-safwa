@@ -16,8 +16,6 @@ MODULE = FeatureModule(
             model=Sprint,
             open=telegram.open_retro,
             label=telegram.retro_citation_label,
-            # A retro is cited and linked, but the `open` tool has no reason to reach it.
-            ai_openable=False,
         ),
     ),
 )

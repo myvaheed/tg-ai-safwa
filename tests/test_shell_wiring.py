@@ -215,11 +215,11 @@ def test_today_leaves_the_menu_with_the_sprint_that_makes_it_a_screen() -> None:
 
 def test_the_screen_catalogue_is_the_one_list_of_openable_items() -> None:
     """RT-OPEN-002 — tests/brd/retro.feature"""
-    # The features publish what can be opened, and the `open` tool's enum is built
-    # from that same catalogue, so a Sprint retro is cited but never opened.
+    # One catalogue answers both questions, so what can be cited and what `open` may name
+    # cannot drift apart: the retro is in it, and so is every other published screen.
     assert set(SCREENS.types) == {"card", "check", "tag", "value", "request", "diary", "retro"}
     enum = open_tool(SCREENS)["function"]["parameters"]["properties"]["item_type"]["enum"]
-    assert set(enum) == {name for name, spec in SCREENS.by_type.items() if spec.ai_openable}
+    assert set(enum) == set(SCREENS.types)
 
 
 def test_start_payload_reads_only_a_command_line() -> None:

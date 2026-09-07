@@ -102,9 +102,9 @@ and fail nothing.
 
 ### Definition of Done
 
-The fourteen criteria this codebase is held to. #1, #2, #3 and #13 are counted by
-`architecture_metrics.py` on every run, so their current figures are read there rather than kept
-here; the rest are a rule, a snapshot or a review.
+What this codebase is held to. #1, #2, #3 and #13 are counted by `architecture_metrics.py` on
+every run, so their current figures are read there rather than kept here; the rest are a rule, a
+snapshot or a review.
 
 | # | Criterion | How it is measured |
 |---|---|---|
@@ -121,7 +121,7 @@ here; the rest are a rule, a snapshot or a review.
 | 11 | The schema did not change outside a schema batch | Rule J, snapshot under `tests/snapshots/` |
 | 12 | The prompt prefix is byte-stable | Rule I, snapshot under `tests/snapshots/` |
 | 13 | No old path running beside a new one | counted by the scanner |
-| 14 | `ruff check .` and `pytest -q` | CI |
+| 14 | `ruff check .` and `pytest -q` | run by hand before a batch is finished. There is no CI in this repository, so nothing runs them for you |
 
 ## Tests
 

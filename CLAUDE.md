@@ -7,16 +7,19 @@ mechanism has a document that owns it, and this file points there instead of kee
 
 `tests/brd/` is what Safwa does, one approved rule per `Scenario`. Read the scenarios for the
 feature you are changing before you change it, and [tests/brd/README.md](tests/brd/README.md) for
-what a scenario is. Nothing here asks you to read the whole architecture for one task, and the
-restructuring history is not required reading.
+what a scenario is. Nothing here asks you to read the whole architecture for one task, and neither
+the restructuring history ([docs/RESTRUCTURING.md](docs/RESTRUCTURING.md),
+[docs/POLISHING_2.md](docs/POLISHING_2.md)) nor the list of unagreed ideas
+([docs/FUTURE_FEATURE.md](docs/FUTURE_FEATURE.md)) is required reading for an ordinary task.
 
 | Task | First reading | The check that decides |
 |---|---|---|
 | Change business behavior | that feature's `.feature`, its `use_cases.py` and `model.py` | the scenario's test, and the adapters the change touched |
 | Fix a screen | that feature's `.feature`, its Telegram adapter, [screens.feature](tests/brd/tg_agent_shell/screens.feature) | the UI test, and E2E when the flow crosses a turn |
 | Change the loop or routing | [tests/brd/tg_agent_shell/](tests/brd/tg_agent_shell), `agent_runtime/`, [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md) | tool availability, the budgets, suspend and resume |
-| Add a feature | [docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md) and [features/diary](src/safwa/features/diary) | registration, one scenario, one whole path |
+| Add a feature | [docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md), then [features/tags](src/safwa/features/tags) for an entity the owner also edits by hand, or [features/diary](src/safwa/features/diary) for one only the model proposes | registration, one scenario, one whole path |
 | Remove a feature | its `.feature`, `MODULES`, and whoever calls its `api.py` | no command, view, route or test reference left dangling |
+| Build another bot on the shell | "What an application gives the shell" in [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md), and [examples/wallet](examples/wallet/app.py) | `uv run pytest tests\shell -q`, which runs that example with `safwa` unimportable |
 
 [docs/DOMAIN.md](docs/DOMAIN.md) is what a Card, a Check and a Sprint are. `uv run python
 scripts/architecture_metrics.py` prints the module graph and the Definition of Done counts, and
@@ -40,9 +43,14 @@ uv run pytest --brd=DI-DAY-001 -q       # every test citing one scenario; -m brd
 
 `asyncio_mode = "auto"`, so async tests need no marker. `tests/test_architecture.py` fails on any
 architecture-rule violation and on a change to the prompt-prefix, schema or marker-code snapshot
-under `tests/snapshots/`; rewrite one only in a batch declared to change that artefact, with
-`uv run pytest tests/test_architecture.py --snapshot-update`. Live Telegram tests are opt-in and
-skipped without `--live-telegram`. `telegram-bot-exampler/` is an untracked local reference project,
+under `tests/snapshots/`. Rewrite one by naming its own test — never the whole file, which
+re-baselines the two the batch did not change:
+
+```powershell
+uv run pytest tests/test_architecture.py::test_rule_i_prompt_prefix_is_byte_stable --snapshot-update
+```
+
+Live Telegram tests are opt-in and skipped without `--live-telegram`. `telegram-bot-exampler/` is an untracked local reference project,
 excluded from ruff — never edit it.
 
 ## Designing and coding
@@ -69,10 +77,11 @@ what each owns are [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md). Three facts that de
 goes:
 
 - Which features exist is [bootstrap/modules.py](src/safwa/bootstrap/modules.py), and nothing else.
-  A feature owns its model, use cases, agent contract and Telegram adapter, and its AI and UI
-  mutation paths call the same operations — [features/diary](src/safwa/features/diary) is the shape
-  to copy. A feature is where a change goes, **not a plugin that can be pulled out**: Cards, Checks,
-  Values, Tags and Planning read each other through their doors.
+  A feature owns its model, use cases, agent contract and Telegram adapter. Where the owner edits
+  the entity by hand too, the AI and UI paths call the **same** operations —
+  [features/tags](src/safwa/features/tags) is that shape; the Diary is the other one, written
+  through proposals alone. A feature is where a change goes, **not a plugin that can be pulled
+  out**: Cards, Checks, Values, Tags and Planning read each other through their doors.
 - Where a shared thing goes is decided by how many features read it. Cross-feature tuning is
   [constants.py](src/safwa/constants.py), which imports nothing from Safwa; a limit one module owns
   is a constant at the top of that module, and [config.py](src/safwa/config.py) takes its default
@@ -110,24 +119,29 @@ meaning anything, so change the mechanism instead.
 
 - **Implementation is yours.** So is the shape of the tests, as long as the approved coverage
   survives: a batch that drops a test names what still covers its scenario.
-- **Product behavior, and the text of an approved `Scenario`, are the owner's.** An approved
-  scenario outranks the code, the tests and every document.
-- **A prompt snapshot belongs to the feature that owns the prompt**, so updating
-  `tests/snapshots/prompt_prefix.json` is part of the batch that changed that prompt.
-- **The other two snapshots are not.** A released `MARKS` code is stamped on messages already in the
-  owner's chat, and the schema has no migrations — each is its own declared batch.
+- **Product behavior is the owner's, and so is what an approved `Scenario` means.** An approved
+  scenario outranks the code, the tests and every document. A behavior no scenario covers is a
+  question to ask, not permission to decide it yourself.
+- **Rewording a scenario without changing what it says is editorial, and yours.** The identifier
+  never changes; the title after the em dash and the Given/When/Then lines may be made clearer, and
+  [tests/brd/README.md](tests/brd/README.md) is what clearer means. Changing which cases a scenario
+  covers, or what happens in one, is the owner's.
+- **The prompt snapshot travels with the prompt.** A changed system prompt, tool description or
+  reader view list updates `tests/snapshots/prompt_prefix.json` in the same batch; no separate
+  permission is needed, and the update names that one test.
+- **The other two snapshots are each their own declared batch**, because each stamps something
+  already outside the repository. A released `MARKS` code is on messages sitting in the owner's
+  chat, so a code is added and never reassigned. The schema has no migrations, so a changed column
+  reaches a database only by rebuilding it, which is the owner's to do.
 
 ## Schema
 
-There are no migrations and no Alembic. The ORM model modules are the schema source: startup calls
-`upgrade_database` ([foundation/database.py](src/tg_agent_shell/foundation/database.py)) with
-Safwa's own metadata, and it creates the shell's tables and then Safwa's — every Safwa table hangs
-on the `Base` in [foundation/models.py](src/safwa/foundation/models.py), so a second application on
-the shell creates its own tables and never these. It adds missing tables and indexes and **never
-alters an existing one**,
-so a fresh database always matches the declared models while a changed column will not touch an
-existing `data/safwa.db`. A schema change means editing the owning model and rebuilding the database
-(back it up first with `uv run safwa-backup`).
+There are no migrations and no Alembic. The ORM model modules are the schema source, and
+`upgrade_database` ([foundation/database.py](src/tg_agent_shell/foundation/database.py)) adds
+missing tables and indexes at startup but **never alters an existing one** — so a fresh database
+always matches the declared models while a changed column never reaches an existing
+`data/safwa.db`. A schema change means editing the owning model and rebuilding the database, backed
+up first with `uv run safwa-backup`.
 
 **Do not add Alembic or write migrations before the first release.** The owner recreates the
 pre-release database; migration support starts after v1, from the ORM metadata at that point.
@@ -143,8 +157,10 @@ pre-release database; migration support starts after v1, from the ORM metadata a
   why. Code comments stay sparse and explain only a non-obvious *why* — a Telegram or Telethon
   quirk, an ordering constraint.
 - Docs are kept current by deleting: a line that stopped being true is removed or replaced in place,
-  never left standing next to its correction. `tests/test_docs.py` checks that each link resolves
-  and each code name a document spells still exists.
+  never left standing next to its correction. One explanation has one home, and a diagram lives
+  beside the prose it explains rather than in a gallery of its own. `tests/test_docs.py` checks
+  that each link resolves and each code name a document spells still exists — which keeps a
+  document readable and says nothing about whether its content is approved.
 - User-facing strings are complete sentences and product-specific ("Card", "Sprint", "Value", "Tag",
   "Request" are capitalized domain nouns). Bot messages are HTML — escape any user or model text.
 - Enums are `StrEnum` but columns store plain strings — always compare and assign `.value`. Commit
@@ -156,7 +172,11 @@ pre-release database; migration support starts after v1, from the ORM metadata a
 
 ## The rest of `docs/`
 
-Beyond what the table above points at: [LLM_GATEWAY.md](docs/LLM_GATEWAY.md) is the provider
-boundary, and [RESTRUCTURING.md](docs/RESTRUCTURING.md) is the restructuring candidates still open.
-A feature's own package is a pointer like any other: its `.feature` file is the rule, and the
-package is what keeps it. `docs/` is where anything written from now on goes.
+Beyond what the table above points at, and none of it required reading for an ordinary task:
+[LLM_GATEWAY.md](docs/LLM_GATEWAY.md) is the provider boundary,
+[RESTRUCTURING.md](docs/RESTRUCTURING.md) the restructuring candidates still open and the ones
+ruled out, [POLISHING_2.md](docs/POLISHING_2.md) the open polishing work — every unfinished item
+has one of those two as its owner, never both — and [FUTURE_FEATURE.md](docs/FUTURE_FEATURE.md)
+ideas that are agreed nowhere. A feature's own package is a pointer like any other: its `.feature`
+file is the rule, and the package is what keeps it. `docs/` is where anything written from now on
+goes.

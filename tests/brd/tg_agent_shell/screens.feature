@@ -27,17 +27,23 @@ Feature: Screens
       second copy of itself
     And a short note takes itself out of the chat after 5 seconds (TOAST_SECONDS = 5)
 
-  Scenario: SC-BUTTON-003 — A button works once
-    Given a screen with buttons on it
-    When the owner presses the same button twice
+  Scenario: SC-BUTTON-003 — An action button works once
+    Given a screen with action buttons on it
+    When the owner presses the same action twice
     Then the work happens once, and the second press is told the action has expired
 
-  Scenario: SC-BUTTON-003 — A button dies with the run of Safwa that drew it
+  Scenario: SC-BUTTON-003 — An action button dies with the run of Safwa that drew it
     Given a screen the owner can still see, drawn before Safwa was last restarted
-    When they press a button on it
+    When they press an action on it
     Then nothing happens to the item it named
     And that screen is replaced by a line saying it is out of date, so nothing answerable is left
       standing
+
+  Scenario: SC-BUTTON-003 — Getting to a screen is not an action, and never expires
+    Given a button that only takes the owner somewhere — the menu, or the way back to it
+    When they press it a second time, or press one drawn before the last restart
+    Then the screen it names is drawn again
+    And nothing about it can expire, because it names no item and changes nothing
 
   Scenario: SC-SPLIT-004 — A message too long for Telegram arrives whole, in several parts
     Given Safwa has more to say than 3900 characters fit (TELEGRAM_TEXT_LIMIT = 3900)

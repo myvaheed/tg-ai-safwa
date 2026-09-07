@@ -65,8 +65,9 @@ One registration, three layers, bound only in the feature's `module.py`:
 Rule K keeps them apart: `proposal.py` carries no user-facing wording and no aiogram, and `agent.py`
 neither commits nor calls the domain.
 
-What stays generic is the orchestration: the workspace and its revision, the batch and proposal
-rows, the optimistic lock, and the ordered walk over the stored changes
+What stays generic is the orchestration: the workspace and its revision, the review and the
+approval batch — both held in memory by `ProposalStore`, never rows — the optimistic lock, and the
+ordered walk over the changes it holds
 ([`ChangePreparer`](../src/tg_agent_shell/proposals/prepare.py),
 [proposals/use_cases.py](../src/tg_agent_shell/proposals/use_cases.py)).
 
@@ -101,18 +102,26 @@ safwa/features/<feature>/
   agent.py      # MutationToolSpec, and an AgentSpec if it owns a subagent
   proposal.py   # ProposalHandler
   telegram.py   # the Telegram adapter: screens, editors, the review screen, the citation label
-  reducer.py    # reduce(state, action) -> (state, effects), when the feature has a process
   background.py # BackgroundTask per loop the polling loop starts and cancels
   <thing>.py    # a long-lived collaborator the composition root builds, named for what it is
 ```
 
-These names are the whole vocabulary. A feature that wants a file outside this list is saying its
-contents belong to a role the list does not have yet, which is a question for the batch, not a new
-word. `hierarchy.py` is the one answer given so far: Cards keeps the walk that writes a parent's
-derived columns apart from the operations that end at it. Splitting the operations layer costs
-three lines in [architecture_metrics.py](../scripts/architecture_metrics.py) — the name in
-`BUSINESS_FILES`, in `MODULE_LAYERS` and in `DOOR_LAYERS` — because Rules A, E and K reach a file
-by name, and a module the list does not know is a module those rules stop asking about.
+These are the names that recur, not a closed list. A whole responsibility may take a name of its
+own — that is what the last line is — and the question to answer before adding one is whether the
+contents are a responsibility or the leftovers of one of the names above. What a new name costs is
+concrete: **Rules A, E and K reach a file by name**, so a module the scanner's lists do not know
+is a module those rules stop asking about. Splitting the operations layer is three lines in
+[architecture_metrics.py](../scripts/architecture_metrics.py) — the name in `BUSINESS_FILES`, in
+`MODULE_LAYERS` and in `DOOR_LAYERS` — and `hierarchy.py` is the one that has been paid for: Cards
+keeps the walk that writes a parent's derived columns apart from the operations that end at it.
+
+**A reducer is a mechanism, not a file every feature owns.** `reduce(state, action) -> (state,
+effects)` earns its place where a pure function makes the transitions readable, and the one
+example is the shell's own [`proposals/reducer.py`](../src/tg_agent_shell/proposals/reducer.py):
+a press decides the whole move over the approval batch before anything is written, which is what
+lets a stale press move nothing. No Safwa feature has one, and none is added without that reason.
+Rules C and D hold a `reducer.py` to being pure wherever it appears — inside a feature or inside
+one of `PROCESS_PACKAGES`.
 
 **The adapter is one file until it is more than one file's worth**, and the rest of Safwa
 writes `from .telegram import ...` either way, so the import does not say which it is. Memory's
@@ -186,6 +195,21 @@ its lookup, its junction row and the toggle that writes it are one record. It is
 `api.py` because each spec names a toggle from `use_cases.py`, and `api.py` cannot import those:
 Planning reads through the Cards door while the Card use cases read through Planning's.
 
+## The two `foundation` packages
+
+They are told apart by who owns what is in them, and neither is renamed: a rename would move every
+import for a distinction the namespace already makes.
+
+- [`tg_agent_shell/foundation/`](../src/tg_agent_shell/foundation/models.py) is what every layer
+  above may name and no application may fill — the clock, the errors, the base row,
+  `upgrade_database`, a `ScreenSpec`, a `ReferenceSpec`, the loop a background task runs in, and
+  what kind a bot message is. Nothing in it carries an application's vocabulary, which is what lets
+  the package travel.
+- [`safwa/foundation/`](../src/safwa/foundation/models.py) is Safwa's own, and only what more than
+  one of its features reads: the `Base` its tables hang on, the workspace row and its revision,
+  `title_marks`, and the one token estimate every budget is measured against. A type earns its
+  place here by having two unrelated features reading it; until then it lives with its owner.
+
 ## Who owns the transaction
 
 One rule, because the alternative is a reentrancy question with no good answer:
@@ -256,10 +280,17 @@ readers may query, what it declares, and who imports it today. Those are declare
 citation is a test's claim on a scenario rather than proof the scenario is checked through, and
 the import list is who opens the feature now rather than everything that would break without it.
 
-The Diary is the pilot for the complete shape. Its proposal handler and Telegram adapter both call
-`features/diary/use_cases.py`; its agent input model and presentation constants stay inside the
-feature. Reads are deliberately asymmetric: the Advisor reads and opens `ai_diary` directly, while
-writes route to the Diary subagent and remain proposals until Save.
+Two features are worth reading, because they are the two shapes a feature comes in.
+
+**Tags** is where both mutation paths meet: `tags/proposal.py` and `tags/telegram/screens.py` call
+the same `create_tag`, `update_tag_fields` and `delete_tag`, so a rule about a Tag is kept once
+whichever hand made the change. Copy it whenever the owner may edit the entity themselves.
+
+**Diary** is the complete package with only one of those paths. It declares a model, use cases, an
+agent contract, a proposal handler, a view and a subagent of its own — but `diary/telegram.py`
+calls no write at all: it renders the day read-only and presents the review, because the Diary is
+written through proposals alone. Reads are asymmetric on purpose too: the Advisor reads and opens
+`ai_diary` directly, while writes route to the Diary subagent and stay proposals until Save.
 
 ## Why the feature's `__init__.py` is empty
 

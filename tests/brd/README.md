@@ -128,9 +128,9 @@ A `.feature` file carries **no Gherkin tags**, and the same test fails on one. N
 reads these files, so a `@di_day_011` above a scenario is a lowercase second copy of the
 identifier that nothing keeps in step. The `Scenario:` line is where the identifier lives.
 
-Two Scenario blocks may share an identifier only when they are two observable cases of the
-**same** question — a rule's two branches, or one rule at two doors. Two different rules under
-one identifier hide the second one, and no test failure will say so.
+Scenario blocks may share an identifier only when they are observable cases of the **same**
+question — a rule's branches, or one rule at each of the doors it holds. Two different rules
+under one identifier hide the second one, and no test failure will say so.
 
 The identifier is written in the docstring only. `tests/conftest.py` reads it from there and
 attaches the marker, so both of these work with nothing to keep in step:

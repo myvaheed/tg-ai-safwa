@@ -1,8 +1,10 @@
 # Ideas kept, and questions already settled
 
-Nothing here is a commitment and nothing here has a scenario. Each entry is a real gap noticed
-while something else was being decided, written down so the reasoning does not have to happen
-twice. An entry leaves this file by becoming an approved scenario package, or by being dropped.
+**Nothing here is agreed.** Not a commitment, not a specification, and not a scenario — an entry
+is a real gap noticed while something else was being decided, written down so the reasoning does
+not have to happen twice. An entry leaves this file by becoming an approved scenario package under
+[tests/brd/](../tests/brd/README.md), or by being dropped. `tests/test_docs.py` checks that the
+links and code names here still resolve, which keeps the file readable and approves none of it.
 
 ## The Advisor cannot read the conversation by date
 

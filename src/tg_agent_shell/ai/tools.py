@@ -476,12 +476,12 @@ class ToolAdapters:
                 "retryable": True,
             }
         spec = self.screens.by_type.get(request.item_type)
-        if spec is None or not spec.ai_openable:
+        if spec is None:
             return {
                 "status": ToolResultStatus.ERROR.value,
                 "code": "invalid_arguments",
                 "error": f"There is no item type named {request.item_type}.",
-                "hint": "Use one of: " + ", ".join(self.screens.openable) + ".",
+                "hint": "Use one of: " + ", ".join(self.screens.types) + ".",
                 "retryable": True,
             }
         async with self.sessions() as session:

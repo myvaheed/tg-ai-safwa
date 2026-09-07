@@ -5,10 +5,10 @@ a batch attaches to its summary.  Every one of them reads zero, and the one exce
 rule grants is named inside that rule.
 
 Rules I, J and O are snapshots of built artefacts rather than of the source tree, so they
-are here.  Regenerate a snapshot only inside a batch that is declared as changing that
-artefact:
+are here.  Regenerate one by naming its own test, never the whole file, so a batch cannot
+re-baseline the two it did not change:
 
-    uv run pytest tests/test_architecture.py --snapshot-update
+    uv run pytest tests/test_architecture.py::test_rule_i_prompt_prefix_is_byte_stable --snapshot-update
 """
 
 from __future__ import annotations
@@ -73,8 +73,8 @@ def _snapshot(name: str, produced: dict[str, str], update: bool) -> None:
         path.write_text(json.dumps(produced, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         pytest.skip(f"{name} snapshot written")
     assert path.exists(), (
-        f"{name} snapshot is missing; create it explicitly with "
-        "pytest tests/test_architecture.py --snapshot-update"
+        f"{name} snapshot is missing; create it explicitly by naming this test with "
+        "--snapshot-update"
     )
     recorded = json.loads(path.read_text(encoding="utf-8"))
     changed = sorted(

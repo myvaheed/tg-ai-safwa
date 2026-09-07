@@ -9,11 +9,11 @@ becoming a batch, or by being ruled out in place.
 Verdicts: **yes** — the move is right as stated. **split** — part of it is right. **first** —
 something else has to happen before it can. **no** — ruled out, kept so it is not raised twice.
 
-Twenty-three batches have landed and are not listed here: what each did is the code, and why it was
-done that way is the document that owns the mechanism. What a reader can get from neither is kept —
-the candidates still open, and the reason a candidate was refused, so it is not raised a second
-time. Open work from the polishing pass is [POLISHING.md](POLISHING.md), and each unfinished item
-has one of these two as its owner, never both.
+Landed batches are not listed here: what each did is the code, and why it was done that way is the
+document that owns the mechanism. What a reader can get from neither is kept — the candidates still
+open, and the reason a candidate was refused, so it is not raised a second time. Open work from the
+polishing passes is [POLISHING_2.md](POLISHING_2.md), and each unfinished item has one of these two
+as its owner, never both.
 
 ## Open
 
@@ -50,3 +50,14 @@ has one of these two as its owner, never both.
     import names a submodule.
 25. **no** — merging Values and Tags. They are the same nine modules twice, but each keeps its own
     rules, and `RecordToolInput` is already the whole of what they share.
+30. **no** — one test file per feature package. It puts a unit test, a UI test and an E2E test of
+    one feature in one file and splits the shell flows that cross features, which is the opposite
+    of how a run is read. The large E2E file was split by responsibility instead, which is what
+    the candidate was really about.
+31. **no** — banning `because`, `since` and `so that` from scenario text. The words do not make a
+    line uncheckable, and `since` can be a time. What makes a line uncheckable is stating a reason
+    instead of an observable outcome, and that is read, not matched.
+32. **no** — checking every name in every docstring the way `tests/test_docs.py` checks the
+    documents. The heuristic cannot tell a real reference from an example or from a symbol named
+    as deliberately absent; docstrings are held to their links and module paths only, and widening
+    that needs a narrower contract first.

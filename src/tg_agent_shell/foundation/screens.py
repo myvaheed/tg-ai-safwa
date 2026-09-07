@@ -31,8 +31,6 @@ class ScreenSpec:
     open: Callable[..., Awaitable[None]]
     # (session, services, item) -> the fixed compact label, or None to keep the model's words.
     label: Callable[..., Awaitable[str | None]]
-    # A Sprint retro is reached by a citation and by a button, never by the `open` tool.
-    ai_openable: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,14 +62,8 @@ class ScreenCatalogue:
 
     @property
     def types(self) -> tuple[str, ...]:
+        """Every published type: what may be cited, and the whole enum of `open`."""
         return tuple(self.by_type)
-
-    @property
-    def openable(self) -> tuple[str, ...]:
-        """The types the `open` tool may name, which is its whole enum."""
-        return tuple(
-            name for name, spec in self.by_type.items() if spec.ai_openable
-        )
 
     def payload(self, item_type: str, item_id: int) -> str:
         return f"{item_type}-{item_id}"

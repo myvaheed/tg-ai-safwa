@@ -48,9 +48,10 @@ flowchart TD
 - **`telegram_llm`** — the chat between the bot and the person: every outgoing message sent
   registered and marked, a button used once, a screen replaced or taken down. What each kind means
   the host says once, in a `ChatVocabulary`.
-- **`tg_agent_shell`** — six subpackages: `ai/` the engine, `proposals/` the review flow,
-  `telegram/` the application, `turn/` the single foreground lease, `cues/` and `foundation/`; plus
-  `session.py`, `history.py` and `asr.py` at its root.
+- **`tg_agent_shell`** — `ai/` the engine, `proposals/` the review flow, `telegram/` the
+  application, `turn/` the single foreground lease, `cues/` and `foundation/`; at its root
+  `registry.py` derives an application's wiring, `recovery.py` reconciles a restart, and
+  `session.py`, `history.py` and `asr.py` are the root session, the chat window and the voice.
 - **`safwa/features/*`** — `MODULES` lists seventeen: sixteen Safwa features, each with its rules in
   `tests/brd/`, and the shell's own `proposals`. `advisor` is the seventeenth feature package and is
   in no registry — it is the root session's prompt and the views it is told it may read, wired
@@ -530,9 +531,9 @@ flowchart LR
     CAT -->|dropped and rebuilt every startup| DB[(ai_* views)]
     CAT --> ALLOW[ALLOWED_VIEWS]
     CAT --> DOC["view_catalogue(views, names)"]
-    DOC -->|{views}| P1[SYSTEM_PROMPT · 9 views]
-    DOC --> P2[workspace prompt · 7 views]
-    DOC --> P3[heavy_analyzer prompt · 10 views]
+    DOC -->|{views}| P1["SYSTEM_PROMPT · ADVISOR_VIEWS"]
+    DOC --> P2["workspace prompt · AgentSpec.views"]
+    DOC --> P3["heavy_analyzer prompt · HelperSpec.views"]
 ```
 
 - The views are dropped and rebuilt on **every startup**. Change a view's shape in the owning
@@ -560,6 +561,11 @@ up, builds a `t.me` deep link from the **validated** id, and names the item itse
 gone keeps its words and loses its link; a target that is not an id leaves the chat as plain words.
 
 Types: `card`, `check`, `tag`, `value`, `request`, `diary`, `retro`.
+
+**One catalogue answers both questions.** `ScreenCatalogue.types` is what may be cited *and* the
+whole enum of the `open` tool, so a feature that publishes a screen is offered by name and a type
+nothing publishes is refused rather than answered with an empty screen (`SC-OPEN-006`,
+`RT-OPEN-002`).
 
 When the decision is the owner's, the model **cites** the item in its own prose instead of proposing
 one.
@@ -590,7 +596,11 @@ stateDiagram-v2
 - Background work verifies the revision before publishing or committing, and a turn that lost the
   chat ends the review it had already opened rather than leaving it with no screen.
 - `OwnerAndWritingMiddleware` drops anything that is not the owner in a private chat.
-- Every inline button is a single-use `CallbackToken` row, cleared at the next start.
+- **An action button is a single-use `CallbackToken` row**, sent as `cb:<token>` and cleared at the
+  next start: it names an item and changes something, so it is spent when it is pressed and dead
+  after a restart. **Navigation is not a token.** A `nav:<screen>` button carries the name of a
+  screen the registry knows, changes nothing and names no item, so it is drawn again however often
+  it is pressed and works on a menu older than the run answering it (`SC-BUTTON-003`).
 
 ## Background loops
 

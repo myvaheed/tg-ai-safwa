@@ -321,7 +321,7 @@ def open_tool(screens: ScreenCatalogue) -> dict[str, Any]:
     name and one that publishes none is spelled out nowhere.
     """
     schema = tool_json_schema(OpenInput)
-    schema["properties"]["item_type"]["enum"] = list(screens.openable)
+    schema["properties"]["item_type"]["enum"] = list(screens.types)
     return {
         "type": "function",
         "function": {

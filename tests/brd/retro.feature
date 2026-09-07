@@ -1,6 +1,6 @@
 Feature: Retro
   The retrospective itself is not written yet. What exists is the screen a finished Sprint
-  leaves behind, and the rule about who may put it up.
+  leaves behind, and the two ways the owner is taken to it.
 
   Background:
     Given a Sprint that has ended, and the message Safwa sent about it (PL-END-015)
@@ -12,8 +12,8 @@ Feature: Retro
     And it says there is nothing there yet
     And it arrives as its own message, offering the way back to the menu and nothing else
 
-  Scenario: RT-OPEN-002 — The retro is the owner's to open, never Safwa's
+  Scenario: RT-OPEN-002 — The retro opens the way every other cited item does
     Given Safwa is answering a question about a Sprint that has ended
     Then it may name the retro as a link the owner can tap
-    And it has no way to put that screen up itself, which a Card, a Check, a Value, a Tag, a
-      Request and a day of the Diary all have
+    And asked to see that retro, it puts the screen up itself, exactly as it does for a Card,
+      a Check, a Value, a Tag, a Request and a day of the Diary
