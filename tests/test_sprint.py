@@ -12,7 +12,6 @@ from safwa.features.cards.use_cases import create_card as create_domain_card
 from safwa.features.cards.use_cases import (
     finish_action,
     move_card,
-    toggle_card_value,
     update_card_fields,
 )
 from safwa.features.planning.model import Sprint
@@ -27,7 +26,6 @@ from safwa.features.profile.model import SPRINT_LENGTH_DAYS, ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.use_cases import delete_reminder
-from safwa.features.values.use_cases import create_value
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.workspace import Workspace
 from tg_agent_shell.cues.model import Cue
@@ -308,22 +306,46 @@ async def test_pl_context_010_safwa_is_handed_the_sprint_and_todays_actions(sess
         assert word not in context.state
 
 
-async def test_board_context_lists_critical_cards_valued_first(sessions):
+async def test_pl_context_020_todays_actions_are_handed_over_only_while_a_sprint_runs(sessions):
+    """PL-CONTEXT-020 — tests/brd/planning.feature"""
     async with sessions() as session:
-        value = await create_value(session, name="Health", active=True)
-        for index in range(11):
-            await create_card(session, title=f"Critical {index:02d}", priority="critical")
-        valued = await create_card(session, title="Valued", priority="critical")
-        await toggle_card_value(session, valued.id, value.id)
-        await create_card(session, title="Ordinary", priority="medium")
+        today = await create_card(
+            session, title="Ship it", stage="today", effort_points=5, priority="critical"
+        )
+        # Written after it and less important, so only the ranking can order these three.
+        low = await create_card(
+            session, title="Sometime", stage="today", effort_points=1, priority="low"
+        )
+        medium = await create_card(
+            session, title="Middling", stage="today", effort_points=2, priority="medium"
+        )
+        # A Hard Time outranks all of it: least important, written last, still first.
+        fixed = await create_card(
+            session, title="The dentist", stage="today", effort_points=1,
+            priority="low", hard_time=True,
+        )
+        await create_card(session, title="Later", stage="sprint", effort_points=3)
+        await create_domain_card(session, title="The release", kind="goal", stage="today")
+        await start_sprint(session, success_criteria="Ship v2")
         await session.commit()
+        running = (await workspace_context(session)).state
 
-        context = await workspace_context(session)
+        await finish_sprint(session, reason="finished_early")
+        await session.commit()
+        planning = (await workspace_context(session)).state
 
-    listed = [line for line in context.state.splitlines() if line.startswith("- [")]
-    assert len(listed) == 10
-    assert listed[0].startswith("- [Valued](card:")
-    assert "Ordinary" not in context.state
+    handed = running.split("Today Actions:")[1]
+
+    # The Actions in Today with the effort each carries, most important first: the Action
+    # still in Sprint and the Goal above them are both looked up rather than handed over.
+    assert [line for line in handed.splitlines() if line.startswith("- [")] == [
+        f"- [The dentist](card:{fixed.id}) effort=1",
+        f"- [Ship it](card:{today.id}) effort=5",
+        f"- [Middling](card:{medium.id}) effort=2",
+        f"- [Sometime](card:{low.id}) effort=1",
+    ]
+    assert "Today Actions:" not in planning
+    assert "The release" not in running
 
 
 async def test_pl_end_012_finishing_early_leaves_the_work_where_it_is(sessions):

@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.messages import StateBlocks
@@ -24,6 +24,12 @@ from ..values.model import CardValue, Value
 
 # How many critical Cards the workspace state names before the model has to query for more.
 CONTEXT_CRITICAL_CARD_LIMIT = 10
+
+# The column stores the name, so ordering by it is alphabetical - low before medium. The
+# enum's own order is the priority order, which is what a reader is meant to read down.
+PRIORITY_RANK = case(
+    {priority.value: rank for rank, priority in enumerate(Priority)}, value=Card.priority
+)
 
 
 def citation(name: str, kind: str, item_id: int) -> str:
@@ -115,7 +121,7 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
                     Card.effective_stage == CardStage.TODAY.value,
                     Card.kind == CardKind.ACTION.value,
                 )
-                .order_by(Card.hard_time.desc(), Card.priority, Card.created_at)
+                .order_by(Card.hard_time.desc(), PRIORITY_RANK, Card.created_at)
             )
         )
         lines.append("Today Actions:")

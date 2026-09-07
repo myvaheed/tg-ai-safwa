@@ -46,6 +46,7 @@ from safwa.features.tags.model import CardTag, Tag
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import CardValue, Value
 from safwa.features.values.use_cases import create_value, delete_value, set_value_focus
+from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.marks import live_repeat_instance_id, title_marks
 from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.foundation.errors import DomainError
@@ -1128,3 +1129,34 @@ async def test_goal_progress_is_recursive_but_children_count_is_direct(sessions)
         # The branch total is the Card's own effort now, so a query reads it too.
         assert (await session.get(Card, goal.id)).effort_points == 8
         assert (await session.get(Card, idea.id)).effort_points == 3
+
+
+async def test_cd_context_028_only_the_critical_cards_still_to_do_are_handed_over(sessions):
+    """CD-CONTEXT-028 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        open_card = await create_card(
+            session, title="Fix the roof", kind="action", stage="backlog",
+            priority="critical", effort_points=3,
+        )
+        for title, ending in (("Shipped", CardStage.DONE), ("Dropped", CardStage.CANCELLED)):
+            finished = await create_card(
+                session, title=title, kind="action", stage="today",
+                priority="critical", effort_points=3,
+            )
+            await finish_action(session, finished.id, ending)
+        await create_card(
+            session, title="Ordinary", kind="action", stage="backlog",
+            priority="medium", effort_points=3,
+        )
+        await session.commit()
+
+        state = (await workspace_context(session)).state
+
+    listed = [line for line in state.splitlines() if line.startswith("- [")]
+
+    # One line, and it carries the kind and the stage the Card is in now. What is finished
+    # and what is not critical are both looked up when Safwa wants them.
+    assert listed == [f"- [Fix the roof](card:{open_card.id}) kind=action stage=backlog"]
+    assert "Shipped" not in state
+    assert "Dropped" not in state
+    assert "Ordinary" not in state

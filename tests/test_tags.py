@@ -9,6 +9,7 @@ from safwa.features.cards.use_cases import create_card, toggle_card_tag
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.tags.use_cases import create_tag, delete_tag, update_tag_fields
 from safwa.features.workspace_mutator.remove import RemoveToolInput
+from safwa.features.workspace_mutator.state import workspace_context
 from tg_agent_shell.foundation.errors import DomainError
 
 
@@ -82,3 +83,18 @@ async def test_a_deleted_tag_frees_its_name(sessions):
         # A new Tag under the freed name, not the old one coming back.
         assert again.description == ""
         assert len(list(await session.scalars(select(Tag)))) == 1
+
+
+async def test_ta_context_009_every_tag_reaches_safwa_by_name_and_in_order(sessions):
+    """TA-CONTEXT-009 — tests/brd/tags.feature"""
+    async with sessions() as session:
+        work = await create_tag(session, "Work")
+        family = await create_tag(session, "Family")
+        await session.commit()
+
+        state = (await workspace_context(session)).state
+
+    line = next(line for line in state.splitlines() if line.startswith("Available Tags:"))
+    # Both of them, alphabetically rather than in the order they were written, and each
+    # already a link: a Tag has no focus, so there is nothing for one to be left out of.
+    assert line == f"Available Tags: [Family](tag:{family.id}), [Work](tag:{work.id})"

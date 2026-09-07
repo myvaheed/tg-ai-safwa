@@ -11,21 +11,13 @@ something else has to happen before it can. **no** — ruled out, kept so it is 
 
 Landed batches are not listed here: what each did is the code, and why it was done that way is the
 document that owns the mechanism. What a reader can get from neither is kept — the candidates still
-open, and the reason a candidate was refused, so it is not raised a second time. Open work from the
-polishing passes is [POLISHING_2.md](POLISHING_2.md), and each unfinished item has one of these two
-as its owner, never both.
+open, and the reason a candidate was refused, so it is not raised a second time. The polishing
+passes ([POLISHING_2.md](POLISHING_2.md)) are finished, so this file is where unfinished work is
+now, and every item in it has exactly one owner.
 
 ## Open
 
-29. **yes** — most of the workspace block is approved nowhere. `WS-JUDGE-002` covers the mutator
-    being handed it before its first step, and `PS-CONTEXT-001`, `PL-CRITERIA-004`,
-    `PL-CONTEXT-010` and `RM-READ-024` each cover one slice from their own feature's file. What is
-    left over: that the root session reads the block too, and not only a subagent; Values, Tags and
-    the workspace mode, described nowhere; and the critical-Card rules — ten of them, the ones
-    carrying a Value in focus first, Done and Cancelled left out — which are a test with no
-    scenario, so any batch may change them without asking. Nothing states either that every item is
-    written as a link the model may point at in its own reply, which is what `citation()` exists
-    for. Found while answering 19.
+Nothing right now.
 
 ## Ruled out
 

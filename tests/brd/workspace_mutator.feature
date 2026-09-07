@@ -28,3 +28,27 @@ Feature: The workspace
       many of and finishes
     When Safwa asks to archive anything else
     Then it is refused, and never turned into a deletion instead
+
+  Scenario: WS-CONTEXT-004 — Safwa is handed the workspace every turn, and a part it hands work to only when that part asks
+    Given any turn, whatever the owner asked about
+    Then the part that answers in the chat is handed the state of the workspace before the
+      conversation, so an ordinary question is answered without looking anything up
+    And a part the turn is handed on to is given that same state only when it asks for it: the
+      one that changes the workspace asks, and the one that writes days does not
+
+  Scenario: WS-CONTEXT-005 — The first thing said about the workspace is which of its two modes it is in
+    Given the workspace is in Planning, or a Sprint is running
+    Then the first line of that state says which of the two it is
+    And the two things the owner wrote about themselves come next, before anything they keep
+
+  Scenario: WS-CONTEXT-006 — Everything named in that state is already written as a link
+    Given the state names a Value, a Tag or a Card
+    Then each of them is written the way Safwa writes a link into its own reply
+    And so pointing the owner at one is quoting what Safwa was handed, never building a link out
+      of an id it read somewhere else
+
+  Scenario: WS-CONTEXT-007 — Safwa is told what time it is where the owner is, and told it last
+    Given the owner's timezone
+    Then it is told the time there, after everything else it was handed
+    And that line is the only part of what it reads before the conversation that differs between
+      two turns a minute apart, which is what keeps the rest of it cheap

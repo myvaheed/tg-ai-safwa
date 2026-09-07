@@ -37,3 +37,10 @@ Feature: Tags
     Then it is deleted, and those Cards lose the label and are otherwise untouched
     And no screen offers to archive a Tag, and the remove tool refuses to
     And its name is free from that moment
+
+  Scenario: TA-CONTEXT-009 — Safwa is handed every Tag there is, so it labels in the owner's own words
+    Given the owner keeps Tags
+    When Safwa answers them
+    Then it has already been handed all of them, by name and in alphabetical order
+    And each arrives as a link it can hand straight back to the owner
+    And none is left out: a Tag has no focus to be out of, which is what makes it unlike a Value

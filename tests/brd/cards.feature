@@ -218,3 +218,10 @@ Feature: Cards
     And their Sprint commitments and their history go too
     And archiving is never substituted for it
     And Cards calls this destructive, so a proposal to do it is confirmed a second time
+
+  Scenario: CD-CONTEXT-028 — The critical Cards Safwa is handed are the ones still to do
+    Given critical Cards, some of them Done and some Cancelled
+    Then only the ones still open are among the ones Safwa is handed, chosen as VL-READ-003 says
+    And each of them says what kind it is and which stage it is in now
+    And a Card that is not critical is not among them at all: Safwa looks those up when it needs
+      them

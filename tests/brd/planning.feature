@@ -150,3 +150,12 @@ Feature: Planning — the Sprint, and the mode without one
     When the owner taps 8 of them inside 10 seconds (PLAN_LINK_BURST_TAPS = 8, PLAN_LINK_BURST_SECONDS = 10)
     Then they are told what is happening and that Telegram can stop opening bots for hours
     And the tap they just made still opens what it points at
+
+  Scenario: PL-CONTEXT-020 — Today's Actions are handed over while a Sprint runs, and there is no Today otherwise
+    Given a running Sprint
+    Then Safwa is handed every Action in Today, each with the effort it carries
+    And a Card that is not an Action, or is not in Today, is not among them
+    And among them a Card with a Hard Time comes first, then the more important one, then the one
+      written earlier
+    When no Sprint is running
+    Then there is no Today at all, by PL-MODE-001, and nothing of it is handed over
