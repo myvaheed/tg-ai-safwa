@@ -96,8 +96,9 @@ feature's wiring is [docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md).
 uv run python scripts/architecture_metrics.py
 ```
 
-That prints the rules and the module graph. Every rule reads zero, and
-`tests/test_architecture.py` fails on any violation.
+That prints the rules, the module graph and the counted metrics. Every rule reads zero and
+`tests/test_architecture.py` fails on any violation; the metrics under them are read at review
+and fail nothing.
 
 ### Definition of Done
 
@@ -109,12 +110,12 @@ here; the rest are a rule, a snapshot or a review.
 |---|---|---|
 | 1 | Places to edit to add an entity — one package plus one line in `MODULES` | Rule H, counted by the scanner |
 | 2 | No base Use Case | counted by the scanner |
-| 3 | No module over 600 lines | counted by the scanner, which also lists the largest |
+| 3 | A module over 600 lines is reviewed for what it owns | counted by the scanner, which also lists the largest. A count, not a limit: the answer can be that the module is right as it is |
 | 4 | No module holds two of rules, data, use cases, manager, adapter | Rules A and K |
 | 5 | Process state is a frozen union with one writer | Rule C |
 | 6 | One Manager per process, each with a named identity | review: `AgentManager` (a session), `TurnManager` (the turn), `CueRuntime` (what Safwa still owes) |
 | 7 | A reducer only where a pure function simplifies the transitions | review — no quota, and none added without one |
-| 8 | The shared packages work without Safwa | Rule F, plus `examples/plain_chat_bot/` on the three libraries and `examples/note_keeper/` on the runtime, both run by tests. No example runs the whole shell yet |
+| 8 | The shared packages work without Safwa | Rule F proves they import no Safwa, which is all an import graph can show. That a second application runs on them is shown by `examples/plain_chat_bot/` on the three libraries and `examples/note_keeper/` on the runtime, both run by tests. No example runs the whole shell yet |
 | 9 | Every rule cites a scenario | `tests/test_brd_traceability.py` |
 | 10 | A test is replaced only on the owner's decision | review — the one nothing measures: the batch that drops a test names what still covers its scenario |
 | 11 | The schema did not change outside a schema batch | Rule J, snapshot under `tests/snapshots/` |

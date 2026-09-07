@@ -22,8 +22,8 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
     routed_prompt,
 )
+from safwa.features.advisor.agent import ADVISOR_VIEWS
 from safwa.features.memory.store import MemoryFileStore
-from safwa.features.workspace_mutator.agent import MUTATOR_TOOLS
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.database import Database, upgrade_database
 from tg_agent_shell.ai.autoapproval import AutoApprovalReviewer
@@ -32,6 +32,7 @@ from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.ai.tools import HelperPort
 from tg_agent_shell.proposals.store import ProposalStore
 from tg_agent_shell.session import RootSession
+from tg_agent_shell.telegram.manifest import AgentContext
 
 
 class ScriptedProvider:
@@ -116,6 +117,14 @@ class ScriptedProvider:
 
 
 TIMEZONE = "Europe/Istanbul"
+OWNER_ID = 42
+
+
+class SilentHistory:
+    """The Telethon boundary for a subagent that never reads the conversation."""
+
+    async def day_transcript(self, _chat_id: int, *, start, end, token_budget) -> str:  # noqa: ARG002
+        return ""
 
 
 @dataclass
@@ -127,17 +136,26 @@ class E2EHarness:
     # One harness is one running bot: the reviews it opens outlive each advisor it builds.
     reviews: ProposalStore = field(default_factory=ProposalStore)
 
-    def workspace(self) -> RoutedSubagent:
-        """The real workspace mutator: every mutation tool lives behind `route("workspace_mutator")`."""
-        return RoutedSubagent(
-            name="workspace_mutator",
-            # The instructions as assembled, `{views}` filled in: what the application runs.
-            prompt=next(
-                routed_prompt(agent) for agent in AGENTS if agent.name == "workspace_mutator"
+    def runner(self) -> ReadOnlyQueryRunner:
+        """The application's one runner, which each reader is then scoped out of."""
+        return ReadOnlyQueryRunner(self.database_path, ALLOWED_VIEWS, timezone=TIMEZONE)
+
+    def subagent(self, name: str, *, history: object | None = None) -> RoutedSubagent:
+        """One declared subagent, bound the way the composition root binds it.
+
+        Its prompt, its views, its read tools and its clock all come out of the feature's
+        own `AgentSpec`, so a test never states them: what the application runs is what
+        answers here, and only Telethon is replaced.
+        """
+        spec = next(agent for agent in AGENTS if agent.name == name)
+        return spec.bind(
+            AgentContext(
+                owner_id=OWNER_ID,
+                timezone=TIMEZONE,
+                query_runner=self.runner(),
+                history=history or SilentHistory(),
             ),
-            # No read tool of its own: `query_data` is published by the adapters.
-            mutation_tools=MUTATOR_TOOLS,
-            workspace_state=True,
+            prompt=routed_prompt(spec),
         )
 
     def advisor(
@@ -150,7 +168,7 @@ class E2EHarness:
         autoapprove: bool = False,
         provider_factory: Callable[[list[str | CompletionTurn]], ScriptedProvider] = ScriptedProvider,
     ) -> tuple[RootSession, ScriptedProvider]:
-        subagents = (self.workspace(),) if subagents is None else subagents
+        subagents = (self.subagent("workspace_mutator"),) if subagents is None else subagents
         # A test about what happens *during* a turn needs the boundary to hold still, so
         # which scripted provider answers the script is the test's to say.
         provider = provider_factory(responses)
@@ -159,7 +177,7 @@ class E2EHarness:
             self.sessions,
             provider,
             self.memory,
-            ReadOnlyQueryRunner(self.database_path, ALLOWED_VIEWS, timezone=TIMEZONE),
+            self.runner().scoped(ADVISOR_VIEWS),
             PROPOSALS,
             screens=SCREENS,
             workspace_state=workspace_context,
@@ -182,10 +200,10 @@ class E2EHarness:
         return advisor, provider
 
     def analyzer(self, provider) -> dict[str, object]:
-        """The real heavy analyzer, reading the real views through the same runner."""
-        runner = ReadOnlyQueryRunner(self.database_path, ALLOWED_VIEWS, timezone=TIMEZONE)
+        """The real heavy analyzer, scoped to the views it declared like every reader."""
+        runner = self.runner()
         return {
-            name: spec.build(provider, runner, prompt=spec.instructions)
+            name: spec.build(provider, runner.scoped(spec.views), prompt=spec.instructions)
             for name, spec in HELPERS.items()
         }
 

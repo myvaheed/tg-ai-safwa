@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import ast
 import re
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,12 +32,23 @@ ENTITIES = tuple(
     )
 )
 
-# Rule A: what a business rule may never know about.
+# Rule A: what a business rule may never know about. The settings module is named because
+# a business file that reads it takes its decisions from the environment instead of from
+# its arguments; `safwa/config.py` is where this application keeps it.
 DELIVERY_PACKAGES = ("aiogram", "openai", "telethon", "telegram_llm", "llm_gateway")
 BUSINESS_FILES = ("rules.py", "model.py", "use_cases.py", "data.py")
+SETTINGS_MODULE = "safwa.config"
 
-# Rule F: packages that must stay usable without Safwa.
+# Rule F: packages that import no Safwa. That is what the rule proves — not that the
+# packages are portable, which is what running a second application on them would show.
 REUSABLE_PACKAGES = ("llm_gateway", "agent_runtime", "telegram_llm", "tg_agent_shell")
+
+# Rule R: the feature packages `MODULES` registers, and the one Safwa package that is not
+# a feature. The advisor is the persona and the root prompt, which the composition root
+# assembles itself rather than plugging in. `MODULES` also carries modules from outside
+# `features/` — the shell's own review flow is one — and those are not this rule's.
+REGISTERED_FEATURES = frozenset(module.name for module in MODULES)
+UNREGISTERED_PACKAGES = frozenset({"advisor"})
 
 # Rules A, C and D: processes that live beside the features rather than inside one. The
 # review flow is one of them: it left `features/` with the package, and everything those
@@ -164,17 +175,26 @@ def _string_constants(tree: ast.AST) -> Iterator[ast.Constant]:
 # --------------------------------------------------------------------------- rules
 
 
-def rule_a() -> list[Violation]:
-    """Business files know nothing about delivery, the provider SDK or settings."""
+def business_imports(module: Module) -> list[Violation]:
+    """Rule A on one module, so an example can be checked without a file on disk."""
     out = []
-    for module in process_modules(*BUSINESS_FILES):
-        for root, line in module.imported_roots():
-            if root in DELIVERY_PACKAGES:
-                out.append(Violation("Rule A", module.rel, line, f"imports {root}"))
-        for path, line in module.imported_paths():
-            if "telegram" in path.split(".") or path.endswith("bootstrap.settings"):
-                out.append(Violation("Rule A", module.rel, line, f"imports {path}"))
+    for root, line in module.imported_roots():
+        if root in DELIVERY_PACKAGES:
+            out.append(Violation("Rule A", module.rel, line, f"imports {root}"))
+    for path, line in module.imported_paths():
+        settings = path == SETTINGS_MODULE or path.startswith(f"{SETTINGS_MODULE}.")
+        if "telegram" in path.split(".") or settings:
+            out.append(Violation("Rule A", module.rel, line, f"imports {path}"))
     return out
+
+
+def rule_a() -> list[Violation]:
+    """Business files know nothing about delivery, the provider SDK or settings.
+
+    Scope: the `BUSINESS_FILES` names, inside a feature or inside one of
+    `PROCESS_PACKAGES`. Nothing else in the repository is under this rule.
+    """
+    return [item for module in process_modules(*BUSINESS_FILES) for item in business_imports(module)]
 
 
 def _is_frozen_dataclass(node: ast.ClassDef) -> bool:
@@ -227,7 +247,12 @@ def _union_members(tree: ast.Module) -> set[str]:
 
 
 def rule_c() -> list[Violation]:
-    """Process state is frozen: every variant of a State, Action or Effect union."""
+    """Process state is frozen: every variant of a State, Action or Effect union.
+
+    Scope: `manager.py` and `model.py` inside a feature or inside one of
+    `PROCESS_PACKAGES`. `agent_runtime/` is not under it — a session accumulator is a
+    running total, not a transition, and copying it at every step would say nothing.
+    """
     out = []
     for module in process_modules("manager.py", "model.py"):
         named = _union_members(module.tree)
@@ -248,7 +273,11 @@ def rule_c() -> list[Violation]:
 
 
 def rule_d() -> list[Violation]:
-    """Reducers are pure: a transition may not await, read a file or touch a session."""
+    """Reducers are pure: a transition may not await, read a file or touch a session.
+
+    Scope is Rule C's: `reducer.py` and `manager.py` inside a feature or inside one of
+    `PROCESS_PACKAGES`, not the whole of `agent_runtime/`.
+    """
     out = []
     for module in process_modules("reducer.py", "manager.py"):
         # Every function in a `reducer.py` is a transition, whatever it is called: the
@@ -307,7 +336,11 @@ def rule_e() -> list[Violation]:
 
 
 def rule_f() -> list[Violation]:
-    """The reusable packages work without Safwa."""
+    """The reusable packages import no Safwa.
+
+    That is the whole of what an import graph can show. Whether a second application can
+    actually be built on them is answered by building one, not here.
+    """
     out = []
     for module in modules():
         package = module.path.relative_to(SRC).parts[0]
@@ -348,6 +381,9 @@ def rule_g() -> list[Violation]:
     A task nothing can cancel outlives the shutdown of whatever started it, and nothing
     knows it is still running.  Owning the lifetime is the permission, so the module that
     cancels is the module allowed to start.
+
+    A `cancel` anywhere in the module satisfies this. That the right task is cancelled at
+    the right moment is a test's to show, never this rule's.
     """
     out = []
     for module in modules():
@@ -419,25 +455,67 @@ def rule_h() -> list[Violation]:
     return entity_dispatch_points()
 
 
+def proposal_wording(module: Module) -> list[Violation]:
+    """Rule K on one `proposal.py`, so an example can be checked without a file on disk."""
+    out = []
+    for root, line in module.imported_roots():
+        if root in ("aiogram", "telegram_llm"):
+            out.append(Violation("Rule K", module.rel, line, f"imports {root}"))
+    for constant in _string_constants(module.tree):
+        if HTML_TAG.search(constant.value) or EMOJI.search(constant.value):
+            out.append(
+                Violation("Rule K", module.rel, constant.lineno, "carries a user-facing string")
+            )
+    return out
+
+
+def agent_domain_calls(module: Module) -> list[Violation]:
+    """Rule K on one `agent.py`, so an example can be checked without a file on disk."""
+    out = []
+    for call in _calls_named(module.tree, "commit"):
+        out.append(Violation("Rule K", module.rel, call.lineno, "commits"))
+    for path, line in module.imported_paths():
+        # `from .use_cases import create_diary_entry` resolves to a path that ends in the
+        # function, and `import ... .use_cases as writes` to one that ends in the module,
+        # so the segment is what says the door was opened rather than how the path ends.
+        if "use_cases" in path.split("."):
+            out.append(Violation("Rule K", module.rel, line, f"calls the domain via {path}"))
+    return out
+
+
 def rule_k() -> list[Violation]:
     """A proposal handler carries no wording, and a tool adapter carries no commit."""
-    out = []
-    for module in process_modules("proposal.py"):
-        for root, line in module.imported_roots():
-            if root in ("aiogram", "telegram_llm"):
-                out.append(Violation("Rule K", module.rel, line, f"imports {root}"))
-        for constant in _string_constants(module.tree):
-            if HTML_TAG.search(constant.value) or EMOJI.search(constant.value):
-                out.append(
-                    Violation("Rule K", module.rel, constant.lineno, "carries a user-facing string")
-                )
-    for module in process_modules("agent.py"):
-        for call in _calls_named(module.tree, "commit"):
-            out.append(Violation("Rule K", module.rel, call.lineno, "commits"))
-        for path, line in module.imported_paths():
-            if path.endswith(".use_cases"):
-                out.append(Violation("Rule K", module.rel, line, f"calls the domain via {path}"))
-    return out
+    return [
+        *(item for module in process_modules("proposal.py") for item in proposal_wording(module)),
+        *(item for module in process_modules("agent.py") for item in agent_domain_calls(module)),
+    ]
+
+
+def unregistered_packages(names: Iterable[str]) -> list[str]:
+    """Which of these Safwa packages `MODULES` does not register, advisor aside."""
+    return sorted(set(names) - REGISTERED_FEATURES - UNREGISTERED_PACKAGES)
+
+
+def rule_r() -> list[Violation]:
+    """Every Safwa feature package is registered in `MODULES`.
+
+    A package `MODULES` does not name has no view, no tool, no screen and no route: it is
+    code that runs nowhere, and nothing else in the repository notices.
+    """
+    found = {
+        path.name: path
+        for path in sorted(FEATURES.iterdir())
+        if path.is_dir() and (path / "__init__.py").exists()
+    }
+    return [
+        Violation(
+            "Rule R",
+            (found[name] / "__init__.py").relative_to(SRC).as_posix(),
+            1,
+            "is not registered in MODULES",
+        )
+        for name in unregistered_packages(found)
+    ]
 
 
 # Rule P: the aiogram calls that put a message in the chat.  `answer` is one of them, but a
@@ -483,24 +561,38 @@ def rule_p() -> list[Violation]:
     return out
 
 
+@dataclass(frozen=True, slots=True)
+class Rule:
+    """One rule as the report shows it: what it is called, and what answers it.
+
+    The letter it is keyed by is the stable reference — it is what a `Violation` carries
+    and what a document cites — so a rule is renamed freely and never re-lettered. Letters
+    A to Q have all been used at some point; a new rule takes the next unused one.
+    """
+
+    name: str
+    check: Callable[[], list[Violation]]
+
+
 RULES = {
-    "Rule A": rule_a,
-    "Rule C": rule_c,
-    "Rule D": rule_d,
-    "Rule E": rule_e,
-    "Rule F": rule_f,
-    "Rule G": rule_g,
-    "Rule H": rule_h,
-    "Rule K": rule_k,
-    "Rule M": rule_m,
-    "Rule P": rule_p,
+    "Rule A": Rule("a business file knows no delivery, provider or settings", rule_a),
+    "Rule C": Rule("process state is frozen", rule_c),
+    "Rule D": Rule("a reducer is pure", rule_d),
+    "Rule E": Rule("a module opens no door above its own layer", rule_e),
+    "Rule F": Rule("the reusable packages import no Safwa", rule_f),
+    "Rule G": Rule("whoever starts a background task also cancels one", rule_g),
+    "Rule H": Rule("nothing outside a feature fans out over entity names", rule_h),
+    "Rule K": Rule("a proposal handler carries no wording, an agent no domain call", rule_k),
+    "Rule M": Rule("the agent engine imports none of the shell above it", rule_m),
+    "Rule P": Rule("every bot message goes through the one place that marks it", rule_p),
+    "Rule R": Rule("every Safwa feature package is registered in MODULES", rule_r),
 }
 # Rules I, J and O are snapshots of built artefacts rather than of the source tree, so they
 # live with their baselines in `tests/test_architecture.py`.
 
 
 def violations() -> list[Violation]:
-    return [item for check in RULES.values() for item in check()]
+    return [item for rule in RULES.values() for item in rule.check()]
 
 
 # ------------------------------------------------------------------ import graph
@@ -618,26 +710,25 @@ def _assigns_only(node: ast.Assign, name: str) -> bool:
     return all(isinstance(target, ast.Name) and target.id == name for target in node.targets)
 
 
-def _purpose(check: Callable[[], list[Violation]]) -> str:
-    """What a rule is for, taken from its own first line so the report needs no second copy."""
-    return (check.__doc__ or "").strip().splitlines()[0]
-
-
 def report() -> str:
     found = violations()
     lines = ["# Architecture metrics", ""]
     lines.append(f"Modules scanned: {len(modules())}")
-    lines.append(f"Rule violations: {len(found)}")
-    for rule, check in RULES.items():
-        count = sum(1 for item in found if item.rule == rule)
-        lines.append(f"  {rule}: {count:<3} {_purpose(check)}")
+    # The rules fail a run; everything under `Metrics` is read at review and fails nothing.
+    lines += ["", f"## Rules (each reads zero; {len(found)} broken)"]
+    for letter, rule in RULES.items():
+        count = sum(1 for item in found if item.rule == letter)
+        lines.append(f"  {letter}: {count:<3} {rule.name}")
     lines += ["", "## Largest modules"]
     for name, size in module_sizes()[:10]:
         lines.append(f"  {size:>5}  {name}")
-    lines += ["", "## Definition of Done"]
+    lines += ["", "## Metrics (counted for review, not enforced)"]
     lines.append(f"  #1 entity dispatch points outside features: {len(entity_dispatch_points())}")
     lines.append(f"  #2 use case base abstractions: {len(use_case_base_hits())}")
-    lines.append(f"  #3 modules over 600 lines: {sum(1 for _, n in module_sizes() if n > 600)}")
+    lines.append(
+        "  #3 modules over 600 lines, a size worth a look at what one owns: "
+        f"{sum(1 for _, n in module_sizes() if n > 600)}"
+    )
     lines.append(f"  #13 re-export only modules: {len(facade_modules())}")
     lines += ["", "## Import graph"]
     lines.append(f"  edges: {edge_count()}")

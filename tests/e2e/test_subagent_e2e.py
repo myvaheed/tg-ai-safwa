@@ -9,13 +9,11 @@ from sqlalchemy import select
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.bootstrap.modules import PROPOSALS, routed_prompt
+from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.model import Card, CardKind, CardStage
 from safwa.features.cards.use_cases import create_card, finish_action
-from safwa.features.diary.agent import DIARY_AGENT, day_read_tool, diary_clock
 from safwa.features.diary.model import DiaryEntry
 from telegram_llm import DialogueMessage
-from tg_agent_shell.ai.mini import ReadToolSpec
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.ai.runs import AgentRun, AgentStep
 from tg_agent_shell.ai.subagents import RoutedSubagent
@@ -76,18 +74,8 @@ def route_receipts(provider) -> list[dict]:
 def diary_subagent(
     harness, transcript: str = "[08:40] [User]: Долгий день, но рынок закрыл."
 ) -> RoutedSubagent:
-    """The real Diary subagent: the same session shape the Advisor runs on."""
-    return RoutedSubagent(
-        name="diary",
-        prompt=routed_prompt(DIARY_AGENT),
-        read_tools=(
-            day_read_tool(
-                StubDayReader(transcript), chat_id=42, timezone="Europe/Istanbul"
-            ),
-        ),
-        mutation_tools=("diary",),
-        clock=lambda: diary_clock("Europe/Istanbul"),
-    )
+    """The real Diary subagent, bound from its own declaration; only Telethon is replaced."""
+    return harness.subagent("diary", history=StubDayReader(transcript))
 
 
 async def test_a_routed_subagent_hands_its_words_back_and_the_advisor_speaks(e2e_harness):
@@ -319,7 +307,7 @@ async def test_a_subagent_reads_the_tail_of_the_conversation_as_tagged_data(e2e_
     ]
     advisor, provider = e2e_harness.advisor(
         [turn(("tag", {"mode": "create", "name": "VrWalk"}))],
-        subagents=(e2e_harness.workspace(),),
+        subagents=(e2e_harness.subagent("workspace_mutator"),),
     )
 
     await advisor.handle("Заведи тег VrWalk", dialogue=dialogue)
@@ -340,7 +328,7 @@ async def test_a_subagent_is_required_to_open_with_a_tool_call(e2e_harness):
     """AG-ANSWER-014 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, provider = e2e_harness.advisor(
         [turn(("tag", {"mode": "create", "name": "VrWalk"}))],
-        subagents=(e2e_harness.workspace(),),
+        subagents=(e2e_harness.subagent("workspace_mutator"),),
     )
 
     await advisor.handle("Заведи тег VrWalk")
@@ -380,28 +368,12 @@ async def test_a_subagent_that_runs_too_long_is_stopped_by_the_clock(e2e_harness
     """AG-BUDGET-012 — tests/brd/tg_agent_shell/agents.feature"""
     monkeypatch.setattr("tg_agent_shell.session.SUBAGENT_DEADLINE_SECONDS", 0.05)
 
-    async def never_returns_in_time(_call):
-        await asyncio.sleep(1.0)
-        return {"status": "ok"}
+    class SlowReader:
+        async def day_transcript(self, *_args, **_kwargs):
+            await asyncio.sleep(1.0)
+            return ""
 
-    slow = RoutedSubagent(
-        name="diary",
-        prompt=routed_prompt(DIARY_AGENT),
-        read_tools=(
-            ReadToolSpec(
-                schema={
-                    "type": "function",
-                    "function": {
-                        "name": "read_day",
-                        "description": "Read the day.",
-                        "parameters": {"type": "object", "properties": {}},
-                    },
-                },
-                run=never_returns_in_time,
-            ),
-        ),
-        mutation_tools=("diary",),
-    )
+    slow = e2e_harness.subagent("diary", history=SlowReader())
     advisor, provider = e2e_harness.advisor(
         [turn(("route", {"name": "diary"})), turn(("read_day", {}), prefix="diary"), "Готово."],
         subagents=(slow,),
@@ -442,7 +414,7 @@ async def test_two_domains_in_one_request_are_both_finished(e2e_harness):
         await session.commit()
         card_id = card.id
 
-    workspace = e2e_harness.workspace()
+    workspace = e2e_harness.subagent("workspace_mutator")
     diary = diary_subagent(e2e_harness)
     advisor, provider = e2e_harness.advisor(
         [
@@ -502,12 +474,7 @@ async def test_a_failed_subagent_comes_back_as_an_error_the_advisor_reports(e2e_
         async def day_transcript(self, *_args, **_kwargs):
             raise RuntimeError("history is unreachable")
 
-    diary = RoutedSubagent(
-        name="diary",
-        prompt=routed_prompt(DIARY_AGENT),
-        read_tools=(day_read_tool(ExplodingReader(), chat_id=42),),
-        mutation_tools=("diary",),
-    )
+    diary = e2e_harness.subagent("diary", history=ExplodingReader())
     advisor, provider = e2e_harness.advisor(
         [
             turn(("route", {"name": "diary"})),
@@ -540,7 +507,7 @@ async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
         await session.commit()
         card_id = card.id
 
-    workspace = e2e_harness.workspace()
+    workspace = e2e_harness.subagent("workspace_mutator")
     diary = diary_subagent(e2e_harness)
     advisor, provider = e2e_harness.advisor(
         [
@@ -764,7 +731,7 @@ async def test_every_session_reads_through_the_one_door_and_no_one_declares_it_t
 ) -> None:
     """`query_data` comes from the adapters, so the Advisor and a subagent share one door."""
     advisor, _ = e2e_harness.advisor(
-        ["Готово."], subagents=(e2e_harness.workspace(), diary_subagent(e2e_harness))
+        ["Готово."], subagents=(e2e_harness.subagent("workspace_mutator"), diary_subagent(e2e_harness))
     )
 
     for kind in ("advisor", "workspace_mutator", "diary"):
@@ -773,3 +740,31 @@ async def test_every_session_reads_through_the_one_door_and_no_one_declares_it_t
         assert names.count("query_data") == 1, kind
         # A session's own read tools are its own: none of them is a name the adapters answer.
         assert not set(definition.read_specs) & IMMEDIATE_TOOLS, kind
+
+
+async def test_ag_read_027_each_reader_reaches_only_the_views_its_own_list_names(e2e_harness):
+    """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
+    # `ai_card_events` is on the Diary's list and on neither of the other two, so one query
+    # answers all three questions: who was given it reads it, and who was not is refused.
+    read = turn(("query_data", {"sql": "SELECT card_id FROM ai_card_events"}))
+    scripts = {
+        "advisor": [read, "Не могу это прочитать."],
+        "workspace_mutator": [turn(("route", {"name": "workspace_mutator"})), read, "Нет.", "Нет."],
+        "diary": [turn(("route", {"name": "diary"})), read, "Прочитал.", "Прочитал."],
+    }
+    answered = {}
+    for reader, script in scripts.items():
+        advisor, _ = e2e_harness.advisor(
+            script,
+            subagents=(e2e_harness.subagent("workspace_mutator"), diary_subagent(e2e_harness)),
+        )
+        await advisor.handle("Что случилось с карточками?")
+        async with e2e_harness.sessions() as session:
+            step = await session.scalar(
+                select(AgentStep).where(AgentStep.kind == "read_query").order_by(AgentStep.id.desc())
+            )
+        assert step is not None, reader
+        rows = step.metadata_json["result"]
+        answered[reader] = not (rows and rows[0].get("code") == "unsafe_query")
+
+    assert answered == {"advisor": False, "workspace_mutator": False, "diary": True}

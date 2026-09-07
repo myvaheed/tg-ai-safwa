@@ -13,6 +13,7 @@ artefact:
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 from contextlib import asynccontextmanager
@@ -30,7 +31,15 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
 )
 from safwa.features.advisor.agent import PERSONA
-from scripts.architecture_metrics import RULES, cycles
+from scripts.architecture_metrics import (
+    RULES,
+    SRC,
+    Module,
+    agent_domain_calls,
+    business_imports,
+    cycles,
+    unregistered_packages,
+)
 from telegram_llm import DialogueMessage, KindMarks, code_for
 from tg_agent_shell.ai.messages import ContextBuilder, StateBlocks
 from tg_agent_shell.ai.subagents import RoutedSubagent
@@ -92,9 +101,57 @@ def test_snapshot_update_is_the_only_way_to_create_a_baseline(monkeypatch, tmp_p
 
 @pytest.mark.parametrize("rule", sorted(RULES))
 def test_rule_has_no_violation(rule):
-    found = [str(item) for item in RULES[rule]()]
+    found = [str(item) for item in RULES[rule].check()]
 
-    assert not found, f"{rule}: {found}"
+    assert not found, f"{rule} ({RULES[rule].name}): {found}"
+
+
+def _example(rel: str, source: str) -> Module:
+    """One module as the scanner sees it, parsed from a snippet rather than read."""
+    return Module(SRC / rel, ast.parse(source))
+
+
+# A rule that reads zero proves nothing on its own: it reads zero when it works and when
+# it looks in the wrong place. These are the smallest examples of each.
+
+
+@pytest.mark.parametrize(
+    "source, caught",
+    [
+        ("from ...config import Settings", True),
+        ("import aiogram", True),
+        ("from ..cards.telegram.screens import card_screen", True),
+        ("from .model import DiaryEntry", False),
+        ("from ...foundation.database import Database", False),
+    ],
+)
+def test_rule_a_reads_the_settings_module_where_it_lives(source: str, caught: bool):
+    found = business_imports(_example("safwa/features/diary/use_cases.py", source))
+
+    assert bool(found) is caught, found
+
+
+@pytest.mark.parametrize(
+    "source, caught",
+    [
+        ("from .use_cases import create_diary_entry", True),
+        ("from . import use_cases", True),
+        ("import safwa.features.diary.use_cases as writes", True),
+        ("from .model import DiaryEntry", False),
+        ("from .api import day_read_tool", False),
+    ],
+)
+def test_rule_k_catches_a_domain_call_however_it_is_imported(source: str, caught: bool):
+    found = agent_domain_calls(_example("safwa/features/diary/agent.py", source))
+
+    assert bool(found) is caught, found
+
+
+def test_rule_r_asks_only_about_safwa_feature_packages():
+    # `proposals` is registered from `tg_agent_shell`, so it is no Safwa package and is
+    # never one of these names; `advisor` is a Safwa package that registers nothing.
+    assert unregistered_packages(["diary", "advisor"]) == []
+    assert unregistered_packages(["diary", "unplugged"]) == ["unplugged"]
 
 
 def test_internal_imports_stay_acyclic():

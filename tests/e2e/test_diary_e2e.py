@@ -282,7 +282,7 @@ async def test_a_refused_day_is_over_once_the_advisor_answers_something_else(e2e
 
 async def test_a_screen_still_open_keeps_its_session_restorable(e2e_harness):
     """Save is the owner's to press, so a live screen is not a lapsed session."""
-    workspace = e2e_harness.workspace()
+    workspace = e2e_harness.subagent("workspace_mutator")
     diary = diary_subagent(e2e_harness)
     advisor, _ = e2e_harness.advisor(
         [turn(("route", {"name": "diary"})), write(TODAY, "Долгий день.")],
@@ -319,7 +319,7 @@ async def test_di_read_006_advisor_reads_and_cites_day(e2e_harness):
             turn(("query_data", {"sql": "SELECT id, entry_date, body FROM ai_diary"})),
             f"Вчера — [{yesterday.strftime('%d.%m.%Y')}](diary:{entry_id}).",
         ],
-        subagents=(e2e_harness.workspace(), diary_subagent(e2e_harness)),
+        subagents=(e2e_harness.subagent("workspace_mutator"), diary_subagent(e2e_harness)),
     )
 
     outcome = await advisor.handle("Что я писал вчера?")
@@ -359,7 +359,7 @@ async def test_di_open_010_advisor_opens_day_without_routing(e2e_harness):
             turn(("open", {"item_type": "diary", "id": entry_id})),
             "Вот запись за нужную дату.",
         ],
-        subagents=(e2e_harness.workspace(), diary_subagent(e2e_harness)),
+        subagents=(e2e_harness.subagent("workspace_mutator"), diary_subagent(e2e_harness)),
     )
 
     outcome = await advisor.handle(
@@ -384,7 +384,7 @@ async def test_di_open_010_missing_day_is_reported_without_routing(e2e_harness):
             ),
             "За сегодня записи в дневнике нет.",
         ],
-        subagents=(e2e_harness.workspace(), diary_subagent(e2e_harness)),
+        subagents=(e2e_harness.subagent("workspace_mutator"), diary_subagent(e2e_harness)),
     )
 
     outcome = await advisor.handle("Открой запись дневника за сегодня")
