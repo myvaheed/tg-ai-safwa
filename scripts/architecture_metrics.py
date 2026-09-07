@@ -5,23 +5,38 @@ the report a batch attaches to its summary.  Rules whose target directories do n
 return nothing and start biting by themselves the moment a phase creates those directories.
 
     uv run python scripts/architecture_metrics.py
+
+Naming a feature prints its map instead: where its code is, which scenarios it is held to
+and what cites them, which of its views each reader may query, and what it plugs into.
+
+    uv run python scripts/architecture_metrics.py cards
 """
 
 from __future__ import annotations
 
 import ast
 import re
+import sys
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-
-from safwa.bootstrap.modules import MODULES
 
 REPO = Path(__file__).resolve().parents[1]
 SRC = REPO / "src"
 RULE_FILE = "scripts/architecture_metrics.py"
 SAFWA = SRC / "safwa"
 FEATURES = SAFWA / "features"
+
+# The map reads the `.feature` files and the test docstrings, and `tests/brd_ids.py` is
+# what already reads both. Under pytest that directory is on the path; run as a script,
+# only `scripts/` is, so the map would otherwise need a second copy of those parsers.
+sys.path.insert(0, str(REPO / "tests"))
+
+from brd_ids import BRD, cited_tests, titled_scenarios  # noqa: E402
+
+from safwa.bootstrap.modules import AGENTS, AI_VIEWS, HELPERS, MODULES  # noqa: E402
+from safwa.features.advisor.agent import ADVISOR_VIEWS  # noqa: E402
+from tg_agent_shell.telegram.contributions import ScreenCommand  # noqa: E402
 
 # The registry is the source of these names, which is the point of Rule H: a feature that
 # is not in `bootstrap/modules.py` does not exist, and no other module may spell it out.
@@ -710,6 +725,160 @@ def _assigns_only(node: ast.Assign, name: str) -> bool:
     return all(isinstance(target, ast.Name) and target.id == name for target in node.targets)
 
 
+# ------------------------------------------------------------------- feature map
+
+
+def readers() -> dict[str, tuple[str, ...]]:
+    """Every published view, and the readers whose own list names it.
+
+    Publishing a view grants nobody anything: a reader reaches the views its declaration
+    spells out, so these lists are the whole of who may query each one. A view no reader
+    names is not a violation — it may be read outside the model — but it is worth asking.
+
+    A reader naming a view no feature publishes is refused where it is assembled, by
+    `view_catalogue` and by `ReadOnlyQueryRunner.scoped`, so it never reaches this.
+    """
+    declared = {
+        "advisor": ADVISOR_VIEWS,
+        **{agent.name: agent.views for agent in AGENTS},
+        **{helper.name: helper.views for helper in HELPERS.values()},
+    }
+    found: dict[str, list[str]] = {view.name: [] for view in AI_VIEWS}
+    for reader, views in declared.items():
+        for view in views:
+            found[view].append(reader)
+    return {name: tuple(who) for name, who in found.items()}
+
+
+def reader_scopes(name: str) -> list[tuple[str, tuple[str, ...]]]:
+    """The readers this feature owns, and the views each one's own list names.
+
+    The advisor's list is a constant of its own package rather than a manifest field: it
+    is the root session, which the composition root assembles instead of plugging in.
+    """
+    if name == "advisor":
+        return [("advisor", ADVISOR_VIEWS)]
+    module = next((item for item in MODULES if item.name == name), None)
+    if module is None:
+        return []
+    return [
+        *((agent.name, agent.views) for agent in module.agents),
+        *((helper.name, helper.views) for helper in module.helpers),
+    ]
+
+
+def feature_names() -> list[str]:
+    """What the map answers about: the Safwa feature packages and whatever `MODULES` adds."""
+    packages = {path.name for path in FEATURES.iterdir() if (path / "__init__.py").exists()}
+    return sorted(packages | {module.name for module in MODULES})
+
+
+def feature_package(name: str) -> Path | None:
+    """Where the code is: under `features/`, or the shell package `MODULES` registers."""
+    if (FEATURES / name / "__init__.py").exists():
+        return FEATURES / name
+    found = (path for path in sorted(SRC.rglob(name)) if (path / "__init__.py").exists())
+    return next(found, None)
+
+
+def wiring(name: str) -> list[str]:
+    """What this feature's `FeatureModule` contributes, by field, in manifest order."""
+    module = next((item for item in MODULES if item.name == name), None)
+    if module is None:
+        return []
+    declared = [
+        ("agents", [agent.name for agent in module.agents]),
+        ("helpers", [helper.name for helper in module.helpers]),
+        ("proposals", [item.handler.entity for item in module.proposals]),
+        ("mutation_tools", [tool.name for tool in module.mutation_tools]),
+        ("before_tool", [f"{len(module.before_tool)} watchers"] if module.before_tool else []),
+        ("after_tool", [f"{len(module.after_tool)} watchers"] if module.after_tool else []),
+        ("views", [view.name for view in module.views]),
+        ("screens", [spec.item_type for spec in module.screens]),
+        ("commands", [_command_name(command) for command in module.commands]),
+        # The buttons are named in the adapter's `handlers.py`; here their number is the
+        # connection point, and 46 of them would bury every other line of the map.
+        (
+            "callback_actions",
+            [f"{len(module.callback_actions)} actions"] if module.callback_actions else [],
+        ),
+        ("text_inputs", [flow.name for flow in module.text_inputs]),
+        ("start_links", [f"{len(module.start_links)} payloads"] if module.start_links else []),
+        ("after_turn", [f"{len(module.after_turn)} hooks"] if module.after_turn else []),
+        ("recover", ["recover_startup"] if module.recover else []),
+        ("background", [task.name for task in module.background]),
+    ]
+    return [f"  {field:<17}{', '.join(values)}" for field, values in declared if values]
+
+
+def _command_name(command: ScreenCommand) -> str:
+    return f"/{command.command}" if command.command else f"nav:{command.nav}"
+
+
+def opened_from_outside(package: Path) -> list[str]:
+    """Who imports this feature today. Not who would break: a caller may reach it by name
+    the graph cannot see, and a screen the composition root hands on has no import at all.
+    """
+    inside = f"{package.relative_to(SRC).as_posix().replace('/', '.')}."
+    return [
+        f"  {name} -> {target}"
+        for name, targets in sorted(import_graph().items())
+        if not name.startswith(inside)
+        for target in sorted(targets)
+        if target.startswith(inside)
+    ]
+
+
+# What the map is worth, printed with it, because a map is read as a promise otherwise.
+DECLARED_ONLY = (
+    "Declared links only. A citation is a test's claim on a scenario, not proof the\n"
+    "scenario is checked through; the imports are who opens this feature today, not\n"
+    "everything that would break if it went."
+)
+
+
+def feature_map(name: str) -> str:
+    """One feature's declared links: its sources, its scenarios, its views and its wiring."""
+    if name not in feature_names():
+        raise SystemExit(f"No such feature: {name}. Known: {', '.join(feature_names())}")
+    package = feature_package(name)
+    lines = [f"# {name}", "", DECLARED_ONLY, ""]
+
+    lines.append(f"## Sources — {package.relative_to(REPO).as_posix()}")
+    lines += [
+        f"  {path.relative_to(package).as_posix()}"
+        for path in sorted(package.rglob("*.py"))
+        if "__pycache__" not in path.parts
+    ]
+
+    approved = next(iter(sorted(BRD.rglob(f"{name}.feature"))), None)
+    lines += ["", f"## Scenarios — {approved.relative_to(REPO).as_posix() if approved else 'none'}"]
+    cited = cited_tests()
+    for identifier, wording in titled_scenarios(approved) if approved else []:
+        lines.append(f"  {identifier} — {wording}")
+        lines += [f"      {test}" for test in cited.get(identifier, ["(no test cites it)"])]
+
+    published = readers()
+    owned = {view.name for module in MODULES if module.name == name for view in module.views}
+    lines += ["", "## Views published"]
+    lines += [
+        f"  {view:<26}read by {', '.join(published[view]) or '(no reader)'}"
+        for view in sorted(owned)
+    ] or ["  none"]
+
+    lines += ["", "## Views its own readers may query"]
+    lines += [
+        f"  {reader:<26}{', '.join(views)}" for reader, views in reader_scopes(name)
+    ] or ["  none"]
+
+    lines += ["", "## Registered in MODULES"]
+    lines += wiring(name) or ["  nothing: this package is assembled by the composition root"]
+
+    lines += ["", "## Opened from outside"]
+    lines += opened_from_outside(package) or ["  none"]
+    return "\n".join(lines)
+
+
 def report() -> str:
     found = violations()
     lines = ["# Architecture metrics", ""]
@@ -730,6 +899,11 @@ def report() -> str:
         f"{sum(1 for _, n in module_sizes() if n > 600)}"
     )
     lines.append(f"  #13 re-export only modules: {len(facade_modules())}")
+    orphans = sorted(name for name, who in readers().items() if not who)
+    lines.append(
+        f"  published views no reader names, which may still be read outside the model: "
+        f"{', '.join(orphans) or 'none'}"
+    )
     lines += ["", "## Import graph"]
     lines.append(f"  edges: {edge_count()}")
     lines.append(f"  cycles: {len(cycles())}")
@@ -741,7 +915,8 @@ def report() -> str:
 
 
 def main() -> None:
-    print(report())
+    """The whole repository by default; one feature's map when it is named."""
+    print(feature_map(sys.argv[1]) if len(sys.argv) > 1 else report())
 
 
 if __name__ == "__main__":

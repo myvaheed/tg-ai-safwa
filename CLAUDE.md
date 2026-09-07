@@ -19,8 +19,8 @@ restructuring history is not required reading.
 | Remove a feature | its `.feature`, `MODULES`, and whoever calls its `api.py` | no command, view, route or test reference left dangling |
 
 [docs/DOMAIN.md](docs/DOMAIN.md) is what a Card, a Check and a Sprint are. `uv run python
-scripts/architecture_metrics.py` prints the module graph and the Definition of Done counts — no
-document is kept in step with it.
+scripts/architecture_metrics.py` prints the module graph and the Definition of Done counts, and
+naming a feature prints that feature's map instead — no document is kept in step with either.
 
 ## Commands
 
@@ -32,6 +32,7 @@ uv run pytest -q
 uv run pytest tests\e2e -q
 uv run ruff check .
 uv run python scripts/architecture_metrics.py
+uv run python scripts/architecture_metrics.py cards   # one feature: its sources, scenarios, tests, views and wiring
 uv run pytest tests\test_cards.py::test_parent_stage_propagation_and_reopen -q
 uv run pytest --brd=DI-DAY-001 -q       # every test citing one scenario; -m brd runs them all
 ```

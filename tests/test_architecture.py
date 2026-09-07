@@ -20,11 +20,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
+from brd_ids import cited_tests
 from sqlalchemy import UniqueConstraint, inspect
 from vocabulary import public_names, words
 
 from safwa.bootstrap.modules import (
     AGENTS,
+    ALLOWED_VIEWS,
     HELPERS,
     PROPOSALS,
     SCREENS,
@@ -38,6 +40,8 @@ from scripts.architecture_metrics import (
     agent_domain_calls,
     business_imports,
     cycles,
+    feature_map,
+    readers,
     unregistered_packages,
 )
 from telegram_llm import DialogueMessage, KindMarks, code_for
@@ -159,6 +163,43 @@ def test_internal_imports_stay_acyclic():
     found = cycles()
 
     assert not found, [" -> ".join([*loop, loop[0]]) for loop in found]
+
+
+# ------------------------------------------------------------------- the feature map
+
+
+def test_publishing_a_view_reaches_no_reader_whose_own_list_leaves_it_out():
+    who = readers()
+
+    assert set(who) == set(ALLOWED_VIEWS)
+    # A Card's history is deliberately the Diary's and the heavy analyzer's, not the
+    # Advisor's, and publishing it beside `ai_cards` is what does not change that.
+    assert who["ai_card_events"] == ("diary", "heavy_analyzer")
+    assert "advisor" in who["ai_cards"]
+
+
+def test_the_map_names_the_scenarios_of_a_feature_and_the_tests_citing_them():
+    printed = feature_map("diary")
+
+    assert "## Scenarios — tests/brd/diary.feature" in printed
+    assert "DI-DAY-001" in printed
+    for test in cited_tests()["DI-DAY-001"]:
+        assert test in printed
+    # The views half is both directions: what it publishes, and what its subagent reads.
+    assert "ai_diary" in printed and "ai_card_events" in printed
+
+
+def test_the_map_names_who_opens_the_feature_from_outside():
+    # What the removal path needs first, and the reason the map says it proves nothing:
+    # this is who imports Cards today, not everything that would break without it.
+    assert "safwa.features.planning.use_cases -> safwa.features.cards.api" in feature_map("cards")
+
+
+def test_the_map_answers_for_a_shell_package_and_refuses_a_name_nothing_registers():
+    assert "tests/brd/tg_agent_shell/proposals.feature" in feature_map("proposals")
+
+    with pytest.raises(SystemExit, match="No such feature"):
+        feature_map("unplugged")
 
 
 # ------------------------------------------------- Rule I: the prompt prefix is stable

@@ -5,6 +5,22 @@ A Safwa feature declares what it contributes once, in its own `module.py`, and
 codebase names a feature: `tests/test_architecture.py` Rule H fails on any module outside
 `features/` that spells an entity out.
 
+## What is in that list
+
+Four roles, and one manifest. They are how to read `MODULES`, not four kinds of module: each
+declares the same `FeatureModule`, and a role is only what its declaration turns out to hold.
+
+| Role | What one owns | In `MODULES` |
+|---|---|---|
+| a domain feature | its own rows, the operations every adapter calls, its screens, and the `ai_*` views it publishes | `cards`, `checks`, `values`, `tags`, `planning`, `retro`, `diary`, `profile`, `reminders`, `saved_requests`, `memory` |
+| a reader or a writer for the model | a subagent or a helper, the views its own list names and the tools it may call — no rows of its own | `workspace_mutator`, `heavy_analyzer`, and the subagent `diary` declares beside its rows |
+| a screen with no rows behind it | a command, the menu, a report the owner reads | `home`, `diagnostics`, `summary` |
+| a process of the shell | a flow the shell runs for every feature, registered the way a feature is | `proposals` |
+
+`features/advisor` is in none of them: it is the persona, the root prompt and `ADVISOR_VIEWS`,
+which [`bootstrap/modules.py`](../src/safwa/bootstrap/modules.py) assembles itself rather than
+plugs in. Rule R names it as the one Safwa package `MODULES` does not register.
+
 ## The manifest
 
 [`telegram/manifest.py`](../src/tg_agent_shell/telegram/manifest.py) holds the wiring DTOs,
@@ -180,9 +196,56 @@ One rule, because the alternative is a reentrancy question with no good answer:
   anything. `sprint_is_due` is the line between the two: it takes an optional `now`, because whether
   a Sprint is over is a decision.
 
-Then one line in `MODULES`. That is the whole edit in central code: the mutation tool and its
-schema, the review screen, the view and its allowlist entry, the routing line, the recovery hook and
-the background task all follow from the declaration.
+## Registering a feature, and integrating with one
+
+Registering is one line in `MODULES`. Integrating is not: a capability the model reaches has a
+publisher and a reader, and the two are separate declarations on purpose. These are the four
+edits that come up, and everywhere each one lands.
+
+**A new feature.** The package above, one line in `MODULES`, and `tests/brd/<name>.feature` with
+a test citing each of its scenarios — Rule R fails on a package the registry leaves out, and
+`tests/test_brd_traceability.py` fails on a package with no scenario file. Everything else is
+derived from the declaration: the view and its allowlist entry, the proposal capability, the
+routing line, the command, the recovery hook and the background task. If it declares a subagent
+or a mutation tool, `tests/snapshots/prompt_prefix.json` gains an entry, which is part of that
+batch.
+
+**A mutation tool for an existing subagent.** The `MutationToolSpec` in the owning feature's
+`agent.py`, registered on its `module.py` — inside a `ProposalContribution` when the entity is
+this feature's, or under `mutation_tools` when the change lands on another feature's entity. Then
+the name goes in that subagent's own `AgentSpec.mutation_tools`, in whichever feature declares
+the subagent: a tool no subagent names is a tool nothing may call, and a subagent naming a tool
+no feature publishes fails the build of the routing rules. The tool's schema is in the prompt
+snapshot.
+
+**A view for a reader.** Publishing is the `SqlView` in the owning feature's `views.py` and its
+entry in that module's `views`, which creates it at startup and puts it in `ALLOWED_VIEWS`.
+**Publishing grants nobody anything.** A reader reaches a view when its own list names it —
+`AgentSpec.views`, `HelperSpec.views`, or `ADVISOR_VIEWS` in `features/advisor/agent.py` — and
+that same list is what its reads are refused against and what fills `{views}` in its prompt. So
+the reader's prompt snapshot changes with it. `ai_card_events` is the shape of this: `cards`
+publishes it beside `ai_cards`, and only the Diary subagent and the heavy analyzer read it.
+
+**A screen in the menu.** A `ScreenCommand` on the feature's `commands` — `command` for `/name`,
+`nav` for a button, `title` for the words on it, and both fields when it is both. Two more
+places: `MENU_LAYOUT` in [`features/home/api.py`](../src/safwa/features/home/api.py) is which row
+the button sits in, and a `ScreenSpec` on `screens` is needed only when the model may open or
+cite that item type. Nothing goes in
+[`telegram/routing.py`](../src/tg_agent_shell/telegram/routing.py): it registers one command
+handler over the list the composition root built.
+
+What one feature is already connected to prints from the scanner, so none of this has to be
+grepped for:
+
+```powershell
+uv run python scripts/architecture_metrics.py cards
+```
+
+It reads the registry, the `.feature` file and the test docstrings, and shows the sources, the
+scenarios and what cites them, the views it publishes with their readers, the views its own
+readers may query, what it declares, and who imports it today. Those are declared links: a
+citation is a test's claim on a scenario rather than proof the scenario is checked through, and
+the import list is who opens the feature now rather than everything that would break without it.
 
 The Diary is the pilot for the complete shape. Its proposal handler and Telegram adapter both call
 `features/diary/use_cases.py`; its agent input model and presentation constants stay inside the
