@@ -5,6 +5,7 @@ from datetime import UTC, datetime, time
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
+from advisor_e2e_helpers import route_turn
 from sqlalchemy import select
 from ui_harness import spawn_timer
 
@@ -51,6 +52,7 @@ def reminder_script(config: dict[str, object], *, instruction: str, when: str):
     finished, so its answer is the last response in the queue.
     """
     return [
+        route_turn("workspace_mutator"),
         turn(("reminder", {"mode": "create", "instruction": instruction, "when": when})),
         "I set that up for you.",
         turn(("set_reminder_config", config), prefix="setup"),
@@ -126,6 +128,7 @@ async def test_an_unresolvable_phrase_becomes_a_retryable_tool_error(e2e_harness
     # `not_clear_enough` must reach the model as a question, never as a guessed hour.
     advisor, provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             turn(
                 (
                     "reminder",
@@ -135,6 +138,7 @@ async def test_an_unresolvable_phrase_becomes_a_retryable_tool_error(e2e_harness
             "Sure.",
             turn(("not_clear_enough", {"reason": "How often, and at what time?"}), prefix="setup"),
             # The preparation error is retryable, so the model gets a repair round.
+            "How often should I remind you, and at what time?",
             "How often should I remind you, and at what time?",
         ]
     )
@@ -173,6 +177,7 @@ async def test_editing_a_reminder_without_when_never_touches_the_schedule(e2e_ha
 
     advisor, _provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             turn(
                 (
                     "reminder",
@@ -337,7 +342,9 @@ async def test_the_model_removes_a_reminder_with_one_save(e2e_harness):
 
     advisor, _provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             turn(("remove", {"entity": "reminder", "id": reminder_id})),
+            "That one is gone.",
             "That one is gone.",
         ]
     )

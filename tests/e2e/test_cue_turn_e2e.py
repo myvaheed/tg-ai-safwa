@@ -10,7 +10,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from advisor_e2e_helpers import create_manual_card, mutation_turn
+from advisor_e2e_helpers import create_manual_card, mutation_turn, route_turn
 from sqlalchemy import func, select
 
 from conftest import ScriptedProvider
@@ -149,7 +149,10 @@ async def test_ag_cue_029_a_cue_turn_cancelled_before_autoapproval_leaves_no_rev
     # The review is open by the time autoapproval is asked about it, so cancelling here is
     # what used to leave a screen nobody could see and a session nothing could answer.
     advisor, provider = e2e_harness.advisor(
-        [mutation_turn(("card", {"mode": "update", "id": card_id, "title": "Buy oat milk"}))],
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(("card", {"mode": "update", "id": card_id, "title": "Buy oat milk"})),
+        ],
         autoapprove=True,
         provider_factory=lambda responses: GatedProvider(
             responses, stop_on=_autoapproval_call

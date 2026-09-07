@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from advisor_e2e_helpers import create_manual_card, mutation_turn
+from advisor_e2e_helpers import create_manual_card, mutation_turn, route_turn
 from sqlalchemy import select
 
 from llm_gateway import CompletionTurn as ProviderTurn
@@ -47,7 +47,7 @@ async def test_ai_creates_an_approved_saved_tag_request(e2e_harness):
             },
         )
     )
-    advisor, _provider = e2e_harness.advisor([response])
+    advisor, _provider = e2e_harness.advisor([route_turn("workspace_mutator"), response])
     outcome = await advisor.handle("Create a Request for my Family actions")
 
     assert outcome.proposal_id is not None
@@ -77,7 +77,7 @@ async def test_ai_request_update_is_rejected_when_the_request_becomes_stale(e2e_
             {"mode": "update", "id": request.id, "description": "Every active Goal."},
         )
     )
-    advisor, _provider = e2e_harness.advisor([response])
+    advisor, _provider = e2e_harness.advisor([route_turn("workspace_mutator"), response])
     outcome = await advisor.handle("Clarify my All goals Request")
 
     async with e2e_harness.sessions() as session:
@@ -118,13 +118,18 @@ async def test_ai_request_with_unsafe_sql_never_becomes_a_proposal(e2e_harness, 
         )
     )
     advisor, provider = e2e_harness.advisor(
-        [response, "That query is not allowed, so I proposed nothing."]
+        [
+            route_turn("workspace_mutator"),
+            response,
+            "That query is not allowed, so I proposed nothing.",
+            "That query is not allowed, so I proposed nothing.",
+        ]
     )
 
     outcome = await advisor.handle("Save a Request over every card")
 
     assert outcome.kind is AIOutcomeKind.ANSWER
-    tool_result = json.loads(str(provider.calls[1][-1]["content"]))
+    tool_result = json.loads(str(provider.calls[2][-1]["content"]))
     assert tool_result["code"] == "unsafe_query"
     assert "read-only SELECT over ai_cards" in tool_result["hint"]
     async with e2e_harness.sessions() as session:
@@ -193,7 +198,7 @@ async def test_ai_request_query_values_and_marks_archived_cards(e2e_harness):
             },
         )
     )
-    advisor, _provider = e2e_harness.advisor([response])
+    advisor, _provider = e2e_harness.advisor([route_turn("workspace_mutator"), response])
     outcome = await advisor.handle("Create a Request for Family value actions")
 
     async with e2e_harness.sessions() as session:
@@ -236,7 +241,7 @@ async def test_ai_request_query_supports_complex_boolean_logic(e2e_harness):
             },
         )
     )
-    advisor, _provider = e2e_harness.advisor([response])
+    advisor, _provider = e2e_harness.advisor([route_turn("workspace_mutator"), response])
     outcome = await advisor.handle("Create an urgent actions Request")
 
     async with e2e_harness.sessions() as session:

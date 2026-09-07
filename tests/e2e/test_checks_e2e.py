@@ -1,9 +1,10 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from types import SimpleNamespace
 
 import pytest
+from advisor_e2e_helpers import route_turn
 from sqlalchemy import select
 from ui_harness import spawn_timer
 
@@ -162,7 +163,9 @@ async def test_completion_is_refused_while_checks_are_pending(e2e_harness):
     card_id, check_ids = await _market_card_with_checks(e2e_harness)
     advisor, provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(("card", {"mode": "complete", "id": card_id})),
+            "You still have Checks to answer on that Card.",
             "You still have Checks to answer on that Card.",
         ]
     )
@@ -171,7 +174,8 @@ async def test_completion_is_refused_while_checks_are_pending(e2e_harness):
 
     # The preparation error is model-visible, retryable, and carries the titles so the
     # model does not need a query_data round to discover them.
-    tool_result = json.loads(provider.calls[-1][-1]["content"])
+    # The routed session is the one that called the tool; the Advisor spoke after it.
+    tool_result = json.loads(provider.calls[-2][-1]["content"])
     assert tool_result["status"] == "error"
     assert tool_result["code"] == "pending_checks"
     assert tool_result["retryable"] is True
@@ -188,10 +192,12 @@ async def test_answering_checks_by_proposal_then_completing(e2e_harness):
     card_id, check_ids = await _market_card_with_checks(e2e_harness)
     advisor, _provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(
                 ("check", {"mode": "complete", "id": check_ids[0]}),
                 ("check", {"mode": "cancel", "id": check_ids[1]}),
             ),
+            "Saved your answers.",
             "Saved your answers.",
         ]
     )
@@ -221,7 +227,12 @@ async def test_answering_checks_by_proposal_then_completing(e2e_harness):
 
     # With nothing Pending the same completion the model was refused now prepares.
     advisor, _provider = e2e_harness.advisor(
-        [mutation_turn(("card", {"mode": "complete", "id": card_id})), "Closed."]
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(("card", {"mode": "complete", "id": card_id})),
+            "Closed.",
+            "Closed.",
+        ]
     )
     second = await advisor.handle("Now close it")
     assert second.proposal_id is not None
@@ -376,9 +387,11 @@ async def test_ai_can_create_and_read_checks(e2e_harness):
 
     advisor, _provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(
                 ("check", {"mode": "create", "title": "Posture straight?", "repeatable": True})
             ),
+            "Added the Check.",
             "Added the Check.",
         ]
     )
@@ -408,7 +421,9 @@ async def test_ai_can_create_and_read_checks(e2e_harness):
     # A second turn attaches it, exactly the way a Value or Tag is attached.
     advisor, _provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(("card", {"mode": "link", "id": card_id, "check_ids": [created_id]})),
+            "Attached it.",
             "Attached it.",
         ]
     )
@@ -443,9 +458,11 @@ async def test_ai_links_a_check_to_a_card_by_title(e2e_harness):
     # the model can attach a Check it has only seen by name.
     advisor, _provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(
                 ("card", {"mode": "link", "id": card_id, "check_query": ["Take the tote bag"]})
             ),
+            "Linked it.",
             "Linked it.",
         ]
     )

@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from advisor_e2e_helpers import create_manual_card, mutation_turn
+from advisor_e2e_helpers import create_manual_card, mutation_turn, route_turn
 from review_e2e_helpers import (
     QueueTestCallback,
     QueueTestHistory,
@@ -43,7 +43,10 @@ async def test_a_review_whose_screen_could_not_be_sent_does_not_stay_open(
 ):
     """SC-FAIL-005 — tests/brd/tg_agent_shell/screens.feature"""
     advisor, _provider = e2e_harness.advisor(
-        [mutation_turn(("tag", {"mode": "create", "name": "VrWalk"}))]
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
+        ]
     )
     outcome = await advisor.handle("Create a VrWalk tag")
     assert outcome.proposal_id is not None
@@ -83,7 +86,10 @@ async def test_a_review_whose_screen_could_not_be_sent_does_not_stay_open(
 async def test_restart_invalidates_an_unanswered_proposal_button(e2e_harness):
     """SC-BUTTON-003 — tests/brd/tg_agent_shell/screens.feature"""
     advisor, provider = e2e_harness.advisor(
-        [mutation_turn(("tag", {"mode": "create", "name": "VrWalk"}))]
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
+        ]
     )
     outcome = await advisor.handle("Create a VrWalk tag")
     assert outcome.proposal_id is not None
@@ -125,14 +131,16 @@ async def test_restart_invalidates_an_unanswered_proposal_button(e2e_harness):
     assert "out of date" in message.rendered[-1]
     assert message.markups[-1] is None
     assert not [alert for _text, alert in callback.answers if alert]
-    assert len(provider.calls) == 1
+    assert len(provider.calls) == 2
 
 
 async def test_a_button_works_once(e2e_harness):
     """SC-BUTTON-003 — tests/brd/tg_agent_shell/screens.feature"""
     advisor, _provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
+            "The VrWalk tag was saved.",
             "The VrWalk tag was saved.",
         ]
     )
@@ -174,7 +182,10 @@ async def test_a_button_works_once(e2e_harness):
 async def test_navigating_away_freezes_the_proposal_into_the_same_outcome_text(e2e_harness):
     """SC-LIVE-001 — tests/brd/tg_agent_shell/screens.feature"""
     advisor, _provider = e2e_harness.advisor(
-        [mutation_turn(("tag", {"mode": "create", "name": "VrWalk"}))]
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
+        ]
     )
     proposal_id = await standalone_tag_proposal(e2e_harness, advisor, "VrWalk")
     message = QueueTestMessage()
@@ -214,7 +225,10 @@ async def test_a_proposal_screen_lists_its_fields_behind_save_and_discard(e2e_ha
         card_id = card.id
 
     advisor, _provider = e2e_harness.advisor(
-        [mutation_turn(("card", {"mode": "update", "id": card_id, "title": "Ship VrWalk"}))]
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(("card", {"mode": "update", "id": card_id, "title": "Ship VrWalk"})),
+        ]
     )
     outcome = await advisor.handle("Rename the release card")
     assert outcome.proposal_id is not None

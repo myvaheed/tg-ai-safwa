@@ -177,6 +177,7 @@ async def test_di_delete_005_missing_day_is_retryable(e2e_harness):
             turn(("route", {"name": "diary"})),
             turn(("diary", {"mode": "delete", "date": TODAY})),
             "За этот день ничего не записано.",
+            "За этот день ничего не записано.",
         ],
         subagents=(diary_subagent(e2e_harness),),
     )

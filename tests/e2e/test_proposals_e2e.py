@@ -4,7 +4,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from advisor_e2e_helpers import create_manual_card, mutation_turn
+from advisor_e2e_helpers import create_manual_card, mutation_turn, route_turn
 from review_e2e_helpers import (
     QueueTestCallback,
     QueueTestHistory,
@@ -101,14 +101,14 @@ async def test_invalid_create_returns_minimal_repair_arguments_to_the_model(e2e_
             },
         )
     )
-    advisor, provider = e2e_harness.advisor([invalid, repaired])
+    advisor, provider = e2e_harness.advisor([route_turn("workspace_mutator"), invalid, repaired])
 
     outcome = await advisor.handle("Сделай один Action: подтянуться 20 раз")
 
     assert outcome.kind is AIOutcomeKind.PROPOSAL
     repair_result = next(
         json.loads(str(message["content"]))
-        for message in provider.calls[1]
+        for message in provider.calls[2]
         if message.get("role") == "tool"
     )
     assert repair_result["code"] == "invalid_arguments"
@@ -155,7 +155,7 @@ async def test_ai_parent_query_sql_resolves_before_card_proposal(e2e_harness):
             },
         )
     )
-    advisor, _provider = e2e_harness.advisor([response])
+    advisor, _provider = e2e_harness.advisor([route_turn("workspace_mutator"), response])
 
     outcome = await advisor.handle("Создай экшен для идеи Реализовать новый Дизайн")
 
@@ -176,6 +176,7 @@ async def test_ai_goal_proposal_reports_a_parent_instead_of_dropping_it(e2e_harn
 
     advisor, _provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(
                 (
                     "card",
@@ -187,6 +188,7 @@ async def test_ai_goal_proposal_reports_a_parent_instead_of_dropping_it(e2e_harn
                     },
                 )
             ),
+            "A Goal has to stay root-level, so I left it there.",
             "A Goal has to stay root-level, so I left it there.",
         ]
     )
@@ -217,6 +219,7 @@ async def test_ai_stage_update_to_done_keeps_completion_accounting(e2e_harness):
 
     advisor, _provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(
                 ("card", {"mode": "update", "id": action_id, "title": "Ship it", "note": "Done"})
             ),
@@ -292,7 +295,13 @@ async def test_multiple_ai_card_creations_are_reviewed_sequentially(e2e_harness)
         ),
     )
     advisor, provider = e2e_harness.advisor(
-        [first_turn, repaired_turn, "The three cards were reviewed."]
+        [
+            route_turn("workspace_mutator"),
+            first_turn,
+            repaired_turn,
+            "The three cards were reviewed.",
+            "The three cards were reviewed.",
+        ]
     )
     current = await advisor.handle("Создай цель Быть здоровым и два действия под нее")
     proposal_ids: list[int] = []
@@ -324,10 +333,10 @@ async def test_multiple_ai_card_creations_are_reviewed_sequentially(e2e_harness)
     assert len(set(proposal_ids)) == 3
     assert current.kind is AIOutcomeKind.ANSWER
     assert "The three cards were reviewed." in current.message
-    assert len(provider.calls) == 3
+    assert len(provider.calls) == 5
     first_results = [
         json.loads(str(message["content"]))
-        for message in provider.calls[1]
+        for message in provider.calls[2]
         if message["role"] == "tool"
     ]
     assert first_results[0]["status"] == "approved"
@@ -340,7 +349,7 @@ async def test_multiple_ai_card_creations_are_reviewed_sequentially(e2e_harness)
     # and result rather than as a digest restated on the assistant turn.
     final_results = [
         json.loads(str(message["content"]))
-        for message in provider.calls[2]
+        for message in provider.calls[3]
         if message["role"] == "tool"
     ]
     assert [result.get("status") for result in final_results] == [
@@ -392,7 +401,12 @@ async def test_current_request_progress_includes_current_card_update_diffs(e2e_h
             },
         )
     )
-    advisor, provider = e2e_harness.advisor([response, "The Action was updated."])
+    advisor, provider = e2e_harness.advisor([
+        route_turn("workspace_mutator"),
+        response,
+        "The Action was updated.",
+        "The Action was updated.",
+    ])
     proposal = await advisor.handle("Move my walk after dinner and make it Rest")
     assert proposal.proposal_id is not None
     async with e2e_harness.sessions() as session:
@@ -407,7 +421,7 @@ async def test_current_request_progress_includes_current_card_update_diffs(e2e_h
 
     assert outcome is not None and outcome.kind is AIOutcomeKind.ANSWER
     saved = json.loads(
-        str(next(message for message in provider.calls[1] if message["role"] == "tool")["content"])
+        str(next(message for message in provider.calls[2] if message["role"] == "tool")["content"])
     )
     assert saved["status"] == "approved"
     assert saved["affected_ids"] == [card.id]
@@ -432,7 +446,12 @@ async def test_child_proposal_fails_cleanly_when_earlier_parent_is_discarded(e2e
         ),
     )
     advisor, provider = e2e_harness.advisor(
-        [response, "The Goal was discarded, so I did not retry its child Action."]
+        [
+            route_turn("workspace_mutator"),
+            response,
+            "The Goal was discarded, so I did not retry its child Action.",
+            "The Goal was discarded, so I did not retry its child Action.",
+        ]
     )
     first = await advisor.handle("Create a health goal and a child action")
     assert first.proposal_id is not None
@@ -448,10 +467,10 @@ async def test_child_proposal_fails_cleanly_when_earlier_parent_is_discarded(e2e
 
     assert second is not None and second.kind is AIOutcomeKind.ANSWER
     assert "did not retry" in second.message
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 4
     continuation_results = [
         json.loads(str(message["content"]))
-        for message in provider.calls[1]
+        for message in provider.calls[2]
         if message["role"] == "tool"
     ]
     assert continuation_results[0]["status"] == "discarded"
@@ -475,7 +494,13 @@ async def test_new_tag_and_dependent_card_link_use_one_repair_round(e2e_harness)
         ("card", {"mode": "link", "id": card.id, "tag_id": 1}),
     )
     advisor, provider = e2e_harness.advisor(
-        [first_turn, repaired_turn, "The Tag was created and linked to the Card."]
+        [
+            route_turn("workspace_mutator"),
+            first_turn,
+            repaired_turn,
+            "The Tag was created and linked to the Card.",
+            "The Tag was created and linked to the Card.",
+        ]
     )
 
     tag_proposal = await advisor.handle("Create VrWalk and link it to Configure environment")
@@ -501,10 +526,10 @@ async def test_new_tag_and_dependent_card_link_use_one_repair_round(e2e_harness)
     )
 
     assert outcome is not None and outcome.kind is AIOutcomeKind.ANSWER
-    assert len(provider.calls) == 3
+    assert len(provider.calls) == 5
     first_continuation_results = [
         json.loads(str(message["content"]))
-        for message in provider.calls[1]
+        for message in provider.calls[2]
         if message["role"] == "tool"
     ]
     assert first_continuation_results[0]["affected_ids"] == [1]
@@ -527,13 +552,17 @@ async def test_mutation_repair_loop_stops_after_five_rounds(e2e_harness):
             },
         )
     )
-    advisor, provider = e2e_harness.advisor([invalid_turn] * 6)
+    advisor, provider = e2e_harness.advisor([
+        route_turn("workspace_mutator"),
+        *([invalid_turn] * 6),
+        "I could not prepare the requested change after five repair attempts. No unfinished operation was applied.",
+    ])
 
     outcome = await advisor.handle("Keep trying an unavailable parent")
 
     assert outcome.kind is AIOutcomeKind.ANSWER
     assert "five repair attempts" in outcome.message
-    assert len(provider.calls) == 6
+    assert len(provider.calls) == 8
     async with e2e_harness.sessions() as session:
         assert len(advisor.reviews.open_proposals) == 0
         assert await session.scalar(select(func.count(Card.id))) == 0
@@ -544,7 +573,7 @@ async def test_ai_approved_tag_proposal_creates_a_reusable_tag(e2e_harness):
     response = mutation_turn(
         ("tag", {"mode": "create", "name": "Learning", "description": "Study and practice."})
     )
-    advisor, _provider = e2e_harness.advisor([response])
+    advisor, _provider = e2e_harness.advisor([route_turn("workspace_mutator"), response])
     outcome = await advisor.handle("Create a Learning tag")
 
     async with e2e_harness.sessions() as session:
@@ -589,7 +618,15 @@ async def test_ai_create_tag_and_links_are_reviewed_as_separate_proposals(e2e_ha
         ("card", {"mode": "link", "id": action.id, "tag_id": 1}),
     )
     advisor, provider = e2e_harness.advisor(
-        [read_turn, response, repaired_turn, "All links are resolved."]
+        # The Advisor reads for itself, then hands the writing over.
+        [
+            read_turn,
+            route_turn("workspace_mutator"),
+            response,
+            repaired_turn,
+            "All links are resolved.",
+            "All links are resolved.",
+        ]
     )
     current = await advisor.handle("Create VrWalk and attach it to my recent cards")
     proposal_ids: list[int] = []
@@ -613,7 +650,7 @@ async def test_ai_create_tag_and_links_are_reviewed_as_separate_proposals(e2e_ha
     assert "✅ Saved — Link Tag “VrWalk” to Goal “Release VrWalk”" in current.message
     assert current.message.count("✅ Saved") == 3
     assert "All links are resolved." in current.message
-    assert len(provider.calls) == 4
+    assert len(provider.calls) == 6
     async with e2e_harness.sessions() as session:
         tag = await session.scalar(select(Tag).where(Tag.name == "VrWalk"))
         assert tag is not None
@@ -635,7 +672,13 @@ async def test_ai_create_value_and_link_are_reviewed_as_separate_proposals(e2e_h
         ("card", {"mode": "link", "id": action.id, "value_id": 1}),
     )
     advisor, provider = e2e_harness.advisor(
-        [response, repaired_turn, "Health is resolved."]
+        [
+            route_turn("workspace_mutator"),
+            response,
+            repaired_turn,
+            "Health is resolved.",
+            "Health is resolved.",
+        ]
     )
     first = await advisor.handle("Create Health and link it to Morning run")
     assert first.proposal_id is not None
@@ -649,7 +692,7 @@ async def test_ai_create_value_and_link_are_reviewed_as_separate_proposals(e2e_h
     )
     assert second is not None and second.proposal_id is not None
     assert second.proposal_id != first.proposal_id
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 3
 
     async with e2e_harness.sessions() as session:
         second_ids = await approve_proposal(session, advisor.reviews, PROPOSALS, second.proposal_id)
@@ -662,7 +705,7 @@ async def test_ai_create_value_and_link_are_reviewed_as_separate_proposals(e2e_h
 
     assert final is not None and "Health is resolved." in final.message
     assert final.message.count("✅ Saved") == 2
-    assert len(provider.calls) == 3
+    assert len(provider.calls) == 5
     async with e2e_harness.sessions() as session:
         value = await session.scalar(select(Value).where(Value.name == "Health"))
         assert value is not None and value.active is True
@@ -675,10 +718,12 @@ async def test_independent_mutations_are_reviewed_in_order_before_one_resume(e2e
     """PR-QUEUE-006 — tests/brd/tg_agent_shell/proposals.feature"""
     advisor, provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(
                 ("tag", {"mode": "create", "name": "VrWalk"}),
                 ("value", {"mode": "create", "name": "Health"}),
             ),
+            "Both decisions are resolved.",
             "Both decisions are resolved.",
         ]
     )
@@ -696,7 +741,7 @@ async def test_independent_mutations_are_reviewed_in_order_before_one_resume(e2e
 
     assert second is not None and second.proposal_id is not None
     assert second.proposal_id != first.proposal_id
-    assert len(provider.calls) == 1
+    assert len(provider.calls) == 2
     async with e2e_harness.sessions() as session:
         second_ids = await approve_proposal(session, advisor.reviews, PROPOSALS, second.proposal_id)
         await session.commit()
@@ -708,9 +753,9 @@ async def test_independent_mutations_are_reviewed_in_order_before_one_resume(e2e
 
     assert final is not None and "Both decisions are resolved." in final.message
     assert final.message.count("✅ Saved") == 2
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 4
     tool_messages = [message for message in provider.calls[1] if message["role"] == "tool"]
-    assert len(tool_messages) == 2
+    assert len(tool_messages) == 0
     assert all('"status": "approved"' in str(message["content"]) for message in tool_messages)
 
 
@@ -718,10 +763,12 @@ async def test_discarded_proposal_result_is_returned_with_later_approval(e2e_har
     """PR-SAVE-010 — tests/brd/tg_agent_shell/proposals.feature"""
     advisor, provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(
                 ("tag", {"mode": "create", "name": "Skip me"}),
                 ("value", {"mode": "create", "name": "Keep me"}),
             ),
+            "I kept only the Value.",
             "I kept only the Value.",
         ]
     )
@@ -749,7 +796,7 @@ async def test_discarded_proposal_result_is_returned_with_later_approval(e2e_har
     assert final is not None and "I kept only the Value." in final.message
     assert "🗑 Discarded — New Tag “Skip me”" in final.message
     assert "✅ Saved — New Value “Keep me”" in final.message
-    tool_messages = [message for message in provider.calls[1] if message["role"] == "tool"]
+    tool_messages = [message for message in provider.calls[2] if message["role"] == "tool"]
     assert '"status": "discarded"' in str(tool_messages[0]["content"])
     assert '"status": "approved"' in str(tool_messages[1]["content"])
 
@@ -758,6 +805,7 @@ async def test_new_dialogue_cancels_every_unresolved_item_in_suspended_batch(e2e
     """PR-INTERRUPT-017 — tests/brd/tg_agent_shell/proposals.feature"""
     advisor, provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(
                 ("tag", {"mode": "create", "name": "VrWalk"}),
                 ("value", {"mode": "create", "name": "Health"}),
@@ -772,7 +820,7 @@ async def test_new_dialogue_cancels_every_unresolved_item_in_suspended_batch(e2e
     # The caller freezes the screen with this text, so it has to name every item.
     assert "🗑 Discarded — New Tag “VrWalk”" in cancelled
     assert "🗑 Discarded — New Value “Health”" in cancelled
-    assert len(provider.calls) == 1
+    assert len(provider.calls) == 2
     async with e2e_harness.sessions() as session:
         proposals = list(advisor.reviews.open_proposals)
         run = await session.scalar(select(AgentRun).order_by(AgentRun.id.desc()))
@@ -817,9 +865,11 @@ async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_h
     )
     advisor, provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             first_turn,
             mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
             link_turn,
+            "VrWalk is now linked to both recent cards.",
             "VrWalk is now linked to both recent cards.",
         ]
     )
@@ -835,7 +885,7 @@ async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_h
         result={"affected_ids": created_tag_ids},
     )
     assert first_link is not None and first_link.proposal_id is not None
-    assert len(provider.calls) == 3
+    assert len(provider.calls) == 4
 
     async with e2e_harness.sessions() as session:
         first_link_ids = await approve_proposal(session, advisor.reviews, PROPOSALS, first_link.proposal_id)
@@ -846,7 +896,7 @@ async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_h
         result={"affected_ids": first_link_ids},
     )
     assert second_link is not None and second_link.proposal_id is not None
-    assert len(provider.calls) == 3
+    assert len(provider.calls) == 4
 
     async with e2e_harness.sessions() as session:
         second_link_ids = await approve_proposal(session, advisor.reviews, PROPOSALS, second_link.proposal_id)
@@ -857,7 +907,7 @@ async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_h
         result={"affected_ids": second_link_ids},
     )
     assert final is not None and final.kind is AIOutcomeKind.ANSWER
-    assert len(provider.calls) == 4
+    assert len(provider.calls) == 6
 
     async with e2e_harness.sessions() as session:
         tag = await session.scalar(select(Tag).where(Tag.name == "VrWalk"))
@@ -881,7 +931,9 @@ async def test_single_tag_proposal_save_and_discard_callbacks_resume_agent(
     """PR-SCREEN-003 — tests/brd/tg_agent_shell/proposals.feature"""
     advisor, provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
+            final_text,
             final_text,
         ]
     )
@@ -917,7 +969,7 @@ async def test_single_tag_proposal_save_and_discard_callbacks_resume_agent(
     assert f"{expected_result} — New Tag “VrWalk”" in message.rendered[-1]
     assert final_text in message.rendered[-1]
     assert message.bot.typing_calls == 1
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 4
 
 
 async def test_read_queries_beside_a_proposal_still_resume_the_agent(e2e_harness):
@@ -931,12 +983,14 @@ async def test_read_queries_beside_a_proposal_still_resume_the_agent(e2e_harness
 
     advisor, provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(
                 ("tag", {"mode": "create", "name": "VrWalk"}),
                 ("query_data", {"sql": "SELECT missing_column FROM ai_cards"}),
                 ("query_data", {"sql": "SELECT id FROM ai_cards"}),
             ),
             mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
+            "The VrWalk tag was saved; I will retry the query.",
             "The VrWalk tag was saved; I will retry the query.",
         ]
     )
@@ -971,10 +1025,10 @@ async def test_read_queries_beside_a_proposal_still_resume_the_agent(e2e_harness
     assert "✅ Saved — New Tag “VrWalk”" in message.rendered[-1]
     assert "The VrWalk tag was saved; I will retry the query." in message.rendered[-1]
     assert "follow-up could not be generated" not in message.rendered[-1]
-    assert len(provider.calls) == 3
+    assert len(provider.calls) == 5
     resumed_query_results = [
         str(item["content"])
-        for item in provider.calls[-1]
+        for item in provider.calls[-2]
         if item.get("role") == "tool" and item.get("name") == "query_data"
     ]
     # The model can only repair the read if the failure came back as a tool result.
@@ -986,6 +1040,7 @@ async def test_discarding_the_last_queued_proposal_still_reports_saved_siblings(
     """PR-SAVE-010 — tests/brd/tg_agent_shell/proposals.feature"""
     advisor, provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(
                 ("card", {"mode": "create", "kind": "action", "title": "First", "effort_points": 3}),
                 (
@@ -993,6 +1048,7 @@ async def test_discarding_the_last_queued_proposal_still_reports_saved_siblings(
                     {"mode": "create", "kind": "action", "title": "Second", "effort_points": 5},
                 ),
             ),
+            "Handled both proposals.",
             "Handled both proposals.",
         ]
     )
@@ -1025,7 +1081,7 @@ async def test_discarding_the_last_queued_proposal_still_reports_saved_siblings(
     assert "✅ Saved — New Action “First”" in final_text
     assert "🗑 Discarded — New Action “Second”" in final_text
     assert "Handled both proposals." in final_text
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 4
 
 
 async def test_failed_call_result_states_that_its_siblings_are_still_queued(e2e_harness):
@@ -1036,6 +1092,7 @@ async def test_failed_call_result_states_that_its_siblings_are_still_queued(e2e_
 
     advisor, _provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(
                 ("tag", {"mode": "create", "name": "VrWalk"}),
                 ("card", {"mode": "link", "id": card.id, "tag_query": "VrWalk"}),
@@ -1059,6 +1116,7 @@ async def test_new_message_discarding_a_queue_reports_what_was_already_saved(e2e
     """PR-INTERRUPT-018 — tests/brd/tg_agent_shell/proposals.feature"""
     advisor, provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(
                 ("card", {"mode": "create", "kind": "action", "title": "First", "effort_points": 3}),
                 (
@@ -1105,7 +1163,7 @@ async def test_new_message_discarding_a_queue_reports_what_was_already_saved(e2e
     assert frozen.count("🗑 Discarded") == 2
     assert "First" in frozen
     assert "Walk straight" not in frozen
-    assert len(provider.calls) == 1
+    assert len(provider.calls) == 2
     async with e2e_harness.sessions() as session:
         titles = set(await session.scalars(select(Card.title)))
     assert titles == {"First"}
@@ -1119,10 +1177,12 @@ async def test_proposal_ui_queues_mutations_and_reports_dependency_failure(e2e_h
 
     advisor, provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(
                 ("tag", {"mode": "create", "name": "VrWalk"}),
                 ("card", {"mode": "link", "id": card.id, "tag_query": "VrWalk"}),
             ),
+            "Finished processing the proposals.",
             "Finished processing the proposals.",
         ]
     )
@@ -1162,7 +1222,7 @@ async def test_proposal_ui_queues_mutations_and_reports_dependency_failure(e2e_h
     assert "⚠️ Failed — Link Tag “VrWalk”" not in final_text
     assert "was not found" not in final_text
     assert "Finished processing the proposals." in final_text
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 4
     async with e2e_harness.sessions() as session:
         proposal = advisor.reviews.proposal(first.proposal_id)
         tag = await session.scalar(select(Tag).where(Tag.name == "VrWalk"))
@@ -1179,7 +1239,10 @@ async def test_single_proposal_save_error_is_reported_and_resolved(e2e_harness):
         await session.commit()
 
     advisor, provider = e2e_harness.advisor(
-        [mutation_turn(("tag", {"mode": "create", "name": "vrwalk"}))]
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(("tag", {"mode": "create", "name": "vrwalk"})),
+        ]
     )
     outcome = await advisor.handle("Create a VrWalk tag")
     assert outcome.proposal_id is not None
@@ -1219,7 +1282,7 @@ async def test_single_proposal_save_error_is_reported_and_resolved(e2e_harness):
     assert "⚠️ Failed — New Tag “vrwalk”" in message.rendered[-1]
     assert "already exists" in message.rendered[-1]
     assert "follow-up could not be generated" in message.rendered[-1]
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 3
 
 
 @pytest.mark.parametrize(
@@ -1235,7 +1298,10 @@ async def test_single_tag_callback_never_leaves_dead_buttons_when_follow_up_fail
     resolved_text,
 ):
     advisor, provider = e2e_harness.advisor(
-        [mutation_turn(("tag", {"mode": "create", "name": "VrWalk"}))]
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
+        ]
     )
     outcome = await advisor.handle("Create a VrWalk tag")
     assert outcome.proposal_id is not None
@@ -1265,7 +1331,7 @@ async def test_single_tag_callback_never_leaves_dead_buttons_when_follow_up_fail
     assert proposal is None
     assert resolved_text in message.rendered[-1]
     assert "follow-up could not be generated" in message.rendered[-1]
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 3
 
 
 async def test_a_new_card_receipt_names_every_field_that_was_chosen(e2e_harness):
@@ -1276,6 +1342,7 @@ async def test_a_new_card_receipt_names_every_field_that_was_chosen(e2e_harness)
 
     advisor, _ = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(
                 (
                     "card",
@@ -1306,8 +1373,10 @@ async def test_a_new_card_receipt_names_every_field_that_was_chosen(e2e_harness)
 
 async def test_a_backlog_card_receipt_says_nothing_about_its_stage(e2e_harness):
     advisor, _ = e2e_harness.advisor(
-        [mutation_turn(("card", {"mode": "create", "kind": "goal", "title": "Быть здоровым"}))]
-    )
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(("card", {"mode": "create", "kind": "goal", "title": "Быть здоровым"})),
+        ]    )
     outcome = await advisor.handle("Заведи цель")
 
     async with e2e_harness.sessions() as session:
@@ -1322,8 +1391,10 @@ async def test_application_owned_saved_receipt_is_rendered_once_when_model_echoe
     receipt = f"✅ Saved — New Goal “{title}”"
     advisor, provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(("card", {"mode": "create", "kind": "goal", "title": title})),
             f"{receipt}\n\nГотово! Твоя вторая цель добавлена.",
+            "Готово! Твоя вторая цель добавлена.",
         ]
     )
 
@@ -1343,7 +1414,7 @@ async def test_application_owned_saved_receipt_is_rendered_once_when_model_echoe
     assert final.message.startswith(receipt)
     assert final.message.count(receipt) == 1
     assert "Готово! Твоя вторая цель добавлена." in final.message
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 4
 
 
 @pytest.mark.parametrize(
@@ -1358,7 +1429,10 @@ async def test_a_resolved_proposal_leaves_one_readable_line_in_the_dialogue(
 ):
     """PR-RESULT-011 — tests/brd/tg_agent_shell/proposals.feature"""
     advisor, _provider = e2e_harness.advisor(
-        [mutation_turn(("tag", {"mode": "create", "name": "VrWalk"}))]
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
+        ]
     )
     proposal_id = await standalone_tag_proposal(e2e_harness, advisor, "VrWalk")
     message = QueueTestMessage()
@@ -1395,6 +1469,7 @@ async def test_one_call_setting_several_fields_is_one_proposal(e2e_harness):
     """PR-QUEUE-005 — tests/brd/tg_agent_shell/proposals.feature"""
     advisor, _provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(
                 (
                     "card",
@@ -1435,11 +1510,13 @@ async def test_saving_one_proposal_leaves_the_queued_ones_saveable(e2e_harness):
 
     advisor, provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(
                 ("card", {"mode": "update", "id": card_id, "title": "Ship VrWalk"}),
                 ("card", {"mode": "update", "id": card_id, "note": "cut the branch"}),
                 ("card", {"mode": "update", "id": card_id, "effort_points": 5}),
             ),
+            "All three edits are saved.",
             "All three edits are saved.",
         ]
     )
@@ -1463,7 +1540,7 @@ async def test_saving_one_proposal_leaves_the_queued_ones_saveable(e2e_harness):
     assert card.title == "Ship VrWalk"
     assert card.note == "cut the branch"
     assert card.effort_points == 5
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 4
 
 
 async def test_deleting_a_card_asks_once_more_before_it_goes(e2e_harness):
@@ -1476,10 +1553,12 @@ async def test_deleting_a_card_asks_once_more_before_it_goes(e2e_harness):
 
     advisor, _provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(
                 ("remove", {"mode": "delete", "entity": "card", "id": card_id}),
                 ("remove", {"mode": "delete", "entity": "tag", "id": tag_id}),
             ),
+            "Both are gone.",
             "Both are gone.",
         ]
     )

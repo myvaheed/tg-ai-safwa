@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from advisor_e2e_helpers import create_manual_card, mutation_turn
+from advisor_e2e_helpers import create_manual_card, mutation_turn, route_turn
 from sqlalchemy import func, select
 
 from llm_gateway import CompletionTurn as ProviderTurn
@@ -63,7 +63,7 @@ async def test_placeholder_heavy_card_tool_payload_stays_a_root_action(e2e_harne
             },
         )
     )
-    advisor, _provider = e2e_harness.advisor([response])
+    advisor, _provider = e2e_harness.advisor([route_turn("workspace_mutator"), response])
 
     outcome = await advisor.handle("Сделай один Action: подтянуться 20 раз")
 
@@ -90,14 +90,19 @@ async def test_ai_parent_query_rejects_non_ai_card_sql(
         )
     )
     advisor, provider = e2e_harness.advisor(
-        [response, "I could not safely resolve that parent, so nothing was proposed."]
+        [
+            route_turn("workspace_mutator"),
+            response,
+            "I could not safely resolve that parent, so nothing was proposed.",
+            "I could not safely resolve that parent, so nothing was proposed.",
+        ]
     )
 
     outcome = await advisor.handle("Create an action under that parent")
 
     assert outcome.kind is AIOutcomeKind.ANSWER
-    assert len(provider.calls) == 2
-    tool_result = json.loads(str(provider.calls[1][-1]["content"]))
+    assert len(provider.calls) == 4
+    tool_result = json.loads(str(provider.calls[2][-1]["content"]))
     assert tool_result["code"] == "unsafe_query"
     assert "read-only SELECT over ai_cards" in tool_result["hint"]
 
@@ -134,14 +139,14 @@ async def test_ai_card_proposal_reaches_the_sprint_it_was_planned_into(e2e_harne
             },
         )
     )
-    advisor, provider = e2e_harness.advisor([response])
+    advisor, provider = e2e_harness.advisor([route_turn("workspace_mutator"), response])
     outcome: AIOutcome = await advisor.handle(
         "Please create a new action Push ups 30 times and link it to To be fit goal"
     )
 
     assert outcome.kind is AIOutcomeKind.PROPOSAL
     assert outcome.proposal_id is not None
-    assert len(provider.calls) == 1
+    assert len(provider.calls) == 2
     assert not provider.responses
 
     async with e2e_harness.sessions() as session:
@@ -319,14 +324,14 @@ async def test_read_and_mutation_in_one_turn_rejects_only_the_mutation(e2e_harne
         ("card", {"mode": "create", "kind": "goal", "title": "Be healthy"}),
         prefix="after-read",
     )
-    advisor, provider = e2e_harness.advisor([mixed, repaired])
+    advisor, provider = e2e_harness.advisor([route_turn("workspace_mutator"), mixed, repaired])
 
     outcome = await advisor.handle("Inspect my cards, then create the unrelated health goal")
 
     assert outcome.proposal_id is not None
     tool_results = {
         item["name"]: json.loads(item["content"])
-        for item in provider.calls[1]
+        for item in provider.calls[2]
         if item.get("role") == "tool"
     }
     assert isinstance(tool_results["query_data"], list)
@@ -481,8 +486,10 @@ async def test_mixed_query_and_mutation_resumes_only_after_approval(e2e_harness)
     )
     advisor, provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mixed_turn,
             mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
+            "The tag was saved.",
             "The tag was saved.",
         ]
     )
@@ -490,7 +497,7 @@ async def test_mixed_query_and_mutation_resumes_only_after_approval(e2e_harness)
     outcome = await advisor.handle("Create VrWalk and tag my recent cards")
 
     assert outcome.proposal_id is not None
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 3
     async with e2e_harness.sessions() as session:
         affected = await approve_proposal(session, advisor.reviews, PROPOSALS, outcome.proposal_id)
         await session.commit()
@@ -504,14 +511,14 @@ async def test_mixed_query_and_mutation_resumes_only_after_approval(e2e_harness)
     assert resumed is not None and resumed.kind is AIOutcomeKind.ANSWER
     assert "✅ Saved — New Tag “VrWalk”" in resumed.message
     assert "The tag was saved." in resumed.message
-    assert len(provider.calls) == 3
-    tool_messages = [message for message in provider.calls[1] if message["role"] == "tool"]
+    assert len(provider.calls) == 5
+    tool_messages = [message for message in provider.calls[2] if message["role"] == "tool"]
     assert [message["name"] for message in tool_messages] == ["tag", "query_data"]
     assert "mixed_read_and_mutation_tools" in str(tool_messages[0]["content"])
     assert f'"id": {card.id}' in str(tool_messages[1]["content"])
     approved_messages = [
         message
-        for message in provider.calls[2]
+        for message in provider.calls[3]
         if message["role"] == "tool" and message["name"] == "tag"
     ]
     assert '"status": "approved"' in str(approved_messages[-1]["content"])
@@ -530,6 +537,7 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
     """
     advisor, provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(("card", {"mode": "create", "kind": "goal", "title": "Быть здоровым"})),
             ProviderTurn(
                 content="",
@@ -553,6 +561,7 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
                 ),
                 prefix="second",
             ),
+            "Цель и задача готовы.",
             "Цель и задача готовы.",
         ]
     )
@@ -587,8 +596,8 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
     )
 
     assert final is not None and "Цель и задача готовы." in final.message
-    assert len(provider.calls) == 4
-    last = provider.calls[3]
+    assert len(provider.calls) == 6
+    last = provider.calls[4]
     # The workspace session's context: its prompt, the workspace state, the conversation, then
     # every step it already took for this request.
     assert [message["role"] for message in last] == [
@@ -620,7 +629,10 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
 async def test_suspended_batch_persists_the_request_dialogue_and_transcript(e2e_harness):
     """AG-SESSION-008 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, _provider = e2e_harness.advisor(
-        [mutation_turn(("tag", {"mode": "create", "name": "VrWalk"}))]
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
+        ]
     )
     outcome = await advisor.handle(
         "Create a VrWalk tag",
@@ -643,6 +655,7 @@ async def test_the_tool_call_budget_is_carried_across_an_approval(e2e_harness):
     """AG-BUDGET-011 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, _provider = e2e_harness.advisor(
         [
+            route_turn("workspace_mutator"),
             mutation_turn(("tag", {"mode": "create", "name": "Budget"})),
             mutation_turn(("tag", {"mode": "create", "name": "Overrun"})),
         ]
@@ -673,7 +686,10 @@ async def test_the_tool_call_budget_is_carried_across_an_approval(e2e_harness):
 
 async def test_a_session_can_only_be_claimed_once(e2e_harness):
     advisor, _provider = e2e_harness.advisor(
-        [mutation_turn(("tag", {"mode": "create", "name": "Claimed"}))]
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(("tag", {"mode": "create", "name": "Claimed"})),
+        ]
     )
     assert (await advisor.handle("Create a Claimed tag")).proposal_id is not None
 

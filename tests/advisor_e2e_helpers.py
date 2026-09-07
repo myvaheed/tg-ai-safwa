@@ -21,6 +21,18 @@ async def create_manual_card(session, **overrides) -> Card:
     return await create_card(session, **payload)
 
 
+def route_turn(name: str) -> ProviderTurn:
+    """The Advisor handing its turn to a subagent, which a script says for itself."""
+    return ProviderTurn(
+        content="",
+        tool_calls=(
+            ProviderToolCall(
+                id=f"route-{name}", name="route", arguments_json=json.dumps({"name": name})
+            ),
+        ),
+    )
+
+
 def mutation_turn(
     *calls: tuple[str, dict[str, object]], prefix: str = "mutation"
 ) -> ProviderTurn:

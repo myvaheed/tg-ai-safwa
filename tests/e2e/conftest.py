@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -9,7 +8,7 @@ from pathlib import Path
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
+from llm_gateway import CompletionRequest, CompletionTurn
 from safwa.bootstrap.main import bootstrap_workspace
 from safwa.bootstrap.modules import (
     AGENTS,
@@ -38,34 +37,20 @@ from tg_agent_shell.telegram.manifest import AgentContext
 class ScriptedProvider:
     """Deterministic OpenAI-compatible boundary used by isolated E2E tests.
 
-    A scripted response names the tools it calls, so the session it belongs to is known:
-    when the next response asks for a tool this session was not offered, the model would
-    have to `route` first, and so does this — with the scripted response left in place for
-    the session that *can* run it.  Those synthetic hand-offs stay out of ``calls`` and
-    ``options``, which record what the script itself saw.
+    The script is the whole of what the model says: one response per request, in order,
+    with no transition supplied here.  A turn that needs a `route` says so, and a routed
+    turn ends with the Advisor's own last word, because the run under test is the one the
+    application makes and not one this class repaired.  A request the script does not
+    answer fails the test rather than being answered anyway.
     """
 
     def __init__(self, responses: list[str | CompletionTurn]) -> None:
         self.responses = deque(responses)
         self.calls: list[list[dict[str, object]]] = []
         self.options: list[dict[str, object]] = []
-        # Every request the application made, synthetic hand-offs included. A turn that runs
-        # twice is invisible in ``calls`` — the harness answers the repeat itself — and shows
-        # up here.
-        self.total = 0
 
     async def complete(self, request: CompletionRequest) -> CompletionTurn:
-        self.total += 1
-        messages = request.messages
-        offered = {tool["function"]["name"] for tool in request.tools}
-        handover = self._handover(self.responses[0], offered) if self.responses else None
-        if handover is not None:
-            return handover
-        if not self.responses:
-            closing = self._closing_answer(messages, offered)
-            if closing is not None:
-                return closing
-        self.calls.append([dict(message) for message in messages])
+        self.calls.append([dict(message) for message in request.messages])
         self.options.append({"tools": list(request.tools), "tool_choice": request.tool_choice})
         if not self.responses:
             raise AssertionError("The advisor made an unexpected provider call")
@@ -74,46 +59,6 @@ class ScriptedProvider:
 
     async def aclose(self) -> None:
         return None
-
-    @staticmethod
-    def _closing_answer(
-        messages: list[dict[str, object]], offered: set[str]
-    ) -> CompletionTurn | None:
-        """The Advisor's last word when a script covers only the subagent's work.
-
-        `route` returns to its caller, so every routed script would otherwise end with one
-        more response repeating what the subagent already said.  The harness says it
-        instead, in the subagent's own words, and stays out of ``calls`` and ``options``.
-        """
-        if "route" not in offered or not messages:
-            return None
-        last = messages[-1]
-        if last.get("role") != "tool" or last.get("name") != "route":
-            return None
-        try:
-            payload = json.loads(str(last.get("content") or "{}"))
-        except json.JSONDecodeError:
-            return None
-        return CompletionTurn(content=str(payload.get("text") or ""))
-
-    @staticmethod
-    def _handover(response: str | CompletionTurn, offered: set[str]) -> CompletionTurn | None:
-        if "route" not in offered or not isinstance(response, CompletionTurn):
-            return None
-        wanted = {call.name for call in response.tool_calls}
-        if not wanted or wanted <= offered or "call_helper" in wanted:
-            return None
-        target = "diary" if wanted & {"read_day", "diary"} else "workspace_mutator"
-        return CompletionTurn(
-            content="",
-            tool_calls=(
-                ToolCall(
-                    id=f"route-{target}",
-                    name="route",
-                    arguments_json=json.dumps({"name": target}),
-                ),
-            ),
-        )
 
 
 TIMEZONE = "Europe/Istanbul"

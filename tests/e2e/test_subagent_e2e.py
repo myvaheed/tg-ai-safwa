@@ -5,6 +5,7 @@ import json
 from datetime import date
 
 import pytest
+from advisor_e2e_helpers import route_turn
 from sqlalchemy import select
 
 from llm_gateway import CompletionTurn as ProviderTurn
@@ -155,7 +156,7 @@ async def test_an_autoapproved_board_route_hands_back_its_receipt(e2e_harness):
     # Five turns are scripted and five are made. An automatic Save resolves a screen that is
     # already suspended, so resuming the workspace session and then the Advisor is the only way
     # either of them runs again — not a second pass through the turn that opened it.
-    assert provider.total == 5
+    assert len(provider.calls) == 5
     async with e2e_harness.sessions() as session:
         stored = await session.get(Card, card.id)
         runs = list(await session.scalars(select(AgentRun).order_by(AgentRun.id)))
@@ -306,13 +307,13 @@ async def test_a_subagent_reads_the_tail_of_the_conversation_as_tagged_data(e2e_
         for index in range(12)
     ]
     advisor, provider = e2e_harness.advisor(
-        [turn(("tag", {"mode": "create", "name": "VrWalk"}))],
+        [route_turn("workspace_mutator"), turn(("tag", {"mode": "create", "name": "VrWalk"}))],
         subagents=(e2e_harness.subagent("workspace_mutator"),),
     )
 
     await advisor.handle("Заведи тег VrWalk", dialogue=dialogue)
 
-    board_seen = [item for item in provider.calls[0] if item["role"] == "user"]
+    board_seen = [item for item in provider.calls[1] if item["role"] == "user"]
     assert len(board_seen) == 1
     conversation = str(board_seen[0]["content"])
     assert conversation.startswith("[System]: Current workspace state:")
@@ -321,20 +322,20 @@ async def test_a_subagent_reads_the_tail_of_the_conversation_as_tagged_data(e2e_
     assert "сообщение 0" not in conversation
     assert "<User>сообщение 2</User>" in conversation
     assert "<Advisor>ответ 11</Advisor>" in conversation
-    assert not [item for item in provider.calls[0] if item["role"] == "assistant"]
+    assert not [item for item in provider.calls[1] if item["role"] == "assistant"]
 
 
 async def test_a_subagent_is_required_to_open_with_a_tool_call(e2e_harness):
     """AG-ANSWER-014 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, provider = e2e_harness.advisor(
-        [turn(("tag", {"mode": "create", "name": "VrWalk"}))],
+        [route_turn("workspace_mutator"), turn(("tag", {"mode": "create", "name": "VrWalk"}))],
         subagents=(e2e_harness.subagent("workspace_mutator"),),
     )
 
     await advisor.handle("Заведи тег VrWalk")
 
     # The Advisor may answer in words; the session routed to for the work may not.
-    assert provider.options[0]["tool_choice"] == "required"
+    assert provider.options[1]["tool_choice"] == "required"
 
 
 async def test_route_cannot_share_its_response_with_another_call(e2e_harness):
@@ -731,7 +732,8 @@ async def test_every_session_reads_through_the_one_door_and_no_one_declares_it_t
 ) -> None:
     """`query_data` comes from the adapters, so the Advisor and a subagent share one door."""
     advisor, _ = e2e_harness.advisor(
-        ["Готово."], subagents=(e2e_harness.subagent("workspace_mutator"), diary_subagent(e2e_harness))
+        ["Готово."],
+        subagents=(e2e_harness.subagent("workspace_mutator"), diary_subagent(e2e_harness)),
     )
 
     for kind in ("advisor", "workspace_mutator", "diary"):
@@ -768,3 +770,21 @@ async def test_ag_read_027_each_reader_reaches_only_the_views_its_own_list_names
         answered[reader] = not (rows and rows[0].get("code") == "unsafe_query")
 
     assert answered == {"advisor": False, "workspace_mutator": False, "diary": True}
+
+
+async def test_a_script_that_leaves_a_step_out_fails_rather_than_being_repaired(e2e_harness):
+    """The harness supplies no transition of its own, so a gap in a script is a failure."""
+    # No `route`: the Advisor holds no `tag`, so the call is refused and it is asked again
+    # with nothing left to answer — the run is not repaired into the one that was meant.
+    unrouted, _ = e2e_harness.advisor([turn(("tag", {"mode": "create", "name": "VrWalk"}))])
+    with pytest.raises(AssertionError, match="unexpected provider call"):
+        await unrouted.handle("Заведи тег VrWalk")
+
+    # No last word: `route` returns to the Advisor, and the Advisor is the only one who
+    # writes to the chat, so a script that stops at the subagent stops one turn early.
+    speechless, _ = e2e_harness.advisor(
+        [route_turn("diary"), turn(("read_day", {}), prefix="diary"), "Прочитал тот день."],
+        subagents=(diary_subagent(e2e_harness),),
+    )
+    with pytest.raises(AssertionError, match="unexpected provider call"):
+        await speechless.handle("Что было вчера?")
