@@ -32,7 +32,14 @@ class BackgroundWork:
 
     It carries no source message and no notice: nothing in the chat says it is happening,
     and there is nothing to take back out when it ends.
+
+    `task` is the work itself, so cancelling this lease stops it rather than only marking
+    what it produces stale. `revision` is the lease's own name: the work that took it gives
+    back that lease and never the one handed to somebody else after it was cancelled.
     """
+
+    revision: int = 0
+    task: asyncio.Task[Any] | None = None
 
 
 type TurnState = Idle | Answering | BackgroundWork

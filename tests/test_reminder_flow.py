@@ -267,7 +267,7 @@ def test_releasing_a_background_lease_gives_the_turn_back():
     """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
     turn = TurnManager()
     turn.try_begin_background()
-    turn.end_background()
+    turn.end_background(turn.dialogue_revision)
     assert not turn.active and not turn.background
 
 
@@ -287,10 +287,47 @@ def test_ending_background_work_cannot_take_the_owners_turn():
     """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
     turn = TurnManager()
     turn.try_begin_background()
+    lease = turn.dialogue_revision
     turn.cancel()
     turn.try_begin(101)
-    turn.end_background()
+    turn.end_background(lease)
     assert turn.source_message_id == 101
+
+
+def test_old_background_work_never_gives_back_a_lease_taken_by_something_else():
+    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
+    turn = TurnManager()
+    turn.try_begin_background()
+    lease = turn.dialogue_revision
+    turn.cancel()
+    # A second piece of work took the turn while the first was still finishing.
+    assert turn.try_begin_background() is True
+    turn.end_background(lease)
+    assert turn.background is True
+
+
+async def test_cancelling_background_work_stops_it_and_not_whoever_waits_for_it():
+    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
+    turn = TurnManager()
+    started, stopped = asyncio.Event(), asyncio.Event()
+
+    async def work(still_current) -> str:
+        started.set()
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            stopped.set()
+            raise
+        return "written"
+
+    waiting = asyncio.create_task(turn.run_background(work))
+    await asyncio.wait_for(started.wait(), timeout=5)
+    turn.cancel()
+
+    # The work is over and the poll that was waiting for it carries on to its next tick.
+    assert await asyncio.wait_for(waiting, timeout=5) is None
+    assert stopped.is_set()
+    assert not turn.active
 
 
 # --- cue text ------------------------------------------------------

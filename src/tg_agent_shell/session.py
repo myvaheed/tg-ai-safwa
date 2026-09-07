@@ -11,6 +11,7 @@ its own: what it says it is, and what the world looks like to it, are handed in.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
@@ -183,7 +184,15 @@ class RootSession:
             return answer
         # The screens this turn opened are answered by naming the session it suspended.
         self.reviews.wait_on(outcome.ref.run_id, outcome.ref.token)
-        return await self.materializer.advance_autoapprovals(answer)
+        try:
+            return await self.materializer.advance_autoapprovals(answer)
+        except asyncio.CancelledError:
+            # The turn was stopped while autoapproval was deciding. Its review is its own,
+            # and no screen for it ever reached the chat, so it ends with the turn instead
+            # of standing open for a decision nobody can make.
+            if answer.proposal_id is not None:
+                await self.cancel_approval_for_proposal(answer.proposal_id)
+            raise
 
     async def describe_proposal(
         self, session: AsyncSession, proposal_id: int

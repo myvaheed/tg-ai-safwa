@@ -120,6 +120,11 @@ async def test_a_request_returns_each_card_once(sessions):
         # A Request runs on the ordinary session, under no authorizer, so the shared
         # validator is the whole of what stops it naming a table nothing published.
         "SELECT id FROM cards WHERE 'WITH cards AS (' <> ''",
+        # Both rules are asked of the statement, not of its text: the id here belongs to a
+        # CTE nobody selects it from, and the Cards here are named inside a string.
+        "WITH c AS (SELECT id FROM ai_cards) SELECT 1 AS amount FROM c",
+        "SELECT id FROM ai_values WHERE name <> 'ai_cards'",
+        "SELECT id, missing FROM ai_cards",
     ],
 )
 async def test_saved_request_rejects_non_read_or_non_card_queries(sessions, query_sql):
@@ -128,6 +133,30 @@ async def test_saved_request_rejects_non_read_or_non_card_queries(sessions, quer
         with pytest.raises(DomainError):
             await create_saved_request(session, "Unsafe request", query_sql, views=ALLOWED_VIEWS)
         assert list(await session.scalars(select(SavedRequest))) == []
+
+
+async def test_a_query_is_checked_by_its_columns_and_not_by_what_it_matches(sessions):
+    """SR-SQL-004 — tests/brd/saved_requests.feature"""
+    # Nothing is stored for the refused query, and a query over an empty workspace is not
+    # refused for coming back with no rows: an empty result has columns like any other.
+    async with sessions() as session:
+        with pytest.raises(DomainError, match="column named id"):
+            await create_saved_request(
+                session,
+                "Amounts",
+                "WITH c AS (SELECT id FROM ai_cards) SELECT 1 AS amount FROM c",
+                views=ALLOWED_VIEWS,
+            )
+        assert list(await session.scalars(select(SavedRequest))) == []
+
+        request = await create_saved_request(
+            session,
+            "Nothing yet",
+            "SELECT c.id FROM ai_cards c WHERE c.kind = 'goal'",
+            views=ALLOWED_VIEWS,
+        )
+        await session.commit()
+        assert await request_cards(session, request.query_sql, ALLOWED_VIEWS) == []
 
 
 async def test_a_stored_statement_is_checked_again_before_it_runs(sessions):

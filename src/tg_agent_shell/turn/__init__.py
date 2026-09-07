@@ -7,6 +7,6 @@ already has.
 
 from __future__ import annotations
 
-from .manager import TurnManager
+from .manager import TurnManager, own_cancellation
 
-__all__ = ["TurnManager"]
+__all__ = ["TurnManager", "own_cancellation"]

@@ -6,6 +6,7 @@ and what comes back is the Advisor's own answer.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 
@@ -15,11 +16,13 @@ from sqlalchemy import func, select
 
 from telegram_llm import DialogueMessage
 
+from ..ai.outcome import AIOutcome
 from ..ai.runs import AgentRun
 from ..foundation.kinds import MessageKind
 from ..history import TelegramMessage
 from ..proposals.telegram import render_ai_outcome
 from ..telegram import Services
+from ..turn import own_cancellation
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +67,10 @@ class CueRuntime:
         )
 
     def release(self) -> None:
-        self.services.turn.end_background()
-        self._lease_revision = None
+        """Give back the lease this runtime took, if it took one and still holds it."""
+        if self._lease_revision is not None:
+            self.services.turn.end_background(self._lease_revision)
+            self._lease_revision = None
 
     async def speak(self, event_id: str, text: str) -> bool:
         """Run one Advisor turn over the request. Returns whether the answer was delivered.
@@ -91,9 +96,23 @@ class CueRuntime:
             dialogue = [*dialogue, DialogueMessage(role="user", content=text)]
             if not self.still_current():
                 return False
-            outcome = await self.services.root.handle(text, dialogue=dialogue)
-            if not self.still_current():
-                # The owner arrived mid-turn and took the turn. Their message wins.
+            # The turn is its own task, so the lease that was taken for it is what stops
+            # it: the owner arriving ends the provider traffic instead of paying for an
+            # answer nobody will read.
+            turn = self.services.turn.start_background(
+                self.services.root.handle(text, dialogue=dialogue)
+            )
+            try:
+                outcome = await turn
+            except asyncio.CancelledError:
+                if own_cancellation():
+                    raise
+                outcome = None
+            if outcome is None or not self.still_current():
+                # The owner arrived mid-turn and took the turn. Their message wins, and a
+                # review this turn had already opened ends with it rather than standing in
+                # the store with nothing on screen.
+                await self._end_unseen_review(outcome)
                 return False
             # CUE keeps the answer in dialogue while marking it as something the model
             # volunteered, not a reply to a message that is not there.
@@ -110,6 +129,19 @@ class CueRuntime:
             # the Cue row remains, and the next tick retries the whole turn.
             logger.exception("A Cue failed to reach the owner")
             return False
+
+    async def _end_unseen_review(self, outcome: AIOutcome | None) -> None:
+        """End the review a turn that lost the chat left open, the way an undrawn one ends.
+
+        Nothing else can answer it: no screen for it ever reached the chat, and the store
+        it stands in is what holds the Cue gate shut for the life of the process.
+        """
+        if outcome is None or outcome.proposal_id is None:
+            return
+        try:
+            await self.services.root.cancel_approval_for_proposal(outcome.proposal_id)
+        except Exception:
+            logger.exception("Could not end a review the owner's arrival cut short")
 
     def _anchor(self) -> Message:
         """A stand-in for the message that would normally have started this turn.

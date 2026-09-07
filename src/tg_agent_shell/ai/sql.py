@@ -18,7 +18,7 @@ import sqlite3
 import time
 from collections.abc import Collection, Sequence
 from copy import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -116,9 +116,25 @@ def _unquoted(token: str) -> str:
     return token
 
 
-def scan_statement(statement: str) -> tuple[set[str], set[str]]:
-    """Every token-level rule, the table names the allowlist below is checked against, and
-    the CTE names this statement declares.
+@dataclass(slots=True)
+class _Scope:
+    """One parenthesised level of a statement, and the WITH clause declared at it.
+
+    A CTE is readable inside the query that declared it and nowhere else, so its name lives
+    on the level that declared it and goes out of reach when that level closes. `stage` is
+    where that level's WITH clause has got to: a name, its AS, then its body.
+    """
+
+    ctes: set[str] = field(default_factory=set)
+    stage: str = ""
+    pending: str = ""
+    in_from: bool = False
+    cte_body: bool = False
+
+
+def scan_statement(statement: str, views: Collection[str]) -> set[str]:
+    """Every token-level rule, and every table source resolved in the scope that names it.
+    Returns the views the statement reads, for a caller with a rule about which ones.
 
     One pass, because each rule reads the same tokens: a keyword only counts outside a
     string literal, and a table source can be hidden behind a comment, a parenthesized bare
@@ -126,68 +142,75 @@ def scan_statement(statement: str) -> tuple[set[str], set[str]]:
     expressions is what let a query name a base table the FROM/JOIN allowlist never saw —
     the last of them read `'WITH private_rows AS ('` out of a string literal and took it
     for a declaration. A CTE is a declaration position, not a shape found anywhere in the
-    text: the name after WITH, or after a comma that follows a finished CTE body.
+    text: the name after WITH, or after a comma that follows a finished CTE body. It is
+    also a declaration *somewhere*, which one flat set of names could not say — a WITH
+    inside a subquery covered a base table of the same name in the query around it.
+
+    Sources are resolved after the walk, against the levels that were open where each one
+    stood: SQLite matches a name against every CTE of an enclosing WITH clause, whichever
+    side of it the name was written on.
     """
-    names: set[str] = set()
-    ctes: set[str] = set()
-    depth = 0
-    from_depths: set[int] = set()
+    scopes = [_Scope()]
+    sources: list[tuple[str, tuple[_Scope, ...]]] = []
     expect_name = False  # the previous token was FROM or JOIN
     expect_select = False  # ... and an opening parenthesis followed it
-    cte_depth = -1  # the depth the WITH clause's list of CTEs lives at
-    cte_stage = ""  # name -> as -> body -> inside -> comma, and back to name
-    cte_name = ""
-    cte_body_depth = 0
     for match in SQL_TOKEN.finditer(statement):
         token = match.group()
         if match.lastgroup == "comment":
             raise UnsafeQueryError("SQL comments are not allowed")
-        named = match.lastgroup in {"word", "quoted"}
-        lowered = token.casefold() if match.lastgroup == "word" else ""
-        if cte_stage == "name" and depth == cte_depth and lowered != "recursive":
-            cte_stage, cte_name = ("as", _unquoted(token).casefold()) if named else ("", "")
-        elif cte_stage == "as" and depth == cte_depth and token != "(":
-            # A parenthesis here is the optional column list, and it is skipped by depth.
-            cte_stage = "body" if lowered == "as" else ""
-        elif cte_stage == "body" and depth == cte_depth:
-            cte_stage = "" if token != "(" else "inside"
-            if cte_stage == "inside":
-                ctes.add(cte_name)
-                cte_body_depth = depth
-        elif cte_stage == "inside" and token == ")" and depth == cte_body_depth + 1:
-            cte_stage = "comma"
-        elif cte_stage == "comma" and depth == cte_depth:
-            cte_stage = "name" if token == "," else ""
-        elif cte_stage == "" and lowered == "with":
-            cte_depth, cte_stage = depth, "name"
+        scope = scopes[-1]
+        word = match.lastgroup == "word"
+        named = word or match.lastgroup == "quoted"
+        lowered = token.casefold() if word else ""
+        if scope.stage == "name" and lowered != "recursive":
+            scope.stage, scope.pending = ("as", _unquoted(token).casefold()) if named else ("", "")
+        elif scope.stage == "as" and token != "(":
+            # A parenthesis here is the optional column list, and it opens a level of its own.
+            scope.stage = "body" if lowered == "as" else ""
+        elif scope.stage == "body" and token != "(":
+            scope.stage = ""
+        elif scope.stage == "closed":
+            scope.stage = "name" if token == "," else ""
+        elif scope.stage == "" and lowered == "with":
+            scope.stage = "name"
         if token == "(":
             expect_name, expect_select = False, expect_name or expect_select
-            depth += 1
+            if scope.stage == "body":
+                # Declared from the first token of its own body, which is what RECURSIVE reads.
+                scope.ctes.add(scope.pending)
+            scopes.append(_Scope(cte_body=scope.stage == "body"))
             continue
-        if expect_select and (
-            match.lastgroup != "word" or token.casefold() not in {"select", "with"}
-        ):
+        if expect_select and (not word or lowered not in {"select", "with"}):
             raise UnsafeQueryError("Name a view directly after FROM or JOIN")
         expect_select = False
         if token == ")":
-            from_depths.discard(depth)
-            depth = max(0, depth - 1)
+            if len(scopes) > 1 and scopes.pop().cte_body:
+                scopes[-1].stage = "closed"
         elif token == ",":
-            if depth in from_depths:
+            if scope.in_from:
                 raise UnsafeQueryError("Use JOIN instead of a comma-separated table list")
         elif expect_name:
-            names.add(_unquoted(token).casefold())
+            sources.append((_unquoted(token).casefold(), tuple(scopes)))
             expect_name = False
-        elif match.lastgroup == "word":
-            lowered = token.casefold()
+        elif word:
             if lowered in FORBIDDEN:
                 raise UnsafeQueryError("Unsafe SQL keyword")
             if lowered in {"from", "join"}:
-                expect_name = True
-                from_depths.add(depth)
+                expect_name, scope.in_from = True, True
             elif lowered in FROM_END:
-                from_depths.discard(depth)
-    return names, ctes
+                scope.in_from = False
+    unresolved = sorted(
+        {
+            name
+            for name, open_scopes in sources
+            if name not in views and not any(name in level.ctes for level in open_scopes)
+        }
+    )
+    if unresolved:
+        raise UnsafeQueryError(
+            "Query references unavailable views: " + ", ".join(unresolved)
+        )
+    return {name for name, _ in sources if name in views}
 
 
 # What a read that is more than one flat scan of one view always contains. A bare
@@ -210,21 +233,23 @@ def is_capped(rows: list[dict[str, Any]]) -> bool:
     return bool(rows) and set(rows[-1]) == {"notice"}
 
 
-def validate_read_sql(sql: str, views: Collection[str]) -> str:
+def validated_read(sql: str, views: Collection[str]) -> tuple[str, set[str]]:
+    """One safe read: the statement to run, and the views it reads.
+
+    A CTE may be recursive and may declare its columns, and both forms name a table the
+    FROM/JOIN scan would otherwise report as an unavailable view.
+    """
     statement = sql.strip().rstrip(";").strip()
     if ";" in statement:
         raise UnsafeQueryError("Only one SQL statement is allowed")
     if not re.match(r"^(select|with)\b", statement, re.IGNORECASE):
         raise UnsafeQueryError("Only SELECT queries are allowed")
-    # A CTE may be recursive and may declare its columns, and both forms name a table
-    # the FROM/JOIN scan would otherwise report as an unavailable view.
-    names, cte_names = scan_statement(statement)
-    disallowed = names - set(views) - cte_names
-    if disallowed:
-        raise UnsafeQueryError(
-            "Query references unavailable views: " + ", ".join(sorted(disallowed))
-        )
-    return statement
+    return statement, scan_statement(statement, views)
+
+
+def validate_read_sql(sql: str, views: Collection[str]) -> str:
+    """The same read, for a caller with no rule about which views it names."""
+    return validated_read(sql, views)[0]
 
 
 def create_ai_views(connection, views: Sequence[SqlView]) -> None:  # type: ignore[no-untyped-def]

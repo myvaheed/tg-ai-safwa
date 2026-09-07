@@ -71,8 +71,13 @@ async def approve_proposal(
     """Save one proposal, through the same operations the manual screens call.
 
     The workspace revision and the ordered walk over its changes are the same whatever the
-    proposal edits; what each change means belongs to the feature that owns it.  The review
-    ends here either way: a refusal makes the screen unanswerable rather than retryable.
+    proposal edits; what each change means belongs to the feature that owns it.
+
+    This is where the operation ends, for the manual Save and for autoapproval alike: the
+    write is committed here and the review is taken off the screen only once that commit
+    stands, so a failure leaves a screen the owner can still answer rather than a change
+    that was neither written nor refused.  A refusal is the exception, and a deliberate
+    one: it ends the review because it makes the screen unanswerable rather than retryable.
     """
     proposal = store.proposal(proposal_id)
     if proposal is None:
@@ -90,12 +95,17 @@ async def approve_proposal(
         allow_destructive=allow_destructive,
     )
     affected: list[int] = []
-    for change in proposal.changes:
-        try:
+    try:
+        for change in proposal.changes:
             affected.extend(await proposals.handler(change.entity).apply(context, change))
-        except StaleStateError:
-            store.end_proposal(proposal_id)
-            raise
+        await session.commit()
+    except StaleStateError:
+        await session.rollback()
+        store.end_proposal(proposal_id)
+        raise
+    except Exception:
+        await session.rollback()
+        raise
     store.end_proposal(proposal_id)
     return affected
 
@@ -212,6 +222,8 @@ async def decide_batch_item(
     if apply_change:
         if decision is not BatchDecision.APPROVED:
             raise DomainError("Only an approved proposal can be applied while resolving")
+        # The write and its commit come first, so everything below moves the queue on
+        # against a database that already holds what this decision decided.
         affected = await approve_proposal(session, store, proposals, proposal_id)
     if decision is BatchDecision.FAILED:
         store.end_proposal(proposal_id)

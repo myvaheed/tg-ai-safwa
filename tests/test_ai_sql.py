@@ -303,6 +303,14 @@ def test_query_tool_rejects_null_empty_and_extra_arguments():
         # literal nor a WINDOW clause declares one, however much it reads like one.
         "SELECT count(*) AS n FROM cards WHERE 'WITH cards AS (' <> ''",
         "WITH x AS (SELECT 1) SELECT id FROM cards WINDOW cards AS (ORDER BY 1)",
+        # ... and it is a declaration somewhere: one made inside a subquery is readable
+        # inside that subquery, and covers nothing in the query around it.
+        "SELECT count(*) AS n FROM private_rows WHERE EXISTS ("
+        "WITH private_rows AS (SELECT 1 AS id) SELECT id FROM private_rows)",
+        "SELECT id FROM (WITH t AS (SELECT 1 AS id) SELECT id FROM t) JOIN t ON 1 = 1",
+        "WITH x AS (SELECT id FROM ai_cards) SELECT id FROM ("
+        "WITH y AS (SELECT id FROM x) SELECT id FROM y) JOIN y ON 1 = 1",
+        "SELECT id FROM ai_cards JOIN main.ai_cards ON 1 = 1",
     ],
 )
 def test_read_sql_rejects_unsafe_queries(sql):
@@ -448,6 +456,46 @@ async def test_a_table_named_only_inside_a_string_literal_is_never_read(tmp_path
 
     with pytest.raises(UnsafeQueryError, match="cards"):
         await runner.run("SELECT count(*) AS n FROM cards WHERE 'WITH cards AS (' <> ''")
+
+
+async def test_a_cte_declared_one_level_down_never_covers_a_base_table(tmp_path):
+    """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
+    runner = _runner_over_cards(tmp_path, 2)
+
+    # The declaration is real, and it is real one level down: `cards` in the outer FROM is
+    # the base table.  The authorizer cannot refuse it either, because a count names no
+    # column, so the scan is the whole of what stands between the two.
+    with pytest.raises(UnsafeQueryError, match="cards"):
+        await runner.run(
+            "SELECT count(*) AS n FROM cards WHERE EXISTS ("
+            "WITH cards AS (SELECT 1 AS id) SELECT id FROM cards)"
+        )
+
+
+async def test_a_cte_reaches_its_own_query_and_everything_inside_it(tmp_path):
+    """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
+    runner = _runner_over_cards(tmp_path, 3)
+
+    outcome = await runner.run(
+        "WITH live AS (SELECT id FROM ai_cards) "
+        "SELECT count(*) AS n FROM live WHERE id IN (SELECT id FROM live)"
+    )
+    assert outcome.rows == [{"n": 3}]
+
+    nested = await runner.run(
+        "SELECT n FROM (WITH live AS (SELECT id FROM ai_cards) SELECT count(*) AS n FROM live)"
+    )
+    assert nested.rows == [{"n": 3}]
+
+
+async def test_the_same_read_is_answered_or_refused_by_the_readers_own_list(tmp_path):
+    """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
+    runner = _runner_over_cards(tmp_path, 2)
+    values_only = runner.scoped(("ai_values",))
+
+    assert (await runner.run("SELECT count(*) AS n FROM ai_cards")).rows == [{"n": 2}]
+    with pytest.raises(UnsafeQueryError, match="ai_cards"):
+        await values_only.run("SELECT count(*) AS n FROM ai_cards")
 
 
 async def test_uncapped_query_carries_no_notice(tmp_path):

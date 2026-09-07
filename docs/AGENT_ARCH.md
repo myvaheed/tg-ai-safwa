@@ -342,13 +342,17 @@ flowchart LR
   wrong screen.
 - **Autoapproval is the one exception to `PR-WRITE-002`, and `PR-AUTO-024` is where it is
   approved.** It decides only whether a screen is shown: it never bypasses preparation or the
-  stored proposal, and any doubt or failure leaves the pending screen untouched. Which actions are
-  eligible is each feature's `ProposalContribution.autoapprovals`; a create is never one of them.
+  stored proposal, and any doubt leaves the pending screen untouched. A Save it asked for that is
+  refused because the workspace moved on ends the review with it, and the queue moves on the way a
+  failed manual Save moves it. Which actions are eligible is each feature's
+  `ProposalContribution.autoapprovals`; a create is never one of them.
 - **`PR-TARGET-001` is a shell rule the feature keeps.** The generic walk carries no entity, so
   loading the target, `archived_at` and the closed repeat are the owning feature's
   `ProposalHandler.prepare`, and `target_not_found` is the one refusal `proposals/` raises itself.
-- `approve_proposal` checks `workspace.revision` before any handler runs; `StaleStateError` is
-  the expected failure.
+- `approve_proposal` is where one Save ends, the manual one and the automatic one alike: it checks
+  `workspace.revision` before any handler runs, commits the write itself, and takes the review off
+  the screen only once that commit stands. `StaleStateError` is the expected failure, and it is the
+  one that ends the review instead — the screen is unanswerable rather than retryable.
 - Several mutation calls in one turn queue as independent screens; the model resumes only after the
   last one resolves, each result handed back as a tool result.
 - A review and its approval batch are process state, not rows: `ProposalStore` holds both, they
@@ -537,17 +541,21 @@ stateDiagram-v2
     Idle --> Answering: begin(message_id)
     Idle --> BackgroundWork: try_begin_background()
     Answering --> Idle: end(message_id)
-    BackgroundWork --> Idle: end_background()
+    BackgroundWork --> Idle: end_background(lease)
     Answering --> Answering: callbacks rejected, other owner text deleted
     BackgroundWork --> Answering: cancel() — the owner always wins
 ```
 
 - While an answer runs, callbacks are rejected and any other owner message is taken out of the chat,
   which is what makes it not something the owner said.
-- `dialogue_revision` is bumped by `cancel()`, and is how a generation already in flight learns to
-  discard its result. Only `dialogue_revision` invalidates an in-flight answer — the answer's own
-  autoapproved change moves `workspace.revision`, which is a different question.
-- Background work verifies the revision before publishing or committing.
+- `cancel()` stops the task holding the lease and bumps `dialogue_revision`: the work ends where it
+  stands, and anything that still comes back against the old revision is discarded. Only
+  `dialogue_revision` invalidates an in-flight answer — the answer's own autoapproved change moves
+  `workspace.revision`, which is a different question.
+- A lease is named by the revision it was taken at, so work that is cancelled and finishes
+  afterwards gives back its own lease and never the one handed to whatever started next.
+- Background work verifies the revision before publishing or committing, and a turn that lost the
+  chat ends the review it had already opened rather than leaving it with no screen.
 - `OwnerAndWritingMiddleware` drops anything that is not the owner in a private chat.
 - Every inline button is a single-use `CallbackToken` row, cleared at the next start.
 

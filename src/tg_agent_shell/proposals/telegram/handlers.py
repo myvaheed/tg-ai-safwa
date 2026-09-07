@@ -65,7 +65,6 @@ async def _on_approve(context: CallbackContext) -> None:
         affected = await approve_proposal(
             session, root.reviews, root.proposals, proposal_id
         )
-        await session.commit()
     if await continue_agent_approval(
         context.message,
         context.services,
@@ -93,7 +92,6 @@ async def _on_delete_confirm(context: CallbackContext) -> None:
             proposal_id,
             allow_destructive=True,
         )
-        await session.commit()
     if await continue_agent_approval(
         context.message,
         context.services,

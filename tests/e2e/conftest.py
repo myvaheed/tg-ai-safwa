@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -147,9 +148,12 @@ class E2EHarness:
         subagents: tuple[RoutedSubagent, ...] | None = None,
         helpers: dict[str, object] | None = None,
         autoapprove: bool = False,
+        provider_factory: Callable[[list[str | CompletionTurn]], ScriptedProvider] = ScriptedProvider,
     ) -> tuple[RootSession, ScriptedProvider]:
         subagents = (self.workspace(),) if subagents is None else subagents
-        provider = ScriptedProvider(responses)
+        # A test about what happens *during* a turn needs the boundary to hold still, so
+        # which scripted provider answers the script is the test's to say.
+        provider = provider_factory(responses)
         # One harness is one running bot, so every advisor it builds shares its reviews.
         advisor = RootSession(
             self.sessions,

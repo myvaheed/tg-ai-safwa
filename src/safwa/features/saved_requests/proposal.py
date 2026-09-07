@@ -37,7 +37,9 @@ class RequestProposalHandler:
         values = dict(change.values)
         if "sql" in values:
             try:
-                values["query_sql"] = normalize_card_query(values.pop("sql"), context.views)
+                values["query_sql"] = await normalize_card_query(
+                    context.session, values.pop("sql"), context.views
+                )
             except CardQueryError as error:
                 raise ToolPreparationError(
                     "unsafe_query",

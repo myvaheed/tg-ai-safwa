@@ -8,13 +8,13 @@ Planning's, which is what keeps the two acyclic.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Collection, Iterable
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tg_agent_shell.ai.sql import UnsafeQueryError, validate_read_sql
+from tg_agent_shell.ai.sql import UnsafeQueryError, validated_read
 from tg_agent_shell.foundation.errors import DomainError
 
 from ...foundation.marks import title_marks
@@ -22,6 +22,7 @@ from .model import TERMINAL_STAGES as TERMINAL_STAGES
 from .model import Card as Card
 from .model import CardKind
 from .model import CardStage as CardStage
+from .views import AI_CARDS
 
 PLANNED_STAGES = (CardStage.SPRINT, CardStage.TODAY)
 
@@ -30,28 +31,46 @@ class CardQueryError(ValueError):
     """A read that has to come back with Card ids, and does not."""
 
 
-def normalize_card_query(raw: str, views: Collection[str]) -> str:
+async def normalize_card_query(
+    session: AsyncSession, raw: str, views: Collection[str]
+) -> str:
     """Validate a read query that has to come back with Card ids.
 
     Two callers, and neither owns it: a saved Request's SQL, and the `parent_query` a Card
     proposal may resolve its parent with. Both need the shared read validator plus the two
     rules that make the result usable as Card ids.
+
+    Both rules are asked of the statement itself rather than of its text: the validator says
+    which views it reads, and SQLite says what its outermost SELECT comes back with. A
+    query whose `ai_cards` sits in a string literal, and one whose `id` belongs to an inner
+    SELECT nobody selects from, both read as correct in the text and neither is.
     """
     if not isinstance(raw, str) or not raw.strip():
         raise CardQueryError("A Card query is required")
     try:
-        statement = validate_read_sql(raw, views)
+        statement, sources = validated_read(raw, views)
     except UnsafeQueryError as error:
         raise CardQueryError(str(error)) from error
-    if "ai_cards" not in statement.casefold():
+    if AI_CARDS.name not in sources:
         raise CardQueryError("The query must read ai_cards and return Card ids")
-    if not re.search(
-        r"\bselect\s+(?:distinct\s+)?(?:[a-z_][a-z0-9_]*\.)?id(?:\s+as\s+id)?\b",
-        statement,
-        re.IGNORECASE,
-    ):
+    if "id" not in await _result_columns(session, statement):
         raise CardQueryError("The query must return a column named id")
     return statement
+
+
+async def _result_columns(session: AsyncSession, statement: str) -> tuple[str, ...]:
+    """What a read comes back with, compiled but never run.
+
+    `LIMIT 0` is what makes this a compilation: a query that matches nothing has the same
+    columns as one that matches everything, so an empty workspace refuses nothing.
+    """
+    try:
+        result = await (await session.connection()).exec_driver_sql(
+            f"SELECT * FROM ({statement}) LIMIT 0"
+        )
+    except SQLAlchemyError as error:
+        raise CardQueryError(f"The query does not run: {getattr(error, 'orig', error)}") from error
+    return tuple(result.keys())
 
 
 async def actions_on_stages(session: AsyncSession, *stages: CardStage) -> list[Card]:

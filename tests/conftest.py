@@ -56,9 +56,15 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 @pytest_asyncio.fixture
 async def sessions():
+    from safwa.bootstrap.modules import AI_VIEWS
+    from tg_agent_shell.ai.sql import create_ai_views
+
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+        # A saved query is compiled against the `ai_*` views before it is stored, so a test
+        # database without them is not the database the code under test runs on.
+        await connection.run_sync(lambda sync: create_ai_views(sync, AI_VIEWS))
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
         await bootstrap_workspace(session, 42, "Europe/Istanbul")

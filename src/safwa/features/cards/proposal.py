@@ -116,7 +116,7 @@ async def _resolve_parent_reference(
                 # so a capped result is reported as ambiguous rather than silently used.
                 rows = (
                     await context.query_runner.run(
-                        normalize_card_query(parent_query, context.views)
+                        await normalize_card_query(session, parent_query, context.views)
                     )
                 ).rows
             except (CardQueryError, UnsafeQueryError) as error:

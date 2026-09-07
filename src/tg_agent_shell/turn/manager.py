@@ -13,7 +13,7 @@ thrown away.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import replace
 from typing import Any, TypeVar
 
@@ -27,6 +27,16 @@ def _current_task() -> asyncio.Task[Any] | None:
         return asyncio.current_task()
     except RuntimeError:
         return None
+
+
+def own_cancellation() -> bool:
+    """Whether it is this caller being cancelled, rather than the work it was waiting on.
+
+    A caller that awaits cancelled work is handed the same `CancelledError` as one that was
+    cancelled itself, and only the first of the two carries on.
+    """
+    task = _current_task()
+    return task is not None and task.cancelling() > 0
 
 
 class TurnManager:
@@ -70,12 +80,24 @@ class TurnManager:
     def try_begin_background(self) -> bool:
         """Take the turn for work nobody asked for, or decline if it is held.
 
-        Never takes it from the owner; the caller comes back later.
+        Never takes it from the owner; the caller comes back later. The lease is named by
+        the dialogue revision it was taken at, which is what the holder gives back.
         """
         if not isinstance(self._state, Idle):
             return False
-        self._state = BackgroundWork()
+        self._state = BackgroundWork(revision=self.dialogue_revision)
         return True
+
+    def start_background(self, work: Coroutine[Any, Any, R]) -> asyncio.Task[R]:
+        """Run this lease's work as its own task, so cancelling the lease stops it.
+
+        It is never the task that took the lease: a poll takes one every tick, and
+        cancelling the poll would end that part of the application for the whole run.
+        """
+        task = asyncio.create_task(work)
+        if isinstance(self._state, BackgroundWork):
+            self._state = replace(self._state, task=task)
+        return task
 
     def notice_shown(self, source_message_id: int, notice_message_id: int) -> None:
         """Record the message standing in the chat while this answer is written."""
@@ -98,26 +120,33 @@ class TurnManager:
         self._state = Idle()
         return state.notice if isinstance(state, Answering) else None
 
-    def end_background(self) -> None:
-        """Give back a turn taken for work nobody asked for, and only that turn.
+    def end_background(self, revision: int) -> None:
+        """Give back the lease taken at `revision`, and only that one.
 
-        The owner may have taken it in the meantime, and background work that finishes
-        afterwards must not take it from them.
+        The owner may have taken the turn in the meantime, and a cancelled piece of
+        background work that finishes afterwards must take it neither from them nor from
+        the lease handed to whatever started after it.
         """
-        if self.background:
+        state = self._state
+        if isinstance(state, BackgroundWork) and state.revision == revision:
             self._state = Idle()
 
     def cancel(self) -> int | None:
-        """Stop whatever is being written, and hand over its notice to be taken back."""
+        """Stop whatever is being written, and hand over its notice to be taken back.
+
+        Both leases are stopped the same way: the state names the task doing the work, so
+        cancelling ends the provider traffic and everything the turn would have gone on to
+        do, rather than leaving it running against a turn nobody will read.
+        """
         state = self._state
         self.dialogue_revision += 1
         self._state = Idle()
-        if not isinstance(state, Answering):
+        if isinstance(state, Idle):
             return None
         task = state.task
         if task is not None and task is not _current_task() and not task.done():
             task.cancel()
-        return state.notice
+        return state.notice if isinstance(state, Answering) else None
 
     async def run_background(
         self, operation: Callable[[Callable[[], bool]], Awaitable[R]]
@@ -134,7 +163,14 @@ class TurnManager:
         def still_current() -> bool:
             return self.background and self.dialogue_revision == revision
 
+        # Its own task, so cancelling the lease stops this operation and not the caller
+        # that is only waiting for it.
+        work = self.start_background(operation(still_current))
         try:
-            return await operation(still_current)
+            return await work
+        except asyncio.CancelledError:
+            if own_cancellation():
+                raise
+            return None
         finally:
-            self.end_background()
+            self.end_background(revision)

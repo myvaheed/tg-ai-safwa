@@ -32,7 +32,7 @@ async def create_saved_request(
     if not normalized_name:
         raise DomainError("Request name cannot be empty")
     try:
-        normalized_query = normalize_card_query(query_sql, views)
+        normalized_query = await normalize_card_query(session, query_sql, views)
     except CardQueryError as error:
         raise DomainError(str(error)) from error
     existing = await session.scalar(
@@ -80,7 +80,7 @@ async def update_saved_request(
         request.description = description.strip()
     if query_sql is not None:
         try:
-            request.query_sql = normalize_card_query(query_sql, views)
+            request.query_sql = await normalize_card_query(session, query_sql, views)
         except CardQueryError as error:
             raise DomainError(str(error)) from error
     request.version += 1

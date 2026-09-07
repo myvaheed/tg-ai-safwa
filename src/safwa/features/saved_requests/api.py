@@ -19,11 +19,9 @@ async def request_cards(
     session: AsyncSession, query_sql: str, views: Collection[str]
 ) -> list[Card]:
     """Run a saved safe query and load its live Cards in query result order."""
-    statement = normalize_card_query(query_sql, views)
+    statement = await normalize_card_query(session, query_sql, views)
     result = await session.execute(text(statement))
     rows = result.mappings().all()
-    if any("id" not in row for row in rows):
-        raise CardQueryError("Request SQL must return a column named id")
     try:
         ids = list(dict.fromkeys(int(row["id"]) for row in rows))
     except (TypeError, ValueError) as error:
