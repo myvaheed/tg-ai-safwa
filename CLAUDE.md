@@ -8,9 +8,9 @@ mechanism has a document that owns it, and this file points there instead of kee
 `tests/brd/` is what Safwa does, one approved rule per `Scenario`. Read the scenarios for the
 feature you are changing before you change it, and [tests/brd/README.md](tests/brd/README.md) for
 what a scenario is. Nothing here asks you to read the whole architecture for one task, and neither
-the restructuring history ([docs/RESTRUCTURING.md](docs/RESTRUCTURING.md),
-[docs/POLISHING_2.md](docs/POLISHING_2.md)) nor the list of unagreed ideas
-([docs/FUTURE_FEATURE.md](docs/FUTURE_FEATURE.md)) is required reading for an ordinary task.
+the list of unagreed ideas ([docs/FUTURE_FEATURE.md](docs/FUTURE_FEATURE.md)) nor the order they
+would be built in ([docs/PLAN_FEATURES.md](docs/PLAN_FEATURES.md)) is required reading for an
+ordinary task.
 
 | Task | First reading | The check that decides |
 |---|---|---|
@@ -174,9 +174,9 @@ pre-release database; migration support starts after v1, from the ORM metadata a
 
 Beyond what the table above points at, and none of it required reading for an ordinary task:
 [LLM_GATEWAY.md](docs/LLM_GATEWAY.md) is the provider boundary,
-[RESTRUCTURING.md](docs/RESTRUCTURING.md) the restructuring candidates still open and the ones
-ruled out, [POLISHING_2.md](docs/POLISHING_2.md) the open polishing work — every unfinished item
-has one of those two as its owner, never both — and [FUTURE_FEATURE.md](docs/FUTURE_FEATURE.md)
-ideas that are agreed nowhere. A feature's own package is a pointer like any other: its `.feature`
+[FUTURE_FEATURE.md](docs/FUTURE_FEATURE.md) ideas that are agreed nowhere, and
+[PLAN_FEATURES.md](docs/PLAN_FEATURES.md) the order those ideas would be built in and what each
+costs — a reading order over that file, approving none of it either.
+A feature's own package is a pointer like any other: its `.feature`
 file is the rule, and the package is what keeps it. `docs/` is where anything written from now on
 goes.

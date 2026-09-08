@@ -22,25 +22,34 @@ the Diary reading a whole named day; a separate Advisor history reader remains u
 
 ## The middle Card kind is named for the one thing it cannot be
 
-Noticed 2026-09-05, discussing the shape of the tree rather than any code.
+Agreed 2026-09-08, noticed 2026-09-05 discussing the shape of the tree rather than any code.
 
 An Idea carries no field of its own: stage, effort, energy, repeat and Blocked are an Action's, and
-everything an Idea shows is derived from its children. The word promises something optional; the
-mechanism is a container under a Goal. Two changes were agreed, neither has a scenario yet:
+everything it shows is derived from its children. The word promised something optional while the
+mechanism was a container under a Goal, and the same word was also the only place a loose thought
+could go. Both are fixed by giving each meaning a kind of its own:
 
-- Idea becomes Direction (Направление). Its stage, including Done, remains derived from its
+- The container becomes Subgoal (Подцель). Its stage, including Done, stays derived from its
   children. Goal keeps its name; Values may cross Goals.
-- A Direction may only exist under a Goal. CD-TREE-003 allows a root-level Idea today, and that is
-  the version that rots: one word covering both a committed line of work and a loose thought.
+- A Subgoal may only exist under a Goal. CD-TREE-003 allows a root-level middle kind today, and
+  that is the version that rots: one word covering both a committed line of work and a stray one.
+- Idea keeps the word and becomes raw capture: a title and a note, and nothing else. No parent, no
+  children, no stage, no effort, no priority, no categories, no energy, no repeat and no Blocked.
+  It is written in one move and edited as easily, and one button turns it into the Goal-and-Actions
+  tree. The owner and the Advisor both create one, and it is the cheapest thing the Advisor can
+  propose, because there is no effort and no parent to guess at.
 
-The second change leaves raw capture without a home. A root-level Action needs effort from
-`EFFORT_POINTS`, so it asks for the size of something not yet decided on. Either the Diary becomes
-where a loose thought goes, or a Card gets a stage before Backlog that requires no effort.
-Undecided; the Diary adds no entity.
+An Idea is outside the stage system, so it is outside every board and outside a Sprint's scope
+accounting, and it has a list of its own. `effective_stage` is not nullable today and carries an
+index, so what an Idea stores there is a schema question its batch answers.
+
+Still to decide: which kinds the conversion button offers, and whether the note survives into the
+Card the Idea becomes.
 
 ## Effort is offered in points one owner cannot calibrate
 
-Noticed 2026-09-05, discussing what a plain user reads on a screen.
+Agreed 2026-09-08 as the rungs stand below; noticed 2026-09-05, discussing what a plain user
+reads on a screen.
 
 The effort selector renders `f"{points} EP"` — the Fibonacci scale a team calibrates over months of
 estimating together. One owner has nobody to calibrate against, so the number is chosen differently
@@ -91,8 +100,10 @@ Reminder list, switched in Settings. A daily summary is a second one of those, o
 turned off in the same place. RM-WRITE-010 is untouched, because deleting stays the only off switch
 for a Reminder the owner wrote.
 
-The time is undecided. The summary's Diary invitation and the existing Diary nudge must not ask
-the same question twice; whether the summary replaces that nudge is still to be decided.
+Agreed 2026-09-08: the two are separate switches and neither replaces the other. With both on, one
+message carries both — the account of the day, and the invitation to write it down when that day
+has no entry yet. With one on, only that one appears. Either way the Diary is asked about once.
+The time is still undecided.
 
 ## Onboarding covers the first start and a return after an absence
 
@@ -237,11 +248,40 @@ The compact view reduces the controls shown during everyday use. The existing fi
 operations remain available through full editing. The exact compact fields and primary buttons
 are still to be decided.
 
+## Proposal fulfillment validation
+
+Agreed 2026-09-08: fulfillment validation belongs to the architecture of Proposals and is
+designed independently of hooks, their registration, and initiative suppression.
+
+The intent is to compare the owner's request and subsequent corrections with actual saved,
+discarded, failed and pending Proposal outcomes, then pursue still-authorized missing work.
+A requested Card does not fulfill a request that also asked for a Reminder. Validation must
+avoid duplicating saved work or recreating an intention the owner deliberately withdrew.
+
+[PROPOSAL_VALIDATION.md](PROPOSAL_VALIDATION.md) holds the architecture proposal, including
+request-wide aggregation, bounded correction, foreground execution and interruption handling.
+Those details still need their own agreement; moving this feature out of hooks does not
+implicitly settle them.
+
 ## POTENTIAL HOOKS
 
 Discussed 2026-09-07. Candidates for helping the owner remember intentions and keep work moving.
 The numbering follows the discussion. Some candidates belong in Advisor instructions instead;
 none of these entries is an approved scenario package.
+
+### The shape every hook has
+
+Agreed 2026-09-08: a hook does not have to be a literal model tool call. A known service
+operation may run directly; other reactions may offer a tool or involve the Advisor.
+
+The owner wants one explicit registration contract and an easy way to see which hooks are
+enabled. [HOOK_ARCH.md](HOOK_ARCH.md) proposes the central connection list, typed event inputs,
+a small set of runtime reactions, the occasion journal, and concrete implementation stages.
+That design remains a proposal; this entry does not approve all of its API details.
+
+The trigger is distinct from execution and delivery. Each initiative defines its own occasion
+identity and repetition rules. Preparing a tool result is neither saving a Proposal nor showing
+a question to the owner.
 
 ### 1. Capture an intention from the conversation — Advisor instruction
 
@@ -307,30 +347,12 @@ Card the owner meant. Similarity selects candidates for review; it does not esta
 The retrieval approach and score threshold remain experimental and need to be checked against
 the actual retrieval model and the owner's data.
 
-### 9. Validate fulfillment after Proposals execute — candidate hook
+### 9. Proposal fulfillment validation — moved out of hooks
 
-Associate each executed Proposal with a validator that receives the original user request and
-the actual Proposal outcome. Use validation to keep pursuing any missing work until the request
-has been fully resolved. For example, saving the requested Card does not fulfill a request that
-also asked for a Reminder if that Reminder was never created.
-
-Validation must run as foreground work. A new owner message must be accounted for through an
-explicit cancellation path, with a notice that the AI was validating the save. The precise
-interruption and message-handling behavior still needs design; already saved changes remain
-saved when validation is interrupted.
-
-Reliability questions still to settle:
-
-- How each Proposal's validator contributes to validation of the whole request, including
-  dependent Proposals and work that is still awaiting the owner's decision.
-- How the validator verifies actual saved state rather than trusting a model's statement that
-  the request is complete.
-- How saved, discarded and failed outcomes are distinguished, so validation neither duplicates
-  saved work nor recreates a change the owner deliberately rejected.
-- How corrective Proposals and repeated validation make progress, with a bounded retry policy
-  and an explicit unresolved result when completion cannot be achieved.
-- What a new message cancels, how that message is handled, and whether interrupted validation
-  is resumed or superseded by the new request.
+Agreed 2026-09-08: this belongs to the architecture of Proposals, not the hook system.
+The number is kept only to preserve the discussion's references. See
+[the separate feature](#proposal-fulfillment-validation) and
+[PROPOSAL_VALIDATION.md](PROPOSAL_VALIDATION.md).
 
 ### 10. Key Actions tied to Sprint Success criteria — hook
 
@@ -404,8 +426,8 @@ again. Each hook defines which changes constitute a genuinely new occasion.
 
 For Hard Time, renaming the Card or starting another Sprint does not by itself invalidate a
 refusal concerning the same occurrence. The next scheduled repetition is a new occasion;
-rescheduling the occurrence may also justify asking again. Whether adding to Sprint and adding
-to Today are the same offer or distinct questions still needs an explicit rule.
+rescheduling the occurrence may also justify asking again. Whether adding to Sprint and adding to
+Today are one offer or two is that hook's own rule to state, like every other occasion key.
 
 For Checks, a fourth Missed after an offer on the third is still the same occasion. A later run
 after recovery may create a new one. The reset condition belongs to that hook. Likewise, raising
@@ -424,8 +446,8 @@ Before speaking, recheck that the occasion still applies. A generation or delive
 not evidence that the owner saw the offer or rejected it.
 
 The journal suppresses repeated approaches to the owner; condition checks may keep running.
-Proposal fulfillment validation is a different responsibility and must not be disabled merely
-because a related suggestion has already been shown.
+Proposal fulfillment validation belongs to its own architecture and is unaffected by whether
+initiative hooks are enabled or a related suggestion has already been shown.
 
 ### 15. Carry retrospective decisions through memory — Advisor instruction
 
