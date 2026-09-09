@@ -11,7 +11,7 @@ from sqlalchemy import select
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.bootstrap.modules import PROPOSALS
-from safwa.features.cards.model import Card, CardKind, CardStage
+from safwa.features.cards.model import Card, CardKind
 from safwa.features.cards.use_cases import create_card, finish_action
 from safwa.features.diary.model import DiaryEntry
 from telegram_llm import DialogueMessage
@@ -173,7 +173,7 @@ async def test_a_routed_subagent_proposes_for_itself(e2e_harness):
         card = await create_card(
             session, kind=CardKind.ACTION, title="Сходить на рынок", effort_points=2
         )
-        await finish_action(session, card.id, CardStage.DONE)
+        await finish_action(session, card.id)
         await session.commit()
 
     advisor, provider = e2e_harness.advisor(

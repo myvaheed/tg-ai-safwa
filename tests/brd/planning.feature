@@ -45,7 +45,10 @@ Feature: Planning — the Sprint, and the mode without one
     Given the Sprint length in the Profile is 14 days (SPRINT_LENGTH_DAYS = 14)
     When the owner starts a Sprint
     Then it runs from the owner's today through the 14th day, that day included
-    And its number is one higher than the highest number any Sprint has ever had
+    And its number is yy.MM-xx: the month it started in, then its place in that month
+    And that place is one past the highest ever used in that month, so a deleted Sprint
+      never hands its number to another
+    And a Sprint that runs into the next month keeps the month it began in
 
   Scenario: PL-SCOPE-006 — Starting a Sprint takes what is already planned, at the effort it has then
     Given an Action of 3 points in Sprint, an Action of 5 points in Today, and a Goal above them
@@ -73,8 +76,7 @@ Feature: Planning — the Sprint, and the mode without one
     When the owner finishes it as Done
     Then the Sprint counts those 5 points as completed
     When the owner reopens it
-    Then the Sprint counts them as neither completed nor cancelled
-    And finishing it as Cancelled instead is counted apart from Done
+    Then the Sprint counts them as not completed
 
   Scenario: PL-CONTEXT-010 — Safwa is handed the Sprint's number, its dates and its Success criteria
     Given a running Sprint

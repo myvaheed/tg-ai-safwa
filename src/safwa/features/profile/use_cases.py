@@ -50,10 +50,11 @@ def _validated(field: ProfileField, value: ProfileValue) -> ProfileValue:
                     f"{SPRINT_LENGTH_MAX_DAYS} days"
                 )
         case ProfileField.CAPACITY_EFFORT_POINTS:
+            # Half a rung exists, so a Sprint's capacity is a number and not a count.
             if value is not None and (
-                isinstance(value, bool) or not isinstance(value, int) or value < 1
+                isinstance(value, bool) or not isinstance(value, int | float) or value <= 0
             ):
-                raise DomainError("Sprint capacity must be a positive whole number, or off")
+                raise DomainError("Sprint capacity must be a positive number, or off")
         case ProfileField.MEMORY_UPDATE_TIME | ProfileField.DIARY_TIME:
             if value is not None and not isinstance(value, time):
                 raise DomainError(f"{field.value} must be a clock time, or off")

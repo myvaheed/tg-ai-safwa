@@ -43,6 +43,7 @@ from .references import (
     VALUE_REFERENCE,
 )
 from .use_cases import (
+    IDEA_FIELDS,
     archive_subtree,
     create_card,
     delete_subtree,
@@ -61,7 +62,7 @@ PARENT_HINT = (
 
 
 STAGE_ACTIONS = frozenset(
-    {ChangeAction.MOVE, ChangeAction.COMPLETE, ChangeAction.CANCEL, ChangeAction.REOPEN}
+    {ChangeAction.MOVE, ChangeAction.COMPLETE, ChangeAction.REOPEN}
 )
 
 
@@ -90,10 +91,10 @@ CARD_SCALAR_FIELDS = frozenset(
 
 
 def allows_parent(child_kind: str | None, parent_kind: str | None) -> bool:
-    if child_kind == CardKind.IDEA.value:
+    if child_kind == CardKind.SUBGOAL.value:
         return parent_kind == CardKind.GOAL.value
     if child_kind == CardKind.ACTION.value:
-        return parent_kind in {CardKind.GOAL.value, CardKind.IDEA.value}
+        return parent_kind in {CardKind.GOAL.value, CardKind.SUBGOAL.value}
     return False
 
 
@@ -222,11 +223,11 @@ async def _apply_stage_change(session: AsyncSession, card: Card, stage: CardStag
 
     ``finish_action`` owns completion timestamps, Sprint results and repeat
     successors; ``move_card`` owns live stages and subtree propagation.  Every approved
-    stage change goes through here so no path can reach Done or Cancelled without the
-    completion bookkeeping.
+    stage change goes through here so no path can reach Done without the completion
+    bookkeeping.
     """
     if stage in TERMINAL_STAGES:
-        await finish_action(session, card.id, stage, actor=ActorType.AI)
+        await finish_action(session, card.id, actor=ActorType.AI)
         return
     await move_card(session, card.id, stage, actor=ActorType.AI)
 
@@ -308,7 +309,7 @@ class CardProposalHandler:
             if change.action in STAGE_ACTIONS or "stage" in values:
                 raise ToolPreparationError(
                     "stage_is_action_only",
-                    "A Goal and an Idea have no stage of their own: it shows what the Actions "
+                    "A Goal and a Subgoal have no stage of their own: it shows what the Actions "
                     "under it are in.",
                     "Move, complete or reopen the Actions in its branch instead.",
                 )
@@ -320,8 +321,28 @@ class CardProposalHandler:
                 raise ToolPreparationError(
                     "invalid_parent_kind",
                     "A Goal is always root-level and cannot take a parent.",
-                    "Drop the parent from this call, or propose an Idea or Action instead.",
+                    "Drop the parent from this call, or propose a Subgoal or Action instead.",
                 )
+            if proposed_kind == CardKind.IDEA.value:
+                if change.action in {ChangeAction.LINK, ChangeAction.UNLINK} or (
+                    set(values) - IDEA_FIELDS
+                ):
+                    raise ToolPreparationError(
+                        "idea_has_two_fields",
+                        "An Idea is a title and a note, and nothing else.",
+                        "Propose a Goal, a Subgoal or an Action for anything more.",
+                    )
+            if proposed_kind == CardKind.SUBGOAL.value:
+                born_rootless = change.action is ChangeAction.CREATE and not (
+                    values.get("parent_id") or values.get("parent_query")
+                )
+                unparented = "parent_id" in values and values["parent_id"] is None
+                if born_rootless or unparented:
+                    raise ToolPreparationError(
+                        "parent_required",
+                        "A Subgoal is always under a Goal.",
+                        "Send parent_id or parent_query naming the Goal.",
+                    )
             if change.action is ChangeAction.UPDATE and not values:
                 raise DomainError("The Card proposal contains no applicable fields")
         await _resolve_parent_reference(context, values, str(proposed_kind))
@@ -363,9 +384,7 @@ class CardProposalHandler:
         if change.action is ChangeAction.MOVE:
             await _apply_stage_change(session, card, CardStage(change.values["stage"]))
         elif change.action is ChangeAction.COMPLETE:
-            await finish_action(session, card.id, CardStage.DONE, actor=ActorType.AI)
-        elif change.action is ChangeAction.CANCEL:
-            await finish_action(session, card.id, CardStage.CANCELLED, actor=ActorType.AI)
+            await finish_action(session, card.id, actor=ActorType.AI)
         elif change.action is ChangeAction.REOPEN:
             await _apply_stage_change(
                 session, card, CardStage(change.values.get("stage", CardStage.BACKLOG.value))

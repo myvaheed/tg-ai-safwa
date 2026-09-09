@@ -25,10 +25,10 @@ Feature: Profile
     But 1 day and 61 days are refused, and the field keeps what it had
 
   Scenario: PS-CAPACITY-004 — Sprint capacity is a real number of points, or off
-    Given a whole number of at least 1 effort point
+    Given a positive number of effort points, a half included
     Then it is accepted
     And off means the owner is not committing to a capacity at all
-    But zero, a negative number, and anything that is not a whole number are refused
+    But zero and a negative number are refused
 
   Scenario: PS-CLOCK-005 — A time of day is a wall clock, or off
     Given a time from 00:00 through 23:59, for memory upkeep or for the Diary

@@ -36,7 +36,6 @@ from ...checks.telegram import (
 )
 from ...checks.use_cases import unobserved_series
 from ..api import live_card_title
-from ..model import CardStage
 from ..use_cases import finish_action
 from .screens import render_card
 
@@ -178,7 +177,7 @@ async def _on_save(context: CallbackContext) -> None:
         return
     async with context.sessions() as session:
         outcomes = {int(key): value for key, value in stored.items()}
-        result = await finish_action(session, card_id, CardStage.DONE, check_outcomes=outcomes)
+        result = await finish_action(session, card_id, check_outcomes=outcomes)
         await session.execute(delete(UiSession).where(UiSession.owner_id == context.owner_id))
         await session.commit()
     notice = "⚠️ " + "; ".join(result.warnings) if result.warnings else None

@@ -35,7 +35,7 @@ from tg_agent_shell.telegram import (
 )
 from tg_agent_shell.telegram.contributions import StartLink
 
-from ...cards.api import CardStage, actions_on_stages
+from ...cards.api import CardStage, actions_on_stages, effort_label
 from ...cards.model import Card
 from ...cards.telegram import render_card
 from ...cards.use_cases import move_card
@@ -113,7 +113,7 @@ def _table(services: Services, planned: list[Card]) -> str:
         back = _link(services, _RETURN, f"sr-{card.id}")
         rows.append(
             f'<tr><td align="left">{title}</td>'
-            f'<td align="right">{card.effort_points or 0}</td>'
+            f'<td align="right">{effort_label(card.effort_points or 0)}</td>'
             f'<td align="center">{back}</td></tr>'
         )
     return "<table bordered striped>" + "".join(rows) + "</table>"
@@ -124,7 +124,7 @@ def _button_label(card: Card) -> str:
     title = card.title
     if len(title) > SPRINT_PLAN_TITLE_LIMIT:
         title = f"{title[: SPRINT_PLAN_TITLE_LIMIT - 1]}…"
-    return f"{title} ({card.effort_points or 0})"
+    return f"{title} ({effort_label(card.effort_points or 0)})"
 
 
 async def _markup(

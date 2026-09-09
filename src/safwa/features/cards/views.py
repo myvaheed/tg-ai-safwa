@@ -49,20 +49,32 @@ AI_CARDS = SqlView(
                (SELECT group_concat(t.name, ',') FROM card_tags ct
                 JOIN tags t ON t.id=ct.tag_id WHERE ct.card_id=c.id) AS direct_tags,
                c.created_at, c.updated_at
-        FROM cards c""",
+        FROM cards c WHERE c.kind != 'idea'""",
     doc="""- `ai_cards(id, title, note, kind, stage, priority, hard_time, blocked, blocked_description, effort_points, repeatable, parent_id, series_id, categories, energy_types, direct_values, direct_tags, created_at, updated_at)`
-  - `kind` goal | idea | action
-  - `stage` backlog | sprint | today | done | cancelled
+  - `kind` goal | subgoal | action
+  - `stage` backlog | sprint | today | done
   - `priority` critical | medium | low
-  - `effort_points` 1 | 2 | 3 | 5 | 8 | 13, the size of one action
-  - on a goal or an idea, `stage`, `blocked` and `effort_points` are what the cards under it add up to
+  - `effort_points` 0.5 | 1 | 2 | 3 | 5 | 8 | 13, what one action costs the user
+  - on a goal or a subgoal, `stage`, `blocked` and `effort_points` are what the cards under it add up to
   - to total effort always add `WHERE kind = 'action'`, or each action is counted again inside every parent
   - `categories` self | contribution | work | rest
   - `energy_types` physical | cognitive | social | values
   - `hard_time`, `blocked`, `repeatable` 0 | 1
   - `categories`, `energy_types`, `direct_values` and `direct_tags` are comma-joined names, so match one with `LIKE '%Health%'`
   - `series_id` is the whole repeat series of one card; a card that never repeated is its own series
-  - the checks on a card are `ai_checks WHERE card_id = <id>`""",
+  - the checks on a card are `ai_checks WHERE card_id = <id>`
+  - an idea is not here: it is in `ai_ideas`""",
+)
+
+
+# An Idea is outside the tree and outside every stage, so it is outside the view that is
+# about both: two columns is the whole of it.
+AI_IDEAS = SqlView(
+    "ai_ideas",
+    """SELECT id, title, note, created_at, updated_at FROM cards WHERE kind = 'idea'""",
+    doc="""- `ai_ideas(id, title, note, created_at, updated_at)`
+  - raw capture the user wrote down: no stage, no effort, no parent, no links
+  - cite one as [title](card:12), the same as any other card""",
 )
 
 
@@ -74,10 +86,10 @@ AI_CARD_EVENTS = SqlView(
     doc="""- `ai_card_events(id, card_id, sprint_id, actor, operation, created_at)`
   - one row per change to one card, oldest first by `id`
   - `actor` user_ui | ai — the owner on a screen, or a proposal the owner approved
-  - `operation` create | update | edit_<field> | set_parent | move | done | cancelled | archive | restore | link_<kind> | unlink_<kind>, where kind is value | tag | check | category | energy
+  - `operation` create | update | edit_<field> | set_parent | move | done | archive | restore | link_<kind> | unlink_<kind>, where kind is value | tag | check | category | energy
   - `sprint_id` is the Sprint that was running then, or NULL
   - archiving that happened on its own writes no row, so `archive` is always the owner's own""",
 )
 
 
-VIEWS = (AI_CARDS, AI_CARD_EVENTS)
+VIEWS = (AI_CARDS, AI_IDEAS, AI_CARD_EVENTS)

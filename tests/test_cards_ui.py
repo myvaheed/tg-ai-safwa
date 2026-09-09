@@ -18,12 +18,14 @@ from ui_harness import (
 from safwa.constants import SELECTOR_PAGE_SIZE
 from safwa.features.cards.model import Card, CardStage
 from safwa.features.cards.telegram import (
+    command_ideas,
     render_card,
     render_card_choices,
     render_card_creation,
     render_children,
     render_dashboard,
 )
+from safwa.features.cards.telegram import idea as idea_screens
 from safwa.features.cards.telegram.selectors import (
     RELATION_CHOICES,
     handle_card_creation_chooser,
@@ -320,7 +322,7 @@ async def test_a_closed_card_shows_when_it_closed_and_where_its_series_went(sess
         card = await create_card(
             session, kind="action", title="Run", stage="today", effort_points=1, repeatable=True
         )
-        result = await finish_action(session, card.id, CardStage.DONE)
+        result = await finish_action(session, card.id)
         await session.commit()
         card_id, live_id = card.id, result.successor_ids[0]
 
@@ -545,7 +547,10 @@ async def test_card_creation_choosers_show_kind_category_and_energy_emojis(sessi
     services = services_for(sessions)
 
     await handle_card_creation_chooser(message, services, "card_create_choose_kind")
-    assert {"🎯 Goal", "💡 Idea", "✓ ⭐️ Action"} <= set(button_texts(message.edits[-1][1]))
+    kinds = set(button_texts(message.edits[-1][1]))
+    assert {"🎯 Goal", "✓ ⭐️ Action"} <= kinds
+    # A Subgoal needs a Goal above it, and no screen sets a parent.
+    assert not any("Subgoal" in text for text in kinds)
 
     await handle_card_creation_chooser(message, services, "card_create_choose_categories")
     assert {"🌱 Self", "❤️ Contribution", "💰 Work", "🔋 Rest"} <= set(
@@ -561,17 +566,17 @@ async def test_card_creation_choosers_show_kind_category_and_energy_emojis(sessi
 async def test_card_overview_uses_derived_progress_and_relationship_navigation(sessions) -> None:
     async with sessions() as session:
         goal = await create_card(session, title="Ship product", kind="goal")
-        idea = await create_card(
+        subgoal = await create_card(
             session,
             title="Prepare release",
-            kind="idea",
+            kind="subgoal",
             parent_id=goal.id,
         )
         done = await create_card(
             session,
             title="Publish build",
             kind="action",
-            parent_id=idea.id,
+            parent_id=subgoal.id,
             effort_points=3,
         )
         remaining = await create_card(
@@ -581,7 +586,7 @@ async def test_card_overview_uses_derived_progress_and_relationship_navigation(s
             parent_id=goal.id,
             effort_points=5,
         )
-        await finish_action(session, done.id, CardStage.DONE)
+        await finish_action(session, done.id)
         await session.commit()
 
     bot = FakeBot()
@@ -604,7 +609,7 @@ async def test_card_overview_uses_derived_progress_and_relationship_navigation(s
     children_message = FakeMessage(73, bot_message=True)
     await render_children(children_message, services_for(sessions), goal.id)
     children_texts = button_texts(children_message.edits[-1][1])
-    assert any("💡 Idea · Prepare release" in text for text in children_texts)
+    assert any("🧩 Subgoal · Prepare release" in text for text in children_texts)
     assert any("⭐️ Action · Write announcement" in text for text in children_texts)
     assert not any("Publish build" in text for text in children_texts)
 
@@ -647,12 +652,12 @@ async def test_no_screen_offers_a_goal_or_an_idea_a_stage_control(sessions) -> N
     """CD-STAGE-013 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        idea = await create_card(session, kind="idea", title="Sleep better", parent_id=goal.id)
+        subgoal = await create_card(session, kind="subgoal", title="Sleep better", parent_id=goal.id)
         action = await create_card(
-            session, kind="action", title="Buy a pillow", effort_points=2, parent_id=idea.id
+            session, kind="action", title="Buy a pillow", effort_points=2, parent_id=subgoal.id
         )
         await session.commit()
-        ids = (goal.id, idea.id, action.id)
+        ids = (goal.id, subgoal.id, action.id)
 
     services = services_for(sessions)
     for index, card_id in enumerate(ids, start=310):
@@ -721,12 +726,12 @@ async def test_cd_archive_027_an_archived_card_reads_as_archived(sessions) -> No
         plain = await create_card(
             session, kind="action", title="Walk", effort_points=2, stage="today"
         )
-        await finish_action(session, plain.id, CardStage.DONE)
+        await finish_action(session, plain.id)
         await archive_subtree(session, plain.id)
         repeating = await create_card(
             session, kind="action", title="Run", effort_points=2, stage="today", repeatable=True
         )
-        await finish_action(session, repeating.id, CardStage.DONE)
+        await finish_action(session, repeating.id)
         await archive_subtree(session, repeating.id)
         await session.commit()
         plain_id, repeating_id = plain.id, repeating.id
@@ -749,3 +754,67 @@ async def test_cd_archive_027_an_archived_card_reads_as_archived(sessions) -> No
     repeating_labels = button_texts(message.edits[-1][1])
     assert "♻️ Reopen" not in repeating_labels
     assert "Delete" in repeating_labels
+
+
+async def test_cd_idea_030_ideas_have_a_list_of_their_own_and_safwa_expands_one(
+    sessions, monkeypatch
+) -> None:
+    """CD-IDEA-030 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        first = await create_card(session, kind="idea", title="Cold showers", note="One week")
+        await create_card(session, kind="idea", title="Learn to sail")
+        await session.commit()
+        first_id = first.id
+
+    services = services_for(sessions)
+    assert "ideas" in {screen.nav for screen in services.commands}
+
+    listing = FakeMessage(310, bot_message=True)
+    await command_ideas(listing, services)
+    text, markup = listing.edits[-1]
+    assert "Cold showers" in text and "Learn to sail" in text
+    assert "➕ New Idea" in button_texts(markup)
+
+    screen = FakeMessage(311, bot_message=True)
+    await render_card(screen, services, first_id)
+    text, markup = screen.edits[-1]
+    assert "Title: <b>Cold showers</b>" in text
+    assert "Note: One week" in text
+    assert button_texts(markup) == ["✏️ Title", "📝 Note", "✨ Expand", "Delete", "↩️ Back"]
+
+    turns: list[str] = []
+
+    async def record(_message, _services, request, _source) -> None:
+        turns.append(request)
+
+    monkeypatch.setattr(idea_screens, "run_dialogue_turn", record)
+    expand = next(
+        button
+        for row in markup.inline_keyboard
+        for button in row
+        if button.text == "✨ Expand"
+    )
+    await callback_token_handler(
+        FakeCallback(expand.callback_data.split(":", 1)[1], screen), services
+    )
+
+    assert turns == ["Разверни идею «Cold showers» в карточки.\nЗаметка: One week"]
+    async with sessions() as session:
+        unchanged = await session.get(Card, first_id)
+        assert (unchanged.kind, unchanged.title) == ("idea", "Cold showers")
+
+
+async def test_cd_effort_008_the_effort_selector_names_what_each_rung_costs(sessions) -> None:
+    """CD-EFFORT-008 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        card = await create_card(session, kind="action", title="Run", effort_points=2)
+        await session.commit()
+        card_id = card.id
+
+    message = FakeMessage(320, bot_message=True)
+    await render_card_choices(message, services_for(sessions), "card_choose_effort", card_id)
+    text, markup = message.edits[-1]
+    assert "how much the whole thing takes in your usual state" in text
+    labels = button_texts(markup)
+    assert "0.5 · done in passing, the load is barely noticed" in labels
+    assert "✓ 2 · a little tired, but able to carry on without a rest" in labels

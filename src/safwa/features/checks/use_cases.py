@@ -399,16 +399,13 @@ async def require_check_answers(
     session: AsyncSession,
     card_id: int,
     outcomes: dict[int, Any] | None,
-    *,
-    gated: bool,
 ) -> dict[int, Any]:
     """The answers this completion needs, refused before anything is written.
 
-    `gated` is Done: every series with no answer on this Card has to be answered now.
-    Cancelling abandons the work, so it asks for nothing.
+    Every series with no answer on this Card has to be answered before it is Done.
     """
     pending = await pending_checks(session, card_id)
-    unobserved = await unobserved_series(session, card_id) if gated else []
+    unobserved = await unobserved_series(session, card_id)
     return check_resolutions(pending, unobserved, outcomes)
 
 

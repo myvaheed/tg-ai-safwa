@@ -50,7 +50,7 @@ async def run_sprint_expiry(
 
 
 async def _expire_and_close_today(context: BackgroundContext) -> None:
-    async def announce(number: int) -> None:
+    async def announce(number: str) -> None:
         # Today belongs to a running Sprint, so the command list changes the moment one ends.
         await sync_bot_commands(
             context.bot, available_screens(context.services.commands, sprint_active=False)

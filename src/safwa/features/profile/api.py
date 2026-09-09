@@ -26,7 +26,7 @@ async def sprint_length_days(session: AsyncSession) -> int:
     return profile.sprint_length_days if profile is not None else SPRINT_LENGTH_DAYS
 
 
-async def capacity_effort_points(session: AsyncSession) -> int | None:
+async def capacity_effort_points(session: AsyncSession) -> float | None:
     """The effort the owner means to take on in a Sprint, or None when it is off."""
     profile = await session.get(UserProfile, 1)
     return profile.capacity_effort_points if profile is not None else None

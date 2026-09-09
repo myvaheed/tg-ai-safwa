@@ -168,8 +168,6 @@ async def _card_state(
     proposed = {**current, **dict(change.values)}
     if change.action is ChangeAction.COMPLETE:
         proposed["stage"] = CardStage.DONE.value
-    elif change.action is ChangeAction.CANCEL:
-        proposed["stage"] = CardStage.CANCELLED.value
     elif change.action is ChangeAction.REOPEN:
         proposed["stage"] = change.values.get("stage", CardStage.BACKLOG.value)
     elif change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
@@ -207,7 +205,7 @@ async def _card_display_state(
         )
     if display.get("id") and display.get("kind") in {
         CardKind.GOAL.value,
-        CardKind.IDEA.value,
+        CardKind.SUBGOAL.value,
     }:
         display.update(await card_progress(session, int(display["id"])))
     return display
@@ -304,8 +302,6 @@ class CardProposalPresenter:
             proposed = {"stage": values.get("stage")}
         elif change.action is ChangeAction.COMPLETE:
             proposed = {"stage": CardStage.DONE.value}
-        elif change.action is ChangeAction.CANCEL:
-            proposed = {"stage": CardStage.CANCELLED.value}
         elif change.action is ChangeAction.REOPEN:
             proposed = {"stage": values.get("stage", CardStage.BACKLOG.value)}
         elif change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:

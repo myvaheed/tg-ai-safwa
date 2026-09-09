@@ -58,24 +58,22 @@ Answered 2026-09-08, and written into the entries themselves:
 - **Proposal fulfillment validation is not a hook.** Its separate architecture is proposed in
   [PROPOSAL_VALIDATION.md](PROPOSAL_VALIDATION.md); it is not gated by hook registration.
 
-Still open, and none of it blocks Wave 1:
+Still open:
 
 | Question | What it blocks |
 |---|---|
-| Which kinds the Idea's conversion button offers, and whether the note survives the conversion | the Idea capture kind |
 | What time the daily summary arrives | the daily summary |
 | Which fields and buttons the compact Card view shows | the compact view |
 | The symbol for "this series was already done today" | the repeating-Action marker |
 
-## Wave 1 — the schema and vocabulary window
+## Wave 1 — the schema and vocabulary window, shipped
 
-| Entry | | Why now |
-|---|---|---|
-| **Cancelled is removed** *(Agreed)* | M | Pure deletion, and deletion is the cheapest batch there is: `CardStage.CANCELLED`, `TERMINAL_STAGES` down to one member, `cancelled_at`, the derivation branch in `cards/hierarchy.py`, the `cancel` mode and the stage `Literal` in `cards/agent.py`, the Advisor's stage line. `remove` already gives the model the deletion route that replaces it. Do it before kind conversion, which would otherwise write rules for a stage that is leaving. |
-| **The middle Card kind is named for the one thing it cannot be** — the rename and the tree rule | M | Idea becomes Subgoal in a stored word, in every prompt line and in every scenario, and a Subgoal comes to require a Goal. It gets more expensive with each new scenario written meanwhile. Splitting the capture kind out of this batch keeps it a rename. |
-| **The same entry — Idea as raw capture** | L | A fourth kind that is in no board and no Sprint: its own list, its own screen, one conversion button, and a place in the Card tool the Advisor can reach. `effective_stage` is not nullable and carries an index, so the batch decides what an Idea stores there. Do it after the rename, or it is written twice. |
-| **Effort is offered in points one owner cannot calibrate** | L | `effort_points` and `capacity_effort_points` turn numeric, `EFFORT_POINTS` gains 0.5, plus the `Literal` in `cards/agent.py`, the whole-number check in `profile/use_cases.py`, the `EP` labels in the Card screens and the sums in `cards/hierarchy.py`. See "Where to look hardest". |
-| **A Sprint number says nothing about when it ran** | M | Integer to text, and every place that prints a number: the retro screen, the Sprint messages, the state block the Advisor reads. Both open questions are answered inside the entry. |
+Shipped 2026-09-09, in five batches: Cancelled removed, the middle kind renamed to Subgoal
+and required under a Goal, Idea reborn as raw capture, the effort rungs with 0.5, and the
+Sprint number as `yy.MM-xx`. Their entries are out of FUTURE_FEATURE.md and their rules are
+in [cards.feature](../tests/brd/cards.feature), [planning.feature](../tests/brd/planning.feature)
+and [profile.feature](../tests/brd/profile.feature). The database is rebuilt for them once,
+not five times.
 
 ## Wave 2 — screens that cost almost nothing
 
@@ -96,7 +94,7 @@ Still open, and none of it blocks Wave 1:
 | **An unanswered proposal expires after one hour** *(Agreed)* | L | Touches the proposal store, the turn lease, Reminder delivery order and the single-screen rule at the same time. The entry's last sentence names a *second* mechanism — an expiry for manual editors' live screens. Scope it in or defer it explicitly; do not let it arrive by accident. |
 | **The retrospective — the statistics half only** | M | RT-OPEN-001 currently promises a screen that says there is nothing there yet. Code-calculated statistics fill it and are useful with no model involved. The AI analysis half is Wave 5. |
 | **The daily summary is a second system Reminder** | M | Reuses the RM-SYSTEM-022 shape and the `Cue` path; the work is the content, the second Profile switch, and the one message that carries both when both are on. Only its hour is still open. |
-| **A Card's kind can change while its structure and work history allow it** *(Agreed)* | L | Downstream of Cancelled and of the Direction rename, and of the tree rule that Wave 0 decides. Its four bullets are complete enough to become scenarios the day those land. |
+| **A Card's kind can change while its structure and work history allow it** *(Agreed)* | L | The Subgoal rename and its tree rule have landed, so its four bullets are ready to become scenarios. Add what an Idea converts to, which is now a fourth kind it says nothing about. |
 
 ## Wave 4 — the hooks, in dependency order
 
@@ -108,8 +106,8 @@ implementation stages are detailed in [HOOK_ARCH.md](HOOK_ARCH.md).
 | **1, 4 and 15 — Advisor instructions, not hooks** | S each | Nothing. A prompt line and the snapshot. Note for 4: the Today Actions are already in the state block; the Sprint list is not, and adding it has a cost named below. |
 | **2 — After setting a blocker, offer a Reminder** | M | 14 |
 | **11 — Repeated Missed observations** | M | 14 |
-| **5 — Goals and Directions with no Actions** | M | 14, and the Direction rename |
-| **7 — Today's work exceeds the daily capacity** | M | 14, and the effort rungs. A warning at 15 EP means nothing while EP means nothing. |
+| **5 — Goals and Subgoals with no Actions** | M | 14 |
+| **7 — Today's work exceeds the daily capacity** | M | 14. The rungs now say what a day's load is, so 15 EP means something; the counting rule is still the entry's own open question. |
 | **13 — An approaching Hard Time is outside the plan** | M | 14, and Hard Time |
 | **6 — An unfinished Action repeatedly selected for Today** | L | 14, plus a record of each day's selection into Today that nothing writes yet |
 | **10 — Key Actions tied to Sprint Success criteria** | XL | 14 and a Sprint-and-Action relationship with classification history. Hard Time is needed for timed sorting, not for the classification itself |
@@ -131,12 +129,9 @@ repeated, and they are not scheduled.
 
 ```mermaid
 flowchart LR
-  cancelled["Cancelled removed"] --> kind["A Card's kind can change"]
-  rename["Idea becomes Subgoal"] --> kind
-  rename --> capture["Idea as raw capture"]
-  rename --> h5["Hook 5 — parents with no Action"]
-  effort["Effort rungs"] --> h7["Hook 7 — daily capacity"]
-  effort --> sprintfig["Sprint committed / added / capacity"]
+  kind["A Card's kind can change"]
+  h5["Hook 5 — parents with no Action"]
+  h7["Hook 7 — daily capacity"]
   hardtime["Hard Time schedule"] --> h13["Hook 13 — Hard Time outside the plan"]
   h10["Hook 10 — key Actions"]
   shape["The shape every hook has"] --> journal
@@ -151,29 +146,24 @@ flowchart LR
 
 ## Where to look hardest
 
-**The effort scale, because everything downstream is denominated in it.** The Sprint's committed,
-added and capacity figures, hook 7's 15 EP, and the Advisor's judgement of a day's load all count in
-a unit one owner cannot calibrate today. Fix the unit and those numbers start meaning something;
-build them first and they are decoration. The entry also carries a constraint the screens must
-respect: recovery does not add up, so a sprint total is a load signal of the right order and never
-something to take a percentage of. `EnergyType` already says which kind of load it is, so the scale
-does not have to.
-
 **The occasion journal with the first initiative.** Ship the blocker follow-up with durable
 occasion identity, confirmed delivery and decision handling. A second initiative then reuses a
 complete path. Existing Summary and helper availability exercise registration before this stage;
 they do not need artificial owner-decision records.
 
-**The pre-release window.** Four Wave 1 entries change a column. They are cheap today because the
-owner rebuilds the database anyway, and they are the only entries whose cost rises permanently at
-v1. Everything in Waves 2 and 4 will cost the same next month; these will not.
+**The pre-release window.** It has been spent once, on Wave 1. Nothing scheduled below changes a
+column except Hard Time, so the next rebuild is that entry's alone.
 
 **What reaches the cacheable prefix.** Two entries push volatile content toward `messages[0]`:
 onboarding's changing guidance, and hook 4's Sprint list. The Today Actions already sit in the state
 block and already pay this; a Sprint list changes on every Card edit, which is a different order of
 churn. Decide where that content goes before writing either.
 
-**Vocabulary before volume.** Idea becomes Subgoal touches a stored word, the prompts and every
-scenario that spells it — and the freed word is then reused for a different kind, so a scenario
-written in between says something that will be false twice. Each wave written before the rename
-adds to what the rename has to rewrite.
+**Vocabulary before volume.** Idea became Subgoal in a stored word, the prompts and every scenario
+that spells it, and the freed word now names raw capture. A document or scenario that still
+spells Idea to mean a container is saying something false.
+
+**The rungs are the unit now.** Hook 7's 15 EP, the Sprint's committed and capacity figures and
+the Advisor's judgement of a day's load all count in a scale that says what work costs the owner.
+Recovery does not add up, so a total is a load signal of the right order and never something to
+take a percentage of.

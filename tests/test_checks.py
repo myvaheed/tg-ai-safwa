@@ -158,7 +158,7 @@ async def test_a_card_cannot_be_done_with_an_unanswered_check(sessions):
         await session.commit()
 
         with pytest.raises(DomainError) as error:
-            await finish_action(session, card.id, CardStage.DONE)
+            await finish_action(session, card.id)
         assert f"#{milk.id} Milk" in str(error.value)
         assert "Bread" in str(error.value)
         assert (await session.get(Card, card.id)).effective_stage == CardStage.TODAY.value
@@ -166,16 +166,10 @@ async def test_a_card_cannot_be_done_with_an_unanswered_check(sessions):
 
         with pytest.raises(DomainError, match="Resolve these Pending Checks"):
             await finish_action(
-                session, card.id, CardStage.DONE, check_outcomes={milk.id: "passed"}
+                session, card.id, check_outcomes={milk.id: "passed"}
             )
         with pytest.raises(DomainError, match="not Pending on this Card"):
-            await finish_action(session, card.id, CardStage.DONE, check_outcomes={999: "passed"})
-
-    async with sessions() as session:
-        # Cancelling abandons the work, so an unanswered Check must not block it.
-        await finish_action(session, card.id, CardStage.CANCELLED)
-        await session.commit()
-        assert (await session.get(Card, card.id)).effective_stage == CardStage.CANCELLED.value
+            await finish_action(session, card.id, check_outcomes={999: "passed"})
 
 
 async def test_finishing_a_card_answers_its_checks_at_the_same_time(sessions):
@@ -189,7 +183,6 @@ async def test_finishing_a_card_answers_its_checks_at_the_same_time(sessions):
         await finish_action(
             session,
             card.id,
-            CardStage.DONE,
             check_outcomes={milk.id: CheckOutcome.PASSED, bread.id: "missed"},
         )
         await session.commit()
@@ -209,7 +202,7 @@ async def test_a_repeating_check_needs_one_answer_before_its_card_can_close(sess
 
         # Never answered on this Card, so it holds the Card.
         with pytest.raises(DomainError) as error:
-            await finish_action(session, card.id, CardStage.DONE)
+            await finish_action(session, card.id)
         assert f"#{check.id} Posture straight?" in str(error.value)
 
         _, successor = await resolve_check(session, check.id, CheckOutcome.PASSED)
@@ -217,7 +210,7 @@ async def test_a_repeating_check_needs_one_answer_before_its_card_can_close(sess
         assert successor is not None
         # The open instance belongs to the next cycle, not to this completion.
         assert await unobserved_series(session, card.id) == []
-        await finish_action(session, card.id, CardStage.DONE)
+        await finish_action(session, card.id)
         await session.commit()
         assert (await session.get(Card, card.id)).effective_stage == CardStage.DONE.value
 
@@ -230,13 +223,13 @@ async def test_an_answer_on_the_previous_action_does_not_close_the_next_one(sess
         await session.commit()
 
         result = await finish_action(
-            session, card.id, CardStage.DONE, check_outcomes={check.id: CheckOutcome.PASSED}
+            session, card.id, check_outcomes={check.id: CheckOutcome.PASSED}
         )
         await session.commit()
         successor_card_id = result.successor_ids[0]
 
         with pytest.raises(DomainError, match="Posture straight?"):
-            await finish_action(session, successor_card_id, CardStage.DONE)
+            await finish_action(session, successor_card_id)
 
 
 async def test_answering_a_repeating_check_opens_the_next_one(sessions):
@@ -293,7 +286,7 @@ async def test_closing_a_card_deletes_its_unanswered_check(sessions):
         await session.commit()
         successor_id = successor.id
 
-        await finish_action(session, card.id, CardStage.DONE)
+        await finish_action(session, card.id)
         await session.commit()
 
         assert (await session.get(Card, card.id)).effective_stage == CardStage.DONE.value
@@ -313,7 +306,6 @@ async def test_a_repeating_card_gives_fresh_checks_to_the_next_one(sessions):
         result = await finish_action(
             session,
             card.id,
-            CardStage.DONE,
             check_outcomes={plain.id: CheckOutcome.PASSED, repeating.id: CheckOutcome.PASSED},
         )
         await session.commit()
@@ -331,7 +323,7 @@ async def test_a_repeating_card_gives_fresh_checks_to_the_next_one(sessions):
         assert await pending_checks(session, card.id) == []
         # And the successor cannot close until each of them has been answered once here.
         with pytest.raises(DomainError, match="Resolve these Pending Checks"):
-            await finish_action(session, successor_card_id, CardStage.DONE)
+            await finish_action(session, successor_card_id)
 
 
 async def test_a_repeat_successor_gets_one_row_per_series(sessions):
@@ -347,7 +339,7 @@ async def test_a_repeat_successor_gets_one_row_per_series(sessions):
         await session.commit()
         assert spawned is not None
 
-        result = await finish_action(session, card.id, CardStage.DONE)
+        result = await finish_action(session, card.id)
         await session.commit()
 
         copies = await card_checks(session, result.successor_ids[0])
@@ -366,7 +358,6 @@ async def test_reopening_a_card_brings_its_checks_back(sessions):
         await finish_action(
             session,
             card.id,
-            CardStage.DONE,
             check_outcomes={plain.id: CheckOutcome.PASSED, repeating.id: CheckOutcome.MISSED},
         )
         await session.commit()
@@ -391,7 +382,7 @@ async def test_reopening_a_card_brings_its_checks_back(sessions):
         assert opened[0].id != repeating.id
 
         with pytest.raises(DomainError, match="Resolve these Pending Checks") as error:
-            await finish_action(session, card.id, CardStage.DONE)
+            await finish_action(session, card.id)
         assert "Milk" in str(error.value) and "Posture" in str(error.value)
 
 
@@ -403,7 +394,7 @@ async def test_a_repeating_action_cannot_be_reopened_and_its_checks_do_not_move(
         await session.commit()
 
         await finish_action(
-            session, card.id, CardStage.DONE, check_outcomes={check.id: CheckOutcome.PASSED}
+            session, card.id, check_outcomes={check.id: CheckOutcome.PASSED}
         )
         await session.commit()
         before = [(item.id, item.outcome) for item in await card_checks(session, card.id)]
@@ -454,7 +445,7 @@ async def test_an_archived_answer_still_counts_for_the_gate(sessions):
 
         # The answer left the screens, not the count: the series is still observed here.
         assert await unobserved_series(session, card.id) == []
-        await finish_action(session, card.id, CardStage.DONE)
+        await finish_action(session, card.id)
         await session.commit()
 
         assert (await session.get(Card, card.id)).effective_stage == CardStage.DONE.value
@@ -472,7 +463,7 @@ async def test_a_repeating_card_copies_a_series_whose_answer_was_archived(sessio
         await archive_check(session, check.id)
         await session.commit()
 
-        result = await finish_action(session, card.id, CardStage.DONE)
+        result = await finish_action(session, card.id)
         await session.commit()
 
         copies = await card_checks(session, result.successor_ids[0])
@@ -537,7 +528,7 @@ async def test_ch_repeat_015_every_instance_names_its_series_and_the_cards(read_
         check = await linked_check(session, card.id, title="Pulled up today?", repeatable=True)
         _, second = await resolve_check(session, check.id, CheckOutcome.PASSED)
         await resolve_check(session, second.id, CheckOutcome.MISSED)
-        result = await finish_action(session, card.id, CardStage.DONE)
+        result = await finish_action(session, card.id)
         successor_card = result.successor_ids[0]
         loose = await linked_check(session, None, title="Weighed in?")
         await session.commit()

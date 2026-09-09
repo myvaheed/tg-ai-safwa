@@ -19,7 +19,7 @@ from ..cards.model import CardKind
 from .model import SprintCommitment
 
 # The stages an Action has to be on for a Sprint to have anything to say about it.
-SPRINT_SCOPE = frozenset({CardStage.SPRINT, CardStage.TODAY, CardStage.DONE, CardStage.CANCELLED})
+SPRINT_SCOPE = frozenset({CardStage.SPRINT, CardStage.TODAY, CardStage.DONE})
 
 
 # The screens that exist only while a Sprint runs, by the `nav` each of them declared.
@@ -81,9 +81,7 @@ async def sync_commitment_for_stage(
         commitment.removed_at = None
 
 
-async def record_sprint_result(
-    session: AsyncSession, card_id: int, terminal_stage: CardStage
-) -> None:
+async def record_sprint_result(session: AsyncSession, card_id: int) -> None:
     """What the running Sprint says this Action came to."""
     workspace = await require_workspace(session)
     if not workspace.active_sprint_id:
@@ -95,7 +93,7 @@ async def record_sprint_result(
         )
     )
     if commitment:
-        commitment.result = terminal_stage.value
+        commitment.result = CardStage.DONE.value
 
 
 async def delete_commitments_of_cards(session: AsyncSession, card_ids: list[int]) -> None:

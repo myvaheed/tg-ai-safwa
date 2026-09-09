@@ -1,4 +1,4 @@
-# Ideas kept, and questions already settled
+# Entries kept, and questions already settled
 
 **Nothing here is agreed.** Not a commitment, not a specification, and not a scenario — an entry
 is a real gap noticed while something else was being decided, written down so the reasoning does
@@ -19,72 +19,6 @@ not give the Advisor a way to retrieve a named day's conversation.
 
 This is a recorded limitation, not an approved request for date-based search. `DI-READ-016` keeps
 the Diary reading a whole named day; a separate Advisor history reader remains undecided.
-
-## The middle Card kind is named for the one thing it cannot be
-
-Agreed 2026-09-08, noticed 2026-09-05 discussing the shape of the tree rather than any code.
-
-An Idea carries no field of its own: stage, effort, energy, repeat and Blocked are an Action's, and
-everything it shows is derived from its children. The word promised something optional while the
-mechanism was a container under a Goal, and the same word was also the only place a loose thought
-could go. Both are fixed by giving each meaning a kind of its own:
-
-- The container becomes Subgoal (Подцель). Its stage, including Done, stays derived from its
-  children. Goal keeps its name; Values may cross Goals.
-- A Subgoal may only exist under a Goal. CD-TREE-003 allows a root-level middle kind today, and
-  that is the version that rots: one word covering both a committed line of work and a stray one.
-- Idea keeps the word and becomes raw capture: a title and a note, and nothing else. No parent, no
-  children, no stage, no effort, no priority, no categories, no energy, no repeat and no Blocked.
-  It is written in one move and edited as easily, and one button turns it into the Goal-and-Actions
-  tree. The owner and the Advisor both create one, and it is the cheapest thing the Advisor can
-  propose, because there is no effort and no parent to guess at.
-
-An Idea is outside the stage system, so it is outside every board and outside a Sprint's scope
-accounting, and it has a list of its own. `effective_stage` is not nullable today and carries an
-index, so what an Idea stores there is a schema question its batch answers.
-
-Still to decide: which kinds the conversion button offers, and whether the note survives into the
-Card the Idea becomes.
-
-## Effort is offered in points one owner cannot calibrate
-
-Agreed 2026-09-08 as the rungs stand below; noticed 2026-09-05, discussing what a plain user
-reads on a screen.
-
-The effort selector renders `f"{points} EP"` — the Fibonacci scale a team calibrates over months of
-estimating together. One owner has nobody to calibrate against, so the number is chosen differently
-each week, and the sprint figures it feeds — committed, added, capacity — claim more than they know.
-
-Duration was tried as the label and dropped: half an hour of running is not the smallest thing on
-the scale. A rung says what the owner will be able to do afterwards, and what recovery it takes
-first — one axis, and the only one that reads the same for a physical, a cognitive and an emotional
-load. Which of those it is, `EnergyType` already carries.
-
-    0.5   done in passing, the load is barely noticed
-    1     done, and the day goes on as it was
-    2     a little tired, but able to carry on without a rest
-    3     able to carry on only after a break
-    5     after a full rest there is enough for one more serious thing
-    8     only light work is left for today
-    13    nothing is left for anything else today
-
-Under it stands the one instruction that keeps the rungs steady: how much will the whole thing take
-in your usual state — today's tiredness decides how many things you take on, not what one of them
-costs. On a repeating Action the effort is one occurrence, not the series. The field description the
-model reads carries the same lines, or the model estimates duration while the owner estimates cost,
-and the two are summed as one scale.
-
-Two things follow from the rungs being written this way. They are approximate weights, because
-recovery does not add up — one thing needs a rest and the next needs a change of activity — so a
-sprint total is a load signal of the right order and never a measurement to take a percentage of.
-And 13 is a ceiling that carries a rule: work that does not fit one day's reserve is not an Action
-but a Direction with Actions under it. Calendar time is not the test — a 13 may sit in Today for
-three days.
-
-The set keeps 0.5 rather than doubling to stay whole, which would leave every other number too large
-to work with. So `effort_points` and `capacity_effort_points` both turn numeric, together with the
-`Literal` in [cards/agent.py](../src/safwa/features/cards/agent.py) and the whole-number check in
-[profile/use_cases.py](../src/safwa/features/profile/use_cases.py).
 
 ## The daily summary is a second system Reminder
 
@@ -109,7 +43,7 @@ The time is still undecided.
 
 Noticed 2026-09-05, discussing what a new owner meets.
 
-The first start helps the owner with an actual intention, without requiring a Goal, a Direction
+The first start helps the owner with an actual intention, without requiring a Goal, a Subgoal
 and two Actions, or a fixed number of questions. The prompt should cover the owner's different
 starting points. Keeping this guidance active through the first day, rather than one turn, is a
 candidate; its duration and completion condition are undecided.
@@ -127,20 +61,6 @@ Noticed 2026-09-05, placing Values above Goals rather than beside them.
 
 A Goal's screen shows whether it has linked Values. The many-to-many link stays optional: an
 absent link says nothing about whether the owner has a reason for the Goal.
-
-## A Sprint number says nothing about when it ran
-
-Noticed 2026-09-05, reading a Sprint number in a receipt.
-
-`Sprint.number` is the highest ever used plus one, so it has to be looked up before it means a date.
-Proposed instead: yy.MM-xx, where the last pair counts that month's Sprints — 26.09-01, 26.09-02.
-The zero-padded parts sort as text by start year, month and sequence; the last pair is a sequence
-number, not a day of the month.
-
-Two things it needs decided. The month is the one the Sprint started in, so a Sprint crossing a month
-boundary keeps the month it began. The last pair follows the highest ever used within that month, so
-deleting a Sprint cannot hand its label to another, which is what the integer already guarantees. The
-column stops being an integer, so this is a schema change and a rebuild.
 
 ## Hard Time carries a computed time and an explanation
 
@@ -206,24 +126,18 @@ their live screen. The timeout bounds waiting rather than guaranteeing delivery 
 Agreed 2026-09-06. Allow kind changes on open, unarchived Cards, with restrictions only where the
 conversion changes the tree or the meaning of recorded work:
 
-- The final tree must be valid: a Goal is root-level, a Direction belongs to a Goal, and an Action
-  has no children. Children block conversion to Action; Goal-to-Direction conversion may keep
-  Action children, but cannot keep Direction children. Direction-to-Goal can keep its children.
+- The final tree must be valid: a Goal is root-level, a Subgoal belongs to a Goal, and an Action
+  has no children. Children block conversion to Action; Goal-to-Subgoal conversion may keep
+  Action children, but cannot keep Subgoal children. Subgoal-to-Goal can keep its children.
 - An Action being converted must be in Backlog, have no current or past Sprint commitments, and
   neither repeat nor belong to a repeat series. This keeps conversion out of scope accounting
-  and repeat history. These Action restrictions do not apply to Goal-to-Direction or the reverse.
+  and repeat history. These Action restrictions do not apply to Goal-to-Subgoal or the reverse.
 - Becoming an Action requires its own effort and stage. Becoming a container clears Action-only
   fields, shown explicitly in the proposal, and derives the container's state from its children.
   Any necessary parent change happens in the same proposal, with both affected branches updated.
 - Preserve the Card's identity, text, Values, Tags and Checks. Answered Checks do not block a
   conversion: their links and observations remain on the same Card, and later Action completion
   uses the existing Check rules without resetting answers.
-
-## Cancelled is removed
-
-Agreed 2026-09-06. Remove the Cancelled stage and its controls. The owner deletes a Card that is
-no longer relevant. Deleting or moving a Card out of a Sprint remains reflected in that Sprint's
-scope accounting; a separate Cancelled state is not needed for this.
 
 ## A repeating Action shows when it has already been done today
 
@@ -308,11 +222,11 @@ The intended Advisor context includes the Today and Sprint task lists. Instruct 
 lists to mention a relevant task when the conversation presents a useful opportunity to do it.
 The context provision is part of this idea; a separate hook for each opportunity is unnecessary.
 
-### 5. Goals and Directions with no Actions — hook
+### 5. Goals and Subgoals with no Actions — hook
 
-After a grace period, tentatively about one day after creation, scan Goals and Directions for
+After a grace period, tentatively about one day after creation, scan Goals and Subgoals for
 the absence of any descendant Action. Look through the whole branch, so an Action under a
-Direction also counts for its Goal. Report the matching parents together and offer to create
+Subgoal also counts for its Goal. Report the matching parents together and offer to create
 at least one Action. If the owner is not ready to decompose the work, offer an Action such as
 "Запланировать действия для цели X" (Plan Actions for Goal X).
 

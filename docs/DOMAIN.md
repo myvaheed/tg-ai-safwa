@@ -24,23 +24,33 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
 
 ## The Card tree, and what is derived
 
-- Goal is root-only; Idea may be root or under a Goal; Action may be root or under Goal/Idea and has
-  no children. **Stage**, effort, repeat, categories, energy and **Blocked** belong to an Action
-  alone, and are stripped for Goal/Idea at both the AI and the domain boundary. A Card's parent is
-  set by proposal only; no screen offers the control.
-- A Goal and an Idea show what their **direct children** add up to. Each child already carries its
+- Goal is root-only; Subgoal is always under a Goal; Action may be root or under Goal/Subgoal and
+  has no children. **Stage**, effort, repeat, categories, energy and **Blocked** belong to an
+  Action alone, and are stripped for Goal/Subgoal at both the AI and the domain boundary. A
+  Card's parent is set by proposal only; no screen offers the control, which is why no screen
+  offers Subgoal as a kind either.
+- A Goal and a Subgoal show what their **direct children** add up to. Each child already carries its
   own derived values, so the recursion reaches the Actions, and a child that never started still
-  counts: an Idea with nothing in it is in Backlog and holds its Goal there.
+  counts: a Subgoal with nothing in it is in Backlog and holds its Goal there.
 - `propagate_ancestors` is the one walk that writes it, into the plain `effective_stage`, `blocked`,
   `effort_points` and `archived_at` columns, so Safwa reads one column that means the same thing on
   every row. Every path that changes an Action ends there.
-- A parent with nothing under it shows Backlog and never Done or Cancelled, and it has no
+- A parent with nothing under it shows Backlog and never Done, and it has no
   `blocked_description` of its own. Summing `effort_points` over every row counts each Action again
   inside every ancestor — a real total says `WHERE kind = 'action'`.
 - `manual_stage` is what the user set, and it is an Action's alone; `effective_stage` is what
   dashboards and queries read.
+- An **Idea** is the fourth kind and stands outside all of it: a title and a note, no parent,
+  no children, no stage, no links. Both stage columns keep their Backlog default because
+  `effective_stage` is not nullable, and nothing reads them on an Idea — it is in no board, in
+  no Sprint's accounting and never archived. `ai_cards` is the tree; `ai_ideas` is the capture.
+  The Ideas screen offers one Expand button, which asks Safwa what tree to make of it.
 - Effort is restricted to `EFFORT_POINTS` and required for Actions; the `Literal` in
   [cards/agent.py](../src/safwa/features/cards/agent.py) mirrors it — change both together.
+  A rung says what the Action costs the owner rather than how long it takes, and
+  `EFFORT_RUNGS` is that wording, read by the effort selector and by the tool's field
+  description alike. The column is a float because 0.5 is a rung; recovery does not add
+  up, so a Sprint total is a load signal of the right order and never a percentage base.
 
 ## Checks
 
@@ -57,7 +67,7 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
 - **Everything is deleted; only a Card and a Check are also archived**, two Sprints after they
   closed (`ARCHIVE_AFTER_SPRINTS`). Archived is a matter of sight: it still counts everywhere it
   counted. A Value, a Tag and a Saved Request carry no `archived_at` at all.
-- **Only an Action is archived; a Goal and an Idea are derived, like everything else they show.**
+- **Only an Action is archived; a Goal and a Subgoal are derived, like everything else they show.**
   A branch leaves sight when its last Card does and comes back the moment one is reopened, so a
   parent is never stamped, never restored and never carries a `card_events` row of its own.
 - **A list by stage leaves an archived item out; every other list shows it, marked `[📦]`.** It

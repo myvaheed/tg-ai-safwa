@@ -1,17 +1,18 @@
 Feature: Cards
-  A Card is one thing the owner means to do. It is a Goal, an Idea or an Action, and those three
-  form a strict tree: a Goal at the root, Ideas under it, Actions at the bottom doing the work.
-  What a Card may carry depends on which of the three it is.
+  A Card is one thing the owner means to do. It is a Goal, a Subgoal or an Action, and those three
+  form a strict tree: a Goal at the root, Subgoals under it, Actions at the bottom doing the work.
+  An Idea is a fourth kind standing outside that tree: raw capture, decided nothing about yet.
+  What a Card may carry depends on which of the four it is.
 
   Numbers below name the constant they come from; the tests read the constant.
 
   Background:
     Given a workspace where a Card can be written by the owner or proposed by Safwa
 
-  Scenario: CD-KIND-001 — A Card is a Goal, an Idea or an Action, and it stays the one it was created as
-    Given a Card exists as an Idea
+  Scenario: CD-KIND-001 — A Card is a Goal, a Subgoal, an Action or an Idea, and it stays the one it was created as
+    Given a Card exists as a Subgoal
     When the owner or Safwa tries to make it an Action
-    Then the change is refused and the Card is still an Idea
+    Then the change is refused and the Card is still a Subgoal
     And the only way to have an Action instead is to create one
 
   Scenario: CD-TREE-002 — A Goal is always root-level
@@ -20,17 +21,19 @@ Feature: Cards
     Then it is refused, and the refusal says a Goal is always root-level
     And nothing about the Goal changes
 
-  Scenario: CD-TREE-003 — An Idea belongs to a Goal, or to no one
-    Given a Goal "Health" and an Idea "Sleep better"
+  Scenario: CD-TREE-003 — A Subgoal belongs to a Goal
+    Given a Goal "Health" and a Subgoal "Sleep better"
     When "Sleep better" is placed under "Health"
     Then it is placed there
-    When another Idea is placed under "Sleep better"
-    Then it is refused, and the refusal says an Idea may only be placed under a Goal
-    And an Idea under no parent at all is a Card in good standing
+    When another Subgoal is placed under "Sleep better"
+    Then it is refused, and the refusal says a Subgoal may only be placed under a Goal
+    And a Subgoal written with no parent is refused the same way, and so is taking its
+      parent away
+    And no screen offers Subgoal as a kind, because no screen sets a parent
 
-  Scenario: CD-TREE-004 — An Action belongs to a Goal, an Idea or no one, and nothing belongs to an Action
-    Given a Goal, an Idea under it, and an Action "Buy a pillow"
-    When "Buy a pillow" is placed under the Goal, then under the Idea, then under nothing
+  Scenario: CD-TREE-004 — An Action belongs to a Goal, a Subgoal or no one, and nothing belongs to an Action
+    Given a Goal, a Subgoal under it, and an Action "Buy a pillow"
+    When "Buy a pillow" is placed under the Goal, then under the Subgoal, then under nothing
     Then each of the three is accepted
     When any Card is placed under "Buy a pillow"
     Then it is refused, and the refusal says an Action cannot have children
@@ -51,15 +54,19 @@ Feature: Cards
     Given a Goal is being written, by hand or as a proposal
     When effort, repeat, a category, an energy type, or Blocked is set on it
     Then the Goal is saved without them, rather than refused
-    And the screens never offer those controls for a Goal or an Idea
-    And the same holds for an Idea, and for a change to one that already exists
+    And the screens never offer those controls for a Goal or a Subgoal
+    And the same holds for a Subgoal, and for a change to one that already exists
     And a proposed change that was nothing but those fields is refused instead of saved empty
 
-  Scenario: CD-EFFORT-008 — An Action has to say how big it is, on the one scale
+  Scenario: CD-EFFORT-008 — An Action has to say what it costs, on the one scale
     Given an Action is being written
     When it is saved with no effort, or with a number off the scale
-    Then it is refused (EFFORT_POINTS = 1, 2, 3, 5, 8, 13)
+    Then it is refused (EFFORT_POINTS = 0.5, 1, 2, 3, 5, 8, 13)
     And the Save button is not offered while the draft still has no effort
+    And a rung says how the owner will be able to carry on afterwards, never how long the
+      work takes (EFFORT_RUNGS)
+    And the screens offer each rung with that wording, and the model's field description
+      spells the same scale
 
   Scenario: CD-TITLE-009 — A Card has to be called something
     Given a Card is being written or renamed
@@ -77,7 +84,7 @@ Feature: Cards
   Scenario: CD-STAGE-011 — A new Card starts in the Backlog and can never be born closed
     Given a Card is being written and no stage was chosen
     Then it starts in Backlog
-    When a Card is written straight into Done or Cancelled
+    When a Card is written straight into Done
     Then it is refused: a new Card starts in Backlog, Sprint or Today
 
   Scenario: CD-LINK-012 — A Card is created with all of its Values, Tags and Checks, or the Card is not created at all
@@ -88,12 +95,12 @@ Feature: Cards
     And nothing is left half-written for them to clean up
 
   Scenario: CD-STAGE-013 — Only an Action has a stage
-    Given a Goal, an Idea under it, and an Action under the Idea
+    Given a Goal, a Subgoal under it, and an Action under the Subgoal
     When the owner moves the Action to Today
     Then it is in Today
-    When anything tries to move the Goal or the Idea
+    When anything tries to move the Goal or the Subgoal
     Then it is refused before anything is written, in a proposal and on a screen alike
-    And no screen offers a Goal or an Idea a stage control
+    And no screen offers a Goal or a Subgoal a stage control
 
   Scenario: CD-STAGE-014 — A Goal shows the stage of the Actions under it
     Given a Goal with one Action in Backlog and one in Sprint
@@ -106,24 +113,21 @@ Feature: Cards
 
   Scenario: CD-STAGE-015 — A Goal is Done only when everything under it is finished
     Given a Goal whose children have all been finished
-    When at least one of them is Done
     Then the Goal shows Done
-    When every one of them was Cancelled
-    Then the Goal shows Cancelled
     And a Goal with one Done Action and one live Action shows the live one's stage
-    And an Idea with nothing in it holds the Goal above it in Backlog
-    And a Goal with nothing under it never shows Done or Cancelled
+    And a Subgoal with nothing in it holds the Goal above it in Backlog
+    And a Goal with nothing under it never shows Done
 
-  Scenario: CD-STAGE-016 — Done and Cancelled come from finishing, not from moving
+  Scenario: CD-STAGE-016 — Done comes from finishing, not from moving
     Given an Action in Today
-    When anything tries to move it straight to Done or Cancelled
+    When anything tries to move it straight to Done
     Then it is refused, in a proposal and on a screen alike
     And finishing it settles its Checks, its Sprint result and its repeat in the same act
 
   Scenario: CD-STAGE-017 — Reopening an Action undoes what closing it did
     Given an Action the owner finished as Done, so it has a completion time
     When the owner reopens it
-    Then the completion and cancellation times are cleared
+    Then the completion time is cleared
     And the Checks it was closed on are given back to it, by CH-REOPEN-012
     And the Goal above it shows a live stage again
     Given instead an Action that repeats and has been finished
@@ -131,12 +135,12 @@ Feature: Cards
     Then it is refused
 
   Scenario: CD-BLOCKED-018 — Only an Action can be marked blocked
-    Given a Goal, an Idea and an Action
+    Given a Goal, a Subgoal and an Action
     When the Action is marked blocked, with a reason
     Then it is blocked, and the reason is the words that were given
-    When anything tries to mark the Goal or the Idea blocked
+    When anything tries to mark the Goal or the Subgoal blocked
     Then it is refused before anything is written, in a proposal and on a screen alike
-    And no screen offers a Goal or an Idea a Blocked control
+    And no screen offers a Goal or a Subgoal a Blocked control
 
   Scenario: CD-BLOCKED-019 — A Goal shows the blocked Actions under it
     Given a Goal with a blocked Action somewhere underneath it
@@ -157,8 +161,8 @@ Feature: Cards
     Then the Goal shows 15
     When one of them changes to 8
     Then the Goal shows 18
-    And an Idea between them shows the total of its own branch
-    And a Goal and an Idea still refuse an effort set by hand
+    And a Subgoal between them shows the total of its own branch
+    And a Goal and a Subgoal still refuse an effort set by hand
     And a Goal with no Action under it shows no effort
 
   Scenario: CD-ARCHIVE-022 — A closed Card is archived two Sprints later
@@ -177,7 +181,7 @@ Feature: Cards
   Scenario: CD-ARCHIVE-024 — Only a closed Card can be archived by hand
     Given a live Action
     When the owner or Safwa asks for it to be archived
-    Then it is refused: only a Card that is Done or Cancelled may be archived
+    Then it is refused: only a Card that is Done may be archived
     And a Goal a child keeps out of Done is refused the same way, and nothing under it is archived
     Given instead an Action that is Done
     When the owner archives it
@@ -205,11 +209,11 @@ Feature: Cards
     Then it opens on a screen that says it is archived, offering nothing that would edit it
     And an Action that does not repeat offers Reopen, which takes it out of the archive
     And an Action that repeats offers no Reopen, by CD-ARCHIVE-024
-    And a Goal and an Idea offer none: they leave the archive when a Card under them is reopened
+    And a Goal and a Subgoal offer none: they leave the archive when a Card under them is reopened
     And deleting it is offered, and deletes it
 
   Scenario: CD-DELETE-025 — Deleting a Card deletes everything under it
-    Given a Goal with Ideas and Actions under it
+    Given a Goal with Subgoals and Actions under it
     When the owner or Safwa asks for the Goal to be deleted
     Then the Goal and everything under it is gone, open or closed, archived or not
     And a Check that was on them is deleted with them, answered or Pending
@@ -220,8 +224,27 @@ Feature: Cards
     And Cards calls this destructive, so a proposal to do it is confirmed a second time
 
   Scenario: CD-CONTEXT-028 — The critical Cards Safwa is handed are the ones still to do
-    Given critical Cards, some of them Done and some Cancelled
+    Given critical Cards, some of them Done and some still open
     Then only the ones still open are among the ones Safwa is handed, chosen as VL-READ-003 says
     And each of them says what kind it is and which stage it is in now
     And a Card that is not critical is not among them at all: Safwa looks those up when it needs
       them
+
+  Scenario: CD-IDEA-029 — An Idea is a title and a note, and it stands outside the tree
+    Given the owner writes an Idea, or Safwa proposes one
+    Then it keeps its title and its note, and a stage, effort, a priority, Hard Time, a
+      category, an energy, repeat and Blocked are dropped from it as they are from a Goal
+    And a parent, a Value, a Tag and a Check are refused on it, on a screen and in a proposal
+    And nothing may be placed under it
+    And it is in no board and in no Sprint's accounting, and it can never be archived
+    And Safwa reads it in ai_ideas, where ai_cards is the tree alone
+
+  Scenario: CD-IDEA-030 — Ideas have a list of their own, and Safwa is what expands one
+    Given the owner has written two Ideas
+    Then the menu offers Ideas, and the list shows both with a button that writes another
+    When the owner opens one
+    Then the screen shows its title and its note, and offers Title, Note, Expand and Delete
+    When they press Expand
+    Then the request reaches the chat in their own words, and Safwa answers that turn
+    And no screen offers a list of kinds to convert into: what it becomes is Safwa's proposal
+    And the Idea itself is unchanged until the owner deletes it

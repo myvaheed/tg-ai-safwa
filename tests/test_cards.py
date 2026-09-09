@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.agent import CardToolInput
 from safwa.features.cards.hierarchy import blocking_actions, card_children, card_progress
 from safwa.features.cards.model import (
+    EFFORT_RUNGS,
     Card,
     CardCategory,
     CardCheck,
@@ -21,6 +22,8 @@ from safwa.features.cards.model import (
     CardEvent,
     CardKind,
     CardStage,
+    Priority,
+    effort_label,
 )
 from safwa.features.cards.use_cases import (
     EFFORT_POINTS,
@@ -57,13 +60,16 @@ from tg_agent_shell.proposals.prepare import ChangePreparer
 async def test_cd_kind_001_a_card_stays_the_kind_it_was_created_as(sessions):
     """CD-KIND-001 — tests/brd/cards.feature"""
     async with sessions() as session:
-        idea = await create_card(session, kind="idea", title="Sleep better")
+        goal = await create_card(session, kind="goal", title="Health")
+        subgoal = await create_card(
+            session, kind="subgoal", title="Sleep better", parent_id=goal.id
+        )
         await session.commit()
 
         with pytest.raises(DomainError, match="Unsupported Card fields"):
-            await update_card_fields(session, idea.id, {"kind": "action"})
+            await update_card_fields(session, subgoal.id, {"kind": "action"})
 
-        assert (await session.get(Card, idea.id)).kind == CardKind.IDEA.value
+        assert (await session.get(Card, subgoal.id)).kind == CardKind.SUBGOAL.value
 
     with pytest.raises(ValidationError, match="does not accept"):
         CardToolInput(mode="update", id=1, kind="action")
@@ -85,25 +91,28 @@ async def test_cd_tree_002_a_goal_is_always_root_level(sessions):
         assert await session.scalar(select(func.count(Card.id))) == 2
 
 
-async def test_cd_tree_003_an_idea_belongs_to_a_goal_or_to_no_one(sessions):
+async def test_cd_tree_003_a_subgoal_belongs_to_a_goal(sessions):
     """CD-TREE-003 — tests/brd/cards.feature"""
     async with sessions() as session:
         health = await create_card(session, kind="goal", title="Health")
-        sleep = await create_card(session, kind="idea", title="Sleep better", parent_id=health.id)
+        sleep = await create_card(
+            session, kind="subgoal", title="Sleep better", parent_id=health.id
+        )
         assert sleep.parent_id == health.id
 
         with pytest.raises(DomainError, match="only be placed under a Goal"):
-            await create_card(session, kind="idea", title="Nap daily", parent_id=sleep.id)
-
-        loose = await create_card(session, kind="idea", title="Read more")
-        assert loose.parent_id is None
+            await create_card(session, kind="subgoal", title="Nap daily", parent_id=sleep.id)
+        with pytest.raises(DomainError, match="only be placed under a Goal"):
+            await create_card(session, kind="subgoal", title="Read more")
+        with pytest.raises(DomainError, match="only be placed under a Goal"):
+            await set_card_parent(session, sleep.id, None)
 
 
 async def test_cd_tree_004_an_action_sits_under_a_goal_an_idea_or_nothing(sessions):
     """CD-TREE-004 — tests/brd/cards.feature"""
     async with sessions() as session:
         health = await create_card(session, kind="goal", title="Health")
-        sleep = await create_card(session, kind="idea", title="Sleep better", parent_id=health.id)
+        sleep = await create_card(session, kind="subgoal", title="Sleep better", parent_id=health.id)
         pillow = await create_card(
             session, kind="action", title="Buy a pillow", effort_points=2, parent_id=health.id
         )
@@ -114,7 +123,7 @@ async def test_cd_tree_004_an_action_sits_under_a_goal_an_idea_or_nothing(sessio
         await set_card_parent(session, pillow.id, None)
         assert pillow.parent_id is None
 
-        for kind, extra in (("idea", {}), ("action", {"effort_points": 1})):
+        for kind, extra in (("subgoal", {}), ("action", {"effort_points": 1})):
             with pytest.raises(DomainError, match="cannot have children"):
                 await create_card(
                     session, kind=kind, title="Underneath", parent_id=pillow.id, **extra
@@ -133,7 +142,7 @@ async def test_cd_tree_006_an_archived_or_missing_parent_is_refused(sessions):
             session, kind="action", title="Walk", effort_points=2, parent_id=live.id
         )
         # Only a closed Card may be archived, and a Goal closes through its Actions.
-        await finish_action(session, abandoned.id, CardStage.CANCELLED)
+        await finish_action(session, abandoned.id)
         await archive_subtree(session, gone.id)
         await session.commit()
 
@@ -279,11 +288,11 @@ async def test_cd_stage_011_a_new_card_starts_in_the_backlog(sessions):
         assert card.manual_stage == CardStage.BACKLOG.value
         assert card.effective_stage == CardStage.BACKLOG.value
 
-        for stage in (CardStage.DONE, CardStage.CANCELLED):
-            with pytest.raises(DomainError, match="must start in Backlog"):
-                await create_card(
-                    session, kind="action", title="Already over", effort_points=2, stage=stage
-                )
+        with pytest.raises(DomainError, match="must start in Backlog"):
+            await create_card(
+                session, kind="action", title="Already over", effort_points=2,
+                stage=CardStage.DONE,
+            )
 
 
 async def test_cd_link_012_a_card_is_created_with_all_of_its_links_or_not_at_all(sessions):
@@ -375,16 +384,16 @@ async def test_cd_stage_013_only_an_action_has_a_stage(sessions):
     """CD-STAGE-013 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        idea = await create_card(session, kind="idea", title="Sleep better", parent_id=goal.id)
+        subgoal = await create_card(session, kind="subgoal", title="Sleep better", parent_id=goal.id)
         action = await create_card(
-            session, kind="action", title="Buy a pillow", effort_points=2, parent_id=idea.id
+            session, kind="action", title="Buy a pillow", effort_points=2, parent_id=subgoal.id
         )
         await session.commit()
 
         await move_card(session, action.id, CardStage.TODAY)
         assert (await session.get(Card, action.id)).effective_stage == CardStage.TODAY.value
 
-        for parent in (goal, idea):
+        for parent in (goal, subgoal):
             with pytest.raises(DomainError, match="Only an Action has a stage"):
                 await move_card(session, parent.id, CardStage.SPRINT)
             refused = await _refused_proposal(
@@ -404,12 +413,12 @@ async def test_cd_stage_014_a_goal_shows_the_stage_of_the_actions_under_it(sessi
     """CD-STAGE-014 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        idea = await create_card(session, kind="idea", title="Sleep better", parent_id=goal.id)
+        subgoal = await create_card(session, kind="subgoal", title="Sleep better", parent_id=goal.id)
         backlog = await create_card(
-            session, kind="action", title="Buy a pillow", effort_points=2, parent_id=idea.id
+            session, kind="action", title="Buy a pillow", effort_points=2, parent_id=subgoal.id
         )
         sprinting = await create_card(
-            session, kind="action", title="Book the doctor", effort_points=2, parent_id=idea.id
+            session, kind="action", title="Book the doctor", effort_points=2, parent_id=subgoal.id
         )
         await session.commit()
 
@@ -420,7 +429,7 @@ async def test_cd_stage_014_a_goal_shows_the_stage_of_the_actions_under_it(sessi
         await move_card(session, backlog.id, CardStage.TODAY)
         await session.commit()
         # Every Card between the Action and the root shows it, not the direct parent alone.
-        assert (await session.get(Card, idea.id)).effective_stage == CardStage.TODAY.value
+        assert (await session.get(Card, subgoal.id)).effective_stage == CardStage.TODAY.value
         assert (await session.get(Card, goal.id)).effective_stage == CardStage.TODAY.value
 
         await move_card(session, backlog.id, CardStage.BACKLOG)
@@ -428,7 +437,7 @@ async def test_cd_stage_014_a_goal_shows_the_stage_of_the_actions_under_it(sessi
         assert (await session.get(Card, goal.id)).effective_stage == CardStage.SPRINT.value
 
         empty = await create_card(session, kind="goal", title="Someday")
-        await create_card(session, kind="idea", title="Nothing yet", parent_id=empty.id)
+        await create_card(session, kind="subgoal", title="Nothing yet", parent_id=empty.id)
         await session.commit()
         assert (await session.get(Card, empty.id)).effective_stage == CardStage.BACKLOG.value
 
@@ -445,24 +454,14 @@ async def test_cd_stage_015_a_goal_is_done_only_when_all_its_actions_are_finishe
         )
         await session.commit()
 
-        await finish_action(session, first.id, CardStage.DONE)
+        await finish_action(session, first.id)
         await session.commit()
         # One live Action left, so the Goal shows what that one is in.
         assert (await session.get(Card, goal.id)).effective_stage == CardStage.BACKLOG.value
 
-        await finish_action(session, second.id, CardStage.CANCELLED)
+        await finish_action(session, second.id)
         await session.commit()
         assert (await session.get(Card, goal.id)).effective_stage == CardStage.DONE.value
-
-        cancelled_goal = await create_card(session, kind="goal", title="Old plan")
-        abandoned = await create_card(
-            session, kind="action", title="Sort the shed", effort_points=1, parent_id=cancelled_goal.id
-        )
-        await finish_action(session, abandoned.id, CardStage.CANCELLED)
-        await session.commit()
-        assert (
-            await session.get(Card, cancelled_goal.id)
-        ).effective_stage == CardStage.CANCELLED.value
 
         empty = await create_card(session, kind="goal", title="Someday")
         await session.commit()
@@ -476,24 +475,24 @@ async def test_cd_stage_015_an_empty_idea_holds_its_goal_out_of_done(sessions):
         walk = await create_card(
             session, kind="action", title="Walk", effort_points=2, parent_id=goal.id
         )
-        idea = await create_card(session, kind="idea", title="Sleep better", parent_id=goal.id)
+        subgoal = await create_card(session, kind="subgoal", title="Sleep better", parent_id=goal.id)
         await session.commit()
 
-        await finish_action(session, walk.id, CardStage.DONE)
+        await finish_action(session, walk.id)
         await session.commit()
-        # The Idea has nothing in it, so it is in Backlog, and its Goal is not finished.
-        assert (await session.get(Card, idea.id)).effective_stage == CardStage.BACKLOG.value
+        # The Subgoal has nothing in it, so it is in Backlog, and its Goal is not finished.
+        assert (await session.get(Card, subgoal.id)).effective_stage == CardStage.BACKLOG.value
         assert (await session.get(Card, goal.id)).effective_stage == CardStage.BACKLOG.value
 
         pillow = await create_card(
-            session, kind="action", title="Buy a pillow", effort_points=1, parent_id=idea.id
+            session, kind="action", title="Buy a pillow", effort_points=1, parent_id=subgoal.id
         )
-        await finish_action(session, pillow.id, CardStage.DONE)
+        await finish_action(session, pillow.id)
         await session.commit()
         assert (await session.get(Card, goal.id)).effective_stage == CardStage.DONE.value
 
         # A child written under a finished Goal takes it back out of Done.
-        await create_card(session, kind="idea", title="Nothing yet", parent_id=goal.id)
+        await create_card(session, kind="subgoal", title="Nothing yet", parent_id=goal.id)
         await session.commit()
         assert (await session.get(Card, goal.id)).effective_stage == CardStage.BACKLOG.value
 
@@ -506,9 +505,8 @@ async def test_cd_stage_016_done_comes_from_finishing_not_from_moving(sessions):
         )
         await session.commit()
 
-        for stage in (CardStage.DONE, CardStage.CANCELLED):
-            with pytest.raises(DomainError, match="through finish_action"):
-                await move_card(session, action.id, stage)
+        with pytest.raises(DomainError, match="through finish_action"):
+            await move_card(session, action.id, CardStage.DONE)
         assert (await session.get(Card, action.id)).effective_stage == CardStage.TODAY.value
 
         # Finishing settles the Card, its Check and its Sprint result in the same act.
@@ -516,7 +514,7 @@ async def test_cd_stage_016_done_comes_from_finishing_not_from_moving(sessions):
         await toggle_card_check(session, action.id, check.id)
         await session.commit()
         await finish_action(
-            session, action.id, CardStage.DONE, check_outcomes={check.id: CheckOutcome.PASSED}
+            session, action.id, check_outcomes={check.id: CheckOutcome.PASSED}
         )
         await session.commit()
         assert (await session.get(Card, action.id)).completed_at is not None
@@ -529,7 +527,7 @@ async def test_cd_stage_017_reopening_an_action_undoes_what_closing_it_did(sessi
         goal, action = await _goal_with_action(session)
         await session.commit()
 
-        await finish_action(session, action.id, CardStage.DONE)
+        await finish_action(session, action.id)
         await session.commit()
         assert (await session.get(Card, goal.id)).effective_stage == CardStage.DONE.value
 
@@ -538,13 +536,12 @@ async def test_cd_stage_017_reopening_an_action_undoes_what_closing_it_did(sessi
 
         reopened = await session.get(Card, action.id)
         assert reopened.completed_at is None
-        assert reopened.cancelled_at is None
         assert (await session.get(Card, goal.id)).effective_stage == CardStage.TODAY.value
 
         repeating = await create_card(
             session, kind="action", title="Posture", effort_points=1, stage="today", repeatable=True
         )
-        await finish_action(session, repeating.id, CardStage.DONE)
+        await finish_action(session, repeating.id)
         await session.commit()
         with pytest.raises(DomainError, match="closed repeating Action cannot be reopened"):
             await move_card(session, repeating.id, CardStage.TODAY)
@@ -554,9 +551,9 @@ async def test_cd_blocked_018_only_an_action_can_be_marked_blocked(sessions):
     """CD-BLOCKED-018 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        idea = await create_card(session, kind="idea", title="Sleep better", parent_id=goal.id)
+        subgoal = await create_card(session, kind="subgoal", title="Sleep better", parent_id=goal.id)
         action = await create_card(
-            session, kind="action", title="Buy a pillow", effort_points=2, parent_id=idea.id
+            session, kind="action", title="Buy a pillow", effort_points=2, parent_id=subgoal.id
         )
         await session.commit()
 
@@ -566,7 +563,7 @@ async def test_cd_blocked_018_only_an_action_can_be_marked_blocked(sessions):
         await session.commit()
         assert (await session.get(Card, action.id)).blocked_description == "Shop is shut"
 
-        for parent in (goal, idea):
+        for parent in (goal, subgoal):
             with pytest.raises(DomainError, match="Action-only fields"):
                 await update_card_fields(
                     session, parent.id, {"blocked": True, "blocked_description": "Waiting"}
@@ -583,19 +580,19 @@ async def test_cd_blocked_019_a_goal_shows_the_blocked_actions_under_it(sessions
     """CD-BLOCKED-019 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        idea = await create_card(session, kind="idea", title="Sleep better", parent_id=goal.id)
+        subgoal = await create_card(session, kind="subgoal", title="Sleep better", parent_id=goal.id)
         action = await create_card(
             session,
             kind="action",
             title="Buy a pillow",
             effort_points=2,
-            parent_id=idea.id,
+            parent_id=subgoal.id,
             blocked=True,
             blocked_description="Shop is shut",
         )
         await session.commit()
 
-        for parent in (goal, idea):
+        for parent in (goal, subgoal):
             stored = await session.get(Card, parent.id)
             assert stored.blocked is True
             # A Goal has no reason of its own; the screen quotes the Actions instead.
@@ -612,7 +609,7 @@ async def test_cd_blocked_019_a_goal_shows_the_blocked_actions_under_it(sessions
         await update_card_fields(
             session, action.id, {"blocked": True, "blocked_description": "Shop is shut"}
         )
-        await finish_action(session, action.id, CardStage.DONE)
+        await finish_action(session, action.id)
         await session.commit()
         # A finished Action is not something the branch is waiting on.
         assert (await session.get(Card, goal.id)).blocked is False
@@ -634,7 +631,7 @@ async def test_cd_blocked_020_being_blocked_does_not_stop_anything(sessions):
 
         moved = await move_card(session, action.id, CardStage.SPRINT)
         assert moved.warnings == ["Blocked: Shop is shut"]
-        finished = await finish_action(session, action.id, CardStage.DONE)
+        finished = await finish_action(session, action.id)
         await session.commit()
 
         assert finished.warnings == ["Blocked: Shop is shut"]
@@ -645,23 +642,23 @@ async def test_cd_effort_021_a_goal_shows_the_effort_of_the_actions_under_it(ses
     """CD-EFFORT-021 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        idea = await create_card(session, kind="idea", title="Sleep better", parent_id=goal.id)
+        subgoal = await create_card(session, kind="subgoal", title="Sleep better", parent_id=goal.id)
         first = await create_card(
             session, kind="action", title="One", effort_points=5, parent_id=goal.id
         )
-        await create_card(session, kind="action", title="Two", effort_points=5, parent_id=idea.id)
-        await create_card(session, kind="action", title="Three", effort_points=5, parent_id=idea.id)
+        await create_card(session, kind="action", title="Two", effort_points=5, parent_id=subgoal.id)
+        await create_card(session, kind="action", title="Three", effort_points=5, parent_id=subgoal.id)
         await session.commit()
 
         assert (await session.get(Card, goal.id)).effort_points == 15
-        assert (await session.get(Card, idea.id)).effort_points == 10
+        assert (await session.get(Card, subgoal.id)).effort_points == 10
 
         await update_card_fields(session, first.id, {"effort_points": 8})
         await session.commit()
         assert (await session.get(Card, goal.id)).effort_points == 18
-        assert (await session.get(Card, idea.id)).effort_points == 10
+        assert (await session.get(Card, subgoal.id)).effort_points == 10
 
-        for parent in (goal, idea):
+        for parent in (goal, subgoal):
             with pytest.raises(DomainError, match="Action-only fields"):
                 await update_card_fields(session, parent.id, {"effort_points": 3})
 
@@ -681,7 +678,7 @@ async def test_cd_archive_022_a_closed_card_is_archived_two_sprints_later(sessio
         open_goal, live = await _goal_with_action(
             session, goal_title="Fitness", title="Swim", stage="sprint"
         )
-        await finish_action(session, action.id, CardStage.DONE)
+        await finish_action(session, action.id)
         await session.commit()
 
         for index in (1, 2):
@@ -711,8 +708,8 @@ async def test_cd_archive_023_an_archived_card_is_marked_not_left_out(sessions):
         shown = await create_card(
             session, kind="action", title="Swim", effort_points=3, parent_id=goal.id
         )
-        await finish_action(session, hidden.id, CardStage.DONE)
-        await finish_action(session, shown.id, CardStage.DONE)
+        await finish_action(session, hidden.id)
+        await finish_action(session, shown.id)
         await archive_subtree(session, hidden.id)
         await session.commit()
 
@@ -739,10 +736,10 @@ async def test_cd_archive_024_only_a_closed_card_can_be_archived_by_hand(session
         )
         await session.commit()
 
-        with pytest.raises(DomainError, match="Done or Cancelled may be archived"):
+        with pytest.raises(DomainError, match="Done may be archived"):
             await archive_subtree(session, action.id)
 
-        await finish_action(session, action.id, CardStage.DONE)
+        await finish_action(session, action.id)
         await archive_subtree(session, action.id)
         await session.commit()
         assert (await session.get(Card, action.id)).archived_at is not None
@@ -755,7 +752,7 @@ async def test_cd_archive_024_only_a_closed_card_can_be_archived_by_hand(session
         repeating = await create_card(
             session, kind="action", title="Posture", effort_points=1, stage="today", repeatable=True
         )
-        await finish_action(session, repeating.id, CardStage.DONE)
+        await finish_action(session, repeating.id)
         await archive_subtree(session, repeating.id)
         await session.commit()
         with pytest.raises(DomainError, match="closed repeating Action cannot be reopened"):
@@ -770,37 +767,37 @@ async def test_cd_archive_024_an_unfinished_child_keeps_its_goal_out_of_the_arch
         walk = await create_card(
             session, kind="action", title="Walk", effort_points=2, parent_id=goal.id
         )
-        idea = await create_card(session, kind="idea", title="Sleep better", parent_id=goal.id)
+        subgoal = await create_card(session, kind="subgoal", title="Sleep better", parent_id=goal.id)
         await session.commit()
-        await finish_action(session, walk.id, CardStage.DONE)
+        await finish_action(session, walk.id)
         await session.commit()
 
-        # The Goal is not Done while the Idea is in Backlog, so nothing under it is archived
+        # The Goal is not Done while the Subgoal is in Backlog, so nothing under it is archived
         # either: a Card in Backlog can never reach the archive by being dragged there.
-        with pytest.raises(DomainError, match="Done or Cancelled may be archived"):
+        with pytest.raises(DomainError, match="Done may be archived"):
             await archive_subtree(session, goal.id)
-        assert (await session.get(Card, idea.id)).archived_at is None
+        assert (await session.get(Card, subgoal.id)).archived_at is None
 
 
 async def test_cd_archive_024_a_live_card_takes_its_branch_out_of_the_archive(sessions):
     """CD-ARCHIVE-024 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        idea = await create_card(session, kind="idea", title="Move more", parent_id=goal.id)
+        subgoal = await create_card(session, kind="subgoal", title="Move more", parent_id=goal.id)
         walk = await create_card(
-            session, kind="action", title="Walk", effort_points=2, parent_id=idea.id
+            session, kind="action", title="Walk", effort_points=2, parent_id=subgoal.id
         )
         swim = await create_card(
-            session, kind="action", title="Swim", effort_points=3, parent_id=idea.id
+            session, kind="action", title="Swim", effort_points=3, parent_id=subgoal.id
         )
-        await finish_action(session, walk.id, CardStage.DONE)
-        await finish_action(session, swim.id, CardStage.DONE)
+        await finish_action(session, walk.id)
+        await finish_action(session, swim.id)
         await archive_subtree(session, walk.id)
         await session.commit()
         # One Action still in sight keeps the whole branch above it in sight.
-        assert (await session.get(Card, idea.id)).archived_at is None
+        assert (await session.get(Card, subgoal.id)).archived_at is None
         assert (await session.get(Card, goal.id)).archived_at is None
-    ids = (goal.id, idea.id, walk.id, swim.id)
+    ids = (goal.id, subgoal.id, walk.id, swim.id)
 
     # A later session reads the first stamp back out of the database, so the branch is
     # worked out from one stamp that came from a row and one straight off the clock.
@@ -822,9 +819,9 @@ async def test_cd_delete_025_deleting_a_card_deletes_everything_under_it(session
     """CD-DELETE-025 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        idea = await create_card(session, kind="idea", title="Sleep better", parent_id=goal.id)
+        subgoal = await create_card(session, kind="subgoal", title="Sleep better", parent_id=goal.id)
         live = await create_card(
-            session, kind="action", title="Buy a pillow", effort_points=2, parent_id=idea.id
+            session, kind="action", title="Buy a pillow", effort_points=2, parent_id=subgoal.id
         )
         closed = await create_card(
             session, kind="action", title="Book the doctor", effort_points=1, parent_id=goal.id
@@ -839,7 +836,7 @@ async def test_cd_delete_025_deleting_a_card_deletes_everything_under_it(session
         await toggle_card_check(session, closed.id, measuring.id)
         await toggle_check_value(session, measuring.id, value.id)
         await finish_action(
-            session, closed.id, CardStage.DONE, check_outcomes={measuring.id: CheckOutcome.PASSED}
+            session, closed.id, check_outcomes={measuring.id: CheckOutcome.PASSED}
         )
         await archive_subtree(session, closed.id)
         await session.commit()
@@ -848,7 +845,7 @@ async def test_cd_delete_025_deleting_a_card_deletes_everything_under_it(session
         await session.commit()
 
         assert removed == 4
-        for card_id in (goal.id, idea.id, live.id, closed.id):
+        for card_id in (goal.id, subgoal.id, live.id, closed.id):
             assert await session.get(Card, card_id) is None
         # A Check with no Value goes with its Card; one that measures a Value stays.
         assert await session.get(Check, plain.id) is None
@@ -867,9 +864,9 @@ async def test_cd_repeat_026_a_closed_repeat_names_its_place_and_the_open_one(se
     """CD-REPEAT-026 — tests/brd/cards.feature"""
     async with sessions() as session:
         first = await create_card(session, kind="action", title="Run", effort_points=2, repeatable=True, stage="today")
-        result = await finish_action(session, first.id, CardStage.DONE)
+        result = await finish_action(session, first.id)
         second = await session.get(Card, result.successor_ids[0])
-        result = await finish_action(session, second.id, CardStage.DONE)
+        result = await finish_action(session, second.id)
         third = await session.get(Card, result.successor_ids[0])
         await session.commit()
 
@@ -879,7 +876,7 @@ async def test_cd_repeat_026_a_closed_repeat_names_its_place_and_the_open_one(se
         assert await title_marks(session, third) == ""
 
         plain = await create_card(session, kind="action", title="Once", effort_points=1, stage="today")
-        await finish_action(session, plain.id, CardStage.DONE)
+        await finish_action(session, plain.id)
         await session.commit()
         assert await title_marks(session, plain) == ""
 
@@ -894,7 +891,7 @@ async def test_cd_repeat_026_the_views_name_the_series_and_the_open_one(read_vie
     sessions, runner = read_views
     async with sessions() as session:
         first = await create_card(session, kind="action", title="Run", effort_points=2, repeatable=True, stage="today")
-        result = await finish_action(session, first.id, CardStage.DONE)
+        result = await finish_action(session, first.id)
         plain = await create_card(session, kind="action", title="Once", effort_points=1, stage="today")
         await session.commit()
         first_id, second_id, plain_id = first.id, result.successor_ids[0], plain.id
@@ -921,8 +918,8 @@ async def test_cd_archive_023_an_archived_card_is_marked_and_still_listed(read_v
         gone = await create_card(
             session, kind="action", title="Gone", effort_points=3, stage="today", parent_id=goal.id
         )
-        await finish_action(session, kept.id, CardStage.DONE)
-        await finish_action(session, gone.id, CardStage.DONE)
+        await finish_action(session, kept.id)
+        await finish_action(session, gone.id)
         await archive_subtree(session, gone.id)
         await session.commit()
 
@@ -960,7 +957,7 @@ async def test_parent_stage_propagation_and_reopen(sessions):
         await session.commit()
         await move_card(session, action.id, CardStage.TODAY)
         assert goal.effective_stage == CardStage.TODAY.value
-        await finish_action(session, action.id, CardStage.DONE)
+        await finish_action(session, action.id)
         assert goal.effective_stage == CardStage.DONE.value
         await move_card(session, action.id, CardStage.BACKLOG)
         assert goal.effective_stage == CardStage.BACKLOG.value
@@ -969,7 +966,7 @@ async def test_parent_stage_propagation_and_reopen(sessions):
 async def test_repeat_completion_clones_the_action(sessions):
     async with sessions() as session:
         card = await a_card(session, title="Run", repeatable=True, stage="today")
-        result = await finish_action(session, card.id, CardStage.DONE)
+        result = await finish_action(session, card.id)
         await session.commit()
         successor = await session.get(Card, result.successor_ids[0])
         assert successor.effective_stage == CardStage.TODAY.value
@@ -979,9 +976,9 @@ async def test_repeat_completion_clones_the_action(sessions):
 async def test_a_closed_repeat_cannot_be_reopened_and_points_at_the_open_one(sessions):
     async with sessions() as session:
         first = await a_card(session, title="Run", repeatable=True, stage="today")
-        result = await finish_action(session, first.id, CardStage.DONE)
+        result = await finish_action(session, first.id)
         second = await session.get(Card, result.successor_ids[0])
-        result = await finish_action(session, second.id, CardStage.DONE)
+        result = await finish_action(session, second.id)
         third = await session.get(Card, result.successor_ids[0])
         await session.commit()
 
@@ -993,14 +990,14 @@ async def test_a_closed_repeat_cannot_be_reopened_and_points_at_the_open_one(ses
         assert await live_repeat_instance_id(session, first) == third.id
         assert await live_repeat_instance_id(session, second) == third.id
 
-        # Cancelling continues the series too, so the answer follows to the new row.
-        result = await finish_action(session, third.id, CardStage.CANCELLED)
+        # Finishing the newest one carries the series on, so the answer follows to it.
+        result = await finish_action(session, third.id)
         await session.commit()
         assert await live_repeat_instance_id(session, first) == result.successor_ids[0]
 
         # A non-repeating Card is not a series, so reopening it stays ordinary.
         plain = await a_card(session, title="Once", stage="today")
-        await finish_action(session, plain.id, CardStage.DONE)
+        await finish_action(session, plain.id)
         await move_card(session, plain.id, CardStage.TODAY)
         await session.commit()
         assert (await session.get(Card, plain.id)).effective_stage == CardStage.TODAY.value
@@ -1021,7 +1018,7 @@ async def test_ui_mutations_use_domain_services_and_are_audited(sessions):
             "Prefers calm, practical planning",
             clock=SystemClock(),
         )
-        await finish_action(session, card.id, CardStage.CANCELLED)
+        await finish_action(session, card.id)
         await archive_subtree(session, card.id)
         await session.commit()
 
@@ -1089,8 +1086,6 @@ async def test_an_action_cannot_reach_a_terminal_stage_through_move(sessions):
         action = await a_card(session, title="Ship", stage="today", effort_points=3)
         with pytest.raises(DomainError):
             await move_card(session, action.id, CardStage.DONE)
-        with pytest.raises(DomainError):
-            await move_card(session, action.id, CardStage.CANCELLED)
         assert action.effective_stage == CardStage.TODAY.value
 
 
@@ -1098,10 +1093,10 @@ async def test_goal_progress_is_recursive_but_children_count_is_direct(sessions)
     """CD-EFFORT-021 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await a_card(session, title="Goal", kind="goal", effort_points=None)
-        idea = await a_card(
+        subgoal = await a_card(
             session,
-            title="Idea",
-            kind="idea",
+            title="Subgoal",
+            kind="subgoal",
             effort_points=None,
             parent_id=goal.id,
         )
@@ -1109,7 +1104,7 @@ async def test_goal_progress_is_recursive_but_children_count_is_direct(sessions)
             session,
             title="Done",
             effort_points=3,
-            parent_id=idea.id,
+            parent_id=subgoal.id,
         )
         await a_card(
             session,
@@ -1117,7 +1112,7 @@ async def test_goal_progress_is_recursive_but_children_count_is_direct(sessions)
             effort_points=5,
             parent_id=goal.id,
         )
-        await finish_action(session, done.id, CardStage.DONE)
+        await finish_action(session, done.id)
 
         progress = await card_progress(session, goal.id)
 
@@ -1128,7 +1123,7 @@ async def test_goal_progress_is_recursive_but_children_count_is_direct(sessions)
         }
         # The branch total is the Card's own effort now, so a query reads it too.
         assert (await session.get(Card, goal.id)).effort_points == 8
-        assert (await session.get(Card, idea.id)).effort_points == 3
+        assert (await session.get(Card, subgoal.id)).effort_points == 3
 
 
 async def test_cd_context_028_only_the_critical_cards_still_to_do_are_handed_over(sessions):
@@ -1138,12 +1133,11 @@ async def test_cd_context_028_only_the_critical_cards_still_to_do_are_handed_ove
             session, title="Fix the roof", kind="action", stage="backlog",
             priority="critical", effort_points=3,
         )
-        for title, ending in (("Shipped", CardStage.DONE), ("Dropped", CardStage.CANCELLED)):
-            finished = await create_card(
-                session, title=title, kind="action", stage="today",
-                priority="critical", effort_points=3,
-            )
-            await finish_action(session, finished.id, ending)
+        finished = await create_card(
+            session, title="Shipped", kind="action", stage="today",
+            priority="critical", effort_points=3,
+        )
+        await finish_action(session, finished.id)
         await create_card(
             session, title="Ordinary", kind="action", stage="backlog",
             priority="medium", effort_points=3,
@@ -1158,5 +1152,74 @@ async def test_cd_context_028_only_the_critical_cards_still_to_do_are_handed_ove
     # and what is not critical are both looked up when Safwa wants them.
     assert listed == [f"- [Fix the roof](card:{open_card.id}) kind=action stage=backlog"]
     assert "Shipped" not in state
-    assert "Dropped" not in state
     assert "Ordinary" not in state
+
+
+async def test_cd_idea_029_an_idea_is_a_title_and_a_note(sessions):
+    """CD-IDEA-029 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Health")
+        health = await create_value(session, "Health")
+        await session.commit()
+        idea = await create_card(
+            session,
+            kind="idea",
+            title="Try cold showers",
+            note="Somebody said it helps",
+            stage="today",
+            priority="critical",
+            hard_time=True,
+            effort_points=3,
+            repeatable=True,
+        )
+        await session.commit()
+
+        # Everything an Idea does not carry is dropped rather than refused, as on a Goal.
+        assert (idea.title, idea.note) == ("Try cold showers", "Somebody said it helps")
+        assert idea.effective_stage == CardStage.BACKLOG.value
+        assert idea.priority == Priority.MEDIUM.value
+        assert (idea.hard_time, idea.repeatable, idea.blocked) == (False, False, False)
+        assert (idea.effort_points, idea.parent_id) == (None, None)
+
+        with pytest.raises(DomainError, match="carries no Values, Tags or Checks"):
+            await create_card(session, kind="idea", title="Linked", value_ids={health.id})
+        with pytest.raises(DomainError, match="stands on its own"):
+            await create_card(session, kind="idea", title="Owned", parent_id=goal.id)
+        with pytest.raises(DomainError, match="cannot have children"):
+            await create_card(
+                session, kind="action", title="Buy soap", effort_points=1, parent_id=idea.id
+            )
+        with pytest.raises(DomainError, match="only a title and a note"):
+            await update_card_fields(session, idea.id, {"priority": "low"})
+        with pytest.raises(DomainError, match="Done may be archived"):
+            await archive_subtree(session, idea.id)
+
+        await update_card_fields(session, idea.id, {"title": "Cold showers", "note": "One week"})
+        assert (idea.title, idea.note) == ("Cold showers", "One week")
+        await session.commit()
+
+        # The tree and the raw capture are two views, so neither shows the other's rows.
+        listed = list(await session.scalars(text("SELECT title FROM ai_cards")))
+        assert "Cold showers" not in listed
+        captured = list(await session.scalars(text("SELECT title FROM ai_ideas")))
+        assert captured == ["Cold showers"]
+
+
+def test_cd_idea_029_the_card_tool_offers_an_idea_nothing_but_the_two_fields():
+    """CD-IDEA-029 — tests/brd/cards.feature"""
+    assert CardToolInput(mode="create", kind="idea", title="Cold showers", note="One week")
+    with pytest.raises(ValidationError, match="only a title and a note"):
+        CardToolInput(mode="create", kind="idea", title="Cold showers", parent_id=3)
+
+
+def test_cd_effort_008_every_rung_says_what_it_costs():
+    """CD-EFFORT-008 — tests/brd/cards.feature"""
+    assert list(EFFORT_RUNGS) == [0.5, 1, 2, 3, 5, 8, 13]
+    assert EFFORT_POINTS == frozenset(EFFORT_RUNGS)
+    assert (effort_label(0.5), effort_label(13), effort_label(None)) == ("0.5", "13", "—")
+    # One wording: the model's field description spells the scale the screens offer.
+    described = CardToolInput.model_fields["effort_points"].description
+    for points in EFFORT_RUNGS:
+        assert f"{effort_label(points)} " in described
+    # A rung is what it costs, never how long it takes.
+    assert "min" not in described and "hour" not in described

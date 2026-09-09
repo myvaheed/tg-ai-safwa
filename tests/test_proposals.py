@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import select
 
 from safwa.bootstrap.modules import PROPOSALS
-from safwa.features.cards.model import Card, CardStage
+from safwa.features.cards.model import Card
 from safwa.features.cards.use_cases import archive_subtree, create_card, finish_action
 from safwa.features.checks.model import CheckOutcome
 from safwa.features.checks.use_cases import archive_check, create_check, resolve_check
@@ -60,7 +60,7 @@ async def test_pr_target_001_an_archived_item_is_not_changed_automatically(sessi
         check = await create_check(session, title="Sat straight?")
         await resolve_check(session, check.id, CheckOutcome.PASSED)
         await archive_check(session, check.id)
-        await finish_action(session, card.id, CardStage.DONE)
+        await finish_action(session, card.id)
         await archive_subtree(session, card.id)
         await session.commit()
 

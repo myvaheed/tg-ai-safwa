@@ -18,16 +18,17 @@ from ..model import (
     CardCategory,
     CardEnergyType,
     CardKind,
-    CardStage,
     Category,
     EnergyType,
     Priority,
+    effort_label,
 )
 
 _KIND_EMOJIS = {
     CardKind.GOAL.value: "🎯",
-    CardKind.IDEA.value: "💡",
+    CardKind.SUBGOAL.value: "🧩",
     CardKind.ACTION.value: "⭐️",
+    CardKind.IDEA.value: "💡",
 }
 
 
@@ -96,16 +97,14 @@ def card_overview_text(state: dict[str, Any], *, heading: str = "Card") -> str:
         f"Kind: {html.escape(kind_label(kind))}",
         f"Title: <b>{html.escape(str(state.get('title') or '—'))}</b>",
     ]
+    if kind == CardKind.IDEA.value:
+        lines.append(f"Note: {html.escape(str(state.get('note') or '—'))}")
+        return f"<b>{html.escape(heading)}</b>\n" + "\n".join(lines)
     if state.get("parent_name"):
         lines.append(f"Parent: {html.escape(str(state['parent_name']))}")
     lines.append(f"Stage: {html.escape(str(state.get('stage') or 'backlog').title())}")
     if state.get("closed_at"):
-        closed = (
-            "Cancelled at"
-            if state.get("stage") == CardStage.CANCELLED.value
-            else "Completed at"
-        )
-        lines.append(f"{closed}: {html.escape(str(state['closed_at']))}")
+        lines.append(f"Completed at: {html.escape(str(state['closed_at']))}")
     lines.extend(
         [
             f"Note: {html.escape(str(state.get('note') or '—'))}",
@@ -115,7 +114,7 @@ def card_overview_text(state: dict[str, Any], *, heading: str = "Card") -> str:
         ]
     )
     if state.get("blocked"):
-        # A Goal and an Idea read as blocked for the Actions under them, and each of those
+        # A Goal and a Subgoal read as blocked for the Actions under them, and each of those
         # gave its own reason, so the screen quotes them instead of inventing one.
         blocking = state.get("blocking_actions") or []
         if blocking:
@@ -131,7 +130,7 @@ def card_overview_text(state: dict[str, Any], *, heading: str = "Card") -> str:
     if kind == CardKind.ACTION.value:
         lines.extend(
             [
-                f"Effort: {state.get('effort_points') or '—'}",
+                f"Effort: {effort_label(state.get('effort_points'))}",
                 f"Repeatable: {'Yes' if state.get('repeatable') else 'No'}",
                 f"Categories: {html.escape(category_expression(state.get('categories', [])))}",
                 f"Energy: {html.escape(energy_expression(state.get('energy_types', [])))}",
@@ -140,7 +139,8 @@ def card_overview_text(state: dict[str, Any], *, heading: str = "Card") -> str:
     else:
         lines.extend(
             [
-                f"Effort: {state.get('completed_effort', 0)}/{state.get('effort_points') or 0} EP",
+                f"Effort: {effort_label(state.get('completed_effort', 0))}"
+                f"/{effort_label(state.get('effort_points') or 0)} EP",
                 "Children: "
                 f"{state.get('completed_children', 0)}/{state.get('total_children', 0)} completed",
             ]
@@ -168,10 +168,14 @@ async def card_citation_label(session: AsyncSession, services: Any, card: Card) 
     """A Card is named by its own metadata, so a citation never restates what Safwa knows."""
     marker = await title_marks(session, card)
     leading = f"{kind_emoji(card.kind)} {short_citation_title(card.title)}{marker}"
-    if card.kind in {CardKind.GOAL.value, CardKind.IDEA.value}:
+    if card.kind in {CardKind.GOAL.value, CardKind.SUBGOAL.value}:
         progress = await card_progress(session, card.id)
         return with_citation_fields(
-            leading, [f"⚡{progress['completed_effort']}/{card.effort_points or 0}"]
+            leading,
+            [
+                f"⚡{effort_label(progress['completed_effort'])}"
+                f"/{effort_label(card.effort_points or 0)}"
+            ],
         )
     if card.kind != CardKind.ACTION.value:
         return leading
@@ -191,7 +195,7 @@ async def card_citation_label(session: AsyncSession, services: Any, card: Card) 
         for group in (
             _emoji_group(energy_types, ENERGY_EMOJIS),
             _emoji_group(categories, CATEGORY_EMOJIS),
-            f"⚡{card.effort_points}" if card.effort_points is not None else "",
+            f"⚡{effort_label(card.effort_points)}" if card.effort_points is not None else "",
         )
         if group
     ]

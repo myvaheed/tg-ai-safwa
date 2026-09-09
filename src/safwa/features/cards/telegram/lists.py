@@ -26,7 +26,7 @@ from ....foundation.marks import title_marks
 from ....foundation.workspace import Workspace
 from ..api import actions_on_stages
 from ..hierarchy import card_children
-from ..model import LIVE_STAGE_PRECEDENCE, Card, CardStage
+from ..model import LIVE_STAGE_PRECEDENCE, Card, CardStage, effort_label
 from .presentation import kind_label, paginate_cards
 
 
@@ -83,7 +83,7 @@ async def card_list_rows(
         metadata = [
             kind_label(card.kind),
             card.priority.title(),
-            f"{card.effort_points or '—'} EP",
+            f"{effort_label(card.effort_points)} EP",
         ]
         if card.hard_time:
             metadata.append("Hard time")

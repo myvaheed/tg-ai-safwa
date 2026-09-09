@@ -47,7 +47,7 @@ def sanitize_card_creation_state(state: dict[str, Any]) -> dict[str, Any]:
         clean["stage"] = CardStage(clean["stage"]).value
     except ValueError:
         clean["stage"] = CardStage.BACKLOG.value
-    if clean["stage"] in {CardStage.DONE.value, CardStage.CANCELLED.value}:
+    if clean["stage"] == CardStage.DONE.value:
         clean["stage"] = CardStage.BACKLOG.value
     if clean["kind"] != CardKind.ACTION.value:
         clean.update(
@@ -57,6 +57,13 @@ def sanitize_card_creation_state(state: dict[str, Any]) -> dict[str, Any]:
             blocked=False,
             categories=[],
             energy_types=[],
+        )
+    if clean["kind"] == CardKind.IDEA.value:
+        clean.update(
+            priority=Priority.MEDIUM.value,
+            hard_time=False,
+            value_ids=[],
+            tag_ids=[],
         )
     if not clean["blocked"]:
         clean["blocked_description"] = ""

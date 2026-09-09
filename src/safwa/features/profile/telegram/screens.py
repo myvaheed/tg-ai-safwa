@@ -31,6 +31,7 @@ from tg_agent_shell.telegram.contributions import TextInputFlow
 from tg_agent_shell.telegram.model import UiSession
 
 from ....constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
+from ....features.cards.api import effort_label
 from ....foundation.workspace import Workspace
 from ...reminders.api import parse_clock_or_off
 from ..model import UserProfile
@@ -56,12 +57,16 @@ def _parse_sprint_length(raw: str) -> int:
     return int(raw)
 
 
-def _parse_capacity(raw: str) -> int | None:
+def _parse_capacity(raw: str) -> float | None:
     if raw.lower() == "off":
         return None
-    if not raw.isdigit() or int(raw) <= 0:
+    try:
+        points = float(raw.replace(",", "."))
+    except ValueError:
+        raise ValueError("Send a positive number of effort points, or off.") from None
+    if points <= 0:
         raise ValueError("Send a positive number of effort points, or off.")
-    return int(raw)
+    return points
 
 
 def _parse_daily_time(raw: str) -> time | None:
@@ -105,7 +110,7 @@ PROFILE_FIELDS: dict[str, EditableField] = {
         label="🎯 Sprint capacity",
         instruction="Send the effort points one Sprint holds, or off to stop tracking it.",
         parse=_parse_capacity,
-        show=lambda value: f"{value} EP" if value else "off",
+        show=lambda value: f"{effort_label(value)} EP" if value else "off",
     ),
     "memory_update_time": EditableField(
         title="Memory sync",

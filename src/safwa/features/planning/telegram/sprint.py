@@ -35,7 +35,7 @@ from tg_agent_shell.telegram import (
 from tg_agent_shell.telegram.contributions import TextInputFlow
 
 from ....foundation.workspace import Workspace
-from ...cards.api import CardStage, actions_on_stages
+from ...cards.api import CardStage, actions_on_stages, effort_label
 from ...cards.model import Card
 from ...cards.telegram import stage_list_block
 from ...profile.api import capacity_effort_points
@@ -77,7 +77,7 @@ async def render_sprint(
                 f"{sprint.planned_start_date} – {sprint.planned_end_date}\n"
                 f"Success criteria: {html.escape(sprint.success_criteria)}\n"
                 f"Committed {metrics['committed']} · Added {metrics['added']} · "
-                f"Done {metrics['completed']} · Cancelled {metrics['cancelled']}"
+                f"Done {metrics['completed']}"
             ),
         )
         # On the last day ending the Sprint is not early, and the button says so.
@@ -184,7 +184,7 @@ async def _render_planning(
         await send_registered(message, services, text, kind=MessageKind.DASHBOARD, markup=markup)
 
 
-def plan_cost(planned: list[Card], capacity: int | None) -> tuple[str, str]:
+def plan_cost(planned: list[Card], capacity: float | None) -> tuple[str, str]:
     """What the plan costs and, beside it, the capacity the owner set for a Sprint.
 
     Written once because both screens that show the plan's total show it against the same
@@ -192,10 +192,14 @@ def plan_cost(planned: list[Card], capacity: int | None) -> tuple[str, str]:
     """
     effort = sum(card.effort_points or 0 for card in planned)
     line = (
-        f"{len(planned)} Actions · {effort} EP · "
-        f"capacity {capacity if capacity is not None else '—'} EP"
+        f"{len(planned)} Actions · {effort_label(effort)} EP · "
+        f"capacity {effort_label(capacity)} EP"
     )
-    above = f"⚠️ Above configured capacity ({capacity} EP)." if capacity and effort > capacity else ""
+    above = (
+        f"⚠️ Above configured capacity ({effort_label(capacity)} EP)."
+        if capacity and effort > capacity
+        else ""
+    )
     return line, above
 
 

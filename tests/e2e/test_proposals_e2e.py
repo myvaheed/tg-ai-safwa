@@ -136,7 +136,7 @@ async def test_ai_parent_query_sql_resolves_before_card_proposal(e2e_harness):
         parent = await create_manual_card(
             session,
             title="Реализовать новый Дизайн",
-            kind="idea",
+            kind="goal",
             effort_points=None,
         )
         await session.commit()

@@ -4,7 +4,7 @@ A Sprint commitment follows an Action's stage, and every writer of that stage is
 file: each one calls Planning's door afterwards, and no Card row here ever touches a
 commitment itself.
 
-What a Goal or an Idea then shows is not written here. Each operation ends at
+What a Goal or a Subgoal then shows is not written here. Each operation ends at
 `propagate_ancestors` in [hierarchy.py](hierarchy.py), which is the only writer of the
 derived columns and the only walk that reads a branch.
 """
@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.clock import utcnow
@@ -43,6 +43,7 @@ from ..values.api import Value, attach_values, unlinkable_value_id
 from ..values.model import CardValue
 from .hierarchy import branch_actions, propagate_ancestors, settle_archive
 from .model import (
+    EFFORT_POINTS,
     TERMINAL_STAGES,
     Card,
     CardCategory,
@@ -54,14 +55,15 @@ from .model import (
     Category,
     EnergyType,
     Priority,
+    effort_label,
     new_correlation_id,
 )
 
-# The allowed Action effort scale.  Mirrored by the Literal in ai/contracts.py.
-EFFORT_POINTS = {1, 2, 3, 5, 8, 13}
-# The fields an Action alone carries. On a Goal and an Idea two of them are derived, so
+# The fields an Action alone carries. On a Goal and a Subgoal two of them are derived, so
 # nothing outside `propagate_ancestors` may write one.
 ACTION_ONLY_FIELDS = ("effort_points", "repeatable", "blocked", "blocked_description")
+# What an Idea carries, and nothing else.
+IDEA_FIELDS = frozenset({"title", "note"})
 
 
 @dataclass
@@ -99,7 +101,7 @@ async def create_card(
     hard_time: bool = False,
     blocked: bool = False,
     blocked_description: str = "",
-    effort_points: int | None = None,
+    effort_points: float | None = None,
     repeatable: bool = False,
     parent_id: int | None = None,
     categories: set[Category | str] | None = None,
@@ -131,6 +133,12 @@ async def create_card(
         clean_description = ""
         category_values.clear()
         energy_values.clear()
+    if card_kind is CardKind.IDEA:
+        # An Idea is raw capture, so the two fields it has are the two it keeps.
+        card_priority = Priority.MEDIUM
+        hard_time = False
+        if value_ids or tag_ids or check_ids:
+            raise DomainError("An Idea carries no Values, Tags or Checks")
     validate_action_fields(
         card_kind,
         effort_points,
@@ -231,13 +239,15 @@ async def update_card_fields(
     unknown = set(fields) - allowed
     if unknown:
         raise DomainError("Unsupported Card fields: " + ", ".join(sorted(unknown)))
+    if card.kind == CardKind.IDEA.value and set(fields) - IDEA_FIELDS:
+        raise DomainError("An Idea has only a title and a note")
     if card.kind != CardKind.ACTION.value:
         # `blocked` and `effort_points` on a parent are derived values this walk writes;
         # a caller that set one by hand would be overwritten at the next Action change.
         for name in ACTION_ONLY_FIELDS:
             fields.pop(name, None)
         if not fields:
-            raise DomainError("Goal and Idea cards cannot have Action-only fields")
+            raise DomainError("Goal and Subgoal cards cannot have Action-only fields")
     before = card_snapshot(card)
     for name, value in fields.items():
         if name in {"title", "note"}:
@@ -433,22 +443,26 @@ async def validate_parent(
 ) -> Card | None:
     kind = CardKind(kind)
     if parent_id is None:
+        if kind is CardKind.SUBGOAL:
+            raise DomainError("A Subgoal may only be placed under a Goal")
         return None
     if kind is CardKind.GOAL:
         raise DomainError("A Goal must be root-level")
+    if kind is CardKind.IDEA:
+        raise DomainError("An Idea stands on its own and has no parent")
     parent = await session.get(Card, parent_id)
     if parent is None or parent.archived_at is not None:
         raise DomainError("Parent does not exist or is archived")
-    if parent.kind == CardKind.ACTION.value:
-        raise DomainError("An Action cannot have children")
-    if kind is CardKind.IDEA and parent.kind != CardKind.GOAL.value:
-        raise DomainError("An Idea may only be placed under a Goal")
+    if parent.kind in {CardKind.ACTION.value, CardKind.IDEA.value}:
+        raise DomainError(f"A{parent.kind[:1].upper()} cannot have children")
+    if kind is CardKind.SUBGOAL and parent.kind != CardKind.GOAL.value:
+        raise DomainError("A Subgoal may only be placed under a Goal")
     return parent
 
 
 def validate_action_fields(
     kind: CardKind | str,
-    effort_points: int | None,
+    effort_points: float | None,
     repeatable: bool,
     categories: set[str] | None = None,
     energy_types: set[str] | None = None,
@@ -458,10 +472,13 @@ def validate_action_fields(
     kind = CardKind(kind)
     if kind is CardKind.ACTION:
         if effort_points not in EFFORT_POINTS:
-            raise DomainError("An Action needs effort points: 1, 2, 3, 5, 8, or 13")
+            raise DomainError(
+                "An Action needs effort points: "
+                + ", ".join(effort_label(rung) for rung in sorted(EFFORT_POINTS))
+            )
         return
     if effort_points is not None or repeatable or categories or energy_types or blocked:
-        raise DomainError("Goal and Idea cards cannot have Action-only fields")
+        raise DomainError("Goal and Subgoal cards cannot have Action-only fields")
 
 
 def validate_blocked_fields(blocked: bool, description: str | None) -> None:
@@ -510,7 +527,7 @@ async def move_card(
     if stage in TERMINAL_STAGES:
         # finish_action owns completion timestamps, Sprint results, Checks and repeat
         # successors.  Moving here would set the stage and skip all of that accounting.
-        raise DomainError("An Action reaches Done or Cancelled through finish_action")
+        raise DomainError("An Action reaches Done through finish_action")
     previous = CardStage(card.effective_stage)
     reopening = previous in TERMINAL_STAGES
     before = card_snapshot(card)
@@ -519,7 +536,6 @@ async def move_card(
         result.warnings.append(f"Blocked: {card.blocked_description}")
     if reopening:
         card.completed_at = None
-        card.cancelled_at = None
         card.archived_at = None
         await reopen_checks(session, card.id)
     card.manual_stage = stage.value
@@ -571,13 +587,10 @@ async def _copy_repeat_successor(session: AsyncSession, card: Card, live_stage: 
 async def finish_action(
     session: AsyncSession,
     card_id: int,
-    terminal_stage: CardStage,
     *,
     actor: ActorType = ActorType.USER_UI,
     check_outcomes: dict[int, Any] | None = None,
 ) -> OperationResult:
-    if terminal_stage not in TERMINAL_STAGES:
-        raise DomainError("Finish stage must be Done or Cancelled")
     card = await session.get(Card, card_id)
     if card is None:
         raise DomainError("Card does not exist")
@@ -585,23 +598,19 @@ async def finish_action(
         raise DomainError("Only Actions are finished directly")
     if CardStage(card.effective_stage) in TERMINAL_STAGES:
         raise DomainError("Action is already terminal")
-    # Done is gated on the Check series this Card has no answer for; Cancelling is not,
-    # because abandoning a Card with unanswered Checks is legitimate.  Asked before
-    # anything is written, so a refusal leaves the Action where it was.
-    resolutions = await require_check_answers(
-        session, card.id, check_outcomes, gated=terminal_stage is CardStage.DONE
-    )
+    # Asked before anything is written, so a refusal leaves the Action where it was.
+    resolutions = await require_check_answers(session, card.id, check_outcomes)
     previous_live_stage = CardStage(card.effective_stage)
     before = card_snapshot(card)
-    now = utcnow()
-    card.manual_stage = terminal_stage.value
-    card.effective_stage = terminal_stage.value
-    card.completed_at = now if terminal_stage is CardStage.DONE else None
-    card.cancelled_at = now if terminal_stage is CardStage.CANCELLED else None
+    card.manual_stage = CardStage.DONE.value
+    card.effective_stage = CardStage.DONE.value
+    card.completed_at = utcnow()
     card.version += 1
     correlation_id = new_correlation_id()
-    await record_card_event(session, card, terminal_stage.value, actor, before, correlation_id)
-    await record_sprint_result(session, card.id, terminal_stage)
+    await record_card_event(
+        session, card, CardStage.DONE.value, actor, before, correlation_id
+    )
+    await record_sprint_result(session, card.id)
     result = OperationResult(card_ids=[card.id])
     if card.blocked:
         result.warnings.append(f"Blocked: {card.blocked_description}")
@@ -615,12 +624,12 @@ async def finish_action(
 
 
 async def archive_subtree(session: AsyncSession, card_id: int, archive: bool = True) -> list[int]:
-    """Archive or restore a branch by its Actions; a Goal and an Idea follow from theirs."""
+    """Archive or restore a branch by its Actions; a Goal and a Subgoal follow from theirs."""
     card = await session.get(Card, card_id)
     if card is None:
         raise DomainError("Card does not exist")
     if archive and CardStage(card.effective_stage) not in TERMINAL_STAGES:
-        raise DomainError("Only a Card that is Done or Cancelled may be archived")
+        raise DomainError("Only a Card that is Done may be archived")
     stamp = utcnow() if archive else None
     correlation_id = new_correlation_id()
     actions = (
@@ -677,8 +686,8 @@ async def archive_settled_cards(session: AsyncSession, cutoff: datetime) -> list
                 Card.archived_at.is_(None),
                 Card.kind == CardKind.ACTION.value,
                 Card.effective_stage.in_([stage.value for stage in TERMINAL_STAGES]),
-                func.coalesce(Card.completed_at, Card.cancelled_at).is_not(None),
-                func.coalesce(Card.completed_at, Card.cancelled_at) <= cutoff,
+                Card.completed_at.is_not(None),
+                Card.completed_at <= cutoff,
             )
         )
     )

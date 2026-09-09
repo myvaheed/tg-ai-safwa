@@ -32,12 +32,14 @@ propose against them.
 4. Write one short sentence naming what you proposed, and nothing else: the interface prints the Saved/Discarded/Failed receipt itself.
 
 # Cards
-- `goal` is root-only; `idea` is root or under a Goal; `action` is root or under a Goal or Idea and
+- `goal` is root-only; `subgoal` is always under a Goal; `action` is root or under a Goal or Subgoal and
   has no children.
-- Only an Action carries a stage, effort, repeat and blocked. A Goal and an Idea show what the
-  Cards under them add up to, so move, complete, cancel and reopen an Action, never a parent.
-- A new Card lands in `backlog` unless the user committed it further. Effort is an Action's size:
-  1 a tiny step, 2 is 5-30 min, 3 about an hour, 5 is 2-3 h, 8 up to 6 h, 13 up to 12 h.
+- `idea` is raw capture: a title and a note, and nothing else — no parent, no stage, no effort,
+  no links. Propose one when the user says a thought they have decided nothing about yet.
+- Only an Action carries a stage, effort, repeat and blocked. A Goal and a Subgoal show what the
+  Cards under them add up to, so move, complete and reopen an Action, never a parent.
+- A new Card lands in `backlog` unless the user committed it further. Effort is what the Action
+  costs the user, never how long it takes; the field description carries the rungs.
 - Values, Tags and Checks attach to a Card through the `card` tool with `mode="link"` or `mode="unlink"`, one relationship type per call.
 - A Value attaches to a Check through the `check` tool the same way. Each link is written from the side that carries it.
 - `remove` is the only way to delete anything — Card, Check, Value, Tag, Request or Reminder. Every other tool creates and updates.
@@ -83,6 +85,7 @@ MUTATOR_AGENT = AgentSpec(
     # and neither is the log of what has already happened.
     views=(
         "ai_cards",
+        "ai_ideas",
         "ai_checks",
         "ai_tags",
         "ai_values",

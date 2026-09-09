@@ -10,6 +10,7 @@ AI_CURRENT_SPRINT = SqlView(
                s.success_criteria
         FROM sprints s JOIN workspace w ON w.active_sprint_id = s.id""",
     doc="""- `ai_current_sprint(id, number, planned_start_date, planned_end_date, actual_started_at, success_criteria)`
+  - `number` is `yy.MM-xx` text — the month the sprint started in, then its place in that month
   - `planned_start_date` and `planned_end_date` are `YYYY-MM-DD`; one row at most, none in Planning""",
 )
 
@@ -20,11 +21,10 @@ AI_CURRENT_SPRINT_METRICS = SqlView(
           SUM(CASE WHEN sc.scope_kind='initial' THEN sc.effort_snapshot ELSE 0 END) committed,
           SUM(CASE WHEN sc.scope_kind='added' THEN sc.effort_snapshot ELSE 0 END) added,
           SUM(CASE WHEN sc.removed_at IS NOT NULL THEN sc.effort_snapshot ELSE 0 END) removed,
-          SUM(CASE WHEN sc.result='done' THEN sc.effort_snapshot ELSE 0 END) completed,
-          SUM(CASE WHEN sc.result='cancelled' THEN sc.effort_snapshot ELSE 0 END) cancelled
+          SUM(CASE WHEN sc.result='done' THEN sc.effort_snapshot ELSE 0 END) completed
         FROM sprint_commitments sc JOIN workspace w ON w.active_sprint_id=sc.sprint_id
         GROUP BY sc.sprint_id""",
-    doc="""- `ai_current_sprint_metrics(sprint_id, committed, added, removed, completed, cancelled)`
+    doc="""- `ai_current_sprint_metrics(sprint_id, committed, added, removed, completed)`
   - every column is a sum of effort points, not a count of Cards""",
 )
 

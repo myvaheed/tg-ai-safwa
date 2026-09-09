@@ -15,25 +15,33 @@ class CardToolInput(ToolInput):
     content_fields = frozenset({"title", "note", "blocked_description"})
     semantic_null_fields = frozenset({"parent_id"})
 
-    mode: Literal["create", "update", "move", "complete", "cancel", "reopen", "link", "unlink"] = (
-        Field(
-            description=(
-                "move changes only the stage; update changes every other field. complete and "
-                "cancel are how a Card reaches Done and Cancelled, and reopen brings it back. "
-                "link and unlink attach one relationship type. Archiving is the remove tool."
-            )
+    mode: Literal["create", "update", "move", "complete", "reopen", "link", "unlink"] = Field(
+        description=(
+            "move changes only the stage; update changes every other field. complete is how a "
+            "Card reaches Done, and reopen brings it back. link and unlink attach one "
+            "relationship type. Archiving is the remove tool."
         )
     )
     id: PositiveInt | None = None
-    kind: Literal["goal", "idea", "action"] | None = None
+    kind: Literal["goal", "subgoal", "action", "idea"] | None = None
     title: str | None = None
     note: str | None = None
-    stage: Literal["backlog", "sprint", "today", "done", "cancelled"] | None = None
+    stage: Literal["backlog", "sprint", "today", "done"] | None = None
     priority: Literal["critical", "medium", "low"] | None = None
     hard_time: bool | None = None
     blocked: bool | None = None
     blocked_description: str | None = None
-    effort_points: Literal[1, 2, 3, 5, 8, 13] | None = None
+    effort_points: Literal[0.5, 1, 2, 3, 5, 8, 13] | None = Field(
+        default=None,
+        description=(
+            "How much the whole Action takes in the user's usual state. "
+            "0.5 done in passing. 1 the day goes on as it was. 2 a little tired, no rest needed. "
+            "3 carry on only after a break. 5 after a full rest, one more serious thing. "
+            "8 only light work left today. 13 nothing else today. "
+            "On a repeating Action this is one occurrence, not the series. "
+            "Work that does not fit one day is a Subgoal with Actions under it, never a 13."
+        ),
+    )
     repeatable: bool | None = None
     categories: list[Literal["self", "contribution", "work", "rest"]] | None = None
     energy_types: list[Literal["physical", "cognitive", "social", "values"]] | None = None
@@ -76,6 +84,8 @@ class CardToolInput(ToolInput):
                 raise ValueError("a new Card needs kind and title")
             if self.kind == "action" and self.effort_points is None:
                 raise ValueError("a new Action needs effort_points")
+            if self.kind == "idea" and supplied - {"kind", "title", "note"}:
+                raise ValueError("an Idea takes only a title and a note")
             if self.blocked and not (self.blocked_description or "").strip():
                 raise ValueError("a blocked Card needs blocked_description")
             if self.parent_id is not None and self.parent_query is not None:
@@ -112,8 +122,8 @@ class CardToolInput(ToolInput):
                 raise ValueError("an updated Card needs at least one proposed field")
             if unsupported := supplied - editable:
                 raise ValueError("Card update does not accept: " + ", ".join(sorted(unsupported)))
-            if self.stage in {"done", "cancelled"}:
-                raise ValueError("use complete or cancel mode for a terminal Card stage")
+            if self.stage == "done":
+                raise ValueError("use complete mode to finish a Card")
             if self.blocked and not (self.blocked_description or "").strip():
                 raise ValueError("a blocked Card needs blocked_description")
             if self.parent_id is not None and self.parent_query is not None:
@@ -121,15 +131,15 @@ class CardToolInput(ToolInput):
         elif self.mode == "move":
             if supplied != {"stage"} or self.stage is None:
                 raise ValueError("Card move needs only a stage")
-            if self.stage in {"done", "cancelled"}:
-                raise ValueError("use complete or cancel mode for a terminal Card stage")
-        elif self.mode in {"complete", "cancel"}:
+            if self.stage == "done":
+                raise ValueError("use complete mode to finish a Card")
+        elif self.mode == "complete":
             if supplied:
-                raise ValueError(f"Card {self.mode} does not accept fields")
+                raise ValueError("Card complete does not accept fields")
         elif self.mode == "reopen":
             if supplied - {"stage"}:
                 raise ValueError("Card reopen accepts only an optional stage")
-            if self.stage in {"done", "cancelled"}:
+            if self.stage == "done":
                 raise ValueError("a reopened Card returns to a live stage")
         elif self.mode in {"link", "unlink"}:
             groups = [
@@ -253,7 +263,8 @@ CARD_TOOL = MutationToolSpec(
     name="card",
     input_model=CardToolInput,
     description=(
-        "Propose one Card — a Goal, an Idea or an Action. Also the only tool that attaches a "
+        "Propose one Card — a Goal, a Subgoal, an Action or an Idea. Also the only tool that "
+        "attaches a "
         "Value, a Tag or a Check to a Card."
     ),
     to_change=entity_change("card"),

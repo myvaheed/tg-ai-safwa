@@ -112,8 +112,16 @@ async def test_sprint_capacity_accepts_positive_points_or_off(sessions) -> None:
         )
         assert profile.capacity_effort_points is None
 
-        for rejected in (0, -1, 1.5):
-            with pytest.raises(DomainError, match="positive whole number"):
+        profile = await set_profile_field(
+            session, ProfileField.CAPACITY_EFFORT_POINTS, 12.5, clock=SystemClock()
+        )
+        assert profile.capacity_effort_points == 12.5
+        await set_profile_field(
+            session, ProfileField.CAPACITY_EFFORT_POINTS, None, clock=SystemClock()
+        )
+
+        for rejected in (0, -1):
+            with pytest.raises(DomainError, match="positive number"):
                 await set_profile_field(
                     session, ProfileField.CAPACITY_EFFORT_POINTS, rejected, clock=SystemClock()
                 )

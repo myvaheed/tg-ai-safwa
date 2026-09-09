@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.ai.messages import StateBlocks
 
 from ...foundation.workspace import Workspace
-from ..cards.model import Card, CardKind, CardStage, Priority
+from ..cards.model import Card, CardKind, CardStage, Priority, effort_label
 from ..planning.model import Sprint
 from ..profile.model import UserProfile
 from ..tags.model import Tag
@@ -54,7 +54,7 @@ async def _critical_cards(session: AsyncSession) -> list[Card]:
             .where(
                 Card.priority == Priority.CRITICAL.value,
                 Card.effective_stage.notin_(
-                    [CardStage.DONE.value, CardStage.CANCELLED.value]
+                    [CardStage.DONE.value]
                 ),
             )
             .order_by(linked_active_value.desc(), Card.hard_time.desc(), Card.created_at)
@@ -126,7 +126,8 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         )
         lines.append("Today Actions:")
         lines.extend(
-            f"- {citation(card.title, 'card', card.id)} effort={card.effort_points}"
+            f"- {citation(card.title, 'card', card.id)} "
+            f"effort={effort_label(card.effort_points)}"
             for card in today
         )
     return StateBlocks(

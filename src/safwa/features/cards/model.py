@@ -15,6 +15,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     Boolean,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -32,8 +33,35 @@ from ...foundation.models import Base, TimestampMixin, UtcDateTime
 
 class CardKind(StrEnum):
     GOAL = "goal"
-    IDEA = "idea"
+    SUBGOAL = "subgoal"
     ACTION = "action"
+    # Outside the tree and outside every stage: a title and a note, and one button
+    # that hands it to Safwa.
+    IDEA = "idea"
+
+
+# What one rung costs: how the owner will be able to carry on afterwards, and what
+# recovery it takes first.  One axis, and the only one that reads the same for a
+# physical, a cognitive and an emotional load — which of those it is, `EnergyType`
+# already carries.  The question the rung answers is how much the whole thing takes in
+# the owner's usual state; today's tiredness decides how many things they take on, not
+# what one of them costs.
+EFFORT_RUNGS: dict[float, str] = {
+    0.5: "done in passing, the load is barely noticed",
+    1: "done, and the day goes on as it was",
+    2: "a little tired, but able to carry on without a rest",
+    3: "able to carry on only after a break",
+    5: "after a full rest there is enough for one more serious thing",
+    8: "only light work is left for today",
+    13: "nothing is left for anything else today",
+}
+# The allowed Action effort scale.  Mirrored by the Literal in cards/agent.py.
+EFFORT_POINTS = frozenset(EFFORT_RUNGS)
+
+
+def effort_label(points: float | None) -> str:
+    """0.5 keeps its half; every other rung reads as the whole number it is."""
+    return "—" if points is None else f"{points:g}"
 
 
 class Priority(StrEnum):
@@ -61,10 +89,9 @@ class CardStage(StrEnum):
     SPRINT = "sprint"
     TODAY = "today"
     DONE = "done"
-    CANCELLED = "cancelled"
 
 
-TERMINAL_STAGES = {CardStage.DONE, CardStage.CANCELLED}
+TERMINAL_STAGES = {CardStage.DONE}
 LIVE_STAGE_PRECEDENCE = {
     CardStage.BACKLOG: 1,
     CardStage.SPRINT: 2,
@@ -94,14 +121,13 @@ class Card(Base, TimestampMixin):
     hard_time: Mapped[bool] = mapped_column(Boolean, default=False)
     blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     blocked_description: Mapped[str] = mapped_column(Text, default="")
-    effort_points: Mapped[int | None] = mapped_column(Integer)
+    effort_points: Mapped[float | None] = mapped_column(Float)
     repeatable: Mapped[bool] = mapped_column(Boolean, default=False)
     repeat_series_id: Mapped[int | None] = mapped_column(Integer, index=True)
     source_instance_id: Mapped[int | None] = mapped_column(
         ForeignKey("cards.id", ondelete="SET NULL")
     )
     completed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
-    cancelled_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     archived_at: Mapped[datetime | None] = mapped_column(UtcDateTime, index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
 

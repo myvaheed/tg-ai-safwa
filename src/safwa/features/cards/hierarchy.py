@@ -1,6 +1,6 @@
 """What a parent Card shows, and the one walk that keeps it true.
 
-A Goal and an Idea carry no stage, block, effort or archive of their own: each is added up
+A Goal and a Subgoal carry no stage, block, effort or archive of their own: each is added up
 from the row of children below it and written into the plain columns, so every screen and
 every view reads one column that means the same thing on every Card.  `propagate_ancestors`
 is the only writer of those columns, and every path that changes an Action ends there.
@@ -31,8 +31,6 @@ def aggregate_child_stages(children: list[Card]) -> CardStage:
     live = [stage for stage in stages if stage not in TERMINAL_STAGES]
     if live:
         return max(live, key=lambda stage: LIVE_STAGE_PRECEDENCE[stage])
-    if all(stage is CardStage.CANCELLED for stage in stages):
-        return CardStage.CANCELLED
     return CardStage.DONE
 
 
@@ -54,11 +52,11 @@ async def branch_actions(session: AsyncSession, card_id: int) -> list[Card]:
 def derived_from_children(
     children: list[Card],
 ) -> tuple[CardStage, bool, int | None, datetime | None]:
-    """What a Goal or an Idea shows: the stage, the block, the effort and the archive.
+    """What a Goal or a Subgoal shows: the stage, the block, the effort and the archive.
 
     Every child already carries its own derived values, so a parent adds up the row below
     it and the recursion reaches the Actions on its own. Reading the branch's Actions
-    directly would skip an Idea with nothing in it, and a Goal would call itself Done over
+    directly would skip a Subgoal with nothing in it, and a Goal would call itself Done over
     a child that never started.
     """
     if not children:
@@ -115,7 +113,7 @@ async def card_children(session: AsyncSession, card_id: int) -> list[Card]:
 
 
 async def card_progress(session: AsyncSession, card_id: int) -> dict[str, int]:
-    """Completed Action effort and direct-child completion for a Goal or an Idea.
+    """Completed Action effort and direct-child completion for a Goal or a Subgoal.
 
     The branch total is not here: it is `effort_points` on the Card itself, written by
     `propagate_ancestors`, so a query reads the same number the screens do.

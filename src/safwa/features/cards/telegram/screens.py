@@ -27,6 +27,7 @@ from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value
 from ..hierarchy import blocking_actions, card_progress
 from ..model import Card, CardCategory, CardEnergyType, CardKind, CardStage
+from .idea import render_idea
 from .presentation import card_overview_text
 
 
@@ -55,6 +56,7 @@ async def render_card(
         card = await session.get(Card, card_id)
         if card is None:
             raise DomainError("Card does not exist")
+        idea = card if card.kind == CardKind.IDEA.value else None
         parent = await session.get(Card, card.parent_id) if card.parent_id else None
         direct_value_ids = list(
             await session.scalars(select(CardValue.value_id).where(CardValue.card_id == card.id))
@@ -82,6 +84,12 @@ async def render_card(
                 select(CardEnergyType.energy_type).where(CardEnergyType.card_id == card.id)
             )
         )
+        if idea is not None:
+            await session.commit()
+            await render_idea(
+                message, services, idea, back=back, notice=notice, replace=replace
+            )
+            return
         archived = card.archived_at is not None
         field_specs: list[tuple[str, str, dict[str, Any]]] = [] if archived else [
             ("✏️ Title", "card_edit_text", {"id": card.id, "field": "title"}),
@@ -156,7 +164,7 @@ async def render_card(
                     )
                 ]
             )
-        if card.kind in {CardKind.GOAL.value, CardKind.IDEA.value}:
+        if card.kind in {CardKind.GOAL.value, CardKind.SUBGOAL.value}:
             relationship_rows.append(
                 [
                     await token_button(
@@ -188,10 +196,10 @@ async def render_card(
                 ]
             )
         rows = relationship_rows + rows
-        if card.kind == CardKind.ACTION.value and card.effective_stage not in {
-            CardStage.DONE.value,
-            CardStage.CANCELLED.value,
-        }:
+        if (
+            card.kind == CardKind.ACTION.value
+            and card.effective_stage != CardStage.DONE.value
+        ):
             rows.append(
                 [
                     await token_button(
@@ -199,15 +207,8 @@ async def render_card(
                         services.owner_id,
                         "✅ Done",
                         "card_finish",
-                        {"id": card.id, "stage": "done"},
-                    ),
-                    await token_button(
-                        session,
-                        services.owner_id,
-                        "✖ Cancel",
-                        "card_finish",
-                        {"id": card.id, "stage": "cancelled"},
-                    ),
+                        {"id": card.id},
+                    )
                 ]
             )
         # What an archived Card still offers: it leaves the archive by being reopened, and
@@ -280,11 +281,7 @@ async def render_card(
         check_names = [
             check.title + await title_marks(session, check) for check in direct_checks
         ]
-        closed_at = (
-            card.cancelled_at
-            if card.effective_stage == CardStage.CANCELLED.value
-            else card.completed_at
-        )
+        closed_at = card.completed_at
         await session.commit()
     text = with_notice(
         card_overview_text(

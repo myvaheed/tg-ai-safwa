@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -14,7 +14,7 @@ from safwa.features.cards.use_cases import (
     move_card,
     update_card_fields,
 )
-from safwa.features.planning.model import Sprint
+from safwa.features.planning.model import Sprint, next_sprint_number
 from safwa.features.planning.use_cases import (
     expire_due_sprint,
     finish_sprint,
@@ -112,18 +112,31 @@ async def test_pl_start_005_the_default_length_is_the_constant(sessions):
         ).days == SPRINT_LENGTH_DAYS - 1
 
 
-async def test_pl_start_005_numbering_follows_the_highest_number_ever_used(sessions):
+async def test_pl_start_005_a_sprint_number_says_the_month_it_started_in(sessions):
     """PL-START-005 — tests/brd/planning.feature"""
     async with sessions() as session:
         await plan_one(session)
         first = await start_sprint(session, success_criteria="Ship v2")
         await finish_sprint(session, reason="finished_early")
         second = await start_sprint(session, success_criteria="Ship v3")
-        await finish_sprint(session, reason="finished_early")
 
-        third = await start_sprint(session, success_criteria="Ship v4")
+        month = f"{first.planned_start_date:%y.%m}"
+        assert [first.number, second.number] == [f"{month}-01", f"{month}-02"]
 
-        assert [first.number, second.number, third.number] == [1, 2, 3]
+
+def test_pl_start_005_the_sequence_is_per_month_and_never_reused():
+    """PL-START-005 — tests/brd/planning.feature"""
+    assert next_sprint_number(date(2026, 9, 1), []) == "26.09-01"
+    assert next_sprint_number(date(2026, 9, 30), ["26.09-01"]) == "26.09-02"
+    # A deleted Sprint leaves its place taken: the sequence follows the highest used.
+    assert next_sprint_number(date(2026, 9, 30), ["26.09-02"]) == "26.09-03"
+    # A new month starts its own sequence, and the label sorts by start date as text.
+    assert next_sprint_number(date(2026, 10, 1), ["26.09-02"]) == "26.10-01"
+    assert sorted(["26.10-01", "26.09-02", "26.09-10"]) == [
+        "26.09-02",
+        "26.09-10",
+        "26.10-01",
+    ]
 
 
 async def test_pl_scope_006_a_sprint_commits_to_what_is_planned_at_the_effort_it_has_then(
@@ -228,10 +241,9 @@ async def test_pl_end_015_an_ended_sprint_is_handed_to_safwa(sessions):
         done = await create_card(session, title="Shipped", stage="sprint", effort_points=5)
         await create_card(session, title="Still open", stage="today", effort_points=3)
         sprint = await start_sprint(session, success_criteria="Ship v2")
-        from safwa.features.cards.model import CardStage
         from safwa.features.cards.use_cases import finish_action
 
-        await finish_action(session, done.id, CardStage.DONE)
+        await finish_action(session, done.id)
         await finish_sprint(session, reason="finished_early")
         await session.commit()
 
@@ -244,8 +256,8 @@ async def test_pl_end_015_an_ended_sprint_is_handed_to_safwa(sessions):
     assert f"Sprint {sprint.number} is over" in words
     assert "the owner closed it" in words
     assert "Success criteria: Ship v2" in words
-    assert "committed 8, added 0, removed 0, done 5, cancelled 0" in words
-    assert "1 finished, 0 cancelled, 1 still open" in words
+    assert "committed 8, added 0, removed 0, done 5" in words
+    assert "1 finished, 1 still open" in words
     assert "Still open: Still open" in words
     assert f"[Sprint retro](retro:{sprint.id})" in words
 
@@ -301,8 +313,8 @@ async def test_pl_context_010_safwa_is_handed_the_sprint_and_todays_actions(sess
     assert "Today Actions:" in context.state
     assert "[Ship it](card:1)" in context.state
     assert "Later" not in context.state
-    # The five effort figures are not handed over; Safwa reads them when it wants them.
-    for word in ("committed", "Committed", "cancelled effort"):
+    # The four effort figures are not handed over; Safwa reads them when it wants them.
+    for word in ("committed", "Committed", "removed effort"):
         assert word not in context.state
 
 
@@ -368,7 +380,7 @@ async def test_pl_end_012_finishing_early_leaves_the_work_where_it_is(sessions):
 
 async def test_pl_end_014_a_sprint_ending_is_when_the_workspace_is_tidied(sessions):
     """PL-END-014 — tests/brd/planning.feature"""
-    from safwa.features.cards.model import Card, CardStage
+    from safwa.features.cards.model import Card
     from safwa.features.cards.use_cases import finish_action
     from safwa.features.planning.use_cases import ARCHIVE_AFTER_SPRINTS
 
@@ -376,7 +388,7 @@ async def test_pl_end_014_a_sprint_ending_is_when_the_workspace_is_tidied(sessio
         closed = await create_card(session, title="Shipped", stage="sprint", effort_points=2)
         await plan_one(session, title="Carries the Sprints")
         await start_sprint(session, success_criteria="Ship v1")
-        await finish_action(session, closed.id, CardStage.DONE)
+        await finish_action(session, closed.id)
         await finish_sprint(session)
         await session.commit()
 
@@ -408,11 +420,11 @@ async def test_pl_scope_007_work_that_joins_a_running_sprint_is_counted_apart(se
         created = await create_card(session, title="Added", stage="today", effort_points=3)
         moved = await create_card(session, title="Moved", effort_points=2)
         await move_card(session, moved.id, CardStage.SPRINT)
-        await finish_action(session, initial.id, CardStage.DONE)
+        await finish_action(session, initial.id)
 
         metrics = await sprint_metrics(session, sprint.id)
 
-        assert metrics == {"committed": 5, "added": 5, "removed": 0, "completed": 5, "cancelled": 0}
+        assert metrics == {"committed": 5, "added": 5, "removed": 0, "completed": 5}
         assert created.effective_stage == "today"
 
 
@@ -421,7 +433,7 @@ async def test_pl_scope_009_a_sprint_records_what_each_action_came_to(sessions):
     async with sessions() as session:
         action = await create_card(session, title="Ship", stage="sprint", effort_points=5)
         sprint = await start_sprint(session, success_criteria="Ship the release")
-        await finish_action(session, action.id, CardStage.DONE)
+        await finish_action(session, action.id)
         assert (await sprint_metrics(session, sprint.id))["completed"] == 5
 
         await move_card(session, action.id, CardStage.SPRINT)
@@ -429,11 +441,6 @@ async def test_pl_scope_009_a_sprint_records_what_each_action_came_to(sessions):
         # A reopened Action is live again, so its effort must stop counting as completed.
         assert (await sprint_metrics(session, sprint.id))["completed"] == 0
         assert action.effective_stage == CardStage.SPRINT.value
-
-        await finish_action(session, action.id, CardStage.CANCELLED)
-
-        metrics = await sprint_metrics(session, sprint.id)
-        assert (metrics["cancelled"], metrics["completed"]) == (5, 0)
 
 
 async def test_pl_scope_008_returning_to_sprint_scope_cancels_the_earlier_removal(sessions):

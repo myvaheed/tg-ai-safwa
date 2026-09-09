@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import time
 from enum import StrEnum
 
-from sqlalchemy import Integer, Text, Time
+from sqlalchemy import Float, Integer, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...foundation.models import Base, TimestampMixin
@@ -22,7 +22,7 @@ class UserProfile(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     about_me: Mapped[str] = mapped_column(Text, default="")
     advisor_instructions: Mapped[str] = mapped_column(Text, default="")
-    capacity_effort_points: Mapped[int | None] = mapped_column(Integer)
+    capacity_effort_points: Mapped[float | None] = mapped_column(Float)
     sprint_length_days: Mapped[int] = mapped_column(Integer, default=SPRINT_LENGTH_DAYS)
     memory_update_time: Mapped[time | None] = mapped_column(Time)
     diary_time: Mapped[time | None] = mapped_column(
@@ -31,7 +31,7 @@ class UserProfile(Base, TimestampMixin):
     diary_instructions: Mapped[str] = mapped_column(Text, default="")
 
 
-ProfileValue = str | int | time | None
+ProfileValue = str | int | float | time | None
 
 
 class ProfileField(StrEnum):

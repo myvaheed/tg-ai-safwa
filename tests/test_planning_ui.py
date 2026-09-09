@@ -199,7 +199,8 @@ async def test_pl_criteria_003_starting_a_sprint_needs_criteria_and_a_plan(sessi
         assert list(await session.scalars(select(Reminder))) == []
         handed = list(await session.scalars(select(Cue)))
         assert len(handed) == 1
-        assert handed[0].text.startswith("Sprint 1 is over")
+        sprint_number = await session.scalar(select(Sprint.number))
+        assert handed[0].text.startswith(f"Sprint {sprint_number} is over")
 
 
 async def test_pl_criteria_003_the_planning_screen_refuses_an_empty_plan(sessions) -> None:

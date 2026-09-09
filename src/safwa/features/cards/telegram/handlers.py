@@ -268,22 +268,20 @@ async def _on_delete_confirm(context: CallbackContext) -> None:
 
 async def _on_finish(context: CallbackContext) -> None:
     card_id = int(context.payload["id"])
-    stage = CardStage(context.payload["stage"])
-    if stage is CardStage.DONE:
-        async with context.sessions() as session:
-            blocking = await unobserved_series(session, card_id)
-        if blocking:
-            # Done is gated: the user answers each Check on its own screen, and nothing
-            # is written until Save, so backing out leaves the Card live.
-            await render_check_resolution(
-                context.message,
-                context.services,
-                card_id,
-                back={"action": "card_view", "id": card_id},
-            )
-            return
     async with context.sessions() as session:
-        result = await finish_action(session, card_id, stage)
+        blocking = await unobserved_series(session, card_id)
+    if blocking:
+        # Done is gated: the user answers each Check on its own screen, and nothing
+        # is written until Save, so backing out leaves the Card live.
+        await render_check_resolution(
+            context.message,
+            context.services,
+            card_id,
+            back={"action": "card_view", "id": card_id},
+        )
+        return
+    async with context.sessions() as session:
+        result = await finish_action(session, card_id)
         await session.commit()
     notice = "⚠️ " + "; ".join(result.warnings) if result.warnings else None
     await send_registered(

@@ -5,7 +5,7 @@ from pydantic import ValidationError
 from sqlalchemy import select, text
 
 from safwa.bootstrap.modules import AI_VIEWS
-from safwa.features.cards.model import Card, CardCheck, CardStage
+from safwa.features.cards.model import Card, CardCheck
 from safwa.features.cards.use_cases import (
     archive_subtree,
     create_card,
@@ -183,7 +183,7 @@ async def test_safwa_can_start_from_a_value_and_find_what_is_behind_it(sessions)
         await resolve_check(session, forgotten.id, CheckOutcome.PASSED)
         await session.commit()
 
-        await finish_action(session, stale.id, CardStage.CANCELLED)
+        await finish_action(session, stale.id)
         await archive_subtree(session, stale.id)
         await archive_check(session, forgotten.id)
         await session.commit()
@@ -314,7 +314,7 @@ async def test_a_repeating_card_hands_the_checks_values_to_the_next_cycle(sessio
         await session.commit()
 
         result = await finish_action(
-            session, card.id, CardStage.DONE, check_outcomes={check.id: CheckOutcome.PASSED}
+            session, card.id, check_outcomes={check.id: CheckOutcome.PASSED}
         )
         await session.commit()
 

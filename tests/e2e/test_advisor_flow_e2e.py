@@ -190,7 +190,7 @@ async def test_ai_card_proposal_reaches_the_sprint_it_was_planned_into(e2e_harne
         await move_card(session, action.id, CardStage.SPRINT)
         sprint = await start_sprint(session, success_criteria="Ship the release")
         await move_card(session, action.id, CardStage.TODAY)
-        completion = await finish_action(session, action.id, CardStage.DONE)
+        completion = await finish_action(session, action.id)
         assert len(completion.successor_ids) == 1
         successor = await session.get(Card, completion.successor_ids[0])
         assert successor is not None
@@ -205,7 +205,6 @@ async def test_ai_card_proposal_reaches_the_sprint_it_was_planned_into(e2e_harne
             "added": 2,
             "removed": 0,
             "completed": 2,
-            "cancelled": 0,
         }
 
         await finish_sprint(session, reason="finished_early")
@@ -225,7 +224,7 @@ async def test_ai_read_query_round_trip_uses_safe_view(e2e_harness):
             effort_points=5,
         )
         await start_sprint(session, success_criteria="Ship the release")
-        await finish_action(session, action.id, CardStage.DONE)
+        await finish_action(session, action.id)
         await session.commit()
 
     query_response = ProviderTurn(
@@ -352,7 +351,7 @@ async def test_repeatable_action_preserves_tags_in_e2e_flow(e2e_harness):
         )
         session.add(CardTag(card_id=action.id, tag_id=tag.id))
         await session.flush()
-        completion = await finish_action(session, action.id, CardStage.DONE)
+        completion = await finish_action(session, action.id)
         await session.commit()
 
     async with e2e_harness.sessions() as session:

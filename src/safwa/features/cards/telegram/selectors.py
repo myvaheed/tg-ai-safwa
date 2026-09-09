@@ -22,6 +22,7 @@ from ....constants import SELECTOR_PAGE_SIZE
 from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value
 from ..model import (
+    EFFORT_RUNGS,
     Card,
     CardCategory,
     CardEnergyType,
@@ -30,9 +31,9 @@ from ..model import (
     Category,
     EnergyType,
     Priority,
+    effort_label,
 )
 from ..use_cases import (
-    EFFORT_POINTS,
     toggle_card_category,
     toggle_card_energy_type,
     toggle_card_tag,
@@ -104,7 +105,7 @@ CHOICE_TITLES = {
     "kind": "Choose Kind",
     "stage": "Choose Stage",
     "priority": "Choose Priority",
-    "effort": "Choose Effort",
+    "effort": "Choose Effort — how much the whole thing takes in your usual state",
     "categories": "Categories",
     "energy": "Energy",
     "values": "Direct Values",
@@ -126,7 +127,13 @@ NAMED_CHOICE_FIELDS = frozenset({"values", "tags"})
 async def _choice_options(session: AsyncSession, field: str) -> list[tuple[str, Any]]:
     """The selectable options for one Card field, shared by draft and committed screens."""
     if field == "kind":
-        return [(kind_label(kind), kind.value) for kind in CardKind]
+        # A Subgoal is always under a Goal, and no screen sets a parent, so a Subgoal
+        # is created by a proposal alone.
+        return [
+            (kind_label(kind), kind.value)
+            for kind in CardKind
+            if kind is not CardKind.SUBGOAL
+        ]
     if field == "stage":
         return [
             (stage.value.title(), stage.value)
@@ -135,7 +142,10 @@ async def _choice_options(session: AsyncSession, field: str) -> list[tuple[str, 
     if field == "priority":
         return [(priority.value.title(), priority.value) for priority in Priority]
     if field == "effort":
-        return [(f"{points} EP", points) for points in sorted(EFFORT_POINTS)]
+        return [
+            (f"{effort_label(points)} · {meaning}", points)
+            for points, meaning in EFFORT_RUNGS.items()
+        ]
     if field == "categories":
         return [(typed_label(item, CATEGORY_EMOJIS), item.value) for item in Category]
     if field == "energy":

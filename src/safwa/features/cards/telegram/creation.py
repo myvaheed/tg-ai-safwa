@@ -52,9 +52,14 @@ async def card_creation_markup(
         ("🧩 Kind", "card_create_choose_kind", {}),
         ("✏️ Title", "card_create_edit_text", {"field": "title"}),
         ("📝 Note", "card_create_edit_text", {"field": "note"}),
-        ("⚠️ Priority", "card_create_choose_priority", {}),
-        ("⏱ Hard Time", "card_create_toggle", {"field": "hard_time"}),
     ]
+    if state["kind"] != CardKind.IDEA.value:
+        fields.extend(
+            [
+                ("⚠️ Priority", "card_create_choose_priority", {}),
+                ("⏱ Hard Time", "card_create_toggle", {"field": "hard_time"}),
+            ]
+        )
     if state["kind"] == CardKind.ACTION.value:
         fields.insert(2, ("📍 Stage", "card_create_choose_stage", {}))
         fields.extend(
@@ -161,14 +166,16 @@ async def render_card_creation(
         )
 
 
-async def start_manual_card_creation(message: Message, services: Services) -> None:
+async def start_manual_card_creation(
+    message: Message, services: Services, *, kind: CardKind = CardKind.ACTION
+) -> None:
     async with services.sessions() as session:
         await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
         session.add(
             UiSession(
                 owner_id=services.owner_id,
                 kind="card_create",
-                state=new_card_creation_state(),
+                state={**new_card_creation_state(), "kind": kind.value},
                 expires_at=datetime.now(UTC) + timedelta(hours=24),
             )
         )

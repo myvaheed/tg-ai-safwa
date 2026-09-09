@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.agent import CardToolInput
-from safwa.features.cards.model import Card, CardStage, Priority
+from safwa.features.cards.model import Card, Priority
 from safwa.features.cards.use_cases import (
     create_card,
     finish_action,
@@ -24,12 +24,11 @@ from tg_agent_shell.proposals.api import ToolPreparationError
 from tg_agent_shell.proposals.prepare import ChangePreparer
 
 
-@pytest.mark.parametrize("stage", ["done", "cancelled"])
-def test_card_move_tool_rejects_a_terminal_stage(stage):
+def test_card_move_tool_rejects_a_terminal_stage():
     # move applies through move_card, which does not own completion timestamps,
-    # feedback, Sprint results or repeat successors.  complete/cancel do.
-    with pytest.raises(ValidationError, match="complete or cancel"):
-        CardToolInput(mode="move", id=1, stage=stage)
+    # feedback, Sprint results or repeat successors.  complete does.
+    with pytest.raises(ValidationError, match="use complete mode"):
+        CardToolInput(mode="move", id=1, stage="done")
 
     assert CardToolInput(mode="move", id=1, stage="today").stage == "today"
 
@@ -60,7 +59,7 @@ async def test_no_proposal_may_touch_a_closed_repeat(sessions):
         check = await create_check(session, title="Posture straight?", repeatable=True)
         await toggle_card_check(session, card.id, check.id)
         result = await finish_action(
-            session, card.id, CardStage.DONE, check_outcomes={check.id: CheckOutcome.PASSED}
+            session, card.id, check_outcomes={check.id: CheckOutcome.PASSED}
         )
         await session.commit()
         live_card_id = result.successor_ids[0]

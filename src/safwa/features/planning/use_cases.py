@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.cues.queue import add_cue
@@ -21,12 +21,12 @@ from tg_agent_shell.foundation.errors import DomainError
 
 from ...constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ...foundation.workspace import Workspace, WorkspaceMode, require_workspace
-from ..cards.api import CardStage, action_titles, planned_actions
+from ..cards.api import CardStage, action_titles, effort_label, planned_actions
 from ..cards.use_cases import archive_settled_cards
 from ..checks.use_cases import archive_settled_checks
 from ..profile.api import sprint_length_days as _profile_sprint_length_days
 from ..reminders.use_cases import create_sprint_reminder, delete_sprint_reminders
-from .model import Sprint, SprintCommitment, SprintStatus
+from .model import Sprint, SprintCommitment, SprintStatus, next_sprint_number
 
 # How many Sprint endings a closed Card or Check waits before it leaves the screens.
 ARCHIVE_AFTER_SPRINTS = 2
@@ -81,14 +81,14 @@ async def start_sprint(
             f"Sprint length must be between {SPRINT_LENGTH_MIN_DAYS} and "
             f"{SPRINT_LENGTH_MAX_DAYS} days"
         )
-    # Numbering follows the highest number ever used, so deleting a Sprint cannot
-    # produce a duplicate on the unique constraint.
-    highest = await session.scalar(select(func.max(Sprint.number))) or 0
     tz = ZoneInfo(workspace.timezone)
     started_at = utcnow()
     start = start_date or started_at.astimezone(tz).date()
+    used = await session.scalars(
+        select(Sprint.number).where(Sprint.number.startswith(f"{start:%y.%m}-"))
+    )
     sprint = Sprint(
-        number=highest + 1,
+        number=next_sprint_number(start, used),
         planned_start_date=start,
         planned_end_date=start + timedelta(days=length - 1),
         actual_started_at=started_at,
@@ -214,7 +214,6 @@ async def sprint_summary(session: AsyncSession, sprint: Sprint) -> str:
         )
     )
     finished = sum(1 for item in commitments if item.result == CardStage.DONE.value)
-    cancelled = sum(1 for item in commitments if item.result == CardStage.CANCELLED.value)
     open_ids = [item.card_id for item in commitments if item.result is None]
     open_titles = await action_titles(session, open_ids)
     shown = open_titles[:SUMMARY_OPEN_TITLES]
@@ -226,10 +225,18 @@ async def sprint_summary(session: AsyncSession, sprint: Sprint) -> str:
             f"Sprint {sprint.number} is over, {sprint.planned_start_date} – "
             f"{sprint.planned_end_date}; {ended}.",
             f"Success criteria: {sprint.success_criteria}",
-            f"Effort: committed {metrics['committed']}, added {metrics['added']}, "
-            f"removed {metrics['removed']}, done {metrics['completed']}, "
-            f"cancelled {metrics['cancelled']}.",
-            f"Actions: {finished} finished, {cancelled} cancelled, {len(open_titles)} still open.",
+            "Effort: "
+            + ", ".join(
+                f"{name} {effort_label(metrics[key])}"
+                for name, key in (
+                    ("committed", "committed"),
+                    ("added", "added"),
+                    ("removed", "removed"),
+                    ("done", "completed"),
+                )
+            )
+            + ".",
+            f"Actions: {finished} finished, {len(open_titles)} still open.",
             "Still open: " + (", ".join(shown) if shown else "nothing"),
             "Tell the owner how the Sprint went in a few sentences. Use only the numbers "
             "above. Ask what to do with what is still open, and about the next Sprint. "
@@ -253,7 +260,7 @@ async def sprint_is_due(session: AsyncSession, *, now: datetime | None = None) -
     return sprint
 
 
-async def sprint_metrics(session: AsyncSession, sprint_id: int) -> dict[str, int]:
+async def sprint_metrics(session: AsyncSession, sprint_id: int) -> dict[str, float]:
     items = list(
         await session.scalars(
             select(SprintCommitment).where(SprintCommitment.sprint_id == sprint_id)
@@ -264,5 +271,4 @@ async def sprint_metrics(session: AsyncSession, sprint_id: int) -> dict[str, int
         "added": sum(i.effort_snapshot for i in items if i.scope_kind == "added"),
         "removed": sum(i.effort_snapshot for i in items if i.removed_at is not None),
         "completed": sum(i.effort_snapshot for i in items if i.result == CardStage.DONE.value),
-        "cancelled": sum(i.effort_snapshot for i in items if i.result == CardStage.CANCELLED.value),
     }

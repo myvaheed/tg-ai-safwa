@@ -295,7 +295,7 @@ async def test_a_closed_repeat_is_marked_everywhere_it_is_read(e2e_harness):
         run = await create_card(
             session, title="Run", kind="action", stage="today", effort_points=1, repeatable=True
         )
-        closed_run = await finish_action(session, run.id, CardStage.DONE)
+        closed_run = await finish_action(session, run.id)
         await session.commit()
         first_id, second_id = first.id, second.id
         run_id, live_run_id = run.id, closed_run.successor_ids[0]
