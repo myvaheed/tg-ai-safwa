@@ -20,25 +20,6 @@ not give the Advisor a way to retrieve a named day's conversation.
 This is a recorded limitation, not an approved request for date-based search. `DI-READ-016` keeps
 the Diary reading a whole named day; a separate Advisor history reader remains undecided.
 
-## The daily summary is a second system Reminder
-
-Noticed 2026-09-05, after a digest that decides for the owner was declined.
-
-A daily summary acknowledges what the owner did that day, with encouragement grounded in the
-actual work. It is not an overdue-work report. When that day's Diary is empty, it offers to write
-the day down; when an entry exists, it does not ask again. It never invents an achievement to
-make an empty day look productive.
-
-RM-SYSTEM-022 already carries the shape: the Diary nudge is a Reminder Safwa set up, absent from the
-Reminder list, switched in Settings. A daily summary is a second one of those, on by default and
-turned off in the same place. RM-WRITE-010 is untouched, because deleting stays the only off switch
-for a Reminder the owner wrote.
-
-Agreed 2026-09-08: the two are separate switches and neither replaces the other. With both on, one
-message carries both — the account of the day, and the invitation to write it down when that day
-has no entry yet. With one on, only that one appears. Either way the Diary is asked about once.
-The time is still undecided.
-
 ## Onboarding covers the first start and a return after an absence
 
 Noticed 2026-09-05, discussing what a new owner meets.

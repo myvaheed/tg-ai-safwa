@@ -56,12 +56,6 @@ Answered 2026-09-08, and written into the entries themselves:
 - **Proposal fulfillment validation is not a hook.** Its separate architecture is proposed in
   [PROPOSAL_VALIDATION.md](PROPOSAL_VALIDATION.md); it is not gated by hook registration.
 
-Still open:
-
-| Question | What it blocks |
-|---|---|
-| What time the daily summary arrives | the daily summary |
-
 ## Wave 1 — the schema and vocabulary window, shipped
 
 Shipped 2026-09-09, in five batches: Cancelled removed, the middle kind renamed to Subgoal
@@ -88,6 +82,13 @@ each written as an `edit_kind` event: a Subgoal whose Goal is deleted alone beco
 (Wave 2), and a Goal a proposal places under a Goal becomes a Subgoal
 ([CD-TREE-002](../tests/brd/cards.feature)). No column changed.
 
+### Follow-up — the daily summary, shipped
+
+Owner decision 2026-09-13, shipped the same day: the summary is a second Reminder Safwa
+sets for itself, at a Profile time of its own — 20:00 out of the box, `off` to stop it
+([PS-SUMMARY-014](../tests/brd/profile.feature)). Two columns changed, `summary_time` on
+the Profile and `system_key` on a Reminder, so the database is rebuilt.
+
 ## Wave 2 — screens that cost almost nothing, shipped
 
 Shipped 2026-09-09, in five batches: deleting a Card is now the branch or that Card alone
@@ -108,7 +109,6 @@ Their rules are in [cards.feature](../tests/brd/cards.feature),
 | **Hard Time carries a computed time and an explanation** *(Agreed)* | L | Hook 13 and the timed sorting part of 10. `hard_time` stops being a Boolean and reuses `reminders/schedule.py` — `Schedule`, `next_fire`, the payload round trip. Watch which module owns that vocabulary once two features read it: `reminders/api.py` today carries only `parse_clock_or_off`. |
 | **An unanswered proposal expires after one hour** *(Agreed)* | L | Touches the proposal store, the turn lease, Reminder delivery order and the single-screen rule at the same time. The entry's last sentence names a *second* mechanism — an expiry for manual editors' live screens. Scope it in or defer it explicitly; do not let it arrive by accident. |
 | **The retrospective — the statistics half only** | M | RT-OPEN-001 currently promises a screen that says there is nothing there yet. Code-calculated statistics fill it and are useful with no model involved. The AI analysis half is Wave 5. |
-| **The daily summary is a second system Reminder** | M | Reuses the RM-SYSTEM-022 shape and the `Cue` path; the work is the content, the second Profile switch, and the one message that carries both when both are on. Only its hour is still open. |
 
 ## Wave 4 — the hooks, in dependency order
 

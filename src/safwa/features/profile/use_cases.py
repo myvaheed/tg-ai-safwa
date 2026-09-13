@@ -24,7 +24,18 @@ from .model import ProfileField, ProfileValue, UserProfile
 DIARY_REMINDER_INSTRUCTION = (
     "End of day. Call the diary subagent for today, then propose what it reports."
 )
+SUMMARY_REMINDER_INSTRUCTION = (
+    "Daily summary. Read with query_data what the user finished today: `ai_cards` with "
+    "kind = 'action' AND stage = 'done' AND updated_at >= today, `ai_checks` with "
+    "resolved_at >= today, and `ai_diary` for today. Tell the user what they got done, "
+    "in a few warm lines about that work only: invent nothing, list nothing overdue. "
+    "If today has no Diary entry, offer to write the day down — unless the Diary "
+    "Reminder fired together with this one."
+)
 
+# The two daily Reminders the Profile derives, by the key each row carries.
+DIARY_TRIGGER = "diary"
+SUMMARY_TRIGGER = "summary"
 
 # Changing either of these is what the Diary's own trigger is derived from.
 _DIARY_TRIGGER_FIELDS = frozenset({ProfileField.DIARY_TIME, ProfileField.DIARY_INSTRUCTIONS})
@@ -55,7 +66,11 @@ def _validated(field: ProfileField, value: ProfileValue) -> ProfileValue:
                 isinstance(value, bool) or not isinstance(value, int | float) or value <= 0
             ):
                 raise DomainError("Sprint capacity must be a positive number, or off")
-        case ProfileField.MEMORY_UPDATE_TIME | ProfileField.DIARY_TIME:
+        case (
+            ProfileField.MEMORY_UPDATE_TIME
+            | ProfileField.DIARY_TIME
+            | ProfileField.SUMMARY_TIME
+        ):
             if value is not None and not isinstance(value, time):
                 raise DomainError(f"{field.value} must be a clock time, or off")
         case _:
@@ -80,6 +95,8 @@ async def set_profile_field(
     setattr(profile, field.value, validated)
     if field in _DIARY_TRIGGER_FIELDS:
         await sync_diary_reminder(session, clock=clock, profile=profile)
+    elif field is ProfileField.SUMMARY_TIME:
+        await sync_summary_reminder(session, clock=clock, profile=profile)
     await bump_workspace(session)
     return profile
 
@@ -92,7 +109,22 @@ async def sync_diary_reminder(
     extra = current.diary_instructions.strip()
     return await sync_daily_system_reminder(
         session,
+        key=DIARY_TRIGGER,
         instruction=f"{DIARY_REMINDER_INSTRUCTION} {extra}" if extra else DIARY_REMINDER_INSTRUCTION,
         at_time=current.diary_time,
+        clock=clock,
+    )
+
+
+async def sync_summary_reminder(
+    session: AsyncSession, *, clock: Clock, profile: UserProfile | None = None
+) -> Reminder | None:
+    """The daily summary's trigger: the same shape, at the summary time."""
+    current = profile or await require_profile(session)
+    return await sync_daily_system_reminder(
+        session,
+        key=SUMMARY_TRIGGER,
+        instruction=SUMMARY_REMINDER_INSTRUCTION,
+        at_time=current.summary_time,
         clock=clock,
     )

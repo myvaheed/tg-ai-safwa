@@ -140,6 +140,15 @@ PROFILE_FIELDS: dict[str, EditableField] = {
         parse=lambda raw: "" if raw.lower() == "off" else raw,
         show=lambda value: value or "off",
     ),
+    "summary_time": EditableField(
+        title="Daily summary",
+        label="🌙 Daily summary",
+        instruction=(
+            "Send the local time Safwa sums up your day, as HH:MM, or off to stop it."
+        ),
+        parse=_parse_daily_time,
+        show=_clock,
+    ),
 }
 
 

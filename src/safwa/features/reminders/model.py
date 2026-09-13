@@ -43,6 +43,10 @@ class Reminder(Base, TimestampMixin):
     # A Reminder no owner set — the Profile trigger, a Sprint's end warnings: hidden from
     # `/reminders` and from `ai_reminders`, and refused by the edit and delete paths.
     system: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Which of its own daily Reminders the Profile is looking at — the Diary nudge or the
+    # daily summary — so each is reconciled on its own. Owner-created Reminders and a
+    # Sprint's warnings carry none.
+    system_key: Mapped[str | None] = mapped_column(String(40))
 
     schedule_kind: Mapped[str] = mapped_column(String(20))
     weekdays: Mapped[list[str]] = mapped_column(JSON, default=list)

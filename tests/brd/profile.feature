@@ -1,11 +1,11 @@
 Feature: Profile
   Profile is where the owner tells Safwa things outright, rather than leaving Safwa to infer them.
-  There are seven of them, each edited on its own, each checked before it is stored.
+  There are eight of them, each edited on its own, each checked before it is stored.
 
   Numbers below name the constant they come from; the tests read the constant.
 
   Background:
-    Given a workspace whose Profile holds the seven things the owner can tell Safwa outright
+    Given a workspace whose Profile holds the eight things the owner can tell Safwa outright
 
   Scenario: PS-CONTEXT-001 — What the owner said outright outranks what Safwa remembered
     Given memory.md and the Profile say different things about the owner
@@ -14,7 +14,7 @@ Feature: Profile
     And About me and Advisor instructions come after it, so they are what it goes by
 
   Scenario: PS-FIELD-002 — Profile writes only the fields it has
-    Given the seven fields
+    Given the eight fields
     When anything tries to write a name that is not one of them
     Then it is refused, no field changes, and nothing is recorded as having changed
 
@@ -31,7 +31,7 @@ Feature: Profile
     But zero and a negative number are refused
 
   Scenario: PS-CLOCK-005 — A time of day is a wall clock, or off
-    Given a time from 00:00 through 23:59, for memory upkeep or for the Diary
+    Given a time from 00:00 through 23:59, for memory upkeep, the Diary or the daily summary
     Then that local time is accepted
     And off means there is no time, so nothing is scheduled
     But anything else typed in that box is refused
@@ -74,3 +74,12 @@ Feature: Profile
     Given the timezone changed while Safwa was not running
     When Safwa starts
     Then its own Diary Reminder exists and is due at the Diary time in the timezone that is now set
+
+  Scenario: PS-SUMMARY-014 — The summary time is what Safwa's own daily summary Reminder follows
+    Given a new workspace, whose summary time is 20:00 (SUMMARY_TIME_DEFAULT = "20:00")
+    When the summary time changes
+    Then Safwa's own daily summary Reminder is changed to match, and it is the only one changed
+    And turning the summary time off deletes that one Reminder and leaves the Diary's and every
+      other one alone
+    And when the summary and the Diary fall due together they reach Safwa as one request, so
+      the owner gets one message

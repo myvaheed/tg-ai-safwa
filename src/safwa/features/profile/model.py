@@ -12,9 +12,10 @@ from ...foundation.models import Base, TimestampMixin
 
 # The default Sprint length; the owner overrides it per workspace in the Profile.
 SPRINT_LENGTH_DAYS = 14
-# Local clock the Diary's system Reminder fires on out of the box; the Profile moves it,
-# and `off` there removes the row.
+# Local clocks the Diary's and the daily summary's system Reminders fire on out of the
+# box; the Profile moves each, and `off` there removes that row.
 DIARY_TIME_DEFAULT = "22:00"
+SUMMARY_TIME_DEFAULT = "20:00"
 
 
 class UserProfile(Base, TimestampMixin):
@@ -29,6 +30,9 @@ class UserProfile(Base, TimestampMixin):
         Time, default=time.fromisoformat(DIARY_TIME_DEFAULT)
     )
     diary_instructions: Mapped[str] = mapped_column(Text, default="")
+    summary_time: Mapped[time | None] = mapped_column(
+        Time, default=time.fromisoformat(SUMMARY_TIME_DEFAULT)
+    )
 
 
 ProfileValue = str | int | float | time | None
@@ -44,3 +48,4 @@ class ProfileField(StrEnum):
     MEMORY_UPDATE_TIME = "memory_update_time"
     DIARY_TIME = "diary_time"
     DIARY_INSTRUCTIONS = "diary_instructions"
+    SUMMARY_TIME = "summary_time"

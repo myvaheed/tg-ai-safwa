@@ -127,16 +127,14 @@ async def reconcile_reminders(session: AsyncSession, now: datetime | None = None
 
 
 async def sync_daily_system_reminder(
-    session: AsyncSession, *, instruction: str, at_time: time | None, clock: Clock
+    session: AsyncSession, *, key: str, instruction: str, at_time: time | None, clock: Clock
 ) -> Reminder | None:
-    """Reconcile the one daily Reminder no owner created, and return it.
+    """Reconcile one daily Reminder no owner created, named by `key`, and return it.
 
-    `at_time` of None removes it. The owner's own Reminders and a Sprint's Reminders are
-    never selected: the row this reconciles is the system one that belongs to no Sprint.
+    `at_time` of None removes it. The owner's own Reminders, a Sprint's Reminders and
+    the other keys' rows are never selected.
     """
-    existing = await session.scalar(
-        select(Reminder).where(Reminder.system.is_(True), Reminder.sprint_id.is_(None))
-    )
+    existing = await session.scalar(select(Reminder).where(Reminder.system_key == key))
     if at_time is None:
         if existing is not None:
             await session.delete(existing)
@@ -161,6 +159,7 @@ async def sync_daily_system_reminder(
         created = Reminder(
             instruction=instruction,
             system=True,
+            system_key=key,
             sprint_id=None,
             next_fire_at=first,
             **schedule_columns(schedule),

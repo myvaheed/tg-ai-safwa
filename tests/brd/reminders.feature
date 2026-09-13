@@ -169,14 +169,14 @@ Feature: Reminders
     And Reminders do not quietly stop firing for the rest of the day
 
   Scenario: RM-SYSTEM-022 — A Reminder the owner did not set belongs to Safwa
-    Given a Reminder Safwa set up rather than the owner — the Diary nudge, or a Sprint's own warning
-      that it is ending
+    Given a Reminder Safwa set up rather than the owner — the Diary nudge, the daily summary, or a
+      Sprint's own warning that it is ending
     When the owner opens /reminders, or Safwa looks at the Reminders
     Then it is not in the list
     And every way of editing, rescheduling or deleting it refuses, and says where to change it
     And it fires exactly like any other Reminder
-    And whatever set it up is what takes it away: the Profile for the Diary nudge, finishing the Sprint
-      for its ending warnings
+    And whatever set it up is what takes it away: the Profile for the Diary nudge and the daily
+      summary, finishing the Sprint for its ending warnings
 
   Scenario: RM-UI-023 — /reminders is a list, a Reminder, and two things to do with it
     Given the owner opens /reminders

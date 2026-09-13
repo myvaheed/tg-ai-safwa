@@ -9,15 +9,23 @@ from sqlalchemy import select
 from safwa.bootstrap.modules import RECOVERY_HOOKS
 from safwa.features.cards.use_cases import create_card
 from safwa.features.planning.use_cases import start_sprint
-from safwa.features.profile.model import ProfileField, UserProfile
+from safwa.features.profile.model import SUMMARY_TIME_DEFAULT, ProfileField, UserProfile
 from safwa.features.profile.telegram.screens import PROFILE_FIELDS
-from safwa.features.profile.use_cases import profile_field, set_profile_field
+from safwa.features.profile.use_cases import (
+    DIARY_TRIGGER,
+    SUMMARY_REMINDER_INSTRUCTION,
+    SUMMARY_TRIGGER,
+    profile_field,
+    set_profile_field,
+)
+from safwa.features.reminders.background import tick
 from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import resolve
 from safwa.features.reminders.use_cases import create_reminder
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.workspace import Workspace
 from tg_agent_shell.ai.messages import ordered_owner_context
+from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.recovery import recover_startup
@@ -133,11 +141,14 @@ def test_scheduled_profile_clocks_accept_hhmm_or_off() -> None:
     """PS-CLOCK-005 — tests/brd/profile.feature"""
     memory_clock = PROFILE_FIELDS["memory_update_time"].parse
     diary_clock = PROFILE_FIELDS["diary_time"].parse
+    summary_clock = PROFILE_FIELDS["summary_time"].parse
 
     assert memory_clock("00:00") == time(0, 0)
     assert diary_clock("23:59") == time(23, 59)
+    assert summary_clock("20:00") == time(20, 0)
     assert memory_clock("off") is None
     assert diary_clock("off") is None
+    assert summary_clock("off") is None
     with pytest.raises(ValueError, match="HH:MM"):
         memory_clock("24:00")
     with pytest.raises(ValueError, match="HH:MM"):
@@ -147,7 +158,11 @@ def test_scheduled_profile_clocks_accept_hhmm_or_off() -> None:
 async def test_a_scheduled_clock_field_refuses_a_value_that_is_not_a_time(sessions) -> None:
     """PS-CLOCK-005 — tests/brd/profile.feature"""
     async with sessions() as session:
-        for field in (ProfileField.MEMORY_UPDATE_TIME, ProfileField.DIARY_TIME):
+        for field in (
+            ProfileField.MEMORY_UPDATE_TIME,
+            ProfileField.DIARY_TIME,
+            ProfileField.SUMMARY_TIME,
+        ):
             with pytest.raises(DomainError, match="clock time"):
                 await set_profile_field(session, field, "22:00", clock=SystemClock())
 
@@ -182,10 +197,7 @@ async def test_diary_reminder_settings_sync_only_the_diary_system_reminder(sessi
             session, ProfileField.DIARY_INSTRUCTIONS, "Ask about sleep.", clock=SystemClock()
         )
         internal = await session.scalar(
-            select(Reminder).where(
-                Reminder.system.is_(True),
-                Reminder.sprint_id.is_(None),
-            )
+            select(Reminder).where(Reminder.system_key == DIARY_TRIGGER)
         )
         assert internal is not None
         assert internal.at_time == time(7, 30)
@@ -220,7 +232,7 @@ async def test_the_diary_trigger_is_scheduled_from_the_clock_it_is_given(session
             session, ProfileField.DIARY_TIME, time(7, 30), clock=FrozenClock(late)
         )
         internal = await session.scalar(
-            select(Reminder).where(Reminder.system.is_(True), Reminder.sprint_id.is_(None))
+            select(Reminder).where(Reminder.system_key == DIARY_TRIGGER)
         )
 
         assert internal.next_fire_at.astimezone(zone) == datetime(
@@ -238,7 +250,7 @@ async def test_startup_reconciles_the_diary_trigger_before_rebuilding_reminders(
             session, ProfileField.DIARY_TIME, time(22, 0), clock=SystemClock()
         )
         internal = await session.scalar(
-            select(Reminder).where(Reminder.system.is_(True), Reminder.sprint_id.is_(None))
+            select(Reminder).where(Reminder.system_key == DIARY_TRIGGER)
         )
         # The process was down while the workspace moved zones, so every stored wall-clock
         # firing is now the wrong instant.
@@ -251,11 +263,56 @@ async def test_startup_reconciles_the_diary_trigger_before_rebuilding_reminders(
 
     async with sessions() as session:
         reconciled = await session.scalar(
-            select(Reminder).where(Reminder.system.is_(True), Reminder.sprint_id.is_(None))
+            select(Reminder).where(Reminder.system_key == DIARY_TRIGGER)
         )
     assert reconciled is not None
     assert reconciled.next_fire_at.replace(tzinfo=UTC).astimezone(zone).time() == time(22, 0)
     assert reconciled.next_fire_at.replace(tzinfo=UTC) > datetime.now(UTC)
+
+
+async def test_ps_summary_014_the_summary_time_is_its_own_reminder(sessions) -> None:
+    """PS-SUMMARY-014 — tests/brd/profile.feature"""
+    zone = ZoneInfo("Europe/Istanbul")
+    evening = datetime(2026, 8, 21, 19, 0, tzinfo=zone)
+    async with sessions() as session:
+        workspace = await session.get(Workspace, 1)
+        workspace.timezone = "Europe/Istanbul"
+        profile = await session.get(UserProfile, 1)
+        assert profile.summary_time == time.fromisoformat(SUMMARY_TIME_DEFAULT)
+
+        await set_profile_field(
+            session, ProfileField.DIARY_TIME, time(20, 0), clock=FrozenClock(evening)
+        )
+        diary = await session.scalar(
+            select(Reminder).where(Reminder.system_key == DIARY_TRIGGER)
+        )
+        diary_before = (diary.instruction, diary.next_fire_at, diary.version)
+
+        await set_profile_field(
+            session, ProfileField.SUMMARY_TIME, time(20, 0), clock=FrozenClock(evening)
+        )
+        summary = await session.scalar(
+            select(Reminder).where(Reminder.system_key == SUMMARY_TRIGGER)
+        )
+        assert summary is not None and summary.system
+        assert (summary.at_time, summary.instruction) == (time(20, 0), SUMMARY_REMINDER_INSTRUCTION)
+        assert (diary.instruction, diary.next_fire_at, diary.version) == diary_before
+        summary_id = summary.id
+        await session.commit()
+
+    # Both fall due at 20:00, and one tick writes them down as one request.
+    assert await tick(sessions, tz=zone, now=datetime(2026, 8, 21, 20, 1, tzinfo=zone)) is True
+    async with sessions() as session:
+        cues = list(await session.scalars(select(Cue)))
+        assert len(cues) == 1
+        assert cues[0].text.startswith("2 Reminders triggered.")
+        assert SUMMARY_REMINDER_INSTRUCTION in cues[0].text
+
+        await set_profile_field(session, ProfileField.SUMMARY_TIME, None, clock=SystemClock())
+        assert await session.get(Reminder, summary_id) is None
+        assert await session.scalar(
+            select(Reminder).where(Reminder.system_key == DIARY_TRIGGER)
+        ) is not None
 
 
 async def test_profile_update_bumps_workspace_revision_once(sessions) -> None:

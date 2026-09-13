@@ -130,3 +130,4 @@ async def test_the_reminders_screen_and_profile_hide_safwas_own_reminder(session
     assert any("Check my posture" in label for label in labels)
     assert not any(DIARY_REMINDER_INSTRUCTION[:20] in label for label in labels)
     assert "Diary: 22:00" in settings.edits[-1][0]
+    assert "Daily summary: 20:00" in settings.edits[-1][0]
