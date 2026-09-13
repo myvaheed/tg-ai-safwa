@@ -96,8 +96,8 @@ async def test_read_only_query_runner_reads_only_ai_views(tmp_path):
         )
         connection.exec_driver_sql(
             "INSERT INTO cards(id,kind,title,note,manual_stage,effective_stage,priority,"
-            "hard_time,repeatable,blocked,blocked_description,version,created_at,updated_at) "
-            "VALUES (2,'action','Read','Book','backlog','backlog','medium',0,0,0,'',1,"
+            "repeatable,blocked,blocked_description,hard_time_description,version,created_at,"
+            "updated_at) VALUES (2,'action','Read','Book','backlog','backlog','medium',0,0,'','',1,"
             "CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
         )
         connection.exec_driver_sql("INSERT INTO card_tags(card_id,tag_id) VALUES (2,1)")

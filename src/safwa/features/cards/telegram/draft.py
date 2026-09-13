@@ -25,7 +25,8 @@ def new_card_creation_state() -> dict[str, Any]:
         "note": "",
         "stage": CardStage.BACKLOG.value,
         "priority": Priority.MEDIUM.value,
-        "hard_time": False,
+        "hard_time": None,
+        "hard_time_description": "",
         "blocked": False,
         "blocked_description": "",
         "effort_points": None,
@@ -60,6 +61,8 @@ def sanitize_card_creation_state(state: dict[str, Any]) -> dict[str, Any]:
         )
     if not clean["blocked"]:
         clean["blocked_description"] = ""
+    if clean["hard_time"] is None:
+        clean["hard_time_description"] = ""
     for field in ("categories", "energy_types", "value_ids", "tag_ids"):
         clean[field] = list(dict.fromkeys(clean.get(field) or []))
     return clean

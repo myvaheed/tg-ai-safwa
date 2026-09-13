@@ -57,7 +57,12 @@ async def _critical_cards(session: AsyncSession) -> list[Card]:
                     [CardStage.DONE.value]
                 ),
             )
-            .order_by(linked_active_value.desc(), Card.hard_time.desc(), Card.created_at)
+            .order_by(
+                linked_active_value.desc(),
+                Card.hard_time_at.is_(None),
+                Card.hard_time_at,
+                Card.created_at,
+            )
             .limit(CONTEXT_CRITICAL_CARD_LIMIT)
         )
     )
@@ -121,13 +126,20 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
                     Card.effective_stage == CardStage.TODAY.value,
                     Card.kind == CardKind.ACTION.value,
                 )
-                .order_by(Card.hard_time.desc(), PRIORITY_RANK, Card.created_at)
+                .order_by(
+                    Card.hard_time_at.is_(None), Card.hard_time_at, PRIORITY_RANK, Card.created_at
+                )
             )
         )
         lines.append("Today Actions:")
         lines.extend(
             f"- {citation(card.title, 'card', card.id)} "
             f"effort={effort_label(card.effort_points)}"
+            + (
+                f" hard_time={card.hard_time_at.astimezone(timezone):%d.%m %H:%M}"
+                if card.hard_time_at
+                else ""
+            )
             for card in today
         )
     return StateBlocks(

@@ -36,17 +36,6 @@ is a candidate threshold, not a settled rule. What counts as absence also needs 
 A dedicated onboarding.feature is being considered for these two flows. Its changing state must
 remain outside the stable system-prompt prefix. No scenario package is approved yet.
 
-## Hard Time carries a computed time and an explanation
-
-Agreed 2026-09-06. Hard Time gains a description and reuses the existing Reminders mechanism for
-resolving natural-language timing, validating parameters and calculating occurrences. Reuse its
-one-off, interval, daily and weekly schedules, timezone handling and advancement rules; do not
-design a separate scheduling system. The proposal shows the resolved schedule and description
-before Save.
-
-Repeatable creates the next Action instance; a repeating Hard Time schedule determines its time
-using the same occurrence calculation as Reminders. An Action can still repeat without Hard Time.
-
 ## The retrospective is where Safwa learns from a Sprint
 
 Discussed 2026-09-06. When a Sprint ends, its retro screen first shows statistics calculated by

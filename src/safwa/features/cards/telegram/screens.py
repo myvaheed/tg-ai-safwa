@@ -25,6 +25,7 @@ from ....foundation.workspace import Workspace
 from ...checks.use_cases import card_checks
 from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value
+from ..hard_time import hard_time_text
 from ..hierarchy import blocking_actions, card_progress
 from ..model import Card, CardCategory, CardEnergyType, CardKind, CardStage
 from .presentation import card_overview_text, card_title_marks
@@ -102,11 +103,19 @@ async def render_card(
                 ("⚠️ Priority", "card_choose_priority", {"id": card.id}),
                 (
                     "⏱ Hard Time",
-                    "card_toggle_field",
+                    "card_edit_text",
                     {"id": card.id, "field": "hard_time"},
                 ),
             ]
         )
+        if full and not archived and card.hard_time is not None:
+            field_specs.append(
+                (
+                    "📝 Hard Time note",
+                    "card_edit_text",
+                    {"id": card.id, "field": "hard_time_description"},
+                )
+            )
         if full and card.kind == CardKind.ACTION.value and not archived:
             field_specs.insert(2, ("📍 Stage", "card_choose_stage", {"id": card.id}))
             field_specs.append(
@@ -339,7 +348,8 @@ async def render_card(
                 "closed_at": f"{closed_at.astimezone(tz):%Y-%m-%d %H:%M}" if closed_at else None,
                 "note": card.note,
                 "priority": card.priority,
-                "hard_time": card.hard_time,
+                "hard_time": hard_time_text(card.hard_time, tz=tz),
+                "hard_time_description": card.hard_time_description,
                 "blocked": card.blocked,
                 "blocked_description": card.blocked_description,
                 "effort_points": card.effort_points,

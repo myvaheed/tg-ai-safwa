@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 from advisor_e2e_helpers import create_manual_card, mutation_turn, route_turn
@@ -1403,7 +1404,6 @@ async def test_a_new_card_receipt_names_every_field_that_was_chosen(e2e_harness)
                         "priority": "critical",
                         "categories": ["self"],
                         "energy_types": ["physical"],
-                        "hard_time": True,
                         "tag_query": "спорт",
                     },
                 )
@@ -1416,8 +1416,63 @@ async def test_a_new_card_receipt_names_every_field_that_was_chosen(e2e_harness)
         description = await advisor.describe_proposal(session, outcome.proposal_id)
     assert description.summary == (
         "New Action “Тренировка бега” "
-        "(Critical · 5 EP · self · physical · Hard time · Tag “спорт”)"
+        "(Critical · 5 EP · self · physical · Tag “спорт”)"
     )
+
+
+async def test_cd_hardtime_033_a_proposed_hard_time_is_resolved_like_a_reminders(e2e_harness):
+    """CD-HARDTIME-033 — tests/brd/cards.feature"""
+    # The setup mini-session runs during materialization, after the agent loop has
+    # already finished, so its answer is the last response in the queue.
+    advisor, _provider = e2e_harness.advisor(
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(
+                (
+                    "card",
+                    {
+                        "mode": "create",
+                        "kind": "action",
+                        "title": "Call the clinic",
+                        "effort_points": 1,
+                        "hard_time": "every Monday and Wednesday at nine",
+                        "hard_time_description": "They only answer in the morning",
+                    },
+                )
+            ),
+            "Proposed the call.",
+            ProviderTurn(
+                content="",
+                tool_calls=(
+                    ProviderToolCall(
+                        id="setup-1",
+                        name="set_reminder_config",
+                        arguments_json=json.dumps({"days": ["Mon", "Wed"], "time": "09:00"}),
+                    ),
+                ),
+            ),
+        ]
+    )
+
+    outcome = await advisor.handle("Заведи звонок в клинику")
+
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
+    change = e2e_harness.reviews.proposal(outcome.proposal_id).changes[0]
+    assert change.values["hard_time"]["weekdays"] == ["Mon", "Wed"]
+    assert change.values["hard_time"]["at_time"] == "09:00"
+    async with e2e_harness.sessions() as session:
+        description = await advisor.describe_proposal(session, outcome.proposal_id)
+        affected = await approve_proposal(session, e2e_harness.reviews, PROPOSALS, outcome.proposal_id)
+        await session.commit()
+    assert "Hard Time every Mon, Wed at 09:00" in description.summary
+    async with e2e_harness.sessions() as session:
+        card = await session.get(Card, affected[0])
+        assert card.hard_time["weekdays"] == ["Mon", "Wed"]
+        assert card.hard_time_at.astimezone(ZoneInfo("Europe/Istanbul")).strftime("%a %H:%M") in {
+            "Mon 09:00",
+            "Wed 09:00",
+        }
+        assert card.hard_time_description == "They only answer in the morning"
 
 
 async def test_a_backlog_card_receipt_says_nothing_about_its_stage(e2e_harness):

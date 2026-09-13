@@ -29,6 +29,12 @@ from ...home.api import menu_markup
 from ...planning.api import available_screens, sprint_is_active
 from ...tags.model import Tag
 from ...values.model import Value
+from ..hard_time import (
+    HARD_TIME_INSTRUCTION,
+    hard_time_text,
+    resolve_hard_time,
+    workspace_zone,
+)
 from ..model import CardKind
 from ..use_cases import create_card
 from .draft import (
@@ -53,8 +59,12 @@ async def card_creation_markup(
         ("✏️ Title", "card_create_edit_text", {"field": "title"}),
         ("📝 Note", "card_create_edit_text", {"field": "note"}),
         ("⚠️ Priority", "card_create_choose_priority", {}),
-        ("⏱ Hard Time", "card_create_toggle", {"field": "hard_time"}),
+        ("⏱ Hard Time", "card_create_edit_text", {"field": "hard_time"}),
     ]
+    if state.get("hard_time") is not None:
+        fields.append(
+            ("📝 Hard Time note", "card_create_edit_text", {"field": "hard_time_description"})
+        )
     if state["kind"] == CardKind.ACTION.value:
         fields.insert(2, ("📍 Stage", "card_create_choose_stage", {}))
         fields.extend(
@@ -130,6 +140,7 @@ async def render_card_creation(
         )
         display = {
             **state,
+            "hard_time": hard_time_text(state["hard_time"], tz=await workspace_zone(session)),
             "value_names": [value.name for value in values],
             "tag_names": [tag.name for tag in tags],
         }
@@ -199,7 +210,10 @@ async def _on_edit_text(context: CallbackContext) -> None:
     async with context.sessions() as session:
         draft = await require_card_draft(session, context.owner_id)
         state = dict(draft.state or {})
-        current = str(state.get(field) or "")
+        if field == "hard_time":
+            current = hard_time_text(state.get("hard_time"), tz=await workspace_zone(session)) or ""
+        else:
+            current = str(state.get(field) or "")
         state["input_field"] = field
         state["flow"] = "card_create"
     await render_text_input(
@@ -208,7 +222,11 @@ async def _on_edit_text(context: CallbackContext) -> None:
         screen=TextInputScreen(
             title=f"Edit Card {field.replace('_', ' ').title()}",
             current_value=current,
-            instruction=f"Send the new {field.replace('_', ' ')}.",
+            instruction=(
+                HARD_TIME_INSTRUCTION
+                if field == "hard_time"
+                else f"Send the new {field.replace('_', ' ')}."
+            ),
             back_action="card_create_view",
             back_payload={},
         ),
@@ -273,7 +291,8 @@ async def _on_save(context: CallbackContext) -> None:
             note=state["note"],
             stage=state["stage"],
             priority=state["priority"],
-            hard_time=state["hard_time"],
+            hard_time=await resolve_hard_time(session, state["hard_time"]),
+            hard_time_description=state["hard_time_description"],
             blocked=state["blocked"],
             blocked_description=state["blocked_description"],
             effort_points=state["effort_points"],

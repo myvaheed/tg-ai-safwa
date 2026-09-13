@@ -89,6 +89,14 @@ sets for itself, at a Profile time of its own — 20:00 out of the box, `off` to
 ([PS-SUMMARY-014](../tests/brd/profile.feature)). Two columns changed, `summary_time` on
 the Profile and `system_key` on a Reminder, so the database is rebuilt.
 
+### Follow-up — Hard Time is a Reminder's schedule, shipped
+
+Shipped 2026-09-14: a Hard Time is when a Card must happen, resolved the way a Reminder's
+timing is — typed by hand as `Mon Wed 09:00`, or by the model in plain words through the
+same setup session — and stored as the same schedule payload, with its next occurrence and
+what fixes the time ([CD-HARDTIME-033](../tests/brd/cards.feature)). `reminders/api.py`
+is the door Cards reads it through. Three columns replaced one, so the database is rebuilt.
+
 ## Wave 2 — screens that cost almost nothing, shipped
 
 Shipped 2026-09-09, in five batches: deleting a Card is now the branch or that Card alone
@@ -106,7 +114,6 @@ Their rules are in [cards.feature](../tests/brd/cards.feature),
 |---|---|---|
 | **POTENTIAL HOOKS — the shape every hook has** | L per implementation stage; design first | Follow the concrete stages in [HOOK_ARCH.md](HOOK_ARCH.md): registration and event adapters, existing Summary and helper behavior, then a complete initiative. Required tool calls need runtime enforcement; named provider selection alone is insufficient. |
 | **POTENTIAL HOOKS 14 — Remember hook occasions and the owner's decisions** | L | Build with the first initiative, hook 2. The record must outlive its delivered `Cue`. Summary and helper availability can move to the registry before it; Proposal fulfillment validation is independent. |
-| **Hard Time carries a computed time and an explanation** *(Agreed)* | L | Hook 13 and the timed sorting part of 10. `hard_time` stops being a Boolean and reuses `reminders/schedule.py` — `Schedule`, `next_fire`, the payload round trip. Watch which module owns that vocabulary once two features read it: `reminders/api.py` today carries only `parse_clock_or_off`. |
 | **An unanswered proposal expires after one hour** *(Agreed)* | L | Touches the proposal store, the turn lease, Reminder delivery order and the single-screen rule at the same time. The entry's last sentence names a *second* mechanism — an expiry for manual editors' live screens. Scope it in or defer it explicitly; do not let it arrive by accident. |
 | **The retrospective — the statistics half only** | M | RT-OPEN-001 currently promises a screen that says there is nothing there yet. Code-calculated statistics fill it and are useful with no model involved. The AI analysis half is Wave 5. |
 
@@ -123,9 +130,9 @@ registration. The classification audit and implementation stages are in [HOOK_AR
 | **11 — Repeated Missed observations** | M | 14 |
 | **5 — Goals and Subgoals with no Actions** | M | 14 |
 | **7 — Today's work exceeds the daily capacity** | M | 14. The rungs now say what a day's load is, so 15 EP means something; the counting rule is still the entry's own open question. |
-| **13 — An approaching Hard Time is outside the plan** | M | 14, and Hard Time |
+| **13 — An approaching Hard Time is outside the plan** | M | 14 |
 | **6 — An unfinished Action repeatedly selected for Today** | L | 14, plus a record of each day's selection into Today that nothing writes yet |
-| **10 — Key Actions tied to Sprint Success criteria** | XL | 14 and a Sprint-and-Action relationship with classification history. Hard Time is needed for timed sorting, not for the classification itself |
+| **10 — Key Actions tied to Sprint Success criteria** | XL | 14 and a Sprint-and-Action relationship with classification history |
 
 ## Wave 5 — deliberately later
 
@@ -146,7 +153,6 @@ repeated, and they are not scheduled.
 flowchart LR
   h5["Hook 5 — parents with no Action"]
   h7["Hook 7 — daily capacity"]
-  hardtime["Hard Time schedule"] --> h13["Hook 13 — Hard Time outside the plan"]
   h10["Hook 10 — key Actions"]
   shape["The shape every hook has"] --> journal
   journal["14 — the occasion journal"] --> h2["Hook 2 — blocker follow-up"]
@@ -154,7 +160,7 @@ flowchart LR
   journal --> h6["Hook 6 — postponed in Today"]
   journal --> h7
   journal --> h11["Hook 11 — repeated Missed"]
-  journal --> h13
+  journal --> h13["Hook 13 — Hard Time outside the plan"]
   journal --> h10
 ```
 
@@ -166,7 +172,7 @@ complete path. Existing Summary and helper availability exercise registration be
 they do not need artificial owner-decision records.
 
 **The pre-release window.** Declare a schema batch only if an implementation changes stored
-structure. Hard Time keeps its own schema scope.
+structure.
 
 **What reaches the cacheable prefix.** Onboarding's changing guidance and instruction 4's Sprint
 list belong outside `messages[0]`.

@@ -29,6 +29,11 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
   Action alone, and are stripped for Goal/Subgoal at both the AI and the domain boundary. A
   Card's parent is set by proposal only; no screen offers the control, which is why no screen
   offers Subgoal as a kind either.
+- **Hard Time** is when a Card must happen: a Reminder's schedule carried by the Card as the
+  same payload (`hard_time`), its next occurrence (`hard_time_at`, what a list sorts by), and
+  what fixes the time (`hard_time_description`). `cards/hard_time.py` writes all three, through
+  the Reminders door. A repeating Action's next instance takes the next occurrence of a
+  repeating Hard Time; one that was a single moment does not carry over.
 - A Goal and a Subgoal show what their **direct children** add up to. Each child already carries its
   own derived values, so the recursion reaches the Actions, and a child that never started still
   counts: a Subgoal with nothing in it is in Backlog and holds its Goal there.

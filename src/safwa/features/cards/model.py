@@ -115,7 +115,12 @@ class Card(Base, TimestampMixin):
         String(20), default=CardStage.BACKLOG.value, index=True
     )
     priority: Mapped[str] = mapped_column(String(20), default=Priority.MEDIUM.value)
-    hard_time: Mapped[bool] = mapped_column(Boolean, default=False)
+    # When the Card must happen: a Reminder's schedule as its JSON payload, its next
+    # occurrence in UTC (what a list sorts by), and what fixes the time. All three are
+    # empty together; `cards/hard_time.py` is what writes them.
+    hard_time: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    hard_time_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    hard_time_description: Mapped[str] = mapped_column(Text, default="")
     blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     blocked_description: Mapped[str] = mapped_column(Text, default="")
     effort_points: Mapped[float | None] = mapped_column(Float)
@@ -143,7 +148,7 @@ class Card(Base, TimestampMixin):
     energy_types: Mapped[list[CardEnergyType]] = relationship(cascade="all, delete-orphan")
 
     __table_args__ = (
-        Index("ix_cards_live_sort", "effective_stage", "hard_time", "priority", "created_at"),
+        Index("ix_cards_live_sort", "effective_stage", "hard_time_at", "priority", "created_at"),
     )
 
     def is_closed_repeat(self) -> bool:

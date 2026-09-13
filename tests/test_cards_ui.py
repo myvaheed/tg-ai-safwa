@@ -69,7 +69,7 @@ async def test_card_note_input_updates_same_creation_message(sessions) -> None:
                     "note": "",
                     "stage": "backlog",
                     "priority": "medium",
-                    "hard_time": False,
+                    "hard_time": None,
                     "blocked": False,
                     "blocked_description": "",
                     "effort_points": 2,
@@ -892,14 +892,14 @@ async def test_cd_view_031_a_card_opens_compact_with_full_editing_one_button_awa
     assert {"✏️ Title", "⚠️ Priority", "🔢 Effort", "Archive", "Delete", "🗜 Compact"} <= buttons
 
     # An edit made in full editing draws the Card in full editing again.
-    hard_time = next(
+    repeat = next(
         button
         for row in markup.inline_keyboard
         for button in row
-        if button.text == "⏱ Hard Time"
+        if button.text == "🔁 Repeat"
     )
     await callback_token_handler(
-        FakeCallback(hard_time.callback_data.split(":", 1)[1], message), services
+        FakeCallback(repeat.callback_data.split(":", 1)[1], message), services
     )
     _, markup = message.edits[-1]
     assert "🗜 Compact" in button_texts(markup)

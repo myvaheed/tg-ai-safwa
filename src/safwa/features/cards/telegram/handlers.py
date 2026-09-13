@@ -23,6 +23,7 @@ from tg_agent_shell.telegram import (
 )
 
 from ...checks.use_cases import unobserved_series
+from ..hard_time import HARD_TIME_INSTRUCTION, hard_time_text, workspace_zone
 from ..model import Card, CardStage
 from ..use_cases import (
     archive_subtree,
@@ -120,14 +121,21 @@ async def _on_edit_text(context: CallbackContext) -> None:
         card = await session.get(Card, card_id)
         if card is None:
             raise DomainError("Card does not exist")
-        current = str(getattr(card, field) or "")
+        if field == "hard_time":
+            current = hard_time_text(card.hard_time, tz=await workspace_zone(session)) or ""
+        else:
+            current = str(getattr(card, field) or "")
     await render_text_input(
         context.message,
         context.services,
         screen=TextInputScreen(
             title=f"Edit Card {field.replace('_', ' ').title()}",
             current_value=current,
-            instruction=f"Send the new {field.replace('_', ' ')}.",
+            instruction=(
+                HARD_TIME_INSTRUCTION
+                if field == "hard_time"
+                else f"Send the new {field.replace('_', ' ')}."
+            ),
             back_action="card_view",
             back_payload={"id": card_id, "back": back_state, "full": True},
             related_id=card_id,

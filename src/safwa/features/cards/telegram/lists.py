@@ -24,6 +24,7 @@ from tg_agent_shell.telegram import (
 
 from ....foundation.workspace import Workspace
 from ..api import actions_on_stages
+from ..hard_time import workspace_zone
 from ..hierarchy import card_children
 from ..model import LIVE_STAGE_PRECEDENCE, Card, CardStage, effort_label
 from .presentation import card_title_marks, kind_label, paginate_cards
@@ -74,6 +75,7 @@ async def card_list_rows(
     sends an Action, and which side of the row it sits on.
     """
     move = STAGE_QUICK_MOVE.get(stage) if stage is not None else None
+    tz = await workspace_zone(session)
     current = paginate_cards(cards, page)
     back = {**back, "page": current.index}
     rows: list[list[InlineKeyboardButton]] = []
@@ -84,8 +86,8 @@ async def card_list_rows(
             card.priority.title(),
             f"{effort_label(card.effort_points)} EP",
         ]
-        if card.hard_time:
-            metadata.append("Hard time")
+        if card.hard_time_at is not None:
+            metadata.append(f"⏱ {card.hard_time_at.astimezone(tz):%d.%m %H:%M}")
         if card.repeatable:
             metadata.append("Repeat")
         if card.blocked:

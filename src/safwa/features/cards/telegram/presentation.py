@@ -95,9 +95,15 @@ def energy_expression(values: Any) -> str:
 _PRIORITY_ORDER = {Priority.CRITICAL.value: 0, Priority.MEDIUM.value: 1, Priority.LOW.value: 2}
 
 
-def _live_card_order(card: Card) -> tuple[bool, int, datetime]:
-    """Hard Time first, then priority, then oldest — one ordering for every Card list."""
-    return (not card.hard_time, _PRIORITY_ORDER[card.priority], card.created_at)
+def _live_card_order(card: Card) -> tuple[bool, datetime, int, datetime]:
+    """Hard Time first and the sooner one before, then priority, then oldest — one
+    ordering for every Card list."""
+    return (
+        card.hard_time_at is None,
+        card.hard_time_at or card.created_at,
+        _PRIORITY_ORDER[card.priority],
+        card.created_at,
+    )
 
 
 def paginate_cards(cards: list[Card], page: int) -> Page:
@@ -124,11 +130,17 @@ def card_overview_text(
     if state.get("closed_at"):
         lines.append(f"Completed at: {html.escape(str(state['closed_at']))}")
     lines.append(f"Note: {html.escape(str(state.get('note') or '—'))}")
+    # A Hard Time is when, which is exactly what a day needs to see; it is not an
+    # Action-only field, so it stays where Priority is.
+    if state.get("hard_time") or not compact:
+        hard_time = html.escape(str(state.get("hard_time") or "No"))
+        if state.get("hard_time_description"):
+            hard_time += f" — {html.escape(str(state['hard_time_description']))}"
+        lines.append(f"Hard Time: {hard_time}")
     if not compact:
         lines.extend(
             [
-                f"Priority: {html.escape(str(state.get('priority') or 'medium').title())} · "
-                f"Hard Time: {'Yes' if state.get('hard_time') else 'No'}",
+                f"Priority: {html.escape(str(state.get('priority') or 'medium').title())}",
                 f"Blocked: {'Yes' if state.get('blocked') else 'No'}",
             ]
         )

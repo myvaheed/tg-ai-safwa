@@ -155,6 +155,28 @@ def resolve(
     return Schedule(kind=ScheduleKind.ONCE, at_time=at_time, anchor_at=moment)
 
 
+def parse_phrase(raw: str, *, now: datetime, tz: ZoneInfo) -> Schedule:
+    """A schedule typed by hand: `HH:MM`, `dd.mm.yyyy HH:MM`, weekdays and `HH:MM`, or
+    `daily HH:MM`. Anything a Reminder's setup session would need the model for is not
+    read here."""
+    days: list[str] = []
+    clock = day = None
+    weekdays = {name.lower() for name in WEEKDAY_NAMES}
+    for token in raw.replace(",", " ").split():
+        lowered = token.lower()
+        if lowered == "daily":
+            days = list(WEEKDAY_NAMES)
+        elif lowered[:3] in weekdays:
+            days.append(token)
+        elif ":" in token:
+            clock = token
+        elif "." in token:
+            day = token
+        else:
+            raise ScheduleError(f"Cannot read {token!r}")
+    return resolve(days=days or None, clock=clock, day=day, now=now, tz=tz)
+
+
 def _reject_all_day_windows(windows: tuple[tuple[time, time], ...]) -> None:
     if not windows:
         return

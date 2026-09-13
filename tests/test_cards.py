@@ -6,12 +6,16 @@ the Checks that gate completion and the repeat successor are the packets after t
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
+
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import func, select
 
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.agent import CardToolInput
+from safwa.features.cards.hard_time import typed_hard_time
 from safwa.features.cards.hierarchy import blocking_actions, card_children, card_progress
 from safwa.features.cards.model import (
     EFFORT_RUNGS,
@@ -24,6 +28,7 @@ from safwa.features.cards.model import (
     CardStage,
     effort_label,
 )
+from safwa.features.cards.telegram.presentation import paginate_cards
 from safwa.features.cards.use_cases import (
     EFFORT_POINTS,
     archive_subtree,
@@ -664,6 +669,88 @@ async def test_cd_blocked_019_a_goal_shows_the_blocked_actions_under_it(sessions
         await session.commit()
         # A finished Action is not something the branch is waiting on.
         assert (await session.get(Card, goal.id)).blocked is False
+
+
+async def test_cd_hardtime_033_a_hard_time_is_a_schedule_and_what_fixes_it(sessions):
+    """CD-HARDTIME-033 — tests/brd/cards.feature"""
+    zone = ZoneInfo("Europe/Istanbul")
+    async with sessions() as session:
+        clinic = await create_card(
+            session,
+            kind="action",
+            title="Call the clinic",
+            effort_points=1,
+            hard_time=await typed_hard_time(session, "Mon Wed 09:00"),
+            hard_time_description="They only answer in the morning",
+        )
+        plain = await create_card(session, kind="action", title="Read", effort_points=1)
+        await session.commit()
+
+        # The schedule is a Reminder's, and the next occurrence is a Monday or a Wednesday.
+        assert clinic.hard_time["schedule_kind"] == "weekly"
+        assert clinic.hard_time["weekdays"] == ["Mon", "Wed"]
+        local = clinic.hard_time_at.astimezone(zone)
+        assert (local.strftime("%a"), local.strftime("%H:%M")) in {("Mon", "09:00"), ("Wed", "09:00")}
+        assert clinic.hard_time_description == "They only answer in the morning"
+        assert clinic.hard_time_at > datetime.now(UTC)
+
+        with pytest.raises(DomainError, match="Cannot read"):
+            await typed_hard_time(session, "sometime soon")
+        with pytest.raises(DomainError, match="need a time"):
+            await typed_hard_time(session, "Mon")
+
+        # Sorted: the Hard Time first, the sooner of two first.
+        later = await create_card(
+            session,
+            kind="action",
+            title="Dentist",
+            effort_points=1,
+            hard_time=await typed_hard_time(session, "31.12.2099 10:00"),
+        )
+        assert [card.title for card in paginate_cards([plain, later, clinic], 0).items] == [
+            "Call the clinic",
+            "Dentist",
+            "Read",
+        ]
+
+        # Removing the Hard Time takes the description with it.
+        await update_card_fields(session, clinic.id, {"hard_time": None})
+        assert (clinic.hard_time, clinic.hard_time_at, clinic.hard_time_description) == (
+            None,
+            None,
+            "",
+        )
+
+        # A repeating schedule carries to the next instance at its next occurrence; one
+        # moment does not.
+        daily = await create_card(
+            session,
+            kind="action",
+            title="Pills",
+            effort_points=0.5,
+            repeatable=True,
+            hard_time=await typed_hard_time(session, "daily 09:00"),
+            hard_time_description="With breakfast",
+        )
+        once = await create_card(
+            session,
+            kind="action",
+            title="Renew the passport",
+            effort_points=2,
+            repeatable=True,
+            hard_time=await typed_hard_time(session, "31.12.2099 10:00"),
+        )
+        first_at = daily.hard_time_at
+        next_daily = await session.get(
+            Card, (await finish_action(session, daily.id)).successor_ids[0]
+        )
+        next_once = await session.get(
+            Card, (await finish_action(session, once.id)).successor_ids[0]
+        )
+        assert next_daily.hard_time_at > first_at
+        assert next_daily.hard_time_at.astimezone(zone).strftime("%H:%M") == "09:00"
+        assert next_daily.hard_time_description == "With breakfast"
+        assert (next_once.hard_time, next_once.hard_time_at) == (None, None)
 
 
 async def test_cd_blocked_020_being_blocked_does_not_stop_anything(sessions):

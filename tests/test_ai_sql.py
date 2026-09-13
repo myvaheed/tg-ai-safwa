@@ -66,7 +66,7 @@ def test_tool_inputs_drop_incidental_null_placeholders_from_every_mutation():
             "note": None,
             "stage": "backlog",
             "priority": "medium",
-            "hard_time": False,
+            "hard_time": None,
             "blocked": False,
             "blocked_description": None,
             "effort_points": 1,
@@ -92,7 +92,6 @@ def test_tool_inputs_drop_incidental_null_placeholders_from_every_mutation():
         "title": "Do twenty pull-ups",
         "stage": "backlog",
         "priority": "medium",
-        "hard_time": False,
         "blocked": False,
         "effort_points": 1,
         "repeatable": False,
@@ -397,8 +396,8 @@ def _runner_over_cards(tmp_path, count: int, note: str = "", **caps):
         for index in range(count):
             connection.exec_driver_sql(
                 "INSERT INTO cards(id,kind,title,note,manual_stage,effective_stage,priority,"
-                "hard_time,repeatable,blocked,blocked_description,version,created_at,updated_at) "
-                "VALUES (?,'action',?,?,'backlog','backlog','medium',0,0,0,'',1,"
+                "repeatable,blocked,blocked_description,hard_time_description,version,created_at,"
+                "updated_at) VALUES (?,'action',?,?,'backlog','backlog','medium',0,0,'','',1,"
                 "CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
                 (index + 1, f"Card {index:03d}", note),
             )

@@ -41,6 +41,7 @@ from ..tags.api import Tag, attach_tags, unlinkable_tag_id
 from ..tags.model import CardTag
 from ..values.api import Value, attach_values, unlinkable_value_id
 from ..values.model import CardValue
+from .hard_time import HardTime, following_hard_time, hard_time_columns
 from .hierarchy import branch_actions, card_children, propagate_ancestors, settle_archive
 from .model import (
     EFFORT_POINTS,
@@ -96,7 +97,8 @@ async def create_card(
     note: str = "",
     stage: CardStage | str = CardStage.BACKLOG,
     priority: Priority | str = Priority.MEDIUM,
-    hard_time: bool = False,
+    hard_time: HardTime | None = None,
+    hard_time_description: str = "",
     blocked: bool = False,
     blocked_description: str = "",
     effort_points: float | None = None,
@@ -161,7 +163,8 @@ async def create_card(
         manual_stage=card_stage.value,
         effective_stage=card_stage.value,
         priority=card_priority.value,
-        hard_time=hard_time,
+        **hard_time_columns(hard_time),
+        hard_time_description=hard_time_description.strip() if hard_time else "",
         blocked=blocked,
         blocked_description=clean_description if blocked else "",
         effort_points=effort_points,
@@ -186,8 +189,11 @@ async def create_card(
 
 
 async def edit_card_text(session: AsyncSession, card_id: int, field: str, value: str) -> Card:
-    if field not in {"title", "note", "blocked_description"}:
-        raise DomainError("Only a Card title, Note, or blocked description can be edited as text")
+    if field not in {"title", "note", "blocked_description", "hard_time_description"}:
+        raise DomainError(
+            "Only a Card title, Note, blocked description or Hard Time description can be "
+            "edited as text"
+        )
     card = await session.get(Card, card_id)
     if card is None or card.archived_at is not None:
         raise DomainError("Card does not exist or is archived")
@@ -198,6 +204,8 @@ async def edit_card_text(session: AsyncSession, card_id: int, field: str, value:
     setattr(card, field, normalized)
     if not card.blocked:
         card.blocked_description = ""
+    if card.hard_time is None:
+        card.hard_time_description = ""
     validate_blocked_fields(card.blocked, card.blocked_description)
     card.version += 1
     await record_card_event(
@@ -223,6 +231,7 @@ async def update_card_fields(
         "note",
         "priority",
         "hard_time",
+        "hard_time_description",
         "blocked",
         "blocked_description",
         "effort_points",
@@ -240,13 +249,19 @@ async def update_card_fields(
             raise DomainError("Goal and Subgoal cards cannot have Action-only fields")
     before = card_snapshot(card)
     for name, value in fields.items():
-        if name in {"title", "note"}:
+        if name in {"title", "note", "hard_time_description"}:
             value = str(value).strip()
         if name == "title" and not value:
             raise DomainError("Card title cannot be empty")
         if name == "priority":
             value = Priority(value).value
+        if name == "hard_time":
+            for column, stored in hard_time_columns(value).items():
+                setattr(card, column, stored)
+            continue
         setattr(card, name, value)
+    if card.hard_time is None:
+        card.hard_time_description = ""
     if card.kind == CardKind.ACTION.value:
         validate_action_fields(card.kind, card.effort_points, card.repeatable, blocked=card.blocked)
         if not card.blocked:
@@ -564,6 +579,7 @@ async def move_card(
 async def _copy_repeat_successor(session: AsyncSession, card: Card, live_stage: CardStage) -> Card:
     series_id = card.repeat_series_id or card.id
     card.repeat_series_id = series_id
+    following = await following_hard_time(session, card)
     successor = Card(
         parent_id=card.parent_id,
         kind=card.kind,
@@ -572,7 +588,8 @@ async def _copy_repeat_successor(session: AsyncSession, card: Card, live_stage: 
         manual_stage=live_stage.value,
         effective_stage=live_stage.value,
         priority=card.priority,
-        hard_time=card.hard_time,
+        **hard_time_columns(following),
+        hard_time_description=card.hard_time_description if following else "",
         blocked=card.blocked,
         blocked_description=card.blocked_description,
         effort_points=card.effort_points,

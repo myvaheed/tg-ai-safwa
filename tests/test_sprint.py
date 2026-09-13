@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import select
 
 from safwa.bootstrap.modules import MODULES
+from safwa.features.cards.hard_time import typed_hard_time
 from safwa.features.cards.model import CardStage
 from safwa.features.cards.use_cases import create_card as create_domain_card
 from safwa.features.cards.use_cases import (
@@ -334,8 +335,9 @@ async def test_pl_context_020_todays_actions_are_handed_over_only_while_a_sprint
         # A Hard Time outranks all of it: least important, written last, still first.
         fixed = await create_card(
             session, title="The dentist", stage="today", effort_points=1,
-            priority="low", hard_time=True,
+            priority="low", hard_time=await typed_hard_time(session, "09:00"),
         )
+        fixed_at = fixed.hard_time_at.astimezone(ZoneInfo("Europe/Istanbul"))
         await create_card(session, title="Later", stage="sprint", effort_points=3)
         await create_domain_card(session, title="The release", kind="goal", stage="today")
         await start_sprint(session, success_criteria="Ship v2")
@@ -351,7 +353,7 @@ async def test_pl_context_020_todays_actions_are_handed_over_only_while_a_sprint
     # The Actions in Today with the effort each carries, most important first: the Action
     # still in Sprint and the Goal above them are both looked up rather than handed over.
     assert [line for line in handed.splitlines() if line.startswith("- [")] == [
-        f"- [The dentist](card:{fixed.id}) effort=1",
+        f"- [The dentist](card:{fixed.id}) effort=1 hard_time={fixed_at:%d.%m %H:%M}",
         f"- [Ship it](card:{today.id}) effort=5",
         f"- [Middling](card:{medium.id}) effort=2",
         f"- [Sometime](card:{low.id}) effort=1",

@@ -12,6 +12,7 @@ from tg_agent_shell.telegram import TextValidator, required_text
 from tg_agent_shell.telegram.contributions import TextInputFlow
 from tg_agent_shell.telegram.model import UiSession
 
+from ..hard_time import hard_time_columns, typed_hard_time
 from ..use_cases import edit_card_text, update_card_fields
 from .creation import render_card_creation
 from .draft import sanitize_card_creation_state
@@ -37,7 +38,10 @@ async def _apply_card_draft_text(
 ) -> None:
     """A Card being created is not saved yet, so the value goes back into the draft."""
     draft = {key: item for key, item in state.items() if key not in _DRAFT_EDITOR_KEYS}
-    draft[str(state["input_field"])] = value
+    if state["input_field"] == "hard_time":
+        draft["hard_time"] = hard_time_columns(await typed_hard_time(session, value))["hard_time"]
+    else:
+        draft[str(state["input_field"])] = value
     session.add(
         UiSession(
             owner_id=services.owner_id,
@@ -69,6 +73,10 @@ async def _apply_card_text(
     if state["flow"] == _BLOCKED_FLOW:
         await update_card_fields(
             session, card_id, {"blocked": True, "blocked_description": value}
+        )
+    elif state["field"] == "hard_time":
+        await update_card_fields(
+            session, card_id, {"hard_time": await typed_hard_time(session, value)}
         )
     else:
         await edit_card_text(session, card_id, str(state["field"]), value)

@@ -209,6 +209,20 @@ Feature: Cards
     When the series has ended and no open one is left
     Then the last finished one is titled "[🔄3]" (REPEAT_MARKER_ENDED)
 
+  Scenario: CD-HARDTIME-033 — A Hard Time is when a Card must happen, and it says what fixes it
+    Given an Action "Call the clinic"
+    When it is given a Hard Time, typed as "Mon Wed 09:00" or proposed as "every Monday and
+      Wednesday at nine"
+    Then the Card carries that schedule, worked out the way a Reminder's is, and its next
+      occurrence
+    And a description may say what fixes the time, and it goes when the Hard Time is removed
+    And the review screen shows the schedule in words before Save
+    And a phrase that fixes no time is refused, and the refusal says what is missing
+    And in a list a Card with a Hard Time comes before one without, the sooner one first
+    When a repeating Action with a Hard Time every day at 09:00 is finished
+    Then the Action that takes its place is due at the next 09:00
+    And a Hard Time that was one moment does not carry to the next Action
+
   Scenario: CD-REPEAT-032 — A repeating Action says its series was already done today
     Given a repeating Action finished earlier today, and the open one that took its place
     Then both are titled "[🔄✓]" (REPEAT_TODAY_MARKER), on a board, on the Card screen and in

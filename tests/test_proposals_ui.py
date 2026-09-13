@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from ui_harness import (
@@ -14,6 +15,7 @@ from ui_harness import (
 from safwa.bootstrap.modules import (
     PROPOSALS,
 )
+from safwa.features.cards.hard_time import hard_time_columns, typed_hard_time
 from safwa.features.cards.model import Card, CardCategory, CardEnergyType
 from safwa.features.cards.use_cases import create_card
 from safwa.features.checks.use_cases import create_check
@@ -335,6 +337,7 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
             ]
         )
         workspace = await session.get(Workspace, 1)
+        nine = await typed_hard_time(session, "daily 09:00")
         proposal = store.open_proposal(
             message="Update the Action",
             workspace_revision=workspace.revision,
@@ -346,7 +349,8 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
                     expected_version=card.version,
                     values={
                     "priority": "critical",
-                    "hard_time": True,
+                    "hard_time": hard_time_columns(nine)["hard_time"],
+                    "hard_time_description": "Before the shop opens",
                     "blocked": True,
                     "blocked_description": "Waiting for access",
                     "effort_points": 5,
@@ -363,6 +367,13 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
         proposal_id = proposal.id
         card_id = card.id
 
+    # The review screen says the schedule in words, and what fixes it.
+    message = FakeMessage(63, bot_message=True)
+    await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
+    text, _markup = message.edits[-1]
+    assert "Hard Time: — → every day at 09:00" in text
+    assert "Hard Time description: — → Before the shop opens" in text
+
     async with sessions() as session:
         affected = await approve_proposal(session, store, PROPOSALS, proposal_id)
         await session.commit()
@@ -370,16 +381,18 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
     assert affected == [card_id]
     async with sessions() as session:
         card = await session.get(Card, card_id)
+        assert card.hard_time_at.astimezone(ZoneInfo(workspace.timezone)).strftime("%H:%M") == "09:00"
+        assert card.hard_time_description == "Before the shop opens"
         assert (
             card.priority,
-            card.hard_time,
+            card.hard_time["schedule_kind"],
             card.blocked,
             card.blocked_description,
             card.effort_points,
             card.parent_id,
         ) == (
             "critical",
-            True,
+            "daily",
             True,
             "Waiting for access",
             5,
