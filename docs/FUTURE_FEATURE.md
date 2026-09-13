@@ -1,8 +1,8 @@
 # Entries kept, and questions already settled
 
-**Nothing here is agreed.** Not a commitment, not a specification, and not a scenario — an entry
-is a real gap noticed while something else was being decided, written down so the reasoning does
-not have to happen twice. An entry leaves this file by becoming an approved scenario package under
+**These entries are not implemented specifications.** An entry records a gap or a proposed change;
+Agreed records the owner's direction, while the usage cases still await their implementation batch.
+An entry leaves this file by becoming an approved scenario package under
 [tests/brd/](../tests/brd/README.md), or by being dropped. `tests/test_docs.py` checks that the
 links and code names here still resolve, which keeps the file readable and approves none of it.
 
@@ -94,6 +94,8 @@ the review with an account saying the system closed it due to inactivity, not th
 rejected it. Only then deliver waiting Reminders, preserving the single-screen rule. Reading or
 unsent typing does not reset the timer. Manual editors also need an expiry rule that releases
 their live screen. The timeout bounds waiting rather than guaranteeing delivery at the due time.
+With the visible-plan flow, expiry keeps the plan and reports the stop in the Receipt; it does
+not count as successful completion and cannot restart the chain through fulfillment repair.
 
 ## A Card's kind can change while its structure and work history allow it
 
@@ -113,6 +115,78 @@ conversion changes the tree or the meaning of recorded work:
   conversion: their links and observations remain on the same Card, and later Action completion
   uses the existing Check rules without resetting answers.
 
+## Retire raw-capture Ideas
+
+Agreed 2026-09-13. Remove the raw-capture Idea entity introduced in Wave 1. Cards retain Goal,
+Subgoal and Action; no separate capture entity replaces Idea. Retire its list, Expand entry point,
+creation choices, AI view and references, including the default «Все идеи» Request. Handle existing
+pre-release Idea data and any saved Requests querying the retired view in the declared removal
+batch, leaving no dangling query entry points. The current Idea scenarios remain implemented
+behavior until that batch replaces their coverage; this planning decision does not change data now.
+
+The replacement investment is the Proposal workflow below, which helps the owner see and control
+the changes Safwa is preparing for their current request.
+
+## A visible plan accompanies a Proposal chain
+
+Agreed 2026-09-13. Before preparing Proposals, Safwa shows what it understood and intends to
+change as a plain-text plan. It then shows a second, separate progress message: preparation is
+running, and the owner can stop it with an inline **Cancel** button. There is no separate plan
+approval step. The plan is part of the current request, not a new workspace entity.
+
+The Advisor and its subagents keep their existing history windows, workspace context, tool
+results and instructions. The plan does not replace the conversation or narrow execution to
+its own text. It describes intended changes, never claims those changes are already saved.
+
+**The two messages have different lifetimes.** When review becomes available, the preparation
+message is removed and the normal Proposal queue takes its place, one Save/Discard screen at
+a time. The plan remains visible throughout the entire request's chain, including dependent
+work prepared after an earlier Save. Only successful completion of the whole chain removes
+the plan. Resolving one batch or showing the first Proposal is not completion.
+
+**Cancel stops; it does not pause.** Cancel during preparation stops the current work, removes
+the progress message, preserves the plan and shows a Receipt. Pending work cannot later open
+review screens or continue in the background. Any already saved changes remain saved.
+
+**Discard stops the remaining chain.** The selected Proposal is discarded, every undecided
+remainder is closed without applying it, and the review is replaced with a Receipt. The plan
+stays. The Receipt distinguishes saved work, the owner's discarded item and work stopped before
+execution; it does not pretend every remaining item was individually rejected.
+
+**Text written over a review stops that chain too.** Close its pending reviews, preserve the
+plan and replace the screen with a Receipt before handling the text. The text is an ordinary
+new Advisor request, not permission to resume the stopped chain automatically. A correction may
+authorize a revised plan; a cancellation ends the work; ambiguity is handled in normal dialogue.
+Discard by itself generates only the Receipt and no automatic revision or replacement Proposals.
+
+Cancelled, interrupted or unsuccessful work keeps the plan for reference. A retained plan is
+not an active job and never restarts itself. Fulfillment validation must respect this terminal
+stop; it may not recreate stopped work as a missing part of the old request.
+
+Planned acceptance cases for the implementation batch:
+
+| Situation | Expected behavior |
+|---|---|
+| Safwa starts preparing one or several Proposals | The owner sees the plan first and a separate preparation message with a clickable Cancel button second. No extra plan approval is requested. |
+| A subagent prepares changes | Its normal history, workspace data and tool outcomes remain available; there is no plan-only context. |
+| Cancel is pressed before review is ready | Preparation ends, its status disappears, the plan stays and a Receipt reports the stop. No late result opens a review. |
+| Proposals become available | The preparation message disappears; the first Save/Discard review opens while the plan stays visible. |
+| More preparation is needed after an earlier Save | The same plan covers the dependent work; the active preparation can be cancelled, without another plan or duplicate progress messages. |
+| An early batch was saved but dependent work remains | The plan stays until the whole chain finishes successfully. |
+| Every intended change was saved successfully | The plan is removed after the chain ends; the ordinary completion Receipt/result remains. |
+| The owner discards the first or a later Proposal | The rest of that chain stops. The plan stays, a Receipt replaces the review, and earlier saved changes remain. Nothing is automatically regenerated. |
+| The owner writes a correction over a review | The old chain closes with a Receipt and its plan stays. The Advisor considers the new words normally; a new request can produce a revised plan and a fresh chain. |
+| The owner writes a cancellation over a review | The chain closes with a Receipt and the plan stays; no replacement Proposals appear. |
+| Preparation fails or the chain ends with unresolved errors | Keep the plan, remove active preparation controls and report the actual outcomes without claiming full completion. |
+| An old Cancel button or generation result arrives after the request ended | It cannot cancel a newer request, restart old work or publish a stale review. |
+| All initiative hooks are disabled | Plan, Cancel, review and Receipt behavior still works as part of Proposals. |
+
+These are future acceptance cases. The implementation batch must replace the affected existing
+BRD cases and their tests together, particularly queue continuation on Discard and reuse of an
+interrupted session. [AGENT_ARCH.md](AGENT_ARCH.md#planned-proposal-plan-and-preparation-lifecycle)
+owns the runtime boundaries; [PLAN_FEATURES.md](PLAN_FEATURES.md#follow-up--proposal-plan-and-cancel-planned)
+places the work after Wave 1. There is no dependency on RAG, a new hook or a separate plan store.
+
 ## Proposal fulfillment validation
 
 Agreed 2026-09-08: fulfillment validation belongs to the architecture of Proposals and is
@@ -122,6 +196,8 @@ The intent is to compare the owner's request and subsequent corrections with act
 discarded, failed and pending Proposal outcomes, then pursue still-authorized missing work.
 A requested Card does not fulfill a request that also asked for a Reminder. Validation must
 avoid duplicating saved work or recreating an intention the owner deliberately withdrew.
+Cancel, Discard and text interrupting review end the current chain under the visible-plan flow.
+That stop takes precedence over automatic fulfillment repair; further work needs a new request.
 
 [PROPOSAL_VALIDATION.md](PROPOSAL_VALIDATION.md) holds the architecture proposal, including
 request-wide aggregation, bounded correction, foreground execution and interruption handling.
@@ -131,8 +207,10 @@ implicitly settle them.
 ## POTENTIAL HOOKS
 
 Discussed 2026-09-07. Candidates for helping the owner remember intentions and keep work moving.
-The numbering follows the discussion. Some candidates belong in Advisor instructions instead;
-none of these entries is an approved scenario package.
+The numbering follows the discussion and is preserved for references. This is a mixed candidate
+catalogue: 1, 4 and 15 are instructions, 9 belongs to Proposals, and 14 is shared infrastructure.
+The classification audit is in [HOOK_ARCH.md](HOOK_ARCH.md#9-проверка-архитектуры-на-всём-наборе-кандидатов).
+None of these entries is an approved scenario package.
 
 ### The shape every hook has
 
@@ -147,6 +225,13 @@ That design remains a proposal; this entry does not approve all of its API detai
 The trigger is distinct from execution and delivery. Each initiative defines its own occasion
 identity and repetition rules. Preparing a tool result is neither saving a Proposal nor showing
 a question to the owner.
+
+A hook is an automatic reaction to a named lifecycle event: a completed turn, a tool boundary,
+a committed domain change or a scheduled condition check. A command or button that explicitly
+starts the requested work calls its workflow directly. Thus requested retrospective analysis,
+manual /summarize and the Proposal plan/preparation lifecycle are not hooks; automatic Summary
+after a turn can be one. The injection of a prompt or use of RAG does not determine which category
+an operation belongs to.
 
 ### 1. Capture an intention from the conversation — Advisor instruction
 
@@ -212,6 +297,11 @@ Card the owner meant. Similarity selects candidates for review; it does not esta
 The retrieval approach and score threshold remain experimental and need to be checked against
 the actual retrieval model and the owner's data.
 
+This candidate is a hook only as an interception before the ordinary Card creation tool. Its
+interactive clarification and continuation still need design. The visible Proposal plan does not
+require this candidate or introduce another retrieval workflow. A stopped Proposal chain cannot
+be resumed by this hook without a new owner request.
+
 ### 9. Proposal fulfillment validation — moved out of hooks
 
 Agreed 2026-09-08: this belongs to the architecture of Proposals, not the hook system.
@@ -244,6 +334,10 @@ Critical priority. A candidate order is Hard Time relevant now, then Critical, t
 then the rest. The exact ordering and the time window that makes Hard Time relevant are undecided;
 a future appointment should not stay at the top all day merely because it has a time.
 
+This entry combines an event-driven classification/reaction with a screen requirement. Starting
+classification after saved Sprint changes and reacting to the saved remaining set are hooks;
+sorting Today from that classification is ordinary presentation, not a hook on opening the screen.
+
 ### 11. Repeated Missed observations — hook with a flexible Advisor response
 
 After an answer is saved, check whether the repeating Check's series meets a condition such as
@@ -275,6 +369,8 @@ The advance window and check timing remain to be decided. Repeated checks must r
 offers and owner decisions through the occurrence journal below.
 
 ### 14. Remember hook occasions and the owner's decisions — shared design candidate
+
+This is infrastructure used by initiative hooks, not a hook with its own independent trigger.
 
 Persist the specific occasion for a suggestion and what happened to it. A stable identity is
 the hook type, its subject and the particular occasion. A hash may encode that identity, but
