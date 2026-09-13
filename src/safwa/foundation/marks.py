@@ -19,6 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 REPEAT_MARKER = " [🔄{index}{live}]"
 REPEAT_LIVE = ", live #{live_id}"
 ARCHIVE_MARKER = " [📦]"
+# The one mark SQL does not mirror: today is the owner's calendar day in the workspace
+# timezone, and SQLite has no timezone database to work it out with. So it is written
+# where a screen renders a title and nowhere else, and the model is told nothing of it.
+REPEAT_TODAY_MARKER = " [🔄✓]"
 MARKER_FORMAT = REPEAT_MARKER.replace("{index}", "%d").replace("{live}", "%s")
 LIVE_FORMAT = REPEAT_LIVE.replace("{live_id}", "%d")
 

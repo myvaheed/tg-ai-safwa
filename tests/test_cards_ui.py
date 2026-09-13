@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from ui_harness import (
@@ -26,6 +26,7 @@ from safwa.features.cards.telegram import (
     render_dashboard,
 )
 from safwa.features.cards.telegram import idea as idea_screens
+from safwa.features.cards.telegram.presentation import card_citation_label, card_title_marks
 from safwa.features.cards.telegram.selectors import (
     RELATION_CHOICES,
     handle_card_creation_chooser,
@@ -36,6 +37,7 @@ from safwa.features.cards.use_cases import (
     create_card,
     finish_action,
     toggle_card_check,
+    toggle_card_value,
 )
 from safwa.features.checks.use_cases import create_check
 from safwa.features.tags.telegram import render_tag
@@ -331,9 +333,9 @@ async def test_a_closed_card_shows_when_it_closed_and_where_its_series_went(sess
     await render_card(message, services, card_id)
 
     text, markup = message.edits[-1]
-    # One wording: the owner reads the same marks the model does, and the id in them is
-    # the open instance the series moved to.
-    assert f"Title: <b>Run [🔄1, live #{live_id}]</b>" in text
+    # One wording: the owner reads the marks the model does, and the id in them is the open
+    # instance the series moved to. Today's mark is the screen's alone, by CD-REPEAT-032.
+    assert f"Title: <b>Run [🔄1, live #{live_id}] [🔄✓]</b>" in text
     assert "Completed at: " in text
     current = next(button for button in button_texts(markup) if button.startswith("🔄 Current"))
     assert current == "🔄 Current: Run"
@@ -365,7 +367,7 @@ async def test_card_text_and_blocked_reason_stay_on_one_validated_editor(session
 
     services = services_for(sessions)
     message = FakeMessage(47, bot_message=True)
-    await render_card(message, services, card_id)
+    await render_card(message, services, card_id, full=True)
 
     title_button = next(
         button
@@ -710,7 +712,7 @@ async def test_a_goal_screen_names_each_blocked_action_and_quotes_its_reason(ses
 
     services = services_for(sessions)
     message = FakeMessage(330, bot_message=True)
-    await render_card(message, services, goal_id)
+    await render_card(message, services, goal_id, full=True)
 
     text = message.edits[-1][0]
     assert "Blocked: Yes" in text
@@ -818,3 +820,167 @@ async def test_cd_effort_008_the_effort_selector_names_what_each_rung_costs(sess
     labels = button_texts(markup)
     assert "0.5 · done in passing, the load is barely noticed" in labels
     assert "✓ 2 · a little tired, but able to carry on without a rest" in labels
+
+
+async def test_cd_delete_025_a_card_with_children_is_deleted_whole_or_alone(sessions) -> None:
+    """CD-DELETE-025 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Health")
+        subgoal = await create_card(
+            session, kind="subgoal", title="Sleep better", parent_id=goal.id
+        )
+        await session.commit()
+        goal_id, subgoal_id = goal.id, subgoal.id
+
+    services = services_for(sessions)
+    message = FakeMessage(340, bot_message=True)
+    await render_card(message, services, goal_id, full=True)
+    _, markup = message.edits[-1]
+    delete = next(
+        button for row in markup.inline_keyboard for button in row if button.text == "Delete"
+    )
+
+    await callback_token_handler(
+        FakeCallback(delete.callback_data.split(":", 1)[1], message), services
+    )
+    _, prompt = message.edits[-1]
+    assert button_texts(prompt)[:2] == ["🗑 Delete this Card only", "🗑 Permanently delete tree"]
+
+    alone = prompt.inline_keyboard[0][0]
+    await callback_token_handler(
+        FakeCallback(alone.callback_data.split(":", 1)[1], message), services
+    )
+    async with sessions() as session:
+        assert await session.get(Card, goal_id) is None
+        promoted = await session.get(Card, subgoal_id)
+        assert (promoted.kind, promoted.parent_id) == ("goal", None)
+
+async def test_vl_link_017_a_goal_shows_its_values_and_says_when_it_has_none(sessions) -> None:
+    """VL-LINK-017 — tests/brd/values.feature"""
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Health")
+        action = await create_card(
+            session, kind="action", title="Run", effort_points=1, parent_id=goal.id
+        )
+        value = await create_value(session, "Health")
+        await toggle_card_value(session, action.id, value.id)
+        await session.commit()
+        goal_id, action_id = goal.id, action.id
+
+    services = services_for(sessions)
+    message = FakeMessage(360, bot_message=True)
+    await render_card(message, services, goal_id)
+    text, markup = message.edits[-1]
+    # The link stays optional, so the Goal is saved and opened; it only reads as missing.
+    assert "Values: ⚠️ None" in text
+    assert "💎 Health" not in button_texts(markup)
+
+    await render_card(message, services, action_id, full=True)
+    text, markup = message.edits[-1]
+    assert "Values: Health" in text
+    opener = next(
+        button
+        for row in markup.inline_keyboard
+        for button in row
+        if button.text == "💎 Health"
+    )
+    await callback_token_handler(
+        FakeCallback(opener.callback_data.split(":", 1)[1], message), services
+    )
+    text, _ = message.edits[-1]
+    assert "<b>Value</b>" in text and "Name: Health" in text
+
+
+async def test_cd_view_031_a_card_opens_compact_with_full_editing_one_button_away(sessions) -> None:
+    """CD-VIEW-031 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Health")
+        card = await create_card(
+            session,
+            kind="action",
+            title="Run",
+            effort_points=2,
+            parent_id=goal.id,
+            blocked=True,
+            blocked_description="Rain",
+        )
+        await session.commit()
+        card_id = card.id
+
+    services = services_for(sessions)
+    message = FakeMessage(370, bot_message=True)
+    await render_card(message, services, card_id)
+    text, markup = message.edits[-1]
+    assert "Kind: ⭐️ Action" in text
+    assert "Stage: Backlog" in text
+    assert "Effort: 2" in text
+    # What full editing keeps: everything an ordinary day does not ask about.
+    assert "Priority:" not in text
+    assert "Blocked:" not in text
+    assert "Tags:" not in text
+    assert button_texts(markup) == [
+        "✅ Done",
+        "📍 Stage",
+        "🌳 Parent: Health",
+        "✏️ Full editing",
+        "↩️ Back",
+    ]
+
+    opener = next(
+        button
+        for row in markup.inline_keyboard
+        for button in row
+        if button.text == "✏️ Full editing"
+    )
+    await callback_token_handler(
+        FakeCallback(opener.callback_data.split(":", 1)[1], message), services
+    )
+    text, markup = message.edits[-1]
+    assert "Blocked: Yes" in text
+    assert "Tags: —" in text
+    buttons = set(button_texts(markup))
+    assert {"✏️ Title", "⚠️ Priority", "🔢 Effort", "Archive", "Delete", "🗜 Compact"} <= buttons
+
+    # An edit made in full editing draws the Card in full editing again.
+    hard_time = next(
+        button
+        for row in markup.inline_keyboard
+        for button in row
+        if button.text == "⏱ Hard Time"
+    )
+    await callback_token_handler(
+        FakeCallback(hard_time.callback_data.split(":", 1)[1], message), services
+    )
+    _, markup = message.edits[-1]
+    assert "🗜 Compact" in button_texts(markup)
+
+
+async def test_cd_repeat_032_a_repeating_action_says_its_series_was_done_today(sessions) -> None:
+    """CD-REPEAT-032 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        first = await create_card(
+            session, kind="action", title="Run", effort_points=2, repeatable=True, stage="today"
+        )
+        result = await finish_action(session, first.id)
+        await session.commit()
+        first_id, live_id = first.id, result.successor_ids[0]
+
+    services = services_for(sessions)
+    async with sessions() as session:
+        live = await session.get(Card, live_id)
+        finished = await session.get(Card, first_id)
+        # The open one is still open: the mark acknowledges the work and nothing more.
+        assert await card_title_marks(session, live) == " [🔄✓]"
+        assert (await card_title_marks(session, finished)).endswith(" [🔄✓]")
+        assert (await card_citation_label(session, services, live)).startswith("⭐️ Run [🔄✓]")
+
+    message = FakeMessage(380, bot_message=True)
+    await render_dashboard(message, services, CardStage.TODAY, title="Today")
+    assert any("Run [🔄✓]" in name for name in button_texts(message.edits[-1][1]))
+
+    async with sessions() as session:
+        finished = await session.get(Card, first_id)
+        finished.completed_at = finished.completed_at - timedelta(days=1)
+        await session.commit()
+        live = await session.get(Card, live_id)
+        assert await card_title_marks(session, live) == ""

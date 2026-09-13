@@ -22,12 +22,11 @@ from tg_agent_shell.telegram import (
     with_notice,
 )
 
-from ....foundation.marks import title_marks
 from ....foundation.workspace import Workspace
 from ..api import actions_on_stages
 from ..hierarchy import card_children
 from ..model import LIVE_STAGE_PRECEDENCE, Card, CardStage, effort_label
-from .presentation import kind_label, paginate_cards
+from .presentation import card_title_marks, kind_label, paginate_cards
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,7 +90,7 @@ async def card_list_rows(
             metadata.append("Repeat")
         if card.blocked:
             metadata.append("Blocked")
-        marks = await title_marks(session, card)
+        marks = await card_title_marks(session, card)
         label = f"{prefix(card) if prefix else ''}{card.title}{marks} · {' · '.join(metadata)}"
         descriptions.append(f"• {label}")
         row = [

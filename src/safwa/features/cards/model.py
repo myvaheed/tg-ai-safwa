@@ -165,6 +165,17 @@ class Card(Base, TimestampMixin):
             .limit(1)
         )
 
+    def series_done_since_query(self, since: datetime) -> Select[tuple[int]]:
+        """Anything in this series completed at or after `since`, if there is one."""
+        return (
+            select(Card.id)
+            .where(
+                Card.repeat_series_id == (self.repeat_series_id or self.id),
+                Card.completed_at >= since,
+            )
+            .limit(1)
+        )
+
     def series_index_query(self) -> Select[tuple[int]]:
         """This instance's place, counted over every row the series has ever had."""
         return (

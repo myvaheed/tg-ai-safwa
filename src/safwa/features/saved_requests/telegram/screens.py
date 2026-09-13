@@ -42,6 +42,13 @@ async def command_requests(message: Message, services: Services) -> None:
             ]
             for request in requests
         ]
+        rows.append(
+            [
+                await token_button(
+                    session, services.owner_id, "❓ О Запросах", "request_about", {}
+                )
+            ]
+        )
         await session.commit()
     await send_registered(
         message,
@@ -49,6 +56,31 @@ async def command_requests(message: Message, services: Services) -> None:
         "<b>Requests</b>\nSaved card queries created by your advisor.",
         kind=MessageKind.DASHBOARD,
         markup=InlineKeyboardMarkup(inline_keyboard=rows + [menu_row()]),
+    )
+
+
+# Written for the owner rather than for the model, so it is their language and their words.
+ABOUT_REQUESTS = (
+    "<b>О Запросах</b>\n"
+    "Запрос — это подборка карточек по условию. Например, «Все цели» показывает ваши Цели, "
+    "а запрос «Дела дома» может находить Действия с Тегом «дом». При каждом открытии "
+    "подборка собирается заново.\n"
+    "Теги помогают собрать карточки из разных Целей в одну подборку.\n"
+    "Запросы пишет Safwa: попросите её собрать нужную подборку — после сохранения она "
+    "открывается одной кнопкой."
+)
+
+
+async def render_about_requests(message: Message, services: Services) -> None:
+    async with services.sessions() as session:
+        back = await token_button(session, services.owner_id, "↩️ Back", "request_list", {})
+        await session.commit()
+    await send_registered(
+        message,
+        services,
+        ABOUT_REQUESTS,
+        kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(inline_keyboard=[[back]]),
     )
 
 
@@ -109,6 +141,16 @@ async def _on_view(context: CallbackContext) -> None:
     await render_saved_request(context.message, context.services, context.payload["id"])
 
 
+async def _on_about(context: CallbackContext) -> None:
+    await render_about_requests(context.message, context.services)
+
+
+async def _on_list(context: CallbackContext) -> None:
+    await command_requests(context.message, context.services)
+
+
 REQUEST_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "request_view": _on_view,
+    "request_about": _on_about,
+    "request_list": _on_list,
 }

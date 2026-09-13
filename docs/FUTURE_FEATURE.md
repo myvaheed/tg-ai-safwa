@@ -55,13 +55,6 @@ is a candidate threshold, not a settled rule. What counts as absence also needs 
 A dedicated onboarding.feature is being considered for these two flows. Its changing state must
 remain outside the stable system-prompt prefix. No scenario package is approved yet.
 
-## A Goal with no Value is not visible as one
-
-Noticed 2026-09-05, placing Values above Goals rather than beside them.
-
-A Goal's screen shows whether it has linked Values. The many-to-many link stays optional: an
-absent link says nothing about whether the owner has a reason for the Goal.
-
 ## Hard Time carries a computed time and an explanation
 
 Agreed 2026-09-06. Hard Time gains a description and reuses the existing Reminders mechanism for
@@ -72,25 +65,6 @@ before Save.
 
 Repeatable creates the next Action instance; a repeating Hard Time schedule determines its time
 using the same occurrence calculation as Reminders. An Action can still repeat without Hard Time.
-
-## One ready-made Request explains Saved Requests
-
-Discussed 2026-09-06. Provide the ordinary Saved Request "Все цели" (All goals) without first
-asking the Advisor to create it. It returns every Goal under the normal Request rules, including
-archived ones, and rerunning it reflects the current Cards. It is an installation default, not
-a protected system Request: the owner can change or delete it, and deleting it must not make it
-reappear on every start. How an existing installation receives it remains to be designed.
-
-The Requests list also offers "Что такое Saved Requests?". It opens an explanation with a Back
-button returning to the list. Suggested text:
-
-> Сохранённый запрос — это подборка карточек по условию. Например, «Все цели» показывает ваши
-> цели, а запрос «Дела дома» может находить действия с тегом «дом». При каждом открытии подборка
-> обновляется. Теги помогают объединять карточки из разных целей. Попросите Safwa создать нужную
-> подборку — после сохранения её можно открывать одной кнопкой.
-
-This is a planned exception to SR-WRITE-001, which currently requires Advisor proposals for every
-Request. No implementation or scenario change is part of this discussion.
 
 ## The retrospective is where Safwa learns from a Sprint
 
@@ -138,29 +112,6 @@ conversion changes the tree or the meaning of recorded work:
 - Preserve the Card's identity, text, Values, Tags and Checks. Answered Checks do not block a
   conversion: their links and observations remain on the same Card, and later Action completion
   uses the existing Check rules without resetting answers.
-
-## A repeating Action shows when it has already been done today
-
-Agreed 2026-09-07. Change the repeating Action's marker so the owner can see on a board or in a
-citation that the series has already had a completion today. The open successor carries this
-indication too: completing an instance must not leave the next one looking as though nothing
-was done. Today is the owner's calendar day in the workspace timezone, and the marker reflects
-actual Done completions in that series.
-
-The indication acknowledges today's work without completing the successor or preventing another
-completion that day. Its exact wording or symbol is undecided. Boards and citations must show
-the same meaning. A finished repeating Action still cannot be reopened, because its successor
-already exists; deletion remains available.
-
-## A Card opens in a compact view with full editing one button away
-
-Agreed 2026-09-07. Open a Card in a compact view with its essential information and primary
-actions. A button named "Полное редактирование" (Full editing) opens the full view with all of
-the Card's applicable editing buttons. The owner can return to the compact view.
-
-The compact view reduces the controls shown during everyday use. The existing fields and
-operations remain available through full editing. The exact compact fields and primary buttons
-are still to be decided.
 
 ## Proposal fulfillment validation
 

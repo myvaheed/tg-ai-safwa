@@ -652,6 +652,16 @@ async def archive_subtree(session: AsyncSession, card_id: int, archive: bool = T
     return changed
 
 
+async def _purge_cards(session: AsyncSession, ids: list[int]) -> None:
+    # Every link, commitment and event is deleted by name rather than left to the FK
+    # cascade, which is a connection pragma and not guaranteed here.
+    await delete_checks_of_cards(session, ids)
+    await delete_commitments_of_cards(session, ids)
+    for model in (CardValue, CardTag, CardCategory, CardEnergyType, CardEvent):
+        await session.execute(delete(model).where(model.card_id.in_(ids)))
+    await session.execute(delete(Card).where(Card.id.in_(ids)))
+
+
 async def delete_subtree(session: AsyncSession, card_id: int) -> int:
     card = await session.get(Card, card_id)
     if card is None:
@@ -665,16 +675,43 @@ async def delete_subtree(session: AsyncSession, card_id: int) -> int:
             await collect(child)
 
     await collect(card)
-    await delete_checks_of_cards(session, ids)
-    # Every link, commitment and event is deleted by name rather than left to the FK
-    # cascade, which is a connection pragma and not guaranteed here.
-    await delete_commitments_of_cards(session, ids)
-    for model in (CardValue, CardTag, CardCategory, CardEnergyType, CardEvent):
-        await session.execute(delete(model).where(model.card_id.in_(ids)))
-    await session.execute(delete(Card).where(Card.id.in_(ids)))
+    await _purge_cards(session, ids)
     await propagate_ancestors(session, parent_id)
     await bump_workspace(session)
     return len(ids)
+
+
+async def delete_one_card(session: AsyncSession, card_id: int) -> int:
+    """Delete one Card and leave what was under it standing where the tree allows.
+
+    A Subgoal cannot stand without a Goal over it, so one that loses its Goal becomes a
+    Goal itself. That is the only place a kind changes on its own, and it is recorded
+    like any other edit rather than happening silently.
+    """
+    card = await session.get(Card, card_id)
+    if card is None:
+        raise DomainError("Card does not exist")
+    parent_id = card.parent_id
+    correlation_id = new_correlation_id()
+    for child in await session.scalars(select(Card).where(Card.parent_id == card.id)):
+        before = card_snapshot(child)
+        child.parent_id = None
+        promoted = child.kind == CardKind.SUBGOAL.value
+        if promoted:
+            child.kind = CardKind.GOAL.value
+        child.version += 1
+        await record_card_event(
+            session,
+            child,
+            "edit_kind" if promoted else "set_parent",
+            ActorType.USER_UI,
+            before,
+            correlation_id,
+        )
+    await _purge_cards(session, [card_id])
+    await propagate_ancestors(session, parent_id)
+    await bump_workspace(session)
+    return 1
 
 
 async def archive_settled_cards(session: AsyncSession, cutoff: datetime) -> list[int]:

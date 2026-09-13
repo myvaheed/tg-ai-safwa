@@ -74,6 +74,15 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
   opens, it reads as archived, and no proposal changes it — only the owner, by reopening or deleting
   it. `foundation.marks.title_marks` is the one place both marks are written, and `ai_cards` and
   `ai_checks` render the same wording in SQL.
+- **A repeating Action also carries `[🔄✓]` while its series has a completion today**, on the
+  finished instance and the open successor alike, so finishing one never leaves the next
+  looking untouched. It is the one mark SQL does not mirror — today is the owner's calendar
+  day in the workspace timezone, which SQLite cannot work out — so `cards.telegram`
+  writes it and the model is told nothing of it.
+- **Deleting a Card is the whole branch or that Card alone**, and the owner chooses on the
+  confirmation screen; Safwa only ever proposes the branch. Deleting one Card alone leaves its
+  children standing where the tree allows, which makes a Subgoal a Goal — the one place a kind
+  changes without being asked to, and `delete_one_card` writes an `edit_kind` event saying so.
 
 ## Links
 

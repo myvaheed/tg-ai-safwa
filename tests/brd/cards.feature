@@ -14,6 +14,8 @@ Feature: Cards
     When the owner or Safwa tries to make it an Action
     Then the change is refused and the Card is still a Subgoal
     And the only way to have an Action instead is to create one
+    And the one kind that changes without being asked to is a Subgoal whose Goal was deleted
+      on its own, by CD-DELETE-025
 
   Scenario: CD-TREE-002 — A Goal is always root-level
     Given the owner has a Goal "Health"
@@ -203,6 +205,18 @@ Feature: Cards
     When the series has ended and no open one is left
     Then the last finished one is titled "[🔄3]" (REPEAT_MARKER_ENDED)
 
+  Scenario: CD-REPEAT-032 — A repeating Action says its series was already done today
+    Given a repeating Action finished earlier today, and the open one that took its place
+    Then both are titled "[🔄✓]" (REPEAT_TODAY_MARKER), on a board, on the Card screen and in
+      a citation alike
+    And today is the owner's own calendar day, in the workspace timezone
+    And the mark says nothing more than that: the open one is still open, and finishing it
+      again today is allowed
+    And a series whose last completion was yesterday carries no such mark, and neither does an
+      Action that never repeated
+    And it is the one mark ai_cards does not carry, SQLite having no way to work out the
+      owner's day
+
   Scenario: CD-ARCHIVE-027 — An archived Card opens, and reads as archived
     Given an archived Card, cited in one of Safwa's answers or listed under its Goal
     When the owner taps it, or Safwa opens it
@@ -212,16 +226,21 @@ Feature: Cards
     And a Goal and a Subgoal offer none: they leave the archive when a Card under them is reopened
     And deleting it is offered, and deletes it
 
-  Scenario: CD-DELETE-025 — Deleting a Card deletes everything under it
+  Scenario: CD-DELETE-025 — Deleting a Card is the whole branch, or that Card on its own
     Given a Goal with Subgoals and Actions under it
-    When the owner or Safwa asks for the Goal to be deleted
-    Then the Goal and everything under it is gone, open or closed, archived or not
-    And a Check that was on them is deleted with them, answered or Pending
+    When the owner asks for the Goal to be deleted
+    Then they are offered both: the branch, and the Goal alone
+    And deleting the branch leaves nothing of it, open or closed, archived or not
+    And deleting the Goal alone keeps what was under it: a Subgoal becomes a Goal, because a
+      Subgoal cannot stand without one, and an Action is left under no one
+    And a Card with nothing under it is deleted without the choice, the two being the same
+    And a Check that was on a deleted Card is deleted with it, answered or Pending
     And a Check that carries a Value stays instead, with no Card
-    And the Values and Tags they carried lose the link and nothing else
-    And their Sprint commitments and their history go too
+    And the Values and Tags a deleted Card carried lose the link and nothing else
+    And its Sprint commitments and its history go too
     And archiving is never substituted for it
-    And Cards calls this destructive, so a proposal to do it is confirmed a second time
+    And Safwa only ever asks for the branch, and Cards calls that destructive, so a proposal
+      to do it is confirmed a second time
 
   Scenario: CD-CONTEXT-028 — The critical Cards Safwa is handed are the ones still to do
     Given critical Cards, some of them Done and some still open
@@ -229,6 +248,17 @@ Feature: Cards
     And each of them says what kind it is and which stage it is in now
     And a Card that is not critical is not among them at all: Safwa looks those up when it needs
       them
+
+  Scenario: CD-VIEW-031 — A Card opens compact, and full editing is one button away
+    Given a Card the owner opens from anywhere
+    Then the screen says what it is, where it stands, its note and what it costs, and on a Goal
+      the Values it carries
+    And the buttons are the ones an ordinary day needs: finishing it, moving it between stages,
+      and reaching its Checks, its children and its parent
+    And "✏️ Full editing" opens the same Card with every control it has, and "🗜 Compact" is
+      how the owner comes back
+    And an edit made in one of the two redraws the Card in that same one
+    And an archived Card opens in full, having no control to put away
 
   Scenario: CD-IDEA-029 — An Idea is a title and a note, and it stands outside the tree
     Given the owner writes an Idea, or Safwa proposes one

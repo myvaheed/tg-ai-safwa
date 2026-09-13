@@ -23,7 +23,7 @@ from .model import Card as Card
 from .model import CardKind
 from .model import CardStage as CardStage
 from .model import effort_label as effort_label
-from .views import AI_CARDS
+from .views import AI_CARDS, AI_IDEAS
 
 PLANNED_STAGES = (CardStage.SPRINT, CardStage.TODAY)
 
@@ -32,8 +32,17 @@ class CardQueryError(ValueError):
     """A read that has to come back with Card ids, and does not."""
 
 
+# Both views come back with Card ids, and an Idea is a Card row like any other; which
+# of the two a caller will accept is the caller's own question.
+CARD_ID_VIEWS = (AI_CARDS.name, AI_IDEAS.name)
+
+
 async def normalize_card_query(
-    session: AsyncSession, raw: str, views: Collection[str]
+    session: AsyncSession,
+    raw: str,
+    views: Collection[str],
+    *,
+    must_read: Collection[str] = (AI_CARDS.name,),
 ) -> str:
     """Validate a read query that has to come back with Card ids.
 
@@ -52,8 +61,10 @@ async def normalize_card_query(
         statement, sources = validated_read(raw, views)
     except UnsafeQueryError as error:
         raise CardQueryError(str(error)) from error
-    if AI_CARDS.name not in sources:
-        raise CardQueryError("The query must read ai_cards and return Card ids")
+    if not set(must_read) & set(sources):
+        raise CardQueryError(
+            f"The query must read {' or '.join(must_read)} and return Card ids"
+        )
     if "id" not in await _result_columns(session, statement):
         raise CardQueryError("The query must return a column named id")
     return statement

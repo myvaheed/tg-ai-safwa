@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from sqlalchemy import func, select
 
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
@@ -25,6 +26,7 @@ from ...checks.use_cases import unobserved_series
 from ..model import Card, CardStage
 from ..use_cases import (
     archive_subtree,
+    delete_one_card,
     delete_subtree,
     finish_action,
     move_card,
@@ -71,7 +73,18 @@ async def _on_view(context: CallbackContext) -> None:
         context.services,
         context.payload["id"],
         back=context.payload.get("back"),
+        full=context.payload.get("full"),
         notice=context.payload.get("notice"),
+    )
+
+
+async def _on_view_mode(context: CallbackContext) -> None:
+    """Swap the same Card between the compact view and full editing."""
+    await render_card(
+        context.message,
+        context.services,
+        context.payload["id"],
+        full=bool(context.payload["full"]),
     )
 
 
@@ -116,7 +129,7 @@ async def _on_edit_text(context: CallbackContext) -> None:
             current_value=current,
             instruction=f"Send the new {field.replace('_', ' ')}.",
             back_action="card_view",
-            back_payload={"id": card_id, "back": back_state},
+            back_payload={"id": card_id, "back": back_state, "full": True},
             related_id=card_id,
         ),
         state={"flow": "card", "card_id": card_id, "field": field, "back": back_state},
@@ -172,7 +185,7 @@ async def _on_toggle_field(context: CallbackContext) -> None:
                 current_value=current,
                 instruction="Describe what is blocking it.",
                 back_action="card_view",
-                back_payload={"id": card_id, "back": back_state},
+                back_payload={"id": card_id, "back": back_state, "full": True},
                 related_id=card_id,
             ),
             state={"flow": "card_blocked", "card_id": card_id, "back": back_state},
@@ -235,27 +248,56 @@ async def _on_restore(context: CallbackContext) -> None:
 
 
 async def _on_delete_prompt(context: CallbackContext) -> None:
+    card_id = int(context.payload["id"])
     async with context.sessions() as session:
-        confirm = await token_button(
-            session,
-            context.owner_id,
-            "Permanently delete tree",
-            "card_delete_confirm",
-            {"id": context.payload["id"]},
+        children = await session.scalar(
+            select(func.count()).select_from(Card).where(Card.parent_id == card_id)
+        )
+        rows: list[list[InlineKeyboardButton]] = []
+        if children:
+            rows.append(
+                [
+                    await token_button(
+                        session,
+                        context.owner_id,
+                        "🗑 Delete this Card only",
+                        "card_delete_confirm",
+                        {"id": card_id, "subtree": False},
+                    )
+                ]
+            )
+        rows.append(
+            [
+                await token_button(
+                    session,
+                    context.owner_id,
+                    "🗑 Permanently delete tree" if children else "🗑 Permanently delete",
+                    "card_delete_confirm",
+                    {"id": card_id, "subtree": True},
+                )
+            ]
         )
         await session.commit()
+    text = "<b>Final confirmation</b>\nThis removes the tree and its historical contribution."
+    if children:
+        text += (
+            "\nDeleting this Card alone keeps what is under it: a Subgoal becomes a Goal, "
+            "and an Action is left under no one."
+        )
     await send_registered(
         context.message,
         context.services,
-        "<b>Final confirmation</b>\nThis removes the tree and its historical contribution.",
+        text,
         kind=MessageKind.APPROVAL,
-        markup=InlineKeyboardMarkup(inline_keyboard=[[confirm], menu_row()]),
+        markup=InlineKeyboardMarkup(inline_keyboard=rows + [menu_row()]),
     )
 
 
 async def _on_delete_confirm(context: CallbackContext) -> None:
+    # Safwa only ever proposes the branch, so a payload with no answer means the branch.
+    delete = delete_subtree if context.payload.get("subtree", True) else delete_one_card
     async with context.sessions() as session:
-        count = await delete_subtree(session, context.payload["id"])
+        count = await delete(session, context.payload["id"])
         await session.commit()
     await send_registered(
         context.message,
@@ -304,6 +346,7 @@ CARD_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "card_toggle_field": _on_toggle_field,
     "card_archive": _on_archive,
     "card_restore": _on_restore,
+    "card_view_mode": _on_view_mode,
     "card_delete_prompt": _on_delete_prompt,
     "card_delete_confirm": _on_delete_confirm,
     "card_finish": _on_finish,

@@ -28,7 +28,7 @@ from ...values.model import CardValue, Value
 from ..hierarchy import blocking_actions, card_progress
 from ..model import Card, CardCategory, CardEnergyType, CardKind, CardStage
 from .idea import render_idea
-from .presentation import card_overview_text
+from .presentation import card_overview_text, card_title_marks
 
 
 async def render_card(
@@ -38,20 +38,27 @@ async def render_card(
     *,
     replace_message_id: int | None = None,
     back: dict[str, Any] | None = None,
+    full: bool | None = None,
     notice: str | None = None,
     replace: bool | None = None,
 ) -> None:
+    """Draw one Card, compact by default; `full` is remembered until it is changed."""
     async with services.sessions() as session:
         existing_editor = await session.scalar(
             select(UiSession).where(UiSession.owner_id == services.owner_id)
         )
-        if (
-            back is None
-            and existing_editor is not None
+        remembered: dict[str, Any] = (
+            existing_editor.state
+            if existing_editor is not None
             and existing_editor.kind == "card_editor"
             and existing_editor.state.get("card_id") == card_id
-        ):
-            back = dict(existing_editor.state.get("back", {}))
+            else {}
+        )
+        if back is None:
+            back = dict(remembered.get("back", {}))
+        if full is None:
+            # An edit redraws the Card, and it redraws it in the view it was made in.
+            full = bool(remembered.get("full", False))
         back = back or {}
         card = await session.get(Card, card_id)
         if card is None:
@@ -91,13 +98,24 @@ async def render_card(
             )
             return
         archived = card.archived_at is not None
-        field_specs: list[tuple[str, str, dict[str, Any]]] = [] if archived else [
-            ("✏️ Title", "card_edit_text", {"id": card.id, "field": "title"}),
-            ("📝 Note", "card_edit_text", {"id": card.id, "field": "note"}),
-            ("⚠️ Priority", "card_choose_priority", {"id": card.id}),
-            ("⏱ Hard Time", "card_toggle_field", {"id": card.id, "field": "hard_time"}),
-        ]
-        if card.kind == CardKind.ACTION.value and not archived:
+        # An archived Card has no control to put away, so it opens whole.
+        full = full or archived
+        # Every control that edits a field belongs to the full view.
+        field_specs: list[tuple[str, str, dict[str, Any]]] = (
+            []
+            if archived or not full
+            else [
+                ("✏️ Title", "card_edit_text", {"id": card.id, "field": "title"}),
+                ("📝 Note", "card_edit_text", {"id": card.id, "field": "note"}),
+                ("⚠️ Priority", "card_choose_priority", {"id": card.id}),
+                (
+                    "⏱ Hard Time",
+                    "card_toggle_field",
+                    {"id": card.id, "field": "hard_time"},
+                ),
+            ]
+        )
+        if full and card.kind == CardKind.ACTION.value and not archived:
             field_specs.insert(2, ("📍 Stage", "card_choose_stage", {"id": card.id}))
             field_specs.append(
                 ("🚧 Blocked", "card_toggle_field", {"id": card.id, "field": "blocked"})
@@ -122,7 +140,7 @@ async def render_card(
                     ("⚡ Energy", "card_choose_energy", {"id": card.id}),
                 ]
             )
-        if not archived:
+        if full and not archived:
             field_specs.extend(
                 [
                     ("💎 Values", "card_choose_values", {"id": card.id}),
@@ -176,6 +194,24 @@ async def render_card(
                     )
                 ]
             )
+        # Every Value on the Card is a button, so the one on a Goal opens from the Goal.
+        value_buttons = (
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    f"💎 {value.name}"[:60],
+                    "value_view",
+                    {"id": value.id},
+                )
+                for value in direct_values
+            ]
+            if full or card.kind == CardKind.GOAL.value
+            else []
+        )
+        relationship_rows.extend(
+            value_buttons[index : index + 2] for index in range(0, len(value_buttons), 2)
+        )
         direct_checks = await card_checks(session, card.id)
         check_total = len(direct_checks)
         pending_total = sum(1 for check in direct_checks if check.outcome is None)
@@ -195,64 +231,81 @@ async def render_card(
                     )
                 ]
             )
-        rows = relationship_rows + rows
+        primary_row: list[InlineKeyboardButton] = []
         if (
             card.kind == CardKind.ACTION.value
             and card.effective_stage != CardStage.DONE.value
         ):
-            rows.append(
-                [
-                    await token_button(
-                        session,
-                        services.owner_id,
-                        "✅ Done",
-                        "card_finish",
-                        {"id": card.id},
+            primary_row.append(
+                await token_button(
+                    session, services.owner_id, "✅ Done", "card_finish", {"id": card.id}
+                )
+            )
+        if not full and card.kind == CardKind.ACTION.value and not archived:
+            # The one field the compact view still sets: where the Action stands today.
+            primary_row.append(
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "📍 Stage",
+                    "card_choose_stage",
+                    {"id": card.id},
+                )
+            )
+        rows = ([primary_row] if primary_row else []) + relationship_rows + rows
+        if full:
+            # What an archived Card still offers: it leaves the archive by being
+            # reopened, and a closed repeat never reopens, so the only way out is Delete.
+            closing_row = [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "Delete",
+                    "card_delete_prompt",
+                    {"id": card.id},
+                )
+            ]
+            if archived:
+                if card.kind == CardKind.ACTION.value and not card.is_closed_repeat():
+                    closing_row.insert(
+                        0,
+                        await token_button(
+                            session,
+                            services.owner_id,
+                            "♻️ Reopen",
+                            "card_move",
+                            {"id": card.id, "stage": CardStage.BACKLOG.value},
+                        ),
                     )
-                ]
-            )
-        # What an archived Card still offers: it leaves the archive by being reopened, and
-        # a closed repeat never reopens, so for that one the only way out is Delete.
-        closing_row = [
-            await token_button(
-                session,
-                services.owner_id,
-                "Delete",
-                "card_delete_prompt",
-                {"id": card.id},
-            )
-        ]
-        if archived:
-            if card.kind == CardKind.ACTION.value and not card.is_closed_repeat():
+            else:
                 closing_row.insert(
                     0,
                     await token_button(
                         session,
                         services.owner_id,
-                        "♻️ Reopen",
-                        "card_move",
-                        {"id": card.id, "stage": CardStage.BACKLOG.value},
+                        "Archive",
+                        "card_archive",
+                        {"id": card.id},
                     ),
                 )
-        else:
-            closing_row.insert(
-                0,
-                await token_button(
-                    session, services.owner_id, "Archive", "card_archive", {"id": card.id}
-                ),
+            rows.append(closing_row)
+        last_row = [
+            await token_button(
+                session, services.owner_id, "↩️ Back", "card_back", {"back": back}
             )
-        rows.append(closing_row)
-        rows.append(
-            [
+        ]
+        if not archived:
+            last_row.insert(
+                0,
                 await token_button(
                     session,
                     services.owner_id,
-                    "↩️ Back",
-                    "card_back",
-                    {"back": back},
-                )
-            ]
-        )
+                    "🗜 Compact" if full else "✏️ Full editing",
+                    "card_view_mode",
+                    {"id": card.id, "full": not full},
+                ),
+            )
+        rows.append(last_row)
         await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
         # An archived Card has no field to type into, so it leaves no editor behind.
         if not archived:
@@ -263,6 +316,7 @@ async def render_card(
                     state={
                         "card_id": card.id,
                         "back": back,
+                        "full": full,
                         "message_id": replace_message_id or message.message_id,
                     },
                     expires_at=datetime.now(UTC) + timedelta(minutes=30),
@@ -277,7 +331,7 @@ async def render_card(
             ]
         workspace = await session.get(Workspace, 1)
         tz = ZoneInfo(workspace.timezone if workspace else "UTC")
-        card_marks = await title_marks(session, card)
+        card_marks = await card_title_marks(session, card)
         check_names = [
             check.title + await title_marks(session, check) for check in direct_checks
         ]
@@ -304,7 +358,8 @@ async def render_card(
                 "tag_names": [tag.name for tag in direct_tags],
                 "check_names": check_names,
                 **progress,
-            }
+            },
+            compact=not full,
         ),
         notice,
     )

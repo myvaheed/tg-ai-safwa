@@ -29,6 +29,7 @@ from safwa.features.cards.use_cases import (
     EFFORT_POINTS,
     archive_subtree,
     create_card,
+    delete_one_card,
     delete_subtree,
     edit_card_text,
     finish_action,
@@ -1223,3 +1224,37 @@ def test_cd_effort_008_every_rung_says_what_it_costs():
         assert f"{effort_label(points)} " in described
     # A rung is what it costs, never how long it takes.
     assert "min" not in described and "hour" not in described
+
+async def test_cd_delete_025_deleting_a_goal_alone_leaves_its_children_standing(sessions):
+    """CD-DELETE-025 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Health")
+        subgoal = await create_card(
+            session, kind="subgoal", title="Sleep better", parent_id=goal.id
+        )
+        action = await create_card(
+            session, kind="action", title="Buy a pillow", effort_points=1, parent_id=goal.id
+        )
+        deep = await create_card(
+            session, kind="action", title="Read at night", effort_points=1, parent_id=subgoal.id
+        )
+        await session.commit()
+
+        assert await delete_one_card(session, goal.id) == 1
+        await session.commit()
+
+        assert await session.get(Card, goal.id) is None
+        # A Subgoal cannot stand without a Goal, so losing one makes it a Goal itself.
+        await session.refresh(subgoal)
+        await session.refresh(action)
+        assert (subgoal.kind, subgoal.parent_id) == (CardKind.GOAL.value, None)
+        assert (action.kind, action.parent_id) == (CardKind.ACTION.value, None)
+        # Whatever hung under the Subgoal never moved: only the deleted Card's children did.
+        await session.refresh(deep)
+        assert deep.parent_id == subgoal.id
+        # The promotion is written down, so the history says why the kind changed.
+        assert await session.scalar(
+            select(CardEvent.operation).where(CardEvent.card_id == subgoal.id).order_by(
+                CardEvent.id.desc()
+            )
+        ) == "edit_kind"

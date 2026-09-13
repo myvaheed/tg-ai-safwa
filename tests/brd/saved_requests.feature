@@ -13,7 +13,8 @@ Feature: Saved Requests
     Given the owner is looking at their saved Requests
     When they look for a way to write one themselves
     Then there is none: the screens list them, open them and run them, and nothing else
-    And the only way one comes into being is the owner approving a proposed Request
+    And the only way one comes into being is the owner approving a proposed Request,
+      or the two a brand new workspace is given, by SR-UI-013
     And the part of Safwa that keeps the workspace is what proposes one; the part that talks to the
       owner never does
 
@@ -28,7 +29,7 @@ Feature: Saved Requests
     Given a Request is being saved
     When its query is checked
     Then it is checked the way every read Safwa makes is checked, by AG-READ-027
-    And it must ask about Cards
+    And it must ask about Cards or about Ideas, which are Cards too
     And it must come back with a column named id, so the answer is Cards and not numbers
     And anything else is refused, and no Request is written
 
@@ -59,6 +60,15 @@ Feature: Saved Requests
     Then a change to its name or its description may go through
     And any change that touches the query always goes to the owner first
     And a brand new Request always goes to the owner first
+
+  Scenario: SR-UI-013 — A new workspace starts with two Requests, and a screen saying what they are
+    Given a workspace being created for the first time
+    Then it already has "Все цели" and "Все идеи"
+    And they are ordinary Requests from that moment: renaming, re-aiming and deleting one work
+      as they do for any other, and a deleted one is not written again on the next start
+    And the Requests list offers "О Запросах", which says what a Request is, that Safwa is what
+      writes one, and that Tags are how Cards from different Goals are gathered
+    And that screen goes back to the list
 
   Scenario: SR-READ-011 — Safwa reads the saved Requests, and points at one with its count
     Given saved Requests exist

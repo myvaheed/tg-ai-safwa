@@ -38,6 +38,7 @@ from ..features.memory.store import MemoryFileStore
 from ..features.memory.upkeep import MemoryUpkeep
 from ..features.planning.api import available_screens
 from ..features.profile.model import UserProfile
+from ..features.saved_requests.use_cases import seed_default_requests
 from ..features.summary.summary import DialogueSummary
 from ..features.summary.window import SummaryEdge
 from ..features.workspace_mutator.state import workspace_context
@@ -99,13 +100,18 @@ def configure_logging(level_name: str) -> None:
     safwa_logger.disabled = False
 
 
-async def bootstrap_workspace(session: AsyncSession, owner_id: int, timezone: str) -> Workspace:
+async def bootstrap_workspace(
+    session: AsyncSession, owner_id: int, timezone: str
+) -> tuple[Workspace, bool]:
     """Bind the database to its owner, and seed the two rows every screen assumes.
 
     The Profile is a feature's model and the Workspace is not, so neither of them could
-    seed the other; the composition root is where both are in reach.
+    seed the other; the composition root is where both are in reach. Says whether this
+    was the first start, which is when an installation default is written and never
+    again.
     """
     workspace = await session.get(Workspace, 1)
+    created = workspace is None
     if workspace is None:
         workspace = Workspace(id=1, owner_telegram_id=owner_id, timezone=timezone)
         session.add(workspace)
@@ -114,7 +120,7 @@ async def bootstrap_workspace(session: AsyncSession, owner_id: int, timezone: st
     if await session.get(UserProfile, 1) is None:
         session.add(UserProfile(id=1))
     await session.flush()
-    return workspace
+    return workspace, created
 
 
 def database_path(database_url: str) -> Path:
@@ -149,11 +155,17 @@ async def run(settings: Settings) -> None:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     database = Database(settings.async_database_url)
     async with database.sessions() as session:
-        await bootstrap_workspace(session, settings.telegram_owner_id, settings.timezone)
+        _, created = await bootstrap_workspace(
+            session, settings.telegram_owner_id, settings.timezone
+        )
         await recover_startup(session, RECOVERY_HOOKS)
         await session.run_sync(
             lambda sync_session: create_ai_views(sync_session.connection(), AI_VIEWS)
         )
+        if created:
+            # A saved query is compiled against the views, so the defaults are written
+            # once the views exist and only for a workspace that has just been made.
+            await seed_default_requests(session, views=ALLOWED_VIEWS)
         await session.commit()
 
     headers: tuple[tuple[str, str], ...] = ()

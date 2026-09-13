@@ -19,7 +19,8 @@ class RequestToolInput(RecordToolInput):
         default=None,
         description=(
             "One read-only SELECT or WITH ... SELECT over ai_* views. It must query ai_cards "
-            "and return a column named id; for example: SELECT id FROM ai_cards WHERE kind = 'action'."
+            "or ai_ideas and return a column named id; for example: SELECT id FROM ai_cards "
+            "WHERE kind = 'action'."
         ),
     )
 

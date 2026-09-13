@@ -84,6 +84,8 @@ async def _render_card(
         int(state["card_id"]),
         replace_message_id=int(state["text_input"]["message_id"]),
         back=dict(state.get("back", {})),
+        # Only the full view offers a field to type into, so that is where typing returns.
+        full=True,
     )
 
 

@@ -12,13 +12,19 @@ from ui_harness import (
     services_for,
 )
 
+from safwa.bootstrap.main import bootstrap_workspace
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
 from safwa.features.cards.use_cases import create_card
 from safwa.features.planning.telegram import render_plan
+from safwa.features.saved_requests.api import request_cards
 from safwa.features.saved_requests.model import SavedRequest
 from safwa.features.saved_requests.telegram import command_requests
 from safwa.features.saved_requests.telegram.screens import REQUEST_RESULT_LIMIT
-from safwa.features.saved_requests.use_cases import create_saved_request, delete_saved_request
+from safwa.features.saved_requests.use_cases import (
+    create_saved_request,
+    delete_saved_request,
+    seed_default_requests,
+)
 from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.telegram import callback_token_handler, open_item_screen
 
@@ -56,7 +62,12 @@ async def test_a_request_is_never_written_by_hand(sessions) -> None:
         for label in labels
         for word in ("new", "create", "edit", "rename", "sql")
     )
-    assert [name for name in CALLBACK_ACTIONS if "request" in name] == ["request_view"]
+    # The other two navigate: one explains what a Request is, the other is its way back.
+    assert sorted(name for name in CALLBACK_ACTIONS if "request" in name) == [
+        "request_about",
+        "request_list",
+        "request_view",
+    ]
 
 
 async def test_the_requests_screen_lists_runs_and_comes_back(sessions) -> None:
@@ -133,3 +144,57 @@ async def test_deleting_a_request_takes_it_off_every_surface(sessions) -> None:
     await render_plan(screen, services, filters=[request_id])
     labels = button_texts(screen.edits[-1][1])
     assert "Pick me (1)" in labels and "Skip me (2)" in labels
+
+async def test_sr_ui_013_a_new_workspace_starts_with_two_requests_and_a_screen_about_them(
+    sessions,
+) -> None:
+    """SR-UI-013 — tests/brd/saved_requests.feature"""
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Health")
+        idea = await create_card(session, kind="idea", title="Cold showers")
+        seeded = await seed_default_requests(session, views=ALLOWED_VIEWS)
+        await session.commit()
+        assert [request.name for request in seeded] == ["Все цели", "Все идеи"]
+        goal_id, idea_id = goal.id, idea.id
+        goals_id, ideas_id = seeded[0].id, seeded[1].id
+
+    async with sessions() as session:
+        # Ordinary Requests: they run down the same path every other Request runs.
+        for request_id, expected in ((goals_id, goal_id), (ideas_id, idea_id)):
+            request = await session.get(SavedRequest, request_id)
+            found = await request_cards(session, request.query_sql, ALLOWED_VIEWS)
+            assert [card.id for card in found] == [expected]
+        await delete_saved_request(session, ideas_id)
+        await session.commit()
+        assert await session.get(SavedRequest, ideas_id) is None
+        # The defaults are written when the workspace is created, and this is what says so:
+        # a later start reports no creation, so a deleted Request is never written again.
+        assert (await bootstrap_workspace(session, 42, "Europe/Istanbul"))[1] is False
+
+    services = services_for(sessions)
+    message = FakeMessage(950, bot_message=True)
+    await command_requests(message, services)
+    labels = button_texts(message.edits[-1][1])
+    assert "Все цели" in labels
+    assert "Все идеи" not in labels
+    about = next(
+        button
+        for row in message.edits[-1][1].inline_keyboard
+        for button in row
+        if button.text == "❓ О Запросах"
+    )
+    await callback_token_handler(
+        FakeCallback(about.callback_data.split(":", 1)[1], message), services
+    )
+    text, markup = message.edits[-1]
+    assert "<b>О Запросах</b>" in text
+    assert "Теги" in text
+    assert "Safwa" in text
+
+    back = next(
+        button for row in markup.inline_keyboard for button in row if button.text == "↩️ Back"
+    )
+    await callback_token_handler(
+        FakeCallback(back.callback_data.split(":", 1)[1], message), services
+    )
+    assert "Все цели" in button_texts(message.edits[-1][1])

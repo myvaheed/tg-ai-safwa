@@ -63,8 +63,6 @@ Still open:
 | Question | What it blocks |
 |---|---|
 | What time the daily summary arrives | the daily summary |
-| Which fields and buttons the compact Card view shows | the compact view |
-| The symbol for "this series was already done today" | the repeating-Action marker |
 
 ## Wave 1 — the schema and vocabulary window, shipped
 
@@ -75,14 +73,16 @@ in [cards.feature](../tests/brd/cards.feature), [planning.feature](../tests/brd/
 and [profile.feature](../tests/brd/profile.feature). The database is rebuilt for them once,
 not five times.
 
-## Wave 2 — screens that cost almost nothing
+## Wave 2 — screens that cost almost nothing, shipped
 
-| Entry | | Note |
-|---|---|---|
-| **A Goal with no Value is not visible as one** | S | One screen. The cheapest entry in the file. |
-| **A repeating Action shows when it has already been done today** *(Agreed)* | M | A query over `repeat_series_id` inside the owner's `Workspace` day; the marker lands in the board list, the Card screen and the citation label. No schema. Only the symbol is undecided. |
-| **A Card opens in a compact view with full editing one button away** *(Agreed)* | M | The Card adapter alone. Highest everyday value per line changed. |
-| **One ready-made Request explains Saved Requests** | M | Its one open question — how an existing installation receives the default — has no answer today and needs none: before release there is no existing installation. Shipping it now deletes the question instead of answering it. |
+Shipped 2026-09-09, in five batches: deleting a Card is now the branch or that Card alone
+(a Wave 1 debt: a Subgoal that loses its Goal becomes one), a Goal says when it carries no
+Value and every Value on a Card is a button, the Card opens compact with full editing one
+button away, a repeating Action carries `[🔄✓]` when its series was already done today, and
+a new workspace starts with «Все цели» and «Все идеи» beside a screen explaining Requests.
+Their rules are in [cards.feature](../tests/brd/cards.feature),
+[values.feature](../tests/brd/values.feature) and
+[saved_requests.feature](../tests/brd/saved_requests.feature). No column changed.
 
 ## Wave 3 — the mechanisms other entries wait on
 

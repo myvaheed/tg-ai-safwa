@@ -33,6 +33,15 @@ Feature: Values
     And taking Health off one of them leaves it on the other two
     And the Value's screen says how many Cards and how many Checks carry it right now
 
+  Scenario: VL-LINK-017 — A Card's screen names the Values on it, and a Goal with none says so
+    Given a Goal carrying no Value, and an Action carrying "Health"
+    When each of them is opened
+    Then every Value on the Card is a button that opens that Value
+    And a Goal carries its Values in the compact view, where every other Card shows them in
+      full editing, because a Goal is where a Value is what says why the work is there
+    And the Goal with no Value says so with a warning rather than a dash
+    And nothing is refused over it: the link stays optional on every kind
+
   Scenario: VL-NAME-005 — A Value's name is taken whatever the capitals, and is never blank
     Given a Value named "Fitness"
     When a second Value is written as "FITNESS"
