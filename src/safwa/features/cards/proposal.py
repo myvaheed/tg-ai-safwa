@@ -43,7 +43,6 @@ from .references import (
     VALUE_REFERENCE,
 )
 from .use_cases import (
-    IDEA_FIELDS,
     archive_subtree,
     create_card,
     delete_subtree,
@@ -323,15 +322,6 @@ class CardProposalHandler:
                     "A Goal is always root-level and cannot take a parent.",
                     "Drop the parent from this call, or propose a Subgoal or Action instead.",
                 )
-            if proposed_kind == CardKind.IDEA.value:
-                if change.action in {ChangeAction.LINK, ChangeAction.UNLINK} or (
-                    set(values) - IDEA_FIELDS
-                ):
-                    raise ToolPreparationError(
-                        "idea_has_two_fields",
-                        "An Idea is a title and a note, and nothing else.",
-                        "Propose a Goal, a Subgoal or an Action for anything more.",
-                    )
             if proposed_kind == CardKind.SUBGOAL.value:
                 born_rootless = change.action is ChangeAction.CREATE and not (
                     values.get("parent_id") or values.get("parent_query")

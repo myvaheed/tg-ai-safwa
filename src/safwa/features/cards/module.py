@@ -11,10 +11,8 @@ from .model import Card
 from .telegram import (
     CARD_CALLBACK_ACTIONS,
     CARD_TEXT_INPUTS,
-    IDEA_CALLBACK_ACTIONS,
     card_citation_label,
     command_backlog,
-    command_ideas,
     command_today,
     render_card,
     start_manual_card_creation,
@@ -49,18 +47,11 @@ MODULE = FeatureModule(
             nav="today",
             title="☀️ Today",
         ),
-        ScreenCommand(
-            handler=command_ideas,
-            command="ideas",
-            description="Ideas you wrote down",
-            nav="ideas",
-            title="💡 Ideas",
-        ),
         # Add is a menu button and nothing else: a Card is created on a screen.
         ScreenCommand(
             handler=start_manual_card_creation, nav="add", title="➕ Add"
         ),
     ),
-    callback_actions=CARD_CALLBACK_ACTIONS | IDEA_CALLBACK_ACTIONS,
+    callback_actions=CARD_CALLBACK_ACTIONS,
     text_inputs=CARD_TEXT_INPUTS,
 )

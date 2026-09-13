@@ -40,11 +40,6 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
   inside every ancestor — a real total says `WHERE kind = 'action'`.
 - `manual_stage` is what the user set, and it is an Action's alone; `effective_stage` is what
   dashboards and queries read.
-- An **Idea** is the fourth kind and stands outside all of it: a title and a note, no parent,
-  no children, no stage, no links. Both stage columns keep their Backlog default because
-  `effective_stage` is not nullable, and nothing reads them on an Idea — it is in no board, in
-  no Sprint's accounting and never archived. `ai_cards` is the tree; `ai_ideas` is the capture.
-  The Ideas screen offers one Expand button, which asks Safwa what tree to make of it.
 - Effort is restricted to `EFFORT_POINTS` and required for Actions; the `Literal` in
   [cards/agent.py](../src/safwa/features/cards/agent.py) mirrors it — change both together.
   A rung says what the Action costs the owner rather than how long it takes, and

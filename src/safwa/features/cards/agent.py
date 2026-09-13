@@ -23,7 +23,7 @@ class CardToolInput(ToolInput):
         )
     )
     id: PositiveInt | None = None
-    kind: Literal["goal", "subgoal", "action", "idea"] | None = None
+    kind: Literal["goal", "subgoal", "action"] | None = None
     title: str | None = None
     note: str | None = None
     stage: Literal["backlog", "sprint", "today", "done"] | None = None
@@ -84,8 +84,6 @@ class CardToolInput(ToolInput):
                 raise ValueError("a new Card needs kind and title")
             if self.kind == "action" and self.effort_points is None:
                 raise ValueError("a new Action needs effort_points")
-            if self.kind == "idea" and supplied - {"kind", "title", "note"}:
-                raise ValueError("an Idea takes only a title and a note")
             if self.blocked and not (self.blocked_description or "").strip():
                 raise ValueError("a blocked Card needs blocked_description")
             if self.parent_id is not None and self.parent_query is not None:
@@ -263,9 +261,8 @@ CARD_TOOL = MutationToolSpec(
     name="card",
     input_model=CardToolInput,
     description=(
-        "Propose one Card — a Goal, a Subgoal, an Action or an Idea. Also the only tool that "
-        "attaches a "
-        "Value, a Tag or a Check to a Card."
+        "Propose one Card — a Goal, a Subgoal or an Action. Also the only tool that "
+        "attaches a Value, a Tag or a Check to a Card."
     ),
     to_change=entity_change("card"),
     repair=_card_repair,

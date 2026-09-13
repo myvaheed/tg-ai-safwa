@@ -49,7 +49,7 @@ AI_CARDS = SqlView(
                (SELECT group_concat(t.name, ',') FROM card_tags ct
                 JOIN tags t ON t.id=ct.tag_id WHERE ct.card_id=c.id) AS direct_tags,
                c.created_at, c.updated_at
-        FROM cards c WHERE c.kind != 'idea'""",
+        FROM cards c""",
     doc="""- `ai_cards(id, title, note, kind, stage, priority, hard_time, blocked, blocked_description, effort_points, repeatable, parent_id, series_id, categories, energy_types, direct_values, direct_tags, created_at, updated_at)`
   - `kind` goal | subgoal | action
   - `stage` backlog | sprint | today | done
@@ -62,19 +62,7 @@ AI_CARDS = SqlView(
   - `hard_time`, `blocked`, `repeatable` 0 | 1
   - `categories`, `energy_types`, `direct_values` and `direct_tags` are comma-joined names, so match one with `LIKE '%Health%'`
   - `series_id` is the whole repeat series of one card; a card that never repeated is its own series
-  - the checks on a card are `ai_checks WHERE card_id = <id>`
-  - an idea is not here: it is in `ai_ideas`""",
-)
-
-
-# An Idea is outside the tree and outside every stage, so it is outside the view that is
-# about both: two columns is the whole of it.
-AI_IDEAS = SqlView(
-    "ai_ideas",
-    """SELECT id, title, note, created_at, updated_at FROM cards WHERE kind = 'idea'""",
-    doc="""- `ai_ideas(id, title, note, created_at, updated_at)`
-  - raw capture the user wrote down: no stage, no effort, no parent, no links
-  - cite one as [title](card:12), the same as any other card""",
+  - the checks on a card are `ai_checks WHERE card_id = <id>`""",
 )
 
 
@@ -92,4 +80,4 @@ AI_CARD_EVENTS = SqlView(
 )
 
 
-VIEWS = (AI_CARDS, AI_IDEAS, AI_CARD_EVENTS)
+VIEWS = (AI_CARDS, AI_CARD_EVENTS)

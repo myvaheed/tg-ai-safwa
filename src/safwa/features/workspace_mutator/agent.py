@@ -34,8 +34,6 @@ propose against them.
 # Cards
 - `goal` is root-only; `subgoal` is always under a Goal; `action` is root or under a Goal or Subgoal and
   has no children.
-- `idea` is raw capture: a title and a note, and nothing else — no parent, no stage, no effort,
-  no links. Propose one when the user says a thought they have decided nothing about yet.
 - Only an Action carries a stage, effort, repeat and blocked. A Goal and a Subgoal show what the
   Cards under them add up to, so move, complete and reopen an Action, never a parent.
 - A new Card lands in `backlog` unless the user committed it further. Effort is what the Action
@@ -85,7 +83,6 @@ MUTATOR_AGENT = AgentSpec(
     # and neither is the log of what has already happened.
     views=(
         "ai_cards",
-        "ai_ideas",
         "ai_checks",
         "ai_tags",
         "ai_values",

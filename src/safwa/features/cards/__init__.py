@@ -1,1 +1,1 @@
-"""Cards: the tree of Goals, Ideas and Actions the owner keeps."""
+"""Cards: the tree of Goals, Subgoals and Actions the owner keeps."""

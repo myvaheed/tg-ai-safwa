@@ -115,18 +115,6 @@ conversion changes the tree or the meaning of recorded work:
   conversion: their links and observations remain on the same Card, and later Action completion
   uses the existing Check rules without resetting answers.
 
-## Retire raw-capture Ideas
-
-Agreed 2026-09-13. Remove the raw-capture Idea entity introduced in Wave 1. Cards retain Goal,
-Subgoal and Action; no separate capture entity replaces Idea. Retire its list, Expand entry point,
-creation choices, AI view and references, including the default «Все идеи» Request. Handle existing
-pre-release Idea data and any saved Requests querying the retired view in the declared removal
-batch, leaving no dangling query entry points. The current Idea scenarios remain implemented
-behavior until that batch replaces their coverage; this planning decision does not change data now.
-
-The replacement investment is the Proposal workflow below, which helps the owner see and control
-the changes Safwa is preparing for their current request.
-
 ## A visible plan accompanies a Proposal chain
 
 Agreed 2026-09-13. Before preparing Proposals, Safwa shows what it understood and intends to

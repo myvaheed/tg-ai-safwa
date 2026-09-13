@@ -145,28 +145,26 @@ async def test_deleting_a_request_takes_it_off_every_surface(sessions) -> None:
     labels = button_texts(screen.edits[-1][1])
     assert "Pick me (1)" in labels and "Skip me (2)" in labels
 
-async def test_sr_ui_013_a_new_workspace_starts_with_two_requests_and_a_screen_about_them(
+async def test_sr_ui_013_a_new_workspace_starts_with_one_request_and_a_screen_about_it(
     sessions,
 ) -> None:
     """SR-UI-013 — tests/brd/saved_requests.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        idea = await create_card(session, kind="idea", title="Cold showers")
+        await create_card(session, kind="action", title="Run", effort_points=1)
         seeded = await seed_default_requests(session, views=ALLOWED_VIEWS)
         await session.commit()
-        assert [request.name for request in seeded] == ["Все цели", "Все идеи"]
-        goal_id, idea_id = goal.id, idea.id
-        goals_id, ideas_id = seeded[0].id, seeded[1].id
+        assert [request.name for request in seeded] == ["Все цели"]
+        goal_id, goals_id = goal.id, seeded[0].id
 
     async with sessions() as session:
-        # Ordinary Requests: they run down the same path every other Request runs.
-        for request_id, expected in ((goals_id, goal_id), (ideas_id, idea_id)):
-            request = await session.get(SavedRequest, request_id)
-            found = await request_cards(session, request.query_sql, ALLOWED_VIEWS)
-            assert [card.id for card in found] == [expected]
-        await delete_saved_request(session, ideas_id)
+        # An ordinary Request: it runs down the same path every other Request runs.
+        request = await session.get(SavedRequest, goals_id)
+        found = await request_cards(session, request.query_sql, ALLOWED_VIEWS)
+        assert [card.id for card in found] == [goal_id]
+        await delete_saved_request(session, goals_id)
         await session.commit()
-        assert await session.get(SavedRequest, ideas_id) is None
+        assert await session.get(SavedRequest, goals_id) is None
         # The defaults are written when the workspace is created, and this is what says so:
         # a later start reports no creation, so a deleted Request is never written again.
         assert (await bootstrap_workspace(session, 42, "Europe/Istanbul"))[1] is False
@@ -175,8 +173,7 @@ async def test_sr_ui_013_a_new_workspace_starts_with_two_requests_and_a_screen_a
     message = FakeMessage(950, bot_message=True)
     await command_requests(message, services)
     labels = button_texts(message.edits[-1][1])
-    assert "Все цели" in labels
-    assert "Все идеи" not in labels
+    assert "Все цели" not in labels
     about = next(
         button
         for row in message.edits[-1][1].inline_keyboard
@@ -197,4 +194,4 @@ async def test_sr_ui_013_a_new_workspace_starts_with_two_requests_and_a_screen_a
     await callback_token_handler(
         FakeCallback(back.callback_data.split(":", 1)[1], message), services
     )
-    assert "Все цели" in button_texts(message.edits[-1][1])
+    assert "❓ О Запросах" in button_texts(message.edits[-1][1])

@@ -35,9 +35,6 @@ class CardKind(StrEnum):
     GOAL = "goal"
     SUBGOAL = "subgoal"
     ACTION = "action"
-    # Outside the tree and outside every stage: a title and a note, and one button
-    # that hands it to Safwa.
-    IDEA = "idea"
 
 
 # What one rung costs: how the owner will be able to carry on afterwards, and what

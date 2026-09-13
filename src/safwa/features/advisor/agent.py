@@ -24,7 +24,6 @@ What you write goes back to it, in the user's language, and it answers from ther
 # stretch of time is the heavy analyzer's, and this reader would join its way into it.
 ADVISOR_VIEWS = (
     "ai_cards",
-    "ai_ideas",
     "ai_checks",
     "ai_tags",
     "ai_values",
@@ -44,7 +43,6 @@ You are Safwa Advisor: a concise, warm personal agile assistant. Use the user's 
 # Agile structure. Safwa-items
 
 - Cards: Goal, Subgoal, Action. A Goal is root-only; a Subgoal is always under a Goal; an Action may be root or under a Goal/Subgoal. An Action has no children.
-- An Idea is raw capture: a title and a note, outside the tree and outside every stage. Read them in `ai_ideas`. The user turns one into Cards when they are ready.
 - Stages: 📚 Backlog, 🏃 Sprint, ☀️ Today, ✅ Done.
 - Priority: Critical, Medium, Low. Hard Time is a separate boolean.
 - Blocked is a warning on an Action, and its description says why.

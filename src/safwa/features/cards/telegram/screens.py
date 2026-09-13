@@ -27,7 +27,6 @@ from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value
 from ..hierarchy import blocking_actions, card_progress
 from ..model import Card, CardCategory, CardEnergyType, CardKind, CardStage
-from .idea import render_idea
 from .presentation import card_overview_text, card_title_marks
 
 
@@ -63,7 +62,6 @@ async def render_card(
         card = await session.get(Card, card_id)
         if card is None:
             raise DomainError("Card does not exist")
-        idea = card if card.kind == CardKind.IDEA.value else None
         parent = await session.get(Card, card.parent_id) if card.parent_id else None
         direct_value_ids = list(
             await session.scalars(select(CardValue.value_id).where(CardValue.card_id == card.id))
@@ -91,12 +89,6 @@ async def render_card(
                 select(CardEnergyType.energy_type).where(CardEnergyType.card_id == card.id)
             )
         )
-        if idea is not None:
-            await session.commit()
-            await render_idea(
-                message, services, idea, back=back, notice=notice, replace=replace
-            )
-            return
         archived = card.archived_at is not None
         # An archived Card has no control to put away, so it opens whole.
         full = full or archived

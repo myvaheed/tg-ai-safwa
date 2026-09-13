@@ -30,7 +30,6 @@ _KIND_EMOJIS = {
     CardKind.GOAL.value: "🎯",
     CardKind.SUBGOAL.value: "🧩",
     CardKind.ACTION.value: "⭐️",
-    CardKind.IDEA.value: "💡",
 }
 
 
@@ -119,9 +118,6 @@ def card_overview_text(
         f"Kind: {html.escape(kind_label(kind))}",
         f"Title: <b>{html.escape(str(state.get('title') or '—'))}</b>",
     ]
-    if kind == CardKind.IDEA.value:
-        lines.append(f"Note: {html.escape(str(state.get('note') or '—'))}")
-        return f"<b>{html.escape(heading)}</b>\n" + "\n".join(lines)
     if state.get("parent_name"):
         lines.append(f"Parent: {html.escape(str(state['parent_name']))}")
     lines.append(f"Stage: {html.escape(str(state.get('stage') or 'backlog').title())}")

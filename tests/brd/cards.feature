@@ -1,15 +1,14 @@
 Feature: Cards
   A Card is one thing the owner means to do. It is a Goal, a Subgoal or an Action, and those three
   form a strict tree: a Goal at the root, Subgoals under it, Actions at the bottom doing the work.
-  An Idea is a fourth kind standing outside that tree: raw capture, decided nothing about yet.
-  What a Card may carry depends on which of the four it is.
+  What a Card may carry depends on which of the three it is.
 
   Numbers below name the constant they come from; the tests read the constant.
 
   Background:
     Given a workspace where a Card can be written by the owner or proposed by Safwa
 
-  Scenario: CD-KIND-001 — A Card is a Goal, a Subgoal, an Action or an Idea, and it stays the one it was created as
+  Scenario: CD-KIND-001 — A Card is a Goal, a Subgoal or an Action, and it stays the one it was created as
     Given a Card exists as a Subgoal
     When the owner or Safwa tries to make it an Action
     Then the change is refused and the Card is still a Subgoal
@@ -259,22 +258,3 @@ Feature: Cards
       how the owner comes back
     And an edit made in one of the two redraws the Card in that same one
     And an archived Card opens in full, having no control to put away
-
-  Scenario: CD-IDEA-029 — An Idea is a title and a note, and it stands outside the tree
-    Given the owner writes an Idea, or Safwa proposes one
-    Then it keeps its title and its note, and a stage, effort, a priority, Hard Time, a
-      category, an energy, repeat and Blocked are dropped from it as they are from a Goal
-    And a parent, a Value, a Tag and a Check are refused on it, on a screen and in a proposal
-    And nothing may be placed under it
-    And it is in no board and in no Sprint's accounting, and it can never be archived
-    And Safwa reads it in ai_ideas, where ai_cards is the tree alone
-
-  Scenario: CD-IDEA-030 — Ideas have a list of their own, and Safwa is what expands one
-    Given the owner has written two Ideas
-    Then the menu offers Ideas, and the list shows both with a button that writes another
-    When the owner opens one
-    Then the screen shows its title and its note, and offers Title, Note, Expand and Delete
-    When they press Expand
-    Then the request reaches the chat in their own words, and Safwa answers that turn
-    And no screen offers a list of kinds to convert into: what it becomes is Safwa's proposal
-    And the Idea itself is unchanged until the owner deletes it

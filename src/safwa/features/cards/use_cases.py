@@ -62,8 +62,6 @@ from .model import (
 # The fields an Action alone carries. On a Goal and a Subgoal two of them are derived, so
 # nothing outside `propagate_ancestors` may write one.
 ACTION_ONLY_FIELDS = ("effort_points", "repeatable", "blocked", "blocked_description")
-# What an Idea carries, and nothing else.
-IDEA_FIELDS = frozenset({"title", "note"})
 
 
 @dataclass
@@ -133,12 +131,6 @@ async def create_card(
         clean_description = ""
         category_values.clear()
         energy_values.clear()
-    if card_kind is CardKind.IDEA:
-        # An Idea is raw capture, so the two fields it has are the two it keeps.
-        card_priority = Priority.MEDIUM
-        hard_time = False
-        if value_ids or tag_ids or check_ids:
-            raise DomainError("An Idea carries no Values, Tags or Checks")
     validate_action_fields(
         card_kind,
         effort_points,
@@ -239,8 +231,6 @@ async def update_card_fields(
     unknown = set(fields) - allowed
     if unknown:
         raise DomainError("Unsupported Card fields: " + ", ".join(sorted(unknown)))
-    if card.kind == CardKind.IDEA.value and set(fields) - IDEA_FIELDS:
-        raise DomainError("An Idea has only a title and a note")
     if card.kind != CardKind.ACTION.value:
         # `blocked` and `effort_points` on a parent are derived values this walk writes;
         # a caller that set one by hand would be overwritten at the next Action change.
@@ -448,13 +438,11 @@ async def validate_parent(
         return None
     if kind is CardKind.GOAL:
         raise DomainError("A Goal must be root-level")
-    if kind is CardKind.IDEA:
-        raise DomainError("An Idea stands on its own and has no parent")
     parent = await session.get(Card, parent_id)
     if parent is None or parent.archived_at is not None:
         raise DomainError("Parent does not exist or is archived")
-    if parent.kind in {CardKind.ACTION.value, CardKind.IDEA.value}:
-        raise DomainError(f"A{parent.kind[:1].upper()} cannot have children")
+    if parent.kind == CardKind.ACTION.value:
+        raise DomainError("An Action cannot have children")
     if kind is CardKind.SUBGOAL and parent.kind != CardKind.GOAL.value:
         raise DomainError("A Subgoal may only be placed under a Goal")
     return parent

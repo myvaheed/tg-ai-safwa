@@ -11,7 +11,7 @@ from collections.abc import Collection
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..cards.api import CARD_ID_VIEWS, CardQueryError, normalize_card_query
+from ..cards.api import CardQueryError, normalize_card_query
 from ..cards.model import Card
 
 
@@ -19,9 +19,7 @@ async def request_cards(
     session: AsyncSession, query_sql: str, views: Collection[str]
 ) -> list[Card]:
     """Run a saved safe query and load its live Cards in query result order."""
-    statement = await normalize_card_query(
-        session, query_sql, views, must_read=CARD_ID_VIEWS
-    )
+    statement = await normalize_card_query(session, query_sql, views)
     result = await session.execute(text(statement))
     rows = result.mappings().all()
     try:

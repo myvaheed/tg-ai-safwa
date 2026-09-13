@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.agent import CardToolInput
@@ -22,7 +22,6 @@ from safwa.features.cards.model import (
     CardEvent,
     CardKind,
     CardStage,
-    Priority,
     effort_label,
 )
 from safwa.features.cards.use_cases import (
@@ -109,7 +108,7 @@ async def test_cd_tree_003_a_subgoal_belongs_to_a_goal(sessions):
             await set_card_parent(session, sleep.id, None)
 
 
-async def test_cd_tree_004_an_action_sits_under_a_goal_an_idea_or_nothing(sessions):
+async def test_cd_tree_004_an_action_sits_under_a_goal_a_subgoal_or_nothing(sessions):
     """CD-TREE-004 — tests/brd/cards.feature"""
     async with sessions() as session:
         health = await create_card(session, kind="goal", title="Health")
@@ -469,7 +468,7 @@ async def test_cd_stage_015_a_goal_is_done_only_when_all_its_actions_are_finishe
         assert (await session.get(Card, empty.id)).effective_stage == CardStage.BACKLOG.value
 
 
-async def test_cd_stage_015_an_empty_idea_holds_its_goal_out_of_done(sessions):
+async def test_cd_stage_015_an_empty_subgoal_holds_its_goal_out_of_done(sessions):
     """CD-STAGE-015 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
@@ -1154,63 +1153,6 @@ async def test_cd_context_028_only_the_critical_cards_still_to_do_are_handed_ove
     assert listed == [f"- [Fix the roof](card:{open_card.id}) kind=action stage=backlog"]
     assert "Shipped" not in state
     assert "Ordinary" not in state
-
-
-async def test_cd_idea_029_an_idea_is_a_title_and_a_note(sessions):
-    """CD-IDEA-029 — tests/brd/cards.feature"""
-    async with sessions() as session:
-        goal = await create_card(session, kind="goal", title="Health")
-        health = await create_value(session, "Health")
-        await session.commit()
-        idea = await create_card(
-            session,
-            kind="idea",
-            title="Try cold showers",
-            note="Somebody said it helps",
-            stage="today",
-            priority="critical",
-            hard_time=True,
-            effort_points=3,
-            repeatable=True,
-        )
-        await session.commit()
-
-        # Everything an Idea does not carry is dropped rather than refused, as on a Goal.
-        assert (idea.title, idea.note) == ("Try cold showers", "Somebody said it helps")
-        assert idea.effective_stage == CardStage.BACKLOG.value
-        assert idea.priority == Priority.MEDIUM.value
-        assert (idea.hard_time, idea.repeatable, idea.blocked) == (False, False, False)
-        assert (idea.effort_points, idea.parent_id) == (None, None)
-
-        with pytest.raises(DomainError, match="carries no Values, Tags or Checks"):
-            await create_card(session, kind="idea", title="Linked", value_ids={health.id})
-        with pytest.raises(DomainError, match="stands on its own"):
-            await create_card(session, kind="idea", title="Owned", parent_id=goal.id)
-        with pytest.raises(DomainError, match="cannot have children"):
-            await create_card(
-                session, kind="action", title="Buy soap", effort_points=1, parent_id=idea.id
-            )
-        with pytest.raises(DomainError, match="only a title and a note"):
-            await update_card_fields(session, idea.id, {"priority": "low"})
-        with pytest.raises(DomainError, match="Done may be archived"):
-            await archive_subtree(session, idea.id)
-
-        await update_card_fields(session, idea.id, {"title": "Cold showers", "note": "One week"})
-        assert (idea.title, idea.note) == ("Cold showers", "One week")
-        await session.commit()
-
-        # The tree and the raw capture are two views, so neither shows the other's rows.
-        listed = list(await session.scalars(text("SELECT title FROM ai_cards")))
-        assert "Cold showers" not in listed
-        captured = list(await session.scalars(text("SELECT title FROM ai_ideas")))
-        assert captured == ["Cold showers"]
-
-
-def test_cd_idea_029_the_card_tool_offers_an_idea_nothing_but_the_two_fields():
-    """CD-IDEA-029 — tests/brd/cards.feature"""
-    assert CardToolInput(mode="create", kind="idea", title="Cold showers", note="One week")
-    with pytest.raises(ValidationError, match="only a title and a note"):
-        CardToolInput(mode="create", kind="idea", title="Cold showers", parent_id=3)
 
 
 def test_cd_effort_008_every_rung_says_what_it_costs():

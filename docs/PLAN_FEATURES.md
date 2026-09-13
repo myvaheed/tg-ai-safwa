@@ -45,9 +45,8 @@ is cheaper than discovering them one wave at a time.
 
 Answered 2026-09-08, and written into the entries themselves:
 
-- **The middle kind became Subgoal.** Wave 1 also introduced raw capture as Idea. The owner's
-  2026-09-13 decision retires that fourth kind in the follow-up below; it remains in the current
-  implementation until the removal batch. Subgoal keeps its meaning.
+- **The middle kind became Subgoal.** Wave 1 also introduced raw capture as Idea, and the
+  owner's 2026-09-13 decision retired that fourth kind again; Subgoal keeps its meaning.
 - **The effort rungs are approved as written**, 0.5 included.
 - **The daily summary and the Diary nudge are two switches, and neither replaces the other.** Both
   on, one message carries both; one on, only that one appears.
@@ -91,7 +90,7 @@ a dead menu or saved Request behind.
 
 | Batch | Cost | Scope and completion check |
 |---|---|---|
-| Retire raw-capture Ideas | L | Remove the fourth Card kind, Ideas list/Expand, creation choices, AI view/tool vocabulary, citations and the default «Все идеи» Request. Keep Goal/Subgoal/Action and their current rules. Handle pre-release Idea data in the declared cleanup/rebuild and update affected scenarios, fixtures and prompt snapshots together. Verify no supported path creates, reads or opens an Idea. |
+| Retire raw-capture Ideas | L, shipped 2026-09-13 | The fourth Card kind, the Ideas list and Expand, the creation choice, its view and every prompt line naming it, and the default «Все идеи» Request are gone; Goal, Subgoal and Action keep their rules. No column changed, but a pre-release row with `kind = 'idea'` is orphaned, so the database is rebuilt. |
 | Plan and cancellable preparation | L | One request owns two separate messages: the plan and preparation status with a real inline Cancel button. Keep existing history and workspace context. Verify their order, cancellation through the existing turn owner, no late review after cancellation, and replacement of status with the first available review. |
 | Chain termination and plan lifetime | L | Keep the same plan through all dependent batches; remove it only on successful completion of the whole request. Discard stops the remainder. Text over review closes the old chain before ordinary handling of the new request. Cancel/Discard/interruption produces a Receipt and keeps the plan; no automatic continuation of stopped work. Verify saved work survives, stopped work is not reported as individually rejected, stale controls are harmless and validators respect the stop. |
 
@@ -101,9 +100,9 @@ The usage scenarios in FUTURE_FEATURE.md are the acceptance criteria for these b
 parts of the Proposal flow must be covered before calling that feature shipped.
 
 Current BRD cases must change with the implementation, not be made to claim unimplemented
-behavior in this documentation pass: CD-KIND-001 and CD-IDEA-029/030 for retirement; PR-QUEUE-007,
-PR-SAVE-010 and PR-INTERRUPT-017/018 for termination; AG-TURN-010/022 and the interrupted-session
-cases for Cancel and no automatic resume. Cover the two-message lifetime, message classification
+behavior in this documentation pass: PR-QUEUE-007, PR-SAVE-010 and PR-INTERRUPT-017/018 for
+termination; AG-TURN-010/022 and the interrupted-session cases for Cancel and no automatic
+resume. Cover the two-message lifetime, message classification
 and terminal results alongside the existing screens/history scenarios. Run the affected tests,
 BRD traceability, architecture snapshots and the ordinary batch checks.
 
@@ -113,11 +112,10 @@ Shipped 2026-09-09, in five batches: deleting a Card is now the branch or that C
 (a Wave 1 debt: a Subgoal that loses its Goal becomes one), a Goal says when it carries no
 Value and every Value on a Card is a button, the Card opens compact with full editing one
 button away, a repeating Action carries `[🔄✓]` when its series was already done today, and
-a new workspace starts with «Все цели» and «Все идеи» beside a screen explaining Requests.
+a new workspace starts with «Все цели» beside a screen explaining Requests.
 Their rules are in [cards.feature](../tests/brd/cards.feature),
 [values.feature](../tests/brd/values.feature) and
 [saved_requests.feature](../tests/brd/saved_requests.feature). No column changed.
-The Ideas retirement batch removes «Все идеи» as well; this shipped entry describes the current UI.
 
 ## Wave 3 — the mechanisms other entries wait on
 
@@ -129,7 +127,7 @@ The Ideas retirement batch removes «Все идеи» as well; this shipped ent
 | **An unanswered proposal expires after one hour** *(Agreed)* | L | Touches the proposal store, the turn lease, Reminder delivery order and the single-screen rule at the same time. The entry's last sentence names a *second* mechanism — an expiry for manual editors' live screens. Scope it in or defer it explicitly; do not let it arrive by accident. |
 | **The retrospective — the statistics half only** | M | RT-OPEN-001 currently promises a screen that says there is nothing there yet. Code-calculated statistics fill it and are useful with no model involved. The AI analysis half is Wave 5. |
 | **The daily summary is a second system Reminder** | M | Reuses the RM-SYSTEM-022 shape and the `Cue` path; the work is the content, the second Profile switch, and the one message that carries both when both are on. Only its hour is still open. |
-| **A Card's kind can change while its structure and work history allow it** *(Agreed)* | L | The Subgoal rename and its tree rule have landed, so its four bullets are ready to become scenarios. After Ideas retirement this concerns Goal/Subgoal/Action only; a Proposal plan is not a Card kind or a conversion source. |
+| **A Card's kind can change while its structure and work history allow it** *(Agreed)* | L | The Subgoal rename and its tree rule have landed, so its four bullets are ready to become scenarios. It concerns Goal/Subgoal/Action only; a Proposal plan is not a Card kind or a conversion source. |
 
 ## Wave 4 — the hooks, in dependency order
 
@@ -189,17 +187,16 @@ occasion identity, confirmed delivery and decision handling. A second initiative
 complete path. Existing Summary and helper availability exercise registration before this stage;
 they do not need artificial owner-decision records.
 
-**The pre-release window.** Retire the stored Idea kind and its pre-release data in a declared
-cleanup batch. The Proposal plan is process state and adds no new domain table; declare a schema
-batch only if an implementation changes stored structure. Hard Time keeps its own schema scope.
+**The pre-release window.** The Proposal plan is process state and adds no new domain table;
+declare a schema batch only if an implementation changes stored structure. Hard Time keeps its
+own schema scope.
 
 **What reaches the cacheable prefix.** Onboarding's changing guidance and instruction 4's Sprint
 list belong outside `messages[0]`. The Proposal plan is an ordinary Advisor message, preparation
 status is UI, and execution keeps the existing conversation window rather than a plan-only block.
 
-**Vocabulary before volume.** Retire the raw-capture Idea, not Subgoal. Update model-facing tools,
-views, citations, screens, default Requests and scenarios together. A visible Proposal plan is
-request-scoped text, with no separate list, Card kind or workspace links.
+**Vocabulary before volume.** A visible Proposal plan is request-scoped text, with no separate
+list, Card kind or workspace links.
 
 **The rungs are the unit now.** Hook 7's 15 EP, the Sprint's committed and capacity figures and
 the Advisor's judgement of a day's load all count in a scale that says what work costs the owner.

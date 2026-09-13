@@ -58,13 +58,6 @@ def sanitize_card_creation_state(state: dict[str, Any]) -> dict[str, Any]:
             categories=[],
             energy_types=[],
         )
-    if clean["kind"] == CardKind.IDEA.value:
-        clean.update(
-            priority=Priority.MEDIUM.value,
-            hard_time=False,
-            value_ids=[],
-            tag_ids=[],
-        )
     if not clean["blocked"]:
         clean["blocked_description"] = ""
     for field in ("categories", "energy_types", "value_ids", "tag_ids"):

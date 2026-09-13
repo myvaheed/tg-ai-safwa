@@ -18,14 +18,12 @@ from ui_harness import (
 from safwa.constants import SELECTOR_PAGE_SIZE
 from safwa.features.cards.model import Card, CardStage
 from safwa.features.cards.telegram import (
-    command_ideas,
     render_card,
     render_card_choices,
     render_card_creation,
     render_children,
     render_dashboard,
 )
-from safwa.features.cards.telegram import idea as idea_screens
 from safwa.features.cards.telegram.presentation import card_citation_label, card_title_marks
 from safwa.features.cards.telegram.selectors import (
     RELATION_CHOICES,
@@ -650,7 +648,7 @@ async def test_backlog_dashboard_lists_actions_only(sessions) -> None:
     assert any("Visible Action" in text for text in button_texts(dashboard_markup))
 
 
-async def test_no_screen_offers_a_goal_or_an_idea_a_stage_control(sessions) -> None:
+async def test_no_screen_offers_a_goal_or_a_subgoal_a_stage_control(sessions) -> None:
     """CD-STAGE-013 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
@@ -756,54 +754,6 @@ async def test_cd_archive_027_an_archived_card_reads_as_archived(sessions) -> No
     repeating_labels = button_texts(message.edits[-1][1])
     assert "♻️ Reopen" not in repeating_labels
     assert "Delete" in repeating_labels
-
-
-async def test_cd_idea_030_ideas_have_a_list_of_their_own_and_safwa_expands_one(
-    sessions, monkeypatch
-) -> None:
-    """CD-IDEA-030 — tests/brd/cards.feature"""
-    async with sessions() as session:
-        first = await create_card(session, kind="idea", title="Cold showers", note="One week")
-        await create_card(session, kind="idea", title="Learn to sail")
-        await session.commit()
-        first_id = first.id
-
-    services = services_for(sessions)
-    assert "ideas" in {screen.nav for screen in services.commands}
-
-    listing = FakeMessage(310, bot_message=True)
-    await command_ideas(listing, services)
-    text, markup = listing.edits[-1]
-    assert "Cold showers" in text and "Learn to sail" in text
-    assert "➕ New Idea" in button_texts(markup)
-
-    screen = FakeMessage(311, bot_message=True)
-    await render_card(screen, services, first_id)
-    text, markup = screen.edits[-1]
-    assert "Title: <b>Cold showers</b>" in text
-    assert "Note: One week" in text
-    assert button_texts(markup) == ["✏️ Title", "📝 Note", "✨ Expand", "Delete", "↩️ Back"]
-
-    turns: list[str] = []
-
-    async def record(_message, _services, request, _source) -> None:
-        turns.append(request)
-
-    monkeypatch.setattr(idea_screens, "run_dialogue_turn", record)
-    expand = next(
-        button
-        for row in markup.inline_keyboard
-        for button in row
-        if button.text == "✨ Expand"
-    )
-    await callback_token_handler(
-        FakeCallback(expand.callback_data.split(":", 1)[1], screen), services
-    )
-
-    assert turns == ["Разверни идею «Cold showers» в карточки.\nЗаметка: One week"]
-    async with sessions() as session:
-        unchanged = await session.get(Card, first_id)
-        assert (unchanged.kind, unchanged.title) == ("idea", "Cold showers")
 
 
 async def test_cd_effort_008_the_effort_selector_names_what_each_rung_costs(sessions) -> None:

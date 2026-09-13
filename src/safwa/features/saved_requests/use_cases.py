@@ -16,22 +16,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.foundation.errors import DomainError
 
 from ...foundation.workspace import bump_workspace
-from ..cards.api import CARD_ID_VIEWS, CardQueryError, normalize_card_query
+from ..cards.api import CardQueryError, normalize_card_query
 from .model import SavedRequest
 
 # What a new workspace starts with, so the owner sees what a Request is before
-# asking for one. They are ordinary Requests from the moment they exist: renaming,
-# re-aiming and deleting one work as they do for any other.
+# asking for one. It is an ordinary Request from the moment it exists: renaming,
+# re-aiming and deleting it work as they do for any other.
 DEFAULT_REQUESTS: tuple[tuple[str, str, str], ...] = (
     (
         "Все цели",
         "Каждая Цель, включая архивные.",
         "SELECT id FROM ai_cards WHERE kind = 'goal' ORDER BY title",
-    ),
-    (
-        "Все идеи",
-        "Всё, что записано и ещё не разложено по карточкам.",
-        "SELECT id FROM ai_ideas ORDER BY created_at DESC",
     ),
 )
 
@@ -48,9 +43,7 @@ async def create_saved_request(
     if not normalized_name:
         raise DomainError("Request name cannot be empty")
     try:
-        normalized_query = await normalize_card_query(
-            session, query_sql, views, must_read=CARD_ID_VIEWS
-        )
+        normalized_query = await normalize_card_query(session, query_sql, views)
     except CardQueryError as error:
         raise DomainError(str(error)) from error
     existing = await session.scalar(
@@ -98,9 +91,7 @@ async def update_saved_request(
         request.description = description.strip()
     if query_sql is not None:
         try:
-            request.query_sql = await normalize_card_query(
-                session, query_sql, views, must_read=CARD_ID_VIEWS
-            )
+            request.query_sql = await normalize_card_query(session, query_sql, views)
         except CardQueryError as error:
             raise DomainError(str(error)) from error
     request.version += 1
@@ -111,7 +102,7 @@ async def update_saved_request(
 async def seed_default_requests(
     session: AsyncSession, *, views: Collection[str]
 ) -> list[SavedRequest]:
-    """Write the Requests a brand new workspace starts with.
+    """Write the Request a brand new workspace starts with.
 
     Called once, when the workspace row is created, so a Request the owner deletes
     stays deleted rather than coming back on the next start.
