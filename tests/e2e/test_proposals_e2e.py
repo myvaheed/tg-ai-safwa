@@ -131,6 +131,55 @@ async def test_invalid_create_returns_minimal_repair_arguments_to_the_model(e2e_
     assert "pydantic.dev" not in repair_result["error"]
 
 
+async def test_pr_plan_028_a_subagent_says_what_it_will_change_before_its_calls_become_proposals(
+    e2e_harness,
+):
+    """PR-PLAN-028 — tests/brd/tg_agent_shell/proposals.feature"""
+    create = (
+        "card",
+        {"mode": "create", "kind": "action", "title": "Подтянуться 20 раз", "effort_points": 1},
+    )
+    read = mutation_turn(
+        ("query_data", {"sql": "SELECT id, title FROM ai_cards LIMIT 5"}), content="", prefix="read"
+    )
+    unplanned = mutation_turn(create, content="")
+    planned = mutation_turn(create, content="Plan: one Action, effort 1, in the Backlog.")
+    advisor, provider = e2e_harness.advisor(
+        [route_turn("workspace_mutator"), read, unplanned, planned]
+    )
+
+    outcome = await advisor.handle("Сделай один Action: подтянуться 20 раз")
+
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
+    # The read went through without any text of its own; the unplanned change did not.
+    read_result = next(
+        json.loads(str(message["content"]))
+        for message in provider.calls[2]
+        if message.get("role") == "tool"
+    )
+    assert isinstance(read_result, list)
+    refusal = next(
+        json.loads(str(message["content"]))
+        for message in reversed(provider.calls[3])
+        if message.get("role") == "tool"
+    )
+    assert refusal["code"] == "plan_required"
+    assert refusal["retryable"] is True
+    assert "text of the response" in refusal["hint"]
+    assert len(e2e_harness.reviews.open_proposals) == 1
+    # The plan is in the session's own record, and not in what the owner reads.
+    async with e2e_harness.sessions() as session:
+        run = await session.scalar(
+            select(AgentRun).where(AgentRun.kind == "workspace_mutator")
+        )
+    assert any(
+        message.get("role") == "assistant"
+        and "Plan: one Action" in str(message.get("content"))
+        for message in run.state_json["transcript"]
+    )
+    assert "Plan: one Action" not in outcome.message
+
+
 async def test_ai_parent_query_sql_resolves_before_card_proposal(e2e_harness):
     async with e2e_harness.sessions() as session:
         parent = await create_manual_card(

@@ -262,7 +262,7 @@ async def test_han_offer_005_the_offer_outlives_a_screen(e2e_harness) -> None:
                 ),
             ),
             CompletionTurn(
-                content="",
+                content="Plan: one Action.",
                 tool_calls=(
                     ToolCall(
                         id="c1",

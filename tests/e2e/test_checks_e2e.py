@@ -4,7 +4,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from advisor_e2e_helpers import route_turn
+from advisor_e2e_helpers import PLAN, route_turn
 from sqlalchemy import select
 from ui_harness import spawn_timer
 
@@ -40,7 +40,7 @@ pytestmark = pytest.mark.e2e
 
 def mutation_turn(*calls: tuple[str, dict[str, object]]) -> ProviderTurn:
     return ProviderTurn(
-        content="",
+        content=PLAN,
         tool_calls=tuple(
             ProviderToolCall(id=f"mutation-{index}", name=name, arguments_json=json.dumps(arguments))
             for index, (name, arguments) in enumerate(calls, start=1)

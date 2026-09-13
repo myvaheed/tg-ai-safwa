@@ -178,3 +178,16 @@ Feature: Proposals
     Then the second is on screen, and the third has not been read by autoapproval at all
     When the owner decides the one on screen
     Then the third is read then, and autoapproval may still save it with no screen of its own
+
+  Scenario: PR-PLAN-028 — A subagent says what it will change before its calls become proposals
+    Given a subagent is sending the calls that would become proposals
+    When the response carrying them has no text of its own
+    Then none of those calls is prepared, and each comes back refused as plan_required
+    And the subagent is told to write what it will change, in order, as the text of that
+      response and send the calls again
+    When it sends them again under such a text
+    Then they are prepared as they would have been
+    And it is the response carrying the calls that is held to this, whichever response of
+      the session that is: a read before it needs no text
+    And that text is the subagent's own working record, kept in its session and not in
+      what the owner reads

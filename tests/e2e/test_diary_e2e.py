@@ -4,6 +4,7 @@ import json
 from datetime import date, timedelta
 
 import pytest
+from agent_turns import PLAN
 from sqlalchemy import select
 from test_subagent_e2e import diary_subagent
 
@@ -23,7 +24,7 @@ TODAY = date.today().isoformat()
 
 def turn(*calls: tuple[str, dict[str, object]]) -> ProviderTurn:
     return ProviderTurn(
-        content="",
+        content=PLAN,
         tool_calls=tuple(
             ProviderToolCall(id=f"call-{index}", name=name, arguments_json=json.dumps(arguments))
             for index, (name, arguments) in enumerate(calls, start=1)

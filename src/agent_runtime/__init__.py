@@ -20,6 +20,7 @@ from .model import (
     RunStatus,
     ToolOutcome,
     TurnOutcome,
+    flatten_content,
     json_safe,
     log_preview,
 )
@@ -47,6 +48,7 @@ __all__ = [
     "TurnOutcome",
     "append_user_message",
     "cache_breakpoint",
+    "flatten_content",
     "json_safe",
     "log_preview",
     "system_note",

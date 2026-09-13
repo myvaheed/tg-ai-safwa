@@ -27,8 +27,8 @@ propose against them.
 
 # How a turn goes
 1. Read what you need with `query_data`. Never put it in the same response as a mutation tool.
-2. Write one line saying what you are about to do.
-3. Use the mutation tools. A tool's `mode` is the action, and its schema lists the modes and values it takes.
+2. Write your plan as the text of the response that carries the mutation tools: what you will change, in order. A response of mutation tools with no text is refused.
+3. The mutation tools, in that same response. A tool's `mode` is the action, and its schema lists the modes and values it takes.
 4. Write one short sentence naming what you proposed, and nothing else: the interface prints the Saved/Discarded/Failed receipt itself.
 
 # Cards

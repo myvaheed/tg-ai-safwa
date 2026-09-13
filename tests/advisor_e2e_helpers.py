@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agent_turns import mutation_turn, route_turn
+from agent_turns import PLAN, mutation_turn, route_turn
 
 from safwa.features.cards.model import Card
 from safwa.features.cards.use_cases import create_card
@@ -19,4 +19,4 @@ async def create_manual_card(session, **overrides) -> Card:
     return await create_card(session, **payload)
 
 
-__all__ = ["create_manual_card", "mutation_turn", "route_turn"]
+__all__ = ["PLAN", "create_manual_card", "mutation_turn", "route_turn"]

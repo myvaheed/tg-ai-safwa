@@ -185,10 +185,6 @@ stateDiagram-v2
     completed --> [*]
 ```
 
-The diagram above describes the current runtime. The planned Proposal lifecycle makes Cancel,
-Discard and text interrupting review terminal for that chain; those outcomes must no longer use
-the ordinary resume/re-route transitions shown here. Save continues the active chain as before.
-
 `AgentSession.restore` rebuilds a suspended run from its own row. The context prefix is **not**
 restored — it is rebuilt from live state, so the workspace and the clock are current while the session's
 own steps come only from its record.
@@ -274,8 +270,6 @@ system message.
 
 A routed subagent's context is the same order under its own prompt: prompt → workspace state →
 `<Conversation>` → this turn's receipts → clock.
-The planned visible Proposal plan does not narrow or replace these blocks, their history windows
-or the Advisor's history. Its display is not a new context-isolation mechanism.
 
 ## `route` — one turn handed to a subagent
 
@@ -363,9 +357,6 @@ flowchart LR
 
 ## Proposals — the only way anything is written
 
-The mechanism below is currently implemented. The following planned subsection changes message
-lifetimes and chain termination; it does not bypass preparation, Save or domain validation.
-
 ```mermaid
 flowchart LR
     T[mutation tool call] --> C[Pydantic contract]
@@ -381,6 +372,12 @@ flowchart LR
 ```
 
 - The model never mutates and never writes mutation SQL.
+- **A response that carries mutation calls carries the subagent's plan as its text**
+  (`PR-PLAN-028`): what it will change, in order. `ToolAdapters.mutation` refuses every call
+  in a response with no text as `plan_required`, one retryable error, and the session runs
+  again. The text is the model's working record: it stays in the session's transcript, so a
+  session picked up after a decision still reads what it meant to do, and it never reaches the
+  chat.
 - **Every mutation tool belongs to a subagent**, never to the Advisor. `workspace` owns the workspace,
   `diary` owns the Diary. Preparation runs where the change was authored.
 - **Every proposal screen is exactly Save/Discard.** A screen that needs a field control is the
@@ -406,83 +403,6 @@ flowchart LR
   `related_id` of the screens in the chat. Review ids only ever go up, so a screen that still names
   one cannot reach a later review.
 - Anything the model must know across an approval belongs in a **tool result**, not in a receipt.
-
-### Planned Proposal plan and preparation lifecycle
-
-Agreed 2026-09-13; not implemented by this documentation change. The product behavior and
-acceptance cases live in [FUTURE_FEATURE.md](FUTURE_FEATURE.md#a-visible-plan-accompanies-a-proposal-chain),
-with delivery order in [PLAN_FEATURES.md](PLAN_FEATURES.md#follow-up--proposal-plan-and-cancel-planned).
-This is the Proposal request's own lifecycle, with no hook registration, RAG prerequisite,
-separate planner agent or new workspace entity.
-
-**One request owns the plan and all its dependent Proposal batches.** The Advisor produces a
-plain-language description of intended changes using its usual context. Publish that plan first,
-then a separate preparation status with an inline Cancel button, before preparing Proposals.
-There is no extra approval of the plan. Reuse the existing progress ownership so the generic
-thinking notice does not become a third preparation message.
-
-The plan is registered as ordinary Advisor dialogue. The progress message is registered UI status
-and stays out of conversation; Receipt handling retains its existing result semantics. Preserve
-normal history selection, workspace context, tool results and instructions for every agent.
-Do not substitute a plan-only context or persist a second copy of conversation as a plan database.
-
-The Proposal coordinator keeps the request/message identities and terminal outcome across its
-existing suspensions. That is process state. The same plan stays on screen when a saved parent
-enables preparation of a child or the request enters another dependent batch. During active
-preparation there is one status with Cancel; during review that status is gone and only the front
-Save/Discard screen is interactive. The plain-text plan is not a second live review screen.
-
-```mermaid
-stateDiagram-v2
-    [*] --> Preparing: publish plan, then status with Cancel
-    Preparing --> Reviewing: remove status, show first review
-    Reviewing --> Reviewing: Save, another prepared Proposal remains
-    Reviewing --> Preparing: Save, dependent preparation remains
-    Reviewing --> Finished: whole chain saved successfully
-    Preparing --> Finished: whole chain successfully autoapproved
-    Preparing --> Stopped: Cancel or terminal preparation failure
-    Reviewing --> Stopped: Discard, /cancel, text interruption or terminal failure
-    Finished --> [*]: remove plan; report actual results
-    Stopped --> [*]: keep plan; replace active status/review with Receipt
-```
-
-**Preparation Cancel is a real callback bound to this request.** It uses the existing turn
-owner's cancellation and revision invalidation. It is the explicit exception to the general
-foreground button guard, not permission for arbitrary buttons to mutate during preparation.
-Cancel ends the chain rather than suspending it. Invalidate continuation before awaiting model
-shutdown, close any unshown prepared remainder and prevent a late result from publishing review.
-An expired Cancel button cannot stop a later request. The typed /cancel keeps the same stop meaning.
-
-**Discard closes the request's remaining work, not just the current queue item.** Record the
-selected discard and terminate every undecided batch and dependent continuation. Preserve saved
-changes. Replace review with one consolidated Receipt and keep the plan. Tool results and the
-Receipt distinguish saved work, the selected discard and unexecuted work stopped with the chain.
-No loop, subagent, autoapproval path or fulfillment validator may regenerate that remainder.
-The coordinator ends the affected runs and releases their existing lease; the Receipt is the
-terminal user-facing result. The generic requirement to finish with prose must not invoke another
-generation or repair loop merely because the stopped request ended with that Receipt.
-
-**Text over review closes the old chain before normal dialogue handles the new text.** Produce
-the Receipt and retain the plan; do not leave the old child session eligible for re-routing.
-The new text can request a revised plan, cancel further work or ask a question. It is processed
-as an ordinary new request with the usual history and factual results, not as an automatic resume
-of the old queue. New changes require intent in that request. A retained plan alone authorizes
-nothing. The policy for other text arriving during active preparation stays as currently defined;
-the new inline Cancel supplies the explicit way to stop that phase.
-
-**Plan removal follows successful completion of the entire chain.** Preparation, the last item
-of one batch, or a Receipt alone cannot establish that. Keep the plan on owner stops and unresolved
-failure; an empty queue after Discard is a stopped chain, not a successfully completed one.
-Apply the same rule when all allowed changes were autoapproved, without broadening that allowlist.
-After success remove the plan from Telegram, so normal history no longer reads that message.
-After a stop it remains ordinary reference text, never a runnable saved plan. A new request can
-produce a new plan; it does not silently erase a retained plan from a stopped request.
-
-The implementation batch must replace the currently documented queue continuation and
-interrupted-session reuse together with PR-QUEUE-007, PR-SAVE-010, PR-INTERRUPT-017/018 and the
-affected agent/screen/history cases. Keep generic runtime primitives neutral: the Proposal
-coordinator decides a stop is terminal, adapters publish/delete registered messages, and the
-existing session/turn owners enforce cancellation, lease release and rejection of stale results.
 
 ## Cues — what Safwa is given to say when nobody asked
 

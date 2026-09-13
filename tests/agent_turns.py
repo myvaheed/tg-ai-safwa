@@ -20,11 +20,16 @@ def route_turn(name: str) -> ProviderTurn:
     )
 
 
+# What a scripted subagent says it is about to do: a response carrying mutation tools
+# has to carry its plan as text, or every call in it is refused.
+PLAN = "Plan: the changes below, in this order."
+
+
 def mutation_turn(
-    *calls: tuple[str, dict[str, object]], prefix: str = "mutation"
+    *calls: tuple[str, dict[str, object]], prefix: str = "mutation", content: str = PLAN
 ) -> ProviderTurn:
     return ProviderTurn(
-        content="",
+        content=content,
         tool_calls=tuple(
             ProviderToolCall(
                 id=f"{prefix}-{index}", name=name, arguments_json=json.dumps(arguments)

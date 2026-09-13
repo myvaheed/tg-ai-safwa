@@ -5,7 +5,7 @@ from datetime import UTC, datetime, time
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
-from advisor_e2e_helpers import route_turn
+from advisor_e2e_helpers import PLAN, route_turn
 from sqlalchemy import select
 from ui_harness import spawn_timer
 
@@ -37,7 +37,7 @@ TZ = ZoneInfo("Europe/Istanbul")
 
 def turn(*calls: tuple[str, dict[str, object]], prefix: str = "t") -> ProviderTurn:
     return ProviderTurn(
-        content="",
+        content=PLAN,
         tool_calls=tuple(
             ProviderToolCall(id=f"{prefix}-{index}", name=name, arguments_json=json.dumps(arguments))
             for index, (name, arguments) in enumerate(calls, start=1)

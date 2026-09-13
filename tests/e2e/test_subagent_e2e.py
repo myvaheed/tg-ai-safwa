@@ -5,7 +5,7 @@ import json
 from datetime import date
 
 import pytest
-from advisor_e2e_helpers import route_turn
+from advisor_e2e_helpers import PLAN, route_turn
 from sqlalchemy import select
 
 from llm_gateway import CompletionTurn as ProviderTurn
@@ -37,7 +37,7 @@ class StubDayReader:
 
 def turn(*calls: tuple[str, dict[str, object]], prefix: str = "call") -> ProviderTurn:
     return ProviderTurn(
-        content="",
+        content=PLAN,
         tool_calls=tuple(
             ProviderToolCall(
                 id=f"{prefix}-{index}", name=name, arguments_json=json.dumps(arguments)

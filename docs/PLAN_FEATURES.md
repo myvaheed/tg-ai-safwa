@@ -1,8 +1,7 @@
 # Which entry to build first
 
 [FUTURE_FEATURE.md](FUTURE_FEATURE.md) records candidates without ordering them. This file sets
-their implementation order, costs and dependencies, including the owner's planned Proposal
-plan/preparation flow after Wave 1.
+their implementation order, costs and dependencies.
 
 **This approves nothing.** An entry still leaves FUTURE_FEATURE.md only by becoming a scenario
 package under [tests/brd/](../tests/brd/README.md) or by being dropped, and the owner still decides
@@ -46,7 +45,8 @@ is cheaper than discovering them one wave at a time.
 Answered 2026-09-08, and written into the entries themselves:
 
 - **The middle kind became Subgoal.** Wave 1 also introduced raw capture as Idea, and the
-  owner's 2026-09-13 decision retired that fourth kind again; Subgoal keeps its meaning.
+  owner's 2026-09-13 decision retired that fourth kind again, in the follow-up below;
+  Subgoal keeps its meaning.
 - **The effort rungs are approved as written**, 0.5 included.
 - **The daily summary and the Diary nudge are two switches, and neither replaces the other.** Both
   on, one message carries both; one on, only that one appears.
@@ -71,40 +71,14 @@ in [cards.feature](../tests/brd/cards.feature), [planning.feature](../tests/brd/
 and [profile.feature](../tests/brd/profile.feature). The database is rebuilt for them once,
 not five times.
 
-### Follow-up — Proposal plan and Cancel, planned
+### Follow-up — retire raw-capture Ideas, shipped
 
-Owner decision 2026-09-13: retire raw-capture Ideas and cancel the proposed Drafts feature and
-its cleanup hook. Cards will have only Goal, Subgoal and Action. No new capture entity replaces
-Ideas; a visible plan belongs to the current Proposal request.
-
-The behavior is [A visible plan accompanies a Proposal chain](FUTURE_FEATURE.md#a-visible-plan-accompanies-a-proposal-chain):
-show a plan and a separate preparation message with an inline Cancel button, keep the original
-history/context, replace preparation status with review, and retain the plan until the whole chain
-succeeds. Cancel, Discard or text interrupting review stops the remaining chain, leaves the plan
-and produces a Receipt. A stopped chain does not regenerate or resume automatically.
-
-This is work inside Proposals, not a hook. It starts after Wave 1 and does not wait for RAG,
-hook registration, the occasion journal or the later fulfillment validator. Existing Wave 2
-screens are already shipped; adapt the Ideas entry points during retirement rather than leaving
-a dead menu or saved Request behind.
-
-| Batch | Cost | Scope and completion check |
-|---|---|---|
-| Retire raw-capture Ideas | L, shipped 2026-09-13 | The fourth Card kind, the Ideas list and Expand, the creation choice, its view and every prompt line naming it, and the default «Все идеи» Request are gone; Goal, Subgoal and Action keep their rules. No column changed, but a pre-release row with `kind = 'idea'` is orphaned, so the database is rebuilt. |
-| Plan and cancellable preparation | L | One request owns two separate messages: the plan and preparation status with a real inline Cancel button. Keep existing history and workspace context. Verify their order, cancellation through the existing turn owner, no late review after cancellation, and replacement of status with the first available review. |
-| Chain termination and plan lifetime | L | Keep the same plan through all dependent batches; remove it only on successful completion of the whole request. Discard stops the remainder. Text over review closes the old chain before ordinary handling of the new request. Cancel/Discard/interruption produces a Receipt and keeps the plan; no automatic continuation of stopped work. Verify saved work survives, stopped work is not reported as individually rejected, stale controls are harmless and validators respect the stop. |
-
-The runtime responsibilities and transition cases are in
-[AGENT_ARCH.md](AGENT_ARCH.md#planned-proposal-plan-and-preparation-lifecycle).
-The usage scenarios in FUTURE_FEATURE.md are the acceptance criteria for these batches; all
-parts of the Proposal flow must be covered before calling that feature shipped.
-
-Current BRD cases must change with the implementation, not be made to claim unimplemented
-behavior in this documentation pass: PR-QUEUE-007, PR-SAVE-010 and PR-INTERRUPT-017/018 for
-termination; AG-TURN-010/022 and the interrupted-session cases for Cancel and no automatic
-resume. Cover the two-message lifetime, message classification
-and terminal results alongside the existing screens/history scenarios. Run the affected tests,
-BRD traceability, architecture snapshots and the ordinary batch checks.
+Owner decision 2026-09-13, shipped the same day: the fourth Card kind, its list and Expand,
+its creation choice, its view and every prompt line naming it, and the default «Все идеи»
+Request are gone; Goal, Subgoal and Action keep their rules. No column changed, but a
+pre-release row with `kind = 'idea'` is orphaned, so the database is rebuilt. The same day
+a subagent started saying what it will change before its calls become proposals
+([PR-PLAN-028](../tests/brd/tg_agent_shell/proposals.feature)).
 
 ## Wave 2 — screens that cost almost nothing, shipped
 
@@ -127,13 +101,13 @@ Their rules are in [cards.feature](../tests/brd/cards.feature),
 | **An unanswered proposal expires after one hour** *(Agreed)* | L | Touches the proposal store, the turn lease, Reminder delivery order and the single-screen rule at the same time. The entry's last sentence names a *second* mechanism — an expiry for manual editors' live screens. Scope it in or defer it explicitly; do not let it arrive by accident. |
 | **The retrospective — the statistics half only** | M | RT-OPEN-001 currently promises a screen that says there is nothing there yet. Code-calculated statistics fill it and are useful with no model involved. The AI analysis half is Wave 5. |
 | **The daily summary is a second system Reminder** | M | Reuses the RM-SYSTEM-022 shape and the `Cue` path; the work is the content, the second Profile switch, and the one message that carries both when both are on. Only its hour is still open. |
-| **A Card's kind can change while its structure and work history allow it** *(Agreed)* | L | The Subgoal rename and its tree rule have landed, so its four bullets are ready to become scenarios. It concerns Goal/Subgoal/Action only; a Proposal plan is not a Card kind or a conversion source. |
+| **A Card's kind can change while its structure and work history allow it** *(Agreed)* | L | The Subgoal rename and its tree rule have landed, so its four bullets are ready to become scenarios. It concerns Goal/Subgoal/Action only. |
 
 ## Wave 4 — the hooks, in dependency order
 
 The initiative hooks below need journal 14, which is shared infrastructure rather than a hook.
-Instructions 1, 4 and 15 do not. The Proposal plan/preparation flow and explicit retrospective
-workflows do not depend on hook registration. The classification audit and implementation stages are in [HOOK_ARCH.md](HOOK_ARCH.md).
+Instructions 1, 4 and 15 do not. Explicit retrospective workflows do not depend on hook
+registration. The classification audit and implementation stages are in [HOOK_ARCH.md](HOOK_ARCH.md).
 
 | Entry | | Depends on |
 |---|---|---|
@@ -152,8 +126,8 @@ workflows do not depend on hook registration. The classification audit and imple
 |---|---|---|
 | **The retrospective — the AI analysis half** | XL | Four questions open in its own entry, and it is also where memory upkeep is removed from `memory/upkeep.py`. Two batches, not one. |
 | **Onboarding covers the first start and a return after an absence** | L | Undecided in both halves, and it puts changing state next to the byte-stable prefix. |
-| **Proposal fulfillment validation** | XL | A separate part of Proposal architecture; see [PROPOSAL_VALIDATION.md](PROPOSAL_VALIDATION.md). It coordinates request completion and actual outcomes. It must honor the terminal Cancel/Discard/interruption semantics introduced after Wave 1, and cannot restart a stopped chain. It does not depend on hooks. |
-| **8 — Retrieve similar existing entities before creating another** | XL | The general BeforeTool interception, retrieval thresholds and clarification/resume contract remain experimental. The Proposal plan/preparation flow does not require retrieval. |
+| **Proposal fulfillment validation** | XL | A separate part of Proposal architecture; see [PROPOSAL_VALIDATION.md](PROPOSAL_VALIDATION.md). It coordinates request completion, actual outcomes and interruptions. It does not depend on hooks. |
+| **8 — Retrieve similar existing entities before creating another** | XL | The general BeforeTool interception, retrieval thresholds and clarification/resume contract remain experimental. |
 | **The Advisor cannot read the conversation by date** | L | A recorded limitation. Nothing else waits on it. |
 
 **3** and **12** are already rejected in their entries. They stay written so the reasoning is not
@@ -176,8 +150,6 @@ flowchart LR
   journal --> h11["Hook 11 — repeated Missed"]
   journal --> h13
   journal --> h10
-  preparation["Proposal plan + Cancel"] --> termination["Whole-chain completion or stop"]
-  termination --> validator["Proposal fulfillment validation"]
 ```
 
 ## Where to look hardest
@@ -187,16 +159,11 @@ occasion identity, confirmed delivery and decision handling. A second initiative
 complete path. Existing Summary and helper availability exercise registration before this stage;
 they do not need artificial owner-decision records.
 
-**The pre-release window.** The Proposal plan is process state and adds no new domain table;
-declare a schema batch only if an implementation changes stored structure. Hard Time keeps its
-own schema scope.
+**The pre-release window.** Declare a schema batch only if an implementation changes stored
+structure. Hard Time keeps its own schema scope.
 
 **What reaches the cacheable prefix.** Onboarding's changing guidance and instruction 4's Sprint
-list belong outside `messages[0]`. The Proposal plan is an ordinary Advisor message, preparation
-status is UI, and execution keeps the existing conversation window rather than a plan-only block.
-
-**Vocabulary before volume.** A visible Proposal plan is request-scoped text, with no separate
-list, Card kind or workspace links.
+list belong outside `messages[0]`.
 
 **The rungs are the unit now.** Hook 7's 15 EP, the Sprint's committed and capacity figures and
 the Advisor's judgement of a day's load all count in a scale that says what work costs the owner.
