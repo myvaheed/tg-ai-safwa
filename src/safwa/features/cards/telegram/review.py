@@ -224,7 +224,7 @@ async def _card_diff_value(session: AsyncSession, field: str, value: Any) -> str
         return category_expression(value)
     if field == "energy_types":
         return energy_expression(value)
-    if field in {"stage", "priority"} and value:
+    if field in {"kind", "stage", "priority"} and value:
         return str(value).title()
     return display_diff_value(value)
 
@@ -233,6 +233,7 @@ async def _card_diffs(
     session: AsyncSession, current: dict[str, Any], proposed: dict[str, Any]
 ) -> tuple[str, ...]:
     labels = {
+        "kind": "Kind",
         "title": "Title",
         "note": "Note",
         "parent_id": "Parent",

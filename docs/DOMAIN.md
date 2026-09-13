@@ -24,8 +24,8 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
 
 ## The Card tree, and what is derived
 
-- Goal is root-only; Subgoal is always under a Goal; Action may be root or under Goal/Subgoal and
-  has no children. **Stage**, effort, repeat, categories, energy and **Blocked** belong to an
+- A Goal is created root-level, and a Goal placed under a Goal becomes a Subgoal; a Subgoal is
+  always under a Goal; an Action may be root or under Goal/Subgoal and has no children. **Stage**, effort, repeat, categories, energy and **Blocked** belong to an
   Action alone, and are stripped for Goal/Subgoal at both the AI and the domain boundary. A
   Card's parent is set by proposal only; no screen offers the control, which is why no screen
   offers Subgoal as a kind either.
@@ -76,8 +76,9 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
   writes it and the model is told nothing of it.
 - **Deleting a Card is the whole branch or that Card alone**, and the owner chooses on the
   confirmation screen; Safwa only ever proposes the branch. Deleting one Card alone leaves its
-  children standing where the tree allows, which makes a Subgoal a Goal — the one place a kind
-  changes without being asked to, and `delete_one_card` writes an `edit_kind` event saying so.
+  children standing where the tree allows, which makes a Subgoal a Goal. That and a Goal placed
+  under a Goal are the two places a kind changes without being asked to; `delete_one_card` and
+  `set_card_parent` each write an `edit_kind` event saying so.
 
 ## Links
 

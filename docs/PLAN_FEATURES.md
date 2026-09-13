@@ -80,6 +80,14 @@ pre-release row with `kind = 'idea'` is orphaned, so the database is rebuilt. Th
 a subagent started saying what it will change before its calls become proposals
 ([PR-PLAN-028](../tests/brd/tg_agent_shell/proposals.feature)).
 
+### Follow-up — a kind changes in two places and by no proposal, shipped
+
+Owner decision 2026-09-13, shipped the same day: no proposal changes a Card's kind, and the
+entry that would have allowed conversion is dropped. A kind changes in exactly two places,
+each written as an `edit_kind` event: a Subgoal whose Goal is deleted alone becomes a Goal
+(Wave 2), and a Goal a proposal places under a Goal becomes a Subgoal
+([CD-TREE-002](../tests/brd/cards.feature)). No column changed.
+
 ## Wave 2 — screens that cost almost nothing, shipped
 
 Shipped 2026-09-09, in five batches: deleting a Card is now the branch or that Card alone
@@ -101,7 +109,6 @@ Their rules are in [cards.feature](../tests/brd/cards.feature),
 | **An unanswered proposal expires after one hour** *(Agreed)* | L | Touches the proposal store, the turn lease, Reminder delivery order and the single-screen rule at the same time. The entry's last sentence names a *second* mechanism — an expiry for manual editors' live screens. Scope it in or defer it explicitly; do not let it arrive by accident. |
 | **The retrospective — the statistics half only** | M | RT-OPEN-001 currently promises a screen that says there is nothing there yet. Code-calculated statistics fill it and are useful with no model involved. The AI analysis half is Wave 5. |
 | **The daily summary is a second system Reminder** | M | Reuses the RM-SYSTEM-022 shape and the `Cue` path; the work is the content, the second Profile switch, and the one message that carries both when both are on. Only its hour is still open. |
-| **A Card's kind can change while its structure and work history allow it** *(Agreed)* | L | The Subgoal rename and its tree rule have landed, so its four bullets are ready to become scenarios. It concerns Goal/Subgoal/Action only. |
 
 ## Wave 4 — the hooks, in dependency order
 
@@ -137,7 +144,6 @@ repeated, and they are not scheduled.
 
 ```mermaid
 flowchart LR
-  kind["A Card's kind can change"]
   h5["Hook 5 — parents with no Action"]
   h7["Hook 7 — daily capacity"]
   hardtime["Hard Time schedule"] --> h13["Hook 13 — Hard Time outside the plan"]

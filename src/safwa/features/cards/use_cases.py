@@ -41,7 +41,7 @@ from ..tags.api import Tag, attach_tags, unlinkable_tag_id
 from ..tags.model import CardTag
 from ..values.api import Value, attach_values, unlinkable_value_id
 from ..values.model import CardValue
-from .hierarchy import branch_actions, propagate_ancestors, settle_archive
+from .hierarchy import branch_actions, card_children, propagate_ancestors, settle_archive
 from .model import (
     EFFORT_POINTS,
     TERMINAL_STAGES,
@@ -407,19 +407,38 @@ async def set_card_parent(
     *,
     actor: ActorType = ActorType.USER_UI,
 ) -> Card:
-    """Attach a Card to a parent (or make it root-level) with full hierarchy repair."""
+    """Attach a Card to a parent (or make it root-level) with full hierarchy repair.
+
+    A Goal placed under a Goal becomes a Subgoal: the tree has no Goal below a Goal, and
+    the placement was asked for. That and `delete_one_card` are the two places a kind
+    changes on its own, and both write an `edit_kind` event saying so.
+    """
     card = await session.get(Card, card_id)
     if card is None or card.archived_at is not None:
         raise DomainError("Card does not exist or is archived")
-    await validate_parent(session, card.kind, parent_id)
+    becomes_subgoal = card.kind == CardKind.GOAL.value and parent_id is not None
+    await validate_parent(
+        session, CardKind.SUBGOAL if becomes_subgoal else card.kind, parent_id
+    )
+    if becomes_subgoal and await holds_subgoals(session, card.id):
+        raise DomainError("A Goal with Subgoals under it cannot become a Subgoal")
     if card.parent_id == parent_id:
         return card
 
     previous_parent_id = card.parent_id
     before = card_snapshot(card)
     card.parent_id = parent_id
+    if becomes_subgoal:
+        card.kind = CardKind.SUBGOAL.value
     card.version += 1
-    await record_card_event(session, card, "set_parent", actor, before, new_correlation_id())
+    await record_card_event(
+        session,
+        card,
+        "edit_kind" if becomes_subgoal else "set_parent",
+        actor,
+        before,
+        new_correlation_id(),
+    )
     await propagate_ancestors(session, previous_parent_id)
     await propagate_ancestors(session, parent_id)
     await bump_workspace(session)
@@ -437,7 +456,7 @@ async def validate_parent(
             raise DomainError("A Subgoal may only be placed under a Goal")
         return None
     if kind is CardKind.GOAL:
-        raise DomainError("A Goal must be root-level")
+        raise DomainError("A Goal is created root-level")
     parent = await session.get(Card, parent_id)
     if parent is None or parent.archived_at is not None:
         raise DomainError("Parent does not exist or is archived")
@@ -446,6 +465,12 @@ async def validate_parent(
     if kind is CardKind.SUBGOAL and parent.kind != CardKind.GOAL.value:
         raise DomainError("A Subgoal may only be placed under a Goal")
     return parent
+
+
+async def holds_subgoals(session: AsyncSession, card_id: int) -> bool:
+    return any(
+        child.kind == CardKind.SUBGOAL.value for child in await card_children(session, card_id)
+    )
 
 
 def validate_action_fields(
@@ -673,8 +698,8 @@ async def delete_one_card(session: AsyncSession, card_id: int) -> int:
     """Delete one Card and leave what was under it standing where the tree allows.
 
     A Subgoal cannot stand without a Goal over it, so one that loses its Goal becomes a
-    Goal itself. That is the only place a kind changes on its own, and it is recorded
-    like any other edit rather than happening silently.
+    Goal itself. That and `set_card_parent` are the two places a kind changes on its own,
+    and it is recorded like any other edit rather than happening silently.
     """
     card = await session.get(Card, card_id)
     if card is None:

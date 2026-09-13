@@ -47,6 +47,7 @@ from .use_cases import (
     create_card,
     delete_subtree,
     finish_action,
+    holds_subgoals,
     move_card,
     set_card_parent,
     toggle_card_category,
@@ -90,7 +91,8 @@ CARD_SCALAR_FIELDS = frozenset(
 
 
 def allows_parent(child_kind: str | None, parent_kind: str | None) -> bool:
-    if child_kind == CardKind.SUBGOAL.value:
+    # A Goal given a parent is the Subgoal it becomes.
+    if child_kind in {CardKind.GOAL.value, CardKind.SUBGOAL.value}:
         return parent_kind == CardKind.GOAL.value
     if child_kind == CardKind.ACTION.value:
         return parent_kind in {CardKind.GOAL.value, CardKind.SUBGOAL.value}
@@ -314,12 +316,14 @@ class CardProposalHandler:
                 )
             for action_only_field in ACTION_ONLY_FIELDS:
                 values.pop(action_only_field, None)
-            if proposed_kind == CardKind.GOAL.value and (
-                values.get("parent_id") is not None or values.get("parent_query") is not None
+            if (
+                change.action is ChangeAction.CREATE
+                and proposed_kind == CardKind.GOAL.value
+                and (values.get("parent_id") is not None or values.get("parent_query") is not None)
             ):
                 raise ToolPreparationError(
                     "invalid_parent_kind",
-                    "A Goal is always root-level and cannot take a parent.",
+                    "A Goal is created root-level and cannot take a parent.",
                     "Drop the parent from this call, or propose a Subgoal or Action instead.",
                 )
             if proposed_kind == CardKind.SUBGOAL.value:
@@ -336,6 +340,15 @@ class CardProposalHandler:
             if change.action is ChangeAction.UPDATE and not values:
                 raise DomainError("The Card proposal contains no applicable fields")
         await _resolve_parent_reference(context, values, str(proposed_kind))
+        if card is not None and card.kind == CardKind.GOAL.value and values.get("parent_id"):
+            if await holds_subgoals(context.session, card.id):
+                raise ToolPreparationError(
+                    "invalid_parent_kind",
+                    f"Goal “{card.title}” has Subgoals under it and cannot become a Subgoal.",
+                    "Leave it root-level, or move its Subgoals elsewhere first.",
+                )
+            # What Save will do, so the review screen and the receipt say it.
+            values["kind"] = CardKind.SUBGOAL.value
         for spec in CARD_REFERENCE_SPECS:
             await validate_named_references(context.session, values, spec)
         await _guard_pending_checks(context.session, change, values)

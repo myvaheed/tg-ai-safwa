@@ -108,6 +108,44 @@ async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions) ->
     assert "↩️ Back" not in buttons
 
 
+async def test_cd_tree_002_the_review_screen_shows_the_goal_becoming_a_subgoal(sessions) -> None:
+    """CD-TREE-002 — tests/brd/cards.feature"""
+    store = ProposalStore()
+    async with sessions() as session:
+        health = await create_card(session, kind="goal", title="Health")
+        life = await create_card(session, kind="goal", title="Life")
+        workspace = await session.get(Workspace, 1)
+        proposal = store.open_proposal(
+            message="Put Health under Life",
+            workspace_revision=workspace.revision,
+            changes=[
+                ProposalChange(
+                    entity="card",
+                    action=ChangeAction.UPDATE,
+                    entity_id=health.id,
+                    expected_version=health.version,
+                    values={"parent_id": life.id, "kind": "subgoal"},
+                )
+            ],
+        )
+        await session.commit()
+        proposal_id = proposal.id
+        health_id, life_id = health.id, life.id
+
+    message = FakeMessage(62, bot_message=True)
+    await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
+    text, _markup = message.edits[-1]
+    assert "Kind: Goal → Subgoal" in text
+    assert "Parent: Root → Life" in text
+
+    async with sessions() as session:
+        await approve_proposal(session, store, PROPOSALS, proposal_id)
+        await session.commit()
+    async with sessions() as session:
+        health = await session.get(Card, health_id)
+        assert (health.kind, health.parent_id) == ("subgoal", life_id)
+
+
 async def test_card_check_link_proposal_shows_the_check_in_overview_and_diff(sessions) -> None:
     store = ProposalStore()
     async with sessions() as session:

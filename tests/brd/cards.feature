@@ -13,14 +13,19 @@ Feature: Cards
     When the owner or Safwa tries to make it an Action
     Then the change is refused and the Card is still a Subgoal
     And the only way to have an Action instead is to create one
-    And the one kind that changes without being asked to is a Subgoal whose Goal was deleted
-      on its own, by CD-DELETE-025
+    And the kinds that change without being asked to are a Subgoal whose Goal was deleted on
+      its own, by CD-DELETE-025, and a Goal placed under a Goal, by CD-TREE-002
 
-  Scenario: CD-TREE-002 — A Goal is always root-level
-    Given the owner has a Goal "Health"
-    When a Goal is proposed with a parent, or "Health" is moved under another Card
-    Then it is refused, and the refusal says a Goal is always root-level
-    And nothing about the Goal changes
+  Scenario: CD-TREE-002 — A Goal is created root-level, and one placed under a Goal becomes a Subgoal
+    Given the owner has Goals "Health" and "Life"
+    When a Goal is proposed with a parent
+    Then it is refused, and the refusal says a Goal is created root-level
+    When "Health" is placed under "Life"
+    Then "Health" is a Subgoal under "Life", and its history records the change of kind
+    And the review screen showed the kind changing before Save
+    When a Goal with a Subgoal under it is placed under a Goal
+    Then it is refused, and the refusal says a Goal with Subgoals under it cannot become a Subgoal
+    And a Goal placed under a Subgoal or an Action is refused as a Subgoal would be
 
   Scenario: CD-TREE-003 — A Subgoal belongs to a Goal
     Given a Goal "Health" and a Subgoal "Sleep better"

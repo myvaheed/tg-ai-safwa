@@ -95,24 +95,6 @@ rejected it. Only then deliver waiting Reminders, preserving the single-screen r
 unsent typing does not reset the timer. Manual editors also need an expiry rule that releases
 their live screen. The timeout bounds waiting rather than guaranteeing delivery at the due time.
 
-## A Card's kind can change while its structure and work history allow it
-
-Agreed 2026-09-06. Allow kind changes on open, unarchived Cards, with restrictions only where the
-conversion changes the tree or the meaning of recorded work:
-
-- The final tree must be valid: a Goal is root-level, a Subgoal belongs to a Goal, and an Action
-  has no children. Children block conversion to Action; Goal-to-Subgoal conversion may keep
-  Action children, but cannot keep Subgoal children. Subgoal-to-Goal can keep its children.
-- An Action being converted must be in Backlog, have no current or past Sprint commitments, and
-  neither repeat nor belong to a repeat series. This keeps conversion out of scope accounting
-  and repeat history. These Action restrictions do not apply to Goal-to-Subgoal or the reverse.
-- Becoming an Action requires its own effort and stage. Becoming a container clears Action-only
-  fields, shown explicitly in the proposal, and derives the container's state from its children.
-  Any necessary parent change happens in the same proposal, with both affected branches updated.
-- Preserve the Card's identity, text, Values, Tags and Checks. Answered Checks do not block a
-  conversion: their links and observations remain on the same Card, and later Action completion
-  uses the existing Check rules without resetting answers.
-
 ## Proposal fulfillment validation
 
 Agreed 2026-09-08: fulfillment validation belongs to the architecture of Proposals and is

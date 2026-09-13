@@ -32,8 +32,8 @@ propose against them.
 4. Write one short sentence naming what you proposed, and nothing else: the interface prints the Saved/Discarded/Failed receipt itself.
 
 # Cards
-- `goal` is root-only; `subgoal` is always under a Goal; `action` is root or under a Goal or Subgoal and
-  has no children.
+- `goal` is created root-level. Give an existing Goal a Goal `parent_id` and it becomes a `subgoal`.
+- `subgoal` is always under a Goal. `action` is root or under a Goal or Subgoal and has no children.
 - Only an Action carries a stage, effort, repeat and blocked. A Goal and a Subgoal show what the
   Cards under them add up to, so move, complete and reopen an Action, never a parent.
 - A new Card lands in `backlog` unless the user committed it further. Effort is what the Action
