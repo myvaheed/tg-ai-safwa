@@ -25,6 +25,7 @@ from telegram_llm import Note
 from ..foundation.kinds import MessageKind
 from ..proposals.model import BatchDecision
 from ..proposals.render import proposal_outcome_text
+from ..proposals.store import PROPOSAL_REVIEW_MINUTES
 from .layout import Page
 from .model import CallbackToken, UiSession
 from .services import Services
@@ -181,6 +182,44 @@ async def _interrupted_review(services: Services, screen: Note) -> tuple[str, st
             notice="You continued the conversation without saving it.",
         )
     return text, MessageKind.DIALOGUE_ASSISTANT.value
+
+
+async def expire_review(message: Message, services: Services, proposal_id: int) -> None:
+    """Close the review nobody answered in time, and leave its screen saying so.
+
+    The screen stays in the chat as with an interruption, because a question was asked;
+    what it says is that the system closed it, not that the owner refused it.
+    """
+    root = services.root
+    review = root.reviews.proposal(proposal_id)
+    if review is None:
+        return
+    screens = await services.chat.notes.outgoing(
+        message.chat.id, kinds={MessageKind.APPROVAL.value}
+    )
+    async with services.sessions() as session:
+        description = await root.describe_proposal(session, review.id)
+    root.reviews.end_proposal(review.id)
+    progress = await root.close_expired_review(review.id)
+    waited = f"No answer for {PROPOSAL_REVIEW_MINUTES} minutes"
+    if progress:
+        text = (
+            "<b>Request closed</b>\n"
+            f"{waited}, so the remaining proposals were not saved.\n\n"
+            + html.escape(progress)
+        )
+    else:
+        text = proposal_outcome_text(
+            BatchDecision.EXPIRED,
+            description.summary,
+            description.fields,
+            notice=f"{waited}, so it was not saved.",
+        )
+    for screen in screens:
+        if screen.related_id == review.id:
+            await services.chat.freeze_screen(
+                message, screen, text, MessageKind.DIALOGUE_ASSISTANT.value
+            )
 
 
 def owner_display_name(message: Message, services: Services) -> str:

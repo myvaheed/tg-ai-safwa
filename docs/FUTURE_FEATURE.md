@@ -55,16 +55,6 @@ Still to decide: the workflow's steps, how an interrupted analysis resumes, how 
 memory changes are reviewed, and what happens when the same Sprint is analysed again. A conclusion
 about the owner must be distinguishable from a recorded fact and open to correction.
 
-## An unanswered proposal expires after one hour
-
-Agreed 2026-09-06. After one hour without acknowledged owner interaction with the displayed
-review, discard all remaining proposals in its request; time spent queued does not count. Keep
-already saved changes. Close the suspended request without regenerating proposals, and replace
-the review with an account saying the system closed it due to inactivity, not that the owner
-rejected it. Only then deliver waiting Reminders, preserving the single-screen rule. Reading or
-unsent typing does not reset the timer. Manual editors also need an expiry rule that releases
-their live screen. The timeout bounds waiting rather than guaranteeing delivery at the due time.
-
 ## Proposal fulfillment validation
 
 Agreed 2026-09-08: fulfillment validation belongs to the architecture of Proposals and is

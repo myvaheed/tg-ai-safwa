@@ -18,12 +18,14 @@ from tg_agent_shell.proposals.model import (
     RejectPendingEffect,
     ResolveCallsEffect,
 )
+from tg_agent_shell.proposals.reducer import EXPIRED as UNANSWERED
 from tg_agent_shell.proposals.reducer import INTERRUPTED, reduce
 
 PENDING = BatchDecision.PENDING
 APPROVED = BatchDecision.APPROVED
 DISCARDED = BatchDecision.DISCARDED
 FAILED = BatchDecision.FAILED
+EXPIRED = BatchDecision.EXPIRED
 
 
 def item(proposal_id: int, decision: BatchDecision = PENDING) -> QueueItem:
@@ -106,6 +108,16 @@ def batch(*items: QueueItem, exhausted: bool = False):
             InterruptAction(INTERRUPTED),
             [APPROVED],
             (),
+        ),
+        # PR-EXPIRE-029: the same closing, recorded as expired rather than discarded.
+        (
+            batch(item(1, APPROVED), item(2), item(3)),
+            InterruptAction(UNANSWERED, EXPIRED),
+            [APPROVED, EXPIRED, EXPIRED],
+            (
+                RejectPendingEffect((2, 3)),
+                ResolveCallsEffect(("call-2", "call-3"), EXPIRED, UNANSWERED),
+            ),
         ),
     ],
 )

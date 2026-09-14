@@ -177,6 +177,38 @@ async def test_a_session_no_one_routed_to_is_ended_when_the_person_writes_instea
     assert notebook.notes == ["Bread, milk, coffee"]
 
 
+async def test_a_session_nobody_answered_is_ended_and_the_next_words_start_afresh() -> None:
+    """Closing answers the open calls in the record and ends the session; nothing resumes it."""
+    bot = _load_example()
+    provider = bot.ScriptedProvider(
+        [
+            bot._call("write_note", text="Ask about the roast"),
+            bot.CompletionTurn(content="A fresh start."),
+        ]
+    )
+    notebook, store, runtime = _note_keeper(bot, provider)
+
+    proposed = await runtime.handle([{"role": "user", "content": "Note: ask about the roast"}])
+    reference = proposed.ref
+    assert reference is not None
+
+    prior = await runtime.close(reference, {notebook.waiting_call: {"status": "expired"}})
+
+    assert prior == []
+    assert store.status(reference.run_id) is RunStatus.ABANDONED
+    stored = await store.get(reference.run_id)
+    assert stored is not None
+    assert stored.state["interaction_token"] is None
+    assert json.loads(str(stored.state["transcript"][-1]["content"])) == {"status": "expired"}
+    # The reference is spent: it closes nothing twice and resumes nothing.
+    assert await runtime.close(reference, {}) is None
+    assert await runtime.resume(reference, Resumption()) is None
+    answered = await runtime.handle([{"role": "user", "content": "Hello again"}])
+    assert answered.message == "A fresh start."
+    assert store.status(reference.run_id + 1) is RunStatus.COMPLETED
+    assert notebook.notes == ["Bread, milk, coffee"]
+
+
 async def test_a_reference_no_one_minted_resumes_nothing() -> None:
     """A decision the session never stopped on changes it in no way at all."""
     bot = _load_example()
@@ -206,6 +238,20 @@ async def test_the_in_memory_store_closes_a_branch_the_way_the_real_one_does() -
 
     assert store.status(child.id) is RunStatus.ABANDONED
     assert store.status(grandchild.id) is RunStatus.ABANDONED
+
+
+async def test_the_in_memory_store_ends_a_chain_the_way_the_real_one_does() -> None:
+    """The session and every caller above it end together, and the state is kept."""
+    store = InMemorySessionStore()
+    root = await store.create(kind="advisor")
+    child = await store.create(kind="workspace_mutator", parent_run_id=root.id)
+    grandchild = await store.create(kind="diary", parent_run_id=child.id)
+
+    await store.close_chain(grandchild.id, {"transcript": []})
+
+    assert [store.status(run.id) for run in (root, child, grandchild)] == [RunStatus.ABANDONED] * 3
+    stored = await store.get(grandchild.id)
+    assert stored is not None and stored.state == {"transcript": []}
 
 
 # --------------------------------------------- what the loop refuses, counts and stops

@@ -146,6 +146,20 @@ Feature: Proposals
     Then the first one stays saved
     And the account left in place of the screen names all three, the saved one included
 
+  Scenario: PR-EXPIRE-029 — A review nobody answers is closed after 30 minutes
+    Given a review screen is in the chat and one more proposal from that request is queued behind it
+    And a Reminder came due while the screen stood
+    When 30 minutes pass from the moment the screen was shown without Save, Discard or a message
+      from the owner (PROPOSAL_REVIEW_MINUTES)
+    Then neither proposal is written, and each is recorded as expired, not as discarded
+    And what that request had already saved stays saved and is reported as saved
+    And the screen loses its buttons and becomes an account that the system closed the request
+    And the owner's next message starts a new request; the closed one is not resumed and nothing
+      in it is proposed again
+    And the Reminder is delivered after the screen is closed, on the same poll
+    And time spent queued does not count: the proposal behind the screen is on the clock only
+      once it is shown
+
   Scenario: PR-AUTO-024 — Autoapproval saves a change with no screen when it is exactly what was asked for
     Given autoapproval is switched on
     And the owner asked for a change to an item they already have

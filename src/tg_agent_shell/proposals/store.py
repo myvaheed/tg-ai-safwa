@@ -8,9 +8,13 @@ that pointed into it.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from itertools import count
 
 from .model import ApprovalBatch, ChangeProposal, ProposalChange
+
+# How long a review screen waits for an answer before the system closes it.
+PROPOSAL_REVIEW_MINUTES = 30
 
 
 class ProposalStore:
@@ -40,6 +44,18 @@ class ProposalStore:
     def end_proposal(self, proposal_id: int) -> None:
         """End one review, whichever way it ended: saved, discarded, interrupted, refused."""
         self._proposals.pop(proposal_id, None)
+
+    def expired(self, now: datetime) -> ChangeProposal | None:
+        """The review whose screen has waited `PROPOSAL_REVIEW_MINUTES` without an answer."""
+        deadline = now - timedelta(minutes=PROPOSAL_REVIEW_MINUTES)
+        return next(
+            (
+                proposal
+                for proposal in self._proposals.values()
+                if proposal.shown_at is not None and proposal.shown_at <= deadline
+            ),
+            None,
+        )
 
     def open_batch(self, batch: ApprovalBatch) -> None:
         self._batches.append(batch)

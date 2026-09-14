@@ -70,6 +70,13 @@ class SessionStore(Protocol):
     async def take_interrupted_root(self) -> tuple[RunRecord, str] | None:
         """The root session a person wrote over, claimed, with what it had already done."""
 
+    async def close_chain(self, run_id: int, state: dict[str, Any]) -> None:
+        """Store what a session was left with, and end it with every caller above it.
+
+        One write, like `leave_interrupted`: the chain ends whole. Nothing resumes any
+        session in it afterwards.
+        """
+
     async def close_unfinished_children(self, run_id: int) -> int:
         """End everything left unfinished anywhere below this session, however deep.
 

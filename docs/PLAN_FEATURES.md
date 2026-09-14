@@ -97,6 +97,17 @@ same setup session — and stored as the same schedule payload, with its next oc
 what fixes the time ([CD-HARDTIME-033](../tests/brd/cards.feature)). `reminders/api.py`
 is the door Cards reads it through. Three columns replaced one, so the database is rebuilt.
 
+### Follow-up — a review nobody answers is closed after 30 minutes, shipped
+
+Shipped 2026-09-14, at 30 minutes rather than the hour the entry named: a review screen
+that stands `PROPOSAL_REVIEW_MINUTES` without an answer is closed by the Cue poll — its
+pending proposals recorded as expired, what was saved kept, the screen frozen into an
+account that the system closed the request, and the whole session chain ended so the
+owner's next words start afresh ([PR-EXPIRE-029](../tests/brd/tg_agent_shell/proposals.feature)).
+The Reminders that waited behind it are said on that same tick. The entry's second
+mechanism, an expiry for manual editors, is dropped: a manual screen holds no lease and
+shuts no gate, so there is nothing for one to release. No column changed.
+
 ## Wave 2 — screens that cost almost nothing, shipped
 
 Shipped 2026-09-09, in five batches: deleting a Card is now the branch or that Card alone
@@ -114,7 +125,6 @@ Their rules are in [cards.feature](../tests/brd/cards.feature),
 |---|---|---|
 | **POTENTIAL HOOKS — the shape every hook has** | L per implementation stage; design first | Follow the concrete stages in [HOOK_ARCH.md](HOOK_ARCH.md): registration and event adapters, existing Summary and helper behavior, then a complete initiative. Required tool calls need runtime enforcement; named provider selection alone is insufficient. |
 | **POTENTIAL HOOKS 14 — Remember hook occasions and the owner's decisions** | L | Build with the first initiative, hook 2. The record must outlive its delivered `Cue`. Summary and helper availability can move to the registry before it; Proposal fulfillment validation is independent. |
-| **An unanswered proposal expires after one hour** *(Agreed)* | L | Touches the proposal store, the turn lease, Reminder delivery order and the single-screen rule at the same time. The entry's last sentence names a *second* mechanism — an expiry for manual editors' live screens. Scope it in or defer it explicitly; do not let it arrive by accident. |
 | **The retrospective — the statistics half only** | M | RT-OPEN-001 currently promises a screen that says there is nothing there yet. Code-calculated statistics fill it and are useful with no model involved. The AI analysis half is Wave 5. |
 
 ## Wave 4 — the hooks, in dependency order

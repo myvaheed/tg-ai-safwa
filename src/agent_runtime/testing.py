@@ -117,6 +117,20 @@ class InMemorySessionStore:
         candidate.state = state
         return candidate, summary
 
+    async def close_chain(self, run_id: int, state: dict[str, Any]) -> None:
+        record = self._records.get(run_id)
+        if record is None:
+            return
+        record.state = state
+        while record is not None:
+            self._status[record.id] = RunStatus.ABANDONED
+            self._claimed.discard(record.id)
+            record = (
+                self._records.get(record.parent_run_id)
+                if record.parent_run_id is not None
+                else None
+            )
+
     async def close_unfinished_children(self, run_id: int) -> int:
         branch = {run_id}
         # `parent_run_id` always names an older record, so one pass in id order reaches

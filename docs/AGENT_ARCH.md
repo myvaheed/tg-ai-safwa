@@ -179,6 +179,7 @@ stateDiagram-v2
     awaiting_approval --> running: Save / Discard
     running --> completed: answered in words
     awaiting_approval --> interrupted: the owner wrote instead of deciding
+    awaiting_approval --> abandoned: nobody answered in PROPOSAL_REVIEW_MINUTES
     interrupted --> running: route back on the same turn
     interrupted --> abandoned: the turn ended without coming back
     running --> failed
@@ -189,13 +190,14 @@ stateDiagram-v2
 restored — it is rebuilt from live state, so the workspace and the clock are current while the session's
 own steps come only from its record.
 
-Three things happen to a session that stops on a person, and `AgentManager` owns all three:
+Four things happen to a session that stops on a person, and `AgentManager` owns all four:
 
 | | |
 |---|---|
 | suspend | checkpoint the session and hand back an `InteractionRef` — its run id and a minted token |
 | `resume(ref, value)` | claim by that reference, answer the calls it stopped on, run it on, hand its receipt up the chain |
 | `interrupt(ref, results, summary)` | leave it unfinished with those results and the note that the owner wrote instead of deciding |
+| `close(ref, results)` | answer the calls it stopped on and end it with every caller above it: nobody answered, and nothing comes back to it |
 
 The reference is opaque: the runtime never learns what the person was shown, and Safwa keeps the
 mapping — the approval batch carries the token, so a Save resolves the screen and names the session
@@ -313,6 +315,11 @@ proposal. Its transcript carries one line saying the owner refused *and wrote in
 "rejected" alone it would propose the same thing again. The turn that routed there is the outer
 bound: when it answers or fails, `_close_unfinished_children` ends what it left behind.
 
+A review nobody answers ends the chain the other way. After `PROPOSAL_REVIEW_MINUTES` on
+screen, `AgentManager.close` answers the subagent's calls as `expired` and records it and the
+Advisor that routed there `abandoned`: nothing is regenerated, and the owner's next words are a
+new request rather than a correction to this one (`PR-EXPIRE-029`).
+
 The routing rules in `SYSTEM_PROMPT` are generated from the roster, so a subagent is routed to
 exactly when its `AgentSpec` is in `MODULES`; its `purpose` **is** the prompt line.
 
@@ -398,10 +405,18 @@ flowchart LR
 - Several mutation calls in one turn queue as independent screens; the model resumes only after the
   last one resolves, each result handed back as a tool result.
 - A review and its approval batch are process state, not rows: `ProposalStore` holds both, they
-  carry neither a status nor an age, and a batch is over when no screen is still waiting. Nothing
+  carry no status, and a batch is over when no screen is still waiting. Nothing
   survives a restart, so startup only clears what pointed at a review — the buttons, and the
   `related_id` of the screens in the chat. Review ids only ever go up, so a screen that still names
   one cannot reach a later review.
+- **A review nobody answers is closed by the system** (`PR-EXPIRE-029`). A proposal carries
+  `shown_at` from the moment its screen is drawn — a queued one has none — and the Cue poll closes
+  the one that has stood `PROPOSAL_REVIEW_MINUTES = 30`: its pending proposals are recorded
+  `expired`, never `discarded`, so neither the owner nor the model reads a rejection into it; what
+  the request had saved stays saved; the screen is frozen into an account that the system closed
+  the request; and the session chain is `abandoned` through `AgentManager.close`, so nothing is
+  resumed. It takes the background lease the way a Cue does, so it never runs inside the owner's
+  turn, and a Save that lands after it finds the review gone.
 - Anything the model must know across an approval belongs in a **tool result**, not in a receipt.
 
 ## Cues — what Safwa is given to say when nobody asked
@@ -415,7 +430,8 @@ flowchart TB
     RM[the Reminder poll<br/>next_fire_at says when] --> ROW
     SP[finish_sprint<br/>in the transaction that ends it] --> ROW[(cues — one row, the words)]
     ROW --> CQ[the Cue poll, every 30s]
-    CQ --> GATE{CueRuntime.can_speak?}
+    CQ --> EXP[a review past PROPOSAL_REVIEW_MINUTES<br/>is closed first]
+    EXP --> GATE{CueRuntime.can_speak?}
     GATE -->|advisor busy, pending proposal,<br/>or suspended run| WAIT[the row stays]
     GATE -->|free| TURN[CueRuntime.speak: one Advisor turn]
     TURN -->|the owner got it| DEL[the row is deleted]
@@ -433,6 +449,8 @@ it again.
 - **The gate** refuses while `turn.active`, while `ProposalStore.busy` — any open review or any
   suspended approval batch — and while any session holds `claimed_at`. An open proposal is an
   unanswered question, and raising a second one on top of it turns the chat into a stack of screens.
+  Each tick closes the review that ran out of time before it reads the gate, so the Reminder that
+  waited behind that screen is said on the same tick the screen is closed.
 - **The lease** is `turn.try_begin_background()`. `still_current` compares `dialogue_revision`
   before and after the turn, so an owner who speaks mid-turn wins and the half-written answer is
   discarded.

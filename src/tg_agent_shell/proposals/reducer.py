@@ -22,6 +22,7 @@ from .model import (
 )
 
 INTERRUPTED = "The user continued with a new message."
+EXPIRED = "Nobody answered the review in time, so the request was closed."
 
 
 def reduce(state: BatchState, action: BatchAction) -> tuple[BatchState, tuple[BatchEffect, ...]]:
@@ -55,7 +56,7 @@ def _interrupt(
 ) -> tuple[BatchState, tuple[BatchEffect, ...]]:
     pending = tuple(item for item in state.items if item.decision is BatchDecision.PENDING)
     items = tuple(
-        replace(item, decision=BatchDecision.DISCARDED) if item in pending else item
+        replace(item, decision=action.decision) if item in pending else item
         for item in state.items
     )
     effects: list[BatchEffect] = []
@@ -64,7 +65,7 @@ def _interrupt(
         effects.append(
             ResolveCallsEffect(
                 tuple(call_id for item in pending for call_id in item.call_ids),
-                BatchDecision.DISCARDED,
+                action.decision,
                 action.reason,
             )
         )

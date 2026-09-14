@@ -6,6 +6,7 @@ import html
 
 from aiogram.types import InlineKeyboardMarkup, Message
 
+from ...foundation.clock import utcnow
 from ...foundation.errors import DomainError
 from ...foundation.kinds import MessageKind
 from ...telegram import (
@@ -69,6 +70,9 @@ async def render_proposal(
         await session.commit()
     text = "\n\n".join(part for part in text_parts if part)
     markup = InlineKeyboardMarkup(inline_keyboard=rows)
+    # Its time to be answered starts now, whether this is its first drawing or a redraw
+    # after a press that failed.
+    proposal.shown_at = utcnow()
     if replace_message_id is not None:
         await edit_registered_message(
             message,

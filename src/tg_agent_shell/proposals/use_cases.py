@@ -168,13 +168,21 @@ class BatchInterruption:
 
 
 def interrupt_batch(
-    store: ProposalStore, proposal_id: int, *, reason: str
+    store: ProposalStore,
+    proposal_id: int,
+    *,
+    reason: str,
+    decision: BatchDecision = BatchDecision.DISCARDED,
 ) -> BatchInterruption | None:
-    """Close the batch behind this screen because the owner wrote instead of deciding it."""
+    """Close the batch behind this screen without an answer to it.
+
+    The owner wrote instead of deciding, or nobody decided in time; `decision` is what
+    the screens still waiting are recorded as.
+    """
     batch = store.batch_for_proposal(proposal_id)
     if batch is None:
         return None
-    _state, effects = reduce(batch.state, InterruptAction(reason))
+    _state, effects = reduce(batch.state, InterruptAction(reason, decision))
     tools = [dict(item) for item in batch.tool_calls]
     for effect in effects:
         match effect:

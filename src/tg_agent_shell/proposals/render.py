@@ -564,6 +564,7 @@ PROPOSAL_OUTCOME_HEADINGS = {
     BatchDecision.APPROVED: "✅ Saved",
     BatchDecision.DISCARDED: "🗑 Discarded",
     BatchDecision.FAILED: "⚠️ Failed",
+    BatchDecision.EXPIRED: "⏳ Expired",
 }
 
 

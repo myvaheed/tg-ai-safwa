@@ -228,6 +228,27 @@ class AgentRunStore:
                 root.state_json = root_state
             await session.commit()
 
+    async def close_chain(self, run_id: int, state: dict[str, Any]) -> None:
+        """Store what a session was left with, and end it with every caller above it.
+
+        One transaction, like `leave_interrupted`: a chain half ended would leave a root
+        waiting on a screen that is gone.
+        """
+        async with self.sessions() as session:
+            run = await session.get(AgentRun, run_id)
+            if run is None:
+                return
+            run.state_json = state
+            while run is not None:
+                run.status = RunStatus.ABANDONED.value
+                run.claimed_at = None
+                run = (
+                    await session.get(AgentRun, run.parent_run_id)
+                    if run.parent_run_id is not None
+                    else None
+                )
+            await session.commit()
+
     async def close_unfinished_children(self, run_id: int) -> int:
         """End everything left unfinished anywhere below this session.
 

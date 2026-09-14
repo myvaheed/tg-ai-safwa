@@ -18,10 +18,11 @@ from telegram_llm import DialogueMessage
 
 from ..ai.outcome import AIOutcome
 from ..ai.runs import AgentRun
+from ..foundation.clock import utcnow
 from ..foundation.kinds import MessageKind
 from ..history import TelegramMessage
 from ..proposals.telegram import render_ai_outcome
-from ..telegram import Services
+from ..telegram import Services, expire_review
 from ..turn import own_cancellation
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,22 @@ class CueRuntime:
         self.bot = bot
         self.owner_id = owner_id
         self._lease_revision: int | None = None
+
+    async def expire_review(self) -> None:
+        """Close the review the owner left unanswered past its time.
+
+        It takes the lease a Cue takes, so it never runs inside the owner's own turn and
+        never over one; an owner arriving while it runs finds the review closed, and their
+        press or words land on a screen that says so.
+        """
+        review = self.services.root.reviews.expired(utcnow())
+        if review is None or not self.services.turn.try_begin_background():
+            return
+        revision = self.services.turn.dialogue_revision
+        try:
+            await expire_review(self._anchor(), self.services, review.id)
+        finally:
+            self.services.turn.end_background(revision)
 
     async def can_speak(self) -> bool:
         """Whether the Advisor is free enough to be handed an unsolicited request.

@@ -9,6 +9,7 @@ what the review *did*: the rows its handlers wrote, and the turn's own `agent_ru
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
@@ -42,6 +43,9 @@ class ChangeProposal:
     message: str
     workspace_revision: int
     changes: list[ProposalChange] = field(default_factory=list)
+    # When its screen was drawn. A queued proposal has none until it becomes the head,
+    # which is what keeps its time in the queue from counting against it.
+    shown_at: datetime | None = None
 
 
 class BatchDecision(StrEnum):
@@ -49,6 +53,8 @@ class BatchDecision(StrEnum):
     APPROVED = "approved"
     DISCARDED = "discarded"
     FAILED = "failed"
+    # Nobody answered the screen in time, so the system closed it: not a rejection.
+    EXPIRED = "expired"
 
 
 # The interface owns this line, never the model. History replays it as a tool result
@@ -57,11 +63,13 @@ SAVED_RECEIPT = "✅ Saved"
 AUTO_SAVED_RECEIPT = "⚡ Auto-saved"
 DISCARDED_RECEIPT = "🗑 Discarded"
 FAILED_RECEIPT = "⚠️ Failed"
+EXPIRED_RECEIPT = "⏳ Expired"
 
 DECISION_RECEIPTS = {
     BatchDecision.APPROVED: SAVED_RECEIPT,
     BatchDecision.DISCARDED: DISCARDED_RECEIPT,
     BatchDecision.FAILED: FAILED_RECEIPT,
+    BatchDecision.EXPIRED: EXPIRED_RECEIPT,
 }
 
 RECEIPT_MEANINGS = {
@@ -69,6 +77,7 @@ RECEIPT_MEANINGS = {
     AUTO_SAVED_RECEIPT: "applied",
     DISCARDED_RECEIPT: "not applied, the user rejected it",
     FAILED_RECEIPT: "not applied, it failed",
+    EXPIRED_RECEIPT: "not applied, the review was left unanswered",
 }
 
 
@@ -132,9 +141,11 @@ class DecideAction:
 
 @dataclass(frozen=True, slots=True)
 class InterruptAction:
-    """New dialogue arrived over the screens, so the batch never gets its answer."""
+    """The batch never gets its answer: new dialogue arrived over the screens, or nobody
+    answered them in time. `decision` is what the screens still waiting are recorded as."""
 
     reason: str
+    decision: BatchDecision = BatchDecision.DISCARDED
 
 
 BatchAction = DecideAction | InterruptAction
@@ -151,7 +162,7 @@ class ResolveCallsEffect:
 
 @dataclass(frozen=True, slots=True)
 class RejectPendingEffect:
-    """The screens that lost their answer, to be recorded as discarded."""
+    """The screens that lost their answer, to be taken off the screen."""
 
     proposal_ids: tuple[int, ...]
 

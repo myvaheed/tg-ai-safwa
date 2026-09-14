@@ -4,10 +4,11 @@ One turn may run several sessions: a caller routes to another, which may route o
 session with no caller answers the person, so the turn ends when that one answers — or
 when something in the chain opens a screen, and every session in it waits.
 
-Three things happen to a session that stops on a person, and all three are here. It is
+Four things happen to a session that stops on a person, and all four are here. It is
 checkpointed and handed back an `InteractionRef` (`_suspend`); it is answered and runs on
-(`resume`); or the person writes instead of deciding, and it is left for the session that
-routed to it to come back to — or ended, when nothing routed to it (`interrupt`). A host
+(`resume`); the person writes instead of deciding, and it is left for the session that
+routed to it to come back to — or ended, when nothing routed to it (`interrupt`); or nobody
+answers it in time, and it is ended with everything that routed to it (`close`). A host
 that had to assemble any of those out of parts would be reimplementing the package.
 
 `_complete` is the shape they share: store what a suspended session needs, stamp the record,
@@ -351,20 +352,29 @@ class AgentManager:
         record = await self.store.get(ref.run_id)
         if record is None or record.state.get("interaction_token") != ref.token:
             return None
-        state = dict(record.state)
-        state["interaction_token"] = None
-        prior = [str(line) for line in state.get("display_result_summaries") or []]
-        state["transcript"] = [
-            *_resumed_transcript(
-                [dict(item) for item in state.get("transcript") or []], results
-            ),
-            system_note(self.interrupted_note),
-        ]
+        state, prior = _answered(record, results)
+        state["transcript"].append(system_note(self.interrupted_note))
         if record.parent_run_id is None:
             await self.store.save_state(ref.run_id, state)
             await self._finish(ref.run_id, RunStatus.ABANDONED, started)
             return prior
         await self.store.leave_interrupted(ref.run_id, state, summary)
+        return prior
+
+    async def close(self, ref: InteractionRef, results: Mapping[str, Any]) -> list[str] | None:
+        """End this session's wait because nobody answered it in time.
+
+        Nothing comes back to it: the session and every caller above it are ended together,
+        so the person's next words start a new request rather than continuing this one. Its
+        own calls are answered in its transcript first, as `interrupt` answers them. Returns
+        what the session had already told the person before it stopped; ``None`` means the
+        reference names nothing.
+        """
+        record = await self.store.get(ref.run_id)
+        if record is None or record.state.get("interaction_token") != ref.token:
+            return None
+        state, prior = _answered(record, results)
+        await self.store.close_chain(ref.run_id, state)
         return prior
 
     async def _continue(
@@ -531,6 +541,20 @@ class AgentManager:
             )
             agent = parent
         return None
+
+
+def _answered(
+    record: RunRecord, results: Mapping[str, Any]
+) -> tuple[dict[str, Any], list[str]]:
+    """A waiting session's state with its open calls answered and its reference spent,
+    and what it had already told the person before it stopped."""
+    state = dict(record.state)
+    state["interaction_token"] = None
+    prior = [str(line) for line in state.get("display_result_summaries") or []]
+    state["transcript"] = _resumed_transcript(
+        [dict(item) for item in state.get("transcript") or []], results
+    )
+    return state, prior
 
 
 def _resumed_transcript(

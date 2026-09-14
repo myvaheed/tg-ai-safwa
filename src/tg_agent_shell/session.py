@@ -40,7 +40,7 @@ from .proposals.api import ProposalDescription, ProposalRegistry
 from .proposals.materialize import MAX_REPAIR_ROUNDS, ProposalMaterializer
 from .proposals.model import RECEIPT_MEANINGS, BatchDecision
 from .proposals.prepare import ChangePreparer
-from .proposals.reducer import INTERRUPTED
+from .proposals.reducer import EXPIRED, INTERRUPTED
 from .proposals.render import (
     ProposalRenderer,
     compose_display_outcome,
@@ -303,6 +303,30 @@ class RootSession:
             InteractionRef(interrupted.run_id, interrupted.interaction_token),
             _call_results(tools),
             summary=summary,
+        )
+        return compose_display_outcome(
+            "", [line for line in (*(prior_summaries or ()), summary) if line]
+        )
+
+    async def close_expired_review(self, proposal_id: int) -> str | None:
+        """End the batch behind a screen nobody answered in time, and record what it did.
+
+        The same account `cancel_approval_for_proposal` returns, and the opposite fate for
+        the request: nothing is left to come back to.  The session that wrote the proposal
+        and the request that routed there are both closed, so the owner's next words start
+        a new request instead of continuing this one.  ``None`` when the screen does not
+        belong to a suspended batch.
+        """
+        interrupted = interrupt_batch(
+            self.reviews, proposal_id, reason=EXPIRED, decision=BatchDecision.EXPIRED
+        )
+        if interrupted is None:
+            return None
+        tools = interrupted.tool_calls
+        summary = results_summary(tools, include_preparation_errors=False, for_display=True)
+        prior_summaries = await self.runtime.close(
+            InteractionRef(interrupted.run_id, interrupted.interaction_token),
+            _call_results(tools),
         )
         return compose_display_outcome(
             "", [line for line in (*(prior_summaries or ()), summary) if line]

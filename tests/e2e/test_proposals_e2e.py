@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -34,16 +35,18 @@ from safwa.foundation.workspace import Workspace
 from telegram_llm import ChatHost
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.ai.runs import AgentRun
-from tg_agent_shell.foundation.kinds import MARKS
-from tg_agent_shell.history import TelegramNotes
+from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.foundation.kinds import MARKS, MessageKind
+from tg_agent_shell.history import TelegramMessage, TelegramNotes
 from tg_agent_shell.proposals.model import (
     BatchDecision,
     ChangeAction,
     ProposalChange,
 )
+from tg_agent_shell.proposals.store import PROPOSAL_REVIEW_MINUTES
 from tg_agent_shell.proposals.telegram import render_proposal
 from tg_agent_shell.proposals.use_cases import approve_proposal
-from tg_agent_shell.telegram import callback_token_handler, dismiss_prior_ui
+from tg_agent_shell.telegram import callback_token_handler, dismiss_prior_ui, expire_review
 from tg_agent_shell.telegram.model import CallbackToken
 from tg_agent_shell.turn import TurnManager
 
@@ -881,6 +884,110 @@ async def test_new_dialogue_cancels_every_unresolved_item_in_suspended_batch(e2e
         # next words may well be a correction to exactly these two changes.  Unfinished
         # rather than waiting, because no screen is open on it any more.
         assert (run.kind, run.status) == ("workspace_mutator", "interrupted")
+
+
+async def test_pr_expire_029_a_review_nobody_answered_closes_the_request_for_good(e2e_harness):
+    """PR-EXPIRE-029 — tests/brd/tg_agent_shell/proposals.feature"""
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(
+                ("tag", {"mode": "create", "name": "VrWalk"}),
+                ("value", {"mode": "create", "name": "Health"}),
+            ),
+            "A new request, answered afresh.",
+        ]
+    )
+    first = await advisor.handle("Prepare two changes")
+    assert first.proposal_id is not None
+    services = review_services(e2e_harness, advisor)
+    screen = QueueTestMessage()
+    await render_proposal(screen, services, first.proposal_id)
+    review = advisor.reviews.proposal(first.proposal_id)
+    queued = next(item for item in advisor.reviews.open_proposals if item is not review)
+    # Only the screen on display is on the clock; the proposal queued behind it is not.
+    assert review.shown_at is not None and queued.shown_at is None
+    review.shown_at -= timedelta(minutes=PROPOSAL_REVIEW_MINUTES - 1)
+    assert advisor.reviews.expired(utcnow()) is None
+    review.shown_at -= timedelta(minutes=1)
+    assert advisor.reviews.expired(utcnow()) is review
+
+    await expire_review(QueueTestMessage(message_id=0, parent=screen), services, review.id)
+
+    frozen = screen.bot.edits[-1]
+    assert "Request closed" in frozen
+    assert f"No answer for {PROPOSAL_REVIEW_MINUTES} minutes" in frozen
+    assert "⏳ Expired — New Tag “VrWalk”" in frozen
+    assert "⏳ Expired — New Value “Health”" in frozen
+    assert "🗑 Discarded" not in frozen
+    assert advisor.reviews.open_proposals == () and advisor.reviews.open_batches == ()
+    async with e2e_harness.sessions() as session:
+        assert await session.scalar(select(func.count(Tag.id)).where(Tag.name == "VrWalk")) == 0
+        assert await session.scalar(select(func.count(Value.id)).where(Value.name == "Health")) == 0
+        runs = list(await session.scalars(select(AgentRun).order_by(AgentRun.id)))
+        assert [(run.kind, run.status, run.claimed_at) for run in runs] == [
+            ("advisor", "abandoned", None),
+            ("workspace_mutator", "abandoned", None),
+        ]
+        note = await session.scalar(
+            select(TelegramMessage).where(TelegramMessage.message_id == screen.message_id)
+        )
+        assert note.kind == MessageKind.DIALOGUE_ASSISTANT.value
+
+    # The request is over: the next words are a new one, and the closed chain is not resumed.
+    answered = await advisor.handle("Hello again")
+
+    assert answered.message == "A new request, answered afresh."
+    assert len(provider.calls) == 3
+    assert all(message["role"] != "tool" for message in provider.calls[2])
+    async with e2e_harness.sessions() as session:
+        latest = await session.scalar(select(AgentRun).order_by(AgentRun.id.desc()))
+        assert (latest.kind, latest.status, latest.parent_run_id) == ("advisor", "completed", None)
+
+
+async def test_pr_expire_029_what_was_saved_before_the_time_ran_out_stays_saved(e2e_harness):
+    """PR-EXPIRE-029 — tests/brd/tg_agent_shell/proposals.feature"""
+    advisor, _provider = e2e_harness.advisor(
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(
+                ("card", {"mode": "create", "kind": "action", "title": "First", "effort_points": 3}),
+                (
+                    "card",
+                    {"mode": "create", "kind": "action", "title": "Second", "effort_points": 5},
+                ),
+                (
+                    "card",
+                    {"mode": "create", "kind": "action", "title": "Third", "effort_points": 8},
+                ),
+            ),
+        ]
+    )
+    first = await advisor.handle("Create three actions")
+    assert first.proposal_id is not None
+    services = review_services(e2e_harness, advisor)
+    screen = QueueTestMessage()
+    await render_proposal(screen, services, first.proposal_id)
+    first_shown = advisor.reviews.proposal(first.proposal_id).shown_at
+    await resolve_queued_proposal(
+        e2e_harness, services, screen, first.proposal_id, "proposal_approve"
+    )
+    second = next(
+        item for item in advisor.reviews.open_proposals if item.message.startswith("Proposal 2/3")
+    )
+    # Its own time starts when it is shown, not when the request queued it.
+    assert second.shown_at is not None and second.shown_at >= first_shown
+    second.shown_at -= timedelta(minutes=PROPOSAL_REVIEW_MINUTES)
+
+    await expire_review(QueueTestMessage(message_id=0, parent=screen), services, second.id)
+
+    frozen = screen.bot.edits[-1]
+    assert "✅ Saved" in frozen and "First" in frozen
+    assert frozen.count("⏳ Expired") == 2
+    assert "Second" in frozen and "Third" in frozen
+    async with e2e_harness.sessions() as session:
+        titles = list(await session.scalars(select(Card.title).order_by(Card.id)))
+        assert titles == ["First"]
 
 
 async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_harness):

@@ -1,4 +1,5 @@
-"""One waiting Cue per tick, and the row that outlives a failed turn.
+"""The review nobody answered in time, then one waiting Cue, per tick — and the row that
+outlives a failed turn.
 
 A Reminder needs none of this — its own `next_fire_at` is what makes it retry. A Cue row
 is for the producer with nothing to fire twice, so the row *is* the retry: it is deleted
@@ -19,6 +20,11 @@ from .queue import next_cue
 Gate = Callable[[], Awaitable[bool]]
 Speaker = Callable[[str, str], Awaitable[bool]]
 LeaseRelease = Callable[[], None]
+Expiry = Callable[[], Awaitable[None]]
+
+
+async def _nothing_expires() -> None:
+    return None
 
 
 async def tick(
@@ -27,8 +33,14 @@ async def tick(
     gate: Gate,
     speak: Speaker,
     release: LeaseRelease = lambda: None,
+    expire: Expiry = _nothing_expires,
 ) -> bool:
-    """One poll. Returns whether a Cue was delivered."""
+    """One poll. Returns whether a Cue was delivered.
+
+    The review that ran out of time is closed before the gate is read, so what was waiting
+    behind that screen is said on this tick and not a later one.
+    """
+    await expire()
     async with sessions() as session:
         cue = await next_cue(session)
         if cue is None:
@@ -56,10 +68,11 @@ async def run_cue_queue(
     gate: Gate,
     speak: Speaker,
     release: LeaseRelease = lambda: None,
+    expire: Expiry = _nothing_expires,
     poll_seconds: float,
 ) -> None:
     await run_poll(
-        lambda: tick(sessions, gate=gate, speak=speak, release=release),
+        lambda: tick(sessions, gate=gate, speak=speak, release=release, expire=expire),
         poll_seconds=poll_seconds,
         name="The Cue poll",
     )

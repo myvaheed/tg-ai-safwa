@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from types import SimpleNamespace
 
 from sqlalchemy import select
@@ -15,7 +16,7 @@ from tg_agent_shell.cues.queue import add_cue, next_cue
 from tg_agent_shell.cues.runtime import CueRuntime
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.proposals.model import ChangeAction, ProposalChange
-from tg_agent_shell.proposals.store import ProposalStore
+from tg_agent_shell.proposals.store import PROPOSAL_REVIEW_MINUTES, ProposalStore
 from tg_agent_shell.turn import TurnManager
 
 
@@ -169,6 +170,73 @@ async def test_ag_cue_029_an_empty_queue_takes_no_lease(sessions):
     assert not recorder.said and recorder.releases == 0
     async with sessions() as session:
         assert await next_cue(session) is None
+
+
+def _shown_review(reviews: ProposalStore, *, minutes_ago: int):
+    proposal = reviews.open_proposal(
+        message="Готово?",
+        workspace_revision=1,
+        changes=[
+            ProposalChange(entity="card", action=ChangeAction.CREATE, values={"title": "Рынок"})
+        ],
+    )
+    proposal.shown_at = utcnow() - timedelta(minutes=minutes_ago)
+    return proposal
+
+
+async def test_pr_expire_029_the_review_out_of_time_is_closed_before_the_cue_is_said(sessions):
+    """PR-EXPIRE-029 — tests/brd/tg_agent_shell/proposals.feature"""
+    turn, reviews = TurnManager(), ProposalStore()
+    proposal = _shown_review(reviews, minutes_ago=PROPOSAL_REVIEW_MINUTES)
+    await write(sessions, "Sprint 1 is over.")
+    runtime = _runtime(sessions, turn, reviews)
+    recorder = Recorder()
+    closed: list[int] = []
+
+    async def expire() -> None:
+        review = reviews.expired(utcnow())
+        if review is not None:
+            closed.append(review.id)
+            reviews.end_proposal(review.id)
+
+    delivered = await tick(
+        sessions,
+        gate=runtime.can_speak,
+        speak=recorder.speak,
+        release=runtime.release,
+        expire=expire,
+    )
+
+    # The screen is closed first, so the gate is open by the time this tick reads it.
+    assert delivered is True
+    assert closed == [proposal.id]
+    assert recorder.said == ["Sprint 1 is over."]
+    assert await remaining(sessions) == []
+
+
+async def test_pr_expire_029_a_review_still_within_its_time_keeps_the_gate_shut(sessions):
+    """PR-EXPIRE-029 — tests/brd/tg_agent_shell/proposals.feature"""
+    turn, reviews = TurnManager(), ProposalStore()
+    proposal = _shown_review(reviews, minutes_ago=PROPOSAL_REVIEW_MINUTES - 1)
+    await write(sessions, "Sprint 1 is over.")
+    runtime = _runtime(sessions, turn, reviews)
+    recorder = Recorder()
+
+    assert reviews.expired(utcnow()) is None
+    assert (
+        await tick(
+            sessions,
+            gate=runtime.can_speak,
+            speak=recorder.speak,
+            release=runtime.release,
+            expire=runtime.expire_review,
+        )
+        is False
+    )
+
+    assert reviews.proposal(proposal.id) is proposal
+    assert not recorder.said
+    assert await remaining(sessions) == ["Sprint 1 is over."]
 
 
 async def test_pl_end_015_the_sprints_own_words_are_what_reaches_the_owner(sessions):

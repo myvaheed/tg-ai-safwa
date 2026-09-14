@@ -170,6 +170,9 @@ class StubAdvisor:
     async def cancel_approval_for_proposal(self, _proposal_id) -> str | None:
         return None
 
+    async def close_expired_review(self, _proposal_id) -> str | None:
+        return None
+
 
 def services_for(sessions, *, root=None, reviews=None, transcriber=None):
     return SimpleNamespace(

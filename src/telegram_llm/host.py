@@ -305,29 +305,32 @@ class ChatHost:
             if frozen is None:
                 await self.remove_screen(message, screen.message_id)
                 continue
-            text, kind = frozen
-            try:
-                await message.bot.edit_message_text(
-                    self.marks.write(text, kind, event_id=screen.event_id)[0],
-                    chat_id=message.chat.id,
-                    message_id=screen.message_id,
-                    parse_mode=ParseMode.HTML,
-                )
-            except TelegramAPIError as error:
-                logger.warning("Could not freeze screen %s: %s", screen.message_id, error)
-                await clear_markup(message, screen.message_id)
-                await self.notes.forget(message.chat.id, screen.message_id)
-                continue
-            await self.notes.write(
-                Note(
-                    chat_id=message.chat.id,
-                    message_id=screen.message_id,
-                    direction="out",
-                    kind=kind,
-                    related_id=screen.related_id,
-                    event_id=screen.event_id,
-                )
+            await self.freeze_screen(message, screen, *frozen)
+
+    async def freeze_screen(self, message: Message, screen: Note, text: str, kind: str) -> None:
+        """Leave a screen standing as what became of it: these words, this kind, no buttons."""
+        try:
+            await message.bot.edit_message_text(
+                self.marks.write(text, kind, event_id=screen.event_id)[0],
+                chat_id=message.chat.id,
+                message_id=screen.message_id,
+                parse_mode=ParseMode.HTML,
             )
+        except TelegramAPIError as error:
+            logger.warning("Could not freeze screen %s: %s", screen.message_id, error)
+            await clear_markup(message, screen.message_id)
+            await self.notes.forget(message.chat.id, screen.message_id)
+            return
+        await self.notes.write(
+            Note(
+                chat_id=message.chat.id,
+                message_id=screen.message_id,
+                direction="out",
+                kind=kind,
+                related_id=screen.related_id,
+                event_id=screen.event_id,
+            )
+        )
 
     async def toast(self, message: Message, text: str, *, kind: str, seconds: float) -> None:
         """Say one thing beside the screen and take it back after `seconds`.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from types import SimpleNamespace
 
 from aiogram.exceptions import TelegramAPIError
@@ -25,10 +26,12 @@ from telegram_llm import (
     DialogueMessage,
 )
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
+from tg_agent_shell.cues.runtime import CueRuntime
+from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.kinds import MARKS, MessageKind
 from tg_agent_shell.history import TelegramMessage, TelegramNotes
 from tg_agent_shell.proposals.model import ChangeAction, ProposalChange
-from tg_agent_shell.proposals.store import ProposalStore
+from tg_agent_shell.proposals.store import PROPOSAL_REVIEW_MINUTES, ProposalStore
 from tg_agent_shell.telegram import (
     OwnerAndWritingMiddleware,
     dismiss_prior_ui,
@@ -220,6 +223,64 @@ async def test_new_dialogue_discards_and_freezes_pending_proposal(sessions) -> N
             await session.scalar(select(TelegramMessage).where(TelegramMessage.message_id == 9))
             is None
         )
+
+
+async def test_pr_expire_029_the_screen_nobody_answered_is_frozen_by_the_poll(
+    sessions, monkeypatch
+) -> None:
+    """PR-EXPIRE-029 — tests/brd/tg_agent_shell/proposals.feature"""
+    store = ProposalStore()
+    async with sessions() as session:
+        workspace = await session.get(Workspace, 1)
+        proposal = store.open_proposal(
+            message="Rename the Tag",
+            workspace_revision=workspace.revision,
+            changes=[
+                ProposalChange(
+                    entity="tag",
+                    action=ChangeAction.UPDATE,
+                    entity_id=9,
+                    expected_version=1,
+                    values={"name": "Family"},
+                )
+            ],
+        )
+        session.add(
+            TelegramMessage(
+                chat_id=700,
+                message_id=10,
+                direction="out",
+                kind=MessageKind.APPROVAL.value,
+                related_id=proposal.id,
+            )
+        )
+        await session.commit()
+    proposal.shown_at = utcnow() - timedelta(minutes=PROPOSAL_REVIEW_MINUTES)
+    bot = FakeBot()
+    services = services_for(sessions, reviews=store, root=StubAdvisor(store))
+    runtime = CueRuntime(services, bot, owner_id=42)  # type: ignore[arg-type]
+    monkeypatch.setattr(runtime, "_anchor", lambda: FakeMessage(0, bot_message=False, bot=bot))
+
+    # The owner holding the turn may be answering this very screen, so it is left alone.
+    services.turn.begin(5)
+    await runtime.expire_review()
+    assert bot.edits == [] and store.proposal(proposal.id) is proposal
+    services.turn.end(5)
+
+    await runtime.expire_review()
+
+    assert bot.edits[0][0] == 10
+    assert "⏳ Expired" in bot.edits[0][1]
+    assert f"No answer for {PROPOSAL_REVIEW_MINUTES} minutes" in bot.edits[0][1]
+    assert "Rename Tag “Family”" in bot.edits[0][1]
+    assert store.proposal(proposal.id) is None
+    # The lease it took is given back, so the Cue behind it can be said.
+    assert services.turn.active is False
+    async with sessions() as session:
+        frozen = await session.scalar(
+            select(TelegramMessage).where(TelegramMessage.message_id == 10)
+        )
+        assert frozen.kind == MessageKind.DIALOGUE_ASSISTANT.value
 
 
 async def test_a_command_dismisses_every_other_screen(sessions) -> None:

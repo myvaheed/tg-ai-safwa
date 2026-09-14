@@ -26,7 +26,8 @@ class RunStatus(StrEnum):
     INTERRUPTED = "interrupted"
     COMPLETED = "completed"
     FAILED = "failed"
-    # Interrupted, and then the turn that owned it ended without coming back.
+    # Ended without finishing: interrupted and never come back to, or waiting on a person
+    # who never answered.
     ABANDONED = "abandoned"
 
 
