@@ -14,9 +14,9 @@ Four rules, applied in this order.
 1. **The pre-release window closes once.** There are no migrations: a schema change costs a rebuild
    of a database the owner already treats as disposable, and costs a migration forever after v1.
    Every entry that changes a column or a stored word is worth more now than it will ever be again.
-2. **A prerequisite before whatever waits on it.** Journal 14 is needed before shipping an
-   initiative that must remember an offer or an owner's decision. Service operations,
-   tool availability and Advisor instructions do not need that decision journal.
+2. **A prerequisite before whatever waits on it.** The Committed adapter comes before a hook on a
+   saved transition; the Tick adapter and table 14 before a hook that checks state on a
+   schedule. Service operations, tool availability and Advisor instructions need neither.
    Proposal fulfillment validation belongs to its own architecture.
 3. **Agreed before undecided.** An entry marked *Agreed* needs a scenario package and a batch. One
    marked *Noticed* or *Discussed* needs an owner decision first — that is a question, not an
@@ -121,34 +121,38 @@ Their rules are in [cards.feature](../tests/brd/cards.feature),
 
 ## Wave 3 — the mechanisms other entries wait on, in progress
 
-Started 2026-09-15 with hook stages 1 and 2: one checked connection list, a diagnostic catalogue,
-and the existing Summary and Heavy analyzer offer moved onto it. Their former automatic paths
-are removed. The shell works with an empty hook list; no table or prompt prefix changed.
-The next hook batch is stages 3 and 4 together: committed facts and timed recovery with the
-first complete blocker initiative and its journal. Retrospective statistics remain separate.
+Started 2026-09-15 with hook stages 1 and 2: one checked connection list, and the existing
+Summary and Heavy analyzer offer moved onto it. Their former automatic paths are removed. The
+shell works with an empty hook list; no table or prompt prefix changed.
+
+An initiative is one request to the Advisor, delivered through the existing `Cue` queue; the
+owner's reply is an ordinary next turn, and the hook reads neither. The next two batches are
+stage 3 (Committed → Advise on the blocker, no new table) and stage 4 (Tick → Advise on Goals
+without Actions, with one small "when asked" table). Retrospective statistics remain separate.
 
 | Entry | | What it unlocks, and what to watch |
 |---|---|---|
-| **POTENTIAL HOOKS — the shape every hook has** | L per implementation stage | Stages 1–2 implemented; follow the remaining stages in [HOOK_ARCH.md](HOOK_ARCH.md). Required tool calls for initiatives still need runtime enforcement; named provider selection alone is insufficient. |
-| **POTENTIAL HOOKS 14 — Remember hook occasions and the owner's decisions** | L | Build with the first initiative, hook 2. The record must outlive its delivered `Cue`. Summary and helper availability can move to the registry before it; Proposal fulfillment validation is independent. |
+| **POTENTIAL HOOKS — the shape every hook has** | M per stage | Stages 1–2 implemented; stages 3–4 in [HOOK_ARCH.md](HOOK_ARCH.md). Each stage is one new event/reaction pair, one real consumer and one line in `HOOKS`. |
+| **POTENTIAL HOOKS 14 — Remember when a hook asked** | S | One table: hook, subject, when asked. Only hooks that check state on a schedule read it; a hook on a transition, such as the blocker, remembers nothing. Built with stage 4, not before. |
 | **The retrospective — the statistics half only** | M | RT-OPEN-001 currently promises a screen that says there is nothing there yet. Code-calculated statistics fill it and are useful with no model involved. The AI analysis half is Wave 5. |
 
 ## Wave 4 — the hooks, in dependency order
 
-The initiative hooks below need journal 14, which is shared infrastructure rather than a hook.
-Instructions 1, 4 and 15 do not. Explicit retrospective workflows do not depend on hook
-registration. The classification audit and implementation stages are in [HOOK_ARCH.md](HOOK_ARCH.md).
+Hooks on a committed transition need only the Committed adapter from stage 3. Hooks that poll
+state on a schedule need the Tick adapter and the "when asked" table from stage 4. Instructions
+1, 4 and 15 need neither. Explicit retrospective workflows do not depend on hook registration.
+The classification audit and implementation stages are in [HOOK_ARCH.md](HOOK_ARCH.md).
 
 | Entry | | Depends on |
 |---|---|---|
 | **1, 4 and 15 — Advisor instructions, not hooks** | S each | Nothing. A prompt line and the snapshot. Note for 4: the Today Actions are already in the state block; the Sprint list is not, and adding it has a cost named below. |
-| **2 — After setting a blocker, offer a Reminder** | M | 14 |
-| **11 — Repeated Missed observations** | M | 14 |
-| **5 — Goals and Subgoals with no Actions** | M | 14 |
-| **7 — Today's work exceeds the daily capacity** | M | 14. The rungs now say what a day's load is, so 15 EP means something; the counting rule is still the entry's own open question. |
-| **13 — An approaching Hard Time is outside the plan** | M | 14 |
-| **6 — An unfinished Action repeatedly selected for Today** | L | 14, plus a record of each day's selection into Today that nothing writes yet |
-| **10 — Key Actions tied to Sprint Success criteria** | XL | 14 and a Sprint-and-Action relationship with classification history |
+| **2 — After setting a blocker, offer a Reminder** | S | Stage 3; it is stage 3's consumer |
+| **5 — Goals and Subgoals with no Actions** | M | Stage 4; it is stage 4's consumer |
+| **11 — Repeated Missed observations** | S | Stage 3 and an episode rule for a run of Missed |
+| **7 — Today's work exceeds the daily capacity** | M | Stage 3 or 4. The rungs now say what a day's load is, so 15 EP means something; the counting rule is still the entry's own open question. |
+| **13 — An approaching Hard Time is outside the plan** | M | Stage 4 and an identity for one occurrence |
+| **6 — An unfinished Action repeatedly selected for Today** | L | Stage 4, plus a record of each day's selection into Today that nothing writes yet |
+| **10 — Key Actions tied to Sprint Success criteria** | XL | Stage 3 and a Sprint-and-Action relationship with classification history |
 
 ## Wave 5 — deliberately later
 
@@ -170,22 +174,23 @@ flowchart LR
   h5["Hook 5 — parents with no Action"]
   h7["Hook 7 — daily capacity"]
   h10["Hook 10 — key Actions"]
-  shape["The shape every hook has"] --> journal
-  journal["14 — the occasion journal"] --> h2["Hook 2 — blocker follow-up"]
-  journal --> h5
-  journal --> h6["Hook 6 — postponed in Today"]
-  journal --> h7
-  journal --> h11["Hook 11 — repeated Missed"]
-  journal --> h13["Hook 13 — Hard Time outside the plan"]
-  journal --> h10
+  shape["The shape every hook has"] --> committed["Stage 3 — Committed → Advise"]
+  shape --> tick["Stage 4 — Tick → Advise, 14 as one table"]
+  committed --> h2["Hook 2 — blocker follow-up"]
+  committed --> h11["Hook 11 — repeated Missed"]
+  committed --> h10
+  committed --> h7
+  tick --> h5
+  tick --> h6["Hook 6 — postponed in Today"]
+  tick --> h7
+  tick --> h13["Hook 13 — Hard Time outside the plan"]
 ```
 
 ## Where to look hardest
 
-**The occasion journal with the first initiative.** Ship the blocker follow-up with durable
-occasion identity, confirmed delivery and decision handling. A second initiative then reuses a
-complete path. Existing Summary and helper availability exercise registration before this stage;
-they do not need artificial owner-decision records.
+**The blocker as the first initiative.** Ship it as one request to the Advisor through a `Cue`
+and nothing more. The second initiative, on a timed check, then has to reuse that path unchanged:
+a second delivery path or a second poll loop means the shared part was fitted to the blocker.
 
 **The pre-release window.** Declare a schema batch only if an implementation changes stored
 structure.

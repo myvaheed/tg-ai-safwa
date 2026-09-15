@@ -58,7 +58,7 @@ about the owner must be distinguishable from a recorded fact and open to correct
 ## Proposal fulfillment validation
 
 Agreed 2026-09-08: fulfillment validation belongs to the architecture of Proposals and is
-designed independently of hooks, their registration, and initiative suppression.
+designed independently of hooks and their registration.
 
 The intent is to compare the owner's request and subsequent corrections with actual saved,
 discarded, failed and pending Proposal outcomes, then pursue still-authorized missing work.
@@ -75,7 +75,7 @@ implicitly settle them.
 Discussed 2026-09-07. Candidates for helping the owner remember intentions and keep work moving.
 The numbering follows the discussion and is preserved for references. This is a mixed candidate
 catalogue: 1, 4 and 15 are instructions, 9 belongs to Proposals, and 14 is shared infrastructure.
-The classification audit is in [HOOK_ARCH.md](HOOK_ARCH.md#9-проверка-архитектуры-на-всём-наборе-кандидатов).
+The classification audit is in [HOOK_ARCH.md](HOOK_ARCH.md#7-проверка-архитектуры-на-всём-наборе-кандидатов).
 None of these entries is an approved scenario package.
 
 ### The shape every hook has
@@ -90,11 +90,13 @@ registration and session rules are covered by
 [agents.feature](../tests/brd/tg_agent_shell/agents.feature); disabling automatic Summary keeps
 its command, as covered by [summary.feature](../tests/brd/summary.feature).
 [HOOK_ARCH.md](HOOK_ARCH.md) distinguishes this implemented contract from the planned committed
-events, timed checks and initiative journal. This entry remains open for those later stages.
+events and timed checks. This entry remains open for those later stages.
 
-The trigger is distinct from execution and delivery. Each initiative defines its own occasion
-identity and repetition rules. Preparing a tool result is neither saving a Proposal nor showing
-a question to the owner.
+The trigger is distinct from delivery. An initiative is one request to the Advisor, delivered
+through the existing `Cue` queue; what the Advisor says and what the owner replies are ordinary
+turns, and the hook reads neither. A hook that checks state on a schedule states when it may ask
+about the same subject again. Preparing a tool result is neither saving a Proposal nor asking
+the owner.
 
 A hook is an automatic reaction to a named lifecycle event: a completed turn, a tool boundary,
 a committed domain change or a scheduled condition check. A command or button that explicitly
@@ -232,50 +234,35 @@ Today. Offer to include that specific Action, for example: "Подача док�
 четверг, но задача осталась в Backlog. Включить её в текущий спринт?"
 
 This brings up relevant work outside the Today and Sprint lists already supplied to the Advisor.
-The advance window and check timing remain to be decided. Repeated checks must respect prior
-offers and owner decisions through the occurrence journal below.
+The advance window and check timing remain to be decided. A repeated check must not ask about
+the same occurrence again before this hook's own interval; see 14.
 
-### 14. Remember hook occasions and the owner's decisions — shared design candidate
+### 14. Remember when a hook asked — shared design candidate
 
-This is infrastructure used by initiative hooks, not a hook with its own independent trigger.
+This is infrastructure used by hooks that check state on a schedule, not a hook with its own
+trigger. A hook on a committed transition needs none of it: one transition is one request, and
+"already has a follow-up" or "no longer blocked" is a read in its own condition.
 
-Persist the specific occasion for a suggestion and what happened to it. A stable identity is
-the hook type, its subject and the particular occasion. A hash may encode that identity, but
-hashing all Card, Hard Time and Sprint data would make unrelated edits trigger the same question
-again. Each hook defines which changes constitute a genuinely new occasion.
+A state checked every morning would produce the same request every morning. One table remembers
+the hook, the subject and when it asked, written when the request is queued as a `Cue`; the Cue
+itself is deleted once delivered and cannot be that record. Each hook states its own rule for
+when it may ask about the same subject again and reads the table in its condition.
 
-| Hook | One occasion |
+| Hook | Subject |
 |---|---|
-| Hard Time outside the plan | The Card or repeat series and one particular scheduled occurrence |
-| Repeated Missed answers | The Check series and the current run of unsuccessful observations |
-| Follow-up after a blocker | The Card and one period of being blocked |
+| Goals and Subgoals with no Actions | The Goal or Subgoal |
+| An unfinished Action repeatedly selected for Today | The unfinished occurrence |
 | Daily capacity exceeded | One calendar day in the owner's timezone |
-| Key Actions disappear | The Sprint and one transition from having current key Actions to having none |
+| Hard Time outside the plan | The Card or repeat series and one particular scheduled occurrence |
 
-For Hard Time, renaming the Card or starting another Sprint does not by itself invalidate a
-refusal concerning the same occurrence. The next scheduled repetition is a new occasion;
-rescheduling the occurrence may also justify asking again. Whether adding to Sprint and adding to
-Today are one offer or two is that hook's own rule to state, like every other occasion key.
+For Hard Time, renaming the Card or starting another Sprint does not make a new subject; the
+next scheduled repetition does, and rescheduling the occurrence may. Raising the day's load from
+16 to 17 EP is the same day.
 
-For Checks, a fourth Missed after an offer on the third is still the same occasion. A later run
-after recovery may create a new one. The reset condition belongs to that hook. Likewise, raising
-the day's load from 16 to 17 EP should not produce another copy of the same capacity warning.
-
-Distinguish waiting for processing, an offer actually shown, and an explicit owner decision:
-accepted, declined or postponed. Remember when the Advisor considered an occasion and chose
-not to intervene as well. Silence from the owner is not a refusal, but an optional suggestion
-already shown normally does not need repeating. Postponement establishes when to return; an
-explicit request never to suggest this for a particular subject has a wider scope than one
-occasion. Exact response handling and storage remain to be designed.
-
-Use the existing Cue delivery mechanism, with a durable journal that survives delivery: the
-Cue itself is deleted once delivered and cannot be the lasting record of an offer or refusal.
-Before speaking, recheck that the occasion still applies. A generation or delivery failure is
-not evidence that the owner saw the offer or rejected it.
-
-The journal suppresses repeated approaches to the owner; condition checks may keep running.
-Proposal fulfillment validation belongs to its own architecture and is unaffected by whether
-initiative hooks are enabled or a related suggestion has already been shown.
+Nothing about the owner's reply is stored. The Advisor's request and the owner's answer are
+ordinary turns; a refusal, a postponement or "never for this Card" are words in the dialogue the
+Advisor reads like any other. Proposal fulfillment validation belongs to its own architecture and
+is unaffected by hooks.
 
 ### 15. Carry retrospective decisions through memory — Advisor instruction
 
