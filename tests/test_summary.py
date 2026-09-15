@@ -13,13 +13,15 @@ from ui_harness import FakeMessage, services_for
 from llm_gateway import CompletionRequest, CompletionTurn
 from safwa.bootstrap.modules import MODULES, REGISTRY
 from safwa.constants import SUMMARY_TRIGGER_TOKENS
+from safwa.features.profile.api import hook_switched_on
+from safwa.features.profile.use_cases import set_hook_switch
 from safwa.features.summary.module import SUMMARY_HOOK
 from safwa.features.summary.summary import DialogueSummary
 from safwa.features.summary.telegram import command_summarize
 from safwa.features.summary.window import SUMMARY_HEADER
 from telegram_llm import HistoryEntry
 from tg_agent_shell.foundation.kinds import MessageKind
-from tg_agent_shell.hooks.contracts import AfterTurn, HookRegistration
+from tg_agent_shell.hooks.contracts import AfterTurn
 from tg_agent_shell.registry import Registry
 from tg_agent_shell.telegram.dialogue import run_after_turn
 from tg_agent_shell.turn import TurnManager
@@ -159,11 +161,11 @@ async def test_sum_write_001_below_the_trigger_only_an_outright_request_writes_o
     assert sent == [f"{SUMMARY_HEADER}\nForced summary"]
 
 
-def summary_services(sessions, provider, history, *, enabled=True):
+def summary_services(sessions, provider, history):
     services = services_for(sessions)
     registry = Registry.of(
         MODULES, world=REGISTRY.proposals.world,
-        hooks=(HookRegistration(SUMMARY_HOOK, enabled),),
+        hooks=(SUMMARY_HOOK,), hook_policy=hook_switched_on,
     )
     services.hooks = registry.hooks
     services.features = SimpleNamespace(summary=DialogueSummary(
@@ -176,7 +178,10 @@ def summary_services(sessions, provider, history, *, enabled=True):
 async def test_summary_hook_runs_once_and_switch_keeps_the_command(sessions, enabled):
     """SUM-AUTO-003 — tests/brd/summary.feature"""
     provider = RecordingProvider("Automatic", "Manual") if enabled else RecordingProvider("Manual")
-    services = summary_services(sessions, provider, SequenceHistory([said(10, "Long dialogue")]), enabled=enabled)
+    services = summary_services(sessions, provider, SequenceHistory([said(10, "Long dialogue")]))
+    async with sessions() as session:
+        await set_hook_switch(session, SUMMARY_HOOK.name, on=enabled)
+        await session.commit()
     message = FakeMessage(11, text="Continue", bot_message=False, answer_as_new=True)
     await run_after_turn(message, services, AfterTurn(42, 700, 11, 0))
     assert len(provider.requests) == int(enabled)
@@ -187,6 +192,23 @@ async def test_summary_hook_runs_once_and_switch_keeps_the_command(sessions, ena
     kind, text = read_kind_mark(message.sent_messages[-1].text)
     assert kind == MessageKind.SUMMARY.value
     assert "Manual" in text
+
+
+async def test_a_summary_switched_off_while_it_was_written_is_not_published(sessions):
+    """PS-HOOKS-015 — tests/brd/profile.feature"""
+    class SwitchingProvider(RecordingProvider):
+        async def complete(self, request):
+            async with sessions() as session:
+                await set_hook_switch(session, SUMMARY_HOOK.name, on=False)
+                await session.commit()
+            return await super().complete(request)
+
+    provider = SwitchingProvider("Late")
+    services = summary_services(sessions, provider, SequenceHistory([said(10, "Long dialogue")]))
+    message = FakeMessage(11, text="Continue", bot_message=False, answer_as_new=True)
+    await run_after_turn(message, services, AfterTurn(42, 700, 11, 0))
+    assert len(provider.requests) == 1
+    assert message.sent_messages == []
 
 
 async def test_summary_hook_keeps_the_snapshot_check(sessions):

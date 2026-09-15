@@ -15,7 +15,6 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.sql import view_catalogue
-from tg_agent_shell.hooks.contracts import HookRegistration
 from tg_agent_shell.proposals.api import World
 from tg_agent_shell.proposals.module import MODULE as PROPOSALS_FEATURE
 from tg_agent_shell.registry import Registry
@@ -31,6 +30,7 @@ from ..features.heavy_analyzer.module import MODULE as HEAVY_ANALYZER
 from ..features.home.module import MODULE as HOME
 from ..features.memory.module import MODULE as MEMORY
 from ..features.planning.module import MODULE as PLANNING
+from ..features.profile.api import hook_switched_on
 from ..features.profile.module import MODULE as PROFILE
 from ..features.reminders.module import MODULE as REMINDERS
 from ..features.retro.module import MODULE as RETRO
@@ -72,12 +72,13 @@ async def _world(session: AsyncSession) -> World:
     return World(revision=workspace.revision, timezone=workspace.timezone)
 
 
-HOOKS = (
-    HookRegistration(SUMMARY_HOOK, enabled=True),
-    HookRegistration(HEAVY_ANALYZER_HOOK, enabled=True),
-)
+# The automatic reactions that exist for Safwa. A hook with a switch is turned off and on
+# in the Profile, which is what `hook_switched_on` reads; one without is always on.
+HOOKS = (SUMMARY_HOOK, HEAVY_ANALYZER_HOOK)
 
-REGISTRY: Registry = Registry.of(MODULES, world=_world, hooks=HOOKS)
+REGISTRY: Registry = Registry.of(
+    MODULES, world=_world, hooks=HOOKS, hook_policy=hook_switched_on
+)
 
 # What each part of the application reads off the registry, under the names it reads them
 # by. The registry is one object; these are the eleven views of it that are actually used.

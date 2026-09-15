@@ -19,7 +19,7 @@ Feature: The running Summary of the conversation
     Then it is written from both, so nothing the earlier one covered is lost
 
   Scenario: SUM-AUTO-003 — Disabling automatic Summary keeps the explicit command
-    Given the automatic Summary reaction is disabled in the connection list
+    Given automatic Summary is switched off in the Profile
     When the owner finishes a turn
     Then no automatic Summary is attempted
     When the owner asks for /summarize

@@ -30,3 +30,9 @@ async def capacity_effort_points(session: AsyncSession) -> float | None:
     """The effort the owner means to take on in a Sprint, or None when it is off."""
     profile = await session.get(UserProfile, 1)
     return profile.capacity_effort_points if profile is not None else None
+
+
+async def hook_switched_on(session: AsyncSession, name: str) -> bool:
+    """Whether the owner left the automatic reaction of that name on: the shell's policy."""
+    profile = await session.get(UserProfile, 1)
+    return profile is None or name not in profile.disabled_hooks

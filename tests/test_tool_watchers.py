@@ -22,7 +22,7 @@ from tg_agent_shell.ai.tools import (
     WatcherFailed,
 )
 from tg_agent_shell.foundation.screens import ScreenCatalogue
-from tg_agent_shell.hooks.contracts import HookRegistration, HookSpec, OfferTool, OnAfterTool
+from tg_agent_shell.hooks.contracts import HookSpec, OfferTool, OnAfterTool
 from tg_agent_shell.hooks.registry import HookRegistry
 
 READ = ToolCall(id="1", name="read_thing", arguments_json="{}")
@@ -134,10 +134,10 @@ async def test_ag_tool_033_a_read_that_failed_earns_no_offer() -> None:
         return ("call the helper",)
 
     hooks = HookRegistry.of(
-        (HookRegistration(HookSpec(
+        (HookSpec(
             name="offer", owner="test", on=(OnAfterTool(tool="query_data"),),
             evaluate=offer, effect=OfferTool("any"),
-        )),),
+        ),),
         owners=frozenset({"test"}), helpers=frozenset({"any"}),
         tools=frozenset({"query_data"}),
     )

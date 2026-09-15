@@ -280,9 +280,11 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then each reaction has one unique name and an existing feature that owns it
     And its event and kind of work must be supported together
     And every helper and tool it names must exist at that event boundary
-    When a reaction is disabled
-    Then it stays in the catalogue and its condition is never checked
-    And its declaration is still validated before the application starts
+    When the application's policy switches a reaction off
+    Then it stays in the catalogue and its condition is not checked
+    And its declaration is validated before the application starts, on or off
+    And a reaction that declares no switch is on whatever the policy says
+    And an application with no settings of its own keeps every reaction on
     When an unrelated event occurs
     Then the reaction's condition is not checked
 

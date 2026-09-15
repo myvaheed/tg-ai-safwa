@@ -86,6 +86,14 @@ async def require_profile(session: AsyncSession) -> UserProfile:
     return profile
 
 
+async def set_hook_switch(session: AsyncSession, name: str, *, on: bool) -> UserProfile:
+    """Turn one automatic reaction off or on; the screen says which names have a switch."""
+    profile = await require_profile(session)
+    disabled = [hook for hook in profile.disabled_hooks if hook != name]
+    profile.disabled_hooks = disabled if on else [*disabled, name]
+    return profile
+
+
 async def set_profile_field(
     session: AsyncSession, field: ProfileField, value: ProfileValue, *, clock: Clock
 ) -> UserProfile:

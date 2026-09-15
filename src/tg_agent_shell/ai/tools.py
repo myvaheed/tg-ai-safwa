@@ -429,7 +429,7 @@ class ToolAdapters:
             result=deepcopy(result),
             outcome="error" if not outcome.succeeded else "prepared" if outcome.change is not None else "success",
         )
-        async for checked in self.hooks.evaluate(event):
+        async for checked in self.hooks.evaluate(event, self.sessions):
             if checked.error is not None:
                 logger.error("Hook %s failed: %s", checked.spec.name, checked.error)
                 continue

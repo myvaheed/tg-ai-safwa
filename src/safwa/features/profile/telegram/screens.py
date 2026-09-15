@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
+from tg_agent_shell.hooks.contracts import HookSpec
 from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
@@ -35,7 +36,7 @@ from ....features.cards.api import effort_label
 from ....foundation.workspace import Workspace
 from ...reminders.api import parse_clock_or_off
 from ..model import UserProfile
-from ..use_cases import profile_field, set_profile_field
+from ..use_cases import profile_field, set_hook_switch, set_profile_field
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,7 +153,19 @@ PROFILE_FIELDS: dict[str, EditableField] = {
 }
 
 
-def profile_text(profile: UserProfile, timezone: str) -> str:
+def _switch_state(profile: UserProfile, hook: HookSpec) -> str:
+    return "off" if hook.name in profile.disabled_hooks else "on"
+
+
+def _switch_label(profile: UserProfile, hook: HookSpec) -> str:
+    assert hook.switch is not None
+    on = _switch_state(profile, hook) == "on"
+    return f"{'🔔' if on else '🔕'} {hook.switch.title}: {'on' if on else 'off'}"
+
+
+def profile_text(
+    profile: UserProfile, timezone: str, switches: tuple[HookSpec, ...] = ()
+) -> str:
     """Render the Profile values; timezone is deliberately display-only."""
     lines = [
         "<b>Profile</b>",
@@ -162,6 +175,12 @@ def profile_text(profile: UserProfile, timezone: str) -> str:
     for name, field in PROFILE_FIELDS.items():
         lines.append(f"{field.title}: {html.escape(field.show(getattr(profile, name)))}")
     lines.append(f"Timezone: {html.escape(timezone)}")
+    for hook in switches:
+        assert hook.switch is not None
+        lines.append(
+            f"{html.escape(hook.switch.title)}: {_switch_state(profile, hook)} — "
+            f"{html.escape(hook.switch.description)}"
+        )
     lines.append("Tap a setting to change it.")
     return "\n".join(lines)
 
@@ -185,9 +204,18 @@ async def command_profile(
                     session, services.owner_id, field.label, "profile_edit", {"field": name}
                 )
             )
-        rendered = profile_text(profile, workspace.timezone)
+        switches = services.hooks.switches
+        rendered = profile_text(profile, workspace.timezone, switches)
+        rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
+        # One row per switch: its label is the state, so the press that flips it is visible.
+        for hook in switches:
+            rows.append([
+                await token_button(
+                    session, services.owner_id, _switch_label(profile, hook),
+                    "profile_switch", {"hook": hook.name},
+                )
+            ])
         await session.commit()
-    rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
     text = with_notice(rendered, notice)
     markup = InlineKeyboardMarkup(inline_keyboard=[*rows, menu_row()])
     if replace_message_id is not None:
@@ -271,6 +299,27 @@ async def _on_edit(context: CallbackContext) -> None:
     )
 
 
+async def _on_switch(context: CallbackContext) -> None:
+    """Flip one automatic reaction and redraw the Profile in place."""
+    name = str(context.payload["hook"])
+    hook = next((spec for spec in context.services.hooks.switches if spec.name == name), None)
+    if hook is None or hook.switch is None:
+        raise DomainError("That setting is no longer available.")
+    async with context.sessions() as session:
+        profile = await session.get(UserProfile, 1)
+        if profile is None:
+            raise DomainError("Workspace is not initialized")
+        on = name in profile.disabled_hooks
+        await set_hook_switch(session, name, on=on)
+        await session.commit()
+    await command_profile(
+        context.message,
+        context.services,
+        notice=f"{hook.switch.title} switched {'on' if on else 'off'}.",
+        replace_message_id=context.message.message_id,
+    )
+
+
 async def _on_back(context: CallbackContext) -> None:
     async with context.sessions() as session:
         await session.execute(delete(UiSession).where(UiSession.owner_id == context.owner_id))
@@ -280,5 +329,6 @@ async def _on_back(context: CallbackContext) -> None:
 
 PROFILE_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "profile_edit": _on_edit,
+    "profile_switch": _on_switch,
     "profile_back": _on_back,
 }

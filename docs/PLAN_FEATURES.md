@@ -14,10 +14,11 @@ Four rules, applied in this order.
 1. **The pre-release window closes once.** There are no migrations: a schema change costs a rebuild
    of a database the owner already treats as disposable, and costs a migration forever after v1.
    Every entry that changes a column or a stored word is worth more now than it will ever be again.
-2. **A prerequisite before whatever waits on it.** The Committed adapter comes before a hook on a
-   saved transition; the Tick adapter and table 14 before a hook that checks state on a
-   schedule. Service operations, tool availability and Advisor instructions need neither.
-   Proposal fulfillment validation belongs to its own architecture.
+2. **A prerequisite before whatever waits on it.** The hook switches in the Profile come before
+   the first initiative; the Committed adapter before a hook on a saved transition; the Tick
+   adapter before a hook that checks state on a schedule. Service operations, tool availability
+   and Advisor instructions need none of them. Proposal fulfillment validation belongs to its
+   own architecture.
 3. **Agreed before undecided.** An entry marked *Agreed* needs a scenario package and a batch. One
    marked *Noticed* or *Discussed* needs an owner decision first — that is a question, not an
    implementation, and several questions cost one conversation rather than several.
@@ -123,36 +124,40 @@ Their rules are in [cards.feature](../tests/brd/cards.feature),
 
 Started 2026-09-15 with hook stages 1 and 2: one checked connection list, and the existing
 Summary and Heavy analyzer offer moved onto it. Their former automatic paths are removed. The
-shell works with an empty hook list; no table or prompt prefix changed.
+shell works with an empty hook list; no prompt prefix changed. The same day the switches
+reached the Profile ([PS-HOOKS-015](../tests/brd/profile.feature)): one column holding the
+hooks the owner turned off, so the database is rebuilt.
 
-An initiative is one request to the Advisor, delivered through the existing `Cue` queue; the
-owner's reply is an ordinary next turn, and the hook reads neither. The next two batches are
-stage 3 (Committed → Advise on the blocker, no new table) and stage 4 (Tick → Advise on Goals
-without Actions, with one small "when asked" table). Retrospective statistics remain separate.
+A hook is switched on or off as a whole, by the owner in the Profile. An initiative is one
+request to the Advisor, delivered through the existing `Cue` queue; one hook has one pending
+initiative at a time, rereads what it refers to just before delivery, and the owner's reply is
+an ordinary next turn the hook never reads. The next two batches are Committed → Advise
+on the blocker, then Tick → Advise on Goals without Actions.
+No table beyond the `Cue` row is added. Retrospective statistics remain separate.
 
 | Entry | | What it unlocks, and what to watch |
 |---|---|---|
-| **POTENTIAL HOOKS — the shape every hook has** | M per stage | Stages 1–2 implemented; stages 3–4 in [HOOK_ARCH.md](HOOK_ARCH.md). Each stage is one new event/reaction pair, one real consumer and one line in `HOOKS`. |
-| **POTENTIAL HOOKS 14 — Remember when a hook asked** | S | One table: hook, subject, when asked. Only hooks that check state on a schedule read it; a hook on a transition, such as the blocker, remembers nothing. Built with stage 4, not before. |
+| **POTENTIAL HOOKS — the shape every hook has** | M per batch | Stages 1–2 implemented; batches 1–3 in [HOOK_ARCH.md](HOOK_ARCH.md). Each batch is one new port or event/reaction pair, one real consumer and one line in `HOOKS`. |
+| **Hook switches in the Profile — batch 1, shipped** | M | Every hook that declares a switch is listed by title — automatic Summary does, the Heavy analyzer offer does not; switching one off stops its condition. Batch 2 adds that it cancels the hook's pending initiative. |
 | **The retrospective — the statistics half only** | M | RT-OPEN-001 currently promises a screen that says there is nothing there yet. Code-calculated statistics fill it and are useful with no model involved. The AI analysis half is Wave 5. |
 
 ## Wave 4 — the hooks, in dependency order
 
-Hooks on a committed transition need only the Committed adapter from stage 3. Hooks that poll
-state on a schedule need the Tick adapter and the "when asked" table from stage 4. Instructions
-1, 4 and 15 need neither. Explicit retrospective workflows do not depend on hook registration.
+Hooks on a committed transition need only the Committed adapter from batch 2. Hooks that poll
+state on a schedule need the Tick adapter from batch 3. Instructions 1, 4 and 15 need neither.
+Explicit retrospective workflows do not depend on hook registration.
 The classification audit and implementation stages are in [HOOK_ARCH.md](HOOK_ARCH.md).
 
 | Entry | | Depends on |
 |---|---|---|
 | **1, 4 and 15 — Advisor instructions, not hooks** | S each | Nothing. A prompt line and the snapshot. Note for 4: the Today Actions are already in the state block; the Sprint list is not, and adding it has a cost named below. |
-| **2 — After setting a blocker, offer a Reminder** | S | Stage 3; it is stage 3's consumer |
-| **5 — Goals and Subgoals with no Actions** | M | Stage 4; it is stage 4's consumer |
-| **11 — Repeated Missed observations** | S | Stage 3 and an episode rule for a run of Missed |
-| **7 — Today's work exceeds the daily capacity** | M | Stage 3 or 4. The rungs now say what a day's load is, so 15 EP means something; the counting rule is still the entry's own open question. |
-| **13 — An approaching Hard Time is outside the plan** | M | Stage 4 and an identity for one occurrence |
-| **6 — An unfinished Action repeatedly selected for Today** | L | Stage 4, plus a record of each day's selection into Today that nothing writes yet |
-| **10 — Key Actions tied to Sprint Success criteria** | XL | Stage 3 and a Sprint-and-Action relationship with classification history |
+| **2 — After setting a blocker, offer a Reminder** | S | Batch 2; it is batch 2's consumer |
+| **5 — Goals and Subgoals with no Actions** | M | Batch 3; it is batch 3's consumer |
+| **11 — Repeated Missed observations** | S | Batch 2 and a transition rule for a run of Missed |
+| **7 — Today's work exceeds the daily capacity** | M | Batch 2 or 3. The rungs now say what a day's load is, so 15 EP means something; the counting rule is still the entry's own open question. |
+| **13 — An approaching Hard Time is outside the plan** | M | Batch 3 and an identity for one occurrence |
+| **6 — An unfinished Action repeatedly selected for Today** | L | Batch 3, plus a record of each day's selection into Today that nothing writes yet |
+| **10 — Key Actions tied to Sprint Success criteria** | XL | Batch 2 and a Sprint-and-Action relationship with classification history |
 
 ## Wave 5 — deliberately later
 
@@ -174,8 +179,9 @@ flowchart LR
   h5["Hook 5 — parents with no Action"]
   h7["Hook 7 — daily capacity"]
   h10["Hook 10 — key Actions"]
-  shape["The shape every hook has"] --> committed["Stage 3 — Committed → Advise"]
-  shape --> tick["Stage 4 — Tick → Advise, 14 as one table"]
+  shape["The shape every hook has"] --> profile["Batch 1 — switches in the Profile"]
+  profile --> committed["Batch 2 — Committed → Advise"]
+  profile --> tick["Batch 3 — Tick → Advise"]
   committed --> h2["Hook 2 — blocker follow-up"]
   committed --> h11["Hook 11 — repeated Missed"]
   committed --> h10
@@ -188,9 +194,10 @@ flowchart LR
 
 ## Where to look hardest
 
-**The blocker as the first initiative.** Ship it as one request to the Advisor through a `Cue`
-and nothing more. The second initiative, on a timed check, then has to reuse that path unchanged:
-a second delivery path or a second poll loop means the shared part was fitted to the blocker.
+**The blocker as the first initiative.** Ship it as one pending request per hook in the `Cue`
+queue, reread just before delivery, and nothing more. The second initiative, on a timed check,
+then has to reuse that path unchanged: a second delivery path, a second poll loop or a table of
+what was asked means the shared part was fitted to the blocker.
 
 **The pre-release window.** Declare a schema batch only if an implementation changes stored
 structure.

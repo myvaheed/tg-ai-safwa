@@ -50,10 +50,11 @@ A capability does not get a field here by default. It first gets its own mechani
 capability several features plug into earns a contribution.
 
 Automatic reactions have their own explicit `HOOKS` list beside `MODULES`, passed to
-`Registry.of(MODULES, world=…, hooks=HOOKS)`. A feature exports its definition from `module.py`;
-it does not register it there a second time. The registry checks the owner, name, subscription,
-effect and helper reference even for disabled entries. See [HOOK_ARCH.md](HOOK_ARCH.md) for the
-implemented contract and the later initiative stages. Recovery callbacks and background tasks
+`Registry.of(MODULES, world=…, hooks=HOOKS, hook_policy=…)`. A feature exports its definition
+from `module.py`; it does not register it there a second time. The registry checks the owner,
+name, subscription, effect and helper reference whether or not the owner has the hook switched
+off; whether it is on is the application's policy, which Safwa reads from the Profile. See
+[HOOK_ARCH.md](HOOK_ARCH.md) for the implemented contract and the later initiative stages. Recovery callbacks and background tasks
 keep their existing lifecycle contracts.
 
 ## The three proposal responsibilities

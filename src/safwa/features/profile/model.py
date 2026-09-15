@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import time
 from enum import StrEnum
 
-from sqlalchemy import Float, Integer, Text, Time
+from sqlalchemy import JSON, Float, Integer, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...foundation.models import Base, TimestampMixin
@@ -33,6 +33,9 @@ class UserProfile(Base, TimestampMixin):
     summary_time: Mapped[time | None] = mapped_column(
         Time, default=time.fromisoformat(SUMMARY_TIME_DEFAULT)
     )
+    # The automatic reactions the owner turned off, by hook name. A hook that is not
+    # here is on, so a new hook needs no column of its own.
+    disabled_hooks: Mapped[list[str]] = mapped_column(JSON, default=list)
 
 
 ProfileValue = str | int | float | time | None

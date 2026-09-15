@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tg_agent_shell.hooks.contracts import HookRegistration, HookSpec, OnAfterTurn, Run
+from tg_agent_shell.hooks.contracts import HookSpec, OnAfterTurn, Run
 from tg_agent_shell.hooks.registry import HookRegistry
 
 
@@ -12,10 +12,10 @@ def run_hooks(*operations) -> HookRegistry:
 
     return HookRegistry.of(
         tuple(
-            HookRegistration(HookSpec(
+            HookSpec(
                 name=operation.__name__, owner="test", on=(OnAfterTurn(),),
                 evaluate=candidate, effect=Run(operation),
-            ))
+            )
             for operation in operations
         ),
         owners=frozenset({"test"}),

@@ -812,8 +812,8 @@ def wiring(name: str) -> list[str]:
         ("text_inputs", [flow.name for flow in module.text_inputs]),
         ("start_links", [f"{len(module.start_links)} payloads"] if module.start_links else []),
         ("hooks", [
-            f"{item.spec.name} ({'on' if item.enabled else 'off'})"
-            for item in REGISTRY.hooks.registrations if item.spec.owner == module.name
+            f"{item.name} ({'switch' if item.switch else 'always on'})"
+            for item in REGISTRY.hooks.specs if item.owner == module.name
         ]),
         ("recover", ["recover_startup"] if module.recover else []),
         ("background", [task.name for task in module.background]),

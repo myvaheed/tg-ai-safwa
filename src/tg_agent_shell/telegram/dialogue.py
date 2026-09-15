@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import html
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from io import BytesIO
 
@@ -14,7 +14,7 @@ from sqlalchemy import select
 from telegram_llm import AudioClip, HistoryEntry, TranscriptionError
 
 from ..foundation.kinds import MessageKind
-from ..hooks.contracts import AfterTurn, Run, RunContext
+from ..hooks.contracts import AfterTurn, HookSpec, Run, RunContext
 from ..proposals.telegram import render_ai_outcome
 from .chat import (
     delete_screen,
@@ -186,16 +186,16 @@ async def run_after_turn(message: Message, services: Services, event: AfterTurn)
         if services.turn.dialogue_revision != event.dialogue_revision:
             return
 
-        async def publish(text: str, kind: str) -> None:
-            if still_current():
-                await send_prose(
-                    message, services, html.escape(text), kind=MessageKind(kind), replace=False
-                )
+        def publisher(spec: HookSpec) -> Callable[[str, str], Awaitable[None]]:
+            async def publish(text: str, kind: str) -> None:
+                # A switch turned off while the work ran means its result is not wanted.
+                if still_current() and await services.hooks.switched_on(services.sessions, spec):
+                    await send_prose(
+                        message, services, html.escape(text), kind=MessageKind(kind), replace=False
+                    )
+            return publish
 
-        context = RunContext(
-            resources=services.features, still_current=still_current, publish=publish
-        )
-        async for checked in services.hooks.evaluate(event):
+        async for checked in services.hooks.evaluate(event, services.sessions):
             if not still_current():
                 break
             error = checked.error
@@ -203,6 +203,11 @@ async def run_after_turn(message: Message, services: Services, event: AfterTurn)
                 try:
                     effect = checked.spec.effect
                     if isinstance(effect, Run):
+                        context = RunContext(
+                            resources=services.features,
+                            still_current=still_current,
+                            publish=publisher(checked.spec),
+                        )
                         for payload in checked.payloads:
                             if not still_current():
                                 break

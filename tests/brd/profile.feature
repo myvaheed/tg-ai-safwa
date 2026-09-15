@@ -83,3 +83,14 @@ Feature: Profile
       other one alone
     And when the summary and the Diary fall due together they reach Safwa as one request, so
       the owner gets one message
+
+  Scenario: PS-HOOKS-015 — An automatic reaction with a switch is switched in the Profile
+    Given the application registers its automatic reactions, and automatic Summary has a switch
+    When Profile is drawn
+    Then each reaction with a switch is on the screen by its title, with its description, and is on
+    And a reaction without one, such as the Heavy analyzer offer, is not on the screen and is always on
+    When the owner presses one
+    Then that reaction is off from that moment, without a restart, and stays off after one
+    And pressing it again turns it back on
+    And while it is off its condition is not checked, and a result it was still working on
+      when it was switched off is not published

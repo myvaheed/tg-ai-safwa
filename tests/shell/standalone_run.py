@@ -47,7 +47,7 @@ async def main(path: Path) -> dict[str, object]:
     seeding = await harness.start()
     ids = await seed_lists(seeding.sessions)
     running = await harness.start(*entry_script(ids, answer="Lunch is on the Cash wallet."))
-    assert running.services.hooks.registrations == ()
+    assert running.services.hooks.specs == ()
     turns = []
 
     async def observe(event, context):

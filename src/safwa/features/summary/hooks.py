@@ -5,7 +5,14 @@ from __future__ import annotations
 from typing import Protocol
 
 from tg_agent_shell.foundation.kinds import MessageKind
-from tg_agent_shell.hooks.contracts import AfterTurn, HookSpec, OnAfterTurn, Run, RunContext
+from tg_agent_shell.hooks.contracts import (
+    AfterTurn,
+    HookSpec,
+    HookSwitch,
+    OnAfterTurn,
+    Run,
+    RunContext,
+)
 
 from .summary import DialogueSummary
 
@@ -33,4 +40,8 @@ SUMMARY_HOOK = HookSpec(
     on=(OnAfterTurn(),),
     evaluate=summary_candidate,
     effect=Run(make_summary),
+    switch=HookSwitch(
+        title="Automatic Summary",
+        description="After a turn, folds a long dialogue window into a Summary.",
+    ),
 )

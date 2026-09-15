@@ -12,6 +12,7 @@ from safwa.bootstrap.modules import HOOKS, MODULES, PROPOSALS, REGISTRY
 from safwa.features.cards.use_cases import create_card
 from telegram_llm import DialogueMessage
 from tg_agent_shell.ai.outcome import AIOutcomeKind
+from tg_agent_shell.hooks.contracts import HookSwitch
 from tg_agent_shell.proposals.model import BatchDecision
 from tg_agent_shell.proposals.use_cases import approve_proposal
 from tg_agent_shell.registry import Registry
@@ -87,16 +88,22 @@ async def test_a_data_column_named_status_does_not_turn_a_read_into_an_error(e2e
     assert "call_helper" in tools_of(provider, 1)
 
 
-async def test_disabling_the_offer_keeps_the_helper_operation(e2e_harness):
+async def test_switching_the_offer_off_keeps_the_helper_operation(e2e_harness):
     """AG-HOOK-035 — tests/brd/tg_agent_shell/agents.feature"""
     seen = []
     advisor, provider = e2e_harness.advisor(
         [read("SELECT status, count(*) FROM ai_checks GROUP BY status"), "Read."],
         helpers={"heavy_analyzer": recording_helper(seen)},
     )
+
+    async def everything_off(session, name):
+        return False
+
+    # The real offer has no switch; give every hook one here so the policy can turn it off.
     advisor.adapters.hooks = Registry.of(
         MODULES, world=REGISTRY.proposals.world,
-        hooks=tuple(replace(item, enabled=False) for item in HOOKS),
+        hooks=tuple(replace(item, switch=HookSwitch("Offer", "Offers the helper.")) for item in HOOKS),
+        hook_policy=everything_off,
     ).hooks
     await advisor.handle(QUESTION)
     assert "call_helper" not in tools_of(provider, 1)

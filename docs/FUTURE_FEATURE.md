@@ -74,7 +74,7 @@ implicitly settle them.
 
 Discussed 2026-09-07. Candidates for helping the owner remember intentions and keep work moving.
 The numbering follows the discussion and is preserved for references. This is a mixed candidate
-catalogue: 1, 4 and 15 are instructions, 9 belongs to Proposals, and 14 is shared infrastructure.
+catalogue: 1, 4 and 15 are instructions, 9 belongs to Proposals, and 14 is rejected.
 The classification audit is in [HOOK_ARCH.md](HOOK_ARCH.md#7-проверка-архитектуры-на-всём-наборе-кандидатов).
 None of these entries is an approved scenario package.
 
@@ -92,11 +92,19 @@ its command, as covered by [summary.feature](../tests/brd/summary.feature).
 [HOOK_ARCH.md](HOOK_ARCH.md) distinguishes this implemented contract from the planned committed
 events and timed checks. This entry remains open for those later stages.
 
+A hook is on or off as a whole, and only the owner switches it, by hand in the Profile, where
+every hook that has a switch is listed with a title and a description. A hook without one, such
+as the Heavy analyzer offer, is always on, the way a system Reminder cannot be deleted. There
+are no exceptions for one Card or Goal, no journal of consents and refusals, and no editing of
+these switches by the AI or through a Proposal; "never ask about this again" is the switch.
+
 The trigger is distinct from delivery. An initiative is one request to the Advisor, delivered
 through the existing `Cue` queue; what the Advisor says and what the owner replies are ordinary
-turns, and the hook reads neither. A hook that checks state on a schedule states when it may ask
-about the same subject again. Preparing a tool result is neither saving a Proposal nor asking
-the owner.
+turns, and the hook reads neither. One hook has one pending initiative at a time: a new trigger
+adds to it rather than queueing a second question, and just before it is delivered the feature
+rereads what it refers to and either asks about what is still current or drops the initiative.
+A hook that checks state on a schedule may ask about the same thing again in its next period.
+Preparing a tool result is neither saving a Proposal nor asking the owner.
 
 A hook is an automatic reaction to a named lifecycle event: a completed turn, a tool boundary,
 a committed domain change or a scheduled condition check. A command or button that explicitly
@@ -114,8 +122,11 @@ offer from the context it already reads. This is an instruction candidate, not a
 
 Once a blocker has actually been saved, ask whether to set a Reminder for when the owner can
 return to the question. If they want one, agree when and prepare the ordinary Reminder proposal.
-An already arranged follow-up should not cause the same question again. Preparing the blocker
-proposal alone is not the trigger: the blocker must have been applied.
+Preparing the blocker proposal alone is not the trigger: the blocker must have been applied,
+and an Action created blocked counts; renaming the Card or rewording the blocker does not.
+Several Cards blocked before the question is asked make one question; a Card unblocked or
+deleted before then is left out of it. Whether a follow-up is already arranged is not read:
+nothing links a Card to a Reminder, and the Advisor has the dialogue.
 
 ### 3. Match new information against existing blockers — rejected
 
@@ -137,7 +148,8 @@ Subgoal also counts for its Goal. Report the matching parents together and offer
 at least one Action. If the owner is not ready to decompose the work, offer an Action such as
 "Запланировать действия для цели X" (Plan Actions for Goal X).
 
-The grace period, scan timing and conditions for repeating the reminder remain to be decided.
+The grace period and the check time remain to be decided. The check repeats every period,
+and a parent still without an Action is reported again.
 
 ### 6. An unfinished Action repeatedly selected for Today — hook
 
@@ -234,35 +246,19 @@ Today. Offer to include that specific Action, for example: "Подача док�
 четверг, но задача осталась в Backlog. Включить её в текущий спринт?"
 
 This brings up relevant work outside the Today and Sprint lists already supplied to the Advisor.
-The advance window and check timing remain to be decided. A repeated check must not ask about
-the same occurrence again before this hook's own interval; see 14.
+The advance window and check timing remain to be decided. The check repeats on its own period;
+the Profile switch is what stops it.
 
-### 14. Remember when a hook asked — shared design candidate
+### 14. Remember when a hook asked — rejected
 
-This is infrastructure used by hooks that check state on a schedule, not a hook with its own
-trigger. A hook on a committed transition needs none of it: one transition is one request, and
-"already has a follow-up" or "no longer blocked" is a read in its own condition.
-
-A state checked every morning would produce the same request every morning. One table remembers
-the hook, the subject and when it asked, written when the request is queued as a `Cue`; the Cue
-itself is deleted once delivered and cannot be that record. Each hook states its own rule for
-when it may ask about the same subject again and reads the table in its condition.
-
-| Hook | Subject |
-|---|---|
-| Goals and Subgoals with no Actions | The Goal or Subgoal |
-| An unfinished Action repeatedly selected for Today | The unfinished occurrence |
-| Daily capacity exceeded | One calendar day in the owner's timezone |
-| Hard Time outside the plan | The Card or repeat series and one particular scheduled occurrence |
-
-For Hard Time, renaming the Card or starting another Sprint does not make a new subject; the
-next scheduled repetition does, and rescheduling the occurrence may. Raising the day's load from
-16 to 17 EP is the same day.
-
-Nothing about the owner's reply is stored. The Advisor's request and the owner's answer are
-ordinary turns; a refusal, a postponement or "never for this Card" are words in the dialogue the
-Advisor reads like any other. Proposal fulfillment validation belongs to its own architecture and
-is unaffected by hooks.
+Do not add a table of hooks, subjects and when each was asked about, nor any other memory of
+the owner's replies. A hook remembers only its one pending request, and that request is deleted
+when it is delivered, dropped or its hook is switched off. Whether something is still worth
+asking about is a read just before delivery, not a record of the past; a hook that checks state
+on a schedule simply asks again in its next period, and the Profile switch is the only way to
+stop it. The Advisor's request and the owner's answer are ordinary turns; a refusal or a
+postponement are words in the dialogue the Advisor reads like any other. Proposal fulfillment
+validation belongs to its own architecture and is unaffected by hooks.
 
 ### 15. Carry retrospective decisions through memory — Advisor instruction
 

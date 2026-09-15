@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from dataclasses import replace
 
 import pytest
@@ -16,8 +17,8 @@ from tg_agent_shell.foundation.screens import ScreenCatalogue
 from tg_agent_shell.hooks.contracts import (
     AfterTool,
     AfterTurn,
-    HookRegistration,
     HookSpec,
+    HookSwitch,
     OfferTool,
     OnAfterTool,
     OnAfterTurn,
@@ -45,14 +46,33 @@ EVENT = AfterTool(
 CALL = ToolCall(id=EVENT.call_id, name=EVENT.tool, arguments_json=EVENT.arguments_json)
 
 
-def catalogue(*registrations):
+SWITCH = HookSwitch(title="Reader offer", description="Offers the reader after a read.")
+
+
+@asynccontextmanager
+async def no_session():
+    yield None
+
+
+# What the registry opens a session with; the policies below read only the name.
+NO_SESSIONS = no_session
+
+
+def catalogue(*specs, policy=None):
     return HookRegistry.of(
-        registrations, owners=frozenset({"reader"}), helpers=frozenset({"reader", "other"}),
+        specs, owners=frozenset({"reader"}), helpers=frozenset({"reader", "other"}),
         tools=frozenset({"query_data", "open", "call_helper"}),
+        **({"policy": policy} if policy is not None else {}),
     )
 
 
-@pytest.mark.parametrize("enabled", [True, False])
+def switched(*names_off):
+    async def policy(session, name):
+        return name not in names_off
+    return policy
+
+
+@pytest.mark.parametrize("switch", [None, SWITCH])
 @pytest.mark.parametrize(
     "bad, reason",
     [
@@ -67,19 +87,19 @@ def catalogue(*registrations):
         (replace(SPEC, on=(OnAfterTool("route"),)), "unavailable tool boundary"),
     ],
 )
-def test_invalid_wiring_is_rejected_even_when_disabled(bad, reason, enabled):
+def test_invalid_wiring_is_rejected_with_or_without_a_switch(bad, reason, switch):
     """AG-HOOK-035 — tests/brd/tg_agent_shell/agents.feature"""
     with pytest.raises(RuntimeError, match=reason):
-        catalogue(HookRegistration(bad, enabled))
+        catalogue(replace(bad, switch=switch), policy=switched(bad.name))
 
 
-def test_a_disabled_duplicate_is_still_a_duplicate():
+def test_a_switched_off_duplicate_is_still_a_duplicate():
     """AG-HOOK-035 — tests/brd/tg_agent_shell/agents.feature"""
     with pytest.raises(RuntimeError, match="Duplicate"):
-        catalogue(HookRegistration(SPEC), HookRegistration(SPEC, False))
+        catalogue(SPEC, replace(SPEC, switch=SWITCH), policy=switched(SPEC.name))
 
 
-async def test_disabled_and_unmatched_hooks_never_check():
+async def test_switched_off_and_unmatched_hooks_never_check():
     """AG-HOOK-035 — tests/brd/tg_agent_shell/agents.feature"""
     seen = []
 
@@ -87,19 +107,31 @@ async def test_disabled_and_unmatched_hooks_never_check():
         seen.append(event)
         return ("Offer.",)
 
-    spec = replace(SPEC, evaluate=check)
-    disabled = catalogue(HookRegistration(spec, False))
-    assert not [item async for item in disabled.evaluate(EVENT)]
-    assert disabled.registrations[0].enabled is False
-    enabled = catalogue(HookRegistration(spec))
+    spec = replace(SPEC, evaluate=check, switch=SWITCH)
+    off = catalogue(spec, policy=switched(spec.name))
+    assert not [item async for item in off.evaluate(EVENT, NO_SESSIONS)]
+    assert off.switches == (spec,)
+    on = catalogue(spec, policy=switched("some.other"))
     for event in (
         replace(EVENT, agent="subagent"), replace(EVENT, outcome="error"),
         replace(EVENT, tool="open"), AfterTurn(42, 42, 1, 0),
     ):
-        assert not [item async for item in enabled.evaluate(event)]
+        assert not [item async for item in on.evaluate(event, NO_SESSIONS)]
     assert seen == []
-    assert len([item async for item in enabled.evaluate(EVENT)]) == 1
+    assert len([item async for item in on.evaluate(EVENT, NO_SESSIONS)]) == 1
     assert seen == [EVENT]
+
+
+async def test_a_hook_without_a_switch_is_on_whatever_the_policy_says():
+    """AG-HOOK-035 — tests/brd/tg_agent_shell/agents.feature"""
+    async def never(session, name):
+        raise AssertionError("a hook without a switch asks no policy")
+
+    hooks = catalogue(SPEC, policy=never)
+    assert hooks.switches == ()
+    assert len([item async for item in hooks.evaluate(EVENT, NO_SESSIONS)]) == 1
+    # An application with no policy of its own keeps a switch on too.
+    assert len([item async for item in catalogue(replace(SPEC, switch=SWITCH)).evaluate(EVENT, NO_SESSIONS)]) == 1
 
 
 async def test_two_subscriptions_still_check_a_hook_once():
@@ -109,12 +141,12 @@ async def test_two_subscriptions_still_check_a_hook_once():
         seen.append(event)
         return (event,)
 
-    hooks = catalogue(HookRegistration(HookSpec(
+    hooks = catalogue(HookSpec(
         name="service", owner="reader", evaluate=check, effect=Run(operation),
         on=(OnAfterTurn("owner"), OnAfterTurn("system")),
-    )))
+    ))
     event = AfterTurn(42, 42, 1, 0)
-    assert len([item async for item in hooks.evaluate(event)]) == 1
+    assert len([item async for item in hooks.evaluate(event, NO_SESSIONS)]) == 1
     assert seen == [event]
 
 
@@ -122,19 +154,17 @@ async def test_check_failure_isolated_but_cancellation_propagates():
     async def broken(event):
         raise ValueError("cannot inspect")
 
-    hooks = catalogue(
-        HookRegistration(replace(SPEC, name="broken", evaluate=broken)), HookRegistration(SPEC),
-    )
-    results = [item async for item in hooks.evaluate(EVENT)]
+    hooks = catalogue(replace(SPEC, name="broken", evaluate=broken), SPEC)
+    results = [item async for item in hooks.evaluate(EVENT, NO_SESSIONS)]
     assert str(results[0].error) == "cannot inspect"
     assert results[1].payloads == ("Use the reader helper.",)
 
     async def cancelled(event):
         raise asyncio.CancelledError
 
-    hooks = catalogue(HookRegistration(replace(SPEC, evaluate=cancelled)))
+    hooks = catalogue(replace(SPEC, evaluate=cancelled))
     with pytest.raises(asyncio.CancelledError):
-        _ = [item async for item in hooks.evaluate(EVENT)]
+        _ = [item async for item in hooks.evaluate(EVENT, NO_SESSIONS)]
 
 
 class Trail:
@@ -148,7 +178,7 @@ def adapters(hooks, called):
         return {"rows": [{"n": 1}]}
 
     return ToolAdapters(
-        None, None, None, Trail(), ScreenCatalogue.of(()),
+        NO_SESSIONS, None, None, Trail(), ScreenCatalogue.of(()),
         helpers={"reader": HelperPort(helper), "other": HelperPort(helper)}, hooks=hooks,
     )
 
@@ -156,7 +186,7 @@ def adapters(hooks, called):
 async def test_only_the_named_helper_is_granted_and_the_grant_survives_resume():
     """AG-HOOK-036 — tests/brd/tg_agent_shell/agents.feature"""
     called = []
-    port = adapters(catalogue(HookRegistration(SPEC)), called)
+    port = adapters(catalogue(SPEC), called)
     definition = AgentDefinition(kind="advisor", tools=(), helper_tool=CALL_HELPER_TOOL)
     agent = AgentSession(run_id=1, tools=(), helper_tool=CALL_HELPER_TOOL)
     rows = [{"n": 1}]
@@ -183,9 +213,10 @@ async def test_only_the_named_helper_is_granted_and_the_grant_survives_resume():
     assert len(called) == 1
 
 
-@pytest.mark.parametrize("enabled, agent_role", [(False, "root"), (True, "subagent")])
-async def test_no_offer_for_disabled_hook_or_child_session(enabled, agent_role):
-    port = adapters(catalogue(HookRegistration(SPEC, enabled)), [])
+@pytest.mark.parametrize("on, agent_role", [(False, "root"), (True, "subagent")])
+async def test_no_offer_for_a_switched_off_hook_or_child_session(on, agent_role):
+    spec = replace(SPEC, switch=SWITCH)
+    port = adapters(catalogue(spec, policy=switched(*([] if on else [spec.name]))), [])
     agent = AgentSession(
         run_id=2, parent_run_id=1 if agent_role == "subagent" else None,
         tools=(), helper_tool=CALL_HELPER_TOOL,
@@ -201,7 +232,7 @@ async def test_optional_bad_offer_keeps_the_original_result():
         event.result.clear()
         return (None,)
 
-    port = adapters(catalogue(HookRegistration(replace(SPEC, evaluate=bad))), [])
+    port = adapters(catalogue(replace(SPEC, evaluate=bad)), [])
     agent = AgentSession(run_id=1, tools=(), helper_tool=CALL_HELPER_TOOL)
     rows = [{"n": 1}]
     await port._offer_tools(agent, CALL, ToolOutcome(rows))
@@ -210,4 +241,4 @@ async def test_optional_bad_offer_keeps_the_original_result():
 
 
 async def test_empty_catalogue_has_no_work():
-    assert not [item async for item in run_hooks().evaluate(AfterTurn(42, 42, 1, 0))]
+    assert not [item async for item in run_hooks().evaluate(AfterTurn(42, 42, 1, 0), NO_SESSIONS)]

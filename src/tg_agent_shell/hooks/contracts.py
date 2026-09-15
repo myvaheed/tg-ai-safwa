@@ -3,6 +3,9 @@
 Only the two event boundaries with real consumers are implemented. Checks receive no
 session or delivery objects. Run handlers receive a publication port and the application's
 resources, under the lease the event adapter owns.
+
+A hook with a switch is the owner's to turn off; whether it is on is the application's
+policy, read where the hook is about to work. A hook without one is always on.
 """
 
 from __future__ import annotations
@@ -10,6 +13,8 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +77,14 @@ class OfferTool:
 
 
 @dataclass(frozen=True, slots=True)
+class HookSwitch:
+    """What the owner reads on the settings screen that turns the hook off and on."""
+
+    title: str
+    description: str
+
+
+@dataclass(frozen=True, slots=True)
 class HookSpec[Event, Payload]:
     name: str
     owner: str
@@ -79,9 +92,13 @@ class HookSpec[Event, Payload]:
     evaluate: Callable[[Event], Awaitable[Sequence[Payload]]]
     # OfferTool checks return the notice the model reads. Run checks return operation data.
     effect: Run[Payload] | OfferTool
+    switch: HookSwitch | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class HookRegistration:
-    spec: HookSpec
-    enabled: bool = True
+# Whether the hook of that name is on, asked only for a hook that has a switch.
+HookPolicy = Callable[[AsyncSession, str], Awaitable[bool]]
+
+
+async def every_switch_on(session: AsyncSession, name: str) -> bool:
+    """The policy of an application with no settings of its own."""
+    return True
