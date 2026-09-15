@@ -18,9 +18,3 @@ Feature: Diagnostics
     And the rest of the status still arrives: what memory is doing does not take the answer with it
     When memory can be read again
     Then the status says so plainly
-
-  Scenario: DG-HOOKS-003 — The status lists the application's actual automatic reactions
-    When the owner asks for the status
-    Then each registered reaction is listed with its name, owner, events and kind of work
-    And disabled reactions are listed as disabled
-    And an application with no reactions says that none are registered

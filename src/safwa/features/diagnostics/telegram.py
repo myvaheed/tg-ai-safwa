@@ -17,19 +17,10 @@ async def command_status(message: Message, services: Services) -> None:
     health = await memory_health(memory_store(services))
     async with services.sessions() as session:
         workspace = await session.get(Workspace, 1)
-    hooks = "\n".join(
-        html.escape(
-            f"{registration.spec.name} · {registration.spec.owner} · "
-            f"{'on' if registration.enabled else 'off'} · "
-            f"{', '.join(str(on) for on in registration.spec.on)} → "
-            f"{type(registration.spec.effect).__name__}"
-        )
-        for registration in services.hooks.registrations
-    )
     await send_registered(
         message,
         services,
         f"<b>Status</b>\nMode: {workspace.mode}\nRevision: {workspace.revision}\n"
-        f"Memory: {html.escape(health)}\n\n<b>Hooks</b>\n{hooks or 'None registered.'}",
+        f"Memory: {html.escape(health)}",
         kind=MessageKind.DASHBOARD,
     )

@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 import re
-from dataclasses import replace
 from types import SimpleNamespace
 
 from ui_harness import FakeMessage, services_for
 
-from safwa.bootstrap.modules import HOOKS, MODULES, REGISTRY
 from safwa.features.cards.use_cases import create_card
 from safwa.features.diagnostics.telegram import command_status
 from safwa.features.planning.use_cases import start_sprint
-from tg_agent_shell.registry import Registry
 
 
 class _Memory:
@@ -73,21 +70,3 @@ async def test_dg_memory_002_a_memory_that_cannot_be_read_says_so(sessions) -> N
     await command_status(message, _services(sessions))
 
     assert "Memory: OK" in message.edits[-1][0]
-
-
-async def test_status_reads_enabled_and_disabled_hooks_from_registration(sessions):
-    """DG-HOOKS-003 — tests/brd/diagnostics.feature"""
-    services = _services(sessions)
-    services.hooks = Registry.of(
-        MODULES, world=REGISTRY.proposals.world,
-        hooks=tuple(replace(item, enabled=False) for item in HOOKS),
-    ).hooks
-    message = FakeMessage(312, bot_message=True)
-    await command_status(message, services)
-    text = message.edits[-1][0]
-    assert "summary.window · summary · off" in text
-    assert "analyzer.offer · heavy_analyzer · off" in text
-    assert "OnAfterTurn" in text and "Run" in text
-    assert "OnAfterTool" in text and "OfferTool" in text
-    await command_status(message, _services(sessions))
-    assert "None registered." in message.edits[-1][0]
