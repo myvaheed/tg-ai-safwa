@@ -7,6 +7,7 @@ from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import FeatureModule, ProposalContribution
 
 from . import agent, proposal, telegram, views
+from .hooks import BLOCKER_HOOK as BLOCKER_HOOK
 from .model import Card
 from .telegram import (
     CARD_CALLBACK_ACTIONS,

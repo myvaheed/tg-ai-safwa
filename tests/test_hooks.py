@@ -13,8 +13,10 @@ from agent_runtime import AgentDefinition, AgentSession, RunRecord, ToolOutcome
 from llm_gateway import ToolCall
 from tg_agent_shell.ai.contracts import CALL_HELPER_TOOL
 from tg_agent_shell.ai.tools import HelperPort, ToolAdapters
+from tg_agent_shell.foundation.changes import Committed
 from tg_agent_shell.foundation.screens import ScreenCatalogue
 from tg_agent_shell.hooks.contracts import (
+    Advise,
     AfterTool,
     AfterTurn,
     HookSpec,
@@ -22,6 +24,7 @@ from tg_agent_shell.hooks.contracts import (
     OfferTool,
     OnAfterTool,
     OnAfterTurn,
+    OnCommitted,
     Run,
 )
 from tg_agent_shell.hooks.registry import HookRegistry
@@ -33,6 +36,14 @@ async def candidate(event):
 
 async def operation(payload, context):
     pass
+
+
+async def subject(event):
+    return (event.subject_id,)
+
+
+async def words(session, items):
+    return f"About {', '.join(str(item) for item in items)}." if items else None
 
 
 SPEC = HookSpec(
@@ -47,6 +58,11 @@ CALL = ToolCall(id=EVENT.call_id, name=EVENT.tool, arguments_json=EVENT.argument
 
 
 SWITCH = HookSwitch(title="Reader offer", description="Offers the reader after a read.")
+ADVICE = HookSpec(
+    name="reader.advice", owner="reader", on=(OnCommitted(kind="thing.changed"),),
+    evaluate=subject, effect=Advise(words), switch=SWITCH,
+)
+CHANGE = Committed(kind="thing.changed", subject_id=7)
 
 
 @asynccontextmanager
@@ -85,6 +101,9 @@ def switched(*names_off):
         (replace(SPEC, effect=Run(operation)), "incompatible"),
         (replace(SPEC, on=(OnAfterTool("absent"),)), "unavailable tool boundary"),
         (replace(SPEC, on=(OnAfterTool("route"),)), "unavailable tool boundary"),
+        (replace(SPEC, effect=Advise(words)), "incompatible"),
+        (replace(SPEC, on=(OnCommitted("thing.changed"),)), "incompatible"),
+        (replace(SPEC, on=(OnCommitted(" "),), effect=Advise(words)), "incompatible"),
     ],
 )
 def test_invalid_wiring_is_rejected_with_or_without_a_switch(bad, reason, switch):
@@ -242,3 +261,28 @@ async def test_optional_bad_offer_keeps_the_original_result():
 
 async def test_empty_catalogue_has_no_work():
     assert not [item async for item in run_hooks().evaluate(AfterTurn(42, 42, 1, 0), NO_SESSIONS)]
+
+
+async def test_a_committed_change_reaches_the_hook_of_its_kind_only():
+    """AG-HOOK-037 — tests/brd/tg_agent_shell/agents.feature"""
+    hooks = catalogue(ADVICE, SPEC)
+    checked = [item async for item in hooks.evaluate(CHANGE, NO_SESSIONS)]
+    assert [(item.spec.name, item.payloads) for item in checked] == [("reader.advice", (7,))]
+    assert not [item async for item in hooks.evaluate(replace(CHANGE, kind="other"), NO_SESSIONS)]
+    assert not [item async for item in catalogue(ADVICE, policy=switched(ADVICE.name)).evaluate(CHANGE, NO_SESSIONS)]
+
+
+async def test_the_words_of_a_request_come_from_the_hook_that_is_still_on():
+    """AG-HOOK-038 — tests/brd/tg_agent_shell/agents.feature"""
+    hooks = catalogue(ADVICE, SPEC)
+    assert await hooks.prepare(NO_SESSIONS, "reader.advice", [7, 9]) == "About 7, 9."
+    assert await hooks.prepare(NO_SESSIONS, "reader.advice", []) is None
+    assert await hooks.prepare(NO_SESSIONS, "reader.offer", [7]) is None
+    assert await hooks.prepare(NO_SESSIONS, "gone", [7]) is None
+    off = catalogue(ADVICE, policy=switched(ADVICE.name))
+    assert await off.prepare(NO_SESSIONS, "reader.advice", [7]) is None
+
+    async def broken(session, items):
+        raise ValueError("cannot read")
+
+    assert await catalogue(replace(ADVICE, effect=Advise(broken))).prepare(NO_SESSIONS, "reader.advice", [7]) is None

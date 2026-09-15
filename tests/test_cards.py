@@ -13,10 +13,11 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import func, select
 
-from safwa.bootstrap.modules import PROPOSALS
+from safwa.bootstrap.modules import PROPOSALS, SYSTEM_PROMPT
 from safwa.features.cards.agent import CardToolInput
 from safwa.features.cards.hard_time import typed_hard_time
 from safwa.features.cards.hierarchy import blocking_actions, card_children, card_progress
+from safwa.features.cards.hooks import BLOCKER_HOOK, blocker_request
 from safwa.features.cards.model import (
     EFFORT_RUNGS,
     Card,
@@ -30,6 +31,7 @@ from safwa.features.cards.model import (
 )
 from safwa.features.cards.telegram.presentation import paginate_cards
 from safwa.features.cards.use_cases import (
+    CARD_BLOCKED,
     EFFORT_POINTS,
     archive_subtree,
     create_card,
@@ -56,6 +58,7 @@ from safwa.features.values.model import CardValue, Value
 from safwa.features.values.use_cases import create_value, delete_value, set_value_focus
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.marks import live_repeat_instance_id, title_marks
+from tg_agent_shell.foundation.changes import Committed, take_changes
 from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.proposals.api import ToolPreparationError
@@ -1338,3 +1341,64 @@ async def test_cd_delete_025_deleting_a_goal_alone_leaves_its_children_standing(
                 CardEvent.id.desc()
             )
         ) == "edit_kind"
+
+
+async def test_cd_blocked_034_becoming_blocked_is_the_change_a_hook_follows_up(sessions):
+    """CD-BLOCKED-034 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        born = await create_card(
+            session, kind="action", title="Call the bank", effort_points=1,
+            blocked=True, blocked_description="Line is busy",
+        )
+        marked = await create_card(session, kind="action", title="Sign the lease", effort_points=1)
+        await update_card_fields(
+            session, marked.id, {"blocked": True, "blocked_description": "Landlord away"}
+        )
+        assert take_changes(session.info) == [
+            Committed(CARD_BLOCKED, born.id), Committed(CARD_BLOCKED, marked.id),
+        ]
+        # Staying blocked is not becoming blocked, and a Goal never blocks itself.
+        await update_card_fields(session, marked.id, {"title": "Sign the new lease"})
+        await update_card_fields(session, marked.id, {"blocked_description": "Landlord abroad"})
+        await update_card_fields(session, marked.id, {"blocked": False})
+        await update_card_fields(
+            session, marked.id, {"blocked": True, "blocked_description": "Again"}
+        )
+        assert take_changes(session.info) == [Committed(CARD_BLOCKED, marked.id)]
+        await session.commit()
+
+
+async def test_cd_blocked_034_the_request_names_what_is_still_blocked_and_open(sessions):
+    """CD-BLOCKED-034 — tests/brd/cards.feature"""
+    assert BLOCKER_HOOK.switch is not None
+    # The switch is named where the Advisor reads it on every turn, not in the request.
+    assert "switches off in Profile" in SYSTEM_PROMPT
+    async with sessions() as session:
+        blocked = [
+            await create_card(
+                session, kind="action", title=title, effort_points=1,
+                blocked=True, blocked_description=reason,
+            )
+            for title, reason in (
+                ("Call the bank", "Line is busy"), ("Sign the lease", "Landlord away"),
+                ("Fix the bike", "No parts"), ("Read the contract", "Not received"),
+                ("Renew the passport", "Office closed"),
+            )
+        ]
+        await session.commit()
+        ids = [card.id for card in blocked]
+        await update_card_fields(session, ids[1], {"blocked": False})
+        await finish_action(session, ids[2])
+        await finish_action(session, ids[3])
+        await archive_subtree(session, ids[3])
+        await delete_one_card(session, ids[4])
+        await update_card_fields(session, ids[0], {"blocked_description": "Line still busy"})
+        await session.commit()
+
+        request = await blocker_request(session, ids)
+        assert request is not None
+        assert f"#{ids[0]} «Call the bank»: Line still busy" in request
+        assert "Reminder" in request
+        for absent in ("Sign the lease", "Fix the bike", "Read the contract", "Renew the passport"):
+            assert absent not in request
+        assert await blocker_request(session, ids[1:]) is None

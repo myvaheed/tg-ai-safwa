@@ -118,15 +118,11 @@ Teach the Advisor to offer a Card or a Reminder when the conversation makes one 
 every new intention with a separate hook would trigger too often; the Advisor can make this
 offer from the context it already reads. This is an instruction candidate, not a hook.
 
-### 2. After setting a blocker, offer a Reminder — hook
+### 2. After setting a blocker, offer a Reminder — shipped
 
-Once a blocker has actually been saved, ask whether to set a Reminder for when the owner can
-return to the question. If they want one, agree when and prepare the ordinary Reminder proposal.
-Preparing the blocker proposal alone is not the trigger: the blocker must have been applied,
-and an Action created blocked counts; renaming the Card or rewording the blocker does not.
-Several Cards blocked before the question is asked make one question; a Card unblocked or
-deleted before then is left out of it. Whether a follow-up is already arranged is not read:
-nothing links a Card to a Reminder, and the Advisor has the dialogue.
+Shipped 2026-09-15 as [CD-BLOCKED-034](../tests/brd/cards.feature); the number stays for
+references. Whether a follow-up is already arranged is not read: nothing links a Card to a
+Reminder, and the Advisor has the dialogue.
 
 ### 3. Match new information against existing blockers — rejected
 

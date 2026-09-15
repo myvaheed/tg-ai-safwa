@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, time
 from enum import StrEnum
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text, Time
+from sqlalchemy import JSON, Boolean, Integer, String, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...foundation.models import Base, TimestampMixin, UtcDateTime
@@ -35,17 +35,12 @@ class Reminder(Base, TimestampMixin):
     __tablename__ = "reminders"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     instruction: Mapped[str] = mapped_column(Text)
-    # Set only on the Reminders a Sprint start creates, so finishing that Sprint can
-    # remove them; an owner-created Reminder never carries one.
-    sprint_id: Mapped[int | None] = mapped_column(
-        ForeignKey("sprints.id", ondelete="CASCADE"), index=True
-    )
     # A Reminder no owner set — the Profile trigger, a Sprint's end warnings: hidden from
     # `/reminders` and from `ai_reminders`, and refused by the edit and delete paths.
     system: Mapped[bool] = mapped_column(Boolean, default=False)
-    # Which of its own daily Reminders the Profile is looking at — the Diary nudge or the
-    # daily summary — so each is reconciled on its own. Owner-created Reminders and a
-    # Sprint's warnings carry none.
+    # Whose system Reminder it is — the Diary nudge, the daily summary, or the running
+    # Sprint's warnings — so whatever set it up can find it again. One Sprint runs at a
+    # time, so its warnings share one key. Owner-created Reminders carry none.
     system_key: Mapped[str | None] = mapped_column(String(40))
 
     schedule_kind: Mapped[str] = mapped_column(String(20))

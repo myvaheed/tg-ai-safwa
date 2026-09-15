@@ -277,3 +277,13 @@ Feature: Cards
       how the owner comes back
     And an edit made in one of the two redraws the Card in that same one
     And an archived Card opens in full, having no control to put away
+
+  Scenario: CD-BLOCKED-034 — After an Action is blocked, Safwa asks whether to set a Reminder
+    Given an Action is saved blocked — marked so, or created so — by a proposal or by hand
+    When the chat is free
+    Then the Advisor is asked once to offer a Reminder for coming back to it, naming the Action and its reason as they are now
+    And the Advisor is told, in its standing instructions, that such questions are switched off in the Profile
+    And two Actions blocked before it is said make one question about both
+    And an Action unblocked, finished, archived or deleted before then is left out, and a question with nothing in it is not asked
+    But renaming the Action or rewording its reason while it stays blocked asks nothing
+    And the owner's reply is an ordinary turn: the hook reads neither it nor their silence

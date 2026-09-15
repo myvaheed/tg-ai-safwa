@@ -124,34 +124,37 @@ Their rules are in [cards.feature](../tests/brd/cards.feature),
 
 Started 2026-09-15 with hook stages 1 and 2: one checked connection list, and the existing
 Summary and Heavy analyzer offer moved onto it. Their former automatic paths are removed. The
-shell works with an empty hook list; no prompt prefix changed. The same day the switches
-reached the Profile ([PS-HOOKS-015](../tests/brd/profile.feature)): one column holding the
-hooks the owner turned off, so the database is rebuilt.
+shell works with an empty hook list. The same day the switches reached the Profile
+([PS-HOOKS-015](../tests/brd/profile.feature)) and the first initiative shipped: an Action
+becoming blocked is recorded beside its transaction, handed to the hooks after the commit, and
+kept as that hook's one pending `Cue` — worded from what is still blocked when it is next in
+line ([AG-HOOK-037](../tests/brd/tg_agent_shell/agents.feature), AG-HOOK-038,
+[CD-BLOCKED-034](../tests/brd/cards.feature)). One Profile column, two `Cue` columns and one
+prompt line changed; the Reminder's Sprint column went, its warnings being found by their
+`system_key` like the Profile's own. The database is rebuilt once for all of it.
 
 A hook is switched on or off as a whole, by the owner in the Profile. An initiative is one
 request to the Advisor, delivered through the existing `Cue` queue; one hook has one pending
 initiative at a time, rereads what it refers to just before delivery, and the owner's reply is
-an ordinary next turn the hook never reads. The next two batches are Committed → Advise
-on the blocker, then Tick → Advise on Goals without Actions.
-No table beyond the `Cue` row is added. Retrospective statistics remain separate.
+an ordinary next turn the hook never reads. The next batch is Tick → Advise on Goals without
+Actions. No table beyond the `Cue` row is added. Retrospective statistics remain separate.
 
 | Entry | | What it unlocks, and what to watch |
 |---|---|---|
-| **POTENTIAL HOOKS — the shape every hook has** | M per batch | Stages 1–2 implemented; batches 1–3 in [HOOK_ARCH.md](HOOK_ARCH.md). Each batch is one new port or event/reaction pair, one real consumer and one line in `HOOKS`. |
-| **Hook switches in the Profile — batch 1, shipped** | M | Every hook that declares a switch is listed by title — automatic Summary does, the Heavy analyzer offer does not; switching one off stops its condition. Batch 2 adds that it cancels the hook's pending initiative. |
+| **POTENTIAL HOOKS — the shape every hook has** | M per batch | Stages 1–2 and batches 1–2 implemented; batch 3 in [HOOK_ARCH.md](HOOK_ARCH.md). Each batch is one new port or event/reaction pair, one real consumer and one line in `HOOKS`. |
+| **Hook switches in the Profile — batch 1, shipped** | M | Every hook that declares a switch is listed by title — automatic Summary and the blocker do, the Heavy analyzer offer does not; switching one off stops its condition and drops its pending initiative. |
 | **The retrospective — the statistics half only** | M | RT-OPEN-001 currently promises a screen that says there is nothing there yet. Code-calculated statistics fill it and are useful with no model involved. The AI analysis half is Wave 5. |
 
 ## Wave 4 — the hooks, in dependency order
 
-Hooks on a committed transition need only the Committed adapter from batch 2. Hooks that poll
-state on a schedule need the Tick adapter from batch 3. Instructions 1, 4 and 15 need neither.
+Hooks on a committed transition need only the Committed adapter, shipped in batch 2. Hooks that
+poll state on a schedule need the Tick adapter from batch 3. Instructions 1, 4 and 15 need neither.
 Explicit retrospective workflows do not depend on hook registration.
 The classification audit and implementation stages are in [HOOK_ARCH.md](HOOK_ARCH.md).
 
 | Entry | | Depends on |
 |---|---|---|
 | **1, 4 and 15 — Advisor instructions, not hooks** | S each | Nothing. A prompt line and the snapshot. Note for 4: the Today Actions are already in the state block; the Sprint list is not, and adding it has a cost named below. |
-| **2 — After setting a blocker, offer a Reminder** | S | Batch 2; it is batch 2's consumer |
 | **5 — Goals and Subgoals with no Actions** | M | Batch 3; it is batch 3's consumer |
 | **11 — Repeated Missed observations** | S | Batch 2 and a transition rule for a run of Missed |
 | **7 — Today's work exceeds the daily capacity** | M | Batch 2 or 3. The rungs now say what a day's load is, so 15 EP means something; the counting rule is still the entry's own open question. |
@@ -180,9 +183,8 @@ flowchart LR
   h7["Hook 7 — daily capacity"]
   h10["Hook 10 — key Actions"]
   shape["The shape every hook has"] --> profile["Batch 1 — switches in the Profile"]
-  profile --> committed["Batch 2 — Committed → Advise"]
+  profile --> committed["Batch 2 — Committed → Advise, shipped with hook 2"]
   profile --> tick["Batch 3 — Tick → Advise"]
-  committed --> h2["Hook 2 — blocker follow-up"]
   committed --> h11["Hook 11 — repeated Missed"]
   committed --> h10
   committed --> h7
@@ -194,10 +196,10 @@ flowchart LR
 
 ## Where to look hardest
 
-**The blocker as the first initiative.** Ship it as one pending request per hook in the `Cue`
-queue, reread just before delivery, and nothing more. The second initiative, on a timed check,
-then has to reuse that path unchanged: a second delivery path, a second poll loop or a table of
-what was asked means the shared part was fitted to the blocker.
+**The second initiative reuses the blocker's path unchanged.** The blocker shipped as one
+pending request per hook in the `Cue` queue, reread just before delivery, and nothing more. The
+timed check has to reuse that path as it is: a second delivery path, a second poll loop or a
+table of what was asked means the shared part was fitted to the blocker.
 
 **The pre-release window.** Declare a schema batch only if an implementation changes stored
 structure.

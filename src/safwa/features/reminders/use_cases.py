@@ -160,7 +160,6 @@ async def sync_daily_system_reminder(
             instruction=instruction,
             system=True,
             system_key=key,
-            sprint_id=None,
             next_fire_at=first,
             **schedule_columns(schedule),
         )
@@ -176,6 +175,10 @@ async def sync_daily_system_reminder(
     return existing
 
 
+# The running Sprint's own warnings; one Sprint runs at a time, so one key finds them.
+SPRINT_KEY = "sprint"
+
+
 async def create_sprint_reminder(
     session: AsyncSession,
     *,
@@ -183,7 +186,6 @@ async def create_sprint_reminder(
     at_time: time,
     anchor_at: datetime,
     tz: ZoneInfo,
-    sprint_id: int,
 ) -> Reminder:
     """One warning a Sprint sets for itself: fires once, at the clock the Sprint started at.
 
@@ -196,11 +198,11 @@ async def create_sprint_reminder(
         schedule=Schedule(kind=ScheduleKind.ONCE, at_time=at_time, anchor_at=anchor_at),
         tz=tz,
     )
-    reminder.sprint_id = sprint_id
     reminder.system = True
+    reminder.system_key = SPRINT_KEY
     return reminder
 
 
-async def delete_sprint_reminders(session: AsyncSession, sprint_id: int) -> None:
+async def delete_sprint_reminders(session: AsyncSession) -> None:
     """A finished Sprint's own warnings have nothing left to announce."""
-    await session.execute(delete(Reminder).where(Reminder.sprint_id == sprint_id))
+    await session.execute(delete(Reminder).where(Reminder.system_key == SPRINT_KEY))

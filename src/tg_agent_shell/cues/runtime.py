@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import UTC, datetime
+from typing import Any
 
 from aiogram import Bot
 from aiogram.types import Chat, Message, User
@@ -88,6 +89,10 @@ class CueRuntime:
         if self._lease_revision is not None:
             self.services.turn.end_background(self._lease_revision)
             self._lease_revision = None
+
+    async def prepare(self, hook: str, payload: list[Any]) -> str | None:
+        """The words of a hook's request, from the hook's own feature, or None to drop it."""
+        return await self.services.hooks.prepare(self.services.sessions, hook, payload)
 
     async def speak(self, event_id: str, text: str) -> bool:
         """Run one Advisor turn over the request. Returns whether the answer was delivered.

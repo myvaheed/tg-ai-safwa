@@ -16,6 +16,7 @@ from llm_gateway import OpenAICompatibleConfig, OpenAICompatibleProvider
 from telegram_llm import ChatHost
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from tg_agent_shell.asr import build_transcriber
+from tg_agent_shell.cues.initiatives import bind_committed
 from tg_agent_shell.foundation.database import Database, upgrade_database
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MARKS
@@ -153,6 +154,7 @@ async def run(settings: Settings) -> None:
         )
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     database = Database(settings.async_database_url)
+    committed = bind_committed(database.sessions, REGISTRY.hooks)
     async with database.sessions() as session:
         _, created = await bootstrap_workspace(
             session, settings.telegram_owner_id, settings.timezone
@@ -339,6 +341,7 @@ async def run(settings: Settings) -> None:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*live_timers, *tasks, return_exceptions=True)
+        await committed.close()
         await history.close()
         if transcriber is not None:
             await transcriber.close()

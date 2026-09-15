@@ -26,7 +26,7 @@ from safwa.features.planning.use_cases import (
 from safwa.features.profile.model import SPRINT_LENGTH_DAYS, ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.reminders.model import Reminder
-from safwa.features.reminders.use_cases import delete_reminder
+from safwa.features.reminders.use_cases import SPRINT_KEY, delete_reminder
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.workspace import Workspace
 from tg_agent_shell.cues.model import Cue
@@ -167,7 +167,7 @@ async def test_pl_warn_011_a_sprint_warns_the_owner_before_it_ends(sessions):
         sprint = await start_sprint(session, success_criteria="Ship v2")
         reminders = list(await session.scalars(select(Reminder).order_by(Reminder.next_fire_at)))
 
-        assert [reminder.sprint_id for reminder in reminders] == [sprint.id, sprint.id]
+        assert [reminder.system_key for reminder in reminders] == [SPRINT_KEY, SPRINT_KEY]
         # Both fire at the clock the Sprint started at, one day apart.
         assert reminders[1].next_fire_at - reminders[0].next_fire_at == timedelta(days=1)
         assert reminders[0].next_fire_at.timetz() == sprint.actual_started_at.timetz()

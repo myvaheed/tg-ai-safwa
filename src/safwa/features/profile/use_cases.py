@@ -12,6 +12,7 @@ from datetime import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.cues.queue import drop_hook_cue
 from tg_agent_shell.foundation.clock import Clock
 from tg_agent_shell.foundation.errors import DomainError
 
@@ -87,10 +88,15 @@ async def require_profile(session: AsyncSession) -> UserProfile:
 
 
 async def set_hook_switch(session: AsyncSession, name: str, *, on: bool) -> UserProfile:
-    """Turn one automatic reaction off or on; the screen says which names have a switch."""
+    """Turn one automatic reaction off or on; the screen says which names have a switch.
+
+    Off takes the hook's pending request with it, and on does not bring it back.
+    """
     profile = await require_profile(session)
     disabled = [hook for hook in profile.disabled_hooks if hook != name]
     profile.disabled_hooks = disabled if on else [*disabled, name]
+    if not on:
+        await drop_hook_cue(session, name)
     return profile
 
 

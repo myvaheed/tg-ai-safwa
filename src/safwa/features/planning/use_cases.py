@@ -138,7 +138,6 @@ async def _schedule_sprint_reminders(
             at_time=clock,
             anchor_at=moment,
             tz=tz,
-            sprint_id=sprint.id,
         )
 
 
@@ -191,7 +190,7 @@ async def finish_sprint(session: AsyncSession, *, reason: str = "finished") -> S
     if sprint is None:
         raise DomainError("Active Sprint is missing")
     # Its own end reminders have nothing left to announce.
-    await delete_sprint_reminders(session, sprint.id)
+    await delete_sprint_reminders(session)
     sprint.status = SprintStatus.FINISHED.value
     sprint.finish_reason = reason
     sprint.actual_ended_at = utcnow()

@@ -1,8 +1,10 @@
 """Events are facts; subscriptions select them; effects describe the permitted work.
 
-Only the two event boundaries with real consumers are implemented. Checks receive no
-session or delivery objects. Run handlers receive a publication port and the application's
-resources, under the lease the event adapter owns.
+Only the event boundaries with real consumers are implemented. Checks receive no session
+or delivery objects. Run handlers receive a publication port and the application's
+resources, under the lease the event adapter owns. Advise keeps what a check returned as
+the hook's one pending request and asks the feature for the words just before they are
+said, so what is said is what is still there.
 
 A hook with a switch is the owner's to turn off; whether it is on is the application's
 policy, read where the hook is about to work. A hook without one is always on.
@@ -15,6 +17,8 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..foundation.changes import Committed
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +63,14 @@ class OnAfterTool:
 
 
 @dataclass(frozen=True, slots=True)
+class OnCommitted:
+    kind: str
+
+    def matches(self, event: Committed) -> bool:
+        return event.kind == self.kind
+
+
+@dataclass(frozen=True, slots=True)
 class RunContext[Resources]:
     resources: Resources
     still_current: Callable[[], bool]
@@ -77,6 +89,18 @@ class OfferTool:
 
 
 @dataclass(frozen=True, slots=True)
+class Advise[Item]:
+    """One pending request to the Advisor per hook, worded when it is about to be said.
+
+    A check returns items — references, not words. They are merged into the hook's pending
+    request; `prepare` reads what they refer to and returns the request text, or None when
+    nothing is left to ask about.
+    """
+
+    prepare: Callable[[AsyncSession, Sequence[Item]], Awaitable[str | None]]
+
+
+@dataclass(frozen=True, slots=True)
 class HookSwitch:
     """What the owner reads on the settings screen that turns the hook off and on."""
 
@@ -88,10 +112,11 @@ class HookSwitch:
 class HookSpec[Event, Payload]:
     name: str
     owner: str
-    on: tuple[OnAfterTurn | OnAfterTool, ...]
+    on: tuple[OnAfterTurn | OnAfterTool | OnCommitted, ...]
     evaluate: Callable[[Event], Awaitable[Sequence[Payload]]]
     # OfferTool checks return the notice the model reads. Run checks return operation data.
-    effect: Run[Payload] | OfferTool
+    # Advise checks return the items the request will be about.
+    effect: Run[Payload] | OfferTool | Advise[Payload]
     switch: HookSwitch | None = None
 
 

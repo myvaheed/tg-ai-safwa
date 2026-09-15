@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Mapping
+import logging
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ..foundation.changes import Committed
 from .contracts import (
+    Advise,
     AfterTool,
     AfterTurn,
     HookPolicy,
@@ -17,9 +20,19 @@ from .contracts import (
     OfferTool,
     OnAfterTool,
     OnAfterTurn,
+    OnCommitted,
     Run,
     every_switch_on,
 )
+
+logger = logging.getLogger(__name__)
+
+HookEvent = AfterTurn | AfterTool | Committed
+
+# Which subscription reads which event; the registry's compatibility rules are below.
+_SUBSCRIPTION_FOR: Mapping[type, type] = MappingProxyType({
+    AfterTurn: OnAfterTurn, AfterTool: OnAfterTool, Committed: OnCommitted,
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,11 +73,13 @@ class HookRegistry:
             for subscription in spec.on:
                 match subscription, spec.effect:
                     case OnAfterTurn(source=source), Run() if source in {"owner", "system"}:
-                        event_type = AfterTurn
+                        event_type: type = AfterTurn
                     case OnAfterTool(tool=tool, agent="root", outcome="success"), OfferTool():
                         if tool not in tools:
                             raise RuntimeError(f"Hook {spec.name} names an unavailable tool boundary: {tool}")
                         event_type = AfterTool
+                    case OnCommitted(kind=kind), Advise() if kind.strip():
+                        event_type = Committed
                     case _:
                         raise RuntimeError(f"Hook {spec.name} has an incompatible subscription/effect")
                 bucket = index.setdefault(event_type, [])
@@ -90,14 +105,14 @@ class HookRegistry:
             return await self.policy(session, spec.name)
 
     async def evaluate(
-        self, event: AfterTurn | AfterTool, sessions: async_sessionmaker[AsyncSession]
+        self, event: HookEvent, sessions: async_sessionmaker[AsyncSession]
     ) -> AsyncIterator[HookEvaluation]:
         """Evaluate only matches that are switched on, once per hook, without performing effects.
 
-        Both current effects are optional assistance. Their failures are reported to
-        the adapter, independently, and cancellation always propagates.
+        Every current effect is optional assistance. Their failures are reported to the
+        adapter, independently, and cancellation always propagates.
         """
-        subscription_type = OnAfterTurn if isinstance(event, AfterTurn) else OnAfterTool
+        subscription_type = _SUBSCRIPTION_FOR[type(event)]
         for spec in self._index.get(type(event), ()):
             if not any(
                 isinstance(on, subscription_type) and on.matches(event) for on in spec.on
@@ -111,3 +126,24 @@ class HookRegistry:
                 yield HookEvaluation(spec, error=error)
             else:
                 yield HookEvaluation(spec, payloads)
+
+    async def prepare(
+        self, sessions: async_sessionmaker[AsyncSession], name: str, items: Sequence[Any]
+    ) -> str | None:
+        """The words of a hook's pending request, or None when there is nothing to say.
+
+        Nothing is said for a hook that is gone, switched off, or whose feature finds none
+        of the items still worth asking about; a feature that fails to say is logged and
+        treated the same, so one broken request does not hold every later one behind it.
+        """
+        spec = next((spec for spec in self.specs if spec.name == name), None)
+        if spec is None or not isinstance(spec.effect, Advise):
+            return None
+        if not await self.switched_on(sessions, spec):
+            return None
+        try:
+            async with sessions() as session:
+                return await spec.effect.prepare(session, items)
+        except Exception:
+            logger.exception("Hook %s could not prepare its request", name)
+            return None

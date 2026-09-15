@@ -296,3 +296,22 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then it still may call the helper it was offered
     When a new session begins
     Then the previous session's offer grants it nothing
+
+  Scenario: AG-HOOK-037 — A saved change reaches its reaction once, on commit, whoever saved it
+    Given a feature records a change beside the transaction that makes it
+    When that transaction is committed
+    Then the reaction for that kind of change checks it once, from a proposal and from a screen alike
+    When the transaction is rolled back, or the proposal that would have made it is discarded
+    Then no reaction checks anything
+
+  Scenario: AG-HOOK-038 — A hook keeps one pending request, made current just before it is said
+    Given a hook asks the Advisor through what Safwa owes the owner
+    Then what is written down is the hook's name and what it refers to, not the words
+    And it survives a restart, like anything else Safwa owes
+    When the hook fires again before that is said
+    Then it adds to the one pending request, and no second one is written
+    When the request is next in line
+    Then the hook is checked to be still on, what it refers to is read again, and the words are made from what is still there
+    And when nothing is still there, nothing is said and nothing stays owed
+    When the owner switches the hook off in the Profile
+    Then its pending request is dropped, and switching it back on does not bring it back

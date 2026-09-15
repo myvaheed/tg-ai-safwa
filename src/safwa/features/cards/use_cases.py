@@ -18,6 +18,7 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 
@@ -181,6 +182,8 @@ async def create_card(
     for check_id in sorted(check_ids or set()):
         session.add(CardCheck(card_id=card.id, check_id=check_id))
     await record_card_event(session, card, "create", actor, None, new_correlation_id())
+    if card.blocked:
+        record_change(session, CARD_BLOCKED, card.id)
     if card_kind is CardKind.ACTION:
         await sync_commitment_for_stage(session, card)
     await propagate_ancestors(session, parent_id)
@@ -269,6 +272,8 @@ async def update_card_fields(
         validate_blocked_fields(card.blocked, card.blocked_description)
     card.version += 1
     await record_card_event(session, card, "update", actor, before, new_correlation_id())
+    if card.blocked and not before["blocked"]:
+        record_change(session, CARD_BLOCKED, card.id)
     await propagate_ancestors(session, card.parent_id)
     await bump_workspace(session)
     return card
@@ -512,6 +517,10 @@ def validate_action_fields(
 def validate_blocked_fields(blocked: bool, description: str | None) -> None:
     if blocked and not (description or "").strip():
         raise DomainError("A blocked Card needs a blocked description")
+
+
+# The change a hook may follow up on: an Action became blocked, however it was saved.
+CARD_BLOCKED = "card.blocked"
 
 
 async def record_card_event(

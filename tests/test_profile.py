@@ -16,16 +16,18 @@ from safwa.features.profile.use_cases import (
     SUMMARY_REMINDER_INSTRUCTION,
     SUMMARY_TRIGGER,
     profile_field,
+    set_hook_switch,
     set_profile_field,
 )
 from safwa.features.reminders.background import tick
 from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import resolve
-from safwa.features.reminders.use_cases import create_reminder
+from safwa.features.reminders.use_cases import SPRINT_KEY, create_reminder
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.workspace import Workspace
 from tg_agent_shell.ai.messages import ordered_owner_context
 from tg_agent_shell.cues.model import Cue
+from tg_agent_shell.cues.queue import merge_hook_cue
 from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.recovery import recover_startup
@@ -171,7 +173,7 @@ async def test_diary_reminder_settings_sync_only_the_diary_system_reminder(sessi
     """PS-DIARY-006 — tests/brd/profile.feature"""
     async with sessions() as session:
         await create_card(session, kind="action", title="Planned", stage="sprint", effort_points=3)
-        sprint = await start_sprint(session, success_criteria="Keep the Sprint reminders")
+        await start_sprint(session, success_criteria="Keep the Sprint reminders")
         ordinary = await create_reminder(
             session,
             instruction="Ask whether I want another Diary check-in.",
@@ -185,7 +187,7 @@ async def test_diary_reminder_settings_sync_only_the_diary_system_reminder(sessi
         sprint_before = {
             reminder.id: (reminder.instruction, reminder.next_fire_at, reminder.version)
             for reminder in await session.scalars(
-                select(Reminder).where(Reminder.sprint_id == sprint.id)
+                select(Reminder).where(Reminder.system_key == SPRINT_KEY)
             )
         }
         ordinary_before = (ordinary.instruction, ordinary.next_fire_at, ordinary.version)
@@ -206,7 +208,7 @@ async def test_diary_reminder_settings_sync_only_the_diary_system_reminder(sessi
         assert {
             reminder.id: (reminder.instruction, reminder.next_fire_at, reminder.version)
             for reminder in await session.scalars(
-                select(Reminder).where(Reminder.sprint_id == sprint.id)
+                select(Reminder).where(Reminder.system_key == SPRINT_KEY)
             )
         } == sprint_before
 
@@ -215,7 +217,7 @@ async def test_diary_reminder_settings_sync_only_the_diary_system_reminder(sessi
 
         assert await session.get(Reminder, internal_id) is None
         assert await session.get(Reminder, ordinary.id) is ordinary
-        assert len(list(await session.scalars(select(Reminder).where(Reminder.sprint_id == sprint.id)))) == len(
+        assert len(list(await session.scalars(select(Reminder).where(Reminder.system_key == SPRINT_KEY)))) == len(
             sprint_before
         )
 
@@ -326,3 +328,19 @@ async def test_profile_update_bumps_workspace_revision_once(sessions) -> None:
         )
 
         assert workspace.revision == revision + 1
+
+
+async def test_ag_hook_038_switching_a_hook_off_drops_its_pending_request_for_good(sessions) -> None:
+    """AG-HOOK-038 — tests/brd/tg_agent_shell/agents.feature"""
+    async with sessions() as session:
+        await merge_hook_cue(session, hook="cards.blocker", items=[3])
+        await merge_hook_cue(session, hook="other.hook", items=[4])
+        await set_hook_switch(session, "cards.blocker", on=False)
+        await session.commit()
+    async with sessions() as session:
+        assert [cue.hook for cue in await session.scalars(select(Cue))] == ["other.hook"]
+        await set_hook_switch(session, "cards.blocker", on=True)
+        await session.commit()
+    async with sessions() as session:
+        assert [cue.hook for cue in await session.scalars(select(Cue))] == ["other.hook"]
+        assert (await session.get(UserProfile, 1)).disabled_hooks == []

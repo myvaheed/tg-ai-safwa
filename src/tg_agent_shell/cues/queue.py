@@ -6,7 +6,10 @@ transaction, and the delivery poll is somewhere else entirely.
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from collections.abc import Sequence
+from typing import Any
+
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .model import Cue
@@ -18,6 +21,24 @@ async def add_cue(session: AsyncSession, *, text: str) -> Cue:
     session.add(cue)
     await session.flush()
     return cue
+
+
+async def merge_hook_cue(session: AsyncSession, *, hook: str, items: Sequence[Any]) -> Cue:
+    """Add these items to the hook's one pending request, starting it if there is none."""
+    cue = await session.scalar(select(Cue).where(Cue.hook == hook))
+    if cue is None:
+        cue = Cue(hook=hook, payload=list(items))
+        session.add(cue)
+        await session.flush()
+        return cue
+    known = cue.payload or []
+    cue.payload = [*known, *(item for item in items if item not in known)]
+    return cue
+
+
+async def drop_hook_cue(session: AsyncSession, hook: str) -> None:
+    """Forget the hook's pending request; nothing brings it back."""
+    await session.execute(delete(Cue).where(Cue.hook == hook))
 
 
 async def next_cue(session: AsyncSession) -> Cue | None:
