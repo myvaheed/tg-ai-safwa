@@ -155,9 +155,9 @@ async def test_ag_tool_033_a_read_that_failed_earns_no_offer() -> None:
     failed = [{"status": ToolResultStatus.ERROR.value, "error": "no such column: nope"}]
     await adapters._offer_tools(session, call, ToolOutcome(failed, succeeded=False))
     assert checked == []
-    assert not session.helper_offered
+    assert not session.offered_helpers
     rows = [{"n": 1}]
     await adapters._offer_tools(session, call, ToolOutcome(rows))
     assert len(checked) == 1
     assert rows[-1] == {"notice": "call the helper"}
-    assert session.helper_offered
+    assert session.offered_helpers == ("any",)

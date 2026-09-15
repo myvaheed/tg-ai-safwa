@@ -384,7 +384,7 @@ class ToolAdapters:
                 "hint": f"Call one of: {', '.join(self.helpers) or 'none'}.",
                 "retryable": True,
             }
-        if payload.name.strip() not in agent.host_state.get("offered_helpers", ()):
+        if payload.name.strip() not in agent.offered_helpers:
             return {
                 "status": ToolResultStatus.ERROR.value,
                 "code": "helper_not_offered",
@@ -416,6 +416,8 @@ class ToolAdapters:
 
     async def _offer_tools(self, agent: AgentSession, call: ToolCall, outcome: ToolOutcome) -> None:
         """Deliver offers only to the session whose call just completed."""
+        if not self.hooks.listens(ToolEvent):
+            return
         result = outcome.result
         event = ToolEvent(
             run_id=agent.run_id,
@@ -440,10 +442,7 @@ class ToolAdapters:
             if not all(isinstance(notice, str) and notice.strip() for notice in checked.payloads):
                 logger.error("Hook %s returned an invalid helper notice", checked.spec.name)
                 continue
-            agent.offer_helper()
-            offered = agent.host_state.setdefault("offered_helpers", [])
-            if effect.helper not in offered:
-                offered.append(effect.helper)
+            agent.offer_helper(effect.helper)
             for notice in checked.payloads:
                 if isinstance(result, list):
                     add_notice(result, notice)

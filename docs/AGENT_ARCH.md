@@ -175,7 +175,7 @@ row. The row is what survives a suspension:
 |---|---|
 | `kind` | `advisor`, or the subagent's name |
 | `parent_run_id` | who routed here; null for the Advisor |
-| `state_json` | dialogue, transcript, tool count, repair rounds, receipts, `host_state`, `helper_offered`, `interaction_token` |
+| `state_json` | dialogue, transcript, tool count, repair rounds, receipts, `host_state`, `offered_helpers`, `interaction_token` |
 | `claimed_at` | the atomic claim that stops two resumes of one session |
 | `status` | `running`, `awaiting_approval`, `interrupted`, `completed`, `failed`, `abandoned` |
 
@@ -346,12 +346,12 @@ flowchart LR
 ```
 
 - Nothing about helpers is in `SYSTEM_PROMPT`. **The read that needed one is what offers it**, and
-  the tool is added to that session's tools there and then (`helper_offered`, which survives a
+  the tool is added to that session's tools there and then (`offered_helpers`, which survives a
   suspension).
 - Which read needs one is the feature's own hook: `complex_read_candidate` reads the completed
   call and its rows, using `worth_a_helper` and `OFFER`. `OfferTool` grants its named helper and
-  adds the notice to the result. The grant stays in `host_state` across suspension and belongs
-  only to that session. `HelperSpec` holds the helper's capability independently of the offer.
+  adds the notice to the result. The grant names the helper, so `call_helper` runs only a helper
+  this session was offered, and it belongs to that session alone. `HelperSpec` holds the helper's capability independently of the offer.
 - A read that *failed* offers nothing, whatever the helper would have said: its `hint` already
   says to repair that one SELECT, and that half stays the engine's.
 - `heavy_analyzer` is a **mini session** (`ai/mini.py`), not a routed subagent: read tools plus two

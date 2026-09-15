@@ -58,8 +58,7 @@ class HookRegistry:
                     case OnAfterTurn(source=source), Run() if source in {"owner", "system"}:
                         event_type = AfterTurn
                     case OnAfterTool(tool=tool, agent="root", outcome="success"), OfferTool():
-                        # route is handled by agent_runtime, before ToolAdapters is reached.
-                        if tool not in tools or tool == "route":
+                        if tool not in tools:
                             raise RuntimeError(f"Hook {spec.name} names an unavailable tool boundary: {tool}")
                         event_type = AfterTool
                     case _:
@@ -69,6 +68,9 @@ class HookRegistry:
                     if spec not in bucket:
                         bucket.append(spec)
         return cls(registrations, MappingProxyType({key: tuple(value) for key, value in index.items()}))
+
+    def listens(self, event_type: type) -> bool:
+        return event_type in self._index
 
     async def evaluate(self, event: AfterTurn | AfterTool) -> AsyncIterator[HookEvaluation]:
         """Evaluate only enabled matches, once per hook, without performing effects.

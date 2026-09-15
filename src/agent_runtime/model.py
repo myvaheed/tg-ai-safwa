@@ -124,18 +124,19 @@ class AgentSession:
     host_state: dict[str, Any] = field(default_factory=dict)
     # Set while this session is stopped on a person: the token half of its `InteractionRef`.
     interaction_token: str | None = None
-    # Whether a read in this session was complex enough to be offered a helper. The tool
-    # is added when that happens, and `tools` is rebuilt from the kind on a resume — so a
-    # session that routed a change and came back would lose a tool it had been shown.
-    helper_offered: bool = False
+    # The helpers a read in this session earned. The tool is added with the first, and
+    # `tools` is rebuilt from the kind on a resume — so a session that routed a change and
+    # came back would lose a tool it had been shown.
+    offered_helpers: tuple[str, ...] = ()
     helper_tool: dict[str, Any] | None = None
 
-    def offer_helper(self) -> None:
-        """Put the helper tool on this session's tools, once, and remember that it is there."""
-        if self.helper_offered or self.helper_tool is None:
+    def offer_helper(self, name: str) -> None:
+        """Grant one helper to this session, and put the helper tool on its tools once."""
+        if self.helper_tool is None or name in self.offered_helpers:
             return
-        self.helper_offered = True
-        self.tools = (*self.tools, self.helper_tool)
+        if not self.offered_helpers:
+            self.tools = (*self.tools, self.helper_tool)
+        self.offered_helpers = (*self.offered_helpers, name)
 
     @property
     def tool_names(self) -> frozenset[str]:
@@ -171,7 +172,7 @@ class AgentSession:
             "awaiting_route": self.awaiting_route,
             "prior_receipts": self.prior_receipts,
             "host_state": self.host_state,
-            "helper_offered": self.helper_offered,
+            "offered_helpers": list(self.offered_helpers),
             "interaction_token": self.interaction_token,
         }
 
@@ -225,8 +226,8 @@ class AgentSession:
             interaction_token=state.get("interaction_token") or None,
             helper_tool=definition.helper_tool,
         )
-        if state.get("helper_offered"):
-            session.offer_helper()
+        for name in state.get("offered_helpers") or ():
+            session.offer_helper(name)
         return session, [dict(item) for item in state.get("transcript") or []]
 
 

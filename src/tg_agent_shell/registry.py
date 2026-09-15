@@ -24,7 +24,7 @@ from .ai.autoapproval import AutoApprovalReviewer, AutoApprovalRule
 from .ai.messages import Memory, StateBlocks
 from .ai.sql import ReadOnlyQueryRunner, SqlView, view_catalogue
 from .ai.subagents import RoutedSubagent
-from .ai.tools import AfterTool, BeforeTool, HelperPort
+from .ai.tools import IMMEDIATE_TOOLS, AfterTool, BeforeTool, HelperPort
 from .cues.module import CUE_QUEUE
 from .foundation.screens import ScreenCatalogue, ScreenSpec
 from .hooks.contracts import HookRegistration
@@ -132,7 +132,8 @@ class Registry:
                 hooks,
                 owners=frozenset(module.name for module in modules),
                 helpers=frozenset(helpers),
-                tools=frozenset({"query_data", "open", "call_helper"}),
+                # route is answered by agent_runtime before ToolAdapters is reached.
+                tools=IMMEDIATE_TOOLS - {"route"},
             ),
             recovery=tuple(
                 module.recover for module in modules if module.recover is not None

@@ -48,7 +48,7 @@ CALL = ToolCall(id=EVENT.call_id, name=EVENT.tool, arguments_json=EVENT.argument
 def catalogue(*registrations):
     return HookRegistry.of(
         registrations, owners=frozenset({"reader"}), helpers=frozenset({"reader", "other"}),
-        tools=frozenset({"query_data", "open", "call_helper", "route"}),
+        tools=frozenset({"query_data", "open", "call_helper"}),
     )
 
 
@@ -163,7 +163,7 @@ async def test_only_the_named_helper_is_granted_and_the_grant_survives_resume():
     await port._offer_tools(agent, CALL, ToolOutcome(rows))
     await port._offer_tools(agent, CALL, ToolOutcome([{"n": 1}]))
     assert len(agent.tools) == 1
-    assert agent.host_state["offered_helpers"] == ["reader"]
+    assert agent.offered_helpers == ("reader",)
     assert rows == [{"n": 1}, {"notice": "Use the reader helper."}]
 
     resumed, _ = AgentSession.restore(RunRecord(1, "advisor", state=agent.state()), definition)
@@ -193,7 +193,7 @@ async def test_no_offer_for_disabled_hook_or_child_session(enabled, agent_role):
     rows = [{"n": 1}]
     await port._offer_tools(agent, CALL, ToolOutcome(rows))
     assert rows == [{"n": 1}]
-    assert not agent.helper_offered
+    assert not agent.offered_helpers
 
 
 async def test_optional_bad_offer_keeps_the_original_result():
@@ -206,7 +206,7 @@ async def test_optional_bad_offer_keeps_the_original_result():
     rows = [{"n": 1}]
     await port._offer_tools(agent, CALL, ToolOutcome(rows))
     assert rows == [{"n": 1}]
-    assert not agent.helper_offered
+    assert not agent.offered_helpers
 
 
 async def test_empty_catalogue_has_no_work():
