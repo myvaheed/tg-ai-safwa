@@ -128,6 +128,7 @@ def _example(rel: str, source: str) -> Module:
         ("from ...config import Settings", True),
         ("import aiogram", True),
         ("from ..cards.telegram.screens import card_screen", True),
+        ("from tg_agent_shell.hooks.registry import HookRegistry", True),
         ("from .model import DiaryEntry", False),
         ("from ...foundation.database import Database", False),
     ],

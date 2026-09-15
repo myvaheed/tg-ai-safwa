@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from io import BytesIO
 
@@ -13,6 +14,7 @@ from sqlalchemy import select
 from telegram_llm import AudioClip, HistoryEntry, TranscriptionError
 
 from ..foundation.kinds import MessageKind
+from ..hooks.contracts import AfterTurn, Run, RunContext
 from ..proposals.telegram import render_ai_outcome
 from .chat import (
     delete_screen,
@@ -21,6 +23,7 @@ from .chat import (
     end_turn,
     open_turn_notice,
     send_owner_turn,
+    send_prose,
     send_registered,
 )
 from .model import UiSession
@@ -171,7 +174,7 @@ def _audio_filename(message: Message) -> str:
     return (message.audio.file_name if message.audio else None) or "audio.mp3"
 
 
-async def run_after_turn(message: Message, services: Services) -> None:
+async def run_after_turn(message: Message, services: Services, event: AfterTurn) -> None:
     """Run the work the application does once the owner has been answered.
 
     The answer is already in the chat and the turn is already given back, so a failure
@@ -179,19 +182,49 @@ async def run_after_turn(message: Message, services: Services) -> None:
     one broken piece of after-work must not silence the others, and must never tell the
     owner their request did not go through.
     """
-    for after in services.after_turn:
-        name = getattr(after, "__qualname__", None) or repr(after)
-        try:
-            await after(message, services)
-        except Exception as error:
-            logger.exception("The after-turn work %s failed", name)
-            await send_registered(
-                message,
-                services,
-                f"{html.escape(name)}, which runs after the answer, failed: "
-                f"{html.escape(str(error))}\nYour answer above stands.",
-                kind=MessageKind.ERROR,
-            )
+    async def run(still_current: Callable[[], bool]) -> None:
+        if services.turn.dialogue_revision != event.dialogue_revision:
+            return
+
+        async def publish(text: str, kind: str) -> None:
+            if still_current():
+                await send_prose(
+                    message, services, html.escape(text), kind=MessageKind(kind), replace=False
+                )
+
+        context = RunContext(
+            resources=services.features, still_current=still_current, publish=publish
+        )
+        async for checked in services.hooks.evaluate(event):
+            if not still_current():
+                break
+            error = checked.error
+            if error is None:
+                try:
+                    effect = checked.spec.effect
+                    if isinstance(effect, Run):
+                        for payload in checked.payloads:
+                            if not still_current():
+                                break
+                            await effect.run(payload, context)
+                except Exception as failure:
+                    error = failure
+            if error is not None and still_current():
+                name = checked.spec.name
+                logger.error("The after-turn hook %s failed: %s", name, error)
+                try:
+                    await send_registered(
+                        message, services,
+                        f"{html.escape(name)}, which runs after the answer, failed: "
+                        f"{html.escape(str(error))}\nYour answer above stands.",
+                        kind=MessageKind.ERROR,
+                    )
+                except Exception:
+                    logger.exception("Could not report after-turn hook %s failure", name)
+            if not still_current():
+                break
+
+    await services.turn.run_background(run)
 
 
 async def run_dialogue_turn(
@@ -222,7 +255,10 @@ async def run_dialogue_turn(
         await render_ai_outcome(message, services, outcome)
         await end_turn(message, services)
 
-        await run_after_turn(message, services)
+        await run_after_turn(message, services, AfterTurn(
+            owner_id=services.owner_id, chat_id=message.chat.id,
+            source_message_id=source.message_id, dialogue_revision=dialogue_revision,
+        ))
     except Exception as error:
         logger.exception("Could not complete an advisor turn")
         await send_registered(

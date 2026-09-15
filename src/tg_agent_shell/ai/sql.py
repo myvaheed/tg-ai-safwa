@@ -429,6 +429,7 @@ class QueryRead:
 
     sql: str
     rows: list[dict[str, Any]]
+    succeeded: bool = True
 
 
 async def read_query(runner: ReadOnlyQueryRunner, call: ToolCall) -> QueryRead:
@@ -466,6 +467,7 @@ async def read_query(runner: ReadOnlyQueryRunner, call: ToolCall) -> QueryRead:
                     "retryable": True,
                 }
             ],
+            succeeded=False,
         )
     except (KeyError, TypeError, ValueError, ValidationError, json.JSONDecodeError) as error:
         return QueryRead(
@@ -486,4 +488,5 @@ async def read_query(runner: ReadOnlyQueryRunner, call: ToolCall) -> QueryRead:
                     "retryable": True,
                 }
             ],
+            succeeded=False,
         )

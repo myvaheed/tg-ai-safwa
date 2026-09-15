@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from aiogram.exceptions import TelegramAPIError
+from hook_helpers import run_hooks
 from marks import read_kind_mark
 from sqlalchemy import select
 from ui_harness import (
@@ -63,17 +64,12 @@ def turn_services(sessions):
     services = services_for(sessions, root=None)
     services.root = TurnAdvisor(sessions)
     services.history = SimpleNamespace(dialogue=_empty_dialogue)
-    services.after_turn = (_no_summary,)
     return services
 
 
 async def _empty_dialogue(_chat_id, *, source_message=None):
     del source_message
     return []
-
-
-async def _no_summary(_message, _services) -> None:
-    return None
 
 
 async def test_an_autoapproved_change_still_reaches_the_chat(sessions) -> None:
@@ -96,8 +92,9 @@ async def test_an_autoapproved_change_still_reaches_the_chat(sessions) -> None:
         assert (await session.get(Workspace, 1)).revision > 0
 
 
+@pytest.mark.parametrize("report_fails", [False, True])
 async def test_ag_turn_034_after_turn_work_that_fails_leaves_the_answer_standing(
-    sessions,
+    sessions, monkeypatch, report_fails,
 ) -> None:
     """AG-TURN-034 — tests/brd/tg_agent_shell/agents.feature"""
     ran_after: list[str] = []
@@ -109,7 +106,12 @@ async def test_ag_turn_034_after_turn_work_that_fails_leaves_the_answer_standing
         ran_after.append("second")
 
     services = turn_services(sessions)
-    services.after_turn = (write_the_summary, keep_going)
+    services.hooks = run_hooks(write_the_summary, keep_going)
+    if report_fails:
+        async def fail_report(*args, **kwargs):
+            raise RuntimeError("Telegram is unavailable")
+
+        monkeypatch.setattr("tg_agent_shell.telegram.dialogue.send_registered", fail_report)
     message = FakeMessage(970, text="Save it", bot_message=False, answer_as_new=True)
     source = HistoryEntry(
         message_id=970,
@@ -124,9 +126,10 @@ async def test_ag_turn_034_after_turn_work_that_fails_leaves_the_answer_standing
 
     said = [item.text for item in message.sent_messages]
     assert any("Auto-saved" in text for text in said)
-    failure = next(text for text in said if "the provider was unreachable" in text)
-    assert "write_the_summary" in failure
-    assert "Your answer above stands" in failure
+    if not report_fails:
+        failure = next(text for text in said if "the provider was unreachable" in text)
+        assert "write_the_summary" in failure
+        assert "Your answer above stands" in failure
     assert not any("could not complete" in text for text in said)
     # One broken piece of after-work does not silence the rest.
     assert ran_after == ["second"]

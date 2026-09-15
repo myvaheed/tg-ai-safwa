@@ -30,6 +30,7 @@ HERE = Path(__file__).resolve()
 for folder in (HERE.parent, HERE.parents[2] / "examples", HERE.parents[2] / "tests"):
     sys.path.insert(0, str(folder))
 
+from hook_helpers import run_hooks  # noqa: E402
 from sqlalchemy import inspect, select  # noqa: E402
 from wallet.ledger.model import Entry  # noqa: E402
 from wallet_harness import (  # noqa: E402
@@ -46,8 +47,17 @@ async def main(path: Path) -> dict[str, object]:
     seeding = await harness.start()
     ids = await seed_lists(seeding.sessions)
     running = await harness.start(*entry_script(ids, answer="Lunch is on the Cash wallet."))
+    assert running.services.hooks.registrations == ()
+    turns = []
+
+    async def observe(event, context):
+        assert context.still_current()
+        turns.append(event.source_message_id)
+
+    running.services.hooks = run_hooks(observe)
 
     await take_a_turn(running, "I spent 12.50 on lunch out of Cash")
+    assert turns == [running.message.message_id]
     await press(running, "proposal_approve")
 
     async with running.sessions() as session:

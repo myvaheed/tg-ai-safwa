@@ -6,6 +6,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 from aiogram.exceptions import TelegramAPIError
+from hook_helpers import run_hooks
 from sqlalchemy import select
 from ui_harness import (
     FakeBot,
@@ -145,7 +146,8 @@ async def test_proposal_ui_gives_up_the_turn_before_after_turn_work(sessions) ->
         text_inputs=FEATURE_TEXT_INPUTS,
         root=Advisor(),
         history=History(),
-        after_turn=(close_window,),
+        hooks=run_hooks(close_window),
+        features=None,
     )
     message = FakeMessage(20, text="Create a Tag VrWalk", bot_message=False)
 
@@ -435,7 +437,8 @@ async def test_typed_words_end_the_review_and_are_then_answered(sessions) -> Non
         text_inputs=FEATURE_TEXT_INPUTS,
         root=Advisor(store),
         history=History(),
-        after_turn=(),
+        hooks=run_hooks(),
+        features=None,
     )
     message = FakeMessage(11, text="No, call it Home", bot_message=False, bot=bot)
 

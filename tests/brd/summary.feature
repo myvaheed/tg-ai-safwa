@@ -17,3 +17,10 @@ Feature: The running Summary of the conversation
     Given an earlier Summary, and conversation that happened after it
     When another Summary is written
     Then it is written from both, so nothing the earlier one covered is lost
+
+  Scenario: SUM-AUTO-003 — Disabling automatic Summary keeps the explicit command
+    Given the automatic Summary reaction is disabled in the connection list
+    When the owner finishes a turn
+    Then no automatic Summary is attempted
+    When the owner asks for /summarize
+    Then the ordinary Summary writer still handles that request

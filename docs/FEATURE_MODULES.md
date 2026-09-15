@@ -32,7 +32,7 @@ and SQLAlchemy; nothing that expresses a business rule imports it.
 | Field | What it contributes |
 |---|---|
 | `agents` | an `AgentSpec` — the subagent `route(name)` reaches, and the line the Advisor's prompt carries |
-| `helpers` | a `HelperSpec` — the mini session `call_helper(name)` runs, called rather than routed, with the read that earns it and the words it is offered in |
+| `helpers` | a `HelperSpec` — the mini session `call_helper(name)` runs, its instructions, builder and allowed views; its automatic offer is a separate hook |
 | `proposals` | a `ProposalContribution` per entity: handler, mutation tool, presenter, and which of its actions save without a screen |
 | `mutation_tools` | a mutation tool whose change lands on an entity another feature owns (`remove`) |
 | `before_tool` | a watcher given each tool call before it runs; a result it returns refuses the call |
@@ -43,12 +43,18 @@ and SQLAlchemy; nothing that expresses a business rule imports it.
 | `callback_actions` | the inline-button actions this feature's screens draw |
 | `text_inputs` | a `TextInputFlow` per editor field the owner types a value into |
 | `start_links` | a `StartLink` — a `/start <payload>` this feature answers instead of it opening a cited item |
-| `after_turn` | an `AfterTurn` run once the owner's turn has been answered, for work the application does on its own; the shell reads nothing back. Summary's `close_window_after_turn` is the only one |
 | `recover` | one hook `recover_startup` runs before the run machinery is reconciled |
 | `background` | tasks the polling loop starts and cancels |
 
 A capability does not get a field here by default. It first gets its own mechanism, and only a
 capability several features plug into earns a contribution.
+
+Automatic reactions have their own explicit `HOOKS` list beside `MODULES`, passed to
+`Registry.of(MODULES, world=…, hooks=HOOKS)`. A feature exports its definition from `module.py`;
+it does not register it there a second time. The registry checks the owner, name, subscription,
+effect and helper reference even for disabled entries. See [HOOK_ARCH.md](HOOK_ARCH.md) for the
+implemented contract and the later initiative stages. Recovery callbacks and background tasks
+keep their existing lifecycle contracts.
 
 ## The three proposal responsibilities
 
@@ -103,6 +109,7 @@ safwa/features/<feature>/
   proposal.py   # ProposalHandler
   telegram.py   # the Telegram adapter: screens, editors, the review screen, the citation label
   background.py # BackgroundTask per loop the polling loop starts and cancels
+  hooks.py      # automatic conditions and effects, exported by module.py; assembly layer
   <thing>.py    # a long-lived collaborator the composition root builds, named for what it is
 ```
 

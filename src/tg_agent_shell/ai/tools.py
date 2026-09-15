@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -38,6 +39,9 @@ from telegram_llm import DialogueMessage
 
 from ..foundation.errors import failure_reason
 from ..foundation.screens import ScreenCatalogue
+from ..hooks.contracts import AfterTool as ToolEvent
+from ..hooks.contracts import OfferTool
+from ..hooks.registry import HookRegistry
 from .contracts import (
     CALL_HELPER_TOOL,
     QUERY_TOOL,
@@ -54,7 +58,7 @@ from .contracts import (
 )
 from .conversation import conversation_block
 from .mini import ReadToolSpec
-from .sql import ReadOnlyQueryRunner, read_query
+from .sql import QueryRead, ReadOnlyQueryRunner, read_query
 from .subagents import RoutedSubagent
 
 logger = logging.getLogger(__name__)
@@ -68,18 +72,9 @@ Helper = Callable[..., Awaitable[dict[str, Any]]]
 
 @dataclass(frozen=True, slots=True)
 class HelperPort:
-    """One helper as the adapters hold it: how to call it, when it is earned, and in what words.
-
-    When a read earns a helper is not the engine's to know — it is why that helper exists,
-    which is the feature that declared it. The engine asks; this is the answer, bound.
-    """
+    """The helper's operation. Automatic availability belongs to the hook registry."""
 
     run: Helper
-    # (sql, rows) -> whether this read earned the helper.
-    offer_when: Callable[[str, list[dict[str, Any]]], bool]
-    # The whole of what the model is ever told about this helper, so it has to name the
-    # tool in the shape the tool actually takes.
-    offer: str
 
 
 # What a feature is given when the model calls a tool. `BeforeTool` answers with a result
@@ -215,6 +210,7 @@ class ToolAdapters:
         subagents: Mapping[str, RoutedSubagent] | None = None,
         before_tool: tuple[BeforeTool, ...] = (),
         after_tool: tuple[AfterTool, ...] = (),
+        hooks: HookRegistry | None = None,
     ) -> None:
         self.sessions = sessions
         self.query_runner = query_runner
@@ -227,6 +223,7 @@ class ToolAdapters:
         # Watched in the order the features were declared.
         self.before_tool = before_tool
         self.after_tool = after_tool
+        self.hooks = hooks if hooks is not None else HookRegistry.of()
         # The root session reads and routes. Every mutation tool belongs to the
         # subagent that owns that feature, so judging *which* change to propose
         # happens where the change is authored. An empty roster means there is
@@ -277,8 +274,9 @@ class ToolAdapters:
         for watch in self.before_tool:
             refusal = await self._watched(watch(agent, call), watch, call, "before")
             if refusal is not None:
-                return ToolOutcome(result=refusal)
+                return ToolOutcome(result=refusal, succeeded=False)
         outcome = await self._dispatch(agent, call)
+        await self._offer_tools(agent, call, outcome)
         for watch in self.after_tool:
             await self._watched(
                 watch(agent, call, outcome.result), watch, call, "after"
@@ -301,15 +299,16 @@ class ToolAdapters:
     async def _dispatch(self, agent: AgentSession, call: ToolCall) -> ToolOutcome:
         """Anything that is not a read is a change waiting for the owner."""
         if call.name == "query_data":
-            return ToolOutcome(result=await self.query(agent, call))
-        if call.name == "open":
-            return ToolOutcome(result=await self.open(agent, call))
-        if call.name == "call_helper":
-            return ToolOutcome(result=await self.call_helper(agent, call))
+            read = await self.query(agent, call)
+            return ToolOutcome(result=read.rows, succeeded=read.succeeded)
+        if call.name in {"open", "call_helper"}:
+            run = self.open if call.name == "open" else self.call_helper
+            result = await run(agent, call)
+            return ToolOutcome(result=result, succeeded=result.get("status") != "error")
         if call.name in agent.read_specs:
             return ToolOutcome(result=await self.read(agent, call))
         change, result = await self.mutation(agent, call)
-        return ToolOutcome(result=result, change=change)
+        return ToolOutcome(result=result, change=change, succeeded=change is not None)
 
     def route_target(self, call: ToolCall) -> tuple[str | None, dict[str, Any] | None]:
         try:
@@ -385,6 +384,14 @@ class ToolAdapters:
                 "hint": f"Call one of: {', '.join(self.helpers) or 'none'}.",
                 "retryable": True,
             }
+        if payload.name.strip() not in agent.host_state.get("offered_helpers", ()):
+            return {
+                "status": ToolResultStatus.ERROR.value,
+                "code": "helper_not_offered",
+                "error": f"The helper {payload.name!r} has not been offered in this session.",
+                "hint": "Use the tools currently available to answer the owner.",
+                "retryable": True,
+            }
         await self.trail.step(
             agent.run_id,
             agent.tool_count,
@@ -407,24 +414,41 @@ class ToolAdapters:
                 "hint": "Answer the owner with what you already have.",
             }
 
-    def _offered_helper(
-        self, agent: AgentSession, sql: str, rows: list[dict[str, Any]]
-    ) -> str | None:
-        """The words for a helper this read earned, if one did.
-
-        A read that failed earns nothing: its `hint` already says to repair that one SELECT,
-        and a second instruction in the same result is the one this model would follow.
-        What counts as earning it is each helper's own, asked in the order they were
-        declared.
-        """
-        if self.subagents.get(agent.kind) is not None or not sql:
-            return None
-        if rows and rows[0].get("status") == ToolResultStatus.ERROR:
-            return None
-        for helper in self.helpers.values():
-            if helper.offer_when(sql, rows):
-                return helper.offer
-        return None
+    async def _offer_tools(self, agent: AgentSession, call: ToolCall, outcome: ToolOutcome) -> None:
+        """Deliver offers only to the session whose call just completed."""
+        result = outcome.result
+        event = ToolEvent(
+            run_id=agent.run_id,
+            agent="subagent" if agent.parent_run_id is not None or agent.kind in self.subagents else "root",
+            agent_kind=agent.kind,
+            tool=call.name,
+            call_id=call.id,
+            arguments_json=call.arguments_json,
+            result=deepcopy(result),
+            outcome="error" if not outcome.succeeded else "prepared" if outcome.change is not None else "success",
+        )
+        async for checked in self.hooks.evaluate(event):
+            if checked.error is not None:
+                logger.error("Hook %s failed: %s", checked.spec.name, checked.error)
+                continue
+            effect = checked.spec.effect
+            if not isinstance(effect, OfferTool) or not checked.payloads:
+                continue
+            if effect.helper not in self.helpers or agent.helper_tool is None:
+                continue
+            # Validate the entire offer before granting anything or changing the result.
+            if not all(isinstance(notice, str) and notice.strip() for notice in checked.payloads):
+                logger.error("Hook %s returned an invalid helper notice", checked.spec.name)
+                continue
+            agent.offer_helper()
+            offered = agent.host_state.setdefault("offered_helpers", [])
+            if effect.helper not in offered:
+                offered.append(effect.helper)
+            for notice in checked.payloads:
+                if isinstance(result, list):
+                    add_notice(result, notice)
+                elif isinstance(result, dict):
+                    result["notice"] = " ".join(filter(None, (result.get("notice"), notice)))
 
     async def read(self, agent: AgentSession, call: ToolCall) -> Any:
         """Run one of this session's own read tools and record that it ran."""
@@ -449,19 +473,15 @@ class ToolAdapters:
             return self.query_runner
         return routed.query_runner
 
-    async def query(self, agent: AgentSession, call: ToolCall) -> list[dict[str, Any]]:
+    async def query(self, agent: AgentSession, call: ToolCall) -> QueryRead:
         """The one read door, for every session the adapters run.
 
         The read itself is `ai/sql.py`'s. What is here is the session's half of it: which
-        reader is asking, the helper a complex read earns, and the trail that keeps the SQL
+        reader is asking, and the trail that keeps the SQL
         a local model wrote beside the rows it got back.
         """
         read = await read_query(self._runner_for(agent), call)
         sql, rows = read.sql, read.rows
-        offer = self._offered_helper(agent, sql, rows)
-        if offer is not None:
-            agent.offer_helper()
-            add_notice(rows, offer)
         logger.info(
             "AI TOOL query_data -> rows=%d sql=%s",
             len(rows),
@@ -481,7 +501,7 @@ class ToolAdapters:
                 "result": json_safe(rows),
             },
         )
-        return rows
+        return read
 
     async def open(self, agent: AgentSession, call: ToolCall) -> dict[str, Any]:
         """Resolve the item to show and hand it to the session that writes to the chat."""

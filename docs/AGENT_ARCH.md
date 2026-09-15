@@ -50,7 +50,7 @@ flowchart TD
   registered and marked, a button used once, a screen replaced or taken down. What each kind means
   the host says once, in a `ChatVocabulary`.
 - **`tg_agent_shell`** — `ai/` the engine, `proposals/` the review flow, `telegram/` the
-  application, `turn/` the single foreground lease, `cues/` and `foundation/`; at its root
+  application, `turn/` the single foreground lease, `cues/`, `hooks/` and `foundation/`; at its root
   `registry.py` derives an application's wiring, `recovery.py` reconciles a restart, and
   `session.py`, `history.py` and `asr.py` are the root session, the chat window and the voice.
 - **`safwa/features/*`** — `MODULES` lists seventeen: sixteen Safwa features, each with its rules in
@@ -75,9 +75,16 @@ flowchart LR
 All of it is [bootstrap/main.py](../src/safwa/bootstrap/main.py). Which features exist,
 [bootstrap/modules.py](../src/safwa/bootstrap/modules.py) knows — and nobody else. Everything
 that *follows* from that list is [registry.py](../src/tg_agent_shell/registry.py), which is the
-shell's: `Registry.of(MODULES, world=…)` derives the view catalogue and its allowlist, the screens,
+shell's: `Registry.of(MODULES, world=…, hooks=HOOKS)` derives the view catalogue and its allowlist, the screens,
 the commands, the callbacks, the text inputs, the proposal capabilities, the subagent roster, the
 hooks and the background tasks, refusing each collision where it happens.
+
+`HOOKS` is the explicit list of automatic reactions, independent of the features themselves.
+`HookRegistry` selects enabled subscriptions before running their conditions. The tool adapter
+emits `AfterTool`; the dialogue adapter emits `AfterTurn` after releasing the owner's turn.
+Its `Run` operations use one background lease and a publication port that checks currentness.
+Summary retains its own window threshold and history comparison. Its manual command calls the
+same writer directly. The current scope and later stages are [HOOK_ARCH.md](HOOK_ARCH.md).
 
 ## What an application gives the shell
 
@@ -341,9 +348,10 @@ flowchart LR
 - Nothing about helpers is in `SYSTEM_PROMPT`. **The read that needed one is what offers it**, and
   the tool is added to that session's tools there and then (`helper_offered`, which survives a
   suspension).
-- Which read needs one is the helper's own: `HelperSpec.offer_when` reads the SQL and the rows,
-  and `HelperSpec.offer` is the sentence the model is given. `heavy_analyzer` answers both in
-  `worth_a_helper` and `OFFER`.
+- Which read needs one is the feature's own hook: `complex_read_candidate` reads the completed
+  call and its rows, using `worth_a_helper` and `OFFER`. `OfferTool` grants its named helper and
+  adds the notice to the result. The grant stays in `host_state` across suspension and belongs
+  only to that session. `HelperSpec` holds the helper's capability independently of the offer.
 - A read that *failed* offers nothing, whatever the helper would have said: its `hint` already
   says to repair that one SELECT, and that half stays the engine's.
 - `heavy_analyzer` is a **mini session** (`ai/mini.py`), not a routed subagent: read tools plus two

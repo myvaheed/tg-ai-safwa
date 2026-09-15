@@ -119,11 +119,17 @@ Their rules are in [cards.feature](../tests/brd/cards.feature),
 [values.feature](../tests/brd/values.feature) and
 [saved_requests.feature](../tests/brd/saved_requests.feature). No column changed.
 
-## Wave 3 — the mechanisms other entries wait on
+## Wave 3 — the mechanisms other entries wait on, in progress
+
+Started 2026-09-15 with hook stages 1 and 2: one checked connection list, a diagnostic catalogue,
+and the existing Summary and Heavy analyzer offer moved onto it. Their former automatic paths
+are removed. The shell works with an empty hook list; no table or prompt prefix changed.
+The next hook batch is stages 3 and 4 together: committed facts and timed recovery with the
+first complete blocker initiative and its journal. Retrospective statistics remain separate.
 
 | Entry | | What it unlocks, and what to watch |
 |---|---|---|
-| **POTENTIAL HOOKS — the shape every hook has** | L per implementation stage; design first | Follow the concrete stages in [HOOK_ARCH.md](HOOK_ARCH.md): registration and event adapters, existing Summary and helper behavior, then a complete initiative. Required tool calls need runtime enforcement; named provider selection alone is insufficient. |
+| **POTENTIAL HOOKS — the shape every hook has** | L per implementation stage | Stages 1–2 implemented; follow the remaining stages in [HOOK_ARCH.md](HOOK_ARCH.md). Required tool calls for initiatives still need runtime enforcement; named provider selection alone is insufficient. |
 | **POTENTIAL HOOKS 14 — Remember hook occasions and the owner's decisions** | L | Build with the first initiative, hook 2. The record must outlive its delivered `Cue`. Summary and helper availability can move to the registry before it; Proposal fulfillment validation is independent. |
 | **The retrospective — the statistics half only** | M | RT-OPEN-001 currently promises a screen that says there is nothing there yet. Code-calculated statistics fill it and are useful with no model involved. The AI analysis half is Wave 5. |
 

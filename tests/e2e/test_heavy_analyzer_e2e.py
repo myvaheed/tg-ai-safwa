@@ -2,17 +2,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 from typing import Any
 
 import pytest
 
 from llm_gateway import CompletionTurn, ToolCall
-from safwa.bootstrap.modules import PROPOSALS
+from safwa.bootstrap.modules import HOOKS, MODULES, PROPOSALS, REGISTRY
 from safwa.features.cards.use_cases import create_card
 from telegram_llm import DialogueMessage
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.proposals.model import BatchDecision
 from tg_agent_shell.proposals.use_cases import approve_proposal
+from tg_agent_shell.registry import Registry
 
 QUESTION = "Как у меня с подтягиваниями?"
 
@@ -70,6 +72,40 @@ async def test_han_offer_001_a_complex_read_offers_the_helper(e2e_harness) -> No
     # The first turn was not offered the tool; the read is what earned it.
     assert "call_helper" not in tools_of(provider, 0)
     assert "call_helper" in tools_of(provider, 1)
+
+
+async def test_a_data_column_named_status_does_not_turn_a_read_into_an_error(e2e_harness):
+    """HAN-OFFER-001 — tests/brd/heavy_analyzer.feature"""
+    advisor, provider = e2e_harness.advisor(
+        [read("WITH sample AS (SELECT 'error' AS status) SELECT * FROM sample"), "Read."],
+        helpers={"heavy_analyzer": recording_helper([])},
+    )
+    await advisor.handle(QUESTION)
+    result = json.loads(provider.calls[1][-1]["content"])
+    assert result[0] == {"status": "error"}
+    assert "call_helper" in result[-1]["notice"]
+    assert "call_helper" in tools_of(provider, 1)
+
+
+async def test_disabling_the_offer_keeps_the_helper_operation(e2e_harness):
+    """AG-HOOK-035 — tests/brd/tg_agent_shell/agents.feature"""
+    seen = []
+    advisor, provider = e2e_harness.advisor(
+        [read("SELECT status, count(*) FROM ai_checks GROUP BY status"), "Read."],
+        helpers={"heavy_analyzer": recording_helper(seen)},
+    )
+    advisor.adapters.hooks = Registry.of(
+        MODULES, world=REGISTRY.proposals.world,
+        hooks=tuple(replace(item, enabled=False) for item in HOOKS),
+    ).hooks
+    await advisor.handle(QUESTION)
+    assert "call_helper" not in tools_of(provider, 1)
+    assert "call_helper" not in provider.calls[1][-1]["content"]
+    result = await advisor.adapters.helpers["heavy_analyzer"].run(
+        conversation="", request="Explicit analysis",
+    )
+    assert result["rows"] == [{"n": 2}]
+    assert len(seen) == 1
 
 
 async def test_han_offer_002_a_simple_read_offers_nothing(e2e_harness) -> None:

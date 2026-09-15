@@ -24,7 +24,7 @@ other being noticed. That pairing is what `tests/test_brd_traceability.py` check
 checks: a file directly under `tests/brd/` is a Safwa feature package, in both directions.
 
 The four under `tests/brd/tg_agent_shell/` group that package's rules by area — agents and routing,
-proposals, screens, the conversation — and not by subpackage: the shell has six subpackages, and no
+proposals, screens, the conversation — and not by subpackage: the shell has seven subpackages, and no
 rule says each of them owns a file. They are in their own directory because the package is held to
 working without Safwa, and they are what a second bot built on it would inherit.
 

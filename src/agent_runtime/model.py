@@ -251,6 +251,8 @@ class ToolOutcome:
 
     result: Any
     change: Any | None = None
+    # Execution outcome is separate from data whose own fields may be named "status".
+    succeeded: bool = True
 
 
 @dataclass

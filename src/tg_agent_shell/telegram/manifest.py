@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
 
 from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -29,7 +28,7 @@ from ..proposals.api import (
     ProposalHandler,
     ProposalPresenter,
 )
-from .contributions import AfterTurn, ScreenCommand, StartLink, TextInputFlow
+from .contributions import ScreenCommand, StartLink, TextInputFlow
 from .services import Services
 
 
@@ -81,10 +80,6 @@ class HelperSpec:
     instructions: str
     # Bound to this application's provider and query runner, with the prompt already filled.
     build: Callable[..., Helper]
-    # Whether one read earned this helper, and the words the model reads about it. The
-    # engine asks both; the feature that knows why the helper exists answers.
-    offer_when: Callable[[str, list[dict[str, Any]]], bool]
-    offer: str
     # The views this helper is told about, filled into `{views}` in its instructions.
     views: tuple[str, ...] = ()
 
@@ -159,7 +154,5 @@ class FeatureModule:
     start_links: tuple[StartLink, ...] = ()
 
     # Lifecycle
-    # Work that runs once the owner's turn has been answered.
-    after_turn: tuple[AfterTurn, ...] = ()
     recover: Callable[[AsyncSession], Awaitable[None]] | None = None
     background: tuple[BackgroundTask, ...] = ()

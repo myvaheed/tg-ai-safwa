@@ -1,14 +1,27 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any, cast
 
+import pytest
+from hook_helpers import run_hooks
+from marks import read_kind_mark
+from ui_harness import FakeMessage, services_for
+
 from llm_gateway import CompletionRequest, CompletionTurn
+from safwa.bootstrap.modules import MODULES, REGISTRY
 from safwa.constants import SUMMARY_TRIGGER_TOKENS
+from safwa.features.summary.module import SUMMARY_HOOK
 from safwa.features.summary.summary import DialogueSummary
+from safwa.features.summary.telegram import command_summarize
 from safwa.features.summary.window import SUMMARY_HEADER
 from telegram_llm import HistoryEntry
 from tg_agent_shell.foundation.kinds import MessageKind
+from tg_agent_shell.hooks.contracts import AfterTurn, HookRegistration
+from tg_agent_shell.registry import Registry
+from tg_agent_shell.telegram.dialogue import run_after_turn
 from tg_agent_shell.turn import TurnManager
 
 
@@ -144,3 +157,86 @@ async def test_sum_write_001_below_the_trigger_only_an_outright_request_writes_o
     assert await summary.close_window(42, write) is False
     assert await summary.close_window(42, write, force=True) is True
     assert sent == [f"{SUMMARY_HEADER}\nForced summary"]
+
+
+def summary_services(sessions, provider, history, *, enabled=True):
+    services = services_for(sessions)
+    registry = Registry.of(
+        MODULES, world=REGISTRY.proposals.world,
+        hooks=(HookRegistration(SUMMARY_HOOK, enabled),),
+    )
+    services.hooks = registry.hooks
+    services.features = SimpleNamespace(summary=DialogueSummary(
+        history, provider, summary_trigger_tokens=1, chars_per_token=1,
+    ))
+    return services
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_summary_hook_runs_once_and_switch_keeps_the_command(sessions, enabled):
+    """SUM-AUTO-003 — tests/brd/summary.feature"""
+    provider = RecordingProvider("Automatic", "Manual") if enabled else RecordingProvider("Manual")
+    services = summary_services(sessions, provider, SequenceHistory([said(10, "Long dialogue")]), enabled=enabled)
+    message = FakeMessage(11, text="Continue", bot_message=False, answer_as_new=True)
+    await run_after_turn(message, services, AfterTurn(42, 700, 11, 0))
+    assert len(provider.requests) == int(enabled)
+    assert len(message.sent_messages) == int(enabled)
+    assert not services.turn.active
+    await command_summarize(message, services)
+    assert len(provider.requests) == 1 + int(enabled)
+    kind, text = read_kind_mark(message.sent_messages[-1].text)
+    assert kind == MessageKind.SUMMARY.value
+    assert "Manual" in text
+
+
+async def test_summary_hook_keeps_the_snapshot_check(sessions):
+    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
+    first, changed = said(10, "Long dialogue"), said(12, "Newer words")
+    provider = RecordingProvider("Stale")
+    services = summary_services(sessions, provider, SequenceHistory([first], [first, changed]))
+    message = FakeMessage(11, text="Continue", bot_message=False, answer_as_new=True)
+    await run_after_turn(message, services, AfterTurn(42, 700, 11, 0))
+    assert len(provider.requests) == 1
+    assert message.sent_messages == []
+
+
+async def test_new_owner_turn_cancels_the_hook_without_losing_its_lease(sessions):
+    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def slow(event, context):
+        started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            cancelled.set()
+        # Even an operation that swallows cancellation cannot publish or release the new turn.
+        await context.publish("Stale summary", MessageKind.SUMMARY.value)
+
+    services = services_for(sessions)
+    services.hooks = run_hooks(slow)
+    message = FakeMessage(11, text="Continue", bot_message=False, answer_as_new=True)
+    work = asyncio.create_task(run_after_turn(message, services, AfterTurn(42, 700, 11, 0)))
+    try:
+        await asyncio.wait_for(started.wait(), 2)
+        services.turn.cancel()
+        services.turn.begin(12)
+        await asyncio.wait_for(work, 2)
+        assert cancelled.is_set()
+        assert message.sent_messages == []
+        assert services.turn.source_message_id == 12
+    finally:
+        work.cancel()
+        services.turn.end(12)
+
+
+async def test_stale_after_turn_event_does_not_read_history(sessions):
+    provider = RecordingProvider("Must not run")
+    history = SequenceHistory([said(10, "Long dialogue")])
+    services = summary_services(sessions, provider, history)
+    services.turn.cancel()
+    message = FakeMessage(11, text="Continue", bot_message=False, answer_as_new=True)
+    await run_after_turn(message, services, AfterTurn(42, 700, 11, 0))
+    assert history.reads == []
+    assert provider.requests == []

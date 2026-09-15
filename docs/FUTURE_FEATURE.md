@@ -84,9 +84,13 @@ Agreed 2026-09-08: a hook does not have to be a literal model tool call. A known
 operation may run directly; other reactions may offer a tool or involve the Advisor.
 
 The owner wants one explicit registration contract and an easy way to see which hooks are
-enabled. [HOOK_ARCH.md](HOOK_ARCH.md) proposes the central connection list, typed event inputs,
-a small set of runtime reactions, the occasion journal, and concrete implementation stages.
-That design remains a proposal; this entry does not approve all of its API details.
+enabled. Wave 3 began on 2026-09-15: the central connection list and the AfterTurn/Run and
+AfterTool/OfferTool paths now carry automatic Summary and the Heavy analyzer offer. Their
+registration and session rules are covered by
+[agents.feature](../tests/brd/tg_agent_shell/agents.feature); disabling automatic Summary keeps
+its command, as covered by [summary.feature](../tests/brd/summary.feature).
+[HOOK_ARCH.md](HOOK_ARCH.md) distinguishes this implemented contract from the planned committed
+events, timed checks and initiative journal. This entry remains open for those later stages.
 
 The trigger is distinct from execution and delivery. Each initiative defines its own occasion
 identity and repetition rules. Preparing a tool result is neither saving a Proposal nor showing

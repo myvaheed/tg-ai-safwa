@@ -175,6 +175,8 @@ class StubAdvisor:
 
 
 def services_for(sessions, *, root=None, reviews=None, transcriber=None):
+    from tg_agent_shell.hooks.registry import HookRegistry
+
     return SimpleNamespace(
         sessions=sessions,
         owner_id=42,
@@ -185,7 +187,8 @@ def services_for(sessions, *, root=None, reviews=None, transcriber=None):
         callback_actions=CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
         views=ALLOWED_VIEWS,
-        after_turn=(),
+        hooks=HookRegistry.of(),
+        features=None,
         bot_username="safwa_ai_bot",
         root=root
         if root is not None

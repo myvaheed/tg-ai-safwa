@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from aiogram import BaseMiddleware
@@ -22,9 +22,10 @@ from telegram_llm import ChatHost, Transcriber
 
 from ..foundation.screens import ScreenCatalogue
 from ..history import TelegramHistorySource
+from ..hooks.registry import HookRegistry
 from ..session import RootSession
 from ..turn import TurnManager
-from .contributions import AfterTurn, ScreenCommand, StartLink, TextInputFlow
+from .contributions import ScreenCommand, StartLink, TextInputFlow
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ class Services:
     commands: tuple[ScreenCommand, ...]
     callback_actions: Mapping[str, CallbackHandler]
     text_inputs: Mapping[str, TextInputFlow]
-    after_turn: tuple[AfterTurn, ...] = ()
+    hooks: HookRegistry = field(default_factory=HookRegistry.of)
     start_links: tuple[StartLink, ...] = ()
     # Whatever the application's own handlers need to reach. The shell carries it and
     # never reads it, the way a session carries `host_state`.

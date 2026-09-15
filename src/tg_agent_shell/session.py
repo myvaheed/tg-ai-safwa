@@ -36,6 +36,7 @@ from .ai.subagents import RoutedSubagent
 from .ai.tools import AfterTool, BeforeTool, HelperPort, ToolAdapters
 from .foundation.errors import failure_reason
 from .foundation.screens import ScreenCatalogue
+from .hooks.registry import HookRegistry
 from .proposals.api import ProposalDescription, ProposalRegistry
 from .proposals.materialize import MAX_REPAIR_ROUNDS, ProposalMaterializer
 from .proposals.model import RECEIPT_MEANINGS, BatchDecision
@@ -93,6 +94,7 @@ class RootSession:
         helpers: Mapping[str, HelperPort] | None = None,
         before_tool: tuple[BeforeTool, ...] = (),
         after_tool: tuple[AfterTool, ...] = (),
+        hooks: HookRegistry | None = None,
         autoapproval: AutoApprovalReviewer | None = None,
         reviews: ProposalStore | None = None,
     ) -> None:
@@ -119,6 +121,7 @@ class RootSession:
             subagents=self.subagents,
             before_tool=before_tool,
             after_tool=after_tool,
+            hooks=hooks,
         )
         self.context = ContextBuilder(
             sessions,

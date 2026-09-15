@@ -47,7 +47,6 @@ from ..foundation.tokens import estimate_tokens
 from ..foundation.workspace import Workspace
 from .auth import history_client
 from .modules import (
-    AFTER_TURN,
     AI_VIEWS,
     ALLOWED_VIEWS,
     BACKGROUND_TASKS,
@@ -301,7 +300,7 @@ async def run(settings: Settings) -> None:
         commands=commands,
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
-        after_turn=AFTER_TURN,
+        hooks=REGISTRY.hooks,
         start_links=FEATURE_START_LINKS,
         features=SafwaFeatures(summary=summary, memory=memory, memory_upkeep=upkeep),
         views=ALLOWED_VIEWS,

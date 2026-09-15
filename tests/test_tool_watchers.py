@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from agent_runtime import ToolOutcome
 from llm_gateway import ToolCall
 from tg_agent_shell.ai.contracts import ToolResultStatus
 from tg_agent_shell.ai.mini import ReadToolSpec
@@ -21,6 +22,8 @@ from tg_agent_shell.ai.tools import (
     WatcherFailed,
 )
 from tg_agent_shell.foundation.screens import ScreenCatalogue
+from tg_agent_shell.hooks.contracts import HookRegistration, HookSpec, OfferTool, OnAfterTool
+from tg_agent_shell.hooks.registry import HookRegistry
 
 READ = ToolCall(id="1", name="read_thing", arguments_json="{}")
 
@@ -58,6 +61,7 @@ async def test_ag_tool_031_a_watcher_that_answers_refuses_the_call() -> None:
     outcome = await _adapters(before_tool=(refuse,)).run(_session(ran), READ)
 
     assert outcome.result is refusal
+    assert not outcome.succeeded
     assert ran == []
 
 
@@ -121,21 +125,39 @@ async def test_ag_tool_032_a_watcher_reads_the_call_and_adds_to_its_result() -> 
     assert outcome.result["notice"] == "and one more thing to read"
 
 
-def test_ag_tool_033_a_read_that_failed_earns_no_offer() -> None:
+async def test_ag_tool_033_a_read_that_failed_earns_no_offer() -> None:
     """AG-TOOL-033 — tests/brd/tg_agent_shell/agents.feature"""
-    # The gate is asked directly: a scripted read would prove the same thing behind a database.
+    checked = []
+
+    async def offer(event):
+        checked.append(event)
+        return ("call the helper",)
+
+    hooks = HookRegistry.of(
+        (HookRegistration(HookSpec(
+            name="offer", owner="test", on=(OnAfterTool(tool="query_data"),),
+            evaluate=offer, effect=OfferTool("any"),
+        )),),
+        owners=frozenset({"test"}), helpers=frozenset({"any"}),
+        tools=frozenset({"query_data"}),
+    )
     adapters = _adapters(
+        hooks=hooks,
         helpers={
             "any": HelperPort(
                 run=None,  # type: ignore[arg-type]
-                offer_when=lambda sql, rows: True,
-                offer="call the helper",
             )
         }
     )
-    session = AgentSession(run_id=1, tools=())
-    sql = "SELECT nope FROM ai_cards"
+    session = AgentSession(run_id=1, tools=(), helper_tool={"function": {"name": "call_helper"}})
+    call = ToolCall(id="query", name="query_data", arguments_json='{"sql": "SELECT nope FROM ai_cards"}')
 
     failed = [{"status": ToolResultStatus.ERROR.value, "error": "no such column: nope"}]
-    assert adapters._offered_helper(session, sql, failed) is None
-    assert adapters._offered_helper(session, sql, [{"n": 1}]) == "call the helper"
+    await adapters._offer_tools(session, call, ToolOutcome(failed, succeeded=False))
+    assert checked == []
+    assert not session.helper_offered
+    rows = [{"n": 1}]
+    await adapters._offer_tools(session, call, ToolOutcome(rows))
+    assert len(checked) == 1
+    assert rows[-1] == {"notice": "call the helper"}
+    assert session.helper_offered

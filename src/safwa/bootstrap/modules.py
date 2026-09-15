@@ -15,6 +15,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.sql import view_catalogue
+from tg_agent_shell.hooks.contracts import HookRegistration
 from tg_agent_shell.proposals.api import World
 from tg_agent_shell.proposals.module import MODULE as PROPOSALS_FEATURE
 from tg_agent_shell.registry import Registry
@@ -25,6 +26,7 @@ from ..features.cards.module import MODULE as CARDS
 from ..features.checks.module import MODULE as CHECKS
 from ..features.diagnostics.module import MODULE as DIAGNOSTICS
 from ..features.diary.module import MODULE as DIARY
+from ..features.heavy_analyzer.module import HEAVY_ANALYZER_HOOK
 from ..features.heavy_analyzer.module import MODULE as HEAVY_ANALYZER
 from ..features.home.module import MODULE as HOME
 from ..features.memory.module import MODULE as MEMORY
@@ -34,6 +36,7 @@ from ..features.reminders.module import MODULE as REMINDERS
 from ..features.retro.module import MODULE as RETRO
 from ..features.saved_requests.module import MODULE as SAVED_REQUESTS
 from ..features.summary.module import MODULE as SUMMARY
+from ..features.summary.module import SUMMARY_HOOK
 from ..features.tags.module import MODULE as TAGS
 from ..features.values.module import MODULE as VALUES
 from ..features.workspace_mutator.module import MODULE as WORKSPACE_MUTATOR
@@ -69,7 +72,12 @@ async def _world(session: AsyncSession) -> World:
     return World(revision=workspace.revision, timezone=workspace.timezone)
 
 
-REGISTRY: Registry = Registry.of(MODULES, world=_world)
+HOOKS = (
+    HookRegistration(SUMMARY_HOOK, enabled=True),
+    HookRegistration(HEAVY_ANALYZER_HOOK, enabled=True),
+)
+
+REGISTRY: Registry = Registry.of(MODULES, world=_world, hooks=HOOKS)
 
 # What each part of the application reads off the registry, under the names it reads them
 # by. The registry is one object; these are the eleven views of it that are actually used.
@@ -88,7 +96,6 @@ PROPOSALS = REGISTRY.proposals
 AUTOAPPROVALS = REGISTRY.autoapprovals
 AGENTS = REGISTRY.agents
 HELPERS = REGISTRY.helpers
-AFTER_TURN = REGISTRY.after_turn
 BEFORE_TOOL = REGISTRY.before_tool
 AFTER_TOOL = REGISTRY.after_tool
 RECOVERY_HOOKS = REGISTRY.recovery

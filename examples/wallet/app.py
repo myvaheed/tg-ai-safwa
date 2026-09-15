@@ -181,7 +181,7 @@ def build_services(
         commands=(*REGISTRY.commands, *SHELL_COMMANDS),
         callback_actions=REGISTRY.callback_actions,
         text_inputs=REGISTRY.text_inputs,
-        after_turn=REGISTRY.after_turn,
+        hooks=REGISTRY.hooks,
         start_links=REGISTRY.start_links,
         views=REGISTRY.allowed_views,
     )

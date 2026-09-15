@@ -274,3 +274,23 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then what they are told names that work, and says their answer stands
     And it never says the request could not be completed
     And the rest of that work still runs
+
+  Scenario: AG-HOOK-035 — Automatic reactions have one explicit and checked connection list
+    Given an application declares its features and automatic reactions
+    Then each reaction has one unique name and an existing feature that owns it
+    And its event and kind of work must be supported together
+    And every helper and tool it names must exist at that event boundary
+    When a reaction is disabled
+    Then it stays in the catalogue and its condition is never checked
+    And its declaration is still validated before the application starts
+    When an unrelated event occurs
+    Then the reaction's condition is not checked
+
+  Scenario: AG-HOOK-036 — An automatic offer grants only its named helper to its own session
+    Given a successful read offers one helper to the root session
+    Then that helper becomes available before the next model request
+    And a different helper cannot be called on the strength of that offer
+    When the session resumes after a proposal decision
+    Then it still may call the helper it was offered
+    When a new session begins
+    Then the previous session's offer grants it nothing

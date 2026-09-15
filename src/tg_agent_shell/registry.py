@@ -27,6 +27,8 @@ from .ai.subagents import RoutedSubagent
 from .ai.tools import AfterTool, BeforeTool, HelperPort
 from .cues.module import CUE_QUEUE
 from .foundation.screens import ScreenCatalogue, ScreenSpec
+from .hooks.contracts import HookRegistration
+from .hooks.registry import HookRegistry
 from .proposals.api import (
     MutationToolSpec,
     ProposalHandler,
@@ -38,7 +40,6 @@ from .proposals.store import ProposalStore
 from .session import RootSession
 from .telegram.contributions import (
     HOME_NAV,
-    AfterTurn,
     ScreenCommand,
     StartLink,
     TextInputFlow,
@@ -95,16 +96,20 @@ class Registry:
     before_tool: tuple[BeforeTool, ...]
     after_tool: tuple[AfterTool, ...]
 
-    after_turn: tuple[AfterTurn, ...]
+    hooks: HookRegistry
     recovery: tuple[RecoveryHook, ...]
     background: tuple[BackgroundTask, ...]
 
     @classmethod
-    def of(cls, modules: tuple[FeatureModule, ...], *, world: WorldReader) -> Registry:
+    def of(
+        cls, modules: tuple[FeatureModule, ...], *, world: WorldReader,
+        hooks: tuple[HookRegistration, ...] = (),
+    ) -> Registry:
         """Everything the list implies, with each collision refused where it happens."""
         views = _views(modules)
         allowed = frozenset(view.name for view in views)
         proposals, autoapprovals = _proposals(modules, allowed, world)
+        helpers = _helpers(modules, views)
         return cls(
             modules=modules,
             views=views,
@@ -120,10 +125,15 @@ class Registry:
             agents=tuple(
                 _with_catalogue(agent, views) for module in modules for agent in module.agents
             ),
-            helpers=_helpers(modules, views),
+            helpers=helpers,
             before_tool=tuple(watch for module in modules for watch in module.before_tool),
             after_tool=tuple(watch for module in modules for watch in module.after_tool),
-            after_turn=tuple(work for module in modules for work in module.after_turn),
+            hooks=HookRegistry.of(
+                hooks,
+                owners=frozenset(module.name for module in modules),
+                helpers=frozenset(helpers),
+                tools=frozenset({"query_data", "open", "call_helper"}),
+            ),
             recovery=tuple(
                 module.recover for module in modules if module.recover is not None
             ),
@@ -162,8 +172,6 @@ class Registry:
                 run=spec.build(
                     provider, query_runner.scoped(spec.views), prompt=spec.instructions
                 ),
-                offer_when=spec.offer_when,
-                offer=spec.offer,
             )
             for name, spec in self.helpers.items()
         }
@@ -210,6 +218,7 @@ class Registry:
             helpers=helpers,
             before_tool=self.before_tool,
             after_tool=self.after_tool,
+            hooks=self.hooks,
             reviews=reviews,
         )
 

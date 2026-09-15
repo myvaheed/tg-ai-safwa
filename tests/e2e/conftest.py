@@ -133,8 +133,6 @@ class E2EHarness:
             helpers={
                 name: HelperPort(
                     run=run,
-                    offer_when=HELPERS[name].offer_when,
-                    offer=HELPERS[name].offer,
                 )
                 for name, run in (helpers or {}).items()
             },

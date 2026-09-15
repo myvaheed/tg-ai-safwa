@@ -33,7 +33,7 @@ sys.path.insert(0, str(REPO / "tests"))
 
 from brd_ids import BRD, cited_tests, titled_scenarios  # noqa: E402
 
-from safwa.bootstrap.modules import AGENTS, AI_VIEWS, HELPERS, MODULES  # noqa: E402
+from safwa.bootstrap.modules import AGENTS, AI_VIEWS, HELPERS, MODULES, REGISTRY  # noqa: E402
 from safwa.features.advisor.agent import ADVISOR_VIEWS  # noqa: E402
 from tg_agent_shell.telegram.contributions import ScreenCommand  # noqa: E402
 
@@ -72,7 +72,7 @@ PROCESS_PACKAGES = ("tg_agent_shell/turn/", "tg_agent_shell/cues/", "tg_agent_sh
 # Rule E: how deep into a feature a door reaches, and how deep a module is allowed to reach.
 # Anything not named here is assembly, which is the top and may open every door.
 DOOR_LAYERS = {"api": 1, "use_cases": 2, "hierarchy": 2, "telegram": 3}
-MODULE_LAYERS = {"model.py": 1, "api.py": 1, "use_cases.py": 2, "hierarchy.py": 2}
+MODULE_LAYERS = {"model.py": 1, "api.py": 1, "use_cases.py": 2, "hierarchy.py": 2, "hooks.py": 3}
 
 # Rule K: the doors at the operations layer, which is what an `agent.py` may not reach
 # for.  Read from `DOOR_LAYERS` rather than spelled again, so a feature that splits its
@@ -200,7 +200,7 @@ def business_imports(module: Module) -> list[Violation]:
             out.append(Violation("Rule A", module.rel, line, f"imports {root}"))
     for path, line in module.imported_paths():
         settings = path == SETTINGS_MODULE or path.startswith(f"{SETTINGS_MODULE}.")
-        if "telegram" in path.split(".") or settings:
+        if "telegram" in path.split(".") or path.startswith("tg_agent_shell.hooks.") or settings:
             out.append(Violation("Rule A", module.rel, line, f"imports {path}"))
     return out
 
@@ -371,7 +371,7 @@ def rule_f() -> list[Violation]:
 
 # Rule M: what the engine may reach, which is the layer every layer may reach.
 ENGINE = "tg_agent_shell/ai/"
-ENGINE_MAY_IMPORT = ("tg_agent_shell.ai.", "tg_agent_shell.foundation.")
+ENGINE_MAY_IMPORT = ("tg_agent_shell.ai.", "tg_agent_shell.foundation.", "tg_agent_shell.hooks.")
 
 
 def rule_m() -> list[Violation]:
@@ -384,10 +384,15 @@ def rule_m() -> list[Violation]:
     """
     out = []
     for module in modules():
-        if not module.rel.startswith(ENGINE):
+        if module.rel.startswith("tg_agent_shell/hooks/"):
+            # The hook contract is below the engine too: neither can import its adapters.
+            allowed = ("tg_agent_shell.hooks.", "tg_agent_shell.foundation.")
+        elif module.rel.startswith(ENGINE):
+            allowed = ENGINE_MAY_IMPORT
+        else:
             continue
         for path, line in module.imported_paths():
-            if path.startswith("tg_agent_shell.") and not path.startswith(ENGINE_MAY_IMPORT):
+            if path.startswith("tg_agent_shell.") and not path.startswith(allowed):
                 out.append(Violation("Rule M", module.rel, line, f"imports {path}"))
     return out
 
@@ -806,7 +811,10 @@ def wiring(name: str) -> list[str]:
         ),
         ("text_inputs", [flow.name for flow in module.text_inputs]),
         ("start_links", [f"{len(module.start_links)} payloads"] if module.start_links else []),
-        ("after_turn", [f"{len(module.after_turn)} hooks"] if module.after_turn else []),
+        ("hooks", [
+            f"{item.spec.name} ({'on' if item.enabled else 'off'})"
+            for item in REGISTRY.hooks.registrations if item.spec.owner == module.name
+        ]),
         ("recover", ["recover_startup"] if module.recover else []),
         ("background", [task.name for task in module.background]),
     ]
