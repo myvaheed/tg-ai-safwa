@@ -8,6 +8,7 @@ from tg_agent_shell.telegram.manifest import FeatureModule, ProposalContribution
 
 from . import agent, proposal, telegram, views
 from .hooks import BLOCKER_HOOK as BLOCKER_HOOK
+from .hooks import EMPTY_PARENTS_HOOK as EMPTY_PARENTS_HOOK
 from .model import Card
 from .telegram import (
     CARD_CALLBACK_ACTIONS,

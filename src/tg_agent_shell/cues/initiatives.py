@@ -1,9 +1,10 @@
-"""From a committed change to a hook's pending request.
+"""From a committed change, or a time of day, to a hook's pending request.
 
 An operation records what it changed beside its transaction (`foundation/changes.py`).
 After the commit, the one listener below hands those facts to the hooks that subscribe to
 that kind of change, and whatever an Advise check returns is merged into that hook's one
-pending `Cue`. A rollback leaves nothing to hand on.
+pending `Cue`. A rollback leaves nothing to hand on. The one tick poll hands a `Tick` to
+the hooks that declared that time of day, by the same path.
 
 The facts are handed on outside the transaction that made them: a process that dies in
 between loses one request, never the change itself.
@@ -14,14 +15,18 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Sequence
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Session
 
 from ..foundation.changes import CHANGES, Committed, take_changes
+from ..foundation.clock import utcnow
+from ..foundation.poll import run_poll
 from ..hooks.contracts import Advise
 from ..hooks.registry import HookEvent, HookRegistry
+from ..hooks.ticks import TickSchedule
 from .queue import merge_hook_cue
 
 logger = logging.getLogger(__name__)
@@ -42,6 +47,23 @@ async def queue_advice(
         async with sessions() as session:
             await merge_hook_cue(session, hook=checked.spec.name, items=checked.payloads)
             await session.commit()
+
+
+async def run_ticks(
+    hooks: HookRegistry,
+    sessions: async_sessionmaker[AsyncSession],
+    *,
+    timezone: str,
+    poll_seconds: float,
+) -> None:
+    """Hand each daily check its Tick when its time comes: once, however many polls."""
+    schedule = TickSchedule(hooks.tick_times, now=utcnow(), tz=ZoneInfo(timezone))
+
+    async def look() -> None:
+        for tick in schedule.due(utcnow()):
+            await queue_advice(hooks, sessions, tick)
+
+    await run_poll(look, poll_seconds=poll_seconds, name="The hook tick poll")
 
 
 class CommittedSink:

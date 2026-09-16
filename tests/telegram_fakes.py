@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Coroutine
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -18,6 +19,34 @@ from aiogram.types import InlineKeyboardMarkup
 def spawn_timer(work: Coroutine[None, None, None], name: str) -> asyncio.Task[None]:
     """The Toast timer a test's host starts: no test shuts down, so no test cancels one."""
     return asyncio.create_task(work, name=name)
+
+
+@dataclass
+class FakeTelegramMessage:
+    """One message as Telethon reads it back out of the chat."""
+
+    id: int
+    raw_text: str
+    sender_id: int
+    date: datetime
+    reply_markup: object | None = None
+    entities: list[object] | None = None
+
+
+class FakeTelegramClient:
+    """The Telethon user session, over a list the test fills: newest first, as it reads."""
+
+    def __init__(self, messages: list[FakeTelegramMessage]) -> None:
+        self.messages = messages
+        self.entity_ids: list[int] = []
+
+    async def get_entity(self, chat_id: int) -> int:
+        self.entity_ids.append(chat_id)
+        return chat_id
+
+    async def iter_messages(self, _entity: int, *, limit: int):
+        for message in self.messages[:limit]:
+            yield message
 
 
 class QueueTestBot:

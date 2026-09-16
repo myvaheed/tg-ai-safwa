@@ -136,16 +136,12 @@ The intended Advisor context includes the Today and Sprint task lists. Instruct 
 lists to mention a relevant task when the conversation presents a useful opportunity to do it.
 The context provision is part of this idea; a separate hook for each opportunity is unnecessary.
 
-### 5. Goals and Subgoals with no Actions — hook
+### 5. Goals and Subgoals with no Actions — shipped
 
-After a grace period, tentatively about one day after creation, scan Goals and Subgoals for
-the absence of any descendant Action. Look through the whole branch, so an Action under a
-Subgoal also counts for its Goal. Report the matching parents together and offer to create
-at least one Action. If the owner is not ready to decompose the work, offer an Action such as
-"Запланировать действия для цели X" (Plan Actions for Goal X).
-
-The grace period and the check time remain to be decided. The check repeats every period,
-and a parent still without an Action is reported again.
+Shipped 2026-09-16 as [CD-EMPTY-035](../tests/brd/cards.feature); the number stays for
+references. The grace is 24 hours and the check runs at 09:00 local time, both constants of
+the Cards feature; the request puts both ways forward in one message — plan the Actions now,
+or create one Action "Запланировать действия для цели X" — and waits for the choice.
 
 ### 6. An unfinished Action repeatedly selected for Today — hook
 

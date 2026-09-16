@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import time
 from types import MappingProxyType
 from typing import Any
 
@@ -21,17 +21,17 @@ from .contracts import (
     OnAfterTool,
     OnAfterTurn,
     OnCommitted,
+    OnTick,
     Run,
+    Tick,
     every_switch_on,
 )
 
-logger = logging.getLogger(__name__)
-
-HookEvent = AfterTurn | AfterTool | Committed
+HookEvent = AfterTurn | AfterTool | Committed | Tick
 
 # Which subscription reads which event; the registry's compatibility rules are below.
 _SUBSCRIPTION_FOR: Mapping[type, type] = MappingProxyType({
-    AfterTurn: OnAfterTurn, AfterTool: OnAfterTool, Committed: OnCommitted,
+    AfterTurn: OnAfterTurn, AfterTool: OnAfterTool, Committed: OnCommitted, Tick: OnTick,
 })
 
 
@@ -80,6 +80,12 @@ class HookRegistry:
                         event_type = AfterTool
                     case OnCommitted(kind=kind), Advise() if kind.strip():
                         event_type = Committed
+                    case OnTick(at=at), Advise():
+                        try:
+                            time.fromisoformat(at)
+                        except ValueError:
+                            raise RuntimeError(f"Hook {spec.name} names a time that is not HH:MM: {at!r}") from None
+                        event_type = Tick
                     case _:
                         raise RuntimeError(f"Hook {spec.name} has an incompatible subscription/effect")
                 bucket = index.setdefault(event_type, [])
@@ -91,6 +97,13 @@ class HookRegistry:
     def switches(self) -> tuple[HookSpec, ...]:
         """The hooks the owner may turn off, in catalogue order."""
         return tuple(spec for spec in self.specs if spec.switch is not None)
+
+    @property
+    def tick_times(self) -> frozenset[str]:
+        """Every local time a daily check is declared at."""
+        return frozenset(
+            on.at for spec in self.specs for on in spec.on if isinstance(on, OnTick)
+        )
 
     def listens(self, event_type: type) -> bool:
         return event_type in self._index
@@ -133,17 +146,13 @@ class HookRegistry:
         """The words of a hook's pending request, or None when there is nothing to say.
 
         Nothing is said for a hook that is gone, switched off, or whose feature finds none
-        of the items still worth asking about; a feature that fails to say is logged and
-        treated the same, so one broken request does not hold every later one behind it.
+        of the items still worth asking about. A feature that fails to say raises: that is
+        not nothing to say, and the request stays owed for the poll after.
         """
         spec = next((spec for spec in self.specs if spec.name == name), None)
         if spec is None or not isinstance(spec.effect, Advise):
             return None
         if not await self.switched_on(sessions, spec):
             return None
-        try:
-            async with sessions() as session:
-                return await spec.effect.prepare(session, items)
-        except Exception:
-            logger.exception("Hook %s could not prepare its request", name)
-            return None
+        async with sessions() as session:
+            return await spec.effect.prepare(session, items)

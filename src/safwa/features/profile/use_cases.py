@@ -90,12 +90,14 @@ async def require_profile(session: AsyncSession) -> UserProfile:
 async def set_hook_switch(session: AsyncSession, name: str, *, on: bool) -> UserProfile:
     """Turn one automatic reaction off or on; the screen says which names have a switch.
 
-    Off takes the hook's pending request with it, and on does not bring it back.
+    A flip either way starts the hook from nothing pending: off takes its request with it,
+    and on drops whatever a change handed on late wrote while the hook was off.
     """
     profile = await require_profile(session)
+    was_on = name not in profile.disabled_hooks
     disabled = [hook for hook in profile.disabled_hooks if hook != name]
     profile.disabled_hooks = disabled if on else [*disabled, name]
-    if not on:
+    if on != was_on:
         await drop_hook_cue(session, name)
     return profile
 

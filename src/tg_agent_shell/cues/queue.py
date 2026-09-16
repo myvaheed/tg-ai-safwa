@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,3 +45,21 @@ async def drop_hook_cue(session: AsyncSession, hook: str) -> None:
 async def next_cue(session: AsyncSession) -> Cue | None:
     """The oldest Cue still waiting."""
     return await session.scalar(select(Cue).order_by(Cue.id).limit(1))
+
+
+async def settle_cue(session: AsyncSession, cue_id: int, items: Sequence[Any] = ()) -> None:
+    """The Cue was said, or found to have nothing to say — as far as these items go.
+
+    What a hook added to its row after they were read is still owed, as a request of its
+    own: the words said were not about it, and neither is the message registered under
+    the old event id, so the row keeps the rest under a new one.
+    """
+    cue = await session.get(Cue, cue_id)
+    if cue is None:
+        return
+    left = [item for item in (cue.payload or []) if item not in items]
+    if not left:
+        await session.delete(cue)
+        return
+    cue.payload = left
+    cue.event_id = uuid4().hex

@@ -339,8 +339,18 @@ async def test_ag_hook_038_switching_a_hook_off_drops_its_pending_request_for_go
         await session.commit()
     async with sessions() as session:
         assert [cue.hook for cue in await session.scalars(select(Cue))] == ["other.hook"]
+        # A change handed on late, after the switch was read as on, wrote while it was off.
+        await merge_hook_cue(session, hook="cards.blocker", items=[3])
+        await session.commit()
+    async with sessions() as session:
         await set_hook_switch(session, "cards.blocker", on=True)
         await session.commit()
     async with sessions() as session:
         assert [cue.hook for cue in await session.scalars(select(Cue))] == ["other.hook"]
         assert (await session.get(UserProfile, 1)).disabled_hooks == []
+        # Pressed again on a stale screen, it is no flip, and a legitimate request stays.
+        await merge_hook_cue(session, hook="cards.blocker", items=[5])
+        await set_hook_switch(session, "cards.blocker", on=True)
+        await session.commit()
+    async with sessions() as session:
+        assert sorted(cue.hook for cue in await session.scalars(select(Cue))) == ["cards.blocker", "other.hook"]

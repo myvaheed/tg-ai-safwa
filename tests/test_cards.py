@@ -6,7 +6,7 @@ the Checks that gate completion and the repeat successor are the packets after t
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -17,7 +17,14 @@ from safwa.bootstrap.modules import PROPOSALS, SYSTEM_PROMPT
 from safwa.features.cards.agent import CardToolInput
 from safwa.features.cards.hard_time import typed_hard_time
 from safwa.features.cards.hierarchy import blocking_actions, card_children, card_progress
-from safwa.features.cards.hooks import BLOCKER_HOOK, blocker_request
+from safwa.features.cards.hooks import (
+    BLOCKER_HOOK,
+    EMPTY_PARENT_CHECK_TIME,
+    EMPTY_PARENT_GRACE_DAYS,
+    EMPTY_PARENTS_HOOK,
+    blocker_request,
+    empty_parents_request,
+)
 from safwa.features.cards.model import (
     EFFORT_RUNGS,
     Card,
@@ -61,6 +68,7 @@ from safwa.foundation.marks import live_repeat_instance_id, title_marks
 from tg_agent_shell.foundation.changes import Committed, take_changes
 from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.hooks.contracts import OnTick
 from tg_agent_shell.proposals.api import ToolPreparationError
 from tg_agent_shell.proposals.prepare import ChangePreparer
 
@@ -1402,3 +1410,46 @@ async def test_cd_blocked_034_the_request_names_what_is_still_blocked_and_open(s
         for absent in ("Sign the lease", "Fix the bike", "Read the contract", "Renew the passport"):
             assert absent not in request
         assert await blocker_request(session, ids[1:]) is None
+
+
+async def test_cd_empty_035_the_request_names_the_parents_old_enough_and_still_without_an_action(sessions):
+    """CD-EMPTY-035 — tests/brd/cards.feature"""
+    assert EMPTY_PARENTS_HOOK.switch is not None
+    assert EMPTY_PARENTS_HOOK.on == (OnTick(at=EMPTY_PARENT_CHECK_TIME),)
+    now = datetime(2026, 9, 16, 6, 0, tzinfo=UTC)
+    old = now - timedelta(days=EMPTY_PARENT_GRACE_DAYS, hours=1)
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Learn Spanish")
+        subgoal = await create_card(session, kind="subgoal", title="Grammar", parent_id=goal.id)
+        fixed = await create_card(session, kind="goal", title="Fix the bike")
+        parts = await create_card(
+            session, kind="action", title="Buy parts", effort_points=1, parent_id=fixed.id
+        )
+        fresh = await create_card(session, kind="goal", title="Started last evening")
+        shelved = await create_card(session, kind="goal", title="Old idea")
+        for card in (goal, subgoal, fixed, shelved):
+            card.created_at = old
+        # Younger than the grace, by the clock and not by the calendar.
+        fresh.created_at = now - timedelta(days=EMPTY_PARENT_GRACE_DAYS) + timedelta(hours=1)
+        shelved.archived_at = old
+        await session.commit()
+        # A finished and archived Action is still the Action its Goal has.
+        await finish_action(session, parts.id)
+        await archive_subtree(session, parts.id)
+        await session.commit()
+
+        request = await empty_parents_request(session, [EMPTY_PARENT_CHECK_TIME], now=now)
+        assert request is not None
+        assert f"#{goal.id} «Learn Spanish» (Goal)" in request
+        assert f"#{subgoal.id} «Grammar» (Subgoal)" in request
+        for title in ("Fix the bike", "Started last evening", "Old idea"):
+            assert title not in request
+        assert "plan its Actions now, or create one Action" in request
+        assert "Do not create anything without their answer" in request
+
+        # An Action under the Subgoal is the Goal's too; with none left, nothing is asked.
+        await create_card(
+            session, kind="action", title="Read chapter 1", effort_points=1, parent_id=subgoal.id
+        )
+        await session.commit()
+        assert await empty_parents_request(session, [EMPTY_PARENT_CHECK_TIME], now=now) is None

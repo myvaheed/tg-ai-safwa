@@ -71,6 +71,23 @@ class OnCommitted:
 
 
 @dataclass(frozen=True, slots=True)
+class Tick:
+    """The workspace's clock passed `at` since the last look: once a day, at that time."""
+
+    at: str
+
+
+@dataclass(frozen=True, slots=True)
+class OnTick:
+    """A check once a day, at a local time of the workspace written as "HH:MM"."""
+
+    at: str
+
+    def matches(self, event: Tick) -> bool:
+        return event.at == self.at
+
+
+@dataclass(frozen=True, slots=True)
 class RunContext[Resources]:
     resources: Resources
     still_current: Callable[[], bool]
@@ -112,7 +129,7 @@ class HookSwitch:
 class HookSpec[Event, Payload]:
     name: str
     owner: str
-    on: tuple[OnAfterTurn | OnAfterTool | OnCommitted, ...]
+    on: tuple[OnAfterTurn | OnAfterTool | OnCommitted | OnTick, ...]
     evaluate: Callable[[Event], Awaitable[Sequence[Payload]]]
     # OfferTool checks return the notice the model reads. Run checks return operation data.
     # Advise checks return the items the request will be about.

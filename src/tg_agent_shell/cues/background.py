@@ -14,8 +14,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..foundation.poll import run_poll
-from .model import Cue
-from .queue import next_cue
+from .queue import next_cue, settle_cue
 
 # Supplied by the runtime so this module stays free of the Advisor and the bot.
 Gate = Callable[[], Awaitable[bool]]
@@ -47,7 +46,8 @@ async def tick(
 
     The review that ran out of time is closed before the gate is read, so what was waiting
     behind that screen is said on this tick and not a later one. A hook's request is worded
-    before the gate is read, and dropped here when there is nothing left to say.
+    once the gate is open, not on every poll the Advisor is busy for; words that cannot be
+    made leave the row for the next poll, and nothing to say settles it without a turn.
     """
     await expire()
     async with sessions() as session:
@@ -56,29 +56,29 @@ async def tick(
             return False
         cue_id, event_id, text = cue.id, cue.event_id, cue.text
         hook, payload = cue.hook, list(cue.payload or [])
-    if hook is not None:
-        text = await prepare(hook, payload)
-        if text is None:
-            async with sessions() as session:
-                dropped = await session.get(Cue, cue_id)
-                if dropped is not None:
-                    await session.delete(dropped)
-                await session.commit()
-            return False
     if not await gate():
         # Nothing is deleted, so the row stays and the next tick tries it again.
         return False
     try:
+        if hook is not None:
+            text = await prepare(hook, payload)
+            if text is None:
+                await _settle(sessions, cue_id, payload)
+                return False
         if not await speak(event_id, text):
             return False
-        async with sessions() as session:
-            delivered = await session.get(Cue, cue_id)
-            if delivered is not None:
-                await session.delete(delivered)
-            await session.commit()
+        await _settle(sessions, cue_id, payload)
         return True
     finally:
         release()
+
+
+async def _settle(
+    sessions: async_sessionmaker[AsyncSession], cue_id: int, payload: list[Any]
+) -> None:
+    async with sessions() as session:
+        await settle_cue(session, cue_id, payload)
+        await session.commit()
 
 
 async def run_cue_queue(

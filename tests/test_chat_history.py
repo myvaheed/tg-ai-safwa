@@ -1,64 +1,22 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from marks import mark_kind, mark_message, read_kind_mark
 from sqlalchemy import update
+from telegram_fakes import FakeTelegramClient, FakeTelegramMessage
 from telethon.tl.types import MessageEntityTextUrl
+from ui_harness import history_source
 
 from safwa.bootstrap.modules import SCREENS
-from safwa.constants import SUMMARY_TRIGGER_TOKENS
-from safwa.features.summary.window import SUMMARY_HEADER, SummaryEdge
-from safwa.foundation.tokens import estimate_tokens
+from safwa.features.summary.window import SUMMARY_HEADER
 from telegram_llm import DialogueMessage, HistoryEntry, restore_citations
 from tg_agent_shell.ai.conversation import conversation_block
 from tg_agent_shell.foundation.kinds import MARKS, MessageKind
 from tg_agent_shell.history import (
-    TelegramHistorySource,
     TelegramMessage,
     register_message,
 )
-
-
-@dataclass
-class FakeTelegramMessage:
-    id: int
-    raw_text: str
-    sender_id: int
-    date: datetime
-    reply_markup: object | None = None
-    entities: list[object] | None = None
-
-
-class FakeTelegramClient:
-    def __init__(self, messages: list[FakeTelegramMessage]) -> None:
-        self.messages = messages
-        self.entity_ids: list[int] = []
-
-    async def get_entity(self, chat_id: int) -> int:
-        self.entity_ids.append(chat_id)
-        return chat_id
-
-    async def iter_messages(self, _entity: int, *, limit: int):
-        for message in self.messages[:limit]:
-            yield message
-
-
-def history_source(client, sessions, *, bot_user_id: int, owner_id: int):
-    """The build the composition root does: the budget and the edge are Safwa's, not the
-    window's."""
-    return TelegramHistorySource(
-        client,
-        sessions,
-        marks=MARKS,
-        bot_user_id=bot_user_id,
-        owner_id=owner_id,
-        count_tokens=estimate_tokens,
-        token_budget=SUMMARY_TRIGGER_TOKENS,
-        edge=SummaryEdge(),
-        citation_types=SCREENS.types,
-    )
 
 
 async def register(

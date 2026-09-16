@@ -439,16 +439,17 @@ them down, so the Advisor relays rather than goes looking.
 flowchart TB
     RM[the Reminder poll<br/>next_fire_at says when] --> ROW
     SP[finish_sprint<br/>in the transaction that ends it] --> ROW[(cues — one row, the words)]
-    HK[a hook's Advise, after a commit] --> HROW[(cues — one row per hook:<br/>its name and what it refers to)]
+    HK[a hook's Advise, after a commit<br/>or at its time of day] --> HROW[(cues — one row per hook:<br/>its name and what it refers to)]
     ROW --> CQ[the Cue poll, every 30s]
     HROW --> CQ
     CQ --> EXP[a review past PROPOSAL_REVIEW_MINUTES<br/>is closed first]
-    EXP --> PREP{a hook's row?<br/>still on, and its feature<br/>words it from what is still there}
-    PREP -->|nothing left to say| DROP[the row is deleted]
-    PREP --> GATE{CueRuntime.can_speak?}
+    EXP --> GATE{CueRuntime.can_speak?}
     GATE -->|advisor busy, pending proposal,<br/>or suspended run| WAIT[the row stays]
-    GATE -->|free| TURN[CueRuntime.speak: one Advisor turn]
-    TURN -->|the owner got it| DEL[the row is deleted]
+    GATE -->|free| PREP{a hook's row?<br/>still on, and its feature<br/>words it from what is still there}
+    PREP -->|nothing left to say| DEL
+    PREP -->|the words cannot be made| WAIT
+    PREP --> TURN[CueRuntime.speak: one Advisor turn]
+    TURN -->|the owner got it| DEL[what was read is settled;<br/>what arrived since stays owed]
     TURN -->|cancelled or failed| WAIT
     WAIT --> CQ
 ```
@@ -472,9 +473,12 @@ it again.
   volunteered rather than a reply to a message that is not there.
 - One waiting Cue is said per tick, oldest first.
 - A hook's Cue carries no words. `hook` and `payload` name the hook and what it refers to, one
-  row per hook, and `HookRegistry.prepare` asks that hook's feature for the words when the row is
-  next in line — after checking the switch is still on. Nothing to say deletes the row; switching
-  the hook off in the Profile deletes it too (`drop_hook_cue`), and on brings nothing back.
+  row per hook, and `HookRegistry.prepare` asks that hook's feature for the words once the gate
+  is open — after checking the switch is still on, and never while the chat is busy. Words that
+  cannot be made leave the row for the next poll. Delivery settles only what was read
+  (`settle_cue`): what the hook added meanwhile stays in the row as the next request, under a
+  new event id. Switching the hook off in the Profile drops the row (`drop_hook_cue`), and
+  switching it on drops whatever a late hand-on wrote while it was off.
 - The Cue reaches the Advisor as an ordinary request from the system, answered the way the owner's
   own would be. A fired Reminder is the one that names items: the prompt tells the Advisor to read
   their current state with `query_data` before repeating an instruction that may no longer apply.
@@ -509,7 +513,7 @@ the Cue row, exactly as for anything else Safwa says first.
 - Reminders are deterministic first — the poll only does schedule arithmetic, and the Advisor
   composes the message.
 
-### A committed change writes a hook's Cue
+### A committed change, or a time of day, writes a hook's Cue
 
 An operation that makes a change a hook follows up on — an Action becoming blocked — records it
 with `record_change` beside its own transaction (`foundation/changes.py`), and commits nothing
@@ -518,6 +522,12 @@ facts to `HookRegistry.evaluate`, and each Advise result is merged into that hoo
 `merge_hook_cue`; a rollback leaves nothing to hand on. The listener is bound to the session
 factory by `bind_committed`, so a proposal's Save and a screen's save — the same operation — reach
 the hook by the same path, and a proposal the owner discards never calls it.
+
+A hook on a time of day declares it in `OnTick(at="HH:MM")`, local to the workspace. The one
+tick poll (`run_ticks`, beside the Cue poll) keeps its last look in process memory and hands a
+`Tick` on by the same `queue_advice` when that time has passed since — once, however many polls,
+and never for a time that passed while Safwa was down or the hook was off. Such a hook's
+`evaluate` returns one constant marker; the reading is its `prepare`, at delivery.
 
 ### A Sprint's end writes its own Cue
 

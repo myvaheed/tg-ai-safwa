@@ -1,17 +1,40 @@
-"""After an Action is blocked, the Advisor is asked whether to offer a Reminder."""
+"""What the Cards ask the Advisor to raise on their own: a blocker just set, and each
+morning the Goals and Subgoals that still have no Action under them."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.changes import Committed
-from tg_agent_shell.hooks.contracts import Advise, HookSpec, HookSwitch, OnCommitted
+from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.hooks.contracts import (
+    Advise,
+    HookSpec,
+    HookSwitch,
+    OnCommitted,
+    OnTick,
+    Tick,
+)
 
-from .model import TERMINAL_STAGES, Card
+from .hierarchy import branch_actions
+from .model import TERMINAL_STAGES, Card, CardKind
 from .use_cases import CARD_BLOCKED
+
+# When the morning check runs, by the workspace's clock, and how old a Goal or a Subgoal
+# is before having no Action under it is worth a question.
+EMPTY_PARENT_CHECK_TIME = "09:00"
+EMPTY_PARENT_GRACE_DAYS = 1
+
+EMPTY_PARENTS_REQUEST = (
+    "Without any Action under them:\n{cards}\n"
+    "Ask the user in one message, naming each: plan its Actions now, or create one Action "
+    "«Plan the actions for <title>» to come back to it later. Wait for their choice. "
+    "Do not create anything without their answer."
+)
 
 BLOCKER_REQUEST = (
     "Blocked since we last spoke:\n{cards}\n"
@@ -53,5 +76,49 @@ BLOCKER_HOOK = HookSpec(
     switch=HookSwitch(
         title="Blocker follow-up",
         description="After an Action is blocked, asks whether to set a Reminder to come back to it.",
+    ),
+)
+
+
+async def check_due(event: Tick) -> tuple[str, ...]:
+    return (event.at,)
+
+
+async def empty_parents_request(
+    session: AsyncSession, items: Sequence[str], *, now: datetime | None = None
+) -> str | None:
+    """The request about the Goals and Subgoals old enough and still without an Action.
+
+    An Action anywhere in the branch counts, a finished or an archived one included: a Goal
+    whose Action sits under its Subgoal has one.
+    """
+    cutoff = (now or utcnow()) - timedelta(days=EMPTY_PARENT_GRACE_DAYS)
+    parents = await session.scalars(
+        select(Card)
+        .where(
+            Card.kind.in_([CardKind.GOAL.value, CardKind.SUBGOAL.value]),
+            Card.archived_at.is_(None),
+            Card.created_at <= cutoff,
+        )
+        .order_by(Card.id)
+    )
+    empty = [card for card in parents if not await branch_actions(session, card.id)]
+    if not empty:
+        return None
+    lines = "\n".join(
+        f"- #{card.id} «{card.title}» ({card.kind.capitalize()})" for card in empty
+    )
+    return EMPTY_PARENTS_REQUEST.format(cards=lines)
+
+
+EMPTY_PARENTS_HOOK = HookSpec(
+    name="cards.empty_parents",
+    owner="cards",
+    on=(OnTick(at=EMPTY_PARENT_CHECK_TIME),),
+    evaluate=check_due,
+    effect=Advise(prepare=empty_parents_request),
+    switch=HookSwitch(
+        title="Goals without Actions",
+        description="Each morning, asks about the Goals and Subgoals that have no Action under them.",
     ),
 )

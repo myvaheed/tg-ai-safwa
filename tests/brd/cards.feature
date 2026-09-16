@@ -287,3 +287,12 @@ Feature: Cards
     And an Action unblocked, finished, archived or deleted before then is left out, and a question with nothing in it is not asked
     But renaming the Action or rewording its reason while it stays blocked asks nothing
     And the owner's reply is an ordinary turn: the hook reads neither it nor their silence
+
+  Scenario: CD-EMPTY-035 — A Goal or Subgoal left without an Action is asked about each morning
+    Given a Goal or Subgoal older than 24 hours (EMPTY_PARENT_GRACE_DAYS = 1) with no Action anywhere under it, a finished or an archived one counted
+    When the daily check runs at 09:00 local time (EMPTY_PARENT_CHECK_TIME = "09:00") and the chat is free
+    Then the Advisor is asked once, about all of them together, to put both ways forward for each in one message: plan its Actions now, or create one Action to plan them later
+    And the owner's choice is awaited: nothing is created before their answer
+    And one younger than that, archived, or given an Action before the question is said is left out; with none left, nothing is asked
+    And the same one still without an Action is asked about again the next morning
+    And a check that fires again before the question is said adds no second one

@@ -310,8 +310,19 @@ Feature: Agents — the session, the hand-over, and what comes back
     And it survives a restart, like anything else Safwa owes
     When the hook fires again before that is said
     Then it adds to the one pending request, and no second one is written
-    When the request is next in line
+    When the request is next in line and the chat is free
     Then the hook is checked to be still on, what it refers to is read again, and the words are made from what is still there
+    And while the chat is busy nothing is read
     And when nothing is still there, nothing is said and nothing stays owed
+    And when the words cannot be made, the request stays owed and is tried again
+    And what the hook added while the request was being said is owed still, as the next one
     When the owner switches the hook off in the Profile
     Then its pending request is dropped, and switching it back on does not bring it back
+
+  Scenario: AG-HOOK-039 — A check on a schedule runs once per period, and not for the periods it slept through
+    Given a hook declares a daily check at a local time of the workspace
+    When that time passes while Safwa runs
+    Then the check runs once, however many polls that day sees
+    When Safwa starts after that time has already passed
+    Then the check waits for the next day's time rather than running for the day it missed
+    And a check that is switched off does not run, and switching it on after its time has passed does not run it for that day

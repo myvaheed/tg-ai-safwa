@@ -1,13 +1,14 @@
-"""Binding the Cue poll to this application.
+"""Binding the Cue poll and the hook tick poll to this application.
 
-Cues are not a feature — no business rule is written here — so this task is started
-alongside the feature tasks rather than through a `FeatureModule` of its own.
+Cues are not a feature — no business rule is written here — so these tasks are started
+alongside the feature tasks rather than through a `FeatureModule` of their own.
 """
 
 from __future__ import annotations
 
 from ..telegram.manifest import BackgroundContext, BackgroundTask
 from .background import run_cue_queue
+from .initiatives import run_ticks
 from .runtime import CueRuntime
 
 
@@ -28,4 +29,16 @@ async def _poll_cues(context: BackgroundContext) -> None:
     )
 
 
+async def _tick_hooks(context: BackgroundContext) -> None:
+    if not context.scheduler_enabled or not context.services.hooks.tick_times:
+        return
+    await run_ticks(
+        context.services.hooks,
+        context.sessions,
+        timezone=context.timezone,
+        poll_seconds=context.poll_seconds,
+    )
+
+
 CUE_QUEUE = BackgroundTask("cue-queue", _poll_cues)
+HOOK_TICKS = BackgroundTask("hook-ticks", _tick_hooks)

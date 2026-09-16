@@ -25,7 +25,9 @@ from tg_agent_shell.hooks.contracts import (
     OnAfterTool,
     OnAfterTurn,
     OnCommitted,
+    OnTick,
     Run,
+    Tick,
 )
 from tg_agent_shell.hooks.registry import HookRegistry
 
@@ -272,6 +274,27 @@ async def test_a_committed_change_reaches_the_hook_of_its_kind_only():
     assert not [item async for item in catalogue(ADVICE, policy=switched(ADVICE.name)).evaluate(CHANGE, NO_SESSIONS)]
 
 
+async def test_a_daily_check_is_registered_at_its_time_and_hears_that_time_only():
+    """AG-HOOK-039 — tests/brd/tg_agent_shell/agents.feature"""
+    daily = HookSpec(
+        name="reader.daily", owner="reader", on=(OnTick(at="09:00"),),
+        evaluate=subject, effect=Advise(words),
+    )
+
+    async def marker(event):
+        return (event.at,)
+
+    hooks = catalogue(replace(daily, evaluate=marker), ADVICE)
+    assert hooks.tick_times == frozenset({"09:00"})
+    checked = [item async for item in hooks.evaluate(Tick("09:00"), NO_SESSIONS)]
+    assert [(item.spec.name, item.payloads) for item in checked] == [("reader.daily", ("09:00",))]
+    assert not [item async for item in hooks.evaluate(Tick("21:00"), NO_SESSIONS)]
+    with pytest.raises(RuntimeError, match="HH:MM"):
+        catalogue(replace(daily, on=(OnTick(at="nine"),)))
+    with pytest.raises(RuntimeError, match="incompatible"):
+        catalogue(replace(daily, effect=Run(operation)))
+
+
 async def test_the_words_of_a_request_come_from_the_hook_that_is_still_on():
     """AG-HOOK-038 — tests/brd/tg_agent_shell/agents.feature"""
     hooks = catalogue(ADVICE, SPEC)
@@ -285,4 +308,6 @@ async def test_the_words_of_a_request_come_from_the_hook_that_is_still_on():
     async def broken(session, items):
         raise ValueError("cannot read")
 
-    assert await catalogue(replace(ADVICE, effect=Advise(broken))).prepare(NO_SESSIONS, "reader.advice", [7]) is None
+    # Failing to say is not nothing to say: the caller keeps the request.
+    with pytest.raises(ValueError, match="cannot read"):
+        await catalogue(replace(ADVICE, effect=Advise(broken))).prepare(NO_SESSIONS, "reader.advice", [7])

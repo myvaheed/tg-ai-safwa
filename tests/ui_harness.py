@@ -20,11 +20,14 @@ from safwa.bootstrap.modules import (
     PROPOSALS,
     SCREENS,
 )
+from safwa.constants import SUMMARY_TRIGGER_TOKENS
 from safwa.features.cards.use_cases import create_card
+from safwa.features.summary.window import SummaryEdge
+from safwa.foundation.tokens import estimate_tokens
 from telegram_llm import ChatHost, TranscriptionError, TranscriptionResult
 from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.foundation.kinds import MARKS
-from tg_agent_shell.history import TelegramNotes
+from tg_agent_shell.history import TelegramHistorySource, TelegramNotes
 from tg_agent_shell.proposals.api import ProposalDescription
 from tg_agent_shell.proposals.store import ProposalStore
 from tg_agent_shell.telegram import SHELL_COMMANDS
@@ -196,6 +199,22 @@ def services_for(sessions, *, root=None, reviews=None, transcriber=None):
             proposals=PROPOSALS, reviews=reviews if reviews is not None else ProposalStore()
         ),
         transcriber=transcriber,
+    )
+
+
+def history_source(client, sessions, *, bot_user_id: int, owner_id: int):
+    """The build the composition root does: the budget and the edge are Safwa's, not the
+    window's."""
+    return TelegramHistorySource(
+        client,
+        sessions,
+        marks=MARKS,
+        bot_user_id=bot_user_id,
+        owner_id=owner_id,
+        count_tokens=estimate_tokens,
+        token_budget=SUMMARY_TRIGGER_TOKENS,
+        edge=SummaryEdge(),
+        citation_types=SCREENS.types,
     )
 
 

@@ -27,7 +27,7 @@ from safwa.bootstrap.modules import (
 )
 from safwa.foundation.models import Base
 from tg_agent_shell.ai.sql import create_ai_views
-from tg_agent_shell.cues.module import CUE_QUEUE
+from tg_agent_shell.cues.module import CUE_QUEUE, HOOK_TICKS
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 TABLENAME = re.compile(r'^\s*__tablename__ = "([a-z_]+)"', re.MULTILINE)
@@ -127,9 +127,11 @@ def test_a_subagent_only_declares_tools_a_feature_publishes():
 
 def test_lifecycle_work_is_collected_from_the_modules_that_own_it():
     assert list(RECOVERY_HOOKS) == [m.recover for m in MODULES if m.recover is not None]
-    # The Cue poll belongs to no feature: it delivers whatever any of them wrote.
+    # The Cue poll and the hook tick poll belong to no feature: one delivers whatever any
+    # of them wrote, the other hands the hour to whichever hook declared it.
     assert [task.name for task in BACKGROUND_TASKS] == [
         CUE_QUEUE.name,
+        HOOK_TICKS.name,
         *(task.name for module in MODULES for task in module.background),
     ]
     assert len({task.name for task in BACKGROUND_TASKS}) == len(BACKGROUND_TASKS)

@@ -25,7 +25,7 @@ from .ai.messages import Memory, StateBlocks
 from .ai.sql import ReadOnlyQueryRunner, SqlView, view_catalogue
 from .ai.subagents import RoutedSubagent
 from .ai.tools import IMMEDIATE_TOOLS, AfterTool, BeforeTool, HelperPort
-from .cues.module import CUE_QUEUE
+from .cues.module import CUE_QUEUE, HOOK_TICKS
 from .foundation.screens import ScreenCatalogue, ScreenSpec
 from .hooks.contracts import HookPolicy, HookSpec, every_switch_on
 from .hooks.registry import HookRegistry
@@ -143,8 +143,11 @@ class Registry:
             recovery=tuple(
                 module.recover for module in modules if module.recover is not None
             ),
-            # The Cue poll is not a feature's: it delivers whatever any of them wrote.
-            background=(CUE_QUEUE, *(task for module in modules for task in module.background)),
+            # The Cue poll is not a feature's: it delivers whatever any of them wrote. Nor
+            # is the tick poll: it hands the hour to whichever hook declared it.
+            background=(
+                CUE_QUEUE, HOOK_TICKS, *(task for module in modules for task in module.background)
+            ),
         )
 
     def routes(self, line: Callable[[AgentSpec], str]) -> str:
