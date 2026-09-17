@@ -7,6 +7,8 @@ running at all is asked by whatever draws a screen that only exists during one.
 
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,10 +18,13 @@ from tg_agent_shell.telegram.contributions import ScreenCommand
 from ...foundation.workspace import Workspace, require_workspace
 from ..cards.api import PLANNED_STAGES, TERMINAL_STAGES, Card, CardStage
 from ..cards.model import CardKind
-from .model import SprintCommitment
+from .model import Sprint, SprintCommitment
 
 # The stages an Action has to be on for a Sprint to have anything to say about it.
 SPRINT_SCOPE = frozenset({CardStage.SPRINT, CardStage.TODAY, CardStage.DONE})
+
+# The change a hook may follow up on: a Sprint started, by hand or from a proposal.
+SPRINT_STARTED = "sprint.started"
 
 
 # The screens that exist only while a Sprint runs, by the `nav` each of them declared.
@@ -41,6 +46,15 @@ async def sprint_is_active(session: AsyncSession) -> bool:
     """Whether a Sprint is running, which is what makes Today a real screen."""
     workspace = await session.get(Workspace, 1)
     return bool(workspace and workspace.active_sprint_id)
+
+
+async def active_sprint_end_date(session: AsyncSession) -> date | None:
+    """The planned last day of the running Sprint, or None in Planning."""
+    workspace = await session.get(Workspace, 1)
+    if workspace is None or not workspace.active_sprint_id:
+        return None
+    sprint = await session.get(Sprint, workspace.active_sprint_id)
+    return sprint.planned_end_date if sprint is not None else None
 
 
 async def sync_commitment_for_stage(

@@ -18,11 +18,13 @@ from ui_harness import FakeMessage, history_source
 
 from safwa.bootstrap.modules import REGISTRY, SCREENS
 from safwa.features.cards.hooks import (
-    EMPTY_PARENT_CHECK_TIME,
     EMPTY_PARENT_GRACE_DAYS,
     EMPTY_PARENTS_HOOK,
+    HARD_TIME_CHECK,
+    HARD_TIME_HOOK,
 )
 from safwa.features.cards.use_cases import create_card
+from safwa.features.profile.model import MORNING_TIME_DEFAULT
 from telegram_llm import ChatHost
 from tg_agent_shell.cues.background import tick
 from tg_agent_shell.cues.initiatives import queue_advice
@@ -60,10 +62,13 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
         await session.commit()
         goal_id = goal.id
 
-    # The check fires; firing again before it is said is still the one request.
+    # The morning fires both daily checks; firing again before either is said adds nothing.
+    morning = [
+        (EMPTY_PARENTS_HOOK.name, [MORNING_TIME_DEFAULT]), (HARD_TIME_HOOK.name, [HARD_TIME_CHECK]),
+    ]
     for _ in range(2):
-        await queue_advice(REGISTRY.hooks, sessions, Tick(EMPTY_PARENT_CHECK_TIME))
-    assert await _pending(sessions) == [(EMPTY_PARENTS_HOOK.name, [EMPTY_PARENT_CHECK_TIME])]
+        await queue_advice(REGISTRY.hooks, sessions, Tick(MORNING_TIME_DEFAULT))
+    assert await _pending(sessions) == morning
 
     advisor, provider = e2e_harness.advisor([ANSWER])
     chat = FakeMessage(900, bot_message=False, chat_id=OWNER_ID, answer_as_new=True)
@@ -95,6 +100,16 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
     asked = [str(item["content"]) for item in provider.calls[0] if item["role"] == "user"]
     handed = next(text for text in asked if f"#{goal_id} «Learn Spanish» (Goal)" in text)
     assert "plan its Actions now, or create one Action" in handed
+    assert await _pending(sessions) == morning[1:]
+    assert len(chat.sent_messages) == 1
+    # No Sprint runs, so the plan check has nothing to say: settled without a word.
+    assert await tick(
+        sessions,
+        gate=runtime.can_speak,
+        speak=runtime.speak,
+        release=runtime.release,
+        prepare=runtime.prepare,
+    ) is False
     assert await _pending(sessions) == []
     assert len(chat.sent_messages) == 1
 
@@ -112,7 +127,7 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
     assert len(heard) == 1 and ANSWER in str(heard[0]["content"])
 
     # The next morning asks about the same Goal again: nothing remembers it was asked.
-    await queue_advice(REGISTRY.hooks, sessions, Tick(EMPTY_PARENT_CHECK_TIME))
-    assert await _pending(sessions) == [(EMPTY_PARENTS_HOOK.name, [EMPTY_PARENT_CHECK_TIME])]
-    words = await runtime.prepare(EMPTY_PARENTS_HOOK.name, [EMPTY_PARENT_CHECK_TIME])
+    await queue_advice(REGISTRY.hooks, sessions, Tick(MORNING_TIME_DEFAULT))
+    assert await _pending(sessions) == morning
+    words = await runtime.prepare(EMPTY_PARENTS_HOOK.name, [MORNING_TIME_DEFAULT])
     assert words is not None and words in handed

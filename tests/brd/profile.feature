@@ -1,11 +1,11 @@
 Feature: Profile
   Profile is where the owner tells Safwa things outright, rather than leaving Safwa to infer them.
-  There are eight of them, each edited on its own, each checked before it is stored.
+  There are nine of them, each edited on its own, each checked before it is stored.
 
   Numbers below name the constant they come from; the tests read the constant.
 
   Background:
-    Given a workspace whose Profile holds the eight things the owner can tell Safwa outright
+    Given a workspace whose Profile holds the nine things the owner can tell Safwa outright
 
   Scenario: PS-CONTEXT-001 — What the owner said outright outranks what Safwa remembered
     Given memory.md and the Profile say different things about the owner
@@ -14,7 +14,7 @@ Feature: Profile
     And About me and Advisor instructions come after it, so they are what it goes by
 
   Scenario: PS-FIELD-002 — Profile writes only the fields it has
-    Given the eight fields
+    Given the nine fields
     When anything tries to write a name that is not one of them
     Then it is refused, no field changes, and nothing is recorded as having changed
 
@@ -94,3 +94,10 @@ Feature: Profile
     And pressing it again turns it back on
     And while it is off its condition is not checked, and a result it was still working on
       when it was switched off is not published
+
+  Scenario: PS-MORNING-016 — The Morning time is when Safwa's morning checks run
+    Given a new workspace, whose Morning time is 09:00 (MORNING_TIME_DEFAULT = "09:00")
+    Then it is on the Profile with the other clocks, edited as a time from 00:00 through 23:59
+    And off is refused: each morning check has a switch of its own (PS-HOOKS-015)
+    When the Morning time changes
+    Then the morning checks — Goals without Actions (CD-EMPTY-035) and Hard Time outside the plan (PL-HARDTIME-021) — run at the new time from the next time it passes, without a restart

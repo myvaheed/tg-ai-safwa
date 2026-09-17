@@ -26,6 +26,7 @@ __all__ = [
     "ScheduleError",
     "describe",
     "next_fire",
+    "parse_clock",
     "parse_clock_or_off",
     "parse_phrase",
     "resolve_schedule",

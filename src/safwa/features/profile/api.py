@@ -11,7 +11,7 @@ from datetime import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .model import SPRINT_LENGTH_DAYS, UserProfile
+from .model import MORNING_TIME_DEFAULT, SPRINT_LENGTH_DAYS, UserProfile
 
 
 async def scheduled_memory_time(session: AsyncSession) -> time | None:
@@ -30,6 +30,12 @@ async def capacity_effort_points(session: AsyncSession) -> float | None:
     """The effort the owner means to take on in a Sprint, or None when it is off."""
     profile = await session.get(UserProfile, 1)
     return profile.capacity_effort_points if profile is not None else None
+
+
+async def morning_time(session: AsyncSession) -> time:
+    """The local time the morning checks run at: the shell's daily tick."""
+    profile = await session.get(UserProfile, 1)
+    return profile.morning_time if profile is not None else time.fromisoformat(MORNING_TIME_DEFAULT)
 
 
 async def hook_switched_on(session: AsyncSession, name: str) -> bool:

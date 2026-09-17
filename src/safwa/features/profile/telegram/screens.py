@@ -34,7 +34,7 @@ from tg_agent_shell.telegram.model import UiSession
 from ....constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ....features.cards.api import effort_label
 from ....foundation.workspace import Workspace
-from ...reminders.api import parse_clock_or_off
+from ...reminders.api import parse_clock, parse_clock_or_off
 from ..model import UserProfile
 from ..use_cases import profile_field, set_hook_switch, set_profile_field
 
@@ -77,6 +77,13 @@ def _parse_daily_time(raw: str) -> time | None:
         raise ValueError("Send a time as HH:MM, for example 22:00, or off.") from None
 
 
+def _parse_morning_time(raw: str) -> time:
+    try:
+        return parse_clock(raw)
+    except ValueError:
+        raise ValueError("Send a time as HH:MM, for example 09:00.") from None
+
+
 def _clock(value: time | None) -> str:
     return value.strftime("%H:%M") if value else "off"
 
@@ -112,6 +119,16 @@ PROFILE_FIELDS: dict[str, EditableField] = {
         instruction="Send the effort points one Sprint holds, or off to stop tracking it.",
         parse=_parse_capacity,
         show=lambda value: f"{effort_label(value)} EP" if value else "off",
+    ),
+    "morning_time": EditableField(
+        title="Morning time",
+        label="🌅 Morning time",
+        instruction=(
+            "Send the local time Safwa's morning checks run, as HH:MM. Each check is switched "
+            "off below, not here."
+        ),
+        parse=_parse_morning_time,
+        show=_clock,
     ),
     "memory_update_time": EditableField(
         title="Memory sync",

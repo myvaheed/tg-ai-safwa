@@ -123,3 +123,14 @@ Feature: Checks
     When the owner or Safwa asks to delete it
     Then the Check is gone, answered or not, and it is never archived instead
     And its Card stays, and so do the Values it pointed at
+
+  Scenario: CH-MISSED-017 — A Check Missed three times running is raised with the owner
+    Given a repeating Check whose newest answers, counted back to its last Passed, are all Missed
+    When a Missed answer is saved — by hand, or from a proposal the owner saved — and that run is a multiple of 3 (MISSED_RUN = 3)
+    And the chat is free
+    Then the Advisor is asked once to raise it, naming the Check, the Card it is on and since when the run goes, and to ask what gets in the way rather than to decide what should change
+    And the run is counted when the question is about to be said: a Pending instance on top is not counted and does not break it, and an answer changed to Passed by then ends the run where it stands
+    And a fourth and a fifth Missed ask nothing; the sixth asks again
+    And two series whose runs came due before it is said make one question about both
+    And a Check deleted before then is left out; with none left, nothing is asked
+    And a Check that does not repeat has one answer, so it is never raised

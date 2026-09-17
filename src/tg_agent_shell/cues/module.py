@@ -6,6 +6,7 @@ alongside the feature tasks rather than through a `FeatureModule` of their own.
 
 from __future__ import annotations
 
+from ..hooks.contracts import Tick
 from ..telegram.manifest import BackgroundContext, BackgroundTask
 from .background import run_cue_queue
 from .initiatives import run_ticks
@@ -30,7 +31,7 @@ async def _poll_cues(context: BackgroundContext) -> None:
 
 
 async def _tick_hooks(context: BackgroundContext) -> None:
-    if not context.scheduler_enabled or not context.services.hooks.tick_times:
+    if not context.scheduler_enabled or not context.services.hooks.listens(Tick):
         return
     await run_ticks(
         context.services.hooks,

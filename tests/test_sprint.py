@@ -8,13 +8,16 @@ from sqlalchemy import select
 
 from safwa.bootstrap.modules import MODULES
 from safwa.features.cards.hard_time import typed_hard_time
+from safwa.features.cards.hooks import HARD_TIME_CHECK, HARD_TIME_HOOK, hard_time_request
 from safwa.features.cards.model import CardStage
-from safwa.features.cards.use_cases import create_card as create_domain_card
 from safwa.features.cards.use_cases import (
+    archive_subtree,
     finish_action,
     move_card,
     update_card_fields,
 )
+from safwa.features.cards.use_cases import create_card as create_domain_card
+from safwa.features.planning.api import SPRINT_STARTED
 from safwa.features.planning.model import Sprint, next_sprint_number
 from safwa.features.planning.use_cases import (
     expire_due_sprint,
@@ -30,8 +33,10 @@ from safwa.features.reminders.use_cases import SPRINT_KEY, delete_reminder
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.workspace import Workspace
 from tg_agent_shell.cues.model import Cue
-from tg_agent_shell.foundation.clock import SystemClock
+from tg_agent_shell.foundation.changes import Committed, take_changes
+from tg_agent_shell.foundation.clock import SystemClock, utcnow
 from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.hooks.contracts import OnCommitted, OnTick
 
 
 async def create_card(session, **overrides):
@@ -457,3 +462,62 @@ async def test_pl_scope_008_returning_to_sprint_scope_cancels_the_earlier_remova
 
         # The same effort must not be reported as both removed and selected.
         assert (await sprint_metrics(session, sprint.id))["removed"] == 0
+
+
+async def test_pl_hardtime_021_the_request_names_the_hard_times_the_plan_does_not_hold(sessions):
+    """PL-HARDTIME-021 — tests/brd/planning.feature"""
+    assert HARD_TIME_HOOK.switch is not None
+    assert HARD_TIME_HOOK.on == (OnCommitted(kind=SPRINT_STARTED), OnTick())
+    today = datetime.now(ZoneInfo("Europe/Istanbul")).date()
+
+    def on(days: int) -> str:
+        # The last minute of the day, so today's has not passed whenever the test runs.
+        return f"{today + timedelta(days=days):%d.%m.%Y} 23:59"
+
+    async with sessions() as session:
+        async def fixed(title: str, days: int, **overrides):
+            return await create_card(
+                session, title=title, hard_time=await typed_hard_time(session, on(days)),
+                **overrides,
+            )
+
+        dentist = await fixed("Dentist", 1)
+        # In Planning there is no plan to hold anything.
+        assert await hard_time_request(session, [HARD_TIME_CHECK]) is None
+        await plan_one(session)
+        sprint = await start_sprint(session, success_criteria="Ship v2", length_days=7)
+        assert take_changes(session.info) == [Committed(SPRINT_STARTED, sprint.id)]
+        await session.commit()
+
+        tax = await fixed("Tax office", 5)
+        await fixed("Concert", 20)
+        call = await fixed("Call mom", 0, stage="sprint")
+        await fixed("Report", 3, stage="sprint")
+        await fixed("Gym", 1, stage="today")
+        train = await fixed("Missed train", 1)
+        train.hard_time_at = utcnow() - timedelta(days=1)
+        paid = await fixed("Paid", 2)
+        await finish_action(session, paid.id)
+        shelved = await fixed("Shelved", 2)
+        await finish_action(session, shelved.id)
+        await archive_subtree(session, shelved.id)
+        await session.commit()
+
+        request = await hard_time_request(session, [HARD_TIME_CHECK])
+        assert request is not None
+        for line in (
+            f"#{dentist.id} «Dentist»: {today + timedelta(days=1):%Y-%m-%d} 23:59, in Backlog",
+            f"#{tax.id} «Tax office»: {today + timedelta(days=5):%Y-%m-%d} 23:59, in Backlog",
+            f"#{call.id} «Call mom»: {today:%Y-%m-%d} 23:59, in Sprint",
+        ):
+            assert line in request
+        for absent in ("Concert", "Report", "Gym", "Missed train", "Paid", "Shelved"):
+            assert absent not in request
+        assert "Do not move anything without their answer" in request
+
+        # Taken into the plan before it is said, each is left out; with none left, nothing.
+        await move_card(session, dentist.id, CardStage.TODAY)
+        await move_card(session, tax.id, CardStage.SPRINT)
+        await move_card(session, call.id, CardStage.TODAY)
+        await session.commit()
+        assert await hard_time_request(session, [HARD_TIME_CHECK]) is None

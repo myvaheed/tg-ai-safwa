@@ -320,9 +320,10 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then its pending request is dropped, and switching it back on does not bring it back
 
   Scenario: AG-HOOK-039 — A check on a schedule runs once per period, and not for the periods it slept through
-    Given a hook declares a daily check at a local time of the workspace
+    Given a hook declares a daily check, and the application names the local time of day its daily checks run at
     When that time passes while Safwa runs
     Then the check runs once, however many polls that day sees
+    And the time is read at every look, so one the owner moves counts from the next time it passes, without a restart
     When Safwa starts after that time has already passed
     Then the check waits for the next day's time rather than running for the day it missed
     And a check that is switched off does not run, and switching it on after its time has passed does not run it for that day

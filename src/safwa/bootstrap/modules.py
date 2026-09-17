@@ -21,8 +21,14 @@ from tg_agent_shell.registry import Registry
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec, FeatureModule
 
 from ..features.advisor.agent import ADVISOR_VIEWS, PERSONA, SYSTEM_PROMPT_TEMPLATE
-from ..features.cards.module import BLOCKER_HOOK, EMPTY_PARENTS_HOOK
+from ..features.cards.module import (
+    BLOCKER_HOOK,
+    EMPTY_PARENTS_HOOK,
+    HARD_TIME_HOOK,
+    TODAY_OVERLOAD_HOOK,
+)
 from ..features.cards.module import MODULE as CARDS
+from ..features.checks.module import MISSED_RUN_HOOK
 from ..features.checks.module import MODULE as CHECKS
 from ..features.diagnostics.module import MODULE as DIAGNOSTICS
 from ..features.diary.module import MODULE as DIARY
@@ -31,7 +37,7 @@ from ..features.heavy_analyzer.module import MODULE as HEAVY_ANALYZER
 from ..features.home.module import MODULE as HOME
 from ..features.memory.module import MODULE as MEMORY
 from ..features.planning.module import MODULE as PLANNING
-from ..features.profile.api import hook_switched_on
+from ..features.profile.api import hook_switched_on, morning_time
 from ..features.profile.module import MODULE as PROFILE
 from ..features.reminders.module import MODULE as REMINDERS
 from ..features.retro.module import MODULE as RETRO
@@ -74,11 +80,20 @@ async def _world(session: AsyncSession) -> World:
 
 
 # The automatic reactions that exist for Safwa. A hook with a switch is turned off and on
-# in the Profile, which is what `hook_switched_on` reads; one without is always on.
-HOOKS = (SUMMARY_HOOK, HEAVY_ANALYZER_HOOK, BLOCKER_HOOK, EMPTY_PARENTS_HOOK)
+# in the Profile, which is what `hook_switched_on` reads; one without is always on. The
+# daily ones run at the Profile's Morning time.
+HOOKS = (
+    SUMMARY_HOOK,
+    HEAVY_ANALYZER_HOOK,
+    BLOCKER_HOOK,
+    TODAY_OVERLOAD_HOOK,
+    EMPTY_PARENTS_HOOK,
+    HARD_TIME_HOOK,
+    MISSED_RUN_HOOK,
+)
 
 REGISTRY: Registry = Registry.of(
-    MODULES, world=_world, hooks=HOOKS, hook_policy=hook_switched_on
+    MODULES, world=_world, hooks=HOOKS, hook_policy=hook_switched_on, tick_time=morning_time
 )
 
 # What each part of the application reads off the registry, under the names it reads them

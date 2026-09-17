@@ -16,6 +16,8 @@ SPRINT_LENGTH_DAYS = 14
 # box; the Profile moves each, and `off` there removes that row.
 DIARY_TIME_DEFAULT = "22:00"
 SUMMARY_TIME_DEFAULT = "20:00"
+# When the morning checks run, out of the box. Never off: each check has a switch of its own.
+MORNING_TIME_DEFAULT = "09:00"
 
 
 class UserProfile(Base, TimestampMixin):
@@ -32,6 +34,9 @@ class UserProfile(Base, TimestampMixin):
     diary_instructions: Mapped[str] = mapped_column(Text, default="")
     summary_time: Mapped[time | None] = mapped_column(
         Time, default=time.fromisoformat(SUMMARY_TIME_DEFAULT)
+    )
+    morning_time: Mapped[time] = mapped_column(
+        Time, default=time.fromisoformat(MORNING_TIME_DEFAULT)
     )
     # The automatic reactions the owner turned off, by hook name. A hook that is not
     # here is on, so a new hook needs no column of its own.
@@ -52,3 +57,4 @@ class ProfileField(StrEnum):
     DIARY_TIME = "diary_time"
     DIARY_INSTRUCTIONS = "diary_instructions"
     SUMMARY_TIME = "summary_time"
+    MORNING_TIME = "morning_time"

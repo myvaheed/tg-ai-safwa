@@ -4,7 +4,7 @@ An operation records what it changed beside its transaction (`foundation/changes
 After the commit, the one listener below hands those facts to the hooks that subscribe to
 that kind of change, and whatever an Advise check returns is merged into that hook's one
 pending `Cue`. A rollback leaves nothing to hand on. The one tick poll hands a `Tick` to
-the hooks that declared that time of day, by the same path.
+the daily hooks when the time of day the application names passes, by the same path.
 
 The facts are handed on outside the transaction that made them: a process that dies in
 between loses one request, never the change itself.
@@ -56,11 +56,16 @@ async def run_ticks(
     timezone: str,
     poll_seconds: float,
 ) -> None:
-    """Hand each daily check its Tick when its time comes: once, however many polls."""
-    schedule = TickSchedule(hooks.tick_times, now=utcnow(), tz=ZoneInfo(timezone))
+    """Hand the daily checks their Tick when the time comes: once, however many polls."""
+    schedule = TickSchedule(now=utcnow(), tz=ZoneInfo(timezone))
+    tick_time = hooks.tick_time
+    assert tick_time is not None  # the registry refused a daily hook without one
 
     async def look() -> None:
-        for tick in schedule.due(utcnow()):
+        async with sessions() as session:
+            at = await tick_time(session)
+        tick = schedule.due(utcnow(), at)
+        if tick is not None:
             await queue_advice(hooks, sessions, tick)
 
     await run_poll(look, poll_seconds=poll_seconds, name="The hook tick poll")

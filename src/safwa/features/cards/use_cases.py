@@ -185,6 +185,8 @@ async def create_card(
     if card.blocked:
         record_change(session, CARD_BLOCKED, card.id)
     if card_kind is CardKind.ACTION:
+        if card_stage is CardStage.TODAY:
+            record_change(session, CARD_TODAY, card.id)
         await sync_commitment_for_stage(session, card)
     await propagate_ancestors(session, parent_id)
     await bump_workspace(session)
@@ -519,8 +521,10 @@ def validate_blocked_fields(blocked: bool, description: str | None) -> None:
         raise DomainError("A blocked Card needs a blocked description")
 
 
-# The change a hook may follow up on: an Action became blocked, however it was saved.
+# The changes a hook may follow up on: an Action became blocked, or entered Today,
+# however it was saved.
 CARD_BLOCKED = "card.blocked"
+CARD_TODAY = "card.today"
 
 
 async def record_card_event(
@@ -579,6 +583,8 @@ async def move_card(
     card.effective_stage = stage.value
     card.version += 1
     await record_card_event(session, card, "move", actor, before, new_correlation_id())
+    if stage is CardStage.TODAY and previous is not CardStage.TODAY:
+        record_change(session, CARD_TODAY, card.id)
     await sync_commitment_for_stage(session, card, previous)
     result.ancestor_ids = await propagate_ancestors(session, card.parent_id)
     await bump_workspace(session)
@@ -619,6 +625,8 @@ async def _copy_repeat_successor(session: AsyncSession, card: Card, live_stage: 
     ):
         session.add(CardEnergyType(card_id=successor.id, energy_type=link.energy_type))
     await clone_checks_for_successor(session, card.id, successor.id)
+    if live_stage is CardStage.TODAY:
+        record_change(session, CARD_TODAY, successor.id)
     await sync_commitment_for_stage(session, successor)
     return successor
 

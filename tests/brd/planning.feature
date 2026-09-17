@@ -161,3 +161,12 @@ Feature: Planning — the Sprint, and the mode without one
       written earlier
     When no Sprint is running
     Then there is no Today at all, by PL-MODE-001, and nothing of it is handed over
+
+  Scenario: PL-HARDTIME-021 — An Action whose Hard Time the plan does not hold is brought up
+    Given a Sprint runs, and open Actions carry a Hard Time
+    When the Sprint starts, and each day when the Profile's Morning time passes (MORNING_TIME_DEFAULT = "09:00"), and the chat is free
+    Then the Advisor is asked once, in one message about all of them, naming each with its next Hard Time and the stage it is in: the ones whose Hard Time falls by the Sprint's planned last day and that are in Backlog, and the ones whose Hard Time is today or tomorrow (HARD_TIME_NOTICE_DAYS = 1) and that are not in Today
+    And it is asked whether to take each into the Sprint, and the near ones into Today; nothing is moved before the owner's answer
+    And the list is read when the question is about to be said: one already in Today, one in the Sprint whose Hard Time is later than tomorrow, one finished or archived, and one whose Hard Time has passed are left out; with none left, nothing is asked
+    And in Planning, with no Sprint running, the morning asks nothing
+    And a day is the workspace's local day

@@ -27,7 +27,7 @@ from .ai.subagents import RoutedSubagent
 from .ai.tools import IMMEDIATE_TOOLS, AfterTool, BeforeTool, HelperPort
 from .cues.module import CUE_QUEUE, HOOK_TICKS
 from .foundation.screens import ScreenCatalogue, ScreenSpec
-from .hooks.contracts import HookPolicy, HookSpec, every_switch_on
+from .hooks.contracts import HookPolicy, HookSpec, TickTime, every_switch_on
 from .hooks.registry import HookRegistry
 from .proposals.api import (
     MutationToolSpec,
@@ -104,11 +104,13 @@ class Registry:
     def of(
         cls, modules: tuple[FeatureModule, ...], *, world: WorldReader,
         hooks: tuple[HookSpec, ...] = (), hook_policy: HookPolicy = every_switch_on,
+        tick_time: TickTime | None = None,
     ) -> Registry:
         """Everything the list implies, with each collision refused where it happens.
 
-        `hook_policy` is the application's answer to whether a hook with a switch is on;
-        it is read where the hook is about to work, never copied.
+        `hook_policy` is the application's answer to whether a hook with a switch is on,
+        and `tick_time` its answer to when the daily hooks run; each is read where the
+        hook is about to work, never copied.
         """
         views = _views(modules)
         allowed = frozenset(view.name for view in views)
@@ -139,6 +141,7 @@ class Registry:
                 # route is answered by agent_runtime before ToolAdapters is reached.
                 tools=IMMEDIATE_TOOLS - {"route"},
                 policy=hook_policy,
+                tick_time=tick_time,
             ),
             recovery=tuple(
                 module.recover for module in modules if module.recover is not None

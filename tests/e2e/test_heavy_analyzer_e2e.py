@@ -10,6 +10,7 @@ import pytest
 from llm_gateway import CompletionTurn, ToolCall
 from safwa.bootstrap.modules import HOOKS, MODULES, PROPOSALS, REGISTRY
 from safwa.features.cards.use_cases import create_card
+from safwa.features.profile.api import morning_time
 from telegram_llm import DialogueMessage
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.hooks.contracts import HookSwitch
@@ -103,7 +104,7 @@ async def test_switching_the_offer_off_keeps_the_helper_operation(e2e_harness):
     advisor.adapters.hooks = Registry.of(
         MODULES, world=REGISTRY.proposals.world,
         hooks=tuple(replace(item, switch=HookSwitch("Offer", "Offers the helper.")) for item in HOOKS),
-        hook_policy=everything_off,
+        hook_policy=everything_off, tick_time=morning_time,
     ).hooks
     await advisor.handle(QUESTION)
     assert "call_helper" not in tools_of(provider, 1)

@@ -74,6 +74,9 @@ def _validated(field: ProfileField, value: ProfileValue) -> ProfileValue:
         ):
             if value is not None and not isinstance(value, time):
                 raise DomainError(f"{field.value} must be a clock time, or off")
+        case ProfileField.MORNING_TIME:
+            if not isinstance(value, time):
+                raise DomainError("Morning time must be a clock time")
         case _:
             if not isinstance(value, str):
                 raise DomainError(f"{field.value} must be text")

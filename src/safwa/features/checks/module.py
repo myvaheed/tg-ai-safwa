@@ -6,6 +6,7 @@ from tg_agent_shell.foundation.screens import ScreenSpec
 from tg_agent_shell.telegram.manifest import FeatureModule, ProposalContribution
 
 from . import agent, proposal, telegram, views
+from .hooks import MISSED_RUN_HOOK as MISSED_RUN_HOOK
 from .model import Check
 from .telegram import CHECK_CALLBACK_ACTIONS, render_check
 

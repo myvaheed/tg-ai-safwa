@@ -6,10 +6,16 @@ from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy import select
 
-from safwa.bootstrap.modules import RECOVERY_HOOKS
+from safwa.bootstrap.modules import RECOVERY_HOOKS, REGISTRY
 from safwa.features.cards.use_cases import create_card
 from safwa.features.planning.use_cases import start_sprint
-from safwa.features.profile.model import SUMMARY_TIME_DEFAULT, ProfileField, UserProfile
+from safwa.features.profile.api import morning_time
+from safwa.features.profile.model import (
+    MORNING_TIME_DEFAULT,
+    SUMMARY_TIME_DEFAULT,
+    ProfileField,
+    UserProfile,
+)
 from safwa.features.profile.telegram.screens import PROFILE_FIELDS
 from safwa.features.profile.use_cases import (
     DIARY_TRIGGER,
@@ -155,6 +161,25 @@ def test_scheduled_profile_clocks_accept_hhmm_or_off() -> None:
         memory_clock("24:00")
     with pytest.raises(ValueError, match="HH:MM"):
         diary_clock("tomorrow")
+
+
+async def test_ps_morning_016_the_morning_time_is_a_clock_the_daily_hooks_read(sessions) -> None:
+    """PS-MORNING-016 — tests/brd/profile.feature"""
+    parse = PROFILE_FIELDS["morning_time"].parse
+    assert parse("07:30") == time(7, 30)
+    for refused in ("off", "24:00", "morning"):
+        with pytest.raises(ValueError, match="HH:MM"):
+            parse(refused)
+    # The shell's daily tick reads the Profile, not a constant.
+    assert REGISTRY.hooks.tick_time is morning_time
+    async with sessions() as session:
+        assert await morning_time(session) == time.fromisoformat(MORNING_TIME_DEFAULT)
+        with pytest.raises(DomainError, match="clock time"):
+            await set_profile_field(session, ProfileField.MORNING_TIME, None, clock=SystemClock())
+        await set_profile_field(session, ProfileField.MORNING_TIME, time(7, 30), clock=SystemClock())
+        await session.commit()
+    async with sessions() as session:
+        assert await morning_time(session) == time(7, 30)
 
 
 async def test_a_scheduled_clock_field_refuses_a_value_that_is_not_a_time(sessions) -> None:

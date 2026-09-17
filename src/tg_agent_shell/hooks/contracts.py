@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from datetime import time
 from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -72,19 +73,18 @@ class OnCommitted:
 
 @dataclass(frozen=True, slots=True)
 class Tick:
-    """The workspace's clock passed `at` since the last look: once a day, at that time."""
+    """The workspace's clock passed the daily time since the last look; `at` is that
+    time as "HH:MM", which is all a daily check has to keep."""
 
     at: str
 
 
 @dataclass(frozen=True, slots=True)
 class OnTick:
-    """A check once a day, at a local time of the workspace written as "HH:MM"."""
-
-    at: str
+    """A check once a day, at the local time the application names (`TickTime`)."""
 
     def matches(self, event: Tick) -> bool:
-        return event.at == self.at
+        return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +139,10 @@ class HookSpec[Event, Payload]:
 
 # Whether the hook of that name is on, asked only for a hook that has a switch.
 HookPolicy = Callable[[AsyncSession, str], Awaitable[bool]]
+
+# The local time of day the daily checks run at, by the workspace's clock. It is read at
+# every look, so a time the owner moves counts without a restart.
+TickTime = Callable[[AsyncSession], Awaitable[time]]
 
 
 async def every_switch_on(session: AsyncSession, name: str) -> bool:

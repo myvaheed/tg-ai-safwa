@@ -17,6 +17,7 @@ from typing import Any
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 
@@ -26,6 +27,9 @@ from ..cards.model import CardCheck
 from ..values.api import Value
 from ..values.model import CheckValue
 from .model import Check, CheckOutcome
+
+# The change a hook may follow up on: a Check was answered Missed, however it was saved.
+CHECK_MISSED = "check.missed"
 
 
 async def card_checks(session: AsyncSession, card_id: int) -> list[Check]:
@@ -239,6 +243,8 @@ async def apply_check_outcome(
     was_pending = check.outcome is None
     check.outcome = resolved.value
     check.resolved_by = actor.value
+    if resolved is CheckOutcome.MISSED:
+        record_change(session, CHECK_MISSED, check.id)
     if was_pending:
         # resolved_at is the observation time the trend is keyed on, so a later
         # correction must not move the data point; updated_at carries that edit.

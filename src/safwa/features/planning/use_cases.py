@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.cues.queue import add_cue
+from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 
@@ -26,6 +27,7 @@ from ..cards.use_cases import archive_settled_cards
 from ..checks.use_cases import archive_settled_checks
 from ..profile.api import sprint_length_days as _profile_sprint_length_days
 from ..reminders.use_cases import create_sprint_reminder, delete_sprint_reminders
+from .api import SPRINT_STARTED
 from .model import Sprint, SprintCommitment, SprintStatus, next_sprint_number
 
 # How many Sprint endings a closed Card or Check waits before it leaves the screens.
@@ -109,6 +111,7 @@ async def start_sprint(
     workspace.mode = WorkspaceMode.SPRINT.value
     workspace.active_sprint_id = sprint.id
     workspace.revision += 1
+    record_change(session, SPRINT_STARTED, sprint.id)
     return sprint
 
 

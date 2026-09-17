@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import time
 from types import MappingProxyType
 from typing import Any
 
@@ -24,6 +23,7 @@ from .contracts import (
     OnTick,
     Run,
     Tick,
+    TickTime,
     every_switch_on,
 )
 
@@ -46,6 +46,8 @@ class HookEvaluation:
 class HookRegistry:
     specs: tuple[HookSpec, ...]
     policy: HookPolicy
+    # Named by the application when any hook runs daily; None says none does.
+    tick_time: TickTime | None
     _index: Mapping[type, tuple[HookSpec, ...]]
 
     @classmethod
@@ -57,6 +59,7 @@ class HookRegistry:
         helpers: frozenset[str] = frozenset(),
         tools: frozenset[str] = frozenset(),
         policy: HookPolicy = every_switch_on,
+        tick_time: TickTime | None = None,
     ) -> HookRegistry:
         names: set[str] = set()
         index: dict[type, list[HookSpec]] = {}
@@ -80,30 +83,21 @@ class HookRegistry:
                         event_type = AfterTool
                     case OnCommitted(kind=kind), Advise() if kind.strip():
                         event_type = Committed
-                    case OnTick(at=at), Advise():
-                        try:
-                            time.fromisoformat(at)
-                        except ValueError:
-                            raise RuntimeError(f"Hook {spec.name} names a time that is not HH:MM: {at!r}") from None
+                    case OnTick(), Advise():
+                        if tick_time is None:
+                            raise RuntimeError(f"Hook {spec.name} runs daily, and the application named no time of day for that")
                         event_type = Tick
                     case _:
                         raise RuntimeError(f"Hook {spec.name} has an incompatible subscription/effect")
                 bucket = index.setdefault(event_type, [])
                 if spec not in bucket:
                     bucket.append(spec)
-        return cls(specs, policy, MappingProxyType({key: tuple(value) for key, value in index.items()}))
+        return cls(specs, policy, tick_time, MappingProxyType({key: tuple(value) for key, value in index.items()}))
 
     @property
     def switches(self) -> tuple[HookSpec, ...]:
         """The hooks the owner may turn off, in catalogue order."""
         return tuple(spec for spec in self.specs if spec.switch is not None)
-
-    @property
-    def tick_times(self) -> frozenset[str]:
-        """Every local time a daily check is declared at."""
-        return frozenset(
-            on.at for spec in self.specs for on in spec.on if isinstance(on, OnTick)
-        )
 
     def listens(self, event_type: type) -> bool:
         return event_type in self._index

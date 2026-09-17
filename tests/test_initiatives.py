@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -59,15 +59,20 @@ async def morning_words(session, items) -> str | None:
 
 
 DAILY = HookSpec(
-    name="test.daily", owner="test", on=(OnTick(at="09:00"),),
+    name="test.daily", owner="test", on=(OnTick(),),
     evaluate=marker, effect=Advise(morning_words),
     switch=HookSwitch(title="Daily", description="Asks every morning."),
 )
+NINE = time(9, 0)
+
+
+async def at_nine(session) -> time:
+    return NINE
 
 
 def catalogue(*specs, policy=None) -> HookRegistry:
     extra = {"policy": policy} if policy is not None else {}
-    return HookRegistry.of(specs, owners=frozenset({"test"}), **extra)
+    return HookRegistry.of(specs, owners=frozenset({"test"}), tick_time=at_nine, **extra)
 
 
 class Recorder:
@@ -259,23 +264,25 @@ async def test_ag_hook_038_nothing_is_read_while_the_chat_is_busy(sessions):
 
 async def test_ag_hook_039_a_daily_check_comes_due_once_a_day_and_not_for_the_day_it_missed(sessions):
     """AG-HOOK-039 — tests/brd/tg_agent_shell/agents.feature"""
-    schedule = TickSchedule(catalogue(DAILY).tick_times, now=local(16, 8, 0), tz=TZ)
-    assert schedule.due(local(16, 8, 30)) == []
-    assert schedule.due(local(16, 9, 0)) == [Tick("09:00")]
-    assert [schedule.due(local(16, 9, minute)) for minute in (1, 30, 59)] == [[], [], []]
-    assert schedule.due(local(16, 23, 59)) == []
-    assert schedule.due(local(17, 9, 1)) == [Tick("09:00")]
+    schedule = TickSchedule(now=local(16, 8, 0), tz=TZ)
+    assert schedule.due(local(16, 8, 30), NINE) is None
+    assert schedule.due(local(16, 9, 0), NINE) == Tick("09:00")
+    assert [schedule.due(local(16, 9, minute), NINE) for minute in (1, 30, 59)] == [None] * 3
+    assert schedule.due(local(16, 23, 59), NINE) is None
+    assert schedule.due(local(17, 9, 1), NINE) == Tick("09:00")
 
     # Started after the time: the day it missed is not run, the next day's is.
-    restarted = TickSchedule({"09:00"}, now=local(16, 15, 0), tz=TZ)
-    assert restarted.due(local(16, 15, 1)) == []
-    assert restarted.due(local(17, 9, 0)) == [Tick("09:00")]
+    restarted = TickSchedule(now=local(16, 15, 0), tz=TZ)
+    assert restarted.due(local(16, 15, 1), NINE) is None
+    assert restarted.due(local(17, 9, 0), NINE) == Tick("09:00")
 
-    # Two checks at different times come due each at its own, and once.
-    two = TickSchedule({"21:30", "09:00"}, now=local(16, 8, 0), tz=TZ)
-    assert two.due(local(16, 9, 5)) == [Tick("09:00")]
-    assert two.due(local(16, 21, 30)) == [Tick("21:30")]
-    assert two.due(local(17, 8, 0)) == []
+    # The time is handed to every look: moved later, it comes due again that day at the
+    # new time; moved to one already passed, it waits for tomorrow's.
+    moved = TickSchedule(now=local(16, 8, 0), tz=TZ)
+    assert moved.due(local(16, 9, 5), NINE) == Tick("09:00")
+    assert moved.due(local(16, 21, 30), time(21, 30)) == Tick("21:30")
+    assert moved.due(local(16, 22, 0), time(21, 0)) is None
+    assert moved.due(local(17, 21, 0), time(21, 0)) == Tick("21:00")
 
 
 async def test_ag_hook_039_a_switched_off_check_does_not_run_and_is_not_run_late_once_on(sessions):
@@ -286,18 +293,23 @@ async def test_ag_hook_039_a_switched_off_check_does_not_run_and_is_not_run_late
         return name not in off_names
 
     hooks = catalogue(DAILY, policy=policy)
-    schedule = TickSchedule(hooks.tick_times, now=local(16, 8, 0), tz=TZ)
-    for due in schedule.due(local(16, 9, 0)):
-        await queue_advice(hooks, sessions, due)
+    schedule = TickSchedule(now=local(16, 8, 0), tz=TZ)
+
+    async def look(now: datetime) -> None:
+        async with sessions() as session:
+            at = await hooks.tick_time(session)
+        due = schedule.due(now, at)
+        if due is not None:
+            await queue_advice(hooks, sessions, due)
+
+    await look(local(16, 9, 0))
     assert await pending(sessions) == []
 
     off_names.clear()
-    for due in schedule.due(local(16, 9, 5)):
-        await queue_advice(hooks, sessions, due)
+    await look(local(16, 9, 5))
     assert await pending(sessions) == []
 
-    for due in schedule.due(local(17, 9, 0)):
-        await queue_advice(hooks, sessions, due)
+    await look(local(17, 9, 0))
     assert await pending(sessions) == [("test.daily", None, ["09:00"])]
     # Fired again before it is said, it is the one request still.
     await queue_advice(hooks, sessions, Tick("09:00"))

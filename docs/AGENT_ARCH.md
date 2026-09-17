@@ -515,19 +515,21 @@ the Cue row, exactly as for anything else Safwa says first.
 
 ### A committed change, or a time of day, writes a hook's Cue
 
-An operation that makes a change a hook follows up on — an Action becoming blocked — records it
-with `record_change` beside its own transaction (`foundation/changes.py`), and commits nothing
-itself. The one `after_commit` listener in `cues/initiatives.py` hands the session's `Committed`
+An operation that makes a change a hook follows up on — an Action becoming blocked or entering
+Today, a Check answered Missed, a Sprint starting — records it with `record_change` beside its
+own transaction (`foundation/changes.py`), and commits nothing itself. The one `after_commit` listener in `cues/initiatives.py` hands the session's `Committed`
 facts to `HookRegistry.evaluate`, and each Advise result is merged into that hook's row with
 `merge_hook_cue`; a rollback leaves nothing to hand on. The listener is bound to the session
 factory by `bind_committed`, so a proposal's Save and a screen's save — the same operation — reach
 the hook by the same path, and a proposal the owner discards never calls it.
 
-A hook on a time of day declares it in `OnTick(at="HH:MM")`, local to the workspace. The one
-tick poll (`run_ticks`, beside the Cue poll) keeps its last look in process memory and hands a
-`Tick` on by the same `queue_advice` when that time has passed since — once, however many polls,
-and never for a time that passed while Safwa was down or the hook was off. Such a hook's
-`evaluate` returns one constant marker; the reading is its `prepare`, at delivery.
+A hook that runs daily declares `OnTick()`; the time of day is the application's, read through
+the `TickTime` the registry is built with — Safwa's is the Profile's Morning time. The one tick
+poll (`run_ticks`, beside the Cue poll) reads that time at every look, keeps its last look in
+process memory and hands a `Tick` on by the same `queue_advice` when the time has passed since —
+once, however many polls, never for a time that passed while Safwa was down or the hook was off,
+and a moved time counts from the next time it passes. Such a hook's `evaluate` returns one
+constant marker; the reading is its `prepare`, at delivery.
 
 ### A Sprint's end writes its own Cue
 

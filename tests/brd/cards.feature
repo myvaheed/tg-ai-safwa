@@ -290,9 +290,18 @@ Feature: Cards
 
   Scenario: CD-EMPTY-035 — A Goal or Subgoal left without an Action is asked about each morning
     Given a Goal or Subgoal older than 24 hours (EMPTY_PARENT_GRACE_DAYS = 1) with no Action anywhere under it, a finished or an archived one counted
-    When the daily check runs at 09:00 local time (EMPTY_PARENT_CHECK_TIME = "09:00") and the chat is free
+    When the Profile's Morning time passes, 09:00 unless the owner moved it (MORNING_TIME_DEFAULT = "09:00"), and the chat is free
     Then the Advisor is asked once, about all of them together, to put both ways forward for each in one message: plan its Actions now, or create one Action to plan them later
     And the owner's choice is awaited: nothing is created before their answer
     And one younger than that, archived, or given an Action before the question is said is left out; with none left, nothing is asked
     And the same one still without an Action is asked about again the next morning
     And a check that fires again before the question is said adds no second one
+
+  Scenario: CD-TODAY-036 — A day holding more than it is meant to is asked about
+    Given an Action enters Today — created there, moved there, or opened there as the next instance of a finished repeating one — by a proposal the owner saved or by hand
+    When the effort in Today, the open Actions there and the Actions finished that local day together, is over 15 EP (TODAY_CAPACITY_EP = 15) and the chat is free
+    Then the Advisor is asked once to say what the day holds against what it is meant to, naming each open Action still in Today with its effort, and to ask which to move back to Sprint
+    And nothing is moved before the owner's answer
+    And the effort is summed when the question is about to be said: a day at 15 EP or under by then asks nothing, and exactly 15 EP is not over
+    And two Actions entering Today before it is said make one question
+    And an Action that stays in Today, renamed or re-estimated there, is not what is checked: only one entering Today is

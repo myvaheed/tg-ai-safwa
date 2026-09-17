@@ -120,7 +120,7 @@ Their rules are in [cards.feature](../tests/brd/cards.feature),
 [values.feature](../tests/brd/values.feature) and
 [saved_requests.feature](../tests/brd/saved_requests.feature). No column changed.
 
-## Wave 3 — the mechanisms other entries wait on, in progress
+## Wave 3 — the mechanisms other entries wait on, shipped
 
 Started 2026-09-15 with hook stages 1 and 2: one checked connection list, and the existing
 Summary and Heavy analyzer offer moved onto it. Their former automatic paths are removed. The
@@ -139,16 +139,24 @@ initiative at a time, rereads what it refers to just before delivery, and the ow
 an ordinary next turn the hook never reads. The next day the Tick adapter shipped with its
 first consumer, Goals and Subgoals without Actions ([AG-HOOK-039](../tests/brd/tg_agent_shell/agents.feature),
 [CD-EMPTY-035](../tests/brd/cards.feature)): one shell poll, the last look kept in process
-memory, the schedule in the hook's subscription; nothing stored, so no rebuild. The queue was
-corrected first — words are made only once the chat is free, a failed wording keeps the
-request, delivery settles only what was read, and switching a hook on drops a late write. No
-table beyond the `Cue` row is added. Retrospective statistics remain separate.
+memory; nothing stored, so no rebuild. The queue was corrected first — words are made only once
+the chat is free, a failed wording keeps the request, delivery settles only what was read, and
+switching a hook on drops a late write. No table beyond the `Cue` row is added.
+
+Closed the same day: the daily hour became the Profile's Morning time, read at every look
+([PS-MORNING-016](../tests/brd/profile.feature)); hooks 11, 7 and 13 shipped on the two
+adapters as they stood ([CH-MISSED-017](../tests/brd/checks.feature),
+[CD-TODAY-036](../tests/brd/cards.feature), [PL-HARDTIME-021](../tests/brd/planning.feature)) —
+each a definition, a reading at delivery and a line in `HOOKS`, hook 13 with two subscriptions
+on one definition; and the retro screen shows the Sprint's own numbers
+([RT-STATS-003](../tests/brd/retro.feature)). One Profile column, so the database is rebuilt once
+more.
 
 | Entry | | What it unlocks, and what to watch |
 |---|---|---|
 | **POTENTIAL HOOKS — the shape every hook has** | M per batch | Stages 1–2 and batches 1–3 implemented, in [HOOK_ARCH.md](HOOK_ARCH.md). Each batch is one new port or event/reaction pair, one real consumer and one line in `HOOKS`. |
 | **Hook switches in the Profile — batch 1, shipped** | M | Every hook that declares a switch is listed by title — automatic Summary, the blocker and the morning check do, the Heavy analyzer offer does not; switching one off stops its condition and drops its pending initiative. |
-| **The retrospective — the statistics half only** | M | RT-OPEN-001 currently promises a screen that says there is nothing there yet. Code-calculated statistics fill it and are useful with no model involved. The AI analysis half is Wave 5. |
+| **The retrospective — the statistics half, shipped** | M | Effort taken, finished and its share; initial, added and taken out; Actions finished, remaining and blocked; Passed and Missed per Check series tied to a Value, over the Sprint's days. Read off the record, no model involved. The AI analysis half is Wave 5. |
 
 ## Wave 4 — the hooks, in dependency order
 
@@ -161,9 +169,6 @@ The classification audit and implementation stages are in [HOOK_ARCH.md](HOOK_AR
 | Entry | | Depends on |
 |---|---|---|
 | **1, 4 and 15 — Advisor instructions, not hooks** | S each | Nothing. A prompt line and the snapshot. Note for 4: the Today Actions are already in the state block; the Sprint list is not, and adding it has a cost named below. |
-| **11 — Repeated Missed observations** | S | Batch 2 and a transition rule for a run of Missed |
-| **7 — Today's work exceeds the daily capacity** | M | Batch 2 or 3. The rungs now say what a day's load is, so 15 EP means something; the counting rule is still the entry's own open question. |
-| **13 — An approaching Hard Time is outside the plan** | M | Batch 3 and an identity for one occurrence |
 | **6 — An unfinished Action repeatedly selected for Today** | L | Batch 3, plus a record of each day's selection into Today that nothing writes yet |
 | **10 — Key Actions tied to Sprint Success criteria** | XL | Batch 2 and a Sprint-and-Action relationship with classification history |
 
@@ -184,26 +189,20 @@ repeated, and they are not scheduled.
 
 ```mermaid
 flowchart LR
-  h7["Hook 7 — daily capacity"]
   h10["Hook 10 — key Actions"]
   shape["The shape every hook has"] --> profile["Batch 1 — switches in the Profile"]
-  profile --> committed["Batch 2 — Committed → Advise, shipped with hook 2"]
-  profile --> tick["Batch 3 — Tick → Advise, shipped with hook 5"]
-  committed --> h11["Hook 11 — repeated Missed"]
+  profile --> committed["Batch 2 — Committed → Advise, shipped with hooks 2, 11 and 7"]
+  profile --> tick["Batch 3 — Tick → Advise, shipped with hooks 5 and 13"]
   committed --> h10
-  committed --> h7
   tick --> h6["Hook 6 — postponed in Today"]
-  tick --> h7
-  tick --> h13["Hook 13 — Hard Time outside the plan"]
 ```
 
 ## Where to look hardest
 
-**The next initiative reuses the path the first two share.** The blocker and the morning check
-ship as one pending request per hook in the `Cue` queue, reread just before delivery, and
-nothing more — the timed one adds one poll that hands the hour on and nothing it stores. A
-third that needs a second delivery path or a table of what was asked means the shared part was
-fitted to the first two.
+**The next initiative reuses the path the first five share.** Every hook so far ships as one
+pending request per hook in the `Cue` queue, reread just before delivery, and nothing more —
+the timed ones add one poll that hands the hour on and nothing it stores. A sixth that needs a
+second delivery path or a table of what was asked means the shared part was fitted to the five.
 
 **The pre-release window.** Declare a schema batch only if an implementation changes stored
 structure.
@@ -211,7 +210,8 @@ structure.
 **What reaches the cacheable prefix.** Onboarding's changing guidance and instruction 4's Sprint
 list belong outside `messages[0]`.
 
-**The rungs are the unit now.** Hook 7's 15 EP, the Sprint's committed and capacity figures and
-the Advisor's judgement of a day's load all count in a scale that says what work costs the owner.
+**The rungs are the unit now.** Hook 7's 15 EP, the Sprint's committed and capacity figures, the
+retro's numbers and the Advisor's judgement of a day's load all count in a scale that says what
+work costs the owner.
 Recovery does not add up, so a total is a load signal of the right order and never something to
 take a percentage of.

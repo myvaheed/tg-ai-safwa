@@ -19,11 +19,13 @@ from safwa.features.cards.hard_time import typed_hard_time
 from safwa.features.cards.hierarchy import blocking_actions, card_children, card_progress
 from safwa.features.cards.hooks import (
     BLOCKER_HOOK,
-    EMPTY_PARENT_CHECK_TIME,
     EMPTY_PARENT_GRACE_DAYS,
     EMPTY_PARENTS_HOOK,
+    TODAY_CAPACITY_EP,
+    TODAY_OVERLOAD_HOOK,
     blocker_request,
     empty_parents_request,
+    today_overload_request,
 )
 from safwa.features.cards.model import (
     EFFORT_RUNGS,
@@ -39,6 +41,7 @@ from safwa.features.cards.model import (
 from safwa.features.cards.telegram.presentation import paginate_cards
 from safwa.features.cards.use_cases import (
     CARD_BLOCKED,
+    CARD_TODAY,
     EFFORT_POINTS,
     archive_subtree,
     create_card,
@@ -57,7 +60,7 @@ from safwa.features.checks.model import Check, CheckOutcome
 from safwa.features.checks.use_cases import check_card_id, create_check, toggle_check_value
 from safwa.features.planning.model import SprintCommitment
 from safwa.features.planning.use_cases import finish_sprint, start_sprint
-from safwa.features.profile.model import ProfileField, UserProfile
+from safwa.features.profile.model import MORNING_TIME_DEFAULT, ProfileField, UserProfile
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.tags.use_cases import create_tag
@@ -66,9 +69,9 @@ from safwa.features.values.use_cases import create_value, delete_value, set_valu
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.marks import live_repeat_instance_id, title_marks
 from tg_agent_shell.foundation.changes import Committed, take_changes
-from tg_agent_shell.foundation.clock import SystemClock
+from tg_agent_shell.foundation.clock import SystemClock, utcnow
 from tg_agent_shell.foundation.errors import DomainError
-from tg_agent_shell.hooks.contracts import OnTick
+from tg_agent_shell.hooks.contracts import OnCommitted, OnTick
 from tg_agent_shell.proposals.api import ToolPreparationError
 from tg_agent_shell.proposals.prepare import ChangePreparer
 
@@ -1415,7 +1418,7 @@ async def test_cd_blocked_034_the_request_names_what_is_still_blocked_and_open(s
 async def test_cd_empty_035_the_request_names_the_parents_old_enough_and_still_without_an_action(sessions):
     """CD-EMPTY-035 — tests/brd/cards.feature"""
     assert EMPTY_PARENTS_HOOK.switch is not None
-    assert EMPTY_PARENTS_HOOK.on == (OnTick(at=EMPTY_PARENT_CHECK_TIME),)
+    assert EMPTY_PARENTS_HOOK.on == (OnTick(),)
     now = datetime(2026, 9, 16, 6, 0, tzinfo=UTC)
     old = now - timedelta(days=EMPTY_PARENT_GRACE_DAYS, hours=1)
     async with sessions() as session:
@@ -1438,7 +1441,7 @@ async def test_cd_empty_035_the_request_names_the_parents_old_enough_and_still_w
         await archive_subtree(session, parts.id)
         await session.commit()
 
-        request = await empty_parents_request(session, [EMPTY_PARENT_CHECK_TIME], now=now)
+        request = await empty_parents_request(session, [MORNING_TIME_DEFAULT], now=now)
         assert request is not None
         assert f"#{goal.id} «Learn Spanish» (Goal)" in request
         assert f"#{subgoal.id} «Grammar» (Subgoal)" in request
@@ -1452,4 +1455,73 @@ async def test_cd_empty_035_the_request_names_the_parents_old_enough_and_still_w
             session, kind="action", title="Read chapter 1", effort_points=1, parent_id=subgoal.id
         )
         await session.commit()
-        assert await empty_parents_request(session, [EMPTY_PARENT_CHECK_TIME], now=now) is None
+        assert await empty_parents_request(session, [MORNING_TIME_DEFAULT], now=now) is None
+
+
+async def test_cd_today_036_entering_today_is_the_change_a_hook_follows_up(sessions):
+    """CD-TODAY-036 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        born = await create_card(
+            session, kind="action", title="Born today", stage="today", effort_points=1
+        )
+        planned = await create_card(
+            session, kind="action", title="Planned", stage="sprint", effort_points=1
+        )
+        assert take_changes(session.info) == [Committed(CARD_TODAY, born.id)]
+        await move_card(session, planned.id, CardStage.TODAY)
+        # Staying, renamed or re-estimated in Today is not entering it.
+        await move_card(session, planned.id, CardStage.TODAY)
+        await update_card_fields(session, planned.id, {"title": "Planned twice"})
+        await update_card_fields(session, planned.id, {"effort_points": 5})
+        assert take_changes(session.info) == [Committed(CARD_TODAY, planned.id)]
+        # The next instance of a finished repeating Action opens where it was: in Today.
+        habit = await create_card(
+            session, kind="action", title="Habit", stage="today", effort_points=1, repeatable=True
+        )
+        take_changes(session.info)
+        result = await finish_action(session, habit.id)
+        assert take_changes(session.info) == [Committed(CARD_TODAY, result.successor_ids[0])]
+        await session.commit()
+
+
+async def test_cd_today_036_the_request_sums_the_day_as_it_is_about_to_be_said(sessions):
+    """CD-TODAY-036 — tests/brd/cards.feature"""
+    assert TODAY_OVERLOAD_HOOK.switch is not None
+    assert TODAY_OVERLOAD_HOOK.on == (OnCommitted(kind=CARD_TODAY),)
+    async with sessions() as session:
+        done = await create_card(
+            session, kind="action", title="Done already", stage="today", effort_points=5
+        )
+        await finish_action(session, done.id)
+        big = await create_card(session, kind="action", title="Big one", stage="today", effort_points=8)
+        small = await create_card(
+            session, kind="action", title="Small one", stage="today", effort_points=2
+        )
+        await session.commit()
+        # 5 finished today, 8 and 2 open: exactly the capacity is not over it.
+        assert await today_overload_request(session, [big.id, small.id]) is None
+
+        extra = await create_card(
+            session, kind="action", title="One more", stage="today", effort_points=1
+        )
+        await session.commit()
+        request = await today_overload_request(session, [extra.id])
+        assert request is not None
+        assert f"Today holds 16 EP, over the {TODAY_CAPACITY_EP} EP" in request
+        assert "5 EP of it is finished already" in request
+        for line in (
+            f"#{big.id} «Big one» (8 EP)", f"#{small.id} «Small one» (2 EP)",
+            f"#{extra.id} «One more» (1 EP)",
+        ):
+            assert line in request
+        assert "Done already" not in request
+        assert "Do not move anything without their answer" in request
+
+        # Finished on another day, it is not this day's; moved back, the day is under.
+        done.completed_at = utcnow() - timedelta(days=2)
+        await session.commit()
+        assert await today_overload_request(session, [extra.id]) is None
+        done.completed_at = utcnow()
+        await move_card(session, big.id, CardStage.SPRINT)
+        await session.commit()
+        assert await today_overload_request(session, [extra.id]) is None

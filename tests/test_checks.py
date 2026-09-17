@@ -7,8 +7,10 @@ from safwa.features.cards.model import Card, CardEvent, CardStage
 from safwa.features.cards.use_cases import create_card as create_domain_card
 from safwa.features.cards.use_cases import finish_action, move_card, toggle_card_check
 from safwa.features.checks.agent import CheckToolInput
+from safwa.features.checks.hooks import MISSED_RUN, MISSED_RUN_HOOK, missed_run_request
 from safwa.features.checks.model import Check, CheckOutcome
 from safwa.features.checks.use_cases import (
+    CHECK_MISSED,
     archive_check,
     card_checks,
     check_card_id,
@@ -24,7 +26,9 @@ from safwa.features.checks.use_cases import (
 from safwa.features.planning.use_cases import archive_settled_items, finish_sprint, start_sprint
 from safwa.features.values.use_cases import create_value
 from safwa.foundation.marks import live_repeat_instance_id, title_marks
+from tg_agent_shell.foundation.changes import Committed, take_changes
 from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.hooks.contracts import OnCommitted
 
 
 async def create_action(session, **overrides):
@@ -595,3 +599,79 @@ async def test_ch_archive_013_safwa_reads_an_archived_answer(read_views):
 
     rows = (await runner.run("SELECT id, title, status FROM ai_checks")).rows
     assert rows == [{"id": check_id, "title": "Sat straight? [📦]", "status": "passed"}]
+
+
+async def test_ch_missed_017_a_run_of_missed_is_raised_at_every_multiple_of_three(sessions):
+    """CH-MISSED-017 — tests/brd/checks.feature"""
+    assert MISSED_RUN_HOOK.switch is not None
+    assert MISSED_RUN_HOOK.on == (OnCommitted(kind=CHECK_MISSED),)
+    assert MISSED_RUN == 3
+    async with sessions() as session:
+        card = await create_action(session, title="Morning run")
+        live = await linked_check(session, card.id, title="Ran before work?", repeatable=True)
+        answered: list[Check] = []
+
+        async def answer(outcome: CheckOutcome) -> Check:
+            nonlocal live
+            done, live = await resolve_check(session, live.id, outcome)
+            await session.commit()
+            answered.append(done)
+            return done
+
+        # Missed is the change; Passed is not. Read before the commit hands them on.
+        take_changes(session.info)  # the Action entering Today is Cards' change, not this one
+        _, live = await resolve_check(session, live.id, CheckOutcome.PASSED)
+        assert take_changes(session.info) == []
+        second, live = await resolve_check(session, live.id, CheckOutcome.MISSED)
+        assert take_changes(session.info) == [Committed(CHECK_MISSED, second.id)]
+        await session.commit()
+        await answer(CheckOutcome.MISSED)
+        assert await missed_run_request(session, [answered[-1].id]) is None
+
+        third = await answer(CheckOutcome.MISSED)
+        request = await missed_run_request(session, [third.id])
+        assert request is not None
+        assert f"#{third.id} «Ran before work?» on Card «Morning run»: Missed 3 times in a row, since" in request
+        assert "what gets in the way" in request
+        # The Pending instance on top was not counted; a fourth and a fifth ask nothing.
+        for _ in range(2):
+            done = await answer(CheckOutcome.MISSED)
+            assert await missed_run_request(session, [done.id]) is None
+        sixth = await answer(CheckOutcome.MISSED)
+        request = await missed_run_request(session, [sixth.id])
+        assert request is not None and "Missed 6 times in a row" in request
+
+        # Changed to Passed before it is said, the run ends where that answer stands.
+        await resolve_check(session, answered[-2].id, CheckOutcome.PASSED)
+        await session.commit()
+        assert await missed_run_request(session, [sixth.id]) is None
+
+
+async def test_ch_missed_017_the_request_names_each_series_still_due_and_nothing_else(sessions):
+    """CH-MISSED-017 — tests/brd/checks.feature"""
+    async with sessions() as session:
+        card = await create_action(session, title="Evenings")
+
+        async def missed_thrice(title: str) -> Check:
+            live = await linked_check(session, card.id, title=title, repeatable=True)
+            for _ in range(MISSED_RUN):
+                done, live = await resolve_check(session, live.id, CheckOutcome.MISSED)
+            await session.commit()
+            return done
+
+        reading = await missed_thrice("Read a chapter?")
+        walking = await missed_thrice("Walked?")
+        doomed = await missed_thrice("Stretched?")
+        await delete_check(session, doomed.id)
+        await session.commit()
+        # A Check that never repeats has one answer, so its Missed is never a run of three.
+        once = await linked_check(session, None, title="Slept eight hours?")
+        for _ in range(MISSED_RUN):
+            await resolve_check(session, once.id, CheckOutcome.MISSED)
+        await session.commit()
+
+        request = await missed_run_request(session, [reading.id, walking.id, doomed.id, once.id])
+        assert request is not None
+        assert "«Read a chapter?»" in request and "«Walked?»" in request
+        assert "Stretched?" not in request and "Slept eight hours?" not in request
+        assert await missed_run_request(session, [doomed.id, once.id]) is None

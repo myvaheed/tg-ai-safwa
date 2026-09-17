@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import replace
+from datetime import time
 
 import pytest
 from hook_helpers import run_hooks
@@ -76,10 +77,14 @@ async def no_session():
 NO_SESSIONS = no_session
 
 
-def catalogue(*specs, policy=None):
+async def at_nine(session) -> time:
+    return time(9, 0)
+
+
+def catalogue(*specs, policy=None, tick_time=at_nine):
     return HookRegistry.of(
         specs, owners=frozenset({"reader"}), helpers=frozenset({"reader", "other"}),
-        tools=frozenset({"query_data", "open", "call_helper"}),
+        tools=frozenset({"query_data", "open", "call_helper"}), tick_time=tick_time,
         **({"policy": policy} if policy is not None else {}),
     )
 
@@ -274,10 +279,10 @@ async def test_a_committed_change_reaches_the_hook_of_its_kind_only():
     assert not [item async for item in catalogue(ADVICE, policy=switched(ADVICE.name)).evaluate(CHANGE, NO_SESSIONS)]
 
 
-async def test_a_daily_check_is_registered_at_its_time_and_hears_that_time_only():
+async def test_a_daily_check_is_registered_only_where_the_application_names_its_time():
     """AG-HOOK-039 — tests/brd/tg_agent_shell/agents.feature"""
     daily = HookSpec(
-        name="reader.daily", owner="reader", on=(OnTick(at="09:00"),),
+        name="reader.daily", owner="reader", on=(OnTick(),),
         evaluate=subject, effect=Advise(words),
     )
 
@@ -285,12 +290,12 @@ async def test_a_daily_check_is_registered_at_its_time_and_hears_that_time_only(
         return (event.at,)
 
     hooks = catalogue(replace(daily, evaluate=marker), ADVICE)
-    assert hooks.tick_times == frozenset({"09:00"})
+    assert hooks.tick_time is at_nine and hooks.listens(Tick)
+    assert not catalogue(ADVICE).listens(Tick)
     checked = [item async for item in hooks.evaluate(Tick("09:00"), NO_SESSIONS)]
     assert [(item.spec.name, item.payloads) for item in checked] == [("reader.daily", ("09:00",))]
-    assert not [item async for item in hooks.evaluate(Tick("21:00"), NO_SESSIONS)]
-    with pytest.raises(RuntimeError, match="HH:MM"):
-        catalogue(replace(daily, on=(OnTick(at="nine"),)))
+    with pytest.raises(RuntimeError, match="named no time of day"):
+        catalogue(daily, tick_time=None)
     with pytest.raises(RuntimeError, match="incompatible"):
         catalogue(replace(daily, effect=Run(operation)))
 

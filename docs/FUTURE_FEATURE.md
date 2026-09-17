@@ -39,8 +39,10 @@ remain outside the stable system-prompt prefix. No scenario package is approved 
 ## The retrospective is where Safwa learns from a Sprint
 
 Discussed 2026-09-06. When a Sprint ends, its retro screen first shows statistics calculated by
-code. The owner may then press "Анализ с ИИ" to begin a guided analysis. The screen is useful
-even if the owner does not request AI analysis.
+code — shipped 2026-09-16 as [RT-STATS-003](../tests/brd/retro.feature): effort taken and
+finished, the plan's initial, added and removed parts, Actions finished, remaining and blocked,
+and Passed and Missed per Check series tied to a Value. The owner may then press "Анализ с ИИ"
+to begin a guided analysis. The screen is useful even if the owner does not request AI analysis.
 
 The workflow examines the completed Sprint step by step: compare the work and results with the
 Success criteria, examine relevant Diary entries and the owner's explanations, discuss what
@@ -139,9 +141,10 @@ The context provision is part of this idea; a separate hook for each opportunity
 ### 5. Goals and Subgoals with no Actions — shipped
 
 Shipped 2026-09-16 as [CD-EMPTY-035](../tests/brd/cards.feature); the number stays for
-references. The grace is 24 hours and the check runs at 09:00 local time, both constants of
-the Cards feature; the request puts both ways forward in one message — plan the Actions now,
-or create one Action "Запланировать действия для цели X" — and waits for the choice.
+references. The grace is 24 hours, a constant of the Cards feature; the check runs at the
+Profile's Morning time, 09:00 unless moved; the request puts both ways forward in one message —
+plan the Actions now, or create one Action "Запланировать действия для цели X" — and waits for
+the choice.
 
 ### 6. An unfinished Action repeatedly selected for Today — hook
 
@@ -153,14 +156,13 @@ successfully and replaced by its successor is not evidence of postponement.
 The number of days and what counts as another day's selection into Today remain to be decided,
 including how an Action simply left in Today across midnight should be treated.
 
-### 7. Today's work exceeds the daily capacity — hook
+### 7. Today's work exceeds the daily capacity — shipped
 
-Consider a daily capacity of roughly 13-15 EP, with a warning when the day's total exceeds
-15 EP. Explain that too much work has been selected for one day and offer to move something
-else out of Today to make room. This is a daily load check, separate from Sprint capacity.
-
-The numbers are candidates. The counting rule still needs a decision, particularly whether
-work already completed that day contributes alongside the remaining planned work.
+Shipped 2026-09-16 as [CD-TODAY-036](../tests/brd/cards.feature); the number stays for
+references. The day holds 15 EP, and everything of the day counts: the open Actions in Today
+and the Actions finished that local day. An Action entering Today is the trigger; the sum is
+taken when the question is about to be said. This is a daily load check, separate from Sprint
+capacity.
 
 ### 8. Retrieve similar existing entities before creating another — candidate hook
 
@@ -211,17 +213,14 @@ This entry combines an event-driven classification/reaction with a screen requir
 classification after saved Sprint changes and reacting to the saved remaining set are hooks;
 sorting Today from that classification is ordinary presentation, not a hook on opening the screen.
 
-### 11. Repeated Missed observations — hook with a flexible Advisor response
+### 11. Repeated Missed observations — shipped
 
-After an answer is saved, check whether the repeating Check's series meets a condition such as
-three consecutive Missed answers. This applies to any repeating Check, including one with no
-Action attached. Pending is not Missed. The threshold remains to be decided.
-
-Give the Advisor the observed pattern and relevant context, without prescribing one response.
-Its instruction should allow support, a clarifying question, an offer of a Reminder, a change
-of approach or activity, rest, or another appropriate response. It may also decide that no
-suggestion is needed. The meaning of the Check and the owner's circumstances determine the
-response; a repeated Missed result does not establish its cause.
+Shipped 2026-09-16 as [CH-MISSED-017](../tests/brd/checks.feature); the number stays for
+references. After a Missed answer is saved, the series' run of Missed is counted back to its
+last Passed, Pending skipped; every multiple of three asks — the third, the sixth — and nothing
+remembers having asked, so a re-answer counts by itself. The Advisor is handed the pattern and
+asked to raise it and ask what gets in the way, without one prescribed response: a repeated
+Missed result does not establish its cause.
 
 ### 12. Added work displacing the original Sprint plan — rejected
 
@@ -229,17 +228,13 @@ Do not add a separate mid-Sprint hook comparing completion of added work with th
 commitments. The owner may simply have omitted work from the initial plan, and the comparison
 alone does not justify interrupting them. Leave examination of what happened to the retrospective.
 
-### 13. An approaching Hard Time is outside the plan — hook
+### 13. An approaching Hard Time is outside the plan — shipped
 
-Once Hard Time carries its planned schedule, check whether an open Action's upcoming occurrence
-falls within the period being planned but the Action has been left out. At Sprint start this
-can reveal an Action still in Backlog; when choosing today's work it can reveal one absent from
-Today. Offer to include that specific Action, for example: "Подача документов назначена на
-четверг, но задача осталась в Backlog. Включить её в текущий спринт?"
-
-This brings up relevant work outside the Today and Sprint lists already supplied to the Advisor.
-The advance window and check timing remain to be decided. The check repeats on its own period;
-the Profile switch is what stops it.
+Shipped 2026-09-16 as [PL-HARDTIME-021](../tests/brd/planning.feature); the number stays for
+references. Both readings, in one message about every such Action: an occurrence by the
+Sprint's last day while the Action sits in Backlog, and one today or tomorrow while it is not in
+Today. It runs when a Sprint starts and each morning at the Profile's Morning time, and the
+Profile switch is what stops it.
 
 ### 14. Remember when a hook asked — rejected
 
