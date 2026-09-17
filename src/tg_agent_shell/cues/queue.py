@@ -1,4 +1,4 @@
-"""Writing a Cue, and reading the one that is next.
+"""Writing a Cue, and reading what is waiting.
 
 This module knows nothing about the bot or the Advisor: a producer writes into its own
 transaction, and the delivery poll is somewhere else entirely.
@@ -42,9 +42,14 @@ async def drop_hook_cue(session: AsyncSession, hook: str) -> None:
     await session.execute(delete(Cue).where(Cue.hook == hook))
 
 
-async def next_cue(session: AsyncSession) -> Cue | None:
-    """The oldest Cue still waiting."""
-    return await session.scalar(select(Cue).order_by(Cue.id).limit(1))
+async def waiting_cues(session: AsyncSession) -> list[Cue]:
+    """Everything still waiting, oldest first: what one turn says together."""
+    return list(await session.scalars(select(Cue).order_by(Cue.id)))
+
+
+async def words_waiting(session: AsyncSession) -> bool:
+    """Whether a Cue written as words, not as a hook's request, is still waiting."""
+    return await session.scalar(select(Cue.id).where(Cue.text.is_not(None)).limit(1)) is not None
 
 
 async def settle_cue(session: AsyncSession, cue_id: int, items: Sequence[Any] = ()) -> None:

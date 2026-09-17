@@ -6,6 +6,7 @@ from tg_agent_shell.foundation.screens import ScreenSpec
 from tg_agent_shell.telegram.manifest import FeatureModule, ProposalContribution
 
 from . import agent, proposal, telegram, views
+from .hooks import DIARY_HOOK as DIARY_HOOK
 from .model import DiaryEntry
 
 MODULE = FeatureModule(

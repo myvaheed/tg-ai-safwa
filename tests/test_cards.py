@@ -60,6 +60,7 @@ from safwa.features.checks.model import Check, CheckOutcome
 from safwa.features.checks.use_cases import check_card_id, create_check, toggle_check_value
 from safwa.features.planning.model import SprintCommitment
 from safwa.features.planning.use_cases import finish_sprint, start_sprint
+from safwa.features.profile.api import morning_time
 from safwa.features.profile.model import MORNING_TIME_DEFAULT, ProfileField, UserProfile
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.tags.model import CardTag, Tag
@@ -69,7 +70,7 @@ from safwa.features.values.use_cases import create_value, delete_value, set_valu
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.marks import live_repeat_instance_id, title_marks
 from tg_agent_shell.foundation.changes import Committed, take_changes
-from tg_agent_shell.foundation.clock import SystemClock, utcnow
+from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.hooks.contracts import OnCommitted, OnTick
 from tg_agent_shell.proposals.api import ToolPreparationError
@@ -1168,7 +1169,6 @@ async def test_ui_mutations_use_domain_services_and_are_audited(sessions):
             session,
             ProfileField.ABOUT_ME,
             "Prefers calm, practical planning",
-            clock=SystemClock(),
         )
         await finish_action(session, card.id)
         await archive_subtree(session, card.id)
@@ -1418,7 +1418,7 @@ async def test_cd_blocked_034_the_request_names_what_is_still_blocked_and_open(s
 async def test_cd_empty_035_the_request_names_the_parents_old_enough_and_still_without_an_action(sessions):
     """CD-EMPTY-035 — tests/brd/cards.feature"""
     assert EMPTY_PARENTS_HOOK.agent_related
-    assert EMPTY_PARENTS_HOOK.on == (OnTick(),)
+    assert EMPTY_PARENTS_HOOK.on == (OnTick(at=morning_time),)
     now = datetime(2026, 9, 16, 6, 0, tzinfo=UTC)
     old = now - timedelta(days=EMPTY_PARENT_GRACE_DAYS, hours=1)
     async with sessions() as session:

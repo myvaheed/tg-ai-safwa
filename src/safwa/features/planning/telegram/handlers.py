@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from sqlalchemy import delete
 
-from tg_agent_shell.telegram import CallbackContext, CallbackHandler, sync_bot_commands
+from tg_agent_shell.telegram import CallbackContext, CallbackHandler
 from tg_agent_shell.telegram.model import UiSession
 
 from ....foundation.workspace import Workspace
-from ..api import available_screens
 from ..use_cases import finish_sprint, start_sprint
 from .plan import (
     on_plan_card,
@@ -55,9 +54,6 @@ async def _on_start(context: CallbackContext) -> None:
         await session.execute(delete(UiSession).where(UiSession.owner_id == context.owner_id))
         await session.commit()
         number, end_date = sprint.number, sprint.planned_end_date
-    await sync_bot_commands(
-        context.message.bot, available_screens(context.services.commands, sprint_active=True)
-    )
     await render_sprint(
         context.message,
         context.services,
@@ -70,9 +66,6 @@ async def _on_finish(context: CallbackContext) -> None:
         sprint = await finish_sprint(session, reason="finished_early")
         await session.commit()
         number = sprint.number
-    await sync_bot_commands(
-        context.message.bot, available_screens(context.services.commands, sprint_active=False)
-    )
     await render_sprint(
         context.message, context.services, notice=f"Sprint {number} finished early."
     )

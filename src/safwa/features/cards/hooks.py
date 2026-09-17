@@ -22,6 +22,7 @@ from tg_agent_shell.hooks.contracts import (
 )
 
 from ..planning.api import SPRINT_STARTED, active_sprint_end_date
+from ..profile.api import morning_time
 from .hard_time import workspace_zone
 from .hierarchy import branch_actions
 from .model import TERMINAL_STAGES, Card, CardKind, CardStage, effort_label
@@ -209,7 +210,7 @@ async def hard_time_request(
 HARD_TIME_HOOK = HookSpec(
     name="cards.hard_time_plan",
     owner="cards",
-    on=(OnCommitted(kind=SPRINT_STARTED), OnTick()),
+    on=(OnCommitted(kind=SPRINT_STARTED), OnTick(at=morning_time)),
     evaluate=plan_check_due,
     effect=Advise(prepare=hard_time_request),
     title="Hard Time outside the plan",
@@ -251,7 +252,7 @@ async def empty_parents_request(
 EMPTY_PARENTS_HOOK = HookSpec(
     name="cards.empty_parents",
     owner="cards",
-    on=(OnTick(),),
+    on=(OnTick(at=morning_time),),
     evaluate=check_due,
     effect=Advise(prepare=empty_parents_request),
     title="Goals without Actions",

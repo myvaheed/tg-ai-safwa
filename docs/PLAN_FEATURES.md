@@ -85,10 +85,11 @@ each written as an `edit_kind` event: a Subgoal whose Goal is deleted alone beco
 
 ### Follow-up — the daily summary, shipped
 
-Owner decision 2026-09-13, shipped the same day: the summary is a second Reminder Safwa
-sets for itself, at a Profile time of its own — 20:00 out of the box, `off` to stop it
-([PS-SUMMARY-014](../tests/brd/profile.feature)). Two columns changed, `summary_time` on
-the Profile and `system_key` on a Reminder, so the database is rebuilt.
+Owner decision 2026-09-13, shipped the same day: the summary comes at a Profile time of
+its own — 20:00 out of the box ([PS-SUMMARY-014](../tests/brd/profile.feature)). It was a
+second Reminder Safwa set for itself; since 2026-09-17 it and the Diary nudge are daily hooks
+that read their Profile time, switched in the Profile like the other reactions, and no
+Reminder stands behind either. `summary_time` on the Profile is a column of its own.
 
 ### Follow-up — Hard Time is a Reminder's schedule, shipped
 

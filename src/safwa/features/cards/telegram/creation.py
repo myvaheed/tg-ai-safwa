@@ -26,7 +26,6 @@ from tg_agent_shell.telegram import (
 from tg_agent_shell.telegram.model import UiSession
 
 from ...home.api import menu_markup
-from ...planning.api import available_screens, sprint_is_active
 from ...tags.model import Tag
 from ...values.model import Value
 from ..hard_time import (
@@ -119,11 +118,7 @@ async def render_card_creation(
                 services,
                 "Card creation is no longer active.",
                 kind=MessageKind.ERROR,
-                markup=menu_markup(
-                    available_screens(
-                        services.commands, sprint_active=await sprint_is_active(session)
-                    )
-                ),
+                markup=menu_markup(services.commands),
             )
             return
         state = sanitize_card_creation_state(dict(editor.state or {}))

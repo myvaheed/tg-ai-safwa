@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -17,13 +17,12 @@ from safwa.bootstrap.modules import (
     PROPOSALS,
     SCREENS,
 )
-from safwa.features.profile.model import ProfileField
-from safwa.features.profile.use_cases import set_profile_field
+from safwa.features.cards.use_cases import create_card
+from safwa.features.planning.use_cases import start_sprint
 from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import schedule_of
 from telegram_llm import ChatHost, DialogueMessage
 from tg_agent_shell.ai.outcome import AIOutcomeKind
-from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.foundation.kinds import MARKS
 from tg_agent_shell.history import TelegramNotes
 from tg_agent_shell.proposals.telegram import render_proposal
@@ -367,13 +366,12 @@ async def test_the_model_removes_a_reminder_with_one_save(e2e_harness):
     assert any("Delete Reminder" in text for text in message.rendered)
 
 
-async def test_the_diary_reminder_is_invisible_to_the_model(e2e_harness):
+async def test_a_sprints_own_reminder_is_invisible_to_the_model(e2e_harness):
     """RM-SYSTEM-022 — tests/brd/reminders.feature"""
     # Unnameable is unmutatable: the model cannot ask to change an id it never reads.
     async with e2e_harness.sessions() as session:
-        await set_profile_field(
-            session, ProfileField.DIARY_TIME, time(22, 0), clock=SystemClock()
-        )
+        await create_card(session, title="Planned", kind="action", stage="sprint", effort_points=3)
+        await start_sprint(session, success_criteria="Ship v2")
         await session.commit()
     advisor, _provider = e2e_harness.advisor([])
 

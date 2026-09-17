@@ -81,10 +81,10 @@ async def at_nine(session) -> time:
     return time(9, 0)
 
 
-def catalogue(*specs, policy=None, tick_time=at_nine):
+def catalogue(*specs, policy=None):
     return HookRegistry.of(
         specs, owners=frozenset({"reader"}), helpers=frozenset({"reader", "other"}),
-        tools=frozenset({"query_data", "open", "call_helper"}), tick_time=tick_time,
+        tools=frozenset({"query_data", "open", "call_helper"}),
         **({"policy": policy} if policy is not None else {}),
     )
 
@@ -281,10 +281,13 @@ async def test_a_committed_change_reaches_the_hook_of_its_kind_only():
     assert not [item async for item in catalogue(ADVICE, policy=switched(ADVICE.name)).evaluate(CHANGE, NO_SESSIONS)]
 
 
-async def test_a_daily_check_is_registered_only_where_the_application_names_its_time():
+async def test_a_daily_check_names_its_own_time_and_reads_only_its_own_tick():
     """AG-HOOK-039 — tests/brd/tg_agent_shell/agents.feature"""
+    async def at_noon(session) -> time:
+        return time(12, 0)
+
     daily = HookSpec(
-        name="reader.daily", owner="reader", on=(OnTick(),),
+        name="reader.daily", owner="reader", on=(OnTick(at=at_nine),),
         evaluate=subject, effect=Advise(words),
         title="Reader daily", description="Asks every morning.",
     )
@@ -293,14 +296,22 @@ async def test_a_daily_check_is_registered_only_where_the_application_names_its_
         return (event.at,)
 
     hooks = catalogue(replace(daily, evaluate=marker), ADVICE)
-    assert hooks.tick_time is at_nine and hooks.listens(Tick)
+    assert hooks.daily_clocks == (at_nine,) and hooks.listens(Tick)
     assert not catalogue(ADVICE).listens(Tick)
-    checked = [item async for item in hooks.evaluate(Tick("09:00"), NO_SESSIONS)]
+    checked = [item async for item in hooks.evaluate(Tick("09:00", at_nine), NO_SESSIONS)]
     assert [(item.spec.name, item.payloads) for item in checked] == [("reader.daily", ("09:00",))]
-    with pytest.raises(RuntimeError, match="named no time of day"):
-        catalogue(daily, tick_time=None)
+    # Another reader's time passing is not this hook's Tick, whatever the clock read.
+    assert not [item async for item in hooks.evaluate(Tick("09:00", at_noon), NO_SESSIONS)]
+    # Two hooks on one reader read it once; two readers are read once each.
+    noon = replace(daily, name="reader.noon", on=(OnTick(at=at_noon),))
+    both = catalogue(daily, noon, replace(ADVICE, on=(OnTick(at=at_nine),)))
+    assert both.daily_clocks == (at_nine, at_noon)
     with pytest.raises(RuntimeError, match="incompatible"):
-        catalogue(replace(daily, effect=Run(operation)))
+        catalogue(replace(daily, on=(OnTick(at="09:00"),)))  # type: ignore[arg-type]
+    # A daily check may run work of its own; a commit has no such consumer yet.
+    assert catalogue(replace(daily, effect=Run(operation))).listens(Tick)
+    with pytest.raises(RuntimeError, match="incompatible"):
+        catalogue(replace(daily, on=(OnCommitted("thing.changed"),), effect=Run(operation)))
 
 
 async def test_the_words_of_a_request_come_from_the_hook_that_is_still_on():

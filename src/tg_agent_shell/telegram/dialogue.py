@@ -204,6 +204,7 @@ async def run_after_turn(message: Message, services: Services, event: AfterTurn)
                             resources=services.features,
                             still_current=still_current,
                             publish=publish,
+                            sessions=services.sessions,
                         )
                         for payload in checked.payloads:
                             if not still_current():

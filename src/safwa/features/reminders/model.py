@@ -35,12 +35,11 @@ class Reminder(Base, TimestampMixin):
     __tablename__ = "reminders"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     instruction: Mapped[str] = mapped_column(Text)
-    # A Reminder no owner set — the Profile trigger, a Sprint's end warnings: hidden from
-    # `/reminders` and from `ai_reminders`, and refused by the edit and delete paths.
+    # A Reminder no owner set — a Sprint's end warnings: hidden from `/reminders` and from
+    # `ai_reminders`, and refused by the edit and delete paths.
     system: Mapped[bool] = mapped_column(Boolean, default=False)
-    # Whose system Reminder it is — the Diary nudge, the daily summary, or the running
-    # Sprint's warnings — so whatever set it up can find it again. One Sprint runs at a
-    # time, so its warnings share one key. Owner-created Reminders carry none.
+    # Whose system Reminder it is, so whatever set it up can find it again. One Sprint runs
+    # at a time, so its warnings share one key. Owner-created Reminders carry none.
     system_key: Mapped[str | None] = mapped_column(String(40))
 
     schedule_kind: Mapped[str] = mapped_column(String(20))

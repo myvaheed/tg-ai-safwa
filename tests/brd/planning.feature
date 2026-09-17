@@ -14,9 +14,9 @@ Feature: Planning — the Sprint, and the mode without one
   Scenario: PL-MODE-001 — The workspace is either planning a Sprint or running one
     Given no Sprint is running
     Then the workspace is in Planning
-    And Today has no screen, no menu button and no command
+    And Today keeps its menu button and its command, and opened then it says that Today opens once a Sprint is running
     When a Sprint starts
-    Then the workspace is in Sprint and Today is available again
+    Then the workspace is in Sprint and Today is a screen again
 
   Scenario: PL-MODE-002 — The Sprint is the owner's to run, and Safwa only reads it
     Given the owner is talking to Safwa
@@ -105,10 +105,11 @@ Feature: Planning — the Sprint, and the mode without one
   Scenario: PL-END-013 — A Sprint nobody closed closes itself
     Given a running Sprint whose end date has passed
     When the owner's own midnight passes, whatever the clock says elsewhere
-    Then Safwa closes the Sprint
+    Then Safwa closes the Sprint, by a daily check at midnight (AG-HOOK-039)
     And everything still open keeps its stage
     When it is one minute before that midnight
     Then the Sprint is still running
+    And a midnight Safwa was not running for is made up on its next start, so the Sprint is closed then
 
   Scenario: PL-END-014 — A Sprint ending is when the workspace is tidied
     Given Cards and Checks that closed two Sprints ago (ARCHIVE_AFTER_SPRINTS = 2)

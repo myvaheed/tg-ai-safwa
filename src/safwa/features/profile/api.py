@@ -11,7 +11,13 @@ from datetime import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .model import MORNING_TIME_DEFAULT, SPRINT_LENGTH_DAYS, UserProfile
+from .model import (
+    DIARY_TIME_DEFAULT,
+    MORNING_TIME_DEFAULT,
+    SPRINT_LENGTH_DAYS,
+    SUMMARY_TIME_DEFAULT,
+    UserProfile,
+)
 
 
 async def scheduled_memory_time(session: AsyncSession) -> time | None:
@@ -33,9 +39,27 @@ async def capacity_effort_points(session: AsyncSession) -> float | None:
 
 
 async def morning_time(session: AsyncSession) -> time:
-    """The local time the morning checks run at: the shell's daily tick."""
+    """The local time the morning checks run at: what their daily hooks read."""
     profile = await session.get(UserProfile, 1)
     return profile.morning_time if profile is not None else time.fromisoformat(MORNING_TIME_DEFAULT)
+
+
+async def diary_time(session: AsyncSession) -> time:
+    """The local time the Diary nudge comes at."""
+    profile = await session.get(UserProfile, 1)
+    return profile.diary_time if profile is not None else time.fromisoformat(DIARY_TIME_DEFAULT)
+
+
+async def diary_instructions(session: AsyncSession) -> str:
+    """The owner's standing instruction for the Diary, or nothing."""
+    profile = await session.get(UserProfile, 1)
+    return profile.diary_instructions if profile is not None else ""
+
+
+async def summary_time(session: AsyncSession) -> time:
+    """The local time the daily summary comes at."""
+    profile = await session.get(UserProfile, 1)
+    return profile.summary_time if profile is not None else time.fromisoformat(SUMMARY_TIME_DEFAULT)
 
 
 async def hook_switched_on(session: AsyncSession, name: str) -> bool:

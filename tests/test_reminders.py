@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -17,6 +17,13 @@ from safwa.features.reminders.schedule import (
     schedule_columns,
     schedule_of,
 )
+from safwa.features.reminders.use_cases import (
+    create_sprint_reminder,
+    delete_reminder,
+    reschedule_reminder,
+    update_reminder_text,
+)
+from tg_agent_shell.foundation.errors import DomainError
 
 TZ = ZoneInfo("Europe/Istanbul")  # UTC+3 all year, so plain cases stay readable
 BERLIN = ZoneInfo("Europe/Berlin")  # observes DST, for the wall-clock cases
@@ -354,3 +361,24 @@ def test_a_profile_clock_reads_a_time_or_the_off_switch(raw, expected) -> None:
 def test_a_profile_clock_rejects_anything_else(raw) -> None:
     with pytest.raises(ScheduleError):
         parse_clock_or_off(raw)
+
+
+async def test_rm_system_022_a_sprints_own_reminder_is_not_the_owners_to_edit(sessions) -> None:
+    """RM-SYSTEM-022 — tests/brd/reminders.feature"""
+    zone = ZoneInfo("UTC")
+    async with sessions() as session:
+        reminder = await create_sprint_reminder(
+            session, instruction="Sprint 1 ends today.", at_time=time(9, 0),
+            anchor_at=datetime.now(UTC) + timedelta(days=1), tz=zone,
+        )
+        await session.commit()
+        reminder_id = reminder.id
+    schedule = resolve(clock="09:00", days=["Mon"], now=datetime.now(UTC), tz=zone)
+
+    async with sessions() as session:
+        with pytest.raises(DomainError):
+            await update_reminder_text(session, reminder_id, "Mine now.")
+        with pytest.raises(DomainError):
+            await reschedule_reminder(session, reminder_id, schedule=schedule, tz=zone)
+        with pytest.raises(DomainError):
+            await delete_reminder(session, reminder_id)

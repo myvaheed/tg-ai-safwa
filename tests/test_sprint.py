@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import select
 
-from safwa.bootstrap.modules import MODULES
+from safwa.bootstrap.modules import MODULES, RECOVERY_HOOKS, REGISTRY
 from safwa.features.cards.hard_time import typed_hard_time
 from safwa.features.cards.hooks import HARD_TIME_CHECK, HARD_TIME_HOOK, hard_time_request
 from safwa.features.cards.model import CardStage
@@ -17,7 +17,13 @@ from safwa.features.cards.use_cases import (
     update_card_fields,
 )
 from safwa.features.cards.use_cases import create_card as create_domain_card
-from safwa.features.planning.api import SPRINT_STARTED
+from safwa.features.planning.api import SPRINT_ENDED, SPRINT_STARTED
+from safwa.features.planning.hooks import (
+    SPRINT_EXPIRY_HOOK,
+    SPRINT_SUMMARY_HOOK,
+    midnight,
+    sprint_summary_request,
+)
 from safwa.features.planning.model import Sprint, next_sprint_number
 from safwa.features.planning.use_cases import (
     expire_due_sprint,
@@ -26,17 +32,20 @@ from safwa.features.planning.use_cases import (
     sprint_metrics,
     start_sprint,
 )
+from safwa.features.profile.api import morning_time
 from safwa.features.profile.model import SPRINT_LENGTH_DAYS, ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.use_cases import SPRINT_KEY, delete_reminder
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.workspace import Workspace
+from tg_agent_shell.cues.initiatives import queue_advice
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.foundation.changes import Committed, take_changes
-from tg_agent_shell.foundation.clock import SystemClock, utcnow
+from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
-from tg_agent_shell.hooks.contracts import OnCommitted, OnTick
+from tg_agent_shell.hooks.contracts import OnCommitted, OnTick, Run, RunContext, Tick
+from tg_agent_shell.recovery import recover_startup
 
 
 async def create_card(session, **overrides):
@@ -95,7 +104,7 @@ async def test_pl_start_005_a_sprint_runs_the_length_settings_asked_for(sessions
     """PL-START-005 — tests/brd/planning.feature"""
     async with sessions() as session:
         await plan_one(session)
-        await set_profile_field(session, ProfileField.SPRINT_LENGTH_DAYS, 7, clock=SystemClock())
+        await set_profile_field(session, ProfileField.SPRINT_LENGTH_DAYS, 7)
 
         sprint = await start_sprint(session, success_criteria="Ship v2")
 
@@ -179,19 +188,20 @@ async def test_pl_warn_011_a_sprint_warns_the_owner_before_it_ends(sessions):
         assert "ends tomorrow" in reminders[0].instruction
         assert "ends today" in reminders[1].instruction
 
+        take_changes(session.info)
         await finish_sprint(session, reason="finished_early")
 
-        # Both warnings went with it, and the hand-over is a Cue rather than a Reminder.
+        # Both warnings went with it, and the hand-over is the Sprint summary hook's, not a
+        # Reminder's.
         assert list(await session.scalars(select(Reminder))) == []
-        handed = list(await session.scalars(select(Cue)))
-        assert len(handed) == 1 and handed[0].text.startswith("Sprint")
+        assert take_changes(session.info) == [Committed(SPRINT_ENDED, sprint.id)]
 
 
 async def test_pl_warn_011_a_two_day_sprint_only_warns_on_its_last_day(sessions):
     """PL-WARN-011 — tests/brd/planning.feature"""
     async with sessions() as session:
         await plan_one(session)
-        await set_profile_field(session, ProfileField.SPRINT_LENGTH_DAYS, 2, clock=SystemClock())
+        await set_profile_field(session, ProfileField.SPRINT_LENGTH_DAYS, 2)
         await start_sprint(session, success_criteria="Ship v2")
         reminders = list(await session.scalars(select(Reminder)))
 
@@ -241,6 +251,60 @@ async def test_pl_end_013_a_sprint_expires_only_after_local_midnight_past_its_en
         assert action.effective_stage == "sprint"
 
 
+async def test_pl_end_013_the_midnight_check_is_a_daily_hook_that_runs_work_of_its_own(sessions):
+    """PL-END-013 — tests/brd/planning.feature"""
+    assert SPRINT_EXPIRY_HOOK.on == (OnTick(at=midnight),)
+    assert isinstance(SPRINT_EXPIRY_HOOK.effect, Run) and not SPRINT_EXPIRY_HOOK.agent_related
+    assert midnight in REGISTRY.hooks.daily_clocks
+    async with sessions() as session:
+        assert await midnight(session) == time(0, 0)
+        await plan_one(session)
+        sprint = await start_sprint(session, success_criteria="Ship v2")
+        # The planned last day is over: the next midnight passing ends it.
+        sprint.planned_end_date = date.today() - timedelta(days=1)
+        await session.commit()
+        sprint_id = sprint.id
+
+    async def nobody_publishes(text: str, kind: str) -> None:
+        raise AssertionError("a hook on a tick has no chat")
+
+    work = RunContext(
+        resources=None, still_current=lambda: True, publish=nobody_publishes, sessions=sessions
+    )
+    await queue_advice(REGISTRY.hooks, sessions, Tick("00:00", midnight), work=work)
+    async with sessions() as session:
+        assert (await session.get(Workspace, 1)).active_sprint_id is None
+        assert (await session.get(Sprint, sprint_id)).finish_reason == "expired"
+        # Nothing is owed the queue by the work itself: the ending, handed on, is what speaks.
+        assert list(await session.scalars(select(Cue))) == []
+
+
+async def test_pl_end_013_a_midnight_safwa_slept_through_is_made_up_at_startup(sessions):
+    """PL-END-013 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        await plan_one(session)
+        sprint = await start_sprint(session, success_criteria="Ship v2")
+        sprint.planned_end_date = date.today() - timedelta(days=1)
+        await session.commit()
+        sprint_id = sprint.id
+
+    async with sessions() as session:
+        await recover_startup(session, RECOVERY_HOOKS)
+        await session.commit()
+
+    async with sessions() as session:
+        assert (await session.get(Workspace, 1)).active_sprint_id is None
+        assert (await session.get(Sprint, sprint_id)).finish_reason == "expired"
+        # A Sprint still inside its days is left running by the same start.
+        await plan_one(session)
+        running = await start_sprint(session, success_criteria="Ship v3")
+        await session.commit()
+        running_id = running.id
+    async with sessions() as session:
+        await recover_startup(session, RECOVERY_HOOKS)
+        assert (await session.get(Workspace, 1)).active_sprint_id == running_id
+
+
 async def test_pl_end_015_an_ended_sprint_is_handed_to_safwa(sessions):
     """PL-END-015 — tests/brd/planning.feature"""
     async with sessions() as session:
@@ -250,15 +314,19 @@ async def test_pl_end_015_an_ended_sprint_is_handed_to_safwa(sessions):
         from safwa.features.cards.use_cases import finish_action
 
         await finish_action(session, done.id)
+        take_changes(session.info)
         await finish_sprint(session, reason="finished_early")
-        await session.commit()
-
-        handed = list(await session.scalars(select(Cue)))
         # Its own end warnings went with it; the hand-over is no Reminder of any kind.
         assert list(await session.scalars(select(Reminder))) == []
+        assert take_changes(session.info) == [Committed(SPRINT_ENDED, sprint.id)]
+        assert SPRINT_SUMMARY_HOOK.agent_related
+        assert SPRINT_SUMMARY_HOOK.on == (OnCommitted(kind=SPRINT_ENDED),)
+        # The words are made from the record when the request is about to be said.
+        words = await sprint_summary_request(session, [sprint.id])
+        assert await sprint_summary_request(session, [sprint.id + 100]) is None
+        await session.commit()
 
-    assert len(handed) == 1
-    words = handed[0].text
+    assert words is not None
     assert f"Sprint {sprint.number} is over" in words
     assert "the owner closed it" in words
     assert "Success criteria: Ship v2" in words
@@ -278,13 +346,13 @@ async def test_pl_end_015_a_sprint_that_closed_itself_says_so(sessions):
             datetime.min.time(),
             tzinfo=ZoneInfo("Europe/Istanbul"),
         )
+        take_changes(session.info)
         await expire_due_sprint(session, now=local_midnight)
+        assert take_changes(session.info) == [Committed(SPRINT_ENDED, sprint.id)]
+        words = await sprint_summary_request(session, [sprint.id])
         await session.commit()
 
-        handed = list(await session.scalars(select(Cue)))
-
-    assert len(handed) == 1
-    assert "its end date passed" in handed[0].text
+    assert words is not None and "its end date passed" in words
 
 
 async def test_pl_mode_002_no_tool_anywhere_writes_a_sprint(sessions):
@@ -467,7 +535,7 @@ async def test_pl_scope_008_returning_to_sprint_scope_cancels_the_earlier_remova
 async def test_pl_hardtime_021_the_request_names_the_hard_times_the_plan_does_not_hold(sessions):
     """PL-HARDTIME-021 — tests/brd/planning.feature"""
     assert HARD_TIME_HOOK.agent_related
-    assert HARD_TIME_HOOK.on == (OnCommitted(kind=SPRINT_STARTED), OnTick())
+    assert HARD_TIME_HOOK.on == (OnCommitted(kind=SPRINT_STARTED), OnTick(at=morning_time))
     today = datetime.now(ZoneInfo("Europe/Istanbul")).date()
 
     def on(days: int) -> str:

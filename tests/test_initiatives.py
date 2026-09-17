@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, time
 from zoneinfo import ZoneInfo
 
-import pytest
 from sqlalchemy import select, text
 
 from tg_agent_shell.cues.background import tick
@@ -57,11 +56,6 @@ async def morning_words(session, items) -> str | None:
     return "Morning."
 
 
-DAILY = HookSpec(
-    name="test.daily", owner="test", on=(OnTick(),),
-    evaluate=marker, effect=Advise(morning_words),
-    title="Daily", description="Asks every morning.",
-)
 NINE = time(9, 0)
 
 
@@ -69,9 +63,14 @@ async def at_nine(session) -> time:
     return NINE
 
 
+DAILY = HookSpec(
+    name="test.daily", owner="test", on=(OnTick(at=at_nine),),
+    evaluate=marker, effect=Advise(morning_words),
+    title="Daily", description="Asks every morning.",
+)
 def catalogue(*specs, policy=None) -> HookRegistry:
     extra = {"policy": policy} if policy is not None else {}
-    return HookRegistry.of(specs, owners=frozenset({"test"}), tick_time=at_nine, **extra)
+    return HookRegistry.of(specs, owners=frozenset({"test"}), **extra)
 
 
 class Recorder:
@@ -151,16 +150,19 @@ async def test_ag_hook_038_the_words_are_made_when_the_request_is_next_in_line(s
     assert recorder.said == ["About 3."]
     assert await pending(sessions) == []
 
-    # Nothing left to ask about: the request is dropped without a turn, and what follows
-    # is said on the next tick.
+    # Nothing left to ask about: the request is dropped without words, and what waits
+    # beside it is said on the same tick, without it.
     await queue_advice(hooks, sessions, Committed(KIND, 4))
     async with sessions() as session:
         await add_cue(session, text="Sprint 1 is over.")
         await session.commit()
-    assert await tick(sessions, gate=recorder.gate, speak=recorder.speak, prepare=prepare) is False
-    assert await pending(sessions) == [(None, "Sprint 1 is over.", None)]
     assert await tick(sessions, gate=recorder.gate, speak=recorder.speak, prepare=prepare) is True
     assert recorder.said == ["About 3.", "Sprint 1 is over."]
+    assert await pending(sessions) == []
+    # Nothing left at all: no turn is taken.
+    await queue_advice(hooks, sessions, Committed(KIND, 6))
+    assert await tick(sessions, gate=recorder.gate, speak=recorder.speak, prepare=prepare) is False
+    assert await pending(sessions) == []
 
 
 async def test_ag_hook_038_a_switched_off_hook_says_nothing_and_a_dropped_request_stays_gone(sessions):
@@ -227,8 +229,7 @@ async def test_ag_hook_038_a_request_whose_words_cannot_be_made_stays_owed(sessi
             raise RuntimeError("cannot read")
         return await hooks.prepare(sessions, hook, payload)
 
-    with pytest.raises(RuntimeError, match="cannot read"):
-        await tick(sessions, gate=recorder.gate, speak=recorder.speak, release=recorder.release, prepare=prepare)
+    assert await tick(sessions, gate=recorder.gate, speak=recorder.speak, release=recorder.release, prepare=prepare) is False
     assert recorder.said == []
     assert recorder.releases == 1
     assert await pending(sessions) == [("test.advice", None, [3])]
@@ -237,6 +238,33 @@ async def test_ag_hook_038_a_request_whose_words_cannot_be_made_stays_owed(sessi
     assert await tick(sessions, gate=recorder.gate, speak=recorder.speak, release=recorder.release, prepare=prepare) is True
     assert recorder.said == ["About 3."]
     assert recorder.releases == 2
+
+
+async def test_ag_hook_038_several_requests_owed_at_once_are_each_worded_and_said_in_one_turn(sessions):
+    """AG-HOOK-038 — tests/brd/tg_agent_shell/agents.feature"""
+    hooks = catalogue(HOOK, DAILY)
+    await queue_advice(hooks, sessions, Committed(KIND, 3))
+    await queue_advice(hooks, sessions, Tick("09:00", at_nine))
+    async with sessions() as session:
+        await add_cue(session, text="1 Reminder triggered.")
+        await session.commit()
+    recorder = Recorder()
+    broken = {"test.daily"}
+
+    async def prepare(hook, payload):
+        if hook in broken:
+            raise RuntimeError("cannot read")
+        return await hooks.prepare(sessions, hook, payload)
+
+    # The one whose words cannot be made stays owed alone; the others are said together.
+    assert await tick(sessions, gate=recorder.gate, speak=recorder.speak, release=recorder.release, prepare=prepare) is True
+    assert recorder.said == ["About 3.\n\n1 Reminder triggered."]
+    assert await pending(sessions) == [("test.daily", None, ["09:00"])]
+
+    broken.clear()
+    assert await tick(sessions, gate=recorder.gate, speak=recorder.speak, release=recorder.release, prepare=prepare) is True
+    assert recorder.said[-1] == "Morning."
+    assert await pending(sessions) == []
 
 
 async def test_ag_hook_038_nothing_is_read_while_the_chat_is_busy(sessions):
@@ -263,25 +291,36 @@ async def test_ag_hook_038_nothing_is_read_while_the_chat_is_busy(sessions):
 
 async def test_ag_hook_039_a_daily_check_comes_due_once_a_day_and_not_for_the_day_it_missed(sessions):
     """AG-HOOK-039 — tests/brd/tg_agent_shell/agents.feature"""
+    async def at_ten(session) -> time:
+        return time(10, 0)
+
+    nine = Tick("09:00", at_nine)
     schedule = TickSchedule(now=local(16, 8, 0), tz=TZ)
-    assert schedule.due(local(16, 8, 30), NINE) is None
-    assert schedule.due(local(16, 9, 0), NINE) == Tick("09:00")
-    assert [schedule.due(local(16, 9, minute), NINE) for minute in (1, 30, 59)] == [None] * 3
-    assert schedule.due(local(16, 23, 59), NINE) is None
-    assert schedule.due(local(17, 9, 1), NINE) == Tick("09:00")
+    assert schedule.due(local(16, 8, 30), {at_nine: NINE}) == []
+    assert schedule.due(local(16, 9, 0), {at_nine: NINE}) == [nine]
+    assert [schedule.due(local(16, 9, minute), {at_nine: NINE}) for minute in (1, 30, 59)] == [[]] * 3
+    assert schedule.due(local(16, 23, 59), {at_nine: NINE}) == []
+    assert schedule.due(local(17, 9, 1), {at_nine: NINE}) == [nine]
 
     # Started after the time: the day it missed is not run, the next day's is.
     restarted = TickSchedule(now=local(16, 15, 0), tz=TZ)
-    assert restarted.due(local(16, 15, 1), NINE) is None
-    assert restarted.due(local(17, 9, 0), NINE) == Tick("09:00")
+    assert restarted.due(local(16, 15, 1), {at_nine: NINE}) == []
+    assert restarted.due(local(17, 9, 0), {at_nine: NINE}) == [nine]
 
-    # The time is handed to every look: moved later, it comes due again that day at the
+    # The times are handed to every look: moved later, one comes due again that day at the
     # new time; moved to one already passed, it waits for tomorrow's.
     moved = TickSchedule(now=local(16, 8, 0), tz=TZ)
-    assert moved.due(local(16, 9, 5), NINE) == Tick("09:00")
-    assert moved.due(local(16, 21, 30), time(21, 30)) == Tick("21:30")
-    assert moved.due(local(16, 22, 0), time(21, 0)) is None
-    assert moved.due(local(17, 21, 0), time(21, 0)) == Tick("21:00")
+    assert moved.due(local(16, 9, 5), {at_nine: NINE}) == [nine]
+    assert moved.due(local(16, 21, 30), {at_nine: time(21, 30)}) == [Tick("21:30", at_nine)]
+    assert moved.due(local(16, 22, 0), {at_nine: time(21, 0)}) == []
+    assert moved.due(local(17, 21, 0), {at_nine: time(21, 0)}) == [Tick("21:00", at_nine)]
+
+    # Two readers in one look: each passing is its own Tick, in the order given, and one
+    # look that sees both passed hands both on.
+    two = TickSchedule(now=local(16, 8, 0), tz=TZ)
+    assert two.due(local(16, 9, 30), {at_nine: NINE, at_ten: time(10, 0)}) == [nine]
+    assert two.due(local(16, 10, 0), {at_nine: NINE, at_ten: time(10, 0)}) == [Tick("10:00", at_ten)]
+    assert two.due(local(17, 10, 30), {at_nine: NINE, at_ten: time(10, 0)}) == [nine, Tick("10:00", at_ten)]
 
 
 async def test_ag_hook_039_a_switched_off_check_does_not_run_and_is_not_run_late_once_on(sessions):
@@ -296,9 +335,8 @@ async def test_ag_hook_039_a_switched_off_check_does_not_run_and_is_not_run_late
 
     async def look(now: datetime) -> None:
         async with sessions() as session:
-            at = await hooks.tick_time(session)
-        due = schedule.due(now, at)
-        if due is not None:
+            clocks = {clock: await clock(session) for clock in hooks.daily_clocks}
+        for due in schedule.due(now, clocks):
             await queue_advice(hooks, sessions, due)
 
     await look(local(16, 9, 0))
@@ -311,5 +349,5 @@ async def test_ag_hook_039_a_switched_off_check_does_not_run_and_is_not_run_late
     await look(local(17, 9, 0))
     assert await pending(sessions) == [("test.daily", None, ["09:00"])]
     # Fired again before it is said, it is the one request still.
-    await queue_advice(hooks, sessions, Tick("09:00"))
+    await queue_advice(hooks, sessions, Tick("09:00", at_nine))
     assert await pending(sessions) == [("test.daily", None, ["09:00"])]

@@ -15,7 +15,6 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tg_agent_shell.cues.queue import add_cue
 from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
@@ -27,7 +26,7 @@ from ..cards.use_cases import archive_settled_cards
 from ..checks.use_cases import archive_settled_checks
 from ..profile.api import sprint_length_days as _profile_sprint_length_days
 from ..reminders.use_cases import create_sprint_reminder, delete_sprint_reminders
-from .api import SPRINT_STARTED
+from .api import SPRINT_ENDED, SPRINT_STARTED
 from .model import Sprint, SprintCommitment, SprintStatus, next_sprint_number
 
 # How many Sprint endings a closed Card or Check waits before it leaves the screens.
@@ -201,9 +200,9 @@ async def finish_sprint(session: AsyncSession, *, reason: str = "finished") -> S
     workspace.active_sprint_id = None
     workspace.revision += 1
     await session.flush()
-    # Written here, so Safwa is told how the Sprint went rather than sent reading tables.
-    await add_cue(session, text=await sprint_summary(session, sprint))
     await archive_settled_items(session)
+    # The Sprint summary hook tells Safwa how it went, from the record, once this lands.
+    record_change(session, SPRINT_ENDED, sprint.id)
     return sprint
 
 

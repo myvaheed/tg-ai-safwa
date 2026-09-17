@@ -250,11 +250,11 @@ async def test_the_loop_survives_a_failing_tick(sessions, monkeypatch):
     await make_reminder(sessions)
     calls = {"count": 0}
 
-    async def exploding_next_cue(session):
+    async def exploding_words_waiting(session):
         calls["count"] += 1
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(background, "next_cue", exploding_next_cue)
+    monkeypatch.setattr(background, "words_waiting", exploding_words_waiting)
     task = asyncio.create_task(
         run_scheduler(sessions, timezone="Europe/Istanbul", poll_seconds=0.01)
     )

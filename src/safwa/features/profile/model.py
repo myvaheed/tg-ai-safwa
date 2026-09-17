@@ -12,11 +12,10 @@ from ...foundation.models import Base, TimestampMixin
 
 # The default Sprint length; the owner overrides it per workspace in the Profile.
 SPRINT_LENGTH_DAYS = 14
-# Local clocks the Diary's and the daily summary's system Reminders fire on out of the
-# box; the Profile moves each, and `off` there removes that row.
+# The local clocks the daily hooks read, out of the box: the Diary nudge, the daily summary
+# and the morning checks. Never off: each hook has a switch of its own.
 DIARY_TIME_DEFAULT = "22:00"
 SUMMARY_TIME_DEFAULT = "20:00"
-# When the morning checks run, out of the box. Never off: each check has a switch of its own.
 MORNING_TIME_DEFAULT = "09:00"
 
 
@@ -28,11 +27,9 @@ class UserProfile(Base, TimestampMixin):
     capacity_effort_points: Mapped[float | None] = mapped_column(Float)
     sprint_length_days: Mapped[int] = mapped_column(Integer, default=SPRINT_LENGTH_DAYS)
     memory_update_time: Mapped[time | None] = mapped_column(Time)
-    diary_time: Mapped[time | None] = mapped_column(
-        Time, default=time.fromisoformat(DIARY_TIME_DEFAULT)
-    )
+    diary_time: Mapped[time] = mapped_column(Time, default=time.fromisoformat(DIARY_TIME_DEFAULT))
     diary_instructions: Mapped[str] = mapped_column(Text, default="")
-    summary_time: Mapped[time | None] = mapped_column(
+    summary_time: Mapped[time] = mapped_column(
         Time, default=time.fromisoformat(SUMMARY_TIME_DEFAULT)
     )
     morning_time: Mapped[time] = mapped_column(

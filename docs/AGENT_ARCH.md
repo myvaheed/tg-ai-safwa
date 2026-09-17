@@ -142,7 +142,6 @@ flowchart TB
     subgraph BG[background loops]
         CUE[cue-queue]
         REM[reminder-scheduler]
-        SPR[sprint-expiry]
         MEMP[memory-file-poll]
         MEMM[memory-maintenance]
     end
@@ -163,7 +162,6 @@ flowchart TB
     MEM --> ADV
     CUE --> ADV
     REM --> CUE
-    SPR --> DB
     MEMP --> MEM
 ```
 
@@ -472,7 +470,8 @@ it again.
   discarded.
 - The answer is posted with `MessageKind.CUE`: it stays in dialogue, marked as something Safwa
   volunteered rather than a reply to a message that is not there.
-- One waiting Cue is said per tick, oldest first.
+- Everything waiting when the gate opens is said in one turn, as one request, oldest first; the
+  message is registered under the oldest, and what was said with it is settled with it.
 - A hook's Cue carries no words. `hook` and `payload` name the hook and what it refers to, one
   row per hook, and `HookRegistry.prepare` asks that hook's feature for the words once the gate
   is open — after checking the switch is still on, and never while the chat is busy. Words that
@@ -524,13 +523,14 @@ facts to `HookRegistry.evaluate`, and each Advise result is merged into that hoo
 factory by `bind_committed`, so a proposal's Save and a screen's save — the same operation — reach
 the hook by the same path, and a proposal the owner discards never calls it.
 
-A hook that runs daily declares `OnTick()`; the time of day is the application's, read through
-the `TickTime` the registry is built with — Safwa's is the Profile's Morning time. The one tick
-poll (`run_ticks`, beside the Cue poll) reads that time at every look, keeps its last look in
-process memory and hands a `Tick` on by the same `queue_advice` when the time has passed since —
-once, however many polls, never for a time that passed while Safwa was down or the hook was off,
-and a moved time counts from the next time it passes. Such a hook's `evaluate` returns one
-constant marker; the reading is its `prepare`, at delivery.
+A hook that runs daily declares `OnTick(at=...)` with a reader of the local time of day
+(`TickTime`) — Safwa's are the Profile's Morning time, Diary time and summary time. The one tick
+poll (`run_ticks`, beside the Cue poll) reads each distinct reader once at every look, keeps its
+last look in process memory and hands a `Tick` on by the same `queue_advice` for each time that
+has passed since — once, however many polls, never for a time that passed while Safwa was down
+or the hook was off, and a moved time counts from the next time it passes. Hooks that name the
+same reader share its `Tick`. Such a hook's `evaluate` returns one constant marker; the reading
+is its `prepare`, at delivery.
 
 ### A Sprint's end writes its own Cue
 
@@ -675,7 +675,6 @@ stateDiagram-v2
 |---|---|---|
 | `cue-queue` | `SCHEDULER_POLL_SECONDS = 30` | `cues/background.py` |
 | `reminder-scheduler` | `SCHEDULER_POLL_SECONDS = 30` | `features/reminders/background.py` |
-| `sprint-expiry` | `SPRINT_EXPIRY_POLL_SECONDS = 300` | `features/planning/background.py` |
 | `memory-file-poll` | `MEMORY_POLL_SECONDS = 5` | `features/memory/background.py` |
 | `memory-maintenance` | `MEMORY_MAINTENANCE_INTERVAL_SECONDS = 60` | `features/memory/background.py` |
 

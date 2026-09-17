@@ -7,13 +7,17 @@ from types import SimpleNamespace
 
 from sqlalchemy import select
 
+from safwa.bootstrap.modules import REGISTRY
 from safwa.features.cards.use_cases import create_card
+from safwa.features.planning.api import SPRINT_ENDED
 from safwa.features.planning.use_cases import finish_sprint, start_sprint
 from tg_agent_shell.ai.runs import AgentRun
 from tg_agent_shell.cues.background import tick
+from tg_agent_shell.cues.initiatives import queue_advice
 from tg_agent_shell.cues.model import Cue
-from tg_agent_shell.cues.queue import add_cue, next_cue
+from tg_agent_shell.cues.queue import add_cue, waiting_cues
 from tg_agent_shell.cues.runtime import CueRuntime
+from tg_agent_shell.foundation.changes import Committed
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.proposals.model import ChangeAction, ProposalChange
 from tg_agent_shell.proposals.store import PROPOSAL_REVIEW_MINUTES, ProposalStore
@@ -148,16 +152,26 @@ async def test_ag_cue_029_a_turn_that_did_not_land_leaves_the_cue_waiting(sessio
     assert recorder.said == ["Sprint 1 is over."]
 
 
-async def test_ag_cue_029_one_tick_says_the_oldest_cue_and_leaves_the_rest(sessions):
+async def test_ag_cue_029_one_tick_says_everything_waiting_as_one_request_oldest_first(sessions):
     """AG-CUE-029 — tests/brd/tg_agent_shell/agents.feature"""
     await write(sessions, "Sprint 1 is over.")
     await write(sessions, "Sprint 2 is over.")
-    recorder = Recorder()
+    async with sessions() as session:
+        first = (await waiting_cues(session))[0].event_id
+    failing = Recorder(delivered=False)
 
+    # A turn that did not land leaves both owed, and nothing about either is thrown away.
+    assert await tick(sessions, **_hooks(failing)) is False
+    assert failing.said == ["Sprint 1 is over.\n\nSprint 2 is over."]
+    assert await remaining(sessions) == ["Sprint 1 is over.", "Sprint 2 is over."]
+
+    recorder = Recorder()
     assert await tick(sessions, **_hooks(recorder)) is True
 
-    assert recorder.said == ["Sprint 1 is over."]
-    assert await remaining(sessions) == ["Sprint 2 is over."]
+    assert recorder.said == ["Sprint 1 is over.\n\nSprint 2 is over."]
+    # Registered under the oldest, and what was said with it is settled with it.
+    assert recorder.events == [first]
+    assert await remaining(sessions) == []
     assert recorder.releases == 1
 
 
@@ -169,7 +183,7 @@ async def test_ag_cue_029_an_empty_queue_takes_no_lease(sessions):
 
     assert not recorder.said and recorder.releases == 0
     async with sessions() as session:
-        assert await next_cue(session) is None
+        assert await waiting_cues(session) == []
 
 
 def _shown_review(reviews: ProposalStore, *, minutes_ago: int):
@@ -249,9 +263,14 @@ async def test_pl_end_015_the_sprints_own_words_are_what_reaches_the_owner(sessi
         await finish_sprint(session)
         await session.commit()
         number, sprint_id = sprint.number, sprint.id
+    # The ending, handed on, is the Sprint summary hook's one pending request.
+    await queue_advice(REGISTRY.hooks, sessions, Committed(SPRINT_ENDED, sprint_id))
     recorder = Recorder()
 
-    assert await tick(sessions, **_hooks(recorder)) is True
+    async def prepare(hook: str, payload: list) -> str | None:
+        return await REGISTRY.hooks.prepare(sessions, hook, payload)
+
+    assert await tick(sessions, **_hooks(recorder), prepare=prepare) is True
 
     said = recorder.said[0]
     assert said.startswith(f"Sprint {number} is over")

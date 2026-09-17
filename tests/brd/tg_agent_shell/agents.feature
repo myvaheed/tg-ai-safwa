@@ -229,11 +229,11 @@ Feature: Agents — the session, the hand-over, and what comes back
     Given Safwa owes the owner something it was not asked for
     When it cannot be said yet
     Then it stays written down, and the next check offers it again
-    And one check offers the oldest and leaves the rest
+    And one check says everything owed by then in one turn, as one request, the oldest first
     When a turn is started for it and does not reach the chat
     Then it is still owed, and nothing about it was thrown away
     When its arrival in the chat has been registered
-    Then no later check says it a second time
+    Then no later check says it a second time, and what was said with it is settled with it
     And when nothing is owed, no turn is taken at all
 
   Scenario: AG-POLL-030 — Work on a timer outlives its own failures
@@ -315,15 +315,17 @@ Feature: Agents — the session, the hand-over, and what comes back
     And while the chat is busy nothing is read
     And when nothing is still there, nothing is said and nothing stays owed
     And when the words cannot be made, the request stays owed and is tried again
+    And when several requests are owed at once, each is worded on its own and they are said in the one turn; one whose words cannot be made stays owed alone
     And what the hook added while the request was being said is owed still, as the next one
     When the owner switches the hook off in the Profile
     Then its pending request is dropped, and switching it back on does not bring it back
 
   Scenario: AG-HOOK-039 — A check on a schedule runs once per period, and not for the periods it slept through
-    Given a hook declares a daily check, and the application names the local time of day its daily checks run at
+    Given a hook declares a daily check at a local time of day its subscription names — a Profile field, read by the workspace's clock
     When that time passes while Safwa runs
     Then the check runs once, however many polls that day sees
     And the time is read at every look, so one the owner moves counts from the next time it passes, without a restart
+    And two hooks that name the same time share the one passing; two that name different times each get their own, and one look that sees both passed hands both on
     When Safwa starts after that time has already passed
     Then the check waits for the next day's time rather than running for the day it missed
     And a check that is switched off does not run, and switching it on after its time has passed does not run it for that day

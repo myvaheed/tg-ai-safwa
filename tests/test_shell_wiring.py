@@ -23,7 +23,6 @@ from safwa.bootstrap.modules import (
     SCREENS,
 )
 from safwa.features.home.api import MENU_LAYOUT, menu_markup
-from safwa.features.planning.api import available_screens
 from tg_agent_shell.ai.contracts import open_tool
 from tg_agent_shell.telegram import (
     SHELL_COMMANDS,
@@ -188,7 +187,7 @@ def test_the_menu_draws_every_label_a_screen_declared() -> None:
         screen.nav for screen in commands if screen.title is not None
     )
 
-    rows = menu_markup(available_screens(commands, sprint_active=True)).inline_keyboard
+    rows = menu_markup(commands).inline_keyboard
     drawn = [button.callback_data.split(":", 1)[1] for row in rows for button in row]
     assert drawn == placed
     # Home is the one action reached without a menu button of its own.
@@ -199,18 +198,19 @@ def test_the_menu_draws_every_label_a_screen_declared() -> None:
     }
 
 
-def test_today_leaves_the_menu_with_the_sprint_that_makes_it_a_screen() -> None:
+def test_pl_mode_001_today_stays_on_the_menu_and_among_the_commands_in_planning() -> None:
     """PL-MODE-001 — tests/brd/planning.feature"""
-    planning = [
+    # One menu and one command list, whatever mode the workspace is in: Today opened in
+    # Planning is the screen that says no Sprint runs.
+    drawn = [
         button.callback_data
-        for row in menu_markup(
-            available_screens(FEATURE_COMMANDS, sprint_active=False)
-        ).inline_keyboard
+        for row in menu_markup(FEATURE_COMMANDS).inline_keyboard
         for button in row
     ]
 
-    assert "nav:today" not in planning
-    assert "nav:sprint" in planning
+    assert "nav:today" in drawn
+    assert "today" in {screen.command for screen in FEATURE_COMMANDS}
+    assert "nav:sprint" in drawn
 
 
 def test_the_screen_catalogue_is_the_one_list_of_openable_items() -> None:

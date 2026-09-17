@@ -31,20 +31,18 @@ from safwa.features.reminders.model import Reminder
 from safwa.features.saved_requests.use_cases import create_saved_request
 from safwa.foundation.workspace import Workspace
 from tg_agent_shell.ai.sql import create_ai_views
-from tg_agent_shell.cues.model import Cue
-from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.telegram import callback_token_handler
 from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import UiSession
 
 
-async def test_pl_mode_001_the_menu_offers_today_only_while_a_sprint_runs(sessions) -> None:
+async def test_pl_mode_001_the_menu_offers_today_in_planning_too(sessions) -> None:
     """PL-MODE-001 — tests/brd/planning.feature"""
     services = services_for(sessions)
     message = FakeMessage(74, bot_message=True)
 
     await render_home(message, services)
-    assert "☀️ Today" not in button_texts(message.edits[-1][1])
+    assert "☀️ Today" in button_texts(message.edits[-1][1])
 
     async with sessions() as session:
         await create_card(
@@ -179,8 +177,6 @@ async def test_pl_criteria_003_starting_a_sprint_needs_criteria_and_a_plan(sessi
         sprint = await session.get(Sprint, workspace.active_sprint_id)
         assert sprint.success_criteria == "Ship v2 to production"
         assert len(list(await session.scalars(select(Reminder)))) == 2
-    # The Today command becomes available again the moment the Sprint exists.
-    assert "today" in message.bot.published_commands[-1]
 
     finish = next(
         button
@@ -192,15 +188,10 @@ async def test_pl_criteria_003_starting_a_sprint_needs_criteria_and_a_plan(sessi
         FakeCallback(finish.callback_data.split(":", 1)[1], message), services
     )
 
-    assert "today" not in message.bot.published_commands[-1]
     async with sessions() as session:
         assert (await session.get(Workspace, 1)).active_sprint_id is None
-        # Both end warnings are gone, and the Sprint was handed over as a Cue.
+        # Both end warnings are gone; the hand-over is the Sprint summary hook's (PL-END-015).
         assert list(await session.scalars(select(Reminder))) == []
-        handed = list(await session.scalars(select(Cue)))
-        assert len(handed) == 1
-        sprint_number = await session.scalar(select(Sprint.number))
-        assert handed[0].text.startswith(f"Sprint {sprint_number} is over")
 
 
 async def test_pl_criteria_003_the_planning_screen_refuses_an_empty_plan(sessions) -> None:
@@ -416,7 +407,7 @@ async def test_pl_plan_018_the_plans_cost_is_shown_against_the_capacity(sessions
 
     async with sessions() as session:
         await set_profile_field(
-            session, ProfileField.CAPACITY_EFFORT_POINTS, 10, clock=SystemClock()
+            session, ProfileField.CAPACITY_EFFORT_POINTS, 10
         )
         await session.commit()
 

@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from ui_harness import FakeCallback, FakeMessage, button_texts, services_for
 
-from safwa.features.profile.model import ProfileField
+from safwa.features.cards.use_cases import create_card
+from safwa.features.planning.use_cases import start_sprint
 from safwa.features.profile.telegram import command_profile
-from safwa.features.profile.use_cases import DIARY_REMINDER_INSTRUCTION, set_profile_field
 from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import resolve
 from safwa.features.reminders.telegram import render_reminder, render_reminders
 from safwa.features.reminders.use_cases import create_reminder
-from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.telegram import callback_token_handler
 from tg_agent_shell.telegram.dialogue import ordinary_text
 
@@ -108,11 +107,10 @@ async def test_the_reminders_screen_lists_opens_and_confirms_a_delete(sessions) 
 
 async def test_the_reminders_screen_and_profile_hide_safwas_own_reminder(sessions) -> None:
     """RM-SYSTEM-022 — tests/brd/reminders.feature"""
-    # The owner sets the Diary in Settings; the Reminder behind it is not theirs to see.
+    # A Sprint sets its own end warnings; the Reminders behind them are not the owner's to see.
     async with sessions() as session:
-        await set_profile_field(
-            session, ProfileField.DIARY_TIME, time(22, 0), clock=SystemClock()
-        )
+        await create_card(session, title="Planned", kind="action", stage="sprint", effort_points=3)
+        await start_sprint(session, success_criteria="Ship v2")
         await create_reminder(
             session,
             instruction="Check my posture.",
@@ -128,6 +126,6 @@ async def test_the_reminders_screen_and_profile_hide_safwas_own_reminder(session
 
     labels = button_texts(listing.edits[-1][1])
     assert any("Check my posture" in label for label in labels)
-    assert not any(DIARY_REMINDER_INSTRUCTION[:20] in label for label in labels)
+    assert not any("ends" in label for label in labels)
     assert "Diary: 22:00" in settings.edits[-1][0]
     assert "Daily summary: 20:00" in settings.edits[-1][0]

@@ -134,8 +134,8 @@ Feature: Reminders
     And it removes itself the moment its words are written down
     And it never goes off a second time
 
-  Scenario: RM-GATE-017 — A Reminder that comes due while words are already waiting stays due
-    Given words are waiting to be said, and Safwa is not free to say them, by AG-TURN-015
+  Scenario: RM-GATE-017 — A Reminder that comes due while Reminders are already waiting stays due
+    Given a Reminder's words are waiting to be said, and Safwa is not free to say them, by AG-TURN-015
     When another Reminder comes due
     Then it writes nothing and stays due, so the words waiting are still the only ones waiting
     And an hour of that is one message when Safwa frees up, not twelve
@@ -169,14 +169,12 @@ Feature: Reminders
     And Reminders do not quietly stop firing for the rest of the day
 
   Scenario: RM-SYSTEM-022 — A Reminder the owner did not set belongs to Safwa
-    Given a Reminder Safwa set up rather than the owner — the Diary nudge, the daily summary, or a
-      Sprint's own warning that it is ending
+    Given a Reminder Safwa set up rather than the owner — a Sprint's own warning that it is ending
     When the owner opens /reminders, or Safwa looks at the Reminders
     Then it is not in the list
     And every way of editing, rescheduling or deleting it refuses, and says where to change it
     And it fires exactly like any other Reminder
-    And whatever set it up is what takes it away: the Profile for the Diary nudge and the daily
-      summary, finishing the Sprint for its ending warnings
+    And finishing the Sprint is what takes it away
 
   Scenario: RM-UI-023 — /reminders is a list, a Reminder, and two things to do with it
     Given the owner opens /reminders

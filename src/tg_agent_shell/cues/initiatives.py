@@ -1,10 +1,11 @@
-"""From a committed change, or a time of day, to a hook's pending request.
+"""From a committed change, or a time of day, to a hook's pending request or its work.
 
 An operation records what it changed beside its transaction (`foundation/changes.py`).
 After the commit, the one listener below hands those facts to the hooks that subscribe to
 that kind of change, and whatever an Advise check returns is merged into that hook's one
 pending `Cue`. A rollback leaves nothing to hand on. The one tick poll hands a `Tick` to
-the daily hooks when the time of day the application names passes, by the same path.
+the daily hooks when the time of day their reader names passes, by the same path; a Run
+hook on a tick does its work there and then, with no chat to publish to.
 
 The facts are handed on outside the transaction that made them: a process that dies in
 between loses one request, never the change itself.
@@ -15,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Sequence
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import event
@@ -24,7 +26,7 @@ from sqlalchemy.orm import Session
 from ..foundation.changes import CHANGES, Committed, take_changes
 from ..foundation.clock import utcnow
 from ..foundation.poll import run_poll
-from ..hooks.contracts import Advise
+from ..hooks.contracts import Advise, Run, RunContext
 from ..hooks.registry import HookEvent, HookRegistry
 from ..hooks.ticks import TickSchedule
 from .queue import merge_hook_cue
@@ -35,38 +37,59 @@ _SINK = "committed_sink"
 
 
 async def queue_advice(
-    hooks: HookRegistry, sessions: async_sessionmaker[AsyncSession], event: HookEvent
+    hooks: HookRegistry,
+    sessions: async_sessionmaker[AsyncSession],
+    event: HookEvent,
+    *,
+    work: RunContext | None = None,
 ) -> None:
-    """Check one event against the hooks and keep each Advise result as a pending request."""
+    """Check one event against the hooks: keep each Advise result as a pending request, and
+    do each Run's work with `work` — which the adapter brings wherever the registry admits
+    a Run."""
     async for checked in hooks.evaluate(event, sessions):
         if checked.error is not None:
             logger.error("Hook %s failed: %s", checked.spec.name, checked.error)
             continue
-        if not isinstance(checked.spec.effect, Advise) or not checked.payloads:
+        if not checked.payloads:
             continue
-        async with sessions() as session:
-            await merge_hook_cue(session, hook=checked.spec.name, items=checked.payloads)
-            await session.commit()
+        match checked.spec.effect:
+            case Advise():
+                async with sessions() as session:
+                    await merge_hook_cue(session, hook=checked.spec.name, items=checked.payloads)
+                    await session.commit()
+            case Run(run=run):
+                assert work is not None  # the registry admits a Run only where the adapter brings its context
+                for payload in checked.payloads:
+                    try:
+                        await run(payload, work)
+                    except Exception:
+                        logger.exception("The work of the hook %s failed", checked.spec.name)
+
+
+async def _no_chat(text: str, kind: str) -> None:
+    raise RuntimeError("A hook on a tick has no chat to publish to: record a change, and let an Advise hook say it")
 
 
 async def run_ticks(
     hooks: HookRegistry,
     sessions: async_sessionmaker[AsyncSession],
     *,
+    resources: Any,
     timezone: str,
     poll_seconds: float,
 ) -> None:
-    """Hand the daily checks their Tick when the time comes: once, however many polls."""
+    """Hand the daily checks their Tick when their time comes: once, however many polls."""
     schedule = TickSchedule(now=utcnow(), tz=ZoneInfo(timezone))
-    tick_time = hooks.tick_time
-    assert tick_time is not None  # the registry refused a daily hook without one
+    work = RunContext(
+        resources=resources, still_current=lambda: True, publish=_no_chat, sessions=sessions
+    )
 
     async def look() -> None:
         async with sessions() as session:
-            at = await tick_time(session)
-        tick = schedule.due(utcnow(), at)
-        if tick is not None:
-            await queue_advice(hooks, sessions, tick)
+            # Each reader once: hooks that share one share its Tick.
+            clocks = {clock: await clock(session) for clock in hooks.daily_clocks}
+        for tick in schedule.due(utcnow(), clocks):
+            await queue_advice(hooks, sessions, tick, work=work)
 
     await run_poll(look, poll_seconds=poll_seconds, name="The hook tick poll")
 

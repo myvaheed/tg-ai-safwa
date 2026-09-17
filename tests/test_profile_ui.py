@@ -14,7 +14,6 @@ from safwa.features.profile.model import DIARY_TIME_DEFAULT, ProfileField, UserP
 from safwa.features.profile.telegram import command_profile
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.summary.module import SUMMARY_HOOK
-from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.hooks.contracts import AfterTool
 from tg_agent_shell.telegram import callback_token_handler
 from tg_agent_shell.telegram.dialogue import ordinary_text
@@ -31,7 +30,6 @@ async def test_valid_profile_input_updates_selected_field_and_auto_closes_prompt
             session,
             ProfileField.ADVISOR_INSTRUCTIONS,
             "Keep this unchanged.",
-            clock=SystemClock(),
         )
         await session.commit()
     message = FakeMessage(921, bot_message=True, answer_as_new=True)

@@ -24,6 +24,7 @@ from safwa.features.cards.hooks import (
     HARD_TIME_HOOK,
 )
 from safwa.features.cards.use_cases import create_card
+from safwa.features.profile.api import morning_time
 from safwa.features.profile.model import MORNING_TIME_DEFAULT
 from telegram_llm import ChatHost
 from tg_agent_shell.cues.background import tick
@@ -67,7 +68,7 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
         (EMPTY_PARENTS_HOOK.name, [MORNING_TIME_DEFAULT]), (HARD_TIME_HOOK.name, [HARD_TIME_CHECK]),
     ]
     for _ in range(2):
-        await queue_advice(REGISTRY.hooks, sessions, Tick(MORNING_TIME_DEFAULT))
+        await queue_advice(REGISTRY.hooks, sessions, Tick(MORNING_TIME_DEFAULT, morning_time))
     assert await _pending(sessions) == morning
 
     advisor, provider = e2e_harness.advisor([ANSWER])
@@ -100,9 +101,11 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
     asked = [str(item["content"]) for item in provider.calls[0] if item["role"] == "user"]
     handed = next(text for text in asked if f"#{goal_id} «Learn Spanish» (Goal)" in text)
     assert "plan its Actions now, or create one Action" in handed
-    assert await _pending(sessions) == morning[1:]
+    # No Sprint runs, so the plan check had nothing to say: settled on the same tick, without
+    # a word of its own in the one message.
+    assert await _pending(sessions) == []
     assert len(chat.sent_messages) == 1
-    # No Sprint runs, so the plan check has nothing to say: settled without a word.
+    assert "Hard Time" not in handed
     assert await tick(
         sessions,
         gate=runtime.can_speak,
@@ -127,7 +130,7 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
     assert len(heard) == 1 and ANSWER in str(heard[0]["content"])
 
     # The next morning asks about the same Goal again: nothing remembers it was asked.
-    await queue_advice(REGISTRY.hooks, sessions, Tick(MORNING_TIME_DEFAULT))
+    await queue_advice(REGISTRY.hooks, sessions, Tick(MORNING_TIME_DEFAULT, morning_time))
     assert await _pending(sessions) == morning
     words = await runtime.prepare(EMPTY_PARENTS_HOOK.name, [MORNING_TIME_DEFAULT])
     assert words is not None and words in handed

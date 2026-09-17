@@ -37,7 +37,6 @@ from ..enums import AIProvider
 from ..features.advisor.agent import ADVISOR_VIEWS
 from ..features.memory.store import MemoryFileStore
 from ..features.memory.upkeep import MemoryUpkeep
-from ..features.planning.api import available_screens
 from ..features.profile.model import UserProfile
 from ..features.saved_requests.use_cases import seed_default_requests
 from ..features.summary.summary import DialogueSummary
@@ -312,10 +311,7 @@ async def run(settings: Settings) -> None:
     dispatcher = Dispatcher()
     dispatcher.include_router(build_router(commands))
     dispatcher["services"] = services
-    async with database.sessions() as session:
-        workspace = await session.get(Workspace, 1)
-        sprint_active = bool(workspace and workspace.active_sprint_id)
-    await sync_bot_commands(bot, available_screens(commands, sprint_active=sprint_active))
+    await sync_bot_commands(bot, commands)
     await discard_stale_status(bot, services, settings.telegram_owner_id)
 
     background = BackgroundContext(

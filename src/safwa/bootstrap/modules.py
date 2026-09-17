@@ -31,13 +31,16 @@ from ..features.cards.module import MODULE as CARDS
 from ..features.checks.module import MISSED_RUN_HOOK
 from ..features.checks.module import MODULE as CHECKS
 from ..features.diagnostics.module import MODULE as DIAGNOSTICS
+from ..features.diary.module import DIARY_HOOK
 from ..features.diary.module import MODULE as DIARY
 from ..features.heavy_analyzer.module import HEAVY_ANALYZER_HOOK
 from ..features.heavy_analyzer.module import MODULE as HEAVY_ANALYZER
 from ..features.home.module import MODULE as HOME
 from ..features.memory.module import MODULE as MEMORY
 from ..features.planning.module import MODULE as PLANNING
-from ..features.profile.api import hook_switched_on, morning_time
+from ..features.planning.module import SPRINT_EXPIRY_HOOK, SPRINT_SUMMARY_HOOK
+from ..features.profile.api import hook_switched_on
+from ..features.profile.module import DAILY_SUMMARY_HOOK
 from ..features.profile.module import MODULE as PROFILE
 from ..features.reminders.module import MODULE as REMINDERS
 from ..features.retro.module import MODULE as RETRO
@@ -90,10 +93,14 @@ HOOKS = (
     EMPTY_PARENTS_HOOK,
     HARD_TIME_HOOK,
     MISSED_RUN_HOOK,
+    DIARY_HOOK,
+    DAILY_SUMMARY_HOOK,
+    SPRINT_SUMMARY_HOOK,
+    SPRINT_EXPIRY_HOOK,
 )
 
 REGISTRY: Registry = Registry.of(
-    MODULES, world=_world, hooks=HOOKS, hook_policy=hook_switched_on, tick_time=morning_time
+    MODULES, world=_world, hooks=HOOKS, hook_policy=hook_switched_on
 )
 
 # What each part of the application reads off the registry, under the names it reads them

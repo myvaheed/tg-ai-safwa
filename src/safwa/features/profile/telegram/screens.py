@@ -12,7 +12,6 @@ from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.hooks.contracts import HookSpec
@@ -77,7 +76,7 @@ def _parse_daily_time(raw: str) -> time | None:
         raise ValueError("Send a time as HH:MM, for example 22:00, or off.") from None
 
 
-def _parse_morning_time(raw: str) -> time:
+def _parse_clock(raw: str) -> time:
     try:
         return parse_clock(raw)
     except ValueError:
@@ -127,7 +126,7 @@ PROFILE_FIELDS: dict[str, EditableField] = {
             "Send the local time Safwa's morning checks run, as HH:MM. Each check is switched "
             "off below, not here."
         ),
-        parse=_parse_morning_time,
+        parse=_parse_clock,
         show=_clock,
     ),
     "memory_update_time": EditableField(
@@ -143,9 +142,10 @@ PROFILE_FIELDS: dict[str, EditableField] = {
         title="Diary",
         label="📔 Diary time",
         instruction=(
-            "Send the local time Safwa writes up your day, as HH:MM, or off to stop asking."
+            "Send the local time Safwa writes up your day, as HH:MM. The Diary nudge is "
+            "switched off below."
         ),
-        parse=_parse_daily_time,
+        parse=_parse_clock,
         show=_clock,
     ),
     "diary_instructions": EditableField(
@@ -162,9 +162,10 @@ PROFILE_FIELDS: dict[str, EditableField] = {
         title="Daily summary",
         label="🌙 Daily summary",
         instruction=(
-            "Send the local time Safwa sums up your day, as HH:MM, or off to stop it."
+            "Send the local time Safwa sums up your day, as HH:MM. The daily summary is "
+            "switched off below."
         ),
-        parse=_parse_daily_time,
+        parse=_parse_clock,
         show=_clock,
     ),
 }
@@ -283,9 +284,7 @@ async def _apply_field(
     session: AsyncSession, services: Any, state: Mapping[str, Any], value: Any
 ) -> None:
     del services
-    await set_profile_field(
-        session, profile_field(str(state["field"])), value, clock=SystemClock()
-    )
+    await set_profile_field(session, profile_field(str(state["field"])), value)
 
 
 async def _render_profile(

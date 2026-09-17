@@ -35,17 +35,8 @@ from safwa.features.diary.use_cases import (
     diary_entry_for,
     update_diary_entry,
 )
-from safwa.features.profile.use_cases import sync_diary_reminder
-from safwa.features.reminders.model import Reminder
-from safwa.features.reminders.schedule import resolve
-from safwa.features.reminders.use_cases import (
-    delete_reminder,
-    reschedule_reminder,
-    update_reminder_text,
-)
 from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.ai.tools import ToolAdapters
-from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.proposals.api import ChangeAction, ToolPreparationError
 from tg_agent_shell.proposals.prepare import ChangePreparer
@@ -250,30 +241,6 @@ async def test_di_delete_005_delete_removes_the_existing_entry(sessions) -> None
         await delete_diary_entry(session, entry.id)
         await session.commit()
         assert await diary_entry_for(session, date(2026, 8, 15)) is None
-
-
-# --- the system Reminder behind the Diary ---------------------------------
-
-
-async def system_reminder(sessions) -> Reminder | None:
-    async with sessions() as session:
-        return await session.scalar(select(Reminder).where(Reminder.system.is_(True)))
-
-
-async def test_the_diary_reminder_is_not_the_owners_to_edit(sessions) -> None:
-    async with sessions() as session:
-        await sync_diary_reminder(session, clock=SystemClock())
-        await session.commit()
-    reminder_id = (await system_reminder(sessions)).id
-    schedule = resolve(clock="09:00", days=["Mon"], now=datetime.now(UTC), tz=ZoneInfo("UTC"))
-
-    async with sessions() as session:
-        with pytest.raises(DomainError):
-            await update_reminder_text(session, reminder_id, "Mine now.")
-        with pytest.raises(DomainError):
-            await reschedule_reminder(session, reminder_id, schedule=schedule, tz=ZoneInfo("UTC"))
-        with pytest.raises(DomainError):
-            await delete_reminder(session, reminder_id)
 
 
 async def test_di_day_011_a_day_with_no_words_is_never_saved(sessions) -> None:

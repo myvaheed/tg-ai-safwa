@@ -35,7 +35,6 @@ from safwa.features.workspace_mutator.state import workspace_context
 from telegram_llm import DialogueMessage
 from tg_agent_shell.ai.messages import ContextBuilder, StateBlocks
 from tg_agent_shell.ai.subagents import RoutedSubagent
-from tg_agent_shell.foundation.clock import SystemClock
 
 
 def test_every_mutation_tool_belongs_to_the_board_or_to_the_diary():
@@ -117,7 +116,7 @@ async def test_ws_context_005_the_mode_comes_first_and_the_owner_next(sessions):
     """WS-CONTEXT-005 — tests/brd/workspace_mutator.feature"""
     async with sessions() as session:
         await set_profile_field(
-            session, ProfileField.ABOUT_ME, "I run in the mornings", clock=SystemClock()
+            session, ProfileField.ABOUT_ME, "I run in the mornings"
         )
         await create_card(session, title="Ship it", kind="action", stage="today", effort_points=3)
         await session.commit()

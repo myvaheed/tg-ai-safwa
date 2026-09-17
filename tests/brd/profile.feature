@@ -30,17 +30,19 @@ Feature: Profile
     And off means the owner is not committing to a capacity at all
     But zero and a negative number are refused
 
-  Scenario: PS-CLOCK-005 — A time of day is a wall clock, or off
+  Scenario: PS-CLOCK-005 — A time of day is a wall clock
     Given a time from 00:00 through 23:59, for memory upkeep, the Diary or the daily summary
     Then that local time is accepted
-    And off means there is no time, so nothing is scheduled
+    And for memory upkeep, off means there is no time, so nothing is scheduled
+    And for the Diary and the daily summary off is refused: each is an automatic reaction with a switch of its own (PS-HOOKS-015)
     But anything else typed in that box is refused
 
-  Scenario: PS-DIARY-006 — The Diary time and prompt are what Safwa's own Diary Reminder follows
-    Given the owner also has Reminders of their own, and a Sprint may have its end warnings
-    When the Diary time or the Diary prompt changes
-    Then Safwa's own Diary Reminder is changed to match, and it is the only one changed
-    And turning the Diary time off deletes that one Reminder and leaves every other one alone
+  Scenario: PS-DIARY-006 — The Diary time and prompt are what Safwa's own Diary nudge follows
+    Given a Diary time (DIARY_TIME_DEFAULT = "22:00") and a Diary prompt in the Profile
+    When the Diary time passes and the chat is free
+    Then the Advisor is asked once to call the diary subagent for today and propose what it reports, with the Diary prompt after it when there is one
+    And the time is read at every look and the prompt when the request is about to be said, so a change to either counts without a restart, by AG-HOOK-039
+    And no Reminder stands behind it: the owner's own Reminders and a Sprint's end warnings are untouched by either
 
   Scenario: PS-UI-SAVE-008 — A valid answer saves that one field and closes its prompt
     Given one Profile prompt is open
@@ -65,22 +67,11 @@ Feature: Profile
     When one field is saved
     Then that count goes up by exactly one, so one edit never looks like two
 
-  Scenario: PS-DIARY-012 — The Diary Reminder is due at the next Diary time, never one in the past
-    Given it is 23:50 and the Diary time is 07:30
-    When Safwa's own Diary Reminder is worked out
-    Then it is due at 07:30 tomorrow, not at 07:30 that has already gone
-
-  Scenario: PS-DIARY-013 — Startup works it out again, so a change made while Safwa was down counts
-    Given the timezone changed while Safwa was not running
-    When Safwa starts
-    Then its own Diary Reminder exists and is due at the Diary time in the timezone that is now set
-
-  Scenario: PS-SUMMARY-014 — The summary time is what Safwa's own daily summary Reminder follows
+  Scenario: PS-SUMMARY-014 — The summary time is what Safwa's own daily summary follows
     Given a new workspace, whose summary time is 20:00 (SUMMARY_TIME_DEFAULT = "20:00")
-    When the summary time changes
-    Then Safwa's own daily summary Reminder is changed to match, and it is the only one changed
-    And turning the summary time off deletes that one Reminder and leaves the Diary's and every
-      other one alone
+    When the summary time passes and the chat is free
+    Then the Advisor is asked once to tell the owner what they got done that day — the Actions finished, the Checks resolved and the Diary entry of the day — and to offer to write the day down when there is no entry, unless the Diary request came with this one
+    And the time is read at every look, so one moved in the Profile counts from the next time it passes, by AG-HOOK-039
     And when the summary and the Diary fall due together they reach Safwa as one request, so
       the owner gets one message
 

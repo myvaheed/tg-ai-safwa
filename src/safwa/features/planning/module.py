@@ -5,13 +5,17 @@ from __future__ import annotations
 from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import FeatureModule
 
-from . import background, telegram, views
+from . import telegram, views
+from .hooks import SPRINT_EXPIRY_HOOK as SPRINT_EXPIRY_HOOK
+from .hooks import SPRINT_SUMMARY_HOOK as SPRINT_SUMMARY_HOOK
+from .hooks import expire_due_sprint_now
 from .telegram import PLANNING_CALLBACK_ACTIONS, render_sprint
 
 MODULE = FeatureModule(
     name="planning",
     views=views.VIEWS,
-    background=(background.SPRINT_EXPIRY,),
+    # A midnight Safwa was not running for is made up here, on the next start.
+    recover=expire_due_sprint_now,
     commands=(
         ScreenCommand(
             handler=render_sprint,

@@ -46,8 +46,6 @@ class HookEvaluation:
 class HookRegistry:
     specs: tuple[HookSpec, ...]
     policy: HookPolicy
-    # Named by the application when any hook runs daily; None says none does.
-    tick_time: TickTime | None
     _index: Mapping[type, tuple[HookSpec, ...]]
 
     @classmethod
@@ -59,7 +57,6 @@ class HookRegistry:
         helpers: frozenset[str] = frozenset(),
         tools: frozenset[str] = frozenset(),
         policy: HookPolicy = every_switch_on,
-        tick_time: TickTime | None = None,
     ) -> HookRegistry:
         names: set[str] = set()
         index: dict[type, list[HookSpec]] = {}
@@ -83,16 +80,24 @@ class HookRegistry:
                         event_type = AfterTool
                     case OnCommitted(kind=kind), Advise() if kind.strip():
                         event_type = Committed
-                    case OnTick(), Advise():
-                        if tick_time is None:
-                            raise RuntimeError(f"Hook {spec.name} runs daily, and the application named no time of day for that")
+                    case OnTick(at=at), Advise() | Run() if callable(at):
                         event_type = Tick
                     case _:
                         raise RuntimeError(f"Hook {spec.name} has an incompatible subscription/effect")
                 bucket = index.setdefault(event_type, [])
                 if spec not in bucket:
                     bucket.append(spec)
-        return cls(specs, policy, tick_time, MappingProxyType({key: tuple(value) for key, value in index.items()}))
+        return cls(specs, policy, MappingProxyType({key: tuple(value) for key, value in index.items()}))
+
+    @property
+    def daily_clocks(self) -> tuple[TickTime, ...]:
+        """Each reader of a daily time once, in catalogue order: what one look reads."""
+        clocks: list[TickTime] = []
+        for spec in self.specs:
+            for subscription in spec.on:
+                if isinstance(subscription, OnTick) and subscription.at not in clocks:
+                    clocks.append(subscription.at)
+        return tuple(clocks)
 
     @property
     def agent_related(self) -> tuple[HookSpec, ...]:

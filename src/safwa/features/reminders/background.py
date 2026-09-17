@@ -6,9 +6,10 @@ Cue and moves the Reminder on in the same transaction.  What guarantees the owne
 is the Cue row, which is deleted only once the turn landed — so this module holds no gate,
 takes no lease and runs no Advisor turn.
 
-One thing waits to be said at a time: a tick that finds a Cue still waiting writes nothing,
-and the due Reminders it would have carried stay due for the tick after that.  That is what
-stops an hour of a busy owner turning into twelve messages the moment they are free.
+One batch of Reminders waits to be said at a time: a tick that finds its own words still
+waiting writes nothing, and the due Reminders it would have carried stay due for the tick
+after that.  A hook's request waiting is no reason to hold them: the Cue poll says everything
+waiting in one turn.
 
 Do not confuse the two intervals.  The poll is ``SCHEDULER_POLL_SECONDS`` and is the
 system's clock; a Reminder's own ``interval_minutes`` is a property of its row.  A deferred
@@ -24,7 +25,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from tg_agent_shell.cues.queue import add_cue, next_cue
+from tg_agent_shell.cues.queue import add_cue, words_waiting
 from tg_agent_shell.foundation.poll import run_poll
 
 from ...constants import SCHEDULER_POLL_SECONDS
@@ -131,9 +132,9 @@ async def tick(
     """One poll. Returns whether a Cue was written."""
     moment = now or datetime.now(UTC)
     async with sessions() as session:
-        if await next_cue(session) is not None:
-            # Something is still waiting to be said; a second one on top of it would arrive
-            # as a pile the moment the owner is free.
+        if await words_waiting(session):
+            # Reminders are still waiting to be said; a second batch on top of them would
+            # arrive as a pile the moment the owner is free.
             return False
         reminders = await due_reminders(session, now=moment)
         if not reminders:

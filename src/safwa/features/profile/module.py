@@ -1,27 +1,16 @@
-"""The owner's Profile, including its startup reconciliation."""
+"""The owner's Profile."""
 
 from __future__ import annotations
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from tg_agent_shell.foundation.clock import SystemClock
 from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import FeatureModule
 
 from . import telegram
+from .hooks import DAILY_SUMMARY_HOOK as DAILY_SUMMARY_HOOK
 from .telegram import PROFILE_CALLBACK_ACTIONS, command_profile
-from .use_cases import sync_diary_reminder, sync_summary_reminder
-
-
-async def _reconcile_triggers(session: AsyncSession) -> None:
-    """Recovery binds the wall clock; the operations themselves are told what time it is."""
-    await sync_diary_reminder(session, clock=SystemClock())
-    await sync_summary_reminder(session, clock=SystemClock())
-
 
 MODULE = FeatureModule(
     name="profile",
-    recover=_reconcile_triggers,
     commands=(
         # The Profile is one tap away in the menu, so it needs no command line too.
         ScreenCommand(handler=command_profile, nav="profile", title="⚙️ Profile"),

@@ -36,6 +36,7 @@ async def _tick_hooks(context: BackgroundContext) -> None:
     await run_ticks(
         context.services.hooks,
         context.sessions,
+        resources=context.services.features,
         timezone=context.timezone,
         poll_seconds=context.poll_seconds,
     )

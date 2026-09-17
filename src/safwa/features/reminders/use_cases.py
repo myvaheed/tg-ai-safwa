@@ -13,10 +13,8 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tg_agent_shell.foundation.clock import Clock
 from tg_agent_shell.foundation.errors import DomainError
 
-from ...constants import WEEKDAY_NAMES
 from ...foundation.workspace import Workspace, bump_workspace
 from .model import Reminder, ScheduleKind
 from .schedule import (
@@ -124,55 +122,6 @@ async def reconcile_reminders(session: AsyncSession, now: datetime | None = None
             reminder.next_fire_at = roll_forward(
                 schedule, previous=reminder.next_fire_at, now=now, tz=tz
             )
-
-
-async def sync_daily_system_reminder(
-    session: AsyncSession, *, key: str, instruction: str, at_time: time | None, clock: Clock
-) -> Reminder | None:
-    """Reconcile one daily Reminder no owner created, named by `key`, and return it.
-
-    `at_time` of None removes it. The owner's own Reminders, a Sprint's Reminders and
-    the other keys' rows are never selected.
-    """
-    existing = await session.scalar(select(Reminder).where(Reminder.system_key == key))
-    if at_time is None:
-        if existing is not None:
-            await session.delete(existing)
-        return None
-
-    if existing is not None and existing.at_time == at_time:
-        # Same firing, so only the words can have changed; rescheduling would move a
-        # Reminder that is already due at the right moment.
-        if existing.instruction != instruction:
-            existing.instruction = instruction
-            existing.version += 1
-        return existing
-
-    workspace = await session.get(Workspace, 1)
-    tz = ZoneInfo(workspace.timezone if workspace else "UTC")
-    schedule = Schedule(kind=ScheduleKind.DAILY, weekdays=WEEKDAY_NAMES, at_time=at_time)
-    first = next_fire(schedule, previous=None, now=clock.now().astimezone(UTC), tz=tz)
-    if first is None:
-        raise DomainError("That schedule has no future occurrence")
-
-    if existing is None:
-        created = Reminder(
-            instruction=instruction,
-            system=True,
-            system_key=key,
-            next_fire_at=first,
-            **schedule_columns(schedule),
-        )
-        session.add(created)
-        await session.flush()
-        return created
-
-    existing.instruction = instruction
-    for column, value in schedule_columns(schedule).items():
-        setattr(existing, column, value)
-    existing.next_fire_at = first
-    existing.version += 1
-    return existing
 
 
 # The running Sprint's own warnings; one Sprint runs at a time, so one key finds them.

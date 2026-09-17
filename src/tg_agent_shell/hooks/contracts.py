@@ -1,8 +1,10 @@
 """Events are facts; subscriptions select them; effects describe the permitted work.
 
 Only the event boundaries with real consumers are implemented. Checks receive no session
-or delivery objects. Run handlers receive a publication port and the application's
-resources, under the lease the event adapter owns. Advise keeps what a check returned as
+or delivery objects. Run handlers receive the application's resources and a session
+factory, and after a turn a publication port too, under the lease the event adapter owns;
+on a tick there is no chat, and words go through a recorded change and an Advise hook.
+Advise keeps what a check returned as
 the hook's one pending request and asks the feature for the words just before they are
 said, so what is said is what is still there.
 
@@ -18,7 +20,7 @@ from dataclasses import dataclass
 from datetime import time
 from typing import Any, Literal
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..foundation.changes import Committed
 
@@ -72,20 +74,29 @@ class OnCommitted:
         return event.kind == self.kind
 
 
+# A local time of day by the workspace's clock, read at every look, so a time the owner
+# moves counts without a restart. The reader is the identity of the daily time: two hooks
+# that name the same reader share one Tick.
+TickTime = Callable[[AsyncSession], Awaitable[time]]
+
+
 @dataclass(frozen=True, slots=True)
 class Tick:
-    """The workspace's clock passed the daily time since the last look; `at` is that
-    time as "HH:MM", which is all a daily check has to keep."""
+    """The workspace's clock passed a daily time since the last look. `at` is that time
+    as "HH:MM", which is all a daily check has to keep; `clock` is the reader that named it."""
 
     at: str
+    clock: TickTime
 
 
 @dataclass(frozen=True, slots=True)
 class OnTick:
-    """A check once a day, at the local time the application names (`TickTime`)."""
+    """A check once a day, at the local time the reader `at` names."""
+
+    at: TickTime
 
     def matches(self, event: Tick) -> bool:
-        return True
+        return event.clock is self.at
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +105,7 @@ class RunContext[Resources]:
     still_current: Callable[[], bool]
     # Text is plain text. The adapter escapes and registers every publication.
     publish: Callable[[str, str], Awaitable[None]]
+    sessions: async_sessionmaker[AsyncSession]
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,10 +156,6 @@ class HookSpec[Event, Payload]:
 
 # Whether the hook of that name is on, asked only for an agent-related hook.
 HookPolicy = Callable[[AsyncSession, str], Awaitable[bool]]
-
-# The local time of day the daily checks run at, by the workspace's clock. It is read at
-# every look, so a time the owner moves counts without a restart.
-TickTime = Callable[[AsyncSession], Awaitable[time]]
 
 
 async def every_switch_on(session: AsyncSession, name: str) -> bool:
