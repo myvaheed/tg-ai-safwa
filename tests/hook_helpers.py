@@ -15,6 +15,7 @@ def run_hooks(*operations) -> HookRegistry:
             HookSpec(
                 name=operation.__name__, owner="test", on=(OnAfterTurn(),),
                 evaluate=candidate, effect=Run(operation),
+                title=operation.__name__, description="Test work after a turn.",
             )
             for operation in operations
         ),

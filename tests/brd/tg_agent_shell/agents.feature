@@ -283,7 +283,7 @@ Feature: Agents — the session, the hand-over, and what comes back
     When the application's policy switches a reaction off
     Then it stays in the catalogue and its condition is not checked
     And its declaration is validated before the application starts, on or off
-    And a reaction that declares no switch is on whatever the policy says
+    And a reaction that runs work of its own is on whatever the policy says; one that hands the agent a helper or a request is the owner's to switch
     And an application with no settings of its own keeps every reaction on
     When an unrelated event occurs
     Then the reaction's condition is not checked

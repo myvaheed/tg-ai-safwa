@@ -175,9 +175,8 @@ def _switch_state(profile: UserProfile, hook: HookSpec) -> str:
 
 
 def _switch_label(profile: UserProfile, hook: HookSpec) -> str:
-    assert hook.switch is not None
     on = _switch_state(profile, hook) == "on"
-    return f"{'🔔' if on else '🔕'} {hook.switch.title}: {'on' if on else 'off'}"
+    return f"{'🔔' if on else '🔕'} {hook.title}: {'on' if on else 'off'}"
 
 
 def profile_text(
@@ -193,10 +192,9 @@ def profile_text(
         lines.append(f"{field.title}: {html.escape(field.show(getattr(profile, name)))}")
     lines.append(f"Timezone: {html.escape(timezone)}")
     for hook in switches:
-        assert hook.switch is not None
         lines.append(
-            f"{html.escape(hook.switch.title)}: {_switch_state(profile, hook)} — "
-            f"{html.escape(hook.switch.description)}"
+            f"{html.escape(hook.title)}: {_switch_state(profile, hook)} — "
+            f"{html.escape(hook.description)}"
         )
     lines.append("Tap a setting to change it.")
     return "\n".join(lines)
@@ -221,7 +219,7 @@ async def command_profile(
                     session, services.owner_id, field.label, "profile_edit", {"field": name}
                 )
             )
-        switches = services.hooks.switches
+        switches = services.hooks.agent_related
         rendered = profile_text(profile, workspace.timezone, switches)
         rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
         # One row per switch: its label is the state, so the press that flips it is visible.
@@ -319,8 +317,8 @@ async def _on_edit(context: CallbackContext) -> None:
 async def _on_switch(context: CallbackContext) -> None:
     """Flip one automatic reaction and redraw the Profile in place."""
     name = str(context.payload["hook"])
-    hook = next((spec for spec in context.services.hooks.switches if spec.name == name), None)
-    if hook is None or hook.switch is None:
+    hook = next((spec for spec in context.services.hooks.agent_related if spec.name == name), None)
+    if hook is None:
         raise DomainError("That setting is no longer available.")
     async with context.sessions() as session:
         profile = await session.get(UserProfile, 1)
@@ -332,7 +330,7 @@ async def _on_switch(context: CallbackContext) -> None:
     await command_profile(
         context.message,
         context.services,
-        notice=f"{hook.switch.title} switched {'on' if on else 'off'}.",
+        notice=f"{hook.title} switched {'on' if on else 'off'}.",
         replace_message_id=context.message.message_id,
     )
 

@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
 
-import pytest
 from hook_helpers import run_hooks
 from marks import read_kind_mark
 from ui_harness import FakeMessage, services_for
@@ -174,41 +173,24 @@ def summary_services(sessions, provider, history):
     return services
 
 
-@pytest.mark.parametrize("enabled", [True, False])
-async def test_summary_hook_runs_once_and_switch_keeps_the_command(sessions, enabled):
-    """SUM-AUTO-003 — tests/brd/summary.feature"""
-    provider = RecordingProvider("Automatic", "Manual") if enabled else RecordingProvider("Manual")
+async def test_the_summary_hook_writes_after_a_turn_whatever_the_stored_switches_say(sessions):
+    """PS-HOOKS-015 — tests/brd/profile.feature"""
+    provider = RecordingProvider("Automatic", "Manual")
     services = summary_services(sessions, provider, SequenceHistory([said(10, "Long dialogue")]))
     async with sessions() as session:
-        await set_hook_switch(session, SUMMARY_HOOK.name, on=enabled)
+        # Folding the window is Safwa's own work, not the agent's: no stored switch reaches it.
+        await set_hook_switch(session, SUMMARY_HOOK.name, on=False)
         await session.commit()
     message = FakeMessage(11, text="Continue", bot_message=False, answer_as_new=True)
     await run_after_turn(message, services, AfterTurn(42, 700, 11, 0))
-    assert len(provider.requests) == int(enabled)
-    assert len(message.sent_messages) == int(enabled)
+    assert len(provider.requests) == 1
+    assert len(message.sent_messages) == 1
     assert not services.turn.active
     await command_summarize(message, services)
-    assert len(provider.requests) == 1 + int(enabled)
+    assert len(provider.requests) == 2
     kind, text = read_kind_mark(message.sent_messages[-1].text)
     assert kind == MessageKind.SUMMARY.value
     assert "Manual" in text
-
-
-async def test_a_summary_switched_off_while_it_was_written_is_not_published(sessions):
-    """PS-HOOKS-015 — tests/brd/profile.feature"""
-    class SwitchingProvider(RecordingProvider):
-        async def complete(self, request):
-            async with sessions() as session:
-                await set_hook_switch(session, SUMMARY_HOOK.name, on=False)
-                await session.commit()
-            return await super().complete(request)
-
-    provider = SwitchingProvider("Late")
-    services = summary_services(sessions, provider, SequenceHistory([said(10, "Long dialogue")]))
-    message = FakeMessage(11, text="Continue", bot_message=False, answer_as_new=True)
-    await run_after_turn(message, services, AfterTurn(42, 700, 11, 0))
-    assert len(provider.requests) == 1
-    assert message.sent_messages == []
 
 
 async def test_summary_hook_keeps_the_snapshot_check(sessions):

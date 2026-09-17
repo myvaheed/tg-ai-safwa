@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -13,7 +12,6 @@ from safwa.features.cards.use_cases import create_card
 from safwa.features.profile.api import morning_time
 from telegram_llm import DialogueMessage
 from tg_agent_shell.ai.outcome import AIOutcomeKind
-from tg_agent_shell.hooks.contracts import HookSwitch
 from tg_agent_shell.proposals.model import BatchDecision
 from tg_agent_shell.proposals.use_cases import approve_proposal
 from tg_agent_shell.registry import Registry
@@ -100,10 +98,8 @@ async def test_switching_the_offer_off_keeps_the_helper_operation(e2e_harness):
     async def everything_off(session, name):
         return False
 
-    # The real offer has no switch; give every hook one here so the policy can turn it off.
     advisor.adapters.hooks = Registry.of(
-        MODULES, world=REGISTRY.proposals.world,
-        hooks=tuple(replace(item, switch=HookSwitch("Offer", "Offers the helper.")) for item in HOOKS),
+        MODULES, world=REGISTRY.proposals.world, hooks=HOOKS,
         hook_policy=everything_off, tick_time=morning_time,
     ).hooks
     await advisor.handle(QUESTION)

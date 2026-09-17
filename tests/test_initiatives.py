@@ -16,7 +16,6 @@ from tg_agent_shell.foundation.changes import Committed, record_change
 from tg_agent_shell.hooks.contracts import (
     Advise,
     HookSpec,
-    HookSwitch,
     OnCommitted,
     OnTick,
     Tick,
@@ -46,7 +45,7 @@ async def words(session, items) -> str | None:
 HOOK = HookSpec(
     name="test.advice", owner="test", on=(OnCommitted(kind=KIND),),
     evaluate=subject, effect=Advise(words),
-    switch=HookSwitch(title="Advice", description="Asks about a changed thing."),
+    title="Advice", description="Asks about a changed thing.",
 )
 
 
@@ -61,7 +60,7 @@ async def morning_words(session, items) -> str | None:
 DAILY = HookSpec(
     name="test.daily", owner="test", on=(OnTick(),),
     evaluate=marker, effect=Advise(morning_words),
-    switch=HookSwitch(title="Daily", description="Asks every morning."),
+    title="Daily", description="Asks every morning.",
 )
 NINE = time(9, 0)
 

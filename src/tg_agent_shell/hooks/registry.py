@@ -95,9 +95,9 @@ class HookRegistry:
         return cls(specs, policy, tick_time, MappingProxyType({key: tuple(value) for key, value in index.items()}))
 
     @property
-    def switches(self) -> tuple[HookSpec, ...]:
+    def agent_related(self) -> tuple[HookSpec, ...]:
         """The hooks the owner may turn off, in catalogue order."""
-        return tuple(spec for spec in self.specs if spec.switch is not None)
+        return tuple(spec for spec in self.specs if spec.agent_related)
 
     def listens(self, event_type: type) -> bool:
         return event_type in self._index
@@ -106,7 +106,7 @@ class HookRegistry:
         self, sessions: async_sessionmaker[AsyncSession], spec: HookSpec
     ) -> bool:
         """Read the policy now, so a switch the owner just turned counts without a restart."""
-        if spec.switch is None:
+        if not spec.agent_related:
             return True
         async with sessions() as session:
             return await self.policy(session, spec.name)

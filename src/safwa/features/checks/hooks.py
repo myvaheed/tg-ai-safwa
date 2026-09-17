@@ -10,7 +10,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.changes import Committed
-from tg_agent_shell.hooks.contracts import Advise, HookSpec, HookSwitch, OnCommitted
+from tg_agent_shell.hooks.contracts import Advise, HookSpec, OnCommitted
 
 from ...foundation.workspace import require_workspace
 from ..cards.api import Card
@@ -88,8 +88,6 @@ MISSED_RUN_HOOK = HookSpec(
     on=(OnCommitted(kind=CHECK_MISSED),),
     evaluate=missed_checks,
     effect=Advise(prepare=missed_run_request),
-    switch=HookSwitch(
-        title="Repeated Missed",
-        description="After a Check is Missed several times in a row, asks what gets in the way.",
-    ),
+    title="Repeated Missed",
+    description="After a Check is Missed several times in a row, asks what gets in the way.",
 )

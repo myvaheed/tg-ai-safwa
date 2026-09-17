@@ -7,6 +7,7 @@ built either.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
@@ -46,8 +47,14 @@ def _session(ran: list[str]) -> AgentSession:
     return AgentSession(run_id=1, tools=(), read_specs={"read_thing": spec})
 
 
+@asynccontextmanager
+async def _no_session():
+    # The hook's switch is read through a session; every policy here reads the name alone.
+    yield None
+
+
 def _adapters(**watchers: Any) -> ToolAdapters:
-    return ToolAdapters(None, None, None, _Trail(), ScreenCatalogue.of(()), **watchers)
+    return ToolAdapters(_no_session, None, None, _Trail(), ScreenCatalogue.of(()), **watchers)
 
 
 async def test_ag_tool_031_a_watcher_that_answers_refuses_the_call() -> None:
@@ -137,6 +144,7 @@ async def test_ag_tool_033_a_read_that_failed_earns_no_offer() -> None:
         (HookSpec(
             name="offer", owner="test", on=(OnAfterTool(tool="query_data"),),
             evaluate=offer, effect=OfferTool("any"),
+            title="Offer", description="Offers any helper after a read.",
         ),),
         owners=frozenset({"test"}), helpers=frozenset({"any"}),
         tools=frozenset({"query_data"}),

@@ -1381,7 +1381,7 @@ async def test_cd_blocked_034_becoming_blocked_is_the_change_a_hook_follows_up(s
 
 async def test_cd_blocked_034_the_request_names_what_is_still_blocked_and_open(sessions):
     """CD-BLOCKED-034 — tests/brd/cards.feature"""
-    assert BLOCKER_HOOK.switch is not None
+    assert BLOCKER_HOOK.agent_related
     # The switch is named where the Advisor reads it on every turn, not in the request.
     assert "switches off in Profile" in SYSTEM_PROMPT
     async with sessions() as session:
@@ -1417,7 +1417,7 @@ async def test_cd_blocked_034_the_request_names_what_is_still_blocked_and_open(s
 
 async def test_cd_empty_035_the_request_names_the_parents_old_enough_and_still_without_an_action(sessions):
     """CD-EMPTY-035 — tests/brd/cards.feature"""
-    assert EMPTY_PARENTS_HOOK.switch is not None
+    assert EMPTY_PARENTS_HOOK.agent_related
     assert EMPTY_PARENTS_HOOK.on == (OnTick(),)
     now = datetime(2026, 9, 16, 6, 0, tzinfo=UTC)
     old = now - timedelta(days=EMPTY_PARENT_GRACE_DAYS, hours=1)
@@ -1486,7 +1486,7 @@ async def test_cd_today_036_entering_today_is_the_change_a_hook_follows_up(sessi
 
 async def test_cd_today_036_the_request_sums_the_day_as_it_is_about_to_be_said(sessions):
     """CD-TODAY-036 — tests/brd/cards.feature"""
-    assert TODAY_OVERLOAD_HOOK.switch is not None
+    assert TODAY_OVERLOAD_HOOK.agent_related
     assert TODAY_OVERLOAD_HOOK.on == (OnCommitted(kind=CARD_TODAY),)
     async with sessions() as session:
         done = await create_card(

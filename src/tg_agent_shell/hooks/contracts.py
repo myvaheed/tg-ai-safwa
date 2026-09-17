@@ -6,8 +6,9 @@ resources, under the lease the event adapter owns. Advise keeps what a check ret
 the hook's one pending request and asks the feature for the words just before they are
 said, so what is said is what is still there.
 
-A hook with a switch is the owner's to turn off; whether it is on is the application's
-policy, read where the hook is about to work. A hook without one is always on.
+A hook whose effect reaches the agent — a helper offered to its session, a request handed
+to the Advisor — is the owner's to turn off; whether it is on is the application's policy,
+read where the hook is about to work. A hook that runs work of its own is always on.
 """
 
 from __future__ import annotations
@@ -102,6 +103,10 @@ class Run[Payload]:
 
 @dataclass(frozen=True, slots=True)
 class OfferTool:
+    """After a tool ran: the model reads its result with the check's notice appended, and
+    the named helper is on the session's tool list from the next model call on. Nothing
+    makes the model call it."""
+
     helper: str
 
 
@@ -118,14 +123,6 @@ class Advise[Item]:
 
 
 @dataclass(frozen=True, slots=True)
-class HookSwitch:
-    """What the owner reads on the settings screen that turns the hook off and on."""
-
-    title: str
-    description: str
-
-
-@dataclass(frozen=True, slots=True)
 class HookSpec[Event, Payload]:
     name: str
     owner: str
@@ -134,10 +131,18 @@ class HookSpec[Event, Payload]:
     # OfferTool checks return the notice the model reads. Run checks return operation data.
     # Advise checks return the items the request will be about.
     effect: Run[Payload] | OfferTool | Advise[Payload]
-    switch: HookSwitch | None = None
+    # What the owner reads about the hook: on the settings screen when it is theirs to
+    # switch, and in the feature map either way.
+    title: str
+    description: str
+
+    @property
+    def agent_related(self) -> bool:
+        """Whether the effect reaches the agent, which is what makes the hook the owner's to switch."""
+        return isinstance(self.effect, OfferTool | Advise)
 
 
-# Whether the hook of that name is on, asked only for a hook that has a switch.
+# Whether the hook of that name is on, asked only for an agent-related hook.
 HookPolicy = Callable[[AsyncSession, str], Awaitable[bool]]
 
 # The local time of day the daily checks run at, by the workspace's clock. It is read at

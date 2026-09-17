@@ -8,7 +8,6 @@ from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.hooks.contracts import (
     AfterTurn,
     HookSpec,
-    HookSwitch,
     OnAfterTurn,
     Run,
     RunContext,
@@ -40,8 +39,6 @@ SUMMARY_HOOK = HookSpec(
     on=(OnAfterTurn(),),
     evaluate=summary_candidate,
     effect=Run(make_summary),
-    switch=HookSwitch(
-        title="Automatic Summary",
-        description="After a turn, folds a long dialogue window into a Summary.",
-    ),
+    title="Automatic Summary",
+    description="After a turn, folds a long dialogue window into a Summary.",
 )

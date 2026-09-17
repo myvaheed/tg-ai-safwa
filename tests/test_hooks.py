@@ -21,7 +21,6 @@ from tg_agent_shell.hooks.contracts import (
     AfterTool,
     AfterTurn,
     HookSpec,
-    HookSwitch,
     OfferTool,
     OnAfterTool,
     OnAfterTurn,
@@ -52,6 +51,7 @@ async def words(session, items):
 SPEC = HookSpec(
     name="reader.offer", owner="reader", on=(OnAfterTool(tool="query_data"),),
     evaluate=candidate, effect=OfferTool("reader"),
+    title="Reader offer", description="Offers the reader after a read.",
 )
 EVENT = AfterTool(
     run_id=1, agent="root", agent_kind="advisor", tool="query_data", call_id="q1",
@@ -60,10 +60,10 @@ EVENT = AfterTool(
 CALL = ToolCall(id=EVENT.call_id, name=EVENT.tool, arguments_json=EVENT.arguments_json)
 
 
-SWITCH = HookSwitch(title="Reader offer", description="Offers the reader after a read.")
 ADVICE = HookSpec(
     name="reader.advice", owner="reader", on=(OnCommitted(kind="thing.changed"),),
-    evaluate=subject, effect=Advise(words), switch=SWITCH,
+    evaluate=subject, effect=Advise(words),
+    title="Reader advice", description="Asks about a changed thing.",
 )
 CHANGE = Committed(kind="thing.changed", subject_id=7)
 
@@ -95,7 +95,6 @@ def switched(*names_off):
     return policy
 
 
-@pytest.mark.parametrize("switch", [None, SWITCH])
 @pytest.mark.parametrize(
     "bad, reason",
     [
@@ -113,16 +112,16 @@ def switched(*names_off):
         (replace(SPEC, on=(OnCommitted(" "),), effect=Advise(words)), "incompatible"),
     ],
 )
-def test_invalid_wiring_is_rejected_with_or_without_a_switch(bad, reason, switch):
+def test_invalid_wiring_is_rejected_on_or_off(bad, reason):
     """AG-HOOK-035 — tests/brd/tg_agent_shell/agents.feature"""
     with pytest.raises(RuntimeError, match=reason):
-        catalogue(replace(bad, switch=switch), policy=switched(bad.name))
+        catalogue(bad, policy=switched(bad.name))
 
 
 def test_a_switched_off_duplicate_is_still_a_duplicate():
     """AG-HOOK-035 — tests/brd/tg_agent_shell/agents.feature"""
     with pytest.raises(RuntimeError, match="Duplicate"):
-        catalogue(SPEC, replace(SPEC, switch=SWITCH), policy=switched(SPEC.name))
+        catalogue(SPEC, SPEC, policy=switched(SPEC.name))
 
 
 async def test_switched_off_and_unmatched_hooks_never_check():
@@ -133,10 +132,10 @@ async def test_switched_off_and_unmatched_hooks_never_check():
         seen.append(event)
         return ("Offer.",)
 
-    spec = replace(SPEC, evaluate=check, switch=SWITCH)
+    spec = replace(SPEC, evaluate=check)
     off = catalogue(spec, policy=switched(spec.name))
     assert not [item async for item in off.evaluate(EVENT, NO_SESSIONS)]
-    assert off.switches == (spec,)
+    assert off.agent_related == (spec,)
     on = catalogue(spec, policy=switched("some.other"))
     for event in (
         replace(EVENT, agent="subagent"), replace(EVENT, outcome="error"),
@@ -148,16 +147,18 @@ async def test_switched_off_and_unmatched_hooks_never_check():
     assert seen == [EVENT]
 
 
-async def test_a_hook_without_a_switch_is_on_whatever_the_policy_says():
+async def test_a_hook_that_runs_work_of_its_own_is_on_whatever_the_policy_says():
     """AG-HOOK-035 — tests/brd/tg_agent_shell/agents.feature"""
     async def never(session, name):
-        raise AssertionError("a hook without a switch asks no policy")
+        raise AssertionError("a hook that is not the agent's asks no policy")
 
-    hooks = catalogue(SPEC, policy=never)
-    assert hooks.switches == ()
-    assert len([item async for item in hooks.evaluate(EVENT, NO_SESSIONS)]) == 1
-    # An application with no policy of its own keeps a switch on too.
-    assert len([item async for item in catalogue(replace(SPEC, switch=SWITCH)).evaluate(EVENT, NO_SESSIONS)]) == 1
+    work = replace(SPEC, on=(OnAfterTurn(),), effect=Run(operation))
+    hooks = catalogue(work, policy=never)
+    assert hooks.agent_related == ()
+    assert len([item async for item in hooks.evaluate(AfterTurn(42, 42, 1, 0), NO_SESSIONS)]) == 1
+    # An application with no policy of its own keeps an agent-related hook on too.
+    assert catalogue(SPEC).agent_related == (SPEC,)
+    assert len([item async for item in catalogue(SPEC).evaluate(EVENT, NO_SESSIONS)]) == 1
 
 
 async def test_two_subscriptions_still_check_a_hook_once():
@@ -170,6 +171,7 @@ async def test_two_subscriptions_still_check_a_hook_once():
     hooks = catalogue(HookSpec(
         name="service", owner="reader", evaluate=check, effect=Run(operation),
         on=(OnAfterTurn("owner"), OnAfterTurn("system")),
+        title="Service", description="Runs after any turn.",
     ))
     event = AfterTurn(42, 42, 1, 0)
     assert len([item async for item in hooks.evaluate(event, NO_SESSIONS)]) == 1
@@ -241,7 +243,7 @@ async def test_only_the_named_helper_is_granted_and_the_grant_survives_resume():
 
 @pytest.mark.parametrize("on, agent_role", [(False, "root"), (True, "subagent")])
 async def test_no_offer_for_a_switched_off_hook_or_child_session(on, agent_role):
-    spec = replace(SPEC, switch=SWITCH)
+    spec = SPEC
     port = adapters(catalogue(spec, policy=switched(*([] if on else [spec.name]))), [])
     agent = AgentSession(
         run_id=2, parent_run_id=1 if agent_role == "subagent" else None,
@@ -284,6 +286,7 @@ async def test_a_daily_check_is_registered_only_where_the_application_names_its_
     daily = HookSpec(
         name="reader.daily", owner="reader", on=(OnTick(),),
         evaluate=subject, effect=Advise(words),
+        title="Reader daily", description="Asks every morning.",
     )
 
     async def marker(event):

@@ -466,7 +466,7 @@ async def test_pl_scope_008_returning_to_sprint_scope_cancels_the_earlier_remova
 
 async def test_pl_hardtime_021_the_request_names_the_hard_times_the_plan_does_not_hold(sessions):
     """PL-HARDTIME-021 — tests/brd/planning.feature"""
-    assert HARD_TIME_HOOK.switch is not None
+    assert HARD_TIME_HOOK.agent_related
     assert HARD_TIME_HOOK.on == (OnCommitted(kind=SPRINT_STARTED), OnTick())
     today = datetime.now(ZoneInfo("Europe/Istanbul")).date()
 

@@ -20,4 +20,6 @@ HEAVY_ANALYZER_HOOK = HookSpec(
     on=(OnAfterTool(tool="query_data"),),
     evaluate=complex_read_candidate,
     effect=OfferTool(helper=NAME),
+    title="Helper offer",
+    description="After a read past one flat scan, offers the helper that writes the query instead.",
 )

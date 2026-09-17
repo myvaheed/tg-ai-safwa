@@ -80,9 +80,10 @@ the commands, the callbacks, the text inputs, the proposal capabilities, the sub
 hooks and the background tasks, refusing each collision where it happens.
 
 `HOOKS` is the explicit list of automatic reactions, independent of the features themselves.
-A hook that declares a `HookSwitch` is the owner's to turn off in the Profile, and
-`HookRegistry` asks the application's policy — `hook_switched_on`, read live — before running
-its condition or publishing its result; a hook without one is always on. The tool adapter
+A hook whose effect reaches the agent — `OfferTool` or `Advise`, its `agent_related` — is the
+owner's to turn off in the Profile, and `HookRegistry` asks the application's policy —
+`hook_switched_on`, read live — before running its condition or wording its request; a hook
+that runs work of its own, `Run`, is always on. The tool adapter
 emits `AfterTool`; the dialogue adapter emits `AfterTurn` after releasing the owner's turn.
 Its `Run` operations use one background lease and a publication port that checks currentness.
 Summary retains its own window threshold and history comparison. Its manual command calls the

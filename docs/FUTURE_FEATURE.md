@@ -95,8 +95,9 @@ its command, as covered by [summary.feature](../tests/brd/summary.feature).
 events and timed checks. This entry remains open for those later stages.
 
 A hook is on or off as a whole, and only the owner switches it, by hand in the Profile, where
-every hook that has a switch is listed with a title and a description. A hook without one, such
-as the Heavy analyzer offer, is always on, the way a system Reminder cannot be deleted. There
+every hook whose effect reaches the agent — a helper offered, a request handed to the Advisor —
+is listed with a title and a description. A hook that runs work of its own, such as the
+automatic Summary, is always on, the way a system Reminder cannot be deleted. There
 are no exceptions for one Card or Goal, no journal of consents and refusals, and no editing of
 these switches by the AI or through a Proposal; "never ask about this again" is the switch.
 

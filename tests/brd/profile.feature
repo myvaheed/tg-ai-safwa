@@ -84,16 +84,15 @@ Feature: Profile
     And when the summary and the Diary fall due together they reach Safwa as one request, so
       the owner gets one message
 
-  Scenario: PS-HOOKS-015 — An automatic reaction with a switch is switched in the Profile
-    Given the application registers its automatic reactions, and automatic Summary has a switch
+  Scenario: PS-HOOKS-015 — An automatic reaction that reaches the Advisor is switched in the Profile
+    Given the application registers its automatic reactions
     When Profile is drawn
-    Then each reaction with a switch is on the screen by its title, with its description, and is on
-    And a reaction without one, such as the Heavy analyzer offer, is not on the screen and is always on
+    Then each reaction that hands the Advisor a request or a helper is on the screen by its title, with its description, and is on
+    And one that runs work of its own, such as the automatic Summary, is not on the screen and is always on
     When the owner presses one
     Then that reaction is off from that moment, without a restart, and stays off after one
     And pressing it again turns it back on
-    And while it is off its condition is not checked, and a result it was still working on
-      when it was switched off is not published
+    And while it is off its condition is not checked
 
   Scenario: PS-MORNING-016 — The Morning time is when Safwa's morning checks run
     Given a new workspace, whose Morning time is 09:00 (MORNING_TIME_DEFAULT = "09:00")

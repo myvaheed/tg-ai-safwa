@@ -16,7 +16,6 @@ from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.hooks.contracts import (
     Advise,
     HookSpec,
-    HookSwitch,
     OnCommitted,
     OnTick,
     Tick,
@@ -95,10 +94,8 @@ BLOCKER_HOOK = HookSpec(
     on=(OnCommitted(kind=CARD_BLOCKED),),
     evaluate=blocked_cards,
     effect=Advise(prepare=blocker_request),
-    switch=HookSwitch(
-        title="Blocker follow-up",
-        description="After an Action is blocked, asks whether to set a Reminder to come back to it.",
-    ),
+    title="Blocker follow-up",
+    description="After an Action is blocked, asks whether to set a Reminder to come back to it.",
 )
 
 
@@ -157,10 +154,8 @@ TODAY_OVERLOAD_HOOK = HookSpec(
     on=(OnCommitted(kind=CARD_TODAY),),
     evaluate=entered_today,
     effect=Advise(prepare=today_overload_request),
-    switch=HookSwitch(
-        title="Today overload",
-        description="After an Action enters Today, asks what to move back when the day holds more than it is meant to.",
-    ),
+    title="Today overload",
+    description="After an Action enters Today, asks what to move back when the day holds more than it is meant to.",
 )
 
 
@@ -217,10 +212,8 @@ HARD_TIME_HOOK = HookSpec(
     on=(OnCommitted(kind=SPRINT_STARTED), OnTick()),
     evaluate=plan_check_due,
     effect=Advise(prepare=hard_time_request),
-    switch=HookSwitch(
-        title="Hard Time outside the plan",
-        description="When a Sprint starts and each morning, asks about the Actions whose Hard Time comes before the plan holds them.",
-    ),
+    title="Hard Time outside the plan",
+    description="When a Sprint starts and each morning, asks about the Actions whose Hard Time comes before the plan holds them.",
 )
 
 
@@ -261,8 +254,6 @@ EMPTY_PARENTS_HOOK = HookSpec(
     on=(OnTick(),),
     evaluate=check_due,
     effect=Advise(prepare=empty_parents_request),
-    switch=HookSwitch(
-        title="Goals without Actions",
-        description="Each morning, asks about the Goals and Subgoals that have no Action under them.",
-    ),
+    title="Goals without Actions",
+    description="Each morning, asks about the Goals and Subgoals that have no Action under them.",
 )

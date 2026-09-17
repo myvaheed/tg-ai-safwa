@@ -603,7 +603,7 @@ async def test_ch_archive_013_safwa_reads_an_archived_answer(read_views):
 
 async def test_ch_missed_017_a_run_of_missed_is_raised_at_every_multiple_of_three(sessions):
     """CH-MISSED-017 — tests/brd/checks.feature"""
-    assert MISSED_RUN_HOOK.switch is not None
+    assert MISSED_RUN_HOOK.agent_related
     assert MISSED_RUN_HOOK.on == (OnCommitted(kind=CHECK_MISSED),)
     assert MISSED_RUN == 3
     async with sessions() as session:
