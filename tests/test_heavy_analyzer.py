@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -8,13 +9,14 @@ import pytest
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.bootstrap.modules import AGENTS, HELPERS, SCREENS, SYSTEM_PROMPT
 from safwa.features.heavy_analyzer import agent as heavy_analyzer
-from safwa.features.heavy_analyzer.agent import worth_a_helper
+from safwa.features.heavy_analyzer.hooks import HEAVY_ANALYZER_HOOK, complex_read
 from tg_agent_shell.ai.contracts import (
     QUERY_TOOL,
     ROUTE_TOOL,
     open_tool,
 )
 from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS
+from tg_agent_shell.hooks.contracts import BeforeTool, OnBeforeTool, RefuseTool
 
 HEAVY_ANALYZER_PROMPT = HELPERS[heavy_analyzer.NAME].instructions
 
@@ -88,7 +90,7 @@ def test_a_reader_is_scoped_by_the_list_it_is_given() -> None:
 )
 def test_han_offer_002_a_flat_read_earns_nothing(sql: str) -> None:
     """HAN-OFFER-002 — tests/brd/heavy_analyzer.feature"""
-    assert not worth_a_helper(sql, [{"n": 1}])
+    assert asyncio.run(complex_read(about_to_read(sql))) == ()
 
 
 @pytest.mark.parametrize(
@@ -101,16 +103,29 @@ def test_han_offer_002_a_flat_read_earns_nothing(sql: str) -> None:
         "SELECT id, row_number() OVER (ORDER BY id) FROM ai_cards",
     ],
 )
-def test_han_offer_001_a_read_past_one_flat_scan_earns_the_helper(sql: str) -> None:
+def test_han_offer_001_a_read_past_one_flat_scan_is_refused_with_the_offer(sql: str) -> None:
     """HAN-OFFER-001 — tests/brd/heavy_analyzer.feature"""
-    assert worth_a_helper(sql, [{"n": 1}])
+    assert isinstance(HEAVY_ANALYZER_HOOK.effect, RefuseTool)
+    assert HEAVY_ANALYZER_HOOK.on == (OnBeforeTool(tool="query_data"),)
+    (notice,) = asyncio.run(complex_read(about_to_read(sql)))
+    assert "call_helper" in notice and "not run" in notice
 
 
-def test_han_offer_003_a_result_the_row_limit_cut_earns_the_helper() -> None:
-    """HAN-OFFER-003 — tests/brd/heavy_analyzer.feature"""
-    flat = "SELECT id FROM ai_cards"
-    assert not worth_a_helper(flat, [{"id": 1}])
-    assert worth_a_helper(flat, [{"id": 1}, {"notice": "50 rows shown; more matched."}])
+def test_arguments_that_are_not_a_read_are_left_to_the_runner() -> None:
+    """HAN-OFFER-002 — tests/brd/heavy_analyzer.feature"""
+    for raw in ("not json", '{"query": "SELECT 1"}', '{"sql": 5}'):
+        event = BeforeTool(
+            run_id=1, agent="root", agent_kind="advisor", tool="query_data", call_id="q1",
+            arguments_json=raw,
+        )
+        assert asyncio.run(complex_read(event)) == ()
+
+
+def about_to_read(sql: str) -> BeforeTool:
+    return BeforeTool(
+        run_id=1, agent="root", agent_kind="advisor", tool="query_data", call_id="q1",
+        arguments_json=json.dumps({"sql": sql}),
+    )
 
 
 # ------------------------------------------------------------------ what it hands back

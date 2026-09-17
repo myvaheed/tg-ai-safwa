@@ -8,8 +8,8 @@ Advise keeps what a check returned as
 the hook's one pending request and asks the feature for the words just before they are
 said, so what is said is what is still there.
 
-A hook whose effect reaches the agent — a helper offered to its session, a request handed
-to the Advisor — is the owner's to turn off; whether it is on is the application's policy,
+A hook whose effect reaches the agent — a helper offered to its session, a call refused, a
+request handed to the Advisor — is the owner's to turn off; whether it is on is the application's policy,
 read where the hook is about to work. A hook that runs work of its own is always on.
 """
 
@@ -47,11 +47,32 @@ class AfterTool:
 
 
 @dataclass(frozen=True, slots=True)
+class BeforeTool:
+    """The model called a tool and it has not run yet."""
+
+    run_id: int
+    agent: Literal["root", "subagent"]
+    agent_kind: str
+    tool: str
+    call_id: str
+    arguments_json: str
+
+
+@dataclass(frozen=True, slots=True)
 class OnAfterTurn:
     source: Literal["owner", "system"] = "owner"
 
     def matches(self, event: AfterTurn) -> bool:
         return event.source == self.source
+
+
+@dataclass(frozen=True, slots=True)
+class OnBeforeTool:
+    tool: str
+    agent: Literal["root", "subagent"] = "root"
+
+    def matches(self, event: BeforeTool) -> bool:
+        return (event.tool, event.agent) == (self.tool, self.agent)
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +144,17 @@ class OfferTool:
 
 
 @dataclass(frozen=True, slots=True)
+class RefuseTool:
+    """Before a tool runs: it does not run, the check's notice is what the model reads as
+    the call's result, and the named helper is on the session's tool list from the next
+    model call on. The model answers with something else — the helper, or a different call.
+
+    A check that fails is not a pass: the turn ends there, and the call is not run."""
+
+    helper: str
+
+
+@dataclass(frozen=True, slots=True)
 class Advise[Item]:
     """One pending request to the Advisor per hook, worded when it is about to be said.
 
@@ -138,11 +170,11 @@ class Advise[Item]:
 class HookSpec[Event, Payload]:
     name: str
     owner: str
-    on: tuple[OnAfterTurn | OnAfterTool | OnCommitted | OnTick, ...]
+    on: tuple[OnAfterTurn | OnAfterTool | OnBeforeTool | OnCommitted | OnTick, ...]
     evaluate: Callable[[Event], Awaitable[Sequence[Payload]]]
-    # OfferTool checks return the notice the model reads. Run checks return operation data.
-    # Advise checks return the items the request will be about.
-    effect: Run[Payload] | OfferTool | Advise[Payload]
+    # OfferTool and RefuseTool checks return the notice the model reads. Run checks return
+    # operation data. Advise checks return the items the request will be about.
+    effect: Run[Payload] | OfferTool | RefuseTool | Advise[Payload]
     # What the owner reads about the hook: on the settings screen when it is theirs to
     # switch, and in the feature map either way.
     title: str
@@ -151,7 +183,7 @@ class HookSpec[Event, Payload]:
     @property
     def agent_related(self) -> bool:
         """Whether the effect reaches the agent, which is what makes the hook the owner's to switch."""
-        return isinstance(self.effect, OfferTool | Advise)
+        return isinstance(self.effect, OfferTool | RefuseTool | Advise)
 
 
 # Whether the hook of that name is on, asked only for an agent-related hook.

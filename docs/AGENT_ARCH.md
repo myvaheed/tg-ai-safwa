@@ -80,11 +80,12 @@ the commands, the callbacks, the text inputs, the proposal capabilities, the sub
 hooks and the background tasks, refusing each collision where it happens.
 
 `HOOKS` is the explicit list of automatic reactions, independent of the features themselves.
-A hook whose effect reaches the agent — `OfferTool` or `Advise`, its `agent_related` — is the
-owner's to turn off in the Profile, and `HookRegistry` asks the application's policy —
-`hook_switched_on`, read live — before running its condition or wording its request; a hook
-that runs work of its own, `Run`, is always on. The tool adapter
-emits `AfterTool`; the dialogue adapter emits `AfterTurn` after releasing the owner's turn.
+A hook whose effect reaches the agent — `OfferTool`, `RefuseTool` or `Advise`, its
+`agent_related` — is the owner's to turn off in the Profile, and `HookRegistry` asks the
+application's policy — `hook_switched_on`, read live — before running its condition or wording
+its request; a hook that runs work of its own, `Run`, is always on. The tool adapter emits
+`BeforeTool` before a call and `AfterTool` after it; the dialogue adapter emits `AfterTurn`
+after releasing the owner's turn.
 Its `Run` operations use one background lease and a publication port that checks currentness.
 Summary retains its own window threshold and history comparison. Its manual command calls the
 same writer directly. The current scope and later stages are [HOOK_ARCH.md](HOOK_ARCH.md).
@@ -349,10 +350,11 @@ flowchart LR
 - Nothing about helpers is in `SYSTEM_PROMPT`. **The read that needed one is what offers it**, and
   the tool is added to that session's tools there and then (`offered_helpers`, which survives a
   suspension).
-- Which read needs one is the feature's own hook: `complex_read_candidate` reads the completed
-  call and its rows, using `worth_a_helper` and `OFFER`. `OfferTool` grants its named helper and
-  adds the notice to the result. The grant names the helper, so `call_helper` runs only a helper
-  this session was offered, and it belongs to that session alone. `HelperSpec` holds the helper's capability independently of the offer.
+- Which read needs one is the feature's own hook: `complex_read` reads the call before it
+  runs, using `is_complex_read` and `OFFER`. `RefuseTool` does not run the read: the notice is
+  the whole result, and the named helper is granted. The grant names the helper, so `call_helper`
+  runs only a helper this session was offered, and it belongs to that session alone. `HelperSpec`
+  holds the helper's capability independently of the offer.
 - A read that *failed* offers nothing, whatever the helper would have said: its `hint` already
   says to repair that one SELECT, and that half stays the engine's.
 - `heavy_analyzer` is a **mini session** (`ai/mini.py`), not a routed subagent: read tools plus two

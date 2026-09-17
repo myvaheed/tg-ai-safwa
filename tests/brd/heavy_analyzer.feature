@@ -1,13 +1,13 @@
 Feature: The helper the Advisor calls
 
-  The Advisor reads well and joins badly. A read that goes past one flat scan says so in its
-  own result, and offers a helper that writes the query instead. The helper answers with the
+  The Advisor reads well and joins badly. A read that goes past one flat scan is not run:
+  what comes back names a helper that writes the query instead. The helper answers with the
   rows it read, never with words about them.
 
-  Scenario: HAN-OFFER-001 — A complex read offers the helper
+  Scenario: HAN-OFFER-001 — A complex read is not run, and the helper is offered instead
     Given the Advisor is answering the owner
-    When it runs a read that joins views, groups rows, nests a query, or opens with WITH
-    Then the result carries a notice naming call_helper
+    When it calls a read that joins views, groups rows, nests a query, or opens with WITH
+    Then the read is not run, and what it reads back as the result is a notice naming call_helper
     And call_helper is on its tool list for the rest of the session
 
   Scenario: HAN-OFFER-002 — A simple read offers nothing
@@ -15,11 +15,6 @@ Feature: The helper the Advisor calls
     When it runs a read over one view that only filters and counts
     Then the result carries no notice about a helper
     And call_helper is not on its tool list
-
-  Scenario: HAN-OFFER-003 — A result that was cut offers the helper
-    Given a read matches more rows than its budget holds (DEFAULT_ROW_LIMIT = 50)
-    When the Advisor runs it
-    Then the notice that says the result was cut also names call_helper
 
   Scenario: HAN-OFFER-004 — A read that failed does not offer the helper
     Given the Advisor runs a read the database refuses

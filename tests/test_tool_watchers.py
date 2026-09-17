@@ -23,7 +23,13 @@ from tg_agent_shell.ai.tools import (
     WatcherFailed,
 )
 from tg_agent_shell.foundation.screens import ScreenCatalogue
-from tg_agent_shell.hooks.contracts import HookSpec, OfferTool, OnAfterTool
+from tg_agent_shell.hooks.contracts import (
+    HookSpec,
+    OfferTool,
+    OnAfterTool,
+    OnBeforeTool,
+    RefuseTool,
+)
 from tg_agent_shell.hooks.registry import HookRegistry
 
 READ = ToolCall(id="1", name="read_thing", arguments_json="{}")
@@ -169,3 +175,92 @@ async def test_ag_tool_033_a_read_that_failed_earns_no_offer() -> None:
     assert len(checked) == 1
     assert rows[-1] == {"notice": "call the helper"}
     assert session.offered_helpers == ("any",)
+
+
+def _refusing(evaluate, *, policy=None) -> ToolAdapters:
+    hooks = HookRegistry.of(
+        (HookSpec(
+            name="refusal", owner="test", on=(OnBeforeTool(tool="read_thing"),),
+            evaluate=evaluate, effect=RefuseTool("any"),
+            title="Refusal", description="Refuses a read and offers any helper.",
+        ),),
+        owners=frozenset({"test"}), helpers=frozenset({"any"}),
+        tools=frozenset({"read_thing"}),
+        **({"policy": policy} if policy is not None else {}),
+    )
+    return _adapters(
+        hooks=hooks,
+        helpers={"any": HelperPort(run=None)},  # type: ignore[arg-type]
+    )
+
+
+def _helped_session(ran: list[str]) -> AgentSession:
+    session = _session(ran)
+    session.helper_tool = {"function": {"name": "call_helper"}}
+    return session
+
+
+async def test_ag_hook_036_a_refusing_hook_stops_the_call_and_grants_its_helper() -> None:
+    """AG-HOOK-036 — tests/brd/tg_agent_shell/agents.feature"""
+    ran: list[str] = []
+
+    async def too_hard(event):
+        return ("Too hard here. call_helper(\"any\", ...) instead.",)
+
+    session = _helped_session(ran)
+    outcome = await _refusing(too_hard).run(session, READ)
+
+    assert ran == []
+    assert not outcome.succeeded
+    assert outcome.result == {
+        "status": ToolResultStatus.ERROR.value,
+        "code": "refused",
+        "notice": "Too hard here. call_helper(\"any\", ...) instead.",
+    }
+    assert session.offered_helpers == ("any",)
+
+
+async def test_ag_hook_036_a_refusing_hook_with_nothing_to_say_lets_the_call_run() -> None:
+    """AG-HOOK-036 — tests/brd/tg_agent_shell/agents.feature"""
+    ran: list[str] = []
+
+    async def fine(event):
+        return ()
+
+    session = _helped_session(ran)
+    outcome = await _refusing(fine).run(session, READ)
+
+    assert ran == ["read_thing"] and outcome.succeeded
+    assert not session.offered_helpers
+
+
+async def test_ag_hook_036_a_refusing_check_that_fails_ends_the_turn_and_is_named() -> None:
+    """AG-HOOK-036 — tests/brd/tg_agent_shell/agents.feature"""
+    ran: list[str] = []
+
+    async def broken(event):
+        raise RuntimeError("cannot tell")
+
+    with pytest.raises(WatcherFailed) as failure:
+        await _refusing(broken).run(_helped_session(ran), READ)
+
+    assert ran == []
+    assert "refusal" in str(failure.value) and "before the read_thing" in str(failure.value)
+    assert "cannot tell" in str(failure.value)
+
+
+async def test_a_switched_off_refusal_lets_the_call_run() -> None:
+    """PS-HOOKS-015 — tests/brd/profile.feature"""
+    ran: list[str] = []
+
+    async def too_hard(event):
+        return ("Too hard.",)
+
+    async def everything_off(session, name):
+        return False
+
+    session = _helped_session(ran)
+    outcome = await _refusing(too_hard, policy=everything_off).run(session, READ)
+
+    assert ran == ["read_thing"] and outcome.succeeded
+    assert not session.offered_helpers

@@ -22,7 +22,7 @@ from tg_agent_shell.ai.mini import (
     TerminalTool,
     run_mini_session,
 )
-from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, is_capped, is_complex_read
+from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
 from tg_agent_shell.ai.tools import query_read_tool
 
 NAME = "heavy_analyzer"
@@ -30,14 +30,9 @@ NAME = "heavy_analyzer"
 # The whole of what the Advisor is ever told about this helper, so it names the tool in the
 # shape the tool actually takes.
 OFFER = (
-    f'This read is complex. call_helper("{NAME}", "<your question in words>") '
+    f'This read is complex and was not run. call_helper("{NAME}", "<your question in words>") '
     "writes the query and hands back its result."
 )
-
-
-def worth_a_helper(sql: str, rows: list[dict[str, Any]]) -> bool:
-    """A read past one flat scan, or one the row limit cut, is worth writing again."""
-    return is_capped(rows) or is_complex_read(sql)
 
 
 # Reading is the whole job, so exploring costs more than one turn of the Advisor's does.

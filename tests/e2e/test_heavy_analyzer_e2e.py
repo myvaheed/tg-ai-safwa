@@ -52,7 +52,7 @@ def tools_of(provider, index: int) -> set[str]:
     return {tool["function"]["name"] for tool in provider.options[index]["tools"]}
 
 
-async def test_han_offer_001_a_complex_read_offers_the_helper(e2e_harness) -> None:
+async def test_han_offer_001_a_complex_read_is_not_run_and_the_helper_is_offered(e2e_harness) -> None:
     """HAN-OFFER-001 — tests/brd/heavy_analyzer.feature"""
     seen: list[dict[str, str]] = []
     advisor, provider = e2e_harness.advisor(
@@ -65,25 +65,29 @@ async def test_han_offer_001_a_complex_read_offers_the_helper(e2e_harness) -> No
 
     await advisor.handle(QUESTION)
 
+    # No rows came back: the read was not run, and the offer is the whole result.
     result = json.loads(provider.calls[1][-1]["content"])
-    assert "call_helper" in result[-1]["notice"]
-    assert "heavy_analyzer" in result[-1]["notice"]
-    # The first turn was not offered the tool; the read is what earned it.
+    assert result["code"] == "refused"
+    assert "call_helper" in result["notice"]
+    assert "heavy_analyzer" in result["notice"]
+    # The first turn was not offered the tool; the refused read is what earned it.
     assert "call_helper" not in tools_of(provider, 0)
     assert "call_helper" in tools_of(provider, 1)
 
 
 async def test_a_data_column_named_status_does_not_turn_a_read_into_an_error(e2e_harness):
-    """HAN-OFFER-001 — tests/brd/heavy_analyzer.feature"""
+    """HAN-OFFER-002 — tests/brd/heavy_analyzer.feature"""
+    async with e2e_harness.sessions() as session:
+        await create_card(session, title="Read", kind="action", effort_points=1)
+        await session.commit()
     advisor, provider = e2e_harness.advisor(
-        [read("WITH sample AS (SELECT 'error' AS status) SELECT * FROM sample"), "Read."],
+        [read("SELECT 'error' AS status FROM ai_cards"), "Read."],
         helpers={"heavy_analyzer": recording_helper([])},
     )
     await advisor.handle(QUESTION)
     result = json.loads(provider.calls[1][-1]["content"])
     assert result[0] == {"status": "error"}
-    assert "call_helper" in result[-1]["notice"]
-    assert "call_helper" in tools_of(provider, 1)
+    assert "call_helper" not in tools_of(provider, 1)
 
 
 async def test_switching_the_offer_off_keeps_the_helper_operation(e2e_harness):
@@ -125,31 +129,10 @@ async def test_han_offer_002_a_simple_read_offers_nothing(e2e_harness) -> None:
     assert "call_helper" not in tools_of(provider, 1)
 
 
-async def test_han_offer_003_a_result_that_was_cut_offers_the_helper(e2e_harness) -> None:
-    """HAN-OFFER-003 — tests/brd/heavy_analyzer.feature"""
-    async with e2e_harness.sessions() as session:
-        for title in ("Run", "Read", "Rest"):
-            await create_card(session, title=title, kind="action", effort_points=1)
-        await session.commit()
-    advisor, provider = e2e_harness.advisor(
-        [read("SELECT id, title FROM ai_cards"), "Слишком много."],
-        helpers={"heavy_analyzer": recording_helper([])},
-    )
-    # One flat read, so nothing but the cap can offer the helper here.
-    advisor.adapters.query_runner.row_limit = 1
-
-    await advisor.handle(QUESTION)
-
-    notice = json.loads(provider.calls[1][-1]["content"])[-1]["notice"]
-    assert "row(s) are shown" in notice or "budget" in notice
-    assert "call_helper" in notice
-    assert "call_helper" in tools_of(provider, 1)
-
-
 async def test_han_offer_004_a_read_that_failed_offers_nothing(e2e_harness) -> None:
     """HAN-OFFER-004 — tests/brd/heavy_analyzer.feature"""
     advisor, provider = e2e_harness.advisor(
-        [read("SELECT id FROM ai_cards JOIN secrets ON 1=1"), "Не смог."],
+        [read("SELECT id FROM secrets"), "Не смог."],
         helpers={"heavy_analyzer": recording_helper([])},
     )
 

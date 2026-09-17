@@ -14,24 +14,28 @@ from .contracts import (
     Advise,
     AfterTool,
     AfterTurn,
+    BeforeTool,
     HookPolicy,
     HookSpec,
     OfferTool,
     OnAfterTool,
     OnAfterTurn,
+    OnBeforeTool,
     OnCommitted,
     OnTick,
+    RefuseTool,
     Run,
     Tick,
     TickTime,
     every_switch_on,
 )
 
-HookEvent = AfterTurn | AfterTool | Committed | Tick
+HookEvent = AfterTurn | AfterTool | BeforeTool | Committed | Tick
 
 # Which subscription reads which event; the registry's compatibility rules are below.
 _SUBSCRIPTION_FOR: Mapping[type, type] = MappingProxyType({
-    AfterTurn: OnAfterTurn, AfterTool: OnAfterTool, Committed: OnCommitted, Tick: OnTick,
+    AfterTurn: OnAfterTurn, AfterTool: OnAfterTool, BeforeTool: OnBeforeTool,
+    Committed: OnCommitted, Tick: OnTick,
 })
 
 
@@ -68,7 +72,7 @@ class HookRegistry:
                 raise RuntimeError(f"Hook {spec.name} has an unknown owner: {spec.owner}")
             if not spec.on or len(set(spec.on)) != len(spec.on):
                 raise RuntimeError(f"Hook {spec.name} needs distinct subscriptions")
-            if isinstance(spec.effect, OfferTool) and spec.effect.helper not in helpers:
+            if isinstance(spec.effect, OfferTool | RefuseTool) and spec.effect.helper not in helpers:
                 raise RuntimeError(f"Hook {spec.name} names an unknown helper: {spec.effect.helper}")
             for subscription in spec.on:
                 match subscription, spec.effect:
@@ -78,6 +82,10 @@ class HookRegistry:
                         if tool not in tools:
                             raise RuntimeError(f"Hook {spec.name} names an unavailable tool boundary: {tool}")
                         event_type = AfterTool
+                    case OnBeforeTool(tool=tool, agent="root"), RefuseTool():
+                        if tool not in tools:
+                            raise RuntimeError(f"Hook {spec.name} names an unavailable tool boundary: {tool}")
+                        event_type = BeforeTool
                     case OnCommitted(kind=kind), Advise() if kind.strip():
                         event_type = Committed
                     case OnTick(at=at), Advise() | Run() if callable(at):

@@ -14,7 +14,7 @@ from safwa.features.profile.model import DIARY_TIME_DEFAULT, ProfileField, UserP
 from safwa.features.profile.telegram import command_profile
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.summary.module import SUMMARY_HOOK
-from tg_agent_shell.hooks.contracts import AfterTool
+from tg_agent_shell.hooks.contracts import BeforeTool
 from tg_agent_shell.telegram import callback_token_handler
 from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import UiSession
@@ -108,15 +108,14 @@ async def test_ps_hooks_015_a_reaction_with_a_switch_is_turned_off_and_on_in_the
     await command_profile(message, services)
 
     rendered, markup = message.edits[-1]
-    assert "Helper offer: on — After a read past one flat scan" in rendered
+    assert "Helper offer: on — Does not run a read past one flat scan" in rendered
     assert "🔔 Helper offer: on" in button_texts(markup)
     assert not any("Automatic Summary" in label for label in button_texts(markup))
     assert "Automatic Summary" not in rendered
     # A complex read the offer would answer, to read the switch through the registry.
-    complex_read = AfterTool(
+    complex_read = BeforeTool(
         run_id=1, agent="root", agent_kind="advisor", tool="query_data", call_id="q1",
         arguments_json='{"sql": "SELECT stage FROM ai_cards GROUP BY stage"}',
-        result=[{"stage": "today"}], outcome="success",
     )
     assert len([item async for item in REGISTRY.hooks.evaluate(complex_read, sessions)]) == 1
 

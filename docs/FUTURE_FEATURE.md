@@ -87,10 +87,9 @@ operation may run directly; other reactions may offer a tool or involve the Advi
 
 The owner wants one explicit registration contract and an easy way to see which hooks are
 enabled. Wave 3 began on 2026-09-15: the central connection list and the AfterTurn/Run and
-AfterTool/OfferTool paths now carry automatic Summary and the Heavy analyzer offer. Their
+BeforeTool/RefuseTool paths now carry automatic Summary and the Heavy analyzer offer. Their
 registration and session rules are covered by
-[agents.feature](../tests/brd/tg_agent_shell/agents.feature); disabling automatic Summary keeps
-its command, as covered by [summary.feature](../tests/brd/summary.feature).
+[agents.feature](../tests/brd/tg_agent_shell/agents.feature).
 [HOOK_ARCH.md](HOOK_ARCH.md) distinguishes this implemented contract from the planned committed
 events and timed checks. This entry remains open for those later stages.
 

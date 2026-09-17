@@ -20,7 +20,7 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -39,8 +39,9 @@ from telegram_llm import DialogueMessage
 
 from ..foundation.errors import failure_reason
 from ..foundation.screens import ScreenCatalogue
-from ..hooks.contracts import AfterTool as ToolEvent
-from ..hooks.contracts import OfferTool
+from ..hooks.contracts import AfterTool as AfterToolEvent
+from ..hooks.contracts import BeforeTool as BeforeToolEvent
+from ..hooks.contracts import OfferTool, RefuseTool
 from ..hooks.registry import HookRegistry
 from .contracts import (
     CALL_HELPER_TOOL,
@@ -268,13 +269,17 @@ class ToolAdapters:
         A `BeforeTool` that answers refuses the call: the tool does not run, and what the
         watcher wrote is what the model reads in its place. A watcher that raises ends the
         turn rather than being stepped over, because a refusal that failed is not a pass.
-        `route` is not seen here at all — the runtime answers it before the adapters are
-        reached.
+        A RefuseTool hook refuses the same way, with its notice as the result and its
+        helper granted. `route` is not seen here at all — the runtime answers it before the
+        adapters are reached.
         """
         for watch in self.before_tool:
             refusal = await self._watched(watch(agent, call), watch, call, "before")
             if refusal is not None:
                 return ToolOutcome(result=refusal, succeeded=False)
+        refusal = await self._refuse(agent, call)
+        if refusal is not None:
+            return ToolOutcome(result=refusal, succeeded=False)
         outcome = await self._dispatch(agent, call)
         await self._offer_tools(agent, call, outcome)
         for watch in self.after_tool:
@@ -414,14 +419,54 @@ class ToolAdapters:
                 "hint": "Answer the owner with what you already have.",
             }
 
+    def _agent_of(self, agent: AgentSession) -> Literal["root", "subagent"]:
+        if agent.parent_run_id is not None or agent.kind in self.subagents:
+            return "subagent"
+        return "root"
+
+    async def _refuse(self, agent: AgentSession, call: ToolCall) -> dict[str, Any] | None:
+        """The first RefuseTool hook with a notice: the call's result, with its helper granted."""
+        if not self.hooks.listens(BeforeToolEvent):
+            return None
+        event = BeforeToolEvent(
+            run_id=agent.run_id,
+            agent=self._agent_of(agent),
+            agent_kind=agent.kind,
+            tool=call.name,
+            call_id=call.id,
+            arguments_json=call.arguments_json,
+        )
+        async for checked in self.hooks.evaluate(event, self.sessions):
+            if checked.error is not None:
+                # A refusal that failed is not a pass: the turn ends, the call does not run.
+                raise WatcherFailed(
+                    f"The hook {checked.spec.name}, which runs before the {call.name} "
+                    f"tool call, failed: {checked.error}"
+                ) from checked.error
+            effect = checked.spec.effect
+            if not isinstance(effect, RefuseTool) or not checked.payloads:
+                continue
+            if effect.helper not in self.helpers or agent.helper_tool is None:
+                continue
+            if not all(isinstance(notice, str) and notice.strip() for notice in checked.payloads):
+                logger.error("Hook %s returned an invalid helper notice", checked.spec.name)
+                continue
+            agent.offer_helper(effect.helper)
+            return {
+                "status": ToolResultStatus.ERROR.value,
+                "code": "refused",
+                "notice": " ".join(checked.payloads),
+            }
+        return None
+
     async def _offer_tools(self, agent: AgentSession, call: ToolCall, outcome: ToolOutcome) -> None:
         """Deliver offers only to the session whose call just completed."""
-        if not self.hooks.listens(ToolEvent):
+        if not self.hooks.listens(AfterToolEvent):
             return
         result = outcome.result
-        event = ToolEvent(
+        event = AfterToolEvent(
             run_id=agent.run_id,
-            agent="subagent" if agent.parent_run_id is not None or agent.kind in self.subagents else "root",
+            agent=self._agent_of(agent),
             agent_kind=agent.kind,
             tool=call.name,
             call_id=call.id,

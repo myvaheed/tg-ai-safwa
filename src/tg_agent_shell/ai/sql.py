@@ -228,11 +228,6 @@ def is_complex_read(sql: str) -> bool:
     return bool(COMPLEX_READ.search(sql))
 
 
-def is_capped(rows: list[dict[str, Any]]) -> bool:
-    """Whether a result was cut, which the trailing notice row is the whole record of."""
-    return bool(rows) and set(rows[-1]) == {"notice"}
-
-
 def validated_read(sql: str, views: Collection[str]) -> tuple[str, set[str]]:
     """One safe read: the statement to run, and the views it reads.
 

@@ -20,12 +20,15 @@ from tg_agent_shell.hooks.contracts import (
     Advise,
     AfterTool,
     AfterTurn,
+    BeforeTool,
     HookSpec,
     OfferTool,
     OnAfterTool,
     OnAfterTurn,
+    OnBeforeTool,
     OnCommitted,
     OnTick,
+    RefuseTool,
     Run,
     Tick,
 )
@@ -108,6 +111,11 @@ def switched(*names_off):
         (replace(SPEC, on=(OnAfterTool("absent"),)), "unavailable tool boundary"),
         (replace(SPEC, on=(OnAfterTool("route"),)), "unavailable tool boundary"),
         (replace(SPEC, effect=Advise(words)), "incompatible"),
+        (replace(SPEC, on=(OnBeforeTool("query_data"),)), "incompatible"),
+        (replace(SPEC, on=(OnBeforeTool("query_data"),), effect=RefuseTool("missing")), "unknown helper"),
+        (replace(SPEC, on=(OnBeforeTool("absent"),), effect=RefuseTool("reader")), "unavailable tool boundary"),
+        (replace(SPEC, on=(OnBeforeTool("query_data", agent="subagent"),), effect=RefuseTool("reader")), "incompatible"),
+        (replace(SPEC, on=(OnAfterTool("query_data"),), effect=RefuseTool("reader")), "incompatible"),
         (replace(SPEC, on=(OnCommitted("thing.changed"),)), "incompatible"),
         (replace(SPEC, on=(OnCommitted(" "),), effect=Advise(words)), "incompatible"),
     ],
@@ -330,3 +338,22 @@ async def test_the_words_of_a_request_come_from_the_hook_that_is_still_on():
     # Failing to say is not nothing to say: the caller keeps the request.
     with pytest.raises(ValueError, match="cannot read"):
         await catalogue(replace(ADVICE, effect=Advise(broken))).prepare(NO_SESSIONS, "reader.advice", [7])
+
+
+async def test_ag_hook_036_a_refusal_before_a_call_is_registered_and_read_only_by_its_own_boundary():
+    """AG-HOOK-036 — tests/brd/tg_agent_shell/agents.feature"""
+    refusal = replace(
+        SPEC, name="reader.refusal", on=(OnBeforeTool("query_data"),), effect=RefuseTool("reader"),
+    )
+    hooks = catalogue(refusal, SPEC)
+    assert refusal.agent_related and hooks.agent_related == (refusal, SPEC)
+    before = BeforeTool(
+        run_id=1, agent="root", agent_kind="advisor", tool="query_data", call_id="q1",
+        arguments_json=EVENT.arguments_json,
+    )
+    checked = [item async for item in hooks.evaluate(before, NO_SESSIONS)]
+    assert [item.spec.name for item in checked] == ["reader.refusal"]
+    assert [item.spec.name async for item in hooks.evaluate(EVENT, NO_SESSIONS)] == ["reader.offer"]
+    # Another tool, or a subagent's call, is not this boundary.
+    for other in (replace(before, tool="open"), replace(before, agent="subagent")):
+        assert not [item async for item in hooks.evaluate(other, NO_SESSIONS)]
