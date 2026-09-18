@@ -41,8 +41,13 @@ from ..features.heavy_analyzer.module import HEAVY_ANALYZER_HOOK
 from ..features.heavy_analyzer.module import MODULE as HEAVY_ANALYZER
 from ..features.home.module import MODULE as HOME
 from ..features.memory.module import MODULE as MEMORY
+from ..features.planning.module import (
+    KEY_ACTIONS_HOOK,
+    KEY_WARNING_HOOK,
+    SPRINT_EXPIRY_HOOK,
+    SPRINT_SUMMARY_HOOK,
+)
 from ..features.planning.module import MODULE as PLANNING
-from ..features.planning.module import SPRINT_EXPIRY_HOOK, SPRINT_SUMMARY_HOOK
 from ..features.profile.api import hook_switched_on
 from ..features.profile.module import DAILY_SUMMARY_HOOK
 from ..features.profile.module import MODULE as PROFILE
@@ -105,6 +110,8 @@ HOOKS = (
     DAILY_SUMMARY_HOOK,
     SPRINT_SUMMARY_HOOK,
     SPRINT_EXPIRY_HOOK,
+    KEY_ACTIONS_HOOK,
+    KEY_WARNING_HOOK,
 )
 
 REGISTRY: Registry = Registry.of(

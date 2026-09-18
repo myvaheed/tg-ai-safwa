@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, time, timedelta
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import select
 
+from llm_gateway import CompletionRequest, CompletionTurn
 from safwa.bootstrap.modules import MODULES, RECOVERY_HOOKS, REGISTRY
+from safwa.features.cards.api import HARD_TIME_NOTICE_DAYS
 from safwa.features.cards.hard_time import typed_hard_time
 from safwa.features.cards.hooks import (
     ENERGY_BALANCE_HOOK,
@@ -24,14 +28,27 @@ from safwa.features.cards.use_cases import (
     update_card_fields,
 )
 from safwa.features.cards.use_cases import create_card as create_domain_card
-from safwa.features.planning.api import SPRINT_ENDED, SPRINT_STARTED
+from safwa.features.planning.api import (
+    SPRINT_ENDED,
+    SPRINT_JOINED,
+    SPRINT_KEY_ACTIONS,
+    SPRINT_LEFT,
+    SPRINT_STARTED,
+    today_actions,
+)
 from safwa.features.planning.hooks import (
+    KEY_ACTIONS_HOOK,
+    KEY_CHECK,
+    KEY_WARNING_HOOK,
     SPRINT_EXPIRY_HOOK,
     SPRINT_SUMMARY_HOOK,
+    key_warning_request,
+    mark_key_actions,
     midnight,
     sprint_summary_request,
 )
-from safwa.features.planning.model import Sprint, next_sprint_number
+from safwa.features.planning.key_actions import KEY_ACTIONS_PROMPT, KEY_BATCH, KeyActions
+from safwa.features.planning.model import Sprint, SprintCommitment, next_sprint_number
 from safwa.features.planning.use_cases import (
     expire_due_sprint,
     finish_sprint,
@@ -653,3 +670,197 @@ async def test_pl_energy_022_the_request_names_each_kind_the_sprint_lacks_and_th
         await finish_sprint(session)
         await session.commit()
         assert await energy_balance_request(session, [PLAN_CHECK]) is None
+
+
+class KeyProvider:
+    """Answers yes to every listed Action whose title says it is key, and keeps each request."""
+
+    def __init__(self, *, garbled: bool = False) -> None:
+        self.requests: list[CompletionRequest] = []
+        self.garbled = garbled
+
+    async def complete(self, request: CompletionRequest) -> CompletionTurn:
+        self.requests.append(request)
+        if self.garbled:
+            return CompletionTurn("I cannot say.")
+        listed = re.findall(r"^(\d+)\. (.+)$", request.messages[1]["content"], re.MULTILINE)
+        return CompletionTurn(
+            "\n".join(f"{number}: {'yes' if 'key' in title else 'no'}" for number, title in listed)
+        )
+
+    async def aclose(self) -> None:
+        return None
+
+
+def _work(sessions, provider: KeyProvider) -> RunContext:
+    async def nobody_publishes(text: str, kind: str) -> None:
+        raise AssertionError("a hook on a commit has no chat")
+
+    return RunContext(
+        resources=SimpleNamespace(key_actions=KeyActions(provider)),
+        still_current=lambda: True,
+        publish=nobody_publishes,
+        sessions=sessions,
+    )
+
+
+async def _marked(sessions, sprint_id: int) -> dict[int, bool]:
+    async with sessions() as session:
+        rows = await session.execute(
+            select(SprintCommitment.card_id, SprintCommitment.key_action).where(
+                SprintCommitment.sprint_id == sprint_id
+            )
+        )
+        return dict(rows.all())
+
+
+async def test_pl_key_023_a_sprints_actions_are_marked_in_batches_when_it_starts(sessions):
+    """PL-KEY-023 — tests/brd/planning.feature"""
+    assert not KEY_ACTIONS_HOOK.agent_related and isinstance(KEY_ACTIONS_HOOK.effect, Run)
+    assert KEY_ACTIONS_HOOK.on == (
+        OnCommitted(kind=SPRINT_STARTED), OnCommitted(kind=SPRINT_JOINED),
+    )
+    assert KEY_BATCH == 10
+    provider = KeyProvider()
+    async with sessions() as session:
+        planned = [
+            await plan_one(session, title=f"{'key' if index % 3 == 0 else 'plain'} step {index}")
+            for index in range(KEY_BATCH + 2)
+        ]
+        shelved = await create_card(session, title="key but shelved")
+        sprint = await start_sprint(session, success_criteria="Ship v2")
+        assert take_changes(session.info) == [Committed(SPRINT_STARTED, sprint.id)]
+        await session.commit()
+        sprint_id = sprint.id
+
+    await mark_key_actions(Committed(SPRINT_STARTED, sprint_id), _work(sessions, provider))
+
+    # Two batches, asked at once, each numbered from one, with the criterion above them.
+    assert [len(re.findall(r"^\d+\. ", r.messages[1]["content"], re.M)) for r in provider.requests] == [KEY_BATCH, 2]
+    for request in provider.requests:
+        assert request.messages[0] == {"role": "system", "content": KEY_ACTIONS_PROMPT}
+        assert request.messages[1]["content"].startswith("Success criterion: Ship v2\nActions:\n1. ")
+    marked = await _marked(sessions, sprint_id)
+    assert marked == {card.id: "key" in card.title for card in planned}
+    assert shelved.id not in marked
+
+
+async def test_pl_key_023_an_action_that_joins_is_asked_about_alone_and_a_garbled_answer_marks_nothing(
+    sessions,
+):
+    """PL-KEY-023 — tests/brd/planning.feature"""
+    provider = KeyProvider()
+    async with sessions() as session:
+        first = await plan_one(session, title="key step")
+        second = await plan_one(session, title="plain step")
+        sprint = await start_sprint(session, success_criteria="Ship v2")
+        await session.commit()
+        sprint_id = sprint.id
+        await KeyActions(provider).mark(session, sprint_id)
+        # The marks are handed on as one fact, once written.
+        assert take_changes(session.info) == [Committed(SPRINT_KEY_ACTIONS, sprint_id)]
+        await session.commit()
+
+        # Joining the running Sprint is a change of its own: created into it, moved into it,
+        # or brought back; leaving it unfinished is another.
+        joined = await create_card(session, title="key newcomer", stage="sprint")
+        assert take_changes(session.info) == [Committed(SPRINT_JOINED, joined.id)]
+        await move_card(session, second.id, CardStage.BACKLOG)
+        assert take_changes(session.info) == [Committed(SPRINT_LEFT, second.id)]
+        await move_card(session, second.id, CardStage.SPRINT)
+        assert take_changes(session.info) == [Committed(SPRINT_JOINED, second.id)]
+        await session.commit()
+
+    await mark_key_actions(Committed(SPRINT_JOINED, joined.id), _work(sessions, provider))
+    assert provider.requests[-1].messages[1]["content"].endswith("Actions:\n1. key newcomer")
+    assert await _marked(sessions, sprint_id) == {first.id: True, second.id: False, joined.id: True}
+
+    # An answer that cannot be read marks nothing and hands nothing on.
+    async with sessions() as session:
+        await KeyActions(KeyProvider(garbled=True)).mark(session, sprint_id)
+        assert take_changes(session.info) == []
+        await session.commit()
+    assert await _marked(sessions, sprint_id) == {first.id: True, second.id: False, joined.id: True}
+
+
+async def test_pl_key_024_a_sprint_with_no_key_action_open_or_finished_is_warned_about(sessions):
+    """PL-KEY-024 — tests/brd/planning.feature"""
+    assert KEY_WARNING_HOOK.agent_related
+    assert KEY_WARNING_HOOK.on == (
+        OnCommitted(kind=SPRINT_KEY_ACTIONS), OnCommitted(kind=SPRINT_LEFT),
+    )
+    async with sessions() as session:
+        # In Planning there is no Sprint to warn about.
+        assert await key_warning_request(session, [KEY_CHECK]) is None
+        step = await plan_one(session, title="Key step")
+        await plan_one(session, title="Plain step")
+        sprint = await start_sprint(session, success_criteria="Ship the release")
+        await session.commit()
+
+        # Marked, and none key: the criterion does not look reachable.
+        request = await key_warning_request(session, [KEY_CHECK])
+        assert request is not None
+        assert f"Sprint {sprint.number}, Success criterion: Ship the release" in request
+        assert "does not look reachable" in request and "Propose nothing" in request
+
+        commitment = await session.scalar(
+            select(SprintCommitment).where(SprintCommitment.card_id == step.id)
+        )
+        commitment.key_action = True
+        await session.commit()
+        # One open in the Sprint: nothing to say.
+        assert await key_warning_request(session, [KEY_CHECK]) is None
+        # Left unfinished: warned; back in the Sprint again: nothing.
+        await move_card(session, step.id, CardStage.BACKLOG)
+        await session.commit()
+        assert await key_warning_request(session, [KEY_CHECK]) is not None
+        await move_card(session, step.id, CardStage.SPRINT)
+        await session.commit()
+        assert await key_warning_request(session, [KEY_CHECK]) is None
+        # Finished: the criterion was reached through it, so nothing is said.
+        await finish_action(session, step.id)
+        await session.commit()
+        assert await key_warning_request(session, [KEY_CHECK]) is None
+
+
+async def test_pl_key_025_today_is_ordered_by_what_the_day_cannot_move(sessions):
+    """PL-KEY-025 — tests/brd/planning.feature"""
+    assert HARD_TIME_NOTICE_DAYS == 1
+    tz = ZoneInfo("Europe/Istanbul")
+    today = datetime.now(tz).date()
+
+    def on(days: int) -> str:
+        return f"{today + timedelta(days=days):%d.%m.%Y} 23:59"
+
+    async with sessions() as session:
+        await create_card(session, title="Plain", stage="today")
+        key = await create_card(session, title="Key", stage="today")
+        await create_card(
+            session, title="Later this week", stage="today", priority="low",
+            hard_time=await typed_hard_time(session, on(4)),
+        )
+        await create_card(session, title="Critical", stage="today", priority="critical")
+        soon = await create_card(
+            session, title="Tomorrow", stage="today", priority="low",
+            hard_time=await typed_hard_time(session, on(HARD_TIME_NOTICE_DAYS)),
+        )
+        await create_card(session, title="In the Sprint", stage="sprint")
+        await start_sprint(session, success_criteria="Ship v2")
+        commitment = await session.scalar(
+            select(SprintCommitment).where(SprintCommitment.card_id == key.id)
+        )
+        commitment.key_action = True
+        await session.commit()
+
+        # A near Hard Time, then Critical, then key, then the rest — a Hard Time first there.
+        assert [card.title for card in await today_actions(session)] == [
+            "Tomorrow", "Critical", "Key", "Later this week", "Plain",
+        ]
+        handed = (await workspace_context(session)).state.split("Today Actions:")[1]
+        assert [line.split("]")[0] for line in handed.splitlines() if line.startswith("- [")] == [
+            "- [Tomorrow", "- [Critical", "- [Key", "- [Later this week", "- [Plain",
+        ]
+        # A Hard Time that passed yesterday holds nothing today.
+        soon.hard_time_at = utcnow() - timedelta(days=1)
+        await session.commit()
+        assert [card.title for card in await today_actions(session)][:2] == ["Critical", "Key"]

@@ -306,6 +306,9 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then the reaction for that kind of change checks it once, from a proposal and from a screen alike
     When the transaction is rolled back, or the proposal that would have made it is discarded
     Then no reaction checks anything
+    When the reaction is work of its own
+    Then it is done once that commit's facts are handed on, and a change saved meanwhile is handed on without waiting for it
+    And its failure is logged and stops nothing
 
   Scenario: AG-HOOK-038 — A hook keeps one pending request, made current just before it is said
     Given a hook asks the Advisor through what Safwa owes the owner

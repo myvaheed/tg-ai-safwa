@@ -86,7 +86,7 @@ class HookRegistry:
                         if tool not in tools:
                             raise RuntimeError(f"Hook {spec.name} names an unavailable tool boundary: {tool}")
                         event_type = BeforeTool
-                    case OnCommitted(kind=kind), Advise() if kind.strip():
+                    case OnCommitted(kind=kind), Advise() | Run() if kind.strip():
                         event_type = Committed
                     case OnTick(at=at), Advise() | Run() if callable(at):
                         event_type = Tick

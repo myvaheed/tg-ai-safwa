@@ -191,34 +191,19 @@ The number is kept only to preserve the discussion's references. See
 [the separate feature](#proposal-fulfillment-validation) and
 [PROPOSAL_VALIDATION.md](PROPOSAL_VALIDATION.md).
 
-### 10. Key Actions tied to Sprint Success criteria — hook
+### 10. Key Actions tied to Sprint Success criteria — shipped
 
-After a Sprint starts, have the AI identify which of its Actions directly contribute to its
-Success criteria. Keep that classification for this particular Sprint, with a way for the
-owner to correct it. The relationship belongs to the Sprint and the Action together, rather
-than making an Action permanently key. A separate table or an extension of the existing
-Sprint commitment relationship remains an implementation choice.
+Shipped 2026-09-18 as [PL-KEY-023](../tests/brd/planning.feature), PL-KEY-024 and PL-KEY-025;
+the number stays for references. The mark is `key_action` on the Sprint commitment — the
+Sprint's and the Action's together, never the Action's alone. When a Sprint starts, and when an
+Action joins it, the model is asked in batches of ten, yes or no per number, in the background;
+the owner is told nothing. A Sprint left with no key Action open and none finished is told once
+that its criterion does not look reachable, with nothing proposed. Today puts a Hard Time today
+or tomorrow first, then Critical, then key, then the rest.
 
-When classification finishes without finding any key Actions, ask whether the owner wants to
-add Actions that serve the Success criteria. Classification not yet performed is not the same
-as classification that found none. When a previously non-empty set of current key Actions
-becomes empty, discuss what happens next: return an Action, choose another, or finish the
-Sprint early and plan a new one.
-
-Keep the history and the reason each key Action left the remaining work. Key Actions that were
-completed call for a question about whether the Success criteria were achieved; Actions removed
-from the Sprint call for a question about the plan. An empty remaining set alone does not prove
-that the Sprint failed or succeeded. Evaluate the result after a whole Proposal chain settles,
-so replacing one key Action with another does not trigger a warning between the two writes.
-
-Key Actions should be prominent when the owner opens Today, alongside applicable Hard Time and
-Critical priority. A candidate order is Hard Time relevant now, then Critical, then key Actions,
-then the rest. The exact ordering and the time window that makes Hard Time relevant are undecided;
-a future appointment should not stay at the top all day merely because it has a time.
-
-This entry combines an event-driven classification/reaction with a screen requirement. Starting
-classification after saved Sprint changes and reacting to the saved remaining set are hooks;
-sorting Today from that classification is ordinary presentation, not a hook on opening the screen.
+Not built, and not asked for yet: the owner correcting a mark by hand; a history of why each
+key Action left; a question when a key Action is finished about whether the criterion was
+reached — the Sprint summary and the retrospective are where that is discussed.
 
 ### 11. Repeated Missed observations — shipped
 

@@ -23,6 +23,7 @@ from tg_agent_shell.telegram import (
 )
 
 from ....foundation.workspace import Workspace
+from ...planning.api import today_actions
 from ..api import actions_on_stages
 from ..hard_time import workspace_zone
 from ..hierarchy import card_children
@@ -145,7 +146,12 @@ async def stage_list_block(
     itself rather than another one showing the same stage.
     """
     payload = payload or {}
-    cards = await actions_on_stages(session, stage)
+    # Today is in the order the day cannot move; the other stages in their own.
+    cards = (
+        await today_actions(session)
+        if stage is CardStage.TODAY
+        else await actions_on_stages(session, stage)
+    )
     current, descriptions, rows = await card_list_rows(
         session,
         services,

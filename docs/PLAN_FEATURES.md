@@ -174,12 +174,16 @@ balance of a starting Sprint against the Backlog
 lines in `HOOKS`, no column. The same day, batch 7: hook 6 as a `Run` on the morning tick that
 writes each open Action in Today down for that day, `today_days`, and hands a fact on, and an
 `Advise` on that fact that asks on every third morning in a row
-([CD-STALE-038](../tests/brd/cards.feature)). One new table, created at startup.
+([CD-STALE-038](../tests/brd/cards.feature)). One new table, created at startup. Batch 8, the
+same day: hook 10 — the registry's first `Run` on a commit, done once the commit's facts are
+handed on and outside their order; the classifier marks `key_action` on the commitment, a
+warning hook reads the marks, and Today is ordered by them
+([PL-KEY-023](../tests/brd/planning.feature), PL-KEY-024, PL-KEY-025). One column on an
+existing table, so the database is rebuilt.
 
 | Entry | | Depends on |
 |---|---|---|
 | **15 — Advisor instruction, not a hook** | S | The AI half of the retrospective, where the takeaway it carries is agreed. |
-| **10 — Key Actions tied to Sprint Success criteria** | XL | Batch 2 and a Sprint-and-Action relationship with classification history |
 
 ## Wave 5 — deliberately later
 
@@ -198,7 +202,7 @@ repeated, and they are not scheduled.
 
 ```mermaid
 flowchart LR
-  h10["Hook 10 — key Actions"]
+  h10["Hook 10 — key Actions, shipped"]
   shape["The shape every hook has"] --> profile["Batch 1 — switches in the Profile"]
   profile --> committed["Batch 2 — Committed → Advise, shipped with hooks 2, 11 and 7"]
   profile --> tick["Batch 3 — Tick → Advise, shipped with hooks 5 and 13"]

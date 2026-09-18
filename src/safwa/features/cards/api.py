@@ -26,6 +26,8 @@ from .model import effort_label as effort_label
 from .views import AI_CARDS
 
 PLANNED_STAGES = (CardStage.SPRINT, CardStage.TODAY)
+# How many days ahead a Hard Time is near enough to belong in Today: today and tomorrow.
+HARD_TIME_NOTICE_DAYS = 1
 
 
 class CardQueryError(ValueError):

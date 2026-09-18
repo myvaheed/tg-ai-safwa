@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from datetime import date, datetime
 from enum import StrEnum
 
-from sqlalchemy import Date, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...foundation.models import Base, TimestampMixin, UtcDateTime
@@ -64,5 +64,7 @@ class SprintCommitment(Base, TimestampMixin):
     added_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     removed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     result: Mapped[str | None] = mapped_column(String(20))
+    # Whether the Sprint's Success criterion rests on this Action, as the model marked it.
+    key_action: Mapped[bool] = mapped_column(Boolean, default=False)
 
     __table_args__ = (UniqueConstraint("sprint_id", "card_id"),)

@@ -316,10 +316,11 @@ async def test_a_daily_check_names_its_own_time_and_reads_only_its_own_tick():
     assert both.daily_clocks == (at_nine, at_noon)
     with pytest.raises(RuntimeError, match="incompatible"):
         catalogue(replace(daily, on=(OnTick(at="09:00"),)))  # type: ignore[arg-type]
-    # A daily check may run work of its own; a commit has no such consumer yet.
+    # A daily check, and a saved change, may run work of its own.
     assert catalogue(replace(daily, effect=Run(operation))).listens(Tick)
-    with pytest.raises(RuntimeError, match="incompatible"):
-        catalogue(replace(daily, on=(OnCommitted("thing.changed"),), effect=Run(operation)))
+    assert catalogue(
+        replace(daily, on=(OnCommitted("thing.changed"),), effect=Run(operation))
+    ).listens(Committed)
 
 
 async def test_the_words_of_a_request_come_from_the_hook_that_is_still_on():

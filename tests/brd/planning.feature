@@ -158,8 +158,7 @@ Feature: Planning — the Sprint, and the mode without one
     Given a running Sprint
     Then Safwa is handed every Action in Today, each with the effort it carries
     And a Card that is not an Action, or is not in Today, is not among them
-    And among them a Card with a Hard Time comes first, then the more important one, then the one
-      written earlier
+    And they come in the order Today has (PL-KEY-025)
     When no Sprint is running
     Then there is no Today at all, by PL-MODE-001, and nothing of it is handed over
 
@@ -180,3 +179,24 @@ Feature: Planning — the Sprint, and the mode without one
     And it is asked to suggest one of each into the Sprint, for a spread of energy over the Sprint; nothing is moved before the owner's answer
     And a type on no Backlog Action either is not mentioned; with nothing missing, nothing is asked
     And the list is read when the question is about to be said: a type the Sprint has gained by then is left out, and with the Sprint ended by then nothing is asked
+
+  Scenario: PL-KEY-023 — The Actions a Sprint's Success criterion rests on are marked without asking
+    Given a Sprint starts with a Success criterion, or an Action joins the running Sprint — moved or created into it, or brought back from Backlog
+    When that is saved
+    Then in the background the Sprint's open Actions are read to the model in batches of ten (KEY_BATCH = 10), each as its number in the batch and its title, with the Success criterion, and the batches are asked at once
+    And the model answers yes or no per number; every yes marks that Action key to this Sprint, every no unmarks it, and an answer that cannot be read marks nothing and is logged
+    And an Action joining the running Sprint is asked about alone, the same way, and the marks of the others stand
+    And the owner is told nothing and nothing is proposed; the marks are read by the Today order (PL-KEY-025) and the warning (PL-KEY-024)
+    And the marks are handed on as one saved change once written; an answer that could not be read at all hands nothing on
+
+  Scenario: PL-KEY-024 — A Sprint left with no key Action to reach its Success criterion is warned about
+    Given a Sprint runs, and its Actions have been marked
+    When the marking finds no key Action, or an Action leaves the Sprint unfinished, and the chat is free
+    Then, with no key Action open in the Sprint and none finished in it, the Advisor is asked once to say in one message that the Success criterion does not look reachable with what is planned, and to propose nothing
+    And the Sprint is read when the word is about to be said: with a key Action finished by then, or one open in the Sprint again, or no Sprint running, nothing is said
+
+  Scenario: PL-KEY-025 — Today is ordered by what the day cannot move
+    Given Actions in Today
+    Then the Today screen and the Today list the Advisor reads put first the ones whose Hard Time is today or tomorrow (HARD_TIME_NOTICE_DAYS = 1), then Critical ones, then key ones, then the rest
+    And within each group a Card with a Hard Time comes first, then the more important one, then the one written earlier
+    And a day is the workspace's local day

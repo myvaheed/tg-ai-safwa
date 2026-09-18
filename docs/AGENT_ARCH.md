@@ -523,7 +523,10 @@ own transaction (`foundation/changes.py`), and commits nothing itself. The one `
 facts to `HookRegistry.evaluate`, and each Advise result is merged into that hook's row with
 `merge_hook_cue`; a rollback leaves nothing to hand on. The listener is bound to the session
 factory by `bind_committed`, so a proposal's Save and a screen's save — the same operation — reach
-the hook by the same path, and a proposal the owner discards never calls it.
+the hook by the same path, and a proposal the owner discards never calls it. A Run on a commit —
+the key Actions classifier, `KeyActions` off `Services.features` — is done once that commit's
+facts are handed on, outside the order they are kept in, so the next commit never waits for a
+model call.
 
 A hook that runs daily declares `OnTick(at=...)` with a reader of the local time of day
 (`TickTime`) — Safwa's are the Profile's Morning time, Diary time and summary time. The one tick

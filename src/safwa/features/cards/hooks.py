@@ -29,7 +29,7 @@ from tg_agent_shell.hooks.contracts import (
 
 from ..planning.api import SPRINT_STARTED, active_sprint_end_date, sprint_is_active
 from ..profile.api import morning_time
-from .api import PLANNED_STAGES, actions_on_stages
+from .api import HARD_TIME_NOTICE_DAYS, PLANNED_STAGES, actions_on_stages
 from .hard_time import workspace_zone
 from .hierarchy import branch_actions
 from .model import (
@@ -52,8 +52,6 @@ EMPTY_PARENT_GRACE_DAYS = 1
 # What a day is meant to hold, in effort points: the open Actions in Today and the ones
 # finished that day, together.
 TODAY_CAPACITY_EP = 15
-# How many days ahead a Hard Time is near enough to belong in Today: today and tomorrow.
-HARD_TIME_NOTICE_DAYS = 1
 # What a plan check keeps as its one pending item: it is about the whole plan, not a Card.
 PLAN_CHECK = "plan"
 # How many Backlog Actions the energy question names for each kind the Sprint has none of.

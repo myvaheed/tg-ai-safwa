@@ -10,13 +10,14 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import case, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.messages import StateBlocks
 
 from ...foundation.workspace import Workspace
-from ..cards.model import Card, CardKind, CardStage, Priority, effort_label
+from ..cards.model import Card, CardStage, Priority, effort_label
+from ..planning.api import today_actions
 from ..planning.model import Sprint
 from ..profile.model import UserProfile
 from ..tags.model import Tag
@@ -24,13 +25,6 @@ from ..values.model import CardValue, Value
 
 # How many critical Cards the workspace state names before the model has to query for more.
 CONTEXT_CRITICAL_CARD_LIMIT = 10
-
-# The column stores the name, so ordering by it is alphabetical - low before medium. The
-# enum's own order is the priority order, which is what a reader is meant to read down.
-PRIORITY_RANK = case(
-    {priority.value: rank for rank, priority in enumerate(Priority)}, value=Card.priority
-)
-
 
 def citation(name: str, kind: str, item_id: int) -> str:
     """The one shape an item takes in context, ready for the model to reuse in a reply."""
@@ -119,18 +113,7 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         for card in critical
     )
     if sprint is not None:
-        today = list(
-            await session.scalars(
-                select(Card)
-                .where(
-                    Card.effective_stage == CardStage.TODAY.value,
-                    Card.kind == CardKind.ACTION.value,
-                )
-                .order_by(
-                    Card.hard_time_at.is_(None), Card.hard_time_at, PRIORITY_RANK, Card.created_at
-                )
-            )
-        )
+        today = await today_actions(session)
         lines.append("Today Actions:")
         lines.extend(
             f"- {citation(card.title, 'card', card.id)} "

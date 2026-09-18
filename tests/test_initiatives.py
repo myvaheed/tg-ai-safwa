@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, time
 from zoneinfo import ZoneInfo
 
@@ -17,6 +18,7 @@ from tg_agent_shell.hooks.contracts import (
     HookSpec,
     OnCommitted,
     OnTick,
+    Run,
     Tick,
 )
 from tg_agent_shell.hooks.registry import HookRegistry
@@ -120,6 +122,54 @@ async def test_ag_hook_037_a_commit_hands_the_change_on_and_a_rollback_does_not(
         await session.commit()
     await sink.drain()
     assert await pending(sessions) == [("test.advice", None, [3])]
+
+
+async def test_ag_hook_037_a_commits_work_is_done_after_its_facts_are_handed_on(sessions):
+    """AG-HOOK-037 — tests/brd/tg_agent_shell/agents.feature"""
+    order: list[str] = []
+    started: dict[int, asyncio.Event] = {1: asyncio.Event(), 3: asyncio.Event()}
+    release = asyncio.Event()
+
+    async def slow_work(payload, context):
+        assert context.resources == "the features"
+        order.append(f"work {payload} started")
+        started[payload].set()
+        await release.wait()
+        order.append(f"work {payload} done")
+
+    async def broken_work(payload, context):
+        raise RuntimeError("no")
+
+    work = HookSpec(
+        name="test.work", owner="test", on=(OnCommitted(kind=KIND),),
+        evaluate=subject, effect=Run(slow_work),
+        title="Work", description="Does something slow with a changed thing.",
+    )
+    broken = HookSpec(
+        name="test.broken", owner="test", on=(OnCommitted(kind=KIND),),
+        evaluate=subject, effect=Run(broken_work),
+        title="Broken", description="Fails.",
+    )
+    # The broken one first: its failure stops nothing behind it.
+    sink = bind_committed(sessions, catalogue(HOOK, broken, work), resources="the features")
+    async with sessions() as session:
+        await session.execute(text("SELECT 1"))
+        record_change(session, KIND, 1)
+        await session.commit()
+    await started[1].wait()
+    # The request of the first commit is written while its work still runs, and the next
+    # commit is handed on — its request written, its work begun — without waiting for it.
+    assert await pending(sessions) == [("test.advice", None, [1])]
+    async with sessions() as session:
+        await session.execute(text("SELECT 1"))
+        record_change(session, KIND, 3)
+        await session.commit()
+    await started[3].wait()
+    assert await pending(sessions) == [("test.advice", None, [1, 3])]
+    assert "work 1 done" not in order
+    release.set()
+    await sink.drain()
+    assert sorted(order) == ["work 1 done", "work 1 started", "work 3 done", "work 3 started"]
 
 
 async def test_ag_hook_038_a_second_change_adds_to_the_one_pending_request(sessions):

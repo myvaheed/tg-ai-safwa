@@ -6,6 +6,8 @@ from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import FeatureModule
 
 from . import telegram, views
+from .hooks import KEY_ACTIONS_HOOK as KEY_ACTIONS_HOOK
+from .hooks import KEY_WARNING_HOOK as KEY_WARNING_HOOK
 from .hooks import SPRINT_EXPIRY_HOOK as SPRINT_EXPIRY_HOOK
 from .hooks import SPRINT_SUMMARY_HOOK as SPRINT_SUMMARY_HOOK
 from .hooks import expire_due_sprint_now

@@ -37,6 +37,7 @@ from ..enums import AIProvider
 from ..features.advisor.agent import ADVISOR_VIEWS
 from ..features.memory.store import MemoryFileStore
 from ..features.memory.upkeep import MemoryUpkeep
+from ..features.planning.key_actions import KeyActions
 from ..features.profile.model import UserProfile
 from ..features.saved_requests.use_cases import seed_default_requests
 from ..features.summary.summary import DialogueSummary
@@ -70,12 +71,13 @@ class SafwaFeatures:
     """What Safwa's own handlers reach for off `Services.features`.
 
     The shell carries this and never reads it, so what one feature may ask of
-    another across the container is exactly these three fields.
+    another across the container is exactly these fields.
     """
 
     summary: DialogueSummary
     memory: MemoryFileStore
     memory_upkeep: MemoryUpkeep
+    key_actions: KeyActions
 
 
 def configure_logging(level_name: str) -> None:
@@ -153,12 +155,10 @@ async def run(settings: Settings) -> None:
         )
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     database = Database(settings.async_database_url)
-    committed = bind_committed(database.sessions, REGISTRY.hooks)
     async with database.sessions() as session:
         _, created = await bootstrap_workspace(
             session, settings.telegram_owner_id, settings.timezone
         )
-        await recover_startup(session, RECOVERY_HOOKS)
         await session.run_sync(
             lambda sync_session: create_ai_views(sync_session.connection(), AI_VIEWS)
         )
@@ -303,11 +303,22 @@ async def run(settings: Settings) -> None:
         text_inputs=FEATURE_TEXT_INPUTS,
         hooks=REGISTRY.hooks,
         start_links=FEATURE_START_LINKS,
-        features=SafwaFeatures(summary=summary, memory=memory, memory_upkeep=upkeep),
+        features=SafwaFeatures(
+            summary=summary,
+            memory=memory,
+            memory_upkeep=upkeep,
+            key_actions=KeyActions(provider),
+        ),
         views=ALLOWED_VIEWS,
         bot_username=settings.telegram_bot_username,
         transcriber=transcriber,
     )
+    # A commit's facts reach the hooks from here on, with the features a Run reaches for;
+    # what recovery ends — a Sprint whose midnight Safwa slept through — is handed on too.
+    committed = bind_committed(database.sessions, REGISTRY.hooks, resources=services.features)
+    async with database.sessions() as session:
+        await recover_startup(session, RECOVERY_HOOKS)
+        await session.commit()
     dispatcher = Dispatcher()
     dispatcher.include_router(build_router(commands))
     dispatcher["services"] = services
