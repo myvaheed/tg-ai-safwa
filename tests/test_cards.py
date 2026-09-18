@@ -21,10 +21,12 @@ from safwa.features.cards.hooks import (
     BLOCKER_HOOK,
     EMPTY_PARENT_GRACE_DAYS,
     EMPTY_PARENTS_HOOK,
+    REST_TODAY_HOOK,
     TODAY_CAPACITY_EP,
     TODAY_OVERLOAD_HOOK,
     blocker_request,
     empty_parents_request,
+    rest_today_request,
     today_overload_request,
 )
 from safwa.features.cards.model import (
@@ -1525,3 +1527,55 @@ async def test_cd_today_036_the_request_sums_the_day_as_it_is_about_to_be_said(s
         await move_card(session, big.id, CardStage.SPRINT)
         await session.commit()
         assert await today_overload_request(session, [extra.id]) is None
+
+
+async def test_cd_rest_037_the_request_names_the_sprints_rest_while_the_day_holds_none(sessions):
+    """CD-REST-037 — tests/brd/cards.feature"""
+    assert REST_TODAY_HOOK.agent_related
+    assert REST_TODAY_HOOK.on == (OnTick(at=morning_time),)
+    async with sessions() as session:
+        nap = await create_card(
+            session, kind="action", title="Nap", stage="sprint", effort_points=1,
+            categories={"rest"},
+        )
+        walk = await create_card(
+            session, kind="action", title="Walk", stage="sprint", effort_points=1,
+            categories={"rest"},
+        )
+        await create_card(
+            session, kind="action", title="Work", stage="sprint", effort_points=3
+        )
+        await create_card(
+            session, kind="action", title="Someday rest", stage="backlog", effort_points=1,
+            categories={"rest"},
+        )
+        await session.commit()
+        # In Planning there is no plan to take rest from.
+        assert await rest_today_request(session, [MORNING_TIME_DEFAULT]) is None
+
+        await start_sprint(session, success_criteria="Ship v2")
+        await session.commit()
+        request = await rest_today_request(session, [MORNING_TIME_DEFAULT])
+        assert request is not None
+        assert f"- #{nap.id} «Nap»" in request and f"- #{walk.id} «Walk»" in request
+        assert "Work" not in request and "Someday rest" not in request
+        assert "Do not move anything without their answer" in request
+
+        # A Rest Action in Today by then: the day has its rest.
+        await move_card(session, nap.id, CardStage.TODAY)
+        await session.commit()
+        assert await rest_today_request(session, [MORNING_TIME_DEFAULT]) is None
+        # Finished that day, it still counts, while Walk stands in the Sprint.
+        await finish_action(session, nap.id)
+        await session.commit()
+        assert await rest_today_request(session, [MORNING_TIME_DEFAULT]) is None
+        # Finished on another day, it is not this day's rest.
+        nap.completed_at = utcnow() - timedelta(days=2)
+        await session.commit()
+        request = await rest_today_request(session, [MORNING_TIME_DEFAULT])
+        assert request is not None and "Walk" in request and "Nap" not in request
+
+        # With no open Rest Action left in the Sprint, nothing.
+        await move_card(session, walk.id, CardStage.BACKLOG)
+        await session.commit()
+        assert await rest_today_request(session, [MORNING_TIME_DEFAULT]) is None

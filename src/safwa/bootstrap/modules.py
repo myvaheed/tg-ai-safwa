@@ -24,7 +24,9 @@ from ..features.advisor.agent import ADVISOR_VIEWS, PERSONA, SYSTEM_PROMPT_TEMPL
 from ..features.cards.module import (
     BLOCKER_HOOK,
     EMPTY_PARENTS_HOOK,
+    ENERGY_BALANCE_HOOK,
     HARD_TIME_HOOK,
+    REST_TODAY_HOOK,
     TODAY_OVERLOAD_HOOK,
 )
 from ..features.cards.module import MODULE as CARDS
@@ -92,6 +94,8 @@ HOOKS = (
     TODAY_OVERLOAD_HOOK,
     EMPTY_PARENTS_HOOK,
     HARD_TIME_HOOK,
+    ENERGY_BALANCE_HOOK,
+    REST_TODAY_HOOK,
     MISSED_RUN_HOOK,
     DIARY_HOOK,
     DAILY_SUMMARY_HOOK,

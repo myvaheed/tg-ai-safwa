@@ -305,3 +305,12 @@ Feature: Cards
     And the effort is summed when the question is about to be said: a day at 15 EP or under by then asks nothing, and exactly 15 EP is not over
     And two Actions entering Today before it is said make one question
     And an Action that stays in Today, renamed or re-estimated there, is not what is checked: only one entering Today is
+
+  Scenario: CD-REST-037 — A day planned without rest while the Sprint holds some is brought up
+    Given a Sprint runs, and an open Action of the Rest category is in the Sprint or in Today
+    When the Profile's Morning time passes and the chat is free
+    Then, with no open Rest Action in Today and none finished that day, the Advisor is asked once, in one message naming the Sprint's open Rest Actions
+    And it is asked to suggest taking one into Today, rest that is planned being under the owner's control where a need that is not is not; nothing is moved before the owner's answer
+    And the list is read when the question is about to be said: with a Rest Action in Today by then, or one finished that day, nothing is asked
+    And with no open Rest Action in the Sprint, or no Sprint running, the morning asks nothing
+    And a day is the workspace's local day

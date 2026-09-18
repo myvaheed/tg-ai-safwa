@@ -28,7 +28,7 @@ SPRINT_ENDED = "sprint.ended"
 
 
 async def sprint_is_active(session: AsyncSession) -> bool:
-    """Whether a Sprint is running, which is what makes Today a real screen."""
+    """Whether a Sprint is running."""
     workspace = await session.get(Workspace, 1)
     return bool(workspace and workspace.active_sprint_id)
 

@@ -162,14 +162,20 @@ more.
 ## Wave 4 — the hooks, in dependency order
 
 Hooks on a committed transition need only the Committed adapter, shipped in batch 2. Hooks that
-poll state on a schedule need the Tick adapter, shipped in batch 3. Instructions 1, 4 and 15 need
-neither.
+poll state on a schedule need the Tick adapter, shipped in batch 3. Instruction 15 needs
+neither; 1 is withdrawn.
 Explicit retrospective workflows do not depend on hook registration.
 The classification audit and implementation stages are in [HOOK_ARCH.md](HOOK_ARCH.md).
 
+Shipped 2026-09-18, batch 6: entry 4 as two hooks on the adapters as they stood, the energy
+balance of a starting Sprint against the Backlog
+([PL-ENERGY-022](../tests/brd/planning.feature)) and the day's rest against the Sprint's
+([CD-REST-037](../tests/brd/cards.feature)) — two definitions, two readings at delivery, two
+lines in `HOOKS`, no column.
+
 | Entry | | Depends on |
 |---|---|---|
-| **1, 4 and 15 — Advisor instructions, not hooks** | S each | Nothing. A prompt line and the snapshot. Note for 4: the Today Actions are already in the state block; the Sprint list is not, and adding it has a cost named below. |
+| **15 — Advisor instruction, not a hook** | S | The AI half of the retrospective, where the takeaway it carries is agreed. |
 | **6 — An unfinished Action repeatedly selected for Today** | L | Batch 3, plus a record of each day's selection into Today that nothing writes yet |
 | **10 — Key Actions tied to Sprint Success criteria** | XL | Batch 2 and a Sprint-and-Action relationship with classification history |
 
@@ -208,8 +214,8 @@ second delivery path or a table of what was asked means the shared part was fitt
 **The pre-release window.** Declare a schema batch only if an implementation changes stored
 structure.
 
-**What reaches the cacheable prefix.** Onboarding's changing guidance and instruction 4's Sprint
-list belong outside `messages[0]`.
+**What reaches the cacheable prefix.** Onboarding's changing guidance belongs outside
+`messages[0]`.
 
 **The rungs are the unit now.** Hook 7's 15 EP, the Sprint's committed and capacity figures, the
 retro's numbers and the Advisor's judgement of a day's load all count in a scale that says what

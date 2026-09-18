@@ -8,7 +8,14 @@ from sqlalchemy import select
 
 from safwa.bootstrap.modules import MODULES, RECOVERY_HOOKS, REGISTRY
 from safwa.features.cards.hard_time import typed_hard_time
-from safwa.features.cards.hooks import HARD_TIME_CHECK, HARD_TIME_HOOK, hard_time_request
+from safwa.features.cards.hooks import (
+    ENERGY_BALANCE_HOOK,
+    ENERGY_CANDIDATES,
+    HARD_TIME_HOOK,
+    PLAN_CHECK,
+    energy_balance_request,
+    hard_time_request,
+)
 from safwa.features.cards.model import CardStage
 from safwa.features.cards.use_cases import (
     archive_subtree,
@@ -551,7 +558,7 @@ async def test_pl_hardtime_021_the_request_names_the_hard_times_the_plan_does_no
 
         dentist = await fixed("Dentist", 1)
         # In Planning there is no plan to hold anything.
-        assert await hard_time_request(session, [HARD_TIME_CHECK]) is None
+        assert await hard_time_request(session, [PLAN_CHECK]) is None
         await plan_one(session)
         sprint = await start_sprint(session, success_criteria="Ship v2", length_days=7)
         assert take_changes(session.info) == [Committed(SPRINT_STARTED, sprint.id)]
@@ -571,7 +578,7 @@ async def test_pl_hardtime_021_the_request_names_the_hard_times_the_plan_does_no
         await archive_subtree(session, shelved.id)
         await session.commit()
 
-        request = await hard_time_request(session, [HARD_TIME_CHECK])
+        request = await hard_time_request(session, [PLAN_CHECK])
         assert request is not None
         for line in (
             f"#{dentist.id} «Dentist»: {today + timedelta(days=1):%Y-%m-%d} 23:59, in Backlog",
@@ -588,4 +595,61 @@ async def test_pl_hardtime_021_the_request_names_the_hard_times_the_plan_does_no
         await move_card(session, tax.id, CardStage.SPRINT)
         await move_card(session, call.id, CardStage.TODAY)
         await session.commit()
-        assert await hard_time_request(session, [HARD_TIME_CHECK]) is None
+        assert await hard_time_request(session, [PLAN_CHECK]) is None
+
+
+async def test_pl_energy_022_the_request_names_each_kind_the_sprint_lacks_and_the_backlog_has(
+    sessions,
+):
+    """PL-ENERGY-022 — tests/brd/planning.feature"""
+    assert ENERGY_BALANCE_HOOK.agent_related
+    assert ENERGY_BALANCE_HOOK.on == (OnCommitted(kind=SPRINT_STARTED),)
+    async with sessions() as session:
+        # In Planning there is no Sprint to spread anything over.
+        assert await energy_balance_request(session, [PLAN_CHECK]) is None
+        await plan_one(session, title="Write the report", energy_types={"cognitive"})
+        run = await create_card(session, title="Run", energy_types={"physical"})
+        swim = await create_card(session, title="Swim", energy_types={"physical"})
+        await create_card(session, title="Hike", energy_types={"physical"})
+        climb = await create_card(
+            session, title="Climb", energy_types={"physical"}, priority="critical"
+        )
+        help_out = await create_card(session, title="Help out", energy_types={"values"})
+        nap = await create_card(session, title="Nap", categories={"rest"})
+        # Cognitive is in the Sprint already; a finished one is not open in the Backlog;
+        # nothing anywhere carries Social.
+        await create_card(session, title="Read a paper", energy_types={"cognitive"})
+        walked = await create_card(session, title="Walked", categories={"rest"})
+        await finish_action(session, walked.id)
+        sprint = await start_sprint(session, success_criteria="Ship v2")
+        assert take_changes(session.info) == [Committed(SPRINT_STARTED, sprint.id)]
+        await session.commit()
+
+        request = await energy_balance_request(session, [PLAN_CHECK])
+        assert request is not None
+        assert ENERGY_CANDIDATES == 3
+        for line in (
+            f"- Physical energy: #{climb.id} «Climb» (Critical), #{run.id} «Run», #{swim.id} «Swim»",
+            f"- Values energy: #{help_out.id} «Help out»",
+            f"- Rest: #{nap.id} «Nap»",
+        ):
+            assert line in request
+        for absent in ("Hike", "Cognitive", "Social", "Read a paper", "Walked"):
+            assert absent not in request
+        assert "Do not move anything without their answer" in request
+
+        # Gained by the time it is said, a kind is left out; with nothing missing, nothing.
+        await move_card(session, climb.id, CardStage.SPRINT)
+        await session.commit()
+        request = await energy_balance_request(session, [PLAN_CHECK])
+        assert request is not None and "Physical" not in request and "Rest" in request
+        await move_card(session, help_out.id, CardStage.SPRINT)
+        await move_card(session, nap.id, CardStage.TODAY)
+        await session.commit()
+        assert await energy_balance_request(session, [PLAN_CHECK]) is None
+
+        # Ended by then, the Sprint has nothing to spread.
+        await move_card(session, climb.id, CardStage.BACKLOG)
+        await finish_sprint(session)
+        await session.commit()
+        assert await energy_balance_request(session, [PLAN_CHECK]) is None

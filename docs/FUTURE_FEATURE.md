@@ -76,7 +76,8 @@ implicitly settle them.
 
 Discussed 2026-09-07. Candidates for helping the owner remember intentions and keep work moving.
 The numbering follows the discussion and is preserved for references. This is a mixed candidate
-catalogue: 1, 4 and 15 are instructions, 9 belongs to Proposals, and 14 is rejected.
+catalogue: 15 is an instruction, 1 is withdrawn, 4 became two hooks, 9 belongs to Proposals,
+and 14 is rejected.
 The classification audit is in [HOOK_ARCH.md](HOOK_ARCH.md#7-проверка-архитектуры-на-всём-наборе-кандидатов).
 None of these entries is an approved scenario package.
 
@@ -114,11 +115,11 @@ starts the requested work calls its workflow directly. Thus requested retrospect
 manual /summarize are not hooks; automatic Summary after a turn can be one. The injection of a prompt or use of RAG does not determine which category
 an operation belongs to.
 
-### 1. Capture an intention from the conversation — Advisor instruction
+### 1. Capture an intention from the conversation — withdrawn
 
-Teach the Advisor to offer a Card or a Reminder when the conversation makes one useful. Checking
-every new intention with a separate hook would trigger too often; the Advisor can make this
-offer from the context it already reads. This is an instruction candidate, not a hook.
+Withdrawn 2026-09-17. The Advisor already proposes a Card or a Reminder when the conversation
+makes one useful; a standing instruction to do so more often is not wanted, and a hook that
+checks every new intention would trigger too often.
 
 ### 2. After setting a blocker, offer a Reminder — shipped
 
@@ -132,11 +133,17 @@ Do not add a hook that checks every new piece of information against existing bl
 analyses whether one has been resolved. That would require too much repeated checking, and
 the owner cannot be expected to report every change in their circumstances or intended activity.
 
-### 4. Mention another suitable task in context — Advisor instruction
+### 4. A spread of energy over the Sprint and the day — shipped as two hooks
 
-The intended Advisor context includes the Today and Sprint task lists. Instruct it to use those
-lists to mention a relevant task when the conversation presents a useful opportunity to do it.
-The context provision is part of this idea; a separate hook for each opportunity is unnecessary.
+Replaced 2026-09-17: mentioning another suitable task in passing was dropped, and what the
+owner wanted from it — the plan not leaving out a kind of work — became two checks, shipped
+2026-09-18. When a Sprint starts, each of the four energy types and the Rest category on no
+open Action in the Sprint while an open Backlog Action carries it is brought up, with up to
+three Backlog candidates per kind, Critical first
+([PL-ENERGY-022](../tests/brd/planning.feature)). Each morning, a day with no open Rest Action
+in Today and none finished that day, while the Sprint holds one, is brought up with the
+Sprint's Rest Actions ([CD-REST-037](../tests/brd/cards.feature)). Both are switches in the
+Profile; nothing is moved before the owner's answer.
 
 ### 5. Goals and Subgoals with no Actions — shipped
 

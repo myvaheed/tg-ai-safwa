@@ -20,8 +20,9 @@ from safwa.bootstrap.modules import REGISTRY, SCREENS
 from safwa.features.cards.hooks import (
     EMPTY_PARENT_GRACE_DAYS,
     EMPTY_PARENTS_HOOK,
-    HARD_TIME_CHECK,
     HARD_TIME_HOOK,
+    PLAN_CHECK,
+    REST_TODAY_HOOK,
 )
 from safwa.features.cards.use_cases import create_card
 from safwa.features.profile.api import morning_time
@@ -63,9 +64,11 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
         await session.commit()
         goal_id = goal.id
 
-    # The morning fires both daily checks; firing again before either is said adds nothing.
+    # The morning fires every daily check; firing again before any is said adds nothing.
     morning = [
-        (EMPTY_PARENTS_HOOK.name, [MORNING_TIME_DEFAULT]), (HARD_TIME_HOOK.name, [HARD_TIME_CHECK]),
+        (EMPTY_PARENTS_HOOK.name, [MORNING_TIME_DEFAULT]),
+        (HARD_TIME_HOOK.name, [PLAN_CHECK]),
+        (REST_TODAY_HOOK.name, [MORNING_TIME_DEFAULT]),
     ]
     for _ in range(2):
         await queue_advice(REGISTRY.hooks, sessions, Tick(MORNING_TIME_DEFAULT, morning_time))
@@ -101,11 +104,11 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
     asked = [str(item["content"]) for item in provider.calls[0] if item["role"] == "user"]
     handed = next(text for text in asked if f"#{goal_id} «Learn Spanish» (Goal)" in text)
     assert "plan its Actions now, or create one Action" in handed
-    # No Sprint runs, so the plan check had nothing to say: settled on the same tick, without
-    # a word of its own in the one message.
+    # No Sprint runs, so the plan and rest checks had nothing to say: settled on the same
+    # tick, without a word of their own in the one message.
     assert await _pending(sessions) == []
     assert len(chat.sent_messages) == 1
-    assert "Hard Time" not in handed
+    assert "Hard Time" not in handed and "rest" not in handed
     assert await tick(
         sessions,
         gate=runtime.can_speak,

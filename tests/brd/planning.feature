@@ -171,3 +171,12 @@ Feature: Planning — the Sprint, and the mode without one
     And the list is read when the question is about to be said: one already in Today, one in the Sprint whose Hard Time is later than tomorrow, one finished or archived, and one whose Hard Time has passed are left out; with none left, nothing is asked
     And in Planning, with no Sprint running, the morning asks nothing
     And a day is the workspace's local day
+
+  Scenario: PL-ENERGY-022 — A Sprint that leaves out a kind of energy the Backlog has is brought up
+    Given a Sprint starts, and the chat is free
+    When one of the four energy types (Physical, Cognitive, Social, Values) is on no open Action in the Sprint and is on an open Action in Backlog
+    Then the Advisor is asked once, in one message about every such type, naming for each up to three Backlog Actions that carry it (ENERGY_CANDIDATES = 3), Critical first
+    And the same is asked for the Rest category: no open Action of it in the Sprint while Backlog holds one
+    And it is asked to suggest one of each into the Sprint, for a spread of energy over the Sprint; nothing is moved before the owner's answer
+    And a type on no Backlog Action either is not mentioned; with nothing missing, nothing is asked
+    And the list is read when the question is about to be said: a type the Sprint has gained by then is left out, and with the Sprint ended by then nothing is asked

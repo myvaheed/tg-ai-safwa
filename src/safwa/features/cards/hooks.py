@@ -1,7 +1,8 @@
 """What the Cards ask the Advisor to raise on their own: a blocker just set, a day loaded
-past what it is meant to hold, and — each morning, and when a Sprint starts — the Goals
-and Subgoals that still have no Action under them, and the Hard Times the plan does not
-hold."""
+past what it is meant to hold, a Sprint started without a kind of energy the Backlog has,
+and — each morning, and when a Sprint starts — the Goals and Subgoals that still have no
+Action under them, the Hard Times the plan does not hold, and a day planned without the
+rest the Sprint holds."""
 
 from __future__ import annotations
 
@@ -21,11 +22,23 @@ from tg_agent_shell.hooks.contracts import (
     Tick,
 )
 
-from ..planning.api import SPRINT_STARTED, active_sprint_end_date
+from ..planning.api import SPRINT_STARTED, active_sprint_end_date, sprint_is_active
 from ..profile.api import morning_time
+from .api import PLANNED_STAGES, actions_on_stages
 from .hard_time import workspace_zone
 from .hierarchy import branch_actions
-from .model import TERMINAL_STAGES, Card, CardKind, CardStage, effort_label
+from .model import (
+    TERMINAL_STAGES,
+    Card,
+    CardCategory,
+    CardEnergyType,
+    CardKind,
+    CardStage,
+    Category,
+    EnergyType,
+    Priority,
+    effort_label,
+)
 from .use_cases import CARD_BLOCKED, CARD_TODAY
 
 # How old a Goal or a Subgoal is before having no Action under it is worth a question.
@@ -35,8 +48,15 @@ EMPTY_PARENT_GRACE_DAYS = 1
 TODAY_CAPACITY_EP = 15
 # How many days ahead a Hard Time is near enough to belong in Today: today and tomorrow.
 HARD_TIME_NOTICE_DAYS = 1
-# What the plan check keeps as its one pending item: it is about the whole plan, not a Card.
-HARD_TIME_CHECK = "plan"
+# What a plan check keeps as its one pending item: it is about the whole plan, not a Card.
+PLAN_CHECK = "plan"
+# How many Backlog Actions the energy question names for each kind the Sprint has none of.
+ENERGY_CANDIDATES = 3
+# The kinds of energy a Sprint is asked to spread: the four energy types, and rest.
+ENERGY_KINDS = {
+    **{kind.value: f"{kind.value.capitalize()} energy" for kind in EnergyType},
+    Category.REST.value: "Rest",
+}
 
 HARD_TIME_REQUEST = (
     "Hard Times the plan does not hold:\n{cards}\n"
@@ -63,6 +83,26 @@ BLOCKER_REQUEST = (
     "Ask the user whether to set a Reminder to come back to each; if they want one, agree "
     "when and propose it. Do not create anything without their answer."
 )
+
+ENERGY_BALANCE_REQUEST = (
+    "The Sprint has no open Action for these, and the Backlog has:\n{kinds}\n"
+    "Ask the user in one message whether to take one of each into the Sprint, so its energy "
+    "is spread. Do not move anything without their answer."
+)
+
+REST_TODAY_REQUEST = (
+    "Today holds no rest, and the Sprint does:\n{cards}\n"
+    "Ask the user in one message whether to take one into Today, so the rest is planned "
+    "instead of forced. Do not move anything without their answer."
+)
+
+
+async def _local_day_start(session: AsyncSession, now: datetime | None) -> datetime:
+    """When the workspace's local day began, in UTC."""
+    tz = await workspace_zone(session)
+    return datetime.combine(
+        (now or utcnow()).astimezone(tz).date(), time(0, 0), tzinfo=tz
+    ).astimezone(UTC)
 
 
 async def blocked_cards(event: Committed) -> tuple[int, ...]:
@@ -112,10 +152,7 @@ async def today_overload_request(
     The day is the workspace's local day, and what it holds is summed now, not when an
     Action entered Today: the ones still open there, and the ones finished today.
     """
-    tz = await workspace_zone(session)
-    day_start = datetime.combine(
-        (now or utcnow()).astimezone(tz).date(), time(0, 0), tzinfo=tz
-    ).astimezone(UTC)
+    day_start = await _local_day_start(session, now)
     open_today = list(
         await session.scalars(
             select(Card)
@@ -161,7 +198,7 @@ TODAY_OVERLOAD_HOOK = HookSpec(
 
 
 async def plan_check_due(event: Committed | Tick) -> tuple[str, ...]:
-    return (HARD_TIME_CHECK,)
+    return (PLAN_CHECK,)
 
 
 async def hard_time_request(
@@ -257,4 +294,112 @@ EMPTY_PARENTS_HOOK = HookSpec(
     effect=Advise(prepare=empty_parents_request),
     title="Goals without Actions",
     description="Each morning, asks about the Goals and Subgoals that have no Action under them.",
+)
+
+
+async def _energy_kinds(
+    session: AsyncSession, stages: Sequence[CardStage]
+) -> dict[str, list[Card]]:
+    """Each kind of energy, and rest, with the open Actions on these stages that carry it,
+    Critical first."""
+    cards = {card.id: card for card in await actions_on_stages(session, *stages)}
+    rows = await session.execute(
+        select(CardEnergyType.card_id, CardEnergyType.energy_type)
+        .where(CardEnergyType.card_id.in_(list(cards)))
+        .union_all(
+            select(CardCategory.card_id, CardCategory.category).where(
+                CardCategory.card_id.in_(list(cards)),
+                CardCategory.category == Category.REST.value,
+            )
+        )
+    )
+    carried: dict[str, list[Card]] = {}
+    for card_id, kind in rows:
+        carried.setdefault(kind, []).append(cards[card_id])
+    for held in carried.values():
+        held.sort(key=lambda card: (card.priority != Priority.CRITICAL.value, card.id))
+    return carried
+
+
+async def energy_balance_request(session: AsyncSession, items: Sequence[str]) -> str | None:
+    """The request about each kind of energy, and rest, on no open Action in the Sprint while
+    an open Backlog Action carries it — read as the question is about to be said."""
+    if not await sprint_is_active(session):
+        return None
+    planned = await _energy_kinds(session, PLANNED_STAGES)
+    backlog = await _energy_kinds(session, (CardStage.BACKLOG,))
+    lines: list[str] = []
+    for kind, label in ENERGY_KINDS.items():
+        if kind in planned or kind not in backlog:
+            continue
+        named = ", ".join(
+            f"#{card.id} «{card.title}»"
+            + (" (Critical)" if card.priority == Priority.CRITICAL.value else "")
+            for card in backlog[kind][:ENERGY_CANDIDATES]
+        )
+        lines.append(f"- {label}: {named}")
+    if not lines:
+        return None
+    return ENERGY_BALANCE_REQUEST.format(kinds="\n".join(lines))
+
+
+ENERGY_BALANCE_HOOK = HookSpec(
+    name="cards.energy_balance",
+    owner="cards",
+    on=(OnCommitted(kind=SPRINT_STARTED),),
+    evaluate=plan_check_due,
+    effect=Advise(prepare=energy_balance_request),
+    title="Energy balance",
+    description="When a Sprint starts, asks about the kinds of energy, and the rest, it has no Action for while the Backlog does.",
+)
+
+
+async def rest_today_request(
+    session: AsyncSession, items: Sequence[str], *, now: datetime | None = None
+) -> str | None:
+    """The request while the day holds no rest and the Sprint does, or nothing.
+
+    Rest in the day is an open Action of the Rest category in Today, or one finished that
+    local day; what the Sprint holds is read as the question is about to be said.
+    """
+    if not await sprint_is_active(session):
+        return None
+    rest_ids = select(CardCategory.card_id).where(CardCategory.category == Category.REST.value)
+    open_rest = list(
+        await session.scalars(
+            select(Card)
+            .where(
+                Card.kind == CardKind.ACTION.value,
+                Card.effective_stage.in_([stage.value for stage in PLANNED_STAGES]),
+                Card.archived_at.is_(None),
+                Card.id.in_(rest_ids),
+            )
+            .order_by(Card.id)
+        )
+    )
+    if not open_rest or any(card.effective_stage == CardStage.TODAY.value for card in open_rest):
+        return None
+    day_start = await _local_day_start(session, now)
+    rested = await session.scalar(
+        select(func.count()).select_from(Card).where(
+            Card.kind == CardKind.ACTION.value,
+            Card.id.in_(rest_ids),
+            Card.completed_at >= day_start,
+            Card.completed_at < day_start + timedelta(days=1),
+        )
+    )
+    if rested:
+        return None
+    lines = "\n".join(f"- #{card.id} «{card.title}»" for card in open_rest)
+    return REST_TODAY_REQUEST.format(cards=lines)
+
+
+REST_TODAY_HOOK = HookSpec(
+    name="cards.rest_today",
+    owner="cards",
+    on=(OnTick(at=morning_time),),
+    evaluate=check_due,
+    effect=Advise(prepare=rest_today_request),
+    title="Rest in Today",
+    description="Each morning, asks about taking one of the Sprint's Rest Actions into Today when the day holds none.",
 )
