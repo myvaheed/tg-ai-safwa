@@ -184,16 +184,19 @@ Feature: Planning — the Sprint, and the mode without one
     Given a Sprint starts with a Success criterion, or an Action joins the running Sprint — moved or created into it, or brought back from Backlog
     When that is saved
     Then in the background the Sprint's open Actions are read to the model in batches of ten (KEY_BATCH = 10), each as its number in the batch and its title, with the Success criterion, and the batches are asked at once
-    And the model answers each batch with one call, mark_key_actions, naming the numbers the criterion rests on; each named Action is marked key to this Sprint, the others in the batch unmarked, and an answer that is not that call, or names nothing readable, marks nothing and is logged
+    And the model answers each batch with one call, mark_key_actions, naming the numbers the criterion rests on; each named Action is marked key to this Sprint, the others in that batch marked not key
+    And an Action not yet answered about carries no mark: not marked is not the same as marked not key
+    And a batch whose answer is not that call, or names a number not in its list, is logged and leaves the marks of its Actions as they were; the other batches' answers are written
+    And an answer is written only to an Action still open in the running Sprint under the title the model read; one renamed meanwhile keeps the mark a later answer gave it
     And an Action joining the running Sprint is asked about alone, the same way, and the marks of the others stand
     And the owner is told nothing and nothing is proposed; the marks are read by the Today order (PL-KEY-025) and the warning (PL-KEY-024)
-    And the marks are handed on as one saved change once written; an answer that could not be read at all hands nothing on
+    And the marks are handed on as one saved change once any is written; a marking that wrote none hands nothing on
 
   Scenario: PL-KEY-024 — A Sprint left with no key Action to reach its Success criterion is warned about
     Given a Sprint runs, and its Actions have been marked
-    When the marking finds no key Action, or an Action leaves the Sprint unfinished, and the chat is free
+    When the marking finds no key Action, or an Action leaves the Sprint unfinished — moved to Backlog or deleted — and the chat is free
     Then, with no key Action open in the Sprint and none finished in it, the Advisor is asked once to say in one message that the Success criterion does not look reachable with what is planned, and to propose nothing
-    And the Sprint is read when the word is about to be said: with a key Action finished by then, or one open in the Sprint again, or no Sprint running, nothing is said
+    And the Sprint is read when the word is about to be said: with a key Action finished by then, or one open in the Sprint again, or an open Action not marked yet, or no Sprint running, nothing is said
 
   Scenario: PL-KEY-025 — Today is ordered by what the day cannot move
     Given Actions in Today

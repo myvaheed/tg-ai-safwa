@@ -342,8 +342,8 @@ evaluate → инициатива в очереди. Хук не различа�
 | [Дневной итог](../src/safwa/features/profile/hooks.py) | Tick по «Daily summary»; Advise, слова — просьба рассказать, что сделано за день |
 | [Итог спринта](../src/safwa/features/planning/hooks.py) | Committed(sprint.ended), факт пишет finish_sprint; Advise, слова — итог из записи спринта |
 | [Истечение спринта](../src/safwa/features/planning/hooks.py) | Tick по полуночи; Run закрывает спринт, чей последний день прошёл; полночь, проспанную Safwa, добирает recover при старте |
-| [Ключевые Действия](../src/safwa/features/planning/hooks.py) | Committed(sprint.started, sprint.joined); Run спрашивает модель батчами по KEY_BATCH = 10 одним вызовом mark_key_actions на батч и пишет key_action на commitment, затем факт sprint.key_actions |
-| [Недостижимый критерий](../src/safwa/features/planning/hooks.py) | Committed(sprint.key_actions, sprint.left); Advise, слова — что критерий не выглядит достижимым, пока ключевых нет ни открытых, ни завершённых |
+| [Ключевые Действия](../src/safwa/features/planning/hooks.py) | Committed(sprint.started, sprint.joined); Run спрашивает модель батчами по KEY_BATCH = 10 одним вызовом mark_key_actions на батч и пишет key_action на commitment — только в строку, что всё ещё открыта под прочитанным названием, — затем факт sprint.key_actions |
+| [Недостижимый критерий](../src/safwa/features/planning/hooks.py) | Committed(sprint.key_actions, sprint.left); Advise, слова — что критерий не выглядит достижимым, пока ключевых нет ни открытых, ни завершённых; открытое без метки — молчать |
 | [Баланс энергии](../src/safwa/features/cards/hooks.py) | Committed(sprint.started); Advise, слова — виды энергии и отдых, которых нет в спринте, но есть в Backlog, до трёх кандидатов на вид |
 | [Отдых в Today](../src/safwa/features/cards/hooks.py) | Tick по «Morning time»; Advise, слова — открытые Rest-действия спринта, пока в Today отдыха нет и за день он не завершён |
 | [Утра в Today](../src/safwa/features/cards/hooks.py) | Tick по «Morning time»; Run записывает локальный день каждому открытому Действию в Today и пишет факт card.today_morning |
@@ -473,7 +473,7 @@ evaluate возвращает одну постоянную отметку, по
 | 7. Перегруз Today | Committed → Advise | Реализован: факт card.today при входе Действия в Today; prepare суммирует день заново — открытые в Today и завершённые за локальный день — против TODAY_CAPACITY_EP = 15 |
 | 8. Похожие сущности | BeforeTool → RefuseTool; интерактивное продолжение — RAG-фича | Сходство не означает идентичность |
 | 9. Проверка исполнения | Жизненный цикл Proposals, без регистрации хука | Собственная архитектура в PROPOSAL_VALIDATION.md |
-| 10. Ключевые Действия | Committed → Run; Committed → Advise | Реализован: старт спринта и вход Действия — классификация в фоне, метка key_action на commitment, факт sprint.key_actions; prepare предупреждения перечитывает: ключевое завершено или открыто — молчать; нечитаемый ответ ничего не метит и факта не даёт |
+| 10. Ключевые Действия | Committed → Run; Committed → Advise | Реализован: старт спринта и вход Действия — классификация в фоне, метка key_action на commitment (None, пока модель не ответила), факт sprint.key_actions; prepare предупреждения перечитывает: ключевое завершено или открыто — молчать, открытое без метки — молчать; нечитаемый батч оставляет метки как были |
 | 11. Повторные Missed | Committed → Advise | Реализован: факт check.missed на каждый сохранённый Missed; prepare считает серию Missed до последнего Passed, Pending не считает и не рвёт; просьба на каждом кратном MISSED_RUN = 3 |
 | 13. Hard Time | Committed и Tick → Advise | Реализован: одно определение с двумя подписками — старт спринта и утренний тик; prepare читает весь план заново, а не то одно, что сработало |
 | 14. Память хуков | Не нужна: ожидающая инициатива и период хука | Выключатель в Профиле — единственное «больше не надо» |
@@ -675,8 +675,8 @@ planning.key_actions: на sprint.started и на sprint.joined (Действи�
 при уходе незавершённым) KeyActions спрашивает модель батчами по KEY_BATCH = 10 разом, с
 одним инструментом mark_key_actions и tool_choice required — тот же путь, на котором стоят
 Advisor и субагенты, а не разбор текста; из аргументов вызова берёт номера, пишет key_action
-на SprintCommitment и кладёт факт sprint.key_actions; ответ, который не был этим вызовом ни в
-одном батче, ничего не метит и факта не даёт
+на SprintCommitment и кладёт факт sprint.key_actions (границы батчей и актуальность ответа —
+батч Р2 ниже)
 ([PL-KEY-023](../tests/brd/planning.feature)). Advise planning.key_warning на этом факте и на
 sprint.left перечитывает спринт при доставке: ни одного ключевого ни открытым, ни завершённым —
 одно сообщение, что критерий не выглядит достижимым, без предложений
@@ -704,6 +704,22 @@ CueRuntime.delivered — та проверка, что раньше стояла
 штамп. B4 принят как окно длиной в evaluate (выше, «Сохранённое изменение»). Схема: cues —
 пересборка ([AG-CUE-029](../tests/brd/tg_agent_shell/agents.feature),
 [AG-HOOK-038](../tests/brd/tg_agent_shell/agents.feature)).
+
+### Батч Р2. Классификатор — реализован
+
+Ревью (B5–B7, N3) воспроизвело три ошибки классификатора и одну дыру в «уходе из спринта».
+Метка key_action стала nullable: None — модель об этой строке ещё не отвечала, и это не то же,
+что «не ключевое»; prepare предупреждения молчит, пока у спринта есть открытое Действие без
+метки (B7). classify отдаёт ответ по батчам: батч, чей ответ — не вызов mark_key_actions или
+называет номер вне списка, логируется и оставляет метки своих строк как были, остальные батчи
+пишутся; факт кладётся, если записана хоть одна метка (B6). mark читает строки и закрывает
+чтение до вопроса модели, а ответ пишет в короткой транзакции только в строку, что всё ещё
+открыта в идущем спринте под тем названием, которое модель читала: два ответа приходят в любом
+порядке, ответ про переименованное Действие — про другое (B5). Удаление Действия, открытого в
+идущем спринте, кладёт sprint.left, как перенос в Backlog, и предупреждение узнаёт (N3);
+архивировать можно только Done, у которого commitment уже с результатом, — отдельного случая
+нет. Схема: key_action nullable — пересборка
+([PL-KEY-023](../tests/brd/planning.feature), [PL-KEY-024](../tests/brd/planning.feature)).
 
 ### Этап 5. Остальные по готовности данных
 

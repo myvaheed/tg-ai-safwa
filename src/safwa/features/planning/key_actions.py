@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import Field, ValidationError
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from llm_gateway import CompletionRequest, LlmProvider
 from tg_agent_shell.ai.contracts import ToolInput, tool_json_schema
@@ -49,6 +49,9 @@ KEY_ACTIONS_TOOL: dict[str, Any] = {
     },
 }
 
+# One row as the model was asked about it: the commitment, and the title it read.
+Asked = tuple[int, str]
+
 
 class KeyActions:
     """The classifier, on the one provider the application has."""
@@ -57,54 +60,62 @@ class KeyActions:
         self.provider = provider
 
     async def mark(
-        self, session: AsyncSession, sprint_id: int, *, card_ids: Sequence[int] | None = None
+        self,
+        sessions: async_sessionmaker[AsyncSession],
+        sprint_id: int,
+        *,
+        card_ids: Sequence[int] | None = None,
     ) -> None:
         """Mark which of the Sprint's open Actions — or only these — its criterion rests on.
 
-        The marks are handed on as one fact once they are written; an answer that could not
-        be read at all writes nothing and hands nothing on.
+        The rows are read and the read closed before the model is asked, and each answer is
+        written only to a row that is still what was asked about: open in the running Sprint,
+        under the title the model read. Two answers may arrive in either order, and one about
+        an Action renamed meanwhile is about something else. The marks are handed on as one
+        fact once any is written; a batch whose answer could not be read writes nothing.
         """
-        sprint = await session.get(Sprint, sprint_id)
-        if sprint is None or sprint.status != SprintStatus.ACTIVE.value:
+        async with sessions() as session:
+            sprint = await session.get(Sprint, sprint_id)
+            if sprint is None or sprint.status != SprintStatus.ACTIVE.value:
+                return
+            criterion = sprint.success_criteria
+            asked = await _open_rows(session, sprint_id, card_ids)
+        if not asked:
             return
-        only = [SprintCommitment.card_id.in_(card_ids)] if card_ids is not None else []
-        rows = list(
-            await session.execute(
-                select(SprintCommitment, Card.title)
-                .join(Card, Card.id == SprintCommitment.card_id)
-                .where(
-                    SprintCommitment.sprint_id == sprint_id,
-                    SprintCommitment.removed_at.is_(None),
-                    SprintCommitment.result.is_(None),
-                    Card.archived_at.is_(None),
-                    *only,
-                )
-                .order_by(SprintCommitment.card_id)
-            )
-        )
-        if not rows:
+        marks = await self.classify(criterion, [title for _, title in asked])
+        if not marks:
             return
-        key = await self.classify(sprint.success_criteria, [title for _, title in rows])
-        if key is None:
-            return
-        for index, (commitment, _) in enumerate(rows):
-            commitment.key_action = index in key
-        record_change(session, SPRINT_KEY_ACTIONS, sprint_id)
+        async with sessions() as session:
+            sprint = await session.get(Sprint, sprint_id)
+            if sprint is None or sprint.status != SprintStatus.ACTIVE.value:
+                return
+            written = False
+            for index, key in marks.items():
+                commitment_id, title = asked[index]
+                commitment = await session.get(SprintCommitment, commitment_id)
+                if commitment is None or commitment.removed_at is not None or commitment.result is not None:
+                    continue
+                card = await session.get(Card, commitment.card_id)
+                if card is None or card.title != title:
+                    continue
+                commitment.key_action = key
+                written = True
+            if written:
+                record_change(session, SPRINT_KEY_ACTIONS, sprint_id)
+            await session.commit()
 
-    async def classify(self, criterion: str, titles: Sequence[str]) -> set[int] | None:
-        """The indices into `titles` the model named, or None when no answer could be
-        read; a batch that could not be read marks nothing and is logged."""
+    async def classify(self, criterion: str, titles: Sequence[str]) -> dict[int, bool]:
+        """Whether each of `titles` was named, by index, for every batch whose answer could
+        be read; a batch that could not be read is absent, and logged."""
         batches = [
             (start, titles[start : start + KEY_BATCH]) for start in range(0, len(titles), KEY_BATCH)
         ]
         answers = await asyncio.gather(*(self._ask(criterion, batch) for _, batch in batches))
-        if all(answer is None for answer in answers):
-            return None
         return {
-            start + index
-            for (start, _), answer in zip(batches, answers, strict=True)
+            start + index: index in answer
+            for (start, batch), answer in zip(batches, answers, strict=True)
             if answer is not None
-            for index in answer
+            for index in range(len(batch))
         }
 
     async def _ask(self, criterion: str, batch: Sequence[str]) -> set[int] | None:
@@ -132,4 +143,26 @@ class KeyActions:
         except ValidationError as error:
             logger.warning("The key Actions call could not be read: %s", error)
             return None
-        return {number - 1 for number in numbers if 1 <= number <= len(batch)}
+        if any(number < 1 or number > len(batch) for number in numbers):
+            logger.warning("The key Actions call named a number not in the list: %r", numbers)
+            return None
+        return {number - 1 for number in numbers}
+
+
+async def _open_rows(
+    session: AsyncSession, sprint_id: int, card_ids: Sequence[int] | None
+) -> list[Asked]:
+    """The Sprint's open commitments — or only these Cards' — each with its Action's title."""
+    only = [SprintCommitment.card_id.in_(card_ids)] if card_ids is not None else []
+    rows = await session.execute(
+        select(SprintCommitment.id, Card.title)
+        .join(Card, Card.id == SprintCommitment.card_id)
+        .where(
+            SprintCommitment.sprint_id == sprint_id,
+            SprintCommitment.removed_at.is_(None),
+            SprintCommitment.result.is_(None),
+            *only,
+        )
+        .order_by(SprintCommitment.card_id)
+    )
+    return [(commitment_id, title) for commitment_id, title in rows]

@@ -64,7 +64,8 @@ class SprintCommitment(Base, TimestampMixin):
     added_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     removed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     result: Mapped[str | None] = mapped_column(String(20))
-    # Whether the Sprint's Success criterion rests on this Action, as the model marked it.
-    key_action: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Whether the Sprint's Success criterion rests on this Action, as the model marked it;
+    # None until the model has answered about this row.
+    key_action: Mapped[bool | None] = mapped_column(Boolean)
 
     __table_args__ = (UniqueConstraint("sprint_id", "card_id"),)

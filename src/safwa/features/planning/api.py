@@ -113,7 +113,20 @@ async def record_sprint_result(session: AsyncSession, card_id: int) -> None:
 
 
 async def delete_commitments_of_cards(session: AsyncSession, card_ids: list[int]) -> None:
-    """Take deleted Cards out of every Sprint that ever counted them."""
+    """Take deleted Cards out of every Sprint that ever counted them; one still open in the
+    running Sprint leaves it unfinished, the way a move to Backlog does."""
+    workspace = await session.get(Workspace, 1)
+    if workspace is not None and workspace.active_sprint_id:
+        leaving = await session.scalars(
+            select(SprintCommitment.card_id).where(
+                SprintCommitment.sprint_id == workspace.active_sprint_id,
+                SprintCommitment.card_id.in_(card_ids),
+                SprintCommitment.removed_at.is_(None),
+                SprintCommitment.result.is_(None),
+            )
+        )
+        for card_id in leaving:
+            record_change(session, SPRINT_LEFT, card_id)
     await session.execute(delete(SprintCommitment).where(SprintCommitment.card_id.in_(card_ids)))
 
 

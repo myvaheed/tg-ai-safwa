@@ -106,17 +106,16 @@ async def sprint_change(event: Committed) -> tuple[Committed, ...]:
 
 async def mark_key_actions(event: Committed, context: RunContext[KeyActionResources]) -> None:
     """Mark the Sprint's open Actions when it starts, and the one that joined it."""
+    if event.kind == SPRINT_STARTED:
+        await context.resources.key_actions.mark(context.sessions, event.subject_id)
+        return
     async with context.sessions() as session:
-        if event.kind == SPRINT_STARTED:
-            await context.resources.key_actions.mark(session, event.subject_id)
-        else:
-            workspace = await session.get(Workspace, 1)
-            if workspace is None or not workspace.active_sprint_id:
-                return
-            await context.resources.key_actions.mark(
-                session, workspace.active_sprint_id, card_ids=(event.subject_id,)
-            )
-        await session.commit()
+        workspace = await session.get(Workspace, 1)
+        sprint_id = workspace.active_sprint_id if workspace is not None else None
+    if sprint_id:
+        await context.resources.key_actions.mark(
+            context.sessions, sprint_id, card_ids=(event.subject_id,)
+        )
 
 
 KEY_ACTIONS_HOOK = HookSpec(
@@ -135,22 +134,24 @@ async def keys_changed(event: Committed) -> tuple[str, ...]:
 
 
 async def key_warning_request(session: AsyncSession, items: Sequence[str]) -> str | None:
-    """The word while the running Sprint has no key Action open and none finished, or nothing."""
+    """The word while the running Sprint has no key Action open and none finished, or
+    nothing — also nothing while an open Action is not marked yet, since not marked is not
+    the same as marked not key."""
     workspace = await session.get(Workspace, 1)
     if workspace is None or not workspace.active_sprint_id:
         return None
     sprint = await session.get(Sprint, workspace.active_sprint_id)
     if sprint is None:
         return None
-    keys = await session.scalars(
-        select(SprintCommitment).where(
-            SprintCommitment.sprint_id == sprint.id, SprintCommitment.key_action.is_(True)
-        )
+    commitments = await session.scalars(
+        select(SprintCommitment).where(SprintCommitment.sprint_id == sprint.id)
     )
-    for commitment in keys:
+    for commitment in commitments:
         finished = commitment.result == CardStage.DONE.value
         open_in_sprint = commitment.result is None and commitment.removed_at is None
-        if finished or open_in_sprint:
+        if commitment.key_action and (finished or open_in_sprint):
+            return None
+        if open_in_sprint and commitment.key_action is None:
             return None
     return KEY_WARNING_REQUEST.format(number=sprint.number, criterion=sprint.success_criteria)
 

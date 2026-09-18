@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from datetime import date, datetime, time, timedelta
@@ -24,6 +25,7 @@ from safwa.features.cards.hooks import (
 from safwa.features.cards.model import CardStage
 from safwa.features.cards.use_cases import (
     archive_subtree,
+    delete_subtree,
     finish_action,
     move_card,
     update_card_fields,
@@ -69,12 +71,21 @@ from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.use_cases import SPRINT_KEY, delete_reminder
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.workspace import Workspace
-from tg_agent_shell.cues.initiatives import queue_advice
+from tg_agent_shell.cues.initiatives import bind_committed, queue_advice
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.foundation.changes import Committed, take_changes
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
-from tg_agent_shell.hooks.contracts import OnCommitted, OnTick, Run, RunContext, Tick
+from tg_agent_shell.hooks.contracts import (
+    Advise,
+    HookSpec,
+    OnCommitted,
+    OnTick,
+    Run,
+    RunContext,
+    Tick,
+)
+from tg_agent_shell.hooks.registry import HookRegistry
 from tg_agent_shell.recovery import recover_startup
 
 
@@ -680,18 +691,26 @@ async def test_pl_energy_022_the_request_names_each_kind_the_sprint_lacks_and_th
 
 class KeyProvider:
     """Names every listed Action whose title says it is key, in the one call, and keeps
-    each request; garbled, it answers in words instead of the call."""
+    each request. Garbled, it answers in words instead of the call; so does a batch that
+    lists a title saying it is unreadable. Naming a number not in the list is its own mode,
+    and `hold` keeps every answer back until it is set."""
 
-    def __init__(self, *, garbled: bool = False) -> None:
+    def __init__(
+        self, *, garbled: bool = False, not_listed: bool = False, hold: asyncio.Event | None = None
+    ) -> None:
         self.requests: list[CompletionRequest] = []
         self.garbled = garbled
+        self.not_listed = not_listed
+        self.hold = hold
 
     async def complete(self, request: CompletionRequest) -> CompletionTurn:
         self.requests.append(request)
-        if self.garbled:
-            return CompletionTurn("I cannot say.")
+        if self.hold is not None:
+            await self.hold.wait()
         listed = re.findall(r"^(\d+)\. (.+)$", request.messages[1]["content"], re.MULTILINE)
-        key = [int(number) for number, title in listed if "key" in title]
+        if self.garbled or any("unreadable" in title for _, title in listed):
+            return CompletionTurn("I cannot say.")
+        key = [999] if self.not_listed else [int(number) for number, title in listed if "key" in title]
         return CompletionTurn(
             "",
             tool_calls=(ToolCall("call-1", "mark_key_actions", json.dumps({"key": key})),),
@@ -713,7 +732,7 @@ def _work(sessions, provider: KeyProvider) -> RunContext:
     )
 
 
-async def _marked(sessions, sprint_id: int) -> dict[int, bool]:
+async def _marked(sessions, sprint_id: int) -> dict[int, bool | None]:
     async with sessions() as session:
         rows = await session.execute(
             select(SprintCommitment.card_id, SprintCommitment.key_action).where(
@@ -760,17 +779,22 @@ async def test_pl_key_023_an_action_that_joins_is_asked_about_alone_and_a_garble
 ):
     """PL-KEY-023 — tests/brd/planning.feature"""
     provider = KeyProvider()
+    handed: list[list[Committed]] = []
+    sink = bind_committed(sessions, _catalogue(handed))
     async with sessions() as session:
         first = await plan_one(session, title="key step")
         second = await plan_one(session, title="plain step")
         sprint = await start_sprint(session, success_criteria="Ship v2")
         await session.commit()
         sprint_id = sprint.id
-        await KeyActions(provider).mark(session, sprint_id)
-        # The marks are handed on as one fact, once written.
-        assert take_changes(session.info) == [Committed(SPRINT_KEY_ACTIONS, sprint_id)]
-        await session.commit()
+    # Not marked is not marked not key: nothing is known about either yet.
+    assert await _marked(sessions, sprint_id) == {first.id: None, second.id: None}
+    await KeyActions(provider).mark(sessions, sprint_id)
+    # The marks are handed on as one fact, once written.
+    await sink.drain()
+    assert handed[-1] == [Committed(SPRINT_KEY_ACTIONS, sprint_id)]
 
+    async with sessions() as session:
         # Joining the running Sprint is a change of its own: created into it, moved into it,
         # or brought back; leaving it unfinished is another.
         joined = await create_card(session, title="key newcomer", stage="sprint")
@@ -780,17 +804,101 @@ async def test_pl_key_023_an_action_that_joins_is_asked_about_alone_and_a_garble
         await move_card(session, second.id, CardStage.SPRINT)
         assert take_changes(session.info) == [Committed(SPRINT_JOINED, second.id)]
         await session.commit()
+    await sink.drain()
 
     await mark_key_actions(Committed(SPRINT_JOINED, joined.id), _work(sessions, provider))
     assert provider.requests[-1].messages[1]["content"].endswith("Actions:\n1. key newcomer")
     assert await _marked(sessions, sprint_id) == {first.id: True, second.id: False, joined.id: True}
 
     # An answer that is not the call marks nothing and hands nothing on.
-    async with sessions() as session:
-        await KeyActions(KeyProvider(garbled=True)).mark(session, sprint_id)
-        assert take_changes(session.info) == []
-        await session.commit()
+    del handed[:]
+    await KeyActions(KeyProvider(garbled=True)).mark(sessions, sprint_id)
+    await sink.drain()
+    assert handed == []
     assert await _marked(sessions, sprint_id) == {first.id: True, second.id: False, joined.id: True}
+
+
+def _catalogue(handed: list[list[Committed]]) -> HookRegistry:
+    """A registry with one hook that keeps every Sprint fact it is handed."""
+
+    async def keep(event: Committed) -> tuple[Committed, ...]:
+        handed.append([event])
+        return ()
+
+    return HookRegistry.of(
+        (
+            HookSpec(
+                name="test.keep", owner="test",
+                on=(OnCommitted(kind=SPRINT_KEY_ACTIONS), OnCommitted(kind=SPRINT_LEFT)),
+                evaluate=keep, effect=Advise(_nothing),
+                title="Keep", description="Keeps the fact.",
+            ),
+        ),
+        owners=frozenset({"test"}),
+    )
+
+
+async def _nothing(session, items) -> str | None:
+    return None
+
+
+async def test_pl_key_023_a_batch_that_cannot_be_read_leaves_its_marks_as_they_were(sessions):
+    """PL-KEY-023 — tests/brd/planning.feature"""
+    provider = KeyProvider()
+    async with sessions() as session:
+        planned = [
+            await plan_one(session, title=f"{'key' if index % 2 else 'plain'} step {index}")
+            for index in range(KEY_BATCH + 2)
+        ]
+        sprint = await start_sprint(session, success_criteria="Ship v2")
+        await session.commit()
+        sprint_id = sprint.id
+    await KeyActions(provider).mark(sessions, sprint_id)
+    before = await _marked(sessions, sprint_id)
+    assert before == {card.id: "key" in card.title for card in planned}
+
+    # The second batch's answer is words, not the call: its rows keep the marks they had,
+    # the first batch's are written, and the fact is handed on for those.
+    last = planned[-1]
+    async with sessions() as session:
+        await update_card_fields(session, last.id, {"title": "key unreadable step"})
+        await session.commit()
+    await KeyActions(provider).mark(sessions, sprint_id)
+    assert await _marked(sessions, sprint_id) == before
+
+    # A call naming a number not in the list is not an answer either: nothing changes.
+    await KeyActions(KeyProvider(not_listed=True)).mark(sessions, sprint_id)
+    assert await _marked(sessions, sprint_id) == before
+
+
+async def test_pl_key_023_an_answer_about_an_action_renamed_meanwhile_is_not_written(sessions):
+    """PL-KEY-023 — tests/brd/planning.feature"""
+    hold = asyncio.Event()
+    slow = KeyProvider(hold=hold)
+    async with sessions() as session:
+        step = await plan_one(session, title="key: ship the release")
+        sprint = await start_sprint(session, success_criteria="Ship v2")
+        await session.commit()
+        sprint_id = sprint.id
+    asking = asyncio.create_task(KeyActions(slow).mark(sessions, sprint_id))
+    await asyncio.sleep(0)
+    while not slow.requests:
+        await asyncio.sleep(0)
+
+    # While the model thinks, the Action leaves, is renamed into something else, and comes
+    # back; the answer about the newcomer arrives first.
+    async with sessions() as session:
+        await move_card(session, step.id, CardStage.BACKLOG)
+        await update_card_fields(session, step.id, {"title": "plain: water the flowers"})
+        await move_card(session, step.id, CardStage.SPRINT)
+        await session.commit()
+    await KeyActions(KeyProvider()).mark(sessions, sprint_id, card_ids=(step.id,))
+    assert await _marked(sessions, sprint_id) == {step.id: False}
+
+    # The slow answer was about the old title: it is not written over the newer mark.
+    hold.set()
+    await asking
+    assert await _marked(sessions, sprint_id) == {step.id: False}
 
 
 async def test_pl_key_024_a_sprint_with_no_key_action_open_or_finished_is_warned_about(sessions):
@@ -806,8 +914,13 @@ async def test_pl_key_024_a_sprint_with_no_key_action_open_or_finished_is_warned
         await plan_one(session, title="Plain step")
         sprint = await start_sprint(session, success_criteria="Ship the release")
         await session.commit()
+        sprint_id = sprint.id
+        # Not marked yet: nothing is known, so nothing is said.
+        assert await key_warning_request(session, [KEY_CHECK]) is None
 
-        # Marked, and none key: the criterion does not look reachable.
+    # Marked, and none key: the criterion does not look reachable.
+    await KeyActions(KeyProvider()).mark(sessions, sprint_id)
+    async with sessions() as session:
         request = await key_warning_request(session, [KEY_CHECK])
         assert request is not None
         assert f"Sprint {sprint.number}, Success criterion: Ship the release" in request
@@ -827,8 +940,21 @@ async def test_pl_key_024_a_sprint_with_no_key_action_open_or_finished_is_warned
         await move_card(session, step.id, CardStage.SPRINT)
         await session.commit()
         assert await key_warning_request(session, [KEY_CHECK]) is None
+        # Deleted: it left the Sprint unfinished, and that is handed on as such.
+        await delete_subtree(session, step.id)
+        assert take_changes(session.info) == [Committed(SPRINT_LEFT, step.id)]
+        await session.commit()
+        assert await key_warning_request(session, [KEY_CHECK]) is not None
+        # A newcomer not marked yet: nothing is known again, so nothing is said.
+        other = await create_card(session, title="Key too", stage="sprint")
+        await session.commit()
+        assert await key_warning_request(session, [KEY_CHECK]) is None
+        commitment = await session.scalar(
+            select(SprintCommitment).where(SprintCommitment.card_id == other.id)
+        )
+        commitment.key_action = True
         # Finished: the criterion was reached through it, so nothing is said.
-        await finish_action(session, step.id)
+        await finish_action(session, other.id)
         await session.commit()
         assert await key_warning_request(session, [KEY_CHECK]) is None
 
