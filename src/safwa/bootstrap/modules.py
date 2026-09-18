@@ -27,7 +27,9 @@ from ..features.cards.module import (
     ENERGY_BALANCE_HOOK,
     HARD_TIME_HOOK,
     REST_TODAY_HOOK,
+    TODAY_MORNINGS_HOOK,
     TODAY_OVERLOAD_HOOK,
+    TODAY_STALE_HOOK,
 )
 from ..features.cards.module import MODULE as CARDS
 from ..features.checks.module import MISSED_RUN_HOOK
@@ -96,6 +98,8 @@ HOOKS = (
     HARD_TIME_HOOK,
     ENERGY_BALANCE_HOOK,
     REST_TODAY_HOOK,
+    TODAY_MORNINGS_HOOK,
+    TODAY_STALE_HOOK,
     MISSED_RUN_HOOK,
     DIARY_HOOK,
     DAILY_SUMMARY_HOOK,

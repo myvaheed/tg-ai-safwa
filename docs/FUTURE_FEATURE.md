@@ -153,15 +153,15 @@ Profile's Morning time, 09:00 unless moved; the request puts both ways forward i
 plan the Actions now, or create one Action "Запланировать действия для цели X" — and waits for
 the choice.
 
-### 6. An unfinished Action repeatedly selected for Today — hook
+### 6. An unfinished Action repeatedly selected for Today — shipped
 
-When an Action has been selected for Today on several consecutive days without reaching Done,
-mention it in the morning and suggest tackling it early to get the repeatedly postponed task
-out of the way. This should follow the same unfinished occurrence: a repeating Action completed
-successfully and replaced by its successor is not evidence of postponement.
-
-The number of days and what counts as another day's selection into Today remain to be decided,
-including how an Action simply left in Today across midnight should be treated.
+Shipped 2026-09-18 as [CD-STALE-038](../tests/brd/cards.feature); the number stays for
+references. Each morning the open Actions in Today are written down for that local day, and an
+Action found there three mornings in a row (TODAY_STALE_DAYS = 3), and again at each multiple,
+is brought up with its count of mornings. Chosen for a day means standing in Today when the
+morning comes: one left there across midnight is chosen again, a morning it is not there starts
+the count over, and the next instance of a finished repeating Action is another Action with
+mornings of its own.
 
 ### 7. Today's work exceeds the daily capacity — shipped
 

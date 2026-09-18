@@ -6,7 +6,7 @@ the Checks that gate completion and the repeat successor are the packets after t
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 
 from safwa.bootstrap.modules import PROPOSALS, SYSTEM_PROMPT
 from safwa.features.cards.agent import CardToolInput
-from safwa.features.cards.hard_time import typed_hard_time
+from safwa.features.cards.hard_time import typed_hard_time, workspace_zone
 from safwa.features.cards.hierarchy import blocking_actions, card_children, card_progress
 from safwa.features.cards.hooks import (
     BLOCKER_HOOK,
@@ -23,11 +23,16 @@ from safwa.features.cards.hooks import (
     EMPTY_PARENTS_HOOK,
     REST_TODAY_HOOK,
     TODAY_CAPACITY_EP,
+    TODAY_MORNINGS_HOOK,
     TODAY_OVERLOAD_HOOK,
+    TODAY_STALE_DAYS,
+    TODAY_STALE_HOOK,
     blocker_request,
     empty_parents_request,
     rest_today_request,
+    today_mornings_in_a_row,
     today_overload_request,
+    today_stale_request,
 )
 from safwa.features.cards.model import (
     EFFORT_RUNGS,
@@ -38,12 +43,14 @@ from safwa.features.cards.model import (
     CardEvent,
     CardKind,
     CardStage,
+    TodayDay,
     effort_label,
 )
 from safwa.features.cards.telegram.presentation import paginate_cards
 from safwa.features.cards.use_cases import (
     CARD_BLOCKED,
     CARD_TODAY,
+    CARD_TODAY_MORNING,
     EFFORT_POINTS,
     archive_subtree,
     create_card,
@@ -52,6 +59,7 @@ from safwa.features.cards.use_cases import (
     edit_card_text,
     finish_action,
     move_card,
+    record_today_morning,
     set_card_parent,
     toggle_card_check,
     toggle_card_tag,
@@ -74,7 +82,7 @@ from safwa.foundation.marks import live_repeat_instance_id, title_marks
 from tg_agent_shell.foundation.changes import Committed, take_changes
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
-from tg_agent_shell.hooks.contracts import OnCommitted, OnTick
+from tg_agent_shell.hooks.contracts import OnCommitted, OnTick, Run
 from tg_agent_shell.proposals.api import ToolPreparationError
 from tg_agent_shell.proposals.prepare import ChangePreparer
 
@@ -1579,3 +1587,94 @@ async def test_cd_rest_037_the_request_names_the_sprints_rest_while_the_day_hold
         await move_card(session, walk.id, CardStage.BACKLOG)
         await session.commit()
         assert await rest_today_request(session, [MORNING_TIME_DEFAULT]) is None
+
+
+async def test_cd_stale_038_a_morning_in_today_is_written_down_once_and_handed_on(sessions):
+    """CD-STALE-038 — tests/brd/cards.feature"""
+    assert not TODAY_MORNINGS_HOOK.agent_related
+    assert TODAY_MORNINGS_HOOK.on == (OnTick(at=morning_time),)
+    assert isinstance(TODAY_MORNINGS_HOOK.effect, Run)
+    morning = datetime(2026, 9, 18, 6, 30, tzinfo=UTC)
+    async with sessions() as session:
+        chosen = await create_card(
+            session, kind="action", title="Chosen", stage="today", effort_points=1
+        )
+        left = await create_card(
+            session, kind="action", title="Left over", stage="today", effort_points=1
+        )
+        await create_card(session, kind="action", title="Planned", stage="sprint", effort_points=1)
+        done = await create_card(session, kind="action", title="Done", stage="today", effort_points=1)
+        await finish_action(session, done.id)
+        habit = await create_card(
+            session, kind="action", title="Habit", stage="today", effort_points=1, repeatable=True
+        )
+        take_changes(session.info)
+
+        found = await record_today_morning(session, now=morning)
+        assert [card.id for card in found] == [chosen.id, left.id, habit.id]
+        assert take_changes(session.info) == [
+            Committed(CARD_TODAY_MORNING, card.id) for card in (chosen, left, habit)
+        ]
+        # A second look the same morning writes nothing and hands nothing on.
+        assert await record_today_morning(session, now=morning) == []
+        assert take_changes(session.info) == []
+        await session.commit()
+        day = morning.astimezone(await workspace_zone(session)).date()
+        rows = await session.execute(
+            select(TodayDay.card_id, TodayDay.day).order_by(TodayDay.card_id)
+        )
+        assert list(rows) == [(chosen.id, day), (left.id, day), (habit.id, day)]
+
+        # The next morning finds what stayed across midnight; the finished habit's next
+        # instance is another Action, with a first morning of its own.
+        await move_card(session, chosen.id, CardStage.SPRINT)
+        successor = (await finish_action(session, habit.id)).successor_ids[0]
+        await session.commit()
+        found = await record_today_morning(session, now=morning + timedelta(days=1))
+        assert [card.id for card in found] == [left.id, successor]
+        await session.commit()
+        assert await today_mornings_in_a_row(session, left.id) == 2
+        assert await today_mornings_in_a_row(session, successor) == 1
+        assert await today_mornings_in_a_row(session, habit.id) == 1
+
+
+async def test_cd_stale_038_the_request_names_the_actions_on_a_third_morning_in_a_row(sessions):
+    """CD-STALE-038 — tests/brd/cards.feature"""
+    assert TODAY_STALE_HOOK.agent_related
+    assert TODAY_STALE_HOOK.on == (OnCommitted(kind=CARD_TODAY_MORNING),)
+    assert TODAY_STALE_DAYS == 3
+    today = date(2026, 9, 18)
+    async with sessions() as session:
+        async def in_today(title: str, *mornings_ago: int, stage: str = "today"):
+            card = await create_card(
+                session, kind="action", title=title, stage=stage, effort_points=1
+            )
+            for ago in mornings_ago:
+                session.add(TodayDay(card_id=card.id, day=today - timedelta(days=ago)))
+            return card
+
+        third = await in_today("Third morning", 2, 1, 0)
+        fourth = await in_today("Fourth morning", 3, 2, 1, 0)
+        sixth = await in_today("Sixth morning", 5, 4, 3, 2, 1, 0)
+        broken = await in_today("Broken run", 4, 3, 1, 0)
+        gone = await in_today("Gone to Sprint", 2, 1, 0, stage="sprint")
+        first = await in_today("First morning", 0)
+        await session.commit()
+        assert await today_mornings_in_a_row(session, broken.id) == 2
+
+        request = await today_stale_request(
+            session, [card.id for card in (third, fourth, sixth, broken, gone, first)]
+        )
+        assert request is not None
+        assert f"- #{third.id} «Third morning»: 3 mornings in a row" in request
+        assert f"- #{sixth.id} «Sixth morning»: 6 mornings in a row" in request
+        for absent in ("Fourth", "Broken", "Gone", "First"):
+            assert absent not in request
+        assert "too big, blocked or not wanted" in request
+        assert "Do not change anything without their answer" in request
+
+        # Left Today by then, each is left out; with none left, nothing is asked.
+        await move_card(session, third.id, CardStage.SPRINT)
+        await finish_action(session, sixth.id)
+        await session.commit()
+        assert await today_stale_request(session, [third.id, sixth.id]) is None

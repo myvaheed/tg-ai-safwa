@@ -12,7 +12,9 @@ from .hooks import EMPTY_PARENTS_HOOK as EMPTY_PARENTS_HOOK
 from .hooks import ENERGY_BALANCE_HOOK as ENERGY_BALANCE_HOOK
 from .hooks import HARD_TIME_HOOK as HARD_TIME_HOOK
 from .hooks import REST_TODAY_HOOK as REST_TODAY_HOOK
+from .hooks import TODAY_MORNINGS_HOOK as TODAY_MORNINGS_HOOK
 from .hooks import TODAY_OVERLOAD_HOOK as TODAY_OVERLOAD_HOOK
+from .hooks import TODAY_STALE_HOOK as TODAY_STALE_HOOK
 from .model import Card
 from .telegram import (
     CARD_CALLBACK_ACTIONS,

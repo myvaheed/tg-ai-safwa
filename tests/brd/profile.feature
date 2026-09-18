@@ -90,4 +90,4 @@ Feature: Profile
     Then it is on the Profile with the other clocks, edited as a time from 00:00 through 23:59
     And off is refused: each morning check has a switch of its own (PS-HOOKS-015)
     When the Morning time changes
-    Then the morning checks — Goals without Actions (CD-EMPTY-035), Hard Time outside the plan (PL-HARDTIME-021) and Rest in Today (CD-REST-037) — run at the new time from the next time it passes, without a restart
+    Then the morning checks — Goals without Actions (CD-EMPTY-035), Hard Time outside the plan (PL-HARDTIME-021), Rest in Today (CD-REST-037) and the mornings in Today (CD-STALE-038) — run at the new time from the next time it passes, without a restart

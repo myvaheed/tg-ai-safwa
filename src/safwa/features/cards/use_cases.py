@@ -42,7 +42,7 @@ from ..tags.api import Tag, attach_tags, unlinkable_tag_id
 from ..tags.model import CardTag
 from ..values.api import Value, attach_values, unlinkable_value_id
 from ..values.model import CardValue
-from .hard_time import HardTime, following_hard_time, hard_time_columns
+from .hard_time import HardTime, following_hard_time, hard_time_columns, workspace_zone
 from .hierarchy import branch_actions, card_children, propagate_ancestors, settle_archive
 from .model import (
     EFFORT_POINTS,
@@ -57,6 +57,7 @@ from .model import (
     Category,
     EnergyType,
     Priority,
+    TodayDay,
     effort_label,
     new_correlation_id,
 )
@@ -522,9 +523,36 @@ def validate_blocked_fields(blocked: bool, description: str | None) -> None:
 
 
 # The changes a hook may follow up on: an Action became blocked, or entered Today,
-# however it was saved.
+# however it was saved; and one stood in Today when the morning came.
 CARD_BLOCKED = "card.blocked"
 CARD_TODAY = "card.today"
+CARD_TODAY_MORNING = "card.today_morning"
+
+
+async def record_today_morning(
+    session: AsyncSession, *, now: datetime | None = None
+) -> list[Card]:
+    """Write the local day down for each open Action in Today, once per morning.
+
+    A second look the same morning writes nothing and hands nothing on.
+    """
+    tz = await workspace_zone(session)
+    day = (now or utcnow()).astimezone(tz).date()
+    in_today = await session.scalars(
+        select(Card)
+        .where(
+            Card.kind == CardKind.ACTION.value,
+            Card.effective_stage == CardStage.TODAY.value,
+            Card.archived_at.is_(None),
+        )
+        .order_by(Card.id)
+    )
+    written = set(await session.scalars(select(TodayDay.card_id).where(TodayDay.day == day)))
+    found = [card for card in in_today if card.id not in written]
+    for card in found:
+        session.add(TodayDay(card_id=card.id, day=day))
+        record_change(session, CARD_TODAY_MORNING, card.id)
+    return found
 
 
 async def record_card_event(
@@ -704,7 +732,7 @@ async def _purge_cards(session: AsyncSession, ids: list[int]) -> None:
     # cascade, which is a connection pragma and not guaranteed here.
     await delete_checks_of_cards(session, ids)
     await delete_commitments_of_cards(session, ids)
-    for model in (CardValue, CardTag, CardCategory, CardEnergyType, CardEvent):
+    for model in (CardValue, CardTag, CardCategory, CardEnergyType, CardEvent, TodayDay):
         await session.execute(delete(model).where(model.card_id.in_(ids)))
     await session.execute(delete(Card).where(Card.id.in_(ids)))
 

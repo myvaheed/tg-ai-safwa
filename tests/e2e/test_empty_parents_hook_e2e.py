@@ -34,7 +34,7 @@ from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.cues.runtime import CueRuntime
 from tg_agent_shell.foundation.kinds import MARKS
 from tg_agent_shell.history import TelegramNotes
-from tg_agent_shell.hooks.contracts import Tick
+from tg_agent_shell.hooks.contracts import RunContext, Tick
 from tg_agent_shell.turn import TurnManager
 
 pytestmark = pytest.mark.e2e
@@ -70,8 +70,17 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
         (HARD_TIME_HOOK.name, [PLAN_CHECK]),
         (REST_TODAY_HOOK.name, [MORNING_TIME_DEFAULT]),
     ]
+
+    async def nobody_publishes(text: str, kind: str) -> None:
+        raise AssertionError("a hook on a tick has no chat")
+
+    work = RunContext(
+        resources=None, still_current=lambda: True, publish=nobody_publishes, sessions=sessions
+    )
     for _ in range(2):
-        await queue_advice(REGISTRY.hooks, sessions, Tick(MORNING_TIME_DEFAULT, morning_time))
+        await queue_advice(
+            REGISTRY.hooks, sessions, Tick(MORNING_TIME_DEFAULT, morning_time), work=work
+        )
     assert await _pending(sessions) == morning
 
     advisor, provider = e2e_harness.advisor([ANSWER])
@@ -133,7 +142,9 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
     assert len(heard) == 1 and ANSWER in str(heard[0]["content"])
 
     # The next morning asks about the same Goal again: nothing remembers it was asked.
-    await queue_advice(REGISTRY.hooks, sessions, Tick(MORNING_TIME_DEFAULT, morning_time))
+    await queue_advice(
+        REGISTRY.hooks, sessions, Tick(MORNING_TIME_DEFAULT, morning_time), work=work
+    )
     assert await _pending(sessions) == morning
     words = await runtime.prepare(EMPTY_PARENTS_HOOK.name, [MORNING_TIME_DEFAULT])
     assert words is not None and words in handed

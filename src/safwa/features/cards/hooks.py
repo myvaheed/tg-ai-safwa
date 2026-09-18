@@ -1,8 +1,11 @@
 """What the Cards ask the Advisor to raise on their own: a blocker just set, a day loaded
 past what it is meant to hold, a Sprint started without a kind of energy the Backlog has,
-and — each morning, and when a Sprint starts — the Goals and Subgoals that still have no
-Action under them, the Hard Times the plan does not hold, and a day planned without the
-rest the Sprint holds."""
+an Action found in Today morning after morning, and — each morning, and when a Sprint
+starts — the Goals and Subgoals that still have no Action under them, the Hard Times the
+plan does not hold, and a day planned without the rest the Sprint holds.
+
+The mornings themselves are written down by work of its own on the same tick, on whether
+or not the question about them is switched off."""
 
 from __future__ import annotations
 
@@ -19,6 +22,8 @@ from tg_agent_shell.hooks.contracts import (
     HookSpec,
     OnCommitted,
     OnTick,
+    Run,
+    RunContext,
     Tick,
 )
 
@@ -37,9 +42,10 @@ from .model import (
     Category,
     EnergyType,
     Priority,
+    TodayDay,
     effort_label,
 )
-from .use_cases import CARD_BLOCKED, CARD_TODAY
+from .use_cases import CARD_BLOCKED, CARD_TODAY, CARD_TODAY_MORNING, record_today_morning
 
 # How old a Goal or a Subgoal is before having no Action under it is worth a question.
 EMPTY_PARENT_GRACE_DAYS = 1
@@ -57,6 +63,9 @@ ENERGY_KINDS = {
     **{kind.value: f"{kind.value.capitalize()} energy" for kind in EnergyType},
     Category.REST.value: "Rest",
 }
+# How many mornings in a row an open Action stands in Today before it is asked about, and
+# again at each multiple.
+TODAY_STALE_DAYS = 3
 
 HARD_TIME_REQUEST = (
     "Hard Times the plan does not hold:\n{cards}\n"
@@ -94,6 +103,13 @@ REST_TODAY_REQUEST = (
     "Today holds no rest, and the Sprint does:\n{cards}\n"
     "Ask the user in one message whether to take one into Today, so the rest is planned "
     "instead of forced. Do not move anything without their answer."
+)
+
+TODAY_STALE_REQUEST = (
+    "In Today morning after morning, still open:\n{cards}\n"
+    "Ask the user in one message, naming each with its mornings, whether it is too big, "
+    "blocked or not wanted, and what to do with it: split it, do it first today, or move "
+    "it back to Sprint. Do not change anything without their answer."
 )
 
 
@@ -402,4 +418,72 @@ REST_TODAY_HOOK = HookSpec(
     effect=Advise(prepare=rest_today_request),
     title="Rest in Today",
     description="Each morning, asks about taking one of the Sprint's Rest Actions into Today when the day holds none.",
+)
+
+
+async def record_today_mornings(marker: str, context: RunContext) -> None:
+    async with context.sessions() as session:
+        await record_today_morning(session)
+        await session.commit()
+
+
+TODAY_MORNINGS_HOOK = HookSpec(
+    name="cards.today_mornings",
+    owner="cards",
+    on=(OnTick(at=morning_time),),
+    evaluate=check_due,
+    effect=Run(record_today_mornings),
+    title="Today mornings",
+    description="Each morning, writes down which open Actions stand in Today.",
+)
+
+
+async def found_in_today(event: Committed) -> tuple[int, ...]:
+    return (event.subject_id,)
+
+
+async def today_mornings_in_a_row(session: AsyncSession, card_id: int) -> int:
+    """How many mornings in a row, up to the last one written down, the Action stood in Today."""
+    days = list(
+        await session.scalars(
+            select(TodayDay.day).where(TodayDay.card_id == card_id).order_by(TodayDay.day.desc())
+        )
+    )
+    run = 0
+    for index, day in enumerate(days):
+        if day != days[0] - timedelta(days=index):
+            break
+        run += 1
+    return run
+
+
+async def today_stale_request(session: AsyncSession, items: Sequence[int]) -> str | None:
+    """The request about the Actions still open in Today whose mornings in a row are a
+    multiple of TODAY_STALE_DAYS now."""
+    lines: list[str] = []
+    for item in sorted(int(item) for item in items):
+        card = await session.get(Card, item)
+        if (
+            card is None
+            or card.effective_stage != CardStage.TODAY.value
+            or card.archived_at is not None
+        ):
+            continue
+        run = await today_mornings_in_a_row(session, card.id)
+        if not run or run % TODAY_STALE_DAYS:
+            continue
+        lines.append(f"- #{card.id} «{card.title}»: {run} mornings in a row")
+    if not lines:
+        return None
+    return TODAY_STALE_REQUEST.format(cards="\n".join(lines))
+
+
+TODAY_STALE_HOOK = HookSpec(
+    name="cards.today_stale",
+    owner="cards",
+    on=(OnCommitted(kind=CARD_TODAY_MORNING),),
+    evaluate=found_in_today,
+    effect=Advise(prepare=today_stale_request),
+    title="Stale in Today",
+    description=f"After an Action has stood in Today {TODAY_STALE_DAYS} mornings in a row, asks what to do with it.",
 )

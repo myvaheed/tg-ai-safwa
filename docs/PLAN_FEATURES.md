@@ -171,12 +171,14 @@ Shipped 2026-09-18, batch 6: entry 4 as two hooks on the adapters as they stood,
 balance of a starting Sprint against the Backlog
 ([PL-ENERGY-022](../tests/brd/planning.feature)) and the day's rest against the Sprint's
 ([CD-REST-037](../tests/brd/cards.feature)) — two definitions, two readings at delivery, two
-lines in `HOOKS`, no column.
+lines in `HOOKS`, no column. The same day, batch 7: hook 6 as a `Run` on the morning tick that
+writes each open Action in Today down for that day, `today_days`, and hands a fact on, and an
+`Advise` on that fact that asks on every third morning in a row
+([CD-STALE-038](../tests/brd/cards.feature)). One new table, created at startup.
 
 | Entry | | Depends on |
 |---|---|---|
 | **15 — Advisor instruction, not a hook** | S | The AI half of the retrospective, where the takeaway it carries is agreed. |
-| **6 — An unfinished Action repeatedly selected for Today** | L | Batch 3, plus a record of each day's selection into Today that nothing writes yet |
 | **10 — Key Actions tied to Sprint Success criteria** | XL | Batch 2 and a Sprint-and-Action relationship with classification history |
 
 ## Wave 5 — deliberately later
@@ -201,15 +203,18 @@ flowchart LR
   profile --> committed["Batch 2 — Committed → Advise, shipped with hooks 2, 11 and 7"]
   profile --> tick["Batch 3 — Tick → Advise, shipped with hooks 5 and 13"]
   committed --> h10
-  tick --> h6["Hook 6 — postponed in Today"]
+  tick --> h6["Hook 6 — mornings in Today, shipped"]
+  committed --> h6
 ```
 
 ## Where to look hardest
 
 **The next initiative reuses the path the first five share.** Every hook so far ships as one
 pending request per hook in the `Cue` queue, reread just before delivery, and nothing more —
-the timed ones add one poll that hands the hour on and nothing it stores. A sixth that needs a
-second delivery path or a table of what was asked means the shared part was fitted to the five.
+the timed ones add one poll that hands the hour on and nothing it stores. The one table a hook
+has needed, `today_days`, is a record of the workspace's mornings that any reader may use, not
+a memory of what was asked. A hook that needs a second delivery path or a table of what was
+asked means the shared part was fitted to the ones before it.
 
 **The pre-release window.** Declare a schema batch only if an implementation changes stored
 structure.

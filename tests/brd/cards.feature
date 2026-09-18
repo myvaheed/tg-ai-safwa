@@ -314,3 +314,13 @@ Feature: Cards
     And the list is read when the question is about to be said: with a Rest Action in Today by then, or one finished that day, nothing is asked
     And with no open Rest Action in the Sprint, or no Sprint running, the morning asks nothing
     And a day is the workspace's local day
+
+  Scenario: CD-STALE-038 — An Action that stands in Today morning after morning is brought up
+    Given an open Action is in Today when the Profile's Morning time passes
+    Then that local day is written down for it as a morning it was chosen — moved there that day or left there across midnight alike — whether or not the question below is switched off
+    When it has been found there on three mornings in a row (TODAY_STALE_DAYS = 3) and the chat is free
+    Then the Advisor is asked once, in one message naming each such Action with its count of mornings, whether it is too big, blocked or not wanted, and what to do with it; nothing is changed before the owner's answer
+    And it is asked again on the sixth morning in a row, and not on the fourth or the fifth; a morning it is not in Today starts the count over
+    And the next instance of a finished repeating Action is another Action, with mornings of its own
+    And the list is read when the question is about to be said: one that has left Today by then is left out
+    And a day is the workspace's local day

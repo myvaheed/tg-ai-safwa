@@ -8,13 +8,14 @@ costs no dependency on another feature.
 from __future__ import annotations
 
 import secrets
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     Float,
     ForeignKey,
     Index,
@@ -222,6 +223,16 @@ class CardEnergyType(Base):
         ForeignKey("cards.id", ondelete="CASCADE"), primary_key=True
     )
     energy_type: Mapped[str] = mapped_column(String(30), primary_key=True)
+
+
+class TodayDay(Base):
+    """A morning an open Action stood in Today: one row per Action and local day."""
+
+    __tablename__ = "today_days"
+    card_id: Mapped[int] = mapped_column(
+        ForeignKey("cards.id", ondelete="CASCADE"), primary_key=True
+    )
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
 
 class CardEvent(Base):
     __tablename__ = "card_events"
