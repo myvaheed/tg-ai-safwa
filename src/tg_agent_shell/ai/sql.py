@@ -100,12 +100,15 @@ FORBIDDEN = frozenset(
 FROM_END = frozenset(
     {"where", "group", "having", "order", "limit", "union", "intersect", "except", "window"}
 )
+# A string literal or a quoted name, with its doubled-quote escape: what a keyword hides in.
+QUOTED = r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|`(?:``|[^`])*`|\[(?:\]\]|[^\]])*\]"
 SQL_TOKEN = re.compile(
     r"(?P<comment>--|/\*)"
-    r"|(?P<quoted>'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|`(?:``|[^`])*`|\[(?:\]\]|[^\]])*\])"
+    rf"|(?P<quoted>{QUOTED})"
     r"|(?P<word>[A-Za-z_][A-Za-z0-9_]*)"
     r"|(?P<punct>[(),])"
 )
+_QUOTED = re.compile(QUOTED)
 
 
 def _unquoted(token: str) -> str:
@@ -224,8 +227,10 @@ COMPLEX_READ = re.compile(
 
 
 def is_complex_read(sql: str) -> bool:
-    """Whether one read goes past a single flat scan, and so past what a small model writes well."""
-    return bool(COMPLEX_READ.search(sql))
+    """Whether one read goes past a single flat scan, and so past what a small model writes
+    well. Read with every literal and quoted name blanked: a title 'Talk with Alice' is not
+    a WITH clause. A comment is refused by `validated_read` whatever it says."""
+    return bool(COMPLEX_READ.search(_QUOTED.sub("''", sql)))
 
 
 def validated_read(sql: str, views: Collection[str]) -> tuple[str, set[str]]:

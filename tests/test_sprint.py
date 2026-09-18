@@ -577,10 +577,12 @@ async def test_pl_hardtime_021_the_request_names_the_hard_times_the_plan_does_no
     """PL-HARDTIME-021 — tests/brd/planning.feature"""
     assert HARD_TIME_HOOK.agent_related
     assert HARD_TIME_HOOK.on == (OnCommitted(kind=SPRINT_STARTED), OnTick(at=morning_time))
-    today = datetime.now(ZoneInfo("Europe/Istanbul")).date()
+    tz = ZoneInfo("Europe/Istanbul")
+    today = datetime.now(tz).date()
+    # The question is asked at the last minute of the day: a Hard Time then is now, not past.
+    late = datetime.combine(today, time(23, 59), tzinfo=tz)
 
     def on(days: int) -> str:
-        # The last minute of the day, so today's has not passed whenever the test runs.
         return f"{today + timedelta(days=days):%d.%m.%Y} 23:59"
 
     async with sessions() as session:
@@ -592,7 +594,7 @@ async def test_pl_hardtime_021_the_request_names_the_hard_times_the_plan_does_no
 
         dentist = await fixed("Dentist", 1)
         # In Planning there is no plan to hold anything.
-        assert await hard_time_request(session, [PLAN_CHECK]) is None
+        assert await hard_time_request(session, [PLAN_CHECK], now=late) is None
         await plan_one(session)
         sprint = await start_sprint(session, success_criteria="Ship v2", length_days=7)
         assert take_changes(session.info) == [Committed(SPRINT_STARTED, sprint.id)]
@@ -604,7 +606,9 @@ async def test_pl_hardtime_021_the_request_names_the_hard_times_the_plan_does_no
         await fixed("Report", 3, stage="sprint")
         await fixed("Gym", 1, stage="today")
         train = await fixed("Missed train", 1)
-        train.hard_time_at = utcnow() - timedelta(days=1)
+        train.hard_time_at = late - timedelta(days=1)
+        meeting = await fixed("Morning meeting", 0)
+        meeting.hard_time_at = late - timedelta(hours=14)
         paid = await fixed("Paid", 2)
         await finish_action(session, paid.id)
         shelved = await fixed("Shelved", 2)
@@ -612,7 +616,7 @@ async def test_pl_hardtime_021_the_request_names_the_hard_times_the_plan_does_no
         await archive_subtree(session, shelved.id)
         await session.commit()
 
-        request = await hard_time_request(session, [PLAN_CHECK])
+        request = await hard_time_request(session, [PLAN_CHECK], now=late)
         assert request is not None
         for line in (
             f"#{dentist.id} «Dentist»: {today + timedelta(days=1):%Y-%m-%d} 23:59, in Backlog",
@@ -620,7 +624,7 @@ async def test_pl_hardtime_021_the_request_names_the_hard_times_the_plan_does_no
             f"#{call.id} «Call mom»: {today:%Y-%m-%d} 23:59, in Sprint",
         ):
             assert line in request
-        for absent in ("Concert", "Report", "Gym", "Missed train", "Paid", "Shelved"):
+        for absent in ("Concert", "Report", "Gym", "Missed train", "Morning meeting", "Paid", "Shelved"):
             assert absent not in request
         assert "Do not move anything without their answer" in request
 
@@ -629,7 +633,7 @@ async def test_pl_hardtime_021_the_request_names_the_hard_times_the_plan_does_no
         await move_card(session, tax.id, CardStage.SPRINT)
         await move_card(session, call.id, CardStage.TODAY)
         await session.commit()
-        assert await hard_time_request(session, [PLAN_CHECK]) is None
+        assert await hard_time_request(session, [PLAN_CHECK], now=late) is None
 
 
 async def test_pl_energy_022_the_request_names_each_kind_the_sprint_lacks_and_the_backlog_has(

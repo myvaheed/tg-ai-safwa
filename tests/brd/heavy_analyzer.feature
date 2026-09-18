@@ -14,6 +14,7 @@ Feature: The helper the Advisor calls
     Given the Advisor is answering the owner
     When it runs a read over one view that only filters and counts
     Then the result carries no notice about a helper
+    And a clause's word inside a quoted value — a title with "with" in it — is not the clause
     And call_helper is not on its tool list
 
   Scenario: HAN-OFFER-004 — A read that failed does not offer the helper

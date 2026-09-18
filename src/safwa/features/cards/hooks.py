@@ -228,7 +228,8 @@ async def hard_time_request(
     if end is None:
         return None
     tz = await workspace_zone(session)
-    today = (now or utcnow()).astimezone(tz).date()
+    moment = now or utcnow()
+    today = moment.astimezone(tz).date()
     near = today + timedelta(days=HARD_TIME_NOTICE_DAYS)
     cards = await session.scalars(
         select(Card)
@@ -245,7 +246,7 @@ async def hard_time_request(
         assert card.hard_time_at is not None
         when = card.hard_time_at.astimezone(tz)
         stage = CardStage(card.effective_stage)
-        if when.date() < today:
+        if card.hard_time_at < moment:
             continue
         outside_sprint = when.date() <= end and stage is CardStage.BACKLOG
         outside_today = when.date() <= near and stage is not CardStage.TODAY

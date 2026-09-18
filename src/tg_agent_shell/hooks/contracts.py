@@ -148,8 +148,10 @@ class RefuseTool:
     """Before a tool runs: it does not run, the check's notice is what the model reads as
     the call's result, and the named helper is on the session's tool list from the next
     model call on. The model answers with something else — the helper, or a different call.
+    The refusal stands in a session the helper cannot be granted to.
 
-    A check that fails is not a pass: the turn ends there, and the call is not run."""
+    A check that fails, or whose notice is not words, is not a pass: the turn ends there,
+    and the call is not run."""
 
     helper: str
 

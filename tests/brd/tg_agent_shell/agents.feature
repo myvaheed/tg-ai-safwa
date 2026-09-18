@@ -301,7 +301,8 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then the previous session's offer grants it nothing
     When a hook refuses a call before it runs, naming a helper
     Then the tool does not run, the hook's notice is what the model reads as the call's result, and that helper is granted the same way
-    And a refusing check that fails ends the turn, naming the hook and the call: a refusal that failed is not a pass
+    And a refusing check that fails, or whose notice is not words, ends the turn, naming the hook and the call: a refusal that failed is not a pass
+    And the refusal stands in a session the helper cannot be granted to
 
   Scenario: AG-HOOK-037 — A saved change reaches its reaction once, on commit, whoever saved it
     Given a feature records a change beside the transaction that makes it

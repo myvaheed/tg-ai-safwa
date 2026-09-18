@@ -446,12 +446,14 @@ class ToolAdapters:
             effect = checked.spec.effect
             if not isinstance(effect, RefuseTool) or not checked.payloads:
                 continue
-            if effect.helper not in self.helpers or agent.helper_tool is None:
-                continue
             if not all(isinstance(notice, str) and notice.strip() for notice in checked.payloads):
-                logger.error("Hook %s returned an invalid helper notice", checked.spec.name)
-                continue
-            agent.offer_helper(effect.helper)
+                # A refusal without words is a broken check, not a pass.
+                raise WatcherFailed(
+                    f"The hook {checked.spec.name}, which runs before the {call.name} "
+                    f"tool call, returned a notice that is not words"
+                )
+            if effect.helper in self.helpers and agent.helper_tool is not None:
+                agent.offer_helper(effect.helper)
             return {
                 "status": ToolResultStatus.ERROR.value,
                 "code": "refused",

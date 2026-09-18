@@ -249,6 +249,38 @@ async def test_ag_hook_036_a_refusing_check_that_fails_ends_the_turn_and_is_name
     assert "cannot tell" in str(failure.value)
 
 
+async def test_ag_hook_036_a_refusal_whose_notice_is_not_words_ends_the_turn() -> None:
+    """AG-HOOK-036 — tests/brd/tg_agent_shell/agents.feature"""
+    ran: list[str] = []
+
+    async def wordless(event):
+        return ("",)
+
+    session = _helped_session(ran)
+    with pytest.raises(WatcherFailed) as failure:
+        await _refusing(wordless).run(session, READ)
+
+    assert ran == []
+    assert "refusal" in str(failure.value) and "not words" in str(failure.value)
+    assert not session.offered_helpers
+
+
+async def test_ag_hook_036_a_refusal_stands_where_its_helper_cannot_be_granted() -> None:
+    """AG-HOOK-036 — tests/brd/tg_agent_shell/agents.feature"""
+    ran: list[str] = []
+
+    async def too_hard(event):
+        return ("Too hard here.",)
+
+    session = _session(ran)
+    assert session.helper_tool is None
+    outcome = await _refusing(too_hard).run(session, READ)
+
+    assert ran == []
+    assert not outcome.succeeded and outcome.result["code"] == "refused"
+    assert not session.offered_helpers
+
+
 async def test_a_switched_off_refusal_lets_the_call_run() -> None:
     """PS-HOOKS-015 — tests/brd/profile.feature"""
     ran: list[str] = []

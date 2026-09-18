@@ -86,6 +86,10 @@ def test_a_reader_is_scoped_by_the_list_it_is_given() -> None:
         "SELECT id, title FROM ai_cards WHERE stage = 'today'",
         "SELECT count(*) FROM ai_cards WHERE stage = 'today'",
         "SELECT sum(effort_points) FROM ai_cards WHERE kind = 'action'",
+        # A clause's word inside a value, or a quoted name, is not the clause.
+        "SELECT id FROM ai_cards WHERE title = 'Talk with Alice'",
+        "SELECT id FROM ai_cards WHERE title = 'Don''t join the group by noon'",
+        'SELECT "join" FROM ai_cards',
     ],
 )
 def test_han_offer_002_a_flat_read_earns_nothing(sql: str) -> None:
