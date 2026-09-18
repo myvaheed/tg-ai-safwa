@@ -2,15 +2,18 @@
 
 This module knows nothing about the bot or the Advisor: a producer writes into its own
 transaction, and the delivery poll is somewhere else entirely.
+
+A row is written once and never edited. Every change after that is one statement over a
+set of rows named by id or by stamp — so two writers at once cannot lose each other's
+rows, and a row whose id SQLite handed out again is never mistaken for the one deleted.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import Any
-from uuid import uuid4
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .model import Cue
@@ -24,26 +27,21 @@ async def add_cue(session: AsyncSession, *, text: str) -> Cue:
     return cue
 
 
-async def merge_hook_cue(session: AsyncSession, *, hook: str, items: Sequence[Any]) -> Cue:
-    """Add these items to the hook's one pending request, starting it if there is none."""
-    cue = await session.scalar(select(Cue).where(Cue.hook == hook))
-    if cue is None:
-        cue = Cue(hook=hook, payload=list(items))
-        session.add(cue)
-        await session.flush()
-        return cue
-    known = cue.payload or []
-    cue.payload = [*known, *(item for item in items if item not in known)]
+async def add_hook_cue(session: AsyncSession, *, hook: str, items: Sequence[Any]) -> Cue:
+    """Write down one finding of a hook: what it refers to, never the words."""
+    cue = Cue(hook=hook, payload=list(items))
+    session.add(cue)
+    await session.flush()
     return cue
 
 
 async def drop_hook_cue(session: AsyncSession, hook: str) -> None:
-    """Forget the hook's pending request; nothing brings it back."""
+    """Forget the hook's pending requests; nothing brings them back."""
     await session.execute(delete(Cue).where(Cue.hook == hook))
 
 
 async def waiting_cues(session: AsyncSession) -> list[Cue]:
-    """Everything still waiting, oldest first: what one turn says together."""
+    """Every row, oldest first: the ones a turn stamped, and the ones still waiting."""
     return list(await session.scalars(select(Cue).order_by(Cue.id)))
 
 
@@ -52,19 +50,23 @@ async def words_waiting(session: AsyncSession) -> bool:
     return await session.scalar(select(Cue.id).where(Cue.text.is_not(None)).limit(1)) is not None
 
 
-async def settle_cue(session: AsyncSession, cue_id: int, items: Sequence[Any] = ()) -> None:
-    """The Cue was said, or found to have nothing to say — as far as these items go.
+async def forget(session: AsyncSession, ids: Sequence[int]) -> None:
+    """These rows were found to have nothing to say: gone, unless a turn has them."""
+    await session.execute(delete(Cue).where(Cue.id.in_(ids), Cue.event_id.is_(None)))
 
-    What a hook added to its row after they were read is still owed, as a request of its
-    own: the words said were not about it, and neither is the message registered under
-    the old event id, so the row keeps the rest under a new one.
-    """
-    cue = await session.get(Cue, cue_id)
-    if cue is None:
-        return
-    left = [item for item in (cue.payload or []) if item not in items]
-    if not left:
-        await session.delete(cue)
-        return
-    cue.payload = left
-    cue.event_id = uuid4().hex
+
+async def stamp(session: AsyncSession, ids: Sequence[int], event_id: str) -> None:
+    """These rows are what one turn is about to say, under this id."""
+    await session.execute(
+        update(Cue).where(Cue.id.in_(ids), Cue.event_id.is_(None)).values(event_id=event_id)
+    )
+
+
+async def unstamp(session: AsyncSession, event_id: str) -> None:
+    """The turn under this id did not reach the owner: its rows wait again."""
+    await session.execute(update(Cue).where(Cue.event_id == event_id).values(event_id=None))
+
+
+async def settle(session: AsyncSession, event_id: str) -> None:
+    """The turn under this id reached the owner: its rows, and only they, are done."""
+    await session.execute(delete(Cue).where(Cue.event_id == event_id))

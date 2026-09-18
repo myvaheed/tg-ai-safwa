@@ -6,12 +6,13 @@ import asyncio
 from datetime import UTC, datetime, time
 from zoneinfo import ZoneInfo
 
+import pytest
 from sqlalchemy import select, text
 
 from tg_agent_shell.cues.background import tick
 from tg_agent_shell.cues.initiatives import bind_committed, queue_advice
 from tg_agent_shell.cues.model import Cue
-from tg_agent_shell.cues.queue import add_cue, drop_hook_cue, merge_hook_cue
+from tg_agent_shell.cues.queue import add_cue, add_hook_cue, drop_hook_cue
 from tg_agent_shell.foundation.changes import Committed, record_change
 from tg_agent_shell.hooks.contracts import (
     Advise,
@@ -90,6 +91,9 @@ class Recorder:
         self.said.append(text)
         return True
 
+    async def delivered(self, event_id: str) -> bool:
+        return event_id in self.events
+
     def release(self) -> None:
         self.releases += 1
 
@@ -165,25 +169,38 @@ async def test_ag_hook_037_a_commits_work_is_done_after_its_facts_are_handed_on(
         record_change(session, KIND, 3)
         await session.commit()
     await started[3].wait()
-    assert await pending(sessions) == [("test.advice", None, [1, 3])]
+    assert await pending(sessions) == [("test.advice", None, [1]), ("test.advice", None, [3])]
     assert "work 1 done" not in order
     release.set()
     await sink.drain()
     assert sorted(order) == ["work 1 done", "work 1 started", "work 3 done", "work 3 started"]
 
 
-async def test_ag_hook_038_a_second_change_adds_to_the_one_pending_request(sessions):
+async def test_ag_hook_038_a_second_change_is_worded_with_the_first_as_one_request(sessions):
     """AG-HOOK-038 — tests/brd/tg_agent_shell/agents.feature"""
     hooks = catalogue(HOOK)
     await queue_advice(hooks, sessions, Committed(KIND, 3))
     await queue_advice(hooks, sessions, Committed(KIND, 5))
     await queue_advice(hooks, sessions, Committed(KIND, 3))
-    assert await pending(sessions) == [("test.advice", None, [3, 5])]
-
+    # Each firing is written down as it is: a row, never an edit of an earlier one.
+    assert await pending(sessions) == [
+        ("test.advice", None, [3]), ("test.advice", None, [5]), ("test.advice", None, [3]),
+    ]
     async with sessions() as session:
-        await merge_hook_cue(session, hook="test.other", items=[1])
+        await add_hook_cue(session, hook="test.other", items=[1])
         await session.commit()
-    assert [row[0] for row in await pending(sessions)] == ["test.advice", "test.other"]
+    recorder = Recorder()
+    asked: list[tuple[str, list]] = []
+
+    async def prepare(hook, payload):
+        asked.append((hook, payload))
+        return await hooks.prepare(sessions, hook, payload) if hook == HOOK.name else None
+
+    assert await tick(sessions, gate=recorder.gate, delivered=recorder.delivered, speak=recorder.speak, prepare=prepare) is True
+    # The hook is asked for words once, about everything it wrote down, each thing once.
+    assert asked == [("test.advice", [3, 5]), ("test.other", [1])]
+    assert recorder.said == ["About 3, 5."]
+    assert await pending(sessions) == []
 
 
 async def test_ag_hook_038_the_words_are_made_when_the_request_is_next_in_line(sessions):
@@ -196,7 +213,7 @@ async def test_ag_hook_038_the_words_are_made_when_the_request_is_next_in_line(s
     async def prepare(hook, payload):
         return await hooks.prepare(sessions, hook, payload)
 
-    assert await tick(sessions, gate=recorder.gate, speak=recorder.speak, prepare=prepare) is True
+    assert await tick(sessions, gate=recorder.gate, delivered=recorder.delivered, speak=recorder.speak, prepare=prepare) is True
     assert recorder.said == ["About 3."]
     assert await pending(sessions) == []
 
@@ -206,12 +223,12 @@ async def test_ag_hook_038_the_words_are_made_when_the_request_is_next_in_line(s
     async with sessions() as session:
         await add_cue(session, text="Sprint 1 is over.")
         await session.commit()
-    assert await tick(sessions, gate=recorder.gate, speak=recorder.speak, prepare=prepare) is True
+    assert await tick(sessions, gate=recorder.gate, delivered=recorder.delivered, speak=recorder.speak, prepare=prepare) is True
     assert recorder.said == ["About 3.", "Sprint 1 is over."]
     assert await pending(sessions) == []
     # Nothing left at all: no turn is taken.
     await queue_advice(hooks, sessions, Committed(KIND, 6))
-    assert await tick(sessions, gate=recorder.gate, speak=recorder.speak, prepare=prepare) is False
+    assert await tick(sessions, gate=recorder.gate, delivered=recorder.delivered, speak=recorder.speak, prepare=prepare) is False
     assert await pending(sessions) == []
 
 
@@ -230,7 +247,7 @@ async def test_ag_hook_038_a_switched_off_hook_says_nothing_and_a_dropped_reques
     async def prepare(hook, payload):
         return await hooks.prepare(sessions, hook, payload)
 
-    assert await tick(sessions, gate=recorder.gate, speak=recorder.speak, prepare=prepare) is False
+    assert await tick(sessions, gate=recorder.gate, delivered=recorder.delivered, speak=recorder.speak, prepare=prepare) is False
     assert recorder.said == []
     assert await pending(sessions) == []
 
@@ -256,14 +273,48 @@ async def test_ag_hook_038_what_the_hook_adds_while_the_request_is_said_is_owed_
         await queue_advice(hooks, sessions, Committed(KIND, 5))
         return await recorder.speak(event_id, text)
 
-    assert await tick(sessions, gate=recorder.gate, speak=speak_while_another_arrives, prepare=prepare) is True
+    assert await tick(sessions, gate=recorder.gate, delivered=recorder.delivered, speak=speak_while_another_arrives, prepare=prepare) is True
     assert recorder.said == ["About 3."]
     assert await pending(sessions) == [("test.advice", None, [5])]
 
-    assert await tick(sessions, gate=recorder.gate, speak=recorder.speak, prepare=prepare) is True
+    assert await tick(sessions, gate=recorder.gate, delivered=recorder.delivered, speak=recorder.speak, prepare=prepare) is True
     assert recorder.said == ["About 3.", "About 5."]
     # The second request is its own: the message registered under the first is not it.
     assert recorder.events[0] != recorder.events[1]
+    assert await pending(sessions) == []
+
+
+async def test_ag_cue_029_a_hooks_rows_a_turn_said_are_settled_by_its_message_alone(sessions):
+    """AG-CUE-029 — tests/brd/tg_agent_shell/agents.feature"""
+    hooks = catalogue(HOOK)
+    await queue_advice(hooks, sessions, Committed(KIND, 3))
+    async with sessions() as session:
+        await add_cue(session, text="1 Reminder triggered.")
+        await session.commit()
+    recorder = Recorder()
+    worded: list[list] = []
+
+    async def prepare(hook, payload):
+        worded.append(payload)
+        return await hooks.prepare(sessions, hook, payload)
+
+    async def register_then_stop(event_id, text):
+        await recorder.speak(event_id, text)
+        raise RuntimeError("the process stopped between the message and the settling")
+
+    with pytest.raises(RuntimeError):
+        await tick(sessions, gate=recorder.gate, delivered=recorder.delivered, speak=register_then_stop, prepare=prepare)
+    assert recorder.said == ["About 3.\n\n1 Reminder triggered."]
+    # Fired again since: a row of its own, owed still.
+    await queue_advice(hooks, sessions, Committed(KIND, 5))
+
+    assert await tick(sessions, gate=recorder.gate, delivered=recorder.delivered, speak=recorder.speak, prepare=prepare) is True
+
+    # Nothing said with the registered message is worded or said again — not even asked
+    # about — and the row written since is the next request, under its own id.
+    assert worded == [[3], [5]]
+    assert recorder.said[-1] == "About 5."
+    assert len(set(recorder.events)) == 2
     assert await pending(sessions) == []
 
 
@@ -279,13 +330,13 @@ async def test_ag_hook_038_a_request_whose_words_cannot_be_made_stays_owed(sessi
             raise RuntimeError("cannot read")
         return await hooks.prepare(sessions, hook, payload)
 
-    assert await tick(sessions, gate=recorder.gate, speak=recorder.speak, release=recorder.release, prepare=prepare) is False
+    assert await tick(sessions, gate=recorder.gate, delivered=recorder.delivered, speak=recorder.speak, release=recorder.release, prepare=prepare) is False
     assert recorder.said == []
     assert recorder.releases == 1
     assert await pending(sessions) == [("test.advice", None, [3])]
 
     broken = False
-    assert await tick(sessions, gate=recorder.gate, speak=recorder.speak, release=recorder.release, prepare=prepare) is True
+    assert await tick(sessions, gate=recorder.gate, delivered=recorder.delivered, speak=recorder.speak, release=recorder.release, prepare=prepare) is True
     assert recorder.said == ["About 3."]
     assert recorder.releases == 2
 
@@ -307,12 +358,12 @@ async def test_ag_hook_038_several_requests_owed_at_once_are_each_worded_and_sai
         return await hooks.prepare(sessions, hook, payload)
 
     # The one whose words cannot be made stays owed alone; the others are said together.
-    assert await tick(sessions, gate=recorder.gate, speak=recorder.speak, release=recorder.release, prepare=prepare) is True
+    assert await tick(sessions, gate=recorder.gate, delivered=recorder.delivered, speak=recorder.speak, release=recorder.release, prepare=prepare) is True
     assert recorder.said == ["About 3.\n\n1 Reminder triggered."]
     assert await pending(sessions) == [("test.daily", None, ["09:00"])]
 
     broken.clear()
-    assert await tick(sessions, gate=recorder.gate, speak=recorder.speak, release=recorder.release, prepare=prepare) is True
+    assert await tick(sessions, gate=recorder.gate, delivered=recorder.delivered, speak=recorder.speak, release=recorder.release, prepare=prepare) is True
     assert recorder.said[-1] == "Morning."
     assert await pending(sessions) == []
 
@@ -330,12 +381,12 @@ async def test_ag_hook_038_nothing_is_read_while_the_chat_is_busy(sessions):
         return await hooks.prepare(sessions, hook, payload)
 
     for _ in range(3):
-        assert await tick(sessions, gate=recorder.gate, speak=recorder.speak, release=recorder.release, prepare=prepare) is False
+        assert await tick(sessions, gate=recorder.gate, delivered=recorder.delivered, speak=recorder.speak, release=recorder.release, prepare=prepare) is False
     assert reads == 0 and recorder.releases == 0
     assert await pending(sessions) == [("test.advice", None, [3])]
 
     recorder.open_gate = True
-    assert await tick(sessions, gate=recorder.gate, speak=recorder.speak, release=recorder.release, prepare=prepare) is True
+    assert await tick(sessions, gate=recorder.gate, delivered=recorder.delivered, speak=recorder.speak, release=recorder.release, prepare=prepare) is True
     assert reads == 1 and recorder.releases == 1
 
 
@@ -400,4 +451,14 @@ async def test_ag_hook_039_a_switched_off_check_does_not_run_and_is_not_run_late
     assert await pending(sessions) == [("test.daily", None, ["09:00"])]
     # Fired again before it is said, it is the one request still.
     await queue_advice(hooks, sessions, Tick("09:00", at_nine))
-    assert await pending(sessions) == [("test.daily", None, ["09:00"])]
+    assert await pending(sessions) == [("test.daily", None, ["09:00"])] * 2
+    recorder = Recorder()
+    asked: list[tuple[str, list]] = []
+
+    async def prepare(hook, payload):
+        asked.append((hook, payload))
+        return await hooks.prepare(sessions, hook, payload)
+
+    assert await tick(sessions, gate=recorder.gate, delivered=recorder.delivered, speak=recorder.speak, prepare=prepare) is True
+    assert asked == [("test.daily", ["09:00"])] and recorder.said == ["Morning."]
+    assert await pending(sessions) == []

@@ -2,8 +2,8 @@
 
 An operation records what it changed beside its transaction (`foundation/changes.py`).
 After the commit, the one listener below hands those facts to the hooks that subscribe to
-that kind of change, and whatever an Advise check returns is merged into that hook's one
-pending `Cue`. A rollback leaves nothing to hand on. The one tick poll hands a `Tick` to
+that kind of change, and whatever an Advise check returns is written down as one `Cue`
+row of that hook. A rollback leaves nothing to hand on. The one tick poll hands a `Tick` to
 the daily hooks when the time of day their reader names passes, by the same path. A Run
 hook does its work there and then, with no chat to publish to: on a tick inside the poll,
 on a commit once that commit's facts are handed on, outside the order they are kept in.
@@ -31,7 +31,7 @@ from ..foundation.poll import run_poll
 from ..hooks.contracts import Advise, Run, RunContext
 from ..hooks.registry import HookEvent, HookRegistry
 from ..hooks.ticks import TickSchedule
-from .queue import merge_hook_cue
+from .queue import add_hook_cue
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ async def hand_on(
         match checked.spec.effect:
             case Advise():
                 async with sessions() as session:
-                    await merge_hook_cue(session, hook=checked.spec.name, items=checked.payloads)
+                    await add_hook_cue(session, hook=checked.spec.name, items=checked.payloads)
                     await session.commit()
             case Run(run=run):
                 assert work is not None  # the registry admits a Run only where the adapter brings its context

@@ -33,7 +33,7 @@ from tg_agent_shell.ai.messages import ordered_owner_context
 from tg_agent_shell.cues.background import tick as cue_tick
 from tg_agent_shell.cues.initiatives import queue_advice
 from tg_agent_shell.cues.model import Cue
-from tg_agent_shell.cues.queue import merge_hook_cue
+from tg_agent_shell.cues.queue import add_hook_cue
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.hooks.contracts import OnTick, Tick
 
@@ -238,10 +238,13 @@ async def test_ps_summary_014_the_daily_summary_reads_the_summary_time_and_share
         said.append(text)
         return True
 
+    async def delivered(event_id: str) -> bool:
+        return False
+
     async def prepare(hook: str, payload: list) -> str | None:
         return await hooks.prepare(sessions, hook, payload)
 
-    assert await cue_tick(sessions, gate=gate, speak=speak, prepare=prepare) is True
+    assert await cue_tick(sessions, gate=gate, speak=speak, delivered=delivered, prepare=prepare) is True
     assert said == [f"{DIARY_REQUEST}\n\n{DAILY_SUMMARY_REQUEST}"]
     async with sessions() as session:
         assert list(await session.scalars(select(Cue))) == []
@@ -263,14 +266,14 @@ async def test_profile_update_bumps_workspace_revision_once(sessions) -> None:
 async def test_ag_hook_038_switching_a_hook_off_drops_its_pending_request_for_good(sessions) -> None:
     """AG-HOOK-038 — tests/brd/tg_agent_shell/agents.feature"""
     async with sessions() as session:
-        await merge_hook_cue(session, hook="cards.blocker", items=[3])
-        await merge_hook_cue(session, hook="other.hook", items=[4])
+        await add_hook_cue(session, hook="cards.blocker", items=[3])
+        await add_hook_cue(session, hook="other.hook", items=[4])
         await set_hook_switch(session, "cards.blocker", on=False)
         await session.commit()
     async with sessions() as session:
         assert [cue.hook for cue in await session.scalars(select(Cue))] == ["other.hook"]
         # A change handed on late, after the switch was read as on, wrote while it was off.
-        await merge_hook_cue(session, hook="cards.blocker", items=[3])
+        await add_hook_cue(session, hook="cards.blocker", items=[3])
         await session.commit()
     async with sessions() as session:
         await set_hook_switch(session, "cards.blocker", on=True)
@@ -279,7 +282,7 @@ async def test_ag_hook_038_switching_a_hook_off_drops_its_pending_request_for_go
         assert [cue.hook for cue in await session.scalars(select(Cue))] == ["other.hook"]
         assert (await session.get(UserProfile, 1)).disabled_hooks == []
         # Pressed again on a stale screen, it is no flip, and a legitimate request stays.
-        await merge_hook_cue(session, hook="cards.blocker", items=[5])
+        await add_hook_cue(session, hook="cards.blocker", items=[5])
         await set_hook_switch(session, "cards.blocker", on=True)
         await session.commit()
     async with sessions() as session:

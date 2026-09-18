@@ -438,7 +438,7 @@ async def test_reminder_advisor_receives_canonical_dialogue(sessions, monkeypatc
     assert rendered == [(MessageKind.CUE, "a" * 32)]
 
 
-async def test_a_registered_cue_event_is_not_generated_twice(sessions):
+async def test_a_registered_cue_message_is_what_says_the_turn_was_delivered(sessions):
     """AG-CUE-029 — tests/brd/tg_agent_shell/agents.feature"""
     event_id = "b" * 32
     async with sessions() as session:
@@ -454,9 +454,8 @@ async def test_a_registered_cue_event_is_not_generated_twice(sessions):
         await session.commit()
 
     runtime = _gate_runtime(sessions)
-    assert await runtime.can_speak() is True
-    assert await runtime.speak(event_id, "Do not say this twice.") is True
-    runtime.release()
+    assert await runtime.delivered(event_id) is True
+    assert await runtime.delivered("c" * 32) is False
 
 
 async def test_a_cue_render_failure_releases_its_pending_proposal(sessions, monkeypatch):

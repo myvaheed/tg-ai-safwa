@@ -94,6 +94,18 @@ class CueRuntime:
         """The words of a hook's request, from the hook's own feature, or None to drop it."""
         return await self.services.hooks.prepare(self.services.sessions, hook, payload)
 
+    async def delivered(self, event_id: str) -> bool:
+        """Whether the turn under this id reached the chat: its message was registered,
+        even if the process stopped before the rows it said were settled."""
+        async with self.services.sessions() as session:
+            found = await session.scalar(
+                select(TelegramMessage.id).where(
+                    TelegramMessage.chat_id == self.owner_id,
+                    TelegramMessage.event_id == event_id,
+                )
+            )
+        return found is not None
+
     async def speak(self, event_id: str, text: str) -> bool:
         """Run one Advisor turn over the request. Returns whether the answer was delivered.
 
@@ -102,17 +114,6 @@ class CueRuntime:
         """
         if not self.still_current():
             return False
-        async with self.services.sessions() as session:
-            delivered = await session.scalar(
-                select(TelegramMessage.id).where(
-                    TelegramMessage.chat_id == self.owner_id,
-                    TelegramMessage.event_id == event_id,
-                )
-            )
-        if delivered is not None:
-            # Telegram delivery was registered but the process stopped before the Cue row
-            # was deleted. The next tick finishes that local half instead of saying it again.
-            return True
         try:
             dialogue = await self.services.history.dialogue(self.owner_id)
             dialogue = [*dialogue, DialogueMessage(role="user", content=text)]

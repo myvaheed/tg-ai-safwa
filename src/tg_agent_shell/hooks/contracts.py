@@ -156,11 +156,11 @@ class RefuseTool:
 
 @dataclass(frozen=True, slots=True)
 class Advise[Item]:
-    """One pending request to the Advisor per hook, worded when it is about to be said.
+    """One request to the Advisor per hook, worded when it is about to be said.
 
-    A check returns items — references, not words. They are merged into the hook's pending
-    request; `prepare` reads what they refer to and returns the request text, or None when
-    nothing is left to ask about.
+    A check returns items — references, not words. Each check writes them down as one row;
+    a turn words every row of the hook together, and `prepare` reads what the items refer
+    to and returns the request text, or None when nothing is left to ask about.
     """
 
     prepare: Callable[[AsyncSession, Sequence[Item]], Awaitable[str | None]]

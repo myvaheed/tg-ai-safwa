@@ -474,15 +474,19 @@ interrupts mid-turn all lose nothing: the row is still there, and the next poll 
   discarded.
 - The answer is posted with `MessageKind.CUE`: it stays in dialogue, marked as something Safwa
   volunteered rather than a reply to a message that is not there.
-- Everything waiting when the gate opens is said in one turn, as one request, oldest first; the
-  message is registered under the oldest, and what was said with it is settled with it.
+- Everything waiting when the gate opens is said in one turn, as one request, oldest first. A
+  Cue row is written once and never edited: the poll stamps the rows the turn says with the
+  turn's id (`stamp`) before it starts, the message is registered under that id, and exactly
+  those rows are deleted once it landed (`settle`). A turn registered in the chat but not
+  settled when the process stopped is settled by the next poll without a word
+  (`CueRuntime.delivered`); one whose message never landed loses its stamp and waits again.
 - A hook's Cue carries no words. `hook` and `payload` name the hook and what it refers to, one
-  row per hook, and `HookRegistry.prepare` asks that hook's feature for the words once the gate
-  is open — after checking the switch is still on, and never while the chat is busy. Words that
-  cannot be made leave the row for the next poll. Delivery settles only what was read
-  (`settle_cue`): what the hook added meanwhile stays in the row as the next request, under a
-  new event id. Switching the hook off in the Profile drops the row (`drop_hook_cue`), and
-  switching it on drops whatever a late hand-on wrote while it was off.
+  row per finding, and `HookRegistry.prepare` asks that hook's feature for the words of all its
+  rows at once, each item once, once the gate is open — after checking the switch is still on,
+  and never while the chat is busy. Words that cannot be made leave the rows for the next poll.
+  A row written while the turn ran carries no stamp and is the next request. Switching the hook
+  off in the Profile drops its rows (`drop_hook_cue`), and switching it on drops whatever a late
+  hand-on wrote while it was off.
 - The Cue reaches the Advisor as an ordinary request from the system, answered the way the owner's
   own would be. A fired Reminder is the one that names items: the prompt tells the Advisor to read
   their current state with `query_data` before repeating an instruction that may no longer apply.
@@ -522,8 +526,8 @@ the Cue row, exactly as for anything else Safwa says first.
 An operation that makes a change a hook follows up on — an Action becoming blocked or entering
 Today, a Check answered Missed, a Sprint starting — records it with `record_change` beside its
 own transaction (`foundation/changes.py`), and commits nothing itself. The one `after_commit` listener in `cues/initiatives.py` hands the session's `Committed`
-facts to `HookRegistry.evaluate`, and each Advise result is merged into that hook's row with
-`merge_hook_cue`; a rollback leaves nothing to hand on. The listener is bound to the session
+facts to `HookRegistry.evaluate`, and each Advise result is written down as a row of that hook
+with `add_hook_cue`; a rollback leaves nothing to hand on. The listener is bound to the session
 factory by `bind_committed`, so a proposal's Save and a screen's save — the same operation — reach
 the hook by the same path, and a proposal the owner discards never calls it. A Run on a commit —
 the key Actions classifier, `KeyActions` off `Services.features` — is done once that commit's

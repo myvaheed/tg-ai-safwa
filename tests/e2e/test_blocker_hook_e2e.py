@@ -65,7 +65,8 @@ async def test_cd_blocked_034_a_blocker_saved_by_proposal_or_by_hand_is_one_requ
     await sink.drain()
     assert await _pending(e2e_harness) == [(BLOCKER_HOOK.name, [card_id])]
 
-    # A second one by hand joins the same request; the first is unblocked before it is said.
+    # A second one by hand is written down beside it, for the same request; the first is
+    # unblocked before it is said.
     async with e2e_harness.sessions() as session:
         second = await create_card(
             session, kind="action", title="Sign the lease", effort_points=1,
@@ -77,7 +78,9 @@ async def test_cd_blocked_034_a_blocker_saved_by_proposal_or_by_hand_is_one_requ
         await update_card_fields(session, card_id, {"blocked": False})
         await session.commit()
     await sink.drain()
-    assert await _pending(e2e_harness) == [(BLOCKER_HOOK.name, [card_id, second_id])]
+    assert await _pending(e2e_harness) == [
+        (BLOCKER_HOOK.name, [card_id]), (BLOCKER_HOOK.name, [second_id]),
+    ]
 
     said: list[str] = []
 
@@ -91,7 +94,11 @@ async def test_cd_blocked_034_a_blocker_saved_by_proposal_or_by_hand_is_one_requ
         owner_id=OWNER_ID,
     )
     assert await tick(
-        e2e_harness.sessions, gate=_open_gate, speak=speak, prepare=runtime.prepare
+        e2e_harness.sessions,
+        gate=_open_gate,
+        speak=speak,
+        delivered=runtime.delivered,
+        prepare=runtime.prepare,
     ) is True
     assert len(said) == 1
     assert f"#{second_id} «Sign the lease»: Landlord away" in said[0]

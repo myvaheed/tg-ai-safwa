@@ -64,7 +64,8 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
         await session.commit()
         goal_id = goal.id
 
-    # The morning fires every daily check; firing again before any is said adds nothing.
+    # The morning fires every daily check; fired again before any is said, each is written
+    # down again and is still worded once.
     morning = [
         (EMPTY_PARENTS_HOOK.name, [MORNING_TIME_DEFAULT]),
         (HARD_TIME_HOOK.name, [PLAN_CHECK]),
@@ -81,7 +82,7 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
         await queue_advice(
             REGISTRY.hooks, sessions, Tick(MORNING_TIME_DEFAULT, morning_time), work=work
         )
-    assert await _pending(sessions) == morning
+    assert await _pending(sessions) == morning * 2
 
     advisor, provider = e2e_harness.advisor([ANSWER])
     chat = FakeMessage(900, bot_message=False, chat_id=OWNER_ID, answer_as_new=True)
@@ -107,6 +108,7 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
         sessions,
         gate=runtime.can_speak,
         speak=runtime.speak,
+        delivered=runtime.delivered,
         release=runtime.release,
         prepare=runtime.prepare,
     ) is True
@@ -122,6 +124,7 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
         sessions,
         gate=runtime.can_speak,
         speak=runtime.speak,
+        delivered=runtime.delivered,
         release=runtime.release,
         prepare=runtime.prepare,
     ) is False

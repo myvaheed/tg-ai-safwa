@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import select
 
 from safwa.bootstrap.modules import REGISTRY
@@ -25,13 +26,15 @@ from tg_agent_shell.turn import TurnManager
 
 
 class Recorder:
-    """Stands in for the background lease and the Advisor turn."""
+    """Stands in for the background lease and the Advisor turn: a turn that lands is
+    registered under its id, and that register is what `delivered` reads."""
 
-    def __init__(self, *, open_gate=True, delivered=True):
+    def __init__(self, *, open_gate=True, lands=True):
         self.open_gate = open_gate
-        self.delivered = delivered
+        self.lands = lands
         self.said: list[str] = []
         self.events: list[str] = []
+        self.registered: set[str] = set()
         self.releases = 0
 
     async def gate(self) -> bool:
@@ -40,14 +43,24 @@ class Recorder:
     async def speak(self, event_id: str, text: str) -> bool:
         self.events.append(event_id)
         self.said.append(text)
-        return self.delivered
+        if self.lands:
+            self.registered.add(event_id)
+        return self.lands
+
+    async def delivered(self, event_id: str) -> bool:
+        return event_id in self.registered
 
     def release(self) -> None:
         self.releases += 1
 
 
 def _hooks(recorder: Recorder) -> dict:
-    return {"gate": recorder.gate, "speak": recorder.speak, "release": recorder.release}
+    return {
+        "gate": recorder.gate,
+        "speak": recorder.speak,
+        "delivered": recorder.delivered,
+        "release": recorder.release,
+    }
 
 
 def _runtime(sessions, turn: TurnManager, reviews: ProposalStore) -> CueRuntime:
@@ -139,7 +152,7 @@ async def test_ag_cue_029_a_closed_gate_leaves_the_cue_waiting(sessions):
 async def test_ag_cue_029_a_turn_that_did_not_land_leaves_the_cue_waiting(sessions):
     """AG-CUE-029 — tests/brd/tg_agent_shell/agents.feature"""
     await write(sessions, "Sprint 1 is over.")
-    failing = Recorder(delivered=False)
+    failing = Recorder(lands=False)
 
     assert await tick(sessions, **_hooks(failing)) is False
 
@@ -156,9 +169,7 @@ async def test_ag_cue_029_one_tick_says_everything_waiting_as_one_request_oldest
     """AG-CUE-029 — tests/brd/tg_agent_shell/agents.feature"""
     await write(sessions, "Sprint 1 is over.")
     await write(sessions, "Sprint 2 is over.")
-    async with sessions() as session:
-        first = (await waiting_cues(session))[0].event_id
-    failing = Recorder(delivered=False)
+    failing = Recorder(lands=False)
 
     # A turn that did not land leaves both owed, and nothing about either is thrown away.
     assert await tick(sessions, **_hooks(failing)) is False
@@ -169,10 +180,57 @@ async def test_ag_cue_029_one_tick_says_everything_waiting_as_one_request_oldest
     assert await tick(sessions, **_hooks(recorder)) is True
 
     assert recorder.said == ["Sprint 1 is over.\n\nSprint 2 is over."]
-    # Registered under the oldest, and what was said with it is settled with it.
-    assert recorder.events == [first]
+    # Registered under the turn's own id — not the one that did not land — and what was
+    # said with it is settled with it.
+    assert len(recorder.events[0]) == 32 and recorder.events != failing.events
     assert await remaining(sessions) == []
     assert recorder.releases == 1
+
+
+async def test_ag_cue_029_a_turn_registered_but_not_settled_is_settled_alone_by_the_next_tick(
+    sessions,
+):
+    """AG-CUE-029 — tests/brd/tg_agent_shell/agents.feature"""
+    await write(sessions, "Sprint 1 is over.")
+    recorder = Recorder()
+
+    async def register_then_stop(event_id: str, text: str) -> bool:
+        recorder.events.append(event_id)
+        recorder.said.append(text)
+        recorder.registered.add(event_id)
+        raise RuntimeError("the process stopped between the message and the settling")
+
+    with pytest.raises(RuntimeError):
+        await tick(sessions, **{**_hooks(recorder), "speak": register_then_stop})
+    assert await remaining(sessions) == ["Sprint 1 is over."]
+    # Owed since, so not part of what that turn said.
+    await write(sessions, "Sprint 2 is over.")
+
+    assert await tick(sessions, **_hooks(recorder)) is True
+
+    # The first is settled without a word, and the second is a turn of its own.
+    assert recorder.said == ["Sprint 1 is over.", "Sprint 2 is over."]
+    assert len(set(recorder.events)) == 2
+    assert await remaining(sessions) == []
+
+
+async def test_ag_cue_029_settling_a_turn_never_takes_a_row_written_in_its_place(sessions):
+    """AG-CUE-029 — tests/brd/tg_agent_shell/agents.feature"""
+    first = await write(sessions, "Sprint 1 is over.")
+    recorder = Recorder()
+
+    async def speak_while_the_row_is_replaced(event_id: str, text: str) -> bool:
+        async with sessions() as session:
+            await session.delete(await session.get(Cue, first))
+            await session.commit()
+        # SQLite hands the deleted row's id out again: same number, another request.
+        assert await write(sessions, "1 Reminder triggered.") == first
+        return await recorder.speak(event_id, text)
+
+    assert await tick(sessions, **{**_hooks(recorder), "speak": speak_while_the_row_is_replaced}) is True
+
+    assert recorder.said == ["Sprint 1 is over."]
+    assert await remaining(sessions) == ["1 Reminder triggered."]
 
 
 async def test_ag_cue_029_an_empty_queue_takes_no_lease(sessions):
@@ -217,6 +275,7 @@ async def test_pr_expire_029_the_review_out_of_time_is_closed_before_the_cue_is_
         sessions,
         gate=runtime.can_speak,
         speak=recorder.speak,
+        delivered=recorder.delivered,
         release=runtime.release,
         expire=expire,
     )
@@ -242,6 +301,7 @@ async def test_pr_expire_029_a_review_still_within_its_time_keeps_the_gate_shut(
             sessions,
             gate=runtime.can_speak,
             speak=recorder.speak,
+            delivered=recorder.delivered,
             release=runtime.release,
             expire=runtime.expire_review,
         )

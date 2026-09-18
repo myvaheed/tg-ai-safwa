@@ -230,10 +230,13 @@ Feature: Agents — the session, the hand-over, and what comes back
     When it cannot be said yet
     Then it stays written down, and the next check offers it again
     And one check says everything owed by then in one turn, as one request, the oldest first
+    And what that turn says is written down before it starts, under the turn's own id, and only that is settled once it has landed
     When a turn is started for it and does not reach the chat
     Then it is still owed, and nothing about it was thrown away
     When its arrival in the chat has been registered
     Then no later check says it a second time, and what was said with it is settled with it
+    And what was written down once the turn had started is not settled with it: it is said by a later check, as a turn of its own
+    And a turn registered in the chat but not settled when Safwa stopped is settled by the next check, without a word, and nothing written down since is settled with it
     And when nothing is owed, no turn is taken at all
 
   Scenario: AG-POLL-030 — Work on a timer outlives its own failures
@@ -315,7 +318,7 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then what is written down is the hook's name and what it refers to, not the words
     And it survives a restart, like anything else Safwa owes
     When the hook fires again before that is said
-    Then it adds to the one pending request, and no second one is written
+    Then what it refers to is written down beside the first, and the owner is asked once, about all of it, each thing once
     When the request is next in line and the chat is free
     Then the hook is checked to be still on, what it refers to is read again, and the words are made from what is still there
     And while the chat is busy nothing is read

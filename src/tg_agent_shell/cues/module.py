@@ -23,6 +23,7 @@ async def _poll_cues(context: BackgroundContext) -> None:
         context.sessions,
         gate=runtime.can_speak,
         speak=runtime.speak,
+        delivered=runtime.delivered,
         release=runtime.release,
         expire=runtime.expire_review,
         prepare=runtime.prepare,

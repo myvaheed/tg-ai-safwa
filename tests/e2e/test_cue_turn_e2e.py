@@ -91,6 +91,7 @@ async def _interrupted_tick(harness, advisor, provider, turn: TurnManager) -> in
             harness.sessions,
             gate=runtime.can_speak,
             speak=runtime.speak,
+            delivered=runtime.delivered,
             release=runtime.release,
         )
     )
