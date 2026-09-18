@@ -340,7 +340,7 @@ evaluate → инициатива в очереди. Хук не различа�
 | [Дневной итог](../src/safwa/features/profile/hooks.py) | Tick по «Daily summary»; Advise, слова — просьба рассказать, что сделано за день |
 | [Итог спринта](../src/safwa/features/planning/hooks.py) | Committed(sprint.ended), факт пишет finish_sprint; Advise, слова — итог из записи спринта |
 | [Истечение спринта](../src/safwa/features/planning/hooks.py) | Tick по полуночи; Run закрывает спринт, чей последний день прошёл; полночь, проспанную Safwa, добирает recover при старте |
-| [Ключевые Действия](../src/safwa/features/planning/hooks.py) | Committed(sprint.started, sprint.joined); Run спрашивает модель батчами по KEY_BATCH = 10 и пишет key_action на commitment, затем факт sprint.key_actions |
+| [Ключевые Действия](../src/safwa/features/planning/hooks.py) | Committed(sprint.started, sprint.joined); Run спрашивает модель батчами по KEY_BATCH = 10 одним вызовом mark_key_actions на батч и пишет key_action на commitment, затем факт sprint.key_actions |
 | [Недостижимый критерий](../src/safwa/features/planning/hooks.py) | Committed(sprint.key_actions, sprint.left); Advise, слова — что критерий не выглядит достижимым, пока ключевых нет ни открытых, ни завершённых |
 | [Баланс энергии](../src/safwa/features/cards/hooks.py) | Committed(sprint.started); Advise, слова — виды энергии и отдых, которых нет в спринте, но есть в Backlog, до трёх кандидатов на вид |
 | [Отдых в Today](../src/safwa/features/cards/hooks.py) | Tick по «Morning time»; Advise, слова — открытые Rest-действия спринта, пока в Today отдыха нет и за день он не завершён |
@@ -666,9 +666,11 @@ Run-хук — второй Run на тике после истечения сп
 для тика ([AG-HOOK-037](../tests/brd/tg_agent_shell/agents.feature)). Потребитель —
 planning.key_actions: на sprint.started и на sprint.joined (Действие создано или перенесено в
 спринт, или возвращено из Backlog — факт кладёт sync_commitment_for_stage, как и sprint.left
-при уходе незавершённым) KeyActions спрашивает модель батчами по KEY_BATCH = 10 разом, читает
-«номер: yes/no», пишет key_action на SprintCommitment и кладёт факт sprint.key_actions;
-ответ, который не прочитан ни в одном батче, ничего не метит и факта не даёт
+при уходе незавершённым) KeyActions спрашивает модель батчами по KEY_BATCH = 10 разом, с
+одним инструментом mark_key_actions и tool_choice required — тот же путь, на котором стоят
+Advisor и субагенты, а не разбор текста; из аргументов вызова берёт номера, пишет key_action
+на SprintCommitment и кладёт факт sprint.key_actions; ответ, который не был этим вызовом ни в
+одном батче, ничего не метит и факта не даёт
 ([PL-KEY-023](../tests/brd/planning.feature)). Advise planning.key_warning на этом факте и на
 sprint.left перечитывает спринт при доставке: ни одного ключевого ни открытым, ни завершённым —
 одно сообщение, что критерий не выглядит достижимым, без предложений

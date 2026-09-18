@@ -1,17 +1,20 @@
 """Which of a Sprint's Actions its Success criterion rests on: asked of the model in
-batches, read back as one yes or no per number, and kept as a mark on the commitment."""
+batches, answered as one tool call naming their numbers, and kept as a mark on the
+commitment."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from collections.abc import Sequence
+from typing import Any
 
+from pydantic import Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_gateway import CompletionRequest, LlmProvider
+from tg_agent_shell.ai.contracts import ToolInput, tool_json_schema
 from tg_agent_shell.foundation.changes import record_change
 
 from ..cards.model import Card
@@ -25,11 +28,26 @@ KEY_BATCH = 10
 
 KEY_ACTIONS_PROMPT = (
     "You are given a Sprint's Success criterion and a numbered list of its Actions.\n"
-    "For each Action, answer whether the criterion cannot be reached without it.\n"
-    "Answer one line per Action: the number, a colon, then yes or no. Nothing else."
+    "Call mark_key_actions with the numbers of the Actions the criterion cannot be reached "
+    "without. Pass an empty list when there is none."
 )
 
-_ANSWER = re.compile(r"^\s*(\d+)\s*[:.)\-]\s*(yes|no)\b", re.IGNORECASE | re.MULTILINE)
+
+class KeyActionsInput(ToolInput):
+    key: list[int] = Field(
+        description="The numbers of the Actions the criterion cannot be reached without."
+    )
+
+
+# The one call the model answers the question with: the numbers, and nothing to parse.
+KEY_ACTIONS_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "mark_key_actions",
+        "description": "Name the Actions the Success criterion cannot be reached without.",
+        "parameters": tool_json_schema(KeyActionsInput),
+    },
+}
 
 
 class KeyActions:
@@ -74,8 +92,8 @@ class KeyActions:
         record_change(session, SPRINT_KEY_ACTIONS, sprint_id)
 
     async def classify(self, criterion: str, titles: Sequence[str]) -> set[int] | None:
-        """The indices into `titles` the model said yes to, or None when no answer could
-        be read; a batch that could not be read marks nothing and is logged."""
+        """The indices into `titles` the model named, or None when no answer could be
+        read; a batch that could not be read marks nothing and is logged."""
         batches = [
             (start, titles[start : start + KEY_BATCH]) for start in range(0, len(titles), KEY_BATCH)
         ]
@@ -100,15 +118,18 @@ class KeyActions:
                         "content": f"Success criterion: {criterion}\nActions:\n{listed}",
                     },
                 ),
+                tools=(KEY_ACTIONS_TOOL,),
+                tool_choice="required",
                 temperature=0.1,
             )
         )
-        read = {
-            int(number): answer.lower() == "yes"
-            for number, answer in _ANSWER.findall(turn.content)
-            if 1 <= int(number) <= len(batch)
-        }
-        if not read:
-            logger.warning("The key Actions answer could not be read: %r", turn.content)
+        call = next((call for call in turn.tool_calls if call.name == "mark_key_actions"), None)
+        if call is None:
+            logger.warning("The key Actions answer was not the call: %r", turn.content)
             return None
-        return {number - 1 for number, yes in read.items() if yes}
+        try:
+            numbers = KeyActionsInput.model_validate_json(call.arguments_json).key
+        except ValidationError as error:
+            logger.warning("The key Actions call could not be read: %s", error)
+            return None
+        return {number - 1 for number in numbers if 1 <= number <= len(batch)}

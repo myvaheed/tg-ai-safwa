@@ -184,7 +184,7 @@ Feature: Planning — the Sprint, and the mode without one
     Given a Sprint starts with a Success criterion, or an Action joins the running Sprint — moved or created into it, or brought back from Backlog
     When that is saved
     Then in the background the Sprint's open Actions are read to the model in batches of ten (KEY_BATCH = 10), each as its number in the batch and its title, with the Success criterion, and the batches are asked at once
-    And the model answers yes or no per number; every yes marks that Action key to this Sprint, every no unmarks it, and an answer that cannot be read marks nothing and is logged
+    And the model answers each batch with one call, mark_key_actions, naming the numbers the criterion rests on; each named Action is marked key to this Sprint, the others in the batch unmarked, and an answer that is not that call, or names nothing readable, marks nothing and is logged
     And an Action joining the running Sprint is asked about alone, the same way, and the marks of the others stand
     And the owner is told nothing and nothing is proposed; the marks are read by the Today order (PL-KEY-025) and the warning (PL-KEY-024)
     And the marks are handed on as one saved change once written; an answer that could not be read at all hands nothing on

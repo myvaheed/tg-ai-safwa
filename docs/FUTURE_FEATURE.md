@@ -196,7 +196,8 @@ The number is kept only to preserve the discussion's references. See
 Shipped 2026-09-18 as [PL-KEY-023](../tests/brd/planning.feature), PL-KEY-024 and PL-KEY-025;
 the number stays for references. The mark is `key_action` on the Sprint commitment — the
 Sprint's and the Action's together, never the Action's alone. When a Sprint starts, and when an
-Action joins it, the model is asked in batches of ten, yes or no per number, in the background;
+Action joins it, the model is asked in batches of ten and answers each with one tool call naming
+the numbers, in the background;
 the owner is told nothing. A Sprint left with no key Action open and none finished is told once
 that its criterion does not look reachable, with nothing proposed. Today puts a Hard Time today
 or tomorrow first, then Critical, then key, then the rest.

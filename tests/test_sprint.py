@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from datetime import date, datetime, time, timedelta
 from types import SimpleNamespace
@@ -8,7 +9,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy import select
 
-from llm_gateway import CompletionRequest, CompletionTurn
+from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.bootstrap.modules import MODULES, RECOVERY_HOOKS, REGISTRY
 from safwa.features.cards.api import HARD_TIME_NOTICE_DAYS
 from safwa.features.cards.hard_time import typed_hard_time
@@ -47,7 +48,12 @@ from safwa.features.planning.hooks import (
     midnight,
     sprint_summary_request,
 )
-from safwa.features.planning.key_actions import KEY_ACTIONS_PROMPT, KEY_BATCH, KeyActions
+from safwa.features.planning.key_actions import (
+    KEY_ACTIONS_PROMPT,
+    KEY_ACTIONS_TOOL,
+    KEY_BATCH,
+    KeyActions,
+)
 from safwa.features.planning.model import Sprint, SprintCommitment, next_sprint_number
 from safwa.features.planning.use_cases import (
     expire_due_sprint,
@@ -673,7 +679,8 @@ async def test_pl_energy_022_the_request_names_each_kind_the_sprint_lacks_and_th
 
 
 class KeyProvider:
-    """Answers yes to every listed Action whose title says it is key, and keeps each request."""
+    """Names every listed Action whose title says it is key, in the one call, and keeps
+    each request; garbled, it answers in words instead of the call."""
 
     def __init__(self, *, garbled: bool = False) -> None:
         self.requests: list[CompletionRequest] = []
@@ -684,8 +691,10 @@ class KeyProvider:
         if self.garbled:
             return CompletionTurn("I cannot say.")
         listed = re.findall(r"^(\d+)\. (.+)$", request.messages[1]["content"], re.MULTILINE)
+        key = [int(number) for number, title in listed if "key" in title]
         return CompletionTurn(
-            "\n".join(f"{number}: {'yes' if 'key' in title else 'no'}" for number, title in listed)
+            "",
+            tool_calls=(ToolCall("call-1", "mark_key_actions", json.dumps({"key": key})),),
         )
 
     async def aclose(self) -> None:
@@ -740,6 +749,7 @@ async def test_pl_key_023_a_sprints_actions_are_marked_in_batches_when_it_starts
     for request in provider.requests:
         assert request.messages[0] == {"role": "system", "content": KEY_ACTIONS_PROMPT}
         assert request.messages[1]["content"].startswith("Success criterion: Ship v2\nActions:\n1. ")
+        assert request.tools == (KEY_ACTIONS_TOOL,) and request.tool_choice == "required"
     marked = await _marked(sessions, sprint_id)
     assert marked == {card.id: "key" in card.title for card in planned}
     assert shelved.id not in marked
@@ -775,7 +785,7 @@ async def test_pl_key_023_an_action_that_joins_is_asked_about_alone_and_a_garble
     assert provider.requests[-1].messages[1]["content"].endswith("Actions:\n1. key newcomer")
     assert await _marked(sessions, sprint_id) == {first.id: True, second.id: False, joined.id: True}
 
-    # An answer that cannot be read marks nothing and hands nothing on.
+    # An answer that is not the call marks nothing and hands nothing on.
     async with sessions() as session:
         await KeyActions(KeyProvider(garbled=True)).mark(session, sprint_id)
         assert take_changes(session.info) == []
