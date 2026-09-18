@@ -5,8 +5,19 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import date, datetime
 from enum import StrEnum
+from typing import Any
 
-from sqlalchemy import Boolean, Date, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Date,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...foundation.models import Base, TimestampMixin, UtcDateTime
@@ -50,6 +61,15 @@ class Sprint(Base, TimestampMixin):
     success_criteria: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20), default=SprintStatus.ACTIVE.value)
     finish_reason: Mapped[str | None] = mapped_column(String(100))
+    # What the Sprint added up to as it ended (`closing.RetroStatistics.as_record`); None
+    # while it runs.
+    retro: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    # Whether the Success criteria were met, in the owner's word on the retro screen; None
+    # until they say.
+    criterion_met: Mapped[bool | None] = mapped_column(Boolean)
+    # What the retro analysis made of the record, as its last run left it; None until one
+    # ran to the end.
+    analysis: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
 
 class SprintCommitment(Base, TimestampMixin):

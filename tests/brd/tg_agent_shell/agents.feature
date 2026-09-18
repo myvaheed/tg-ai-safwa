@@ -339,3 +339,5 @@ Feature: Agents — the session, the hand-over, and what comes back
     When Safwa starts after that time has already passed
     Then the check waits for the next day's time rather than running for the day it missed
     And a check that is switched off does not run, and switching it on after its time has passed does not run it for that day
+    And a daily check's request not said by the local midnight after its time is dropped: the day it was about is over; one a turn is saying is that turn's to settle
+    And work of its own that failed is tried again at every later look until it is done, and nothing else that time handed on is run again

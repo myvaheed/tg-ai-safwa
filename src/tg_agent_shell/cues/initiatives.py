@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Sequence
+from datetime import datetime, time
 from functools import partial
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -28,17 +29,18 @@ from sqlalchemy.orm import Session
 from ..foundation.changes import CHANGES, Committed, take_changes
 from ..foundation.clock import utcnow
 from ..foundation.poll import run_poll
-from ..hooks.contracts import Advise, Run, RunContext
+from ..hooks.contracts import Advise, OnTick, Run, RunContext
 from ..hooks.registry import HookEvent, HookRegistry
 from ..hooks.ticks import TickSchedule
-from .queue import add_hook_cue
+from .queue import add_hook_cue, forget_before
 
 logger = logging.getLogger(__name__)
 
 _SINK = "committed_sink"
 
-# One Run's work, ready to be awaited where the caller can let it take its time.
-Work = Callable[[], Awaitable[None]]
+# One Run's work, ready to be awaited where the caller can let it take its time; it says
+# whether it was done, and has logged its failure if not.
+Work = Callable[[], Awaitable[bool]]
 
 
 async def hand_on(
@@ -70,11 +72,13 @@ async def hand_on(
     return jobs
 
 
-async def _guarded(run: Any, payload: Any, work: RunContext, name: str) -> None:
+async def _guarded(run: Any, payload: Any, work: RunContext, name: str) -> bool:
     try:
         await run(payload, work)
     except Exception:
         logger.exception("The work of the hook %s failed", name)
+        return False
+    return True
 
 
 async def queue_advice(
@@ -83,14 +87,56 @@ async def queue_advice(
     event: HookEvent,
     *,
     work: RunContext | None = None,
-) -> None:
-    """`hand_on`, and do each Run's work here and now."""
-    for job in await hand_on(hooks, sessions, event, work=work):
-        await job()
+) -> list[Work]:
+    """`hand_on`, and do each Run's work here and now; the work that failed is handed back."""
+    return [job for job in await hand_on(hooks, sessions, event, work=work) if not await job()]
 
 
 async def _no_chat(text: str, kind: str) -> None:
     raise RuntimeError("A hook off the dialogue has no chat to publish to: record a change, and let an Advise hook say it")
+
+
+class TickPoll:
+    """Hands the daily checks their Tick when their time comes: once, however many looks.
+
+    A look also drops a daily hook's request the local midnight has passed since — the day
+    it was about is over — and tries again the work an earlier look could not finish, until
+    it is done: a Sprint's midnight end is not optional the way a request is.
+    """
+
+    def __init__(
+        self,
+        hooks: HookRegistry,
+        sessions: async_sessionmaker[AsyncSession],
+        *,
+        resources: Any,
+        timezone: str,
+        now: datetime | None = None,
+    ) -> None:
+        self.hooks = hooks
+        self.sessions = sessions
+        self.tz = ZoneInfo(timezone)
+        self.schedule = TickSchedule(now=now or utcnow(), tz=self.tz)
+        self.work = RunContext(
+            resources=resources, still_current=lambda: True, publish=_no_chat, sessions=sessions
+        )
+        self.daily = tuple(
+            spec.name for spec in hooks.specs if any(isinstance(on, OnTick) for on in spec.on)
+        )
+        self.owed: list[Work] = []
+
+    async def look(self, now: datetime | None = None) -> None:
+        moment = now or utcnow()
+        midnight = datetime.combine(moment.astimezone(self.tz).date(), time(0), tzinfo=self.tz)
+        async with self.sessions() as session:
+            if self.daily:
+                await forget_before(session, self.daily, midnight)
+                await session.commit()
+            # Each reader once: hooks that share one share its Tick.
+            clocks = {clock: await clock(session) for clock in self.hooks.daily_clocks}
+        for tick in self.schedule.due(moment, clocks):
+            self.owed += await hand_on(self.hooks, self.sessions, tick, work=self.work)
+        self.owed = [job for job in self.owed if not await job()]
 
 
 async def run_ticks(
@@ -101,20 +147,8 @@ async def run_ticks(
     timezone: str,
     poll_seconds: float,
 ) -> None:
-    """Hand the daily checks their Tick when their time comes: once, however many polls."""
-    schedule = TickSchedule(now=utcnow(), tz=ZoneInfo(timezone))
-    work = RunContext(
-        resources=resources, still_current=lambda: True, publish=_no_chat, sessions=sessions
-    )
-
-    async def look() -> None:
-        async with sessions() as session:
-            # Each reader once: hooks that share one share its Tick.
-            clocks = {clock: await clock(session) for clock in hooks.daily_clocks}
-        for tick in schedule.due(utcnow(), clocks):
-            await queue_advice(hooks, sessions, tick, work=work)
-
-    await run_poll(look, poll_seconds=poll_seconds, name="The hook tick poll")
+    poll = TickPoll(hooks, sessions, resources=resources, timezone=timezone)
+    await run_poll(poll.look, poll_seconds=poll_seconds, name="The hook tick poll")
 
 
 class CommittedSink:

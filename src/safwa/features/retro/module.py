@@ -1,4 +1,5 @@
-"""Retro: one screen over a Sprint that has closed, and no entity of its own."""
+"""Retro: the screens over a Sprint that has closed, and no entity of its own — what it
+writes, it writes on the Sprint's row."""
 
 from __future__ import annotations
 
@@ -18,4 +19,5 @@ MODULE = FeatureModule(
             label=telegram.retro_citation_label,
         ),
     ),
+    callback_actions=telegram.RETRO_CALLBACK_ACTIONS,
 )

@@ -157,7 +157,7 @@ more.
 |---|---|---|
 | **POTENTIAL HOOKS — the shape every hook has** | M per batch | Stages 1–2 and batches 1–3 implemented, in [HOOK_ARCH.md](HOOK_ARCH.md). Each batch is one new port or event/reaction pair, one real consumer and one line in `HOOKS`. |
 | **Hook switches in the Profile — batch 1, shipped** | M | Every hook whose effect reaches the agent is listed by title — the Heavy analyzer offer, the blocker and the morning checks; the automatic Summary runs work of its own and is always on; switching one off stops its condition and drops its pending initiative. |
-| **The retrospective — the statistics half, shipped** | M | Effort taken, finished and its share; initial, added and taken out; Actions finished, remaining and blocked; Passed and Missed per Check series tied to a Value, over the Sprint's days. Read off the record, no model involved. The AI analysis half is Wave 5. |
+| **The retrospective — the statistics half, shipped** | M | Effort taken, finished and its share; initial, added and taken out; Actions finished, remaining and blocked; Passed and Missed per Check series tied to a Value, over the Sprint's days. Read off the record, no model involved. The AI analysis half shipped in Wave 5. |
 
 ## Wave 4 — the hooks, in dependency order
 
@@ -189,7 +189,7 @@ existing table, so the database is rebuilt.
 
 | Entry | | Why it waits |
 |---|---|---|
-| **The retrospective — the AI analysis half** | XL | Four questions open in its own entry, and it is also where memory upkeep is removed from `memory/upkeep.py`. Two batches, not one. |
+| **The retrospective — the AI analysis half, shipped** | XL | One run from the retro screen, watched on a progress note: small questions over the record and the Diary, each one call ([RT-AI-005](../tests/brd/retro.feature)…[RT-AI-008](../tests/brd/retro.feature)), the owner's mark on the criteria ([RT-CRIT-004](../tests/brd/retro.feature)), and the fact it drew offered to memory.md. Removing memory upkeep from `memory/upkeep.py` is still its own batch. |
 | **Onboarding covers the first start and a return after an absence** | L | Undecided in both halves, and it puts changing state next to the byte-stable prefix. |
 | **Proposal fulfillment validation** | XL | A separate part of Proposal architecture; see [PROPOSAL_VALIDATION.md](PROPOSAL_VALIDATION.md). It coordinates request completion, actual outcomes and interruptions. It does not depend on hooks. |
 | **8 — Retrieve similar existing entities before creating another** | XL | The general BeforeTool interception, retrieval thresholds and clarification/resume contract remain experimental. |

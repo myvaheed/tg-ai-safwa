@@ -48,6 +48,7 @@ from .layout import (
     with_citation_fields,
     with_notice,
 )
+from .progress import Progress, progress_bar
 from .screens import (
     open_citation,
     open_item_screen,
@@ -75,6 +76,8 @@ from .text_input import (
 )
 
 __all__ = [
+    "Progress",
+    "progress_bar",
     "CallbackContext",
     "CallbackHandler",
     "OwnerAndWritingMiddleware",

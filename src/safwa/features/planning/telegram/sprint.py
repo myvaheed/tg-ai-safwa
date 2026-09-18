@@ -39,8 +39,9 @@ from ...cards.api import CardStage, actions_on_stages, effort_label
 from ...cards.model import Card
 from ...cards.telegram import stage_list_block
 from ...profile.api import capacity_effort_points
+from ..api import sprint_metrics
 from ..model import Sprint
-from ..use_cases import set_sprint_success_criteria, sprint_length_days, sprint_metrics
+from ..use_cases import set_sprint_success_criteria, sprint_length_days
 
 _PROMPT_TTL = timedelta(minutes=30)
 

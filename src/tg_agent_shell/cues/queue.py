@@ -11,6 +11,7 @@ rows, and a row whose id SQLite handed out again is never mistaken for the one d
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import delete, select, update
@@ -53,6 +54,16 @@ async def words_waiting(session: AsyncSession) -> bool:
 async def forget(session: AsyncSession, ids: Sequence[int]) -> None:
     """These rows were found to have nothing to say: gone, unless a turn has them."""
     await session.execute(delete(Cue).where(Cue.id.in_(ids), Cue.event_id.is_(None)))
+
+
+async def forget_before(session: AsyncSession, hooks: Sequence[str], moment: datetime) -> None:
+    """These hooks' rows written before this moment are about a day that is over: gone,
+    unless a turn has them."""
+    await session.execute(
+        delete(Cue).where(
+            Cue.hook.in_(hooks), Cue.event_id.is_(None), Cue.created_at < moment
+        )
+    )
 
 
 async def stamp(session: AsyncSession, ids: Sequence[int], event_id: str) -> None:

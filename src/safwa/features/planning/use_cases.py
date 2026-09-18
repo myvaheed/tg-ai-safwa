@@ -26,7 +26,8 @@ from ..cards.use_cases import archive_settled_cards
 from ..checks.use_cases import archive_settled_checks
 from ..profile.api import sprint_length_days as _profile_sprint_length_days
 from ..reminders.use_cases import create_sprint_reminder, delete_sprint_reminders
-from .api import SPRINT_ENDED, SPRINT_STARTED
+from .api import SPRINT_ENDED, SPRINT_STARTED, sprint_metrics
+from .closing import sprint_closing
 from .model import Sprint, SprintCommitment, SprintStatus, next_sprint_number
 
 # How many Sprint endings a closed Card or Check waits before it leaves the screens.
@@ -196,6 +197,10 @@ async def finish_sprint(session: AsyncSession, *, reason: str = "finished") -> S
     sprint.status = SprintStatus.FINISHED.value
     sprint.finish_reason = reason
     sprint.actual_ended_at = utcnow()
+    # What it added up to, as it ended: the retro reads this and never the tables again.
+    sprint.retro = (
+        await sprint_closing(session, sprint, timezone=workspace.timezone)
+    ).as_record()
     workspace.mode = WorkspaceMode.PLANNING.value
     workspace.active_sprint_id = None
     workspace.revision += 1
@@ -259,17 +264,3 @@ async def sprint_is_due(session: AsyncSession, *, now: datetime | None = None) -
     if (now or utcnow()) < deadline:
         return None
     return sprint
-
-
-async def sprint_metrics(session: AsyncSession, sprint_id: int) -> dict[str, float]:
-    items = list(
-        await session.scalars(
-            select(SprintCommitment).where(SprintCommitment.sprint_id == sprint_id)
-        )
-    )
-    return {
-        "committed": sum(i.effort_snapshot for i in items if i.scope_kind == "initial"),
-        "added": sum(i.effort_snapshot for i in items if i.scope_kind == "added"),
-        "removed": sum(i.effort_snapshot for i in items if i.removed_at is not None),
-        "completed": sum(i.effort_snapshot for i in items if i.result == CardStage.DONE.value),
-    }

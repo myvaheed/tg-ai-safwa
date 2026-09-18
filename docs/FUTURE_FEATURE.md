@@ -38,24 +38,26 @@ remain outside the stable system-prompt prefix. No scenario package is approved 
 
 ## The retrospective is where Safwa learns from a Sprint
 
-Discussed 2026-09-06. When a Sprint ends, its retro screen first shows statistics calculated by
-code — shipped 2026-09-16 as [RT-STATS-003](../tests/brd/retro.feature): effort taken and
-finished, the plan's initial, added and removed parts, Actions finished, remaining and blocked,
-and Passed and Missed per Check series tied to a Value. The owner may then press "Анализ с ИИ"
-to begin a guided analysis. The screen is useful even if the owner does not request AI analysis.
+Discussed 2026-09-06, shipped 2026-09-18. When a Sprint ends, its retro screen shows statistics
+calculated by code ([RT-STATS-003](../tests/brd/retro.feature)) and asks the owner one thing no
+model decides: whether the Success criteria were met ([RT-CRIT-004](../tests/brd/retro.feature)).
+The screen is useful even if the owner never asks for the analysis.
 
-The workflow examines the completed Sprint step by step: compare the work and results with the
-Success criteria, examine relevant Diary entries and the owner's explanations, discuss what
-helped or got in the way, and end with an assessment and practical advice. Keep each interaction
-small enough for a small local model and the existing sequential proposal flow.
+"Analyse with AI" is one run under the background lease, watched on a progress note
+([RT-AI-005](../tests/brd/retro.feature)): three overview questions over this Sprint and the two
+before it, the Diary in three-day batches, one review per list of claims, one over the three
+confirmed lists together, and one call that writes the analysis — each a mini session ending in
+one tool call whose first field is the
+model's own thinking ([RT-AI-007](../tests/brd/retro.feature)). The result is a screen drawn by
+code from the Sprint's row; the one fact the run drew about the owner is offered there as a
+button that writes to memory.md the way `/mem` does, headed by the Sprint it came from
+([RT-AI-008](../tests/brd/retro.feature)). An interrupted run keeps nothing and is started again;
+a repeated run replaces the analysis and takes nothing back out of memory.md. The mechanism is
+mapped in [SPRINT_ANALYSE_TO_RETRO.md](SPRINT_ANALYSE_TO_RETRO.md).
 
-Only retrospective analysis updates inferred facts in memory.md; scheduled upkeep throughout the
-Sprint is removed. Explicit facts the owner writes remain under the owner's control. The Advisor
-continues reading the Diary for mood and period reviews; reading it does not update memory.
-
-Still to decide: the workflow's steps, how an interrupted analysis resumes, how conclusions and
-memory changes are reviewed, and what happens when the same Sprint is analysed again. A conclusion
-about the owner must be distinguishable from a recorded fact and open to correction.
+Still open, and its own batch: only the retrospective updates inferred facts in memory.md, so the
+scheduled upkeep in `memory/upkeep.py` goes. The Advisor keeps reading the Diary for mood and
+period reviews; reading it does not update memory.
 
 ## Proposal fulfillment validation
 

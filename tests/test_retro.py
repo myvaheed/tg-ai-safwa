@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import pytest
 from ui_harness import FakeMessage, button_texts, services_for
 
 from safwa.features.cards.model import CardStage
 from safwa.features.cards.use_cases import (
     create_card,
+    delete_subtree,
     finish_action,
     move_card,
     toggle_card_check,
@@ -14,10 +16,12 @@ from safwa.features.cards.use_cases import (
 )
 from safwa.features.checks.model import CheckOutcome
 from safwa.features.checks.use_cases import create_check, resolve_check, toggle_check_value
+from safwa.features.planning.closing import RetroStatistics, SeriesTally
+from safwa.features.planning.model import Sprint
 from safwa.features.planning.use_cases import finish_sprint, start_sprint
-from safwa.features.retro.statistics import SeriesTally, retro_statistics
 from safwa.features.retro.telegram import open_retro
 from safwa.features.values.use_cases import create_value
+from tg_agent_shell.foundation.errors import DomainError
 
 
 async def test_rt_open_001_a_sprint_that_ended_keeps_a_screen_of_its_own(sessions) -> None:
@@ -31,6 +35,13 @@ async def test_rt_open_001_a_sprint_that_ended_keeps_a_screen_of_its_own(session
 
     message = FakeMessage(320, bot_message=True)
 
+    # While it runs there is nothing to look back on.
+    with pytest.raises(DomainError, match="has not ended"):
+        await open_retro(message, services_for(sessions), sprint.id)
+    async with sessions() as session:
+        await finish_sprint(session)
+        await session.commit()
+
     await open_retro(message, services_for(sessions), sprint.id)
 
     text, markup = message.edits[-1]
@@ -39,7 +50,8 @@ async def test_rt_open_001_a_sprint_that_ended_keeps_a_screen_of_its_own(session
     assert str(sprint.planned_end_date) in text
     assert "Ship v2" in text
     assert "Taken 2 EP, finished 0 EP (0%)" in text
-    assert button_texts(markup) == ["↩️ Menu"]
+    assert "Met: not marked yet" in text
+    assert button_texts(markup) == ["✅ Met", "❌ Not met", "🔎 Analyse with AI", "↩️ Menu"]
 
 
 async def test_rt_stats_003_the_retro_adds_the_sprint_up_from_its_record(sessions) -> None:
@@ -72,7 +84,7 @@ async def test_rt_stats_003_the_retro_adds_the_sprint_up_from_its_record(session
         await finish_sprint(session)
         await session.commit()
 
-        statistics = await retro_statistics(session, sprint)
+        statistics = RetroStatistics.from_record((await session.get(Sprint, sprint.id)).retro)
     assert (statistics.initial, statistics.added, statistics.removed) == (10, 3, 2)
     assert (statistics.taken, statistics.done, statistics.done_share) == (13, 5, 38)
     assert (statistics.finished, statistics.remaining, statistics.blocked) == (1, 2, 1)
@@ -89,3 +101,20 @@ async def test_rt_stats_003_the_retro_adds_the_sprint_up_from_its_record(session
     ):
         assert line in text
     assert "Slept well?" not in text
+
+    # Written down as the Sprint ended: what happens to its Actions and Checks afterwards
+    # changes nothing on the screen.
+    async with sessions() as session:
+        await update_card_fields(session, stuck.id, {"blocked": False})
+        await delete_subtree(session, joined.id)
+        await toggle_check_value(session, live.id, health.id)
+        await session.commit()
+    again = FakeMessage(322, bot_message=True)
+    await open_retro(again, services_for(sessions), sprint.id)
+    visible = again.edits[-1][0]
+    for line in (
+        "Taken 13 EP, finished 5 EP (38%)",
+        "Finished 1, remaining 2, of them blocked 1",
+        "Ran before work? (Health): Passed 2, Missed 1",
+    ):
+        assert line in visible

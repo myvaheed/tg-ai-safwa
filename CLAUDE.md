@@ -174,6 +174,7 @@ pre-release database; migration support starts after v1, from the ORM metadata a
 
 Beyond what the table above points at, and none of it required reading for an ordinary task:
 [LLM_GATEWAY.md](docs/LLM_GATEWAY.md) is the provider boundary,
+[SPRINT_ANALYSE_TO_RETRO.md](docs/SPRINT_ANALYSE_TO_RETRO.md) the retro analysis — what it reads, asks and writes,
 [FUTURE_FEATURE.md](docs/FUTURE_FEATURE.md) ideas that are agreed nowhere, and
 [PLAN_FEATURES.md](docs/PLAN_FEATURES.md) the order those ideas would be built in and what each
 costs — a reading order over that file, approving none of it either.

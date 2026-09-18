@@ -6,6 +6,7 @@ commitment rows are the Sprint's, and Cards never touches one itself.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -110,6 +111,28 @@ async def record_sprint_result(session: AsyncSession, card_id: int) -> None:
     )
     if commitment:
         commitment.result = CardStage.DONE.value
+
+
+def effort_sums(commitments: Iterable[SprintCommitment]) -> dict[str, float]:
+    """A Sprint's effort: committed at the start, added, removed, completed. The one place
+    the four are added up, for the Sprint screen while it runs and for its record when it
+    closes."""
+    items = list(commitments)
+    return {
+        "committed": sum(i.effort_snapshot for i in items if i.scope_kind == "initial"),
+        "added": sum(i.effort_snapshot for i in items if i.scope_kind == "added"),
+        "removed": sum(i.effort_snapshot for i in items if i.removed_at is not None),
+        "completed": sum(i.effort_snapshot for i in items if i.result == CardStage.DONE.value),
+    }
+
+
+async def sprint_metrics(session: AsyncSession, sprint_id: int) -> dict[str, float]:
+    """The Sprint's effort as it stands."""
+    return effort_sums(
+        await session.scalars(
+            select(SprintCommitment).where(SprintCommitment.sprint_id == sprint_id)
+        )
+    )
 
 
 async def delete_commitments_of_cards(session: AsyncSession, card_ids: list[int]) -> None:

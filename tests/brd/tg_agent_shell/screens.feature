@@ -86,3 +86,11 @@ Feature: Screens
     And the owner is told the change was not saved
     And what Safwa was waiting to say unasked — a Reminder that came due, a Sprint that ended — is
       said as soon as nothing of the owner's is open, rather than waiting for a restart
+
+  Scenario: SC-PROGRESS-009 — A long job is watched on one message
+    Given a job that reports how far it got as it goes
+    Then one short note shows a bar of 10 cells (PROGRESS_CELLS = 10), the whole percent, and what
+      the job is doing now
+    And it appears with the first report, is redrawn in place only when what it would show changed,
+      and is taken out of the chat when the job ends
+    And it is never part of the conversation, by TG-KIND-002

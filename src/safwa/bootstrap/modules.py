@@ -62,8 +62,9 @@ from ..features.workspace_mutator.module import MODULE as WORKSPACE_MUTATOR
 from ..foundation.workspace import require_workspace
 
 # Order is what the routing rules and the recovery hooks follow, so it is fixed rather than
-# incidental: Profile settles the Diary's own Reminder before the Reminder rebuild walks the
-# whole table, and the Advisor's prompt lists the subagents in this order every run.
+# incidental: Planning closes the Sprint whose midnight Safwa slept through — its end
+# reminders go with it — before Reminders reconcile the table, and the Advisor's prompt
+# lists the subagents in this order every run.
 MODULES: tuple[FeatureModule, ...] = (
     HOME,
     WORKSPACE_MUTATOR,

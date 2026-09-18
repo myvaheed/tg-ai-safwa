@@ -39,6 +39,7 @@ from ..features.memory.store import MemoryFileStore
 from ..features.memory.upkeep import MemoryUpkeep
 from ..features.planning.key_actions import KeyActions
 from ..features.profile.model import UserProfile
+from ..features.retro.analysis import SprintAnalyst
 from ..features.saved_requests.use_cases import seed_default_requests
 from ..features.summary.summary import DialogueSummary
 from ..features.summary.window import SummaryEdge
@@ -78,6 +79,7 @@ class SafwaFeatures:
     memory: MemoryFileStore
     memory_upkeep: MemoryUpkeep
     key_actions: KeyActions
+    analyst: SprintAnalyst
 
 
 def configure_logging(level_name: str) -> None:
@@ -308,6 +310,7 @@ async def run(settings: Settings) -> None:
             memory=memory,
             memory_upkeep=upkeep,
             key_actions=KeyActions(provider),
+            analyst=SprintAnalyst(provider),
         ),
         views=ALLOWED_VIEWS,
         bot_username=settings.telegram_bot_username,

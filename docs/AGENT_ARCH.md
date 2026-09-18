@@ -537,12 +537,15 @@ model call.
 A hook that runs daily declares `OnTick(at=...)` with a reader of the local time of day
 (`TickTime`) — Safwa's are the Profile's Morning time, Diary time and Summary time, and the local
 midnight that ends a Sprint. The one tick
-poll (`run_ticks`, beside the Cue poll) reads each distinct reader once at every look, keeps its
-last look in process memory and hands a `Tick` on by the same `queue_advice` for each time that
+poll (`TickPoll`, beside the Cue poll) reads each distinct reader once at every look, keeps its
+last look in process memory and hands a `Tick` on by the same `hand_on` for each time that
 has passed since — once, however many polls, never for a time that passed while Safwa was down
 or the hook was off, and a moved time counts from the next time it passes. Hooks that name the
 same reader share its `Tick`. Such a hook's `evaluate` returns one constant marker; the reading
-is its `prepare`, at delivery.
+is its `prepare`, at delivery. A daily hook's request not said by the local midnight after its
+time is dropped at the next look (`forget_before`): the day it was about is over. A Run's work
+that failed is kept and tried again at every later look until it is done — a Sprint's midnight
+end is not optional the way a request is — while a Run on a commit gets one attempt.
 
 ### A Sprint's end is a fact, and its summary is a hook's words
 

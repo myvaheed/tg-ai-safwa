@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import select, text
 
 from tg_agent_shell.cues.background import tick
-from tg_agent_shell.cues.initiatives import bind_committed, queue_advice
+from tg_agent_shell.cues.initiatives import TickPoll, bind_committed, queue_advice
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.cues.queue import add_cue, add_hook_cue, drop_hook_cue
 from tg_agent_shell.foundation.changes import Committed, record_change
@@ -432,22 +432,16 @@ async def test_ag_hook_039_a_switched_off_check_does_not_run_and_is_not_run_late
         return name not in off_names
 
     hooks = catalogue(DAILY, policy=policy)
-    schedule = TickSchedule(now=local(16, 8, 0), tz=TZ)
+    poll = TickPoll(hooks, sessions, resources=None, timezone="Europe/Istanbul", now=local(16, 8, 0))
 
-    async def look(now: datetime) -> None:
-        async with sessions() as session:
-            clocks = {clock: await clock(session) for clock in hooks.daily_clocks}
-        for due in schedule.due(now, clocks):
-            await queue_advice(hooks, sessions, due)
-
-    await look(local(16, 9, 0))
+    await poll.look(local(16, 9, 0))
     assert await pending(sessions) == []
 
     off_names.clear()
-    await look(local(16, 9, 5))
+    await poll.look(local(16, 9, 5))
     assert await pending(sessions) == []
 
-    await look(local(17, 9, 0))
+    await poll.look(local(17, 9, 0))
     assert await pending(sessions) == [("test.daily", None, ["09:00"])]
     # Fired again before it is said, it is the one request still.
     await queue_advice(hooks, sessions, Tick("09:00", at_nine))
@@ -462,3 +456,61 @@ async def test_ag_hook_039_a_switched_off_check_does_not_run_and_is_not_run_late
     assert await tick(sessions, gate=recorder.gate, delivered=recorder.delivered, speak=recorder.speak, prepare=prepare) is True
     assert asked == [("test.daily", ["09:00"])] and recorder.said == ["Morning."]
     assert await pending(sessions) == []
+
+
+async def test_ag_hook_039_a_daily_request_not_said_by_midnight_is_dropped(sessions):
+    """AG-HOOK-039 — tests/brd/tg_agent_shell/agents.feature"""
+    hooks = catalogue(HOOK, DAILY)
+    poll = TickPoll(hooks, sessions, resources=None, timezone="Europe/Istanbul", now=local(16, 8, 0))
+    await poll.look(local(16, 9, 0))
+    await queue_advice(hooks, sessions, Committed(KIND, 3))
+    assert await pending(sessions) == [("test.daily", None, ["09:00"]), ("test.advice", None, [3])]
+
+    # Still that day: owed. The day over: the morning's request is gone, the other stands.
+    await poll.look(local(16, 23, 59))
+    assert await pending(sessions) == [("test.daily", None, ["09:00"]), ("test.advice", None, [3])]
+    async with sessions() as session:
+        for cue in await session.scalars(select(Cue)):
+            cue.created_at = local(16, 9, 0)
+        await session.commit()
+    await poll.look(local(17, 0, 1))
+    assert await pending(sessions) == [("test.advice", None, [3])]
+    # One a turn is saying is that turn's to settle, not the midnight's to drop.
+    await poll.look(local(17, 9, 0))
+    async with sessions() as session:
+        for cue in await session.scalars(select(Cue).where(Cue.hook == DAILY.name)):
+            cue.created_at, cue.event_id = local(17, 9, 0), "a" * 32
+        await session.commit()
+    await poll.look(local(18, 0, 1))
+    assert [row[0] for row in await pending(sessions)] == ["test.advice", "test.daily"]
+
+
+async def test_ag_hook_039_work_of_a_daily_check_that_failed_is_tried_again_until_done(sessions):
+    """AG-HOOK-039 — tests/brd/tg_agent_shell/agents.feature"""
+    attempts: list[str] = []
+    failing = True
+
+    async def flaky(marker, context):
+        attempts.append(marker)
+        if failing:
+            raise RuntimeError("the database was busy")
+
+    work = HookSpec(
+        name="test.work", owner="test", on=(OnTick(at=at_nine),),
+        evaluate=marker, effect=Run(flaky),
+        title="Work", description="Does something at nine.",
+    )
+    hooks = catalogue(work, DAILY)
+    poll = TickPoll(hooks, sessions, resources=None, timezone="Europe/Istanbul", now=local(16, 8, 0))
+
+    await poll.look(local(16, 9, 0))
+    assert attempts == ["09:00"]
+    assert await pending(sessions) == [("test.daily", None, ["09:00"])]
+    # Every later look tries the work again; the request beside it is not written twice.
+    await poll.look(local(16, 9, 1))
+    assert attempts == ["09:00"] * 2
+    assert await pending(sessions) == [("test.daily", None, ["09:00"])]
+    failing = False
+    await poll.look(local(16, 9, 2))
+    await poll.look(local(16, 9, 3))
+    assert attempts == ["09:00"] * 3
