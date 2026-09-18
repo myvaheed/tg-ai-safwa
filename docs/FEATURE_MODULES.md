@@ -54,8 +54,8 @@ Automatic reactions have their own explicit `HOOKS` list beside `MODULES`, passe
 from `module.py`; it does not register it there a second time. The registry checks the owner,
 name, subscription, effect and helper reference whether or not the owner has the hook switched
 off; whether it is on is the application's policy, which Safwa reads from the Profile. See
-[HOOK_ARCH.md](HOOK_ARCH.md) for the implemented contract and the later initiative stages. Recovery callbacks and background tasks
-keep their existing lifecycle contracts.
+[HOOK_ARCH.md](HOOK_ARCH.md) for the contract and each hook on it. Recovery callbacks and
+background tasks keep their existing lifecycle contracts.
 
 ## The three proposal responsibilities
 

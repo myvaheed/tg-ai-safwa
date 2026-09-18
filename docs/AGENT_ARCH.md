@@ -63,13 +63,14 @@ flowchart TD
 ```mermaid
 flowchart LR
     S["Settings"] --> DB["Database · create_all"]
-    DB --> BOOT["bootstrap_workspace<br/>recover_startup<br/>create_ai_views"]
+    DB --> BOOT["bootstrap_workspace<br/>create_ai_views"]
     BOOT --> INFRA["provider · memory<br/>query_runner · history"]
     INFRA --> ADV["the root session<br/>+ routed subagents"]
     ADV --> SV["Services"]
-    SV --> DP["Dispatcher"]
+    SV --> BIND["bind_committed<br/>recover_startup"]
+    BIND --> DP["Dispatcher"]
     DP --> POLL["long polling"]
-    SV --> BG["background tasks<br/>cancelled in finally"]
+    BIND --> BG["background tasks<br/>cancelled in finally"]
 ```
 
 All of it is [bootstrap/main.py](../src/safwa/bootstrap/main.py). Which features exist,
@@ -86,9 +87,11 @@ application's policy — `hook_switched_on`, read live — before running its co
 its request; a hook that runs work of its own, `Run`, is always on. The tool adapter emits
 `BeforeTool` before a call and `AfterTool` after it; the dialogue adapter emits `AfterTurn`
 after releasing the owner's turn.
-Its `Run` operations use one background lease and a publication port that checks currentness.
-Summary retains its own window threshold and history comparison. Its manual command calls the
-same writer directly. The current scope and later stages are [HOOK_ARCH.md](HOOK_ARCH.md).
+A `Run` after a turn uses one background lease and a publication port that checks currentness;
+a `Run` on a tick or on a commit has the session factory and no chat, and says anything it has
+to say through a recorded fact and an Advise hook. Summary retains its own window threshold and
+history comparison; its manual command calls the same writer directly. The whole of it, batch by
+batch, is [HOOK_ARCH.md](HOOK_ARCH.md).
 
 ## What an application gives the shell
 
@@ -107,7 +110,7 @@ wallets and entries, with none of Safwa's nouns in it.
 | what the model is told it is | one system prompt, with `Registry.routes` filling the routes in | `SYSTEM_PROMPT` |
 | the container every handler reads | `Services`, filled from the registry | `bootstrap/main.py` |
 | the home screen | exactly one `ScreenCommand` with `nav=HOME_NAV` | the `home` feature |
-| a restart | `recover_startup(session, registry.recovery)` | called before polling starts |
+| a restart | `recover_startup(session, registry.recovery)` | called once the hooks are bound, before polling starts, so what recovery ends is handed on |
 | a shutdown | cancel the background tasks, close the history, the provider and the bot | the polling `finally` |
 
 Everything else is the application's own: the persona, the provider, the product dependencies,
@@ -438,9 +441,8 @@ them down, so the Advisor relays rather than goes looking.
 
 ```mermaid
 flowchart TB
-    RM[the Reminder poll<br/>next_fire_at says when] --> ROW
-    SP[finish_sprint<br/>in the transaction that ends it] --> ROW[(cues — one row, the words)]
-    HK[a hook's Advise, after a commit<br/>or at its time of day] --> HROW[(cues — one row per hook:<br/>its name and what it refers to)]
+    RM[the Reminder poll<br/>next_fire_at says when] --> ROW[(cues — one row, the words)]
+    HK[a hook's Advise, after a commit — a blocker,<br/>a Sprint's end — or at its time of day] --> HROW[(cues — one row per hook:<br/>its name and what it refers to)]
     ROW --> CQ[the Cue poll, every 30s]
     HROW --> CQ
     CQ --> EXP[a review past PROPOSAL_REVIEW_MINUTES<br/>is closed first]
@@ -455,10 +457,10 @@ flowchart TB
     WAIT --> CQ
 ```
 
-**The `cues` row is the only record of "Safwa still owes the owner these words."** It is written
-inside the producer's own transaction and deleted only once the turn landed, so a crash, a shut gate
-or an owner who interrupts mid-turn all lose nothing: the row is still there, and the next poll says
-it again.
+**The `cues` row is the only record of "Safwa still owes the owner these words."** A Reminder's
+row is written inside the poll's own transaction, a hook's right after the commit that fired it,
+and either is deleted only once the turn landed, so a crash, a shut gate or an owner who
+interrupts mid-turn all lose nothing: the row is still there, and the next poll says it again.
 
 `CueRuntime` is the whole delivery mechanism, and there is one of it:
 
@@ -529,7 +531,8 @@ facts are handed on, outside the order they are kept in, so the next commit neve
 model call.
 
 A hook that runs daily declares `OnTick(at=...)` with a reader of the local time of day
-(`TickTime`) — Safwa's are the Profile's Morning time, Diary time and summary time. The one tick
+(`TickTime`) — Safwa's are the Profile's Morning time, Diary time and Summary time, and the local
+midnight that ends a Sprint. The one tick
 poll (`run_ticks`, beside the Cue poll) reads each distinct reader once at every look, keeps its
 last look in process memory and hands a `Tick` on by the same `queue_advice` for each time that
 has passed since — once, however many polls, never for a time that passed while Safwa was down
@@ -537,14 +540,16 @@ or the hook was off, and a moved time counts from the next time it passes. Hooks
 same reader share its `Tick`. Such a hook's `evaluate` returns one constant marker; the reading
 is its `prepare`, at delivery.
 
-### A Sprint's end writes its own Cue
+### A Sprint's end is a fact, and its summary is a hook's words
 
-`finish_sprint` (by hand, or at the local midnight after the planned end date) writes a six-line
-summary from the Sprint's own record — which Sprint and when, how it ended, its Success criteria,
-the five effort figures, how the Actions ended up, the titles of what is still open — and hands it
-over with `add_cue`, in the same transaction that ends the Sprint. Nothing dresses it as a
-Reminder that went off: the words are the Sprint's own. Safwa is told how the Sprint went so it does
-not go reading tables to find out, and ends its message with `[Sprint retro](retro:12)`.
+`finish_sprint` — by hand, or by the Sprint expiry hook at the local midnight after the planned
+last day, a `Run` on a tick whose missed midnight `recover_startup` makes up for — records
+`sprint.ended` beside its transaction and says nothing itself. The Sprint summary hook keeps
+that as its one pending row, and at delivery `sprint_summary` writes six lines from the Sprint's
+own record — which Sprint and when, how it ended, its Success criteria, the five effort figures,
+how the Actions ended up, the titles of what is still open. Nothing dresses it as a Reminder that
+went off: the words are the Sprint's own. Safwa is told how the Sprint went so it does not go
+reading tables to find out, and ends its message with `[Sprint retro](retro:12)`.
 
 ## History — Telegram is the store, not SQLite
 
@@ -679,12 +684,14 @@ stateDiagram-v2
 | task | interval | owner |
 |---|---|---|
 | `cue-queue` | `SCHEDULER_POLL_SECONDS = 30` | `cues/background.py` |
+| `hook-ticks` | `SCHEDULER_POLL_SECONDS = 30` | `cues/initiatives.py` |
 | `reminder-scheduler` | `SCHEDULER_POLL_SECONDS = 30` | `features/reminders/background.py` |
 | `memory-file-poll` | `MEMORY_POLL_SECONDS = 5` | `features/memory/background.py` |
 | `memory-maintenance` | `MEMORY_MAINTENANCE_INTERVAL_SECONDS = 60` | `features/memory/background.py` |
 
-Each is a `BackgroundTask`. All but the Cue poll are declared in a feature's `module.py`; the Cue
-poll belongs to no feature, so the registry puts it in front of theirs. The composition
+Each is a `BackgroundTask`. All but the Cue poll and the hook tick poll are declared in a
+feature's `module.py`; those two belong to no feature, so the registry puts them in front of
+theirs. The composition
 root starts them and cancels them in the polling `finally`. A feature that needs its own objects takes them off
 `services`, the container the whole application already shares.
 
