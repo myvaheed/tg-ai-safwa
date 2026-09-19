@@ -104,7 +104,7 @@ wallets and entries, with none of Safwa's nouns in it.
 | which features exist | `tuple[FeatureModule, ...]` handed to `Registry.of` | `MODULES` |
 | what a proposal is made against | `WorldReader` → `World(revision, timezone)` | the `workspace` row |
 | the database | its own `Base`, plus `upgrade_database(url, Base.metadata)` | `safwa/foundation/models.py` |
-| durable notes | `Memory` — one `sync()` returning something with `.text` | `data/memory.md` |
+| durable notes | `Memory` — one `sync()` returning something with `.text` | `MemoryReader`, over `memory_observation` and the last analysed Sprint |
 | the state a session reads first | `(session) -> StateBlocks(state, clock)` | `workspace_context` |
 | the chat, and where its window ends | `TelegramHistorySource` with `MARKS` and a `WindowEdge` | `SummaryEdge` |
 | what the model is told it is | one system prompt, with `Registry.routes` filling the routes in | `SYSTEM_PROMPT` |
@@ -146,11 +146,9 @@ flowchart TB
     subgraph BG[background loops]
         CUE[cue-queue]
         REM[reminder-scheduler]
-        MEMP[memory-file-poll]
-        MEMM[memory-maintenance]
+        MEMR[memory-retro]
     end
     HIST[(telegram_history.py · Telethon)]
-    MEM[(data/memory.md)]
     DB[(SQLite · ai_* views)]
 
     OWNER --> HANDLERS --> GUARD --> MGR
@@ -163,10 +161,9 @@ flowchart TB
     ADV --> SQL --> DB
     MINI --> SQL
     HIST --> ADV
-    MEM --> ADV
     CUE --> ADV
     REM --> CUE
-    MEMP --> MEM
+    MEMR -->|memory_observation| DB
 ```
 
 Only the Advisor writes to the chat. Everything else either hands it words or opens a screen.
@@ -578,7 +575,8 @@ flowchart LR
 - The window is a **token budget**, not a message count. There is no one budget split between the
   blocks: the dialogue is worth `SUMMARY_TRIGGER_TOKENS = 6000`, which is also what says when a
   Summary is written, and a Summary is asked to stay under `SUMMARY_TOKEN_CEILING = 2000`; memory
-  is capped separately at `MEMORY_TOKEN_BUDGET`. The newest Summary is the far edge of the window,
+  is bounded by its own ceilings, `MEMORY_PATTERNS_MAX` patterns of at most `ITEM_CHARS` each.
+  The newest Summary is the far edge of the window,
   and up to `EDGE_CONTEXT_MESSAGE_LIMIT = 20` of the messages just before it come along with it.
 - The window itself is [`telegram_llm/window.py`](../src/telegram_llm/window.py) and knows nothing
   of Summaries; which message ends it is answered on every read by
@@ -594,16 +592,15 @@ flowchart LR
 
 ## Memory
 
-`data/memory.md` is authoritative, ordinary UTF-8 text: each trimmed non-empty line is a fact, blank
-lines are ignored, a missing file means empty memory. `memory_fact_cache` is a rebuildable derived
-cache and never the source.
-
-AI replacements write atomically and re-check the file hash, so a concurrent local edit is preserved
-rather than overwritten. A file that is not UTF-8, or that is over `MEMORY_TOKEN_BUDGET = 4000`,
-injects no memory and records why instead of failing the turn.
-
-Two loops: `memory-file-poll` picks up the owner's own edits; `memory-maintenance` runs the daily
-upkeep.
+Memory is what the retro analysis of each Sprint left, and only its poll writes it: patterns —
+what the Sprints observed of one thing, one `memory_observation` row per Sprint and claim,
+counted by the Sprints on either side and left out of the reading when no Sprint confirms it —
+and the last analysed Sprint whole. What the Advisor is given before every answer, and what
+`/memory` shows, is selected at that moment from the observations of the Sprints taken in and
+the last analysed Sprint's row (`MemoryReader`). How a Sprint is taken in, why its own rows are
+the only ones it replaces, and why the poll over `Sprint.memory_at` is the whole of its
+reliability, is the second half of
+[SPRINT_ANALYSE_TO_RETRO_AND_MEM.md](SPRINT_ANALYSE_TO_RETRO_AND_MEM.md).
 
 ## Views and prompts
 
@@ -693,8 +690,7 @@ stateDiagram-v2
 | `cue-queue` | `SCHEDULER_POLL_SECONDS = 30` | `cues/background.py` |
 | `hook-ticks` | `SCHEDULER_POLL_SECONDS = 30` | `cues/initiatives.py` |
 | `reminder-scheduler` | `SCHEDULER_POLL_SECONDS = 30` | `features/reminders/background.py` |
-| `memory-file-poll` | `MEMORY_POLL_SECONDS = 5` | `features/memory/background.py` |
-| `memory-maintenance` | `MEMORY_MAINTENANCE_INTERVAL_SECONDS = 60` | `features/memory/background.py` |
+| `memory-retro` | `MEMORY_RETRO_INTERVAL_SECONDS = 60` | `features/memory/background.py` |
 
 Each is a `BackgroundTask`. All but the Cue poll and the hook tick poll are declared in a
 feature's `module.py`; those two belong to no feature, so the registry puts them in front of

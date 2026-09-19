@@ -26,7 +26,6 @@ class UserProfile(Base, TimestampMixin):
     advisor_instructions: Mapped[str] = mapped_column(Text, default="")
     capacity_effort_points: Mapped[float | None] = mapped_column(Float)
     sprint_length_days: Mapped[int] = mapped_column(Integer, default=SPRINT_LENGTH_DAYS)
-    memory_update_time: Mapped[time | None] = mapped_column(Time)
     diary_time: Mapped[time] = mapped_column(Time, default=time.fromisoformat(DIARY_TIME_DEFAULT))
     diary_instructions: Mapped[str] = mapped_column(Text, default="")
     summary_time: Mapped[time] = mapped_column(
@@ -50,7 +49,6 @@ class ProfileField(StrEnum):
     ADVISOR_INSTRUCTIONS = "advisor_instructions"
     CAPACITY_EFFORT_POINTS = "capacity_effort_points"
     SPRINT_LENGTH_DAYS = "sprint_length_days"
-    MEMORY_UPDATE_TIME = "memory_update_time"
     DIARY_TIME = "diary_time"
     DIARY_INSTRUCTIONS = "diary_instructions"
     SUMMARY_TIME = "summary_time"

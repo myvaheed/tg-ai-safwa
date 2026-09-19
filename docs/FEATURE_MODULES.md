@@ -133,7 +133,7 @@ one of `PROCESS_PACKAGES`.
 
 **The adapter is one file until it is more than one file's worth**, and the rest of Safwa
 writes `from .telegram import ...` either way, so the import does not say which it is. Memory's
-three commands are one file; Cards is ten modules. Two names recur inside a package: `screens.py`
+one command is one file; Cards is ten modules. Two names recur inside a package: `screens.py`
 is what the owner is taken to, and `handlers.py` is the callback actions the feature publishes.
 `review.py` is the `ProposalPresenter` and the citation label. Everything else is the feature's own,
 because there is no shared vocabulary of screens to hold it to:
@@ -166,7 +166,7 @@ proposal and hands it on; Rule K is what says so.
 `api.py` **defines** what it publishes, and it exists only when another feature actually calls in.
 Two kinds of thing are on it, and the second is the one that surprises:
 
-- **An answer rather than a row** wherever an answer will do: `scheduled_memory_time(session)`, not
+- **An answer rather than a row** wherever an answer will do: `sprint_length_days(session)`, not
   `UserProfile`.
 - **A write of this feature's own rows, driven by another feature's operation**: `attach_values`,
   `attach_tags`, `sync_commitment_for_stage`, `delete_commitments_of_cards`. The Card owns saving a

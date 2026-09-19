@@ -33,7 +33,7 @@ from tg_agent_shell.telegram.model import UiSession
 from ....constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ....features.cards.api import effort_label
 from ....foundation.workspace import Workspace
-from ...reminders.api import parse_clock, parse_clock_or_off
+from ...reminders.api import parse_clock
 from ..model import UserProfile
 from ..use_cases import profile_field, set_hook_switch, set_profile_field
 
@@ -67,13 +67,6 @@ def _parse_capacity(raw: str) -> float | None:
     if points <= 0:
         raise ValueError("Send a positive number of effort points, or off.")
     return points
-
-
-def _parse_daily_time(raw: str) -> time | None:
-    try:
-        return parse_clock_or_off(raw)
-    except ValueError:
-        raise ValueError("Send a time as HH:MM, for example 22:00, or off.") from None
 
 
 def _parse_clock(raw: str) -> time:
@@ -127,15 +120,6 @@ PROFILE_FIELDS: dict[str, EditableField] = {
             "off below, not here."
         ),
         parse=_parse_clock,
-        show=_clock,
-    ),
-    "memory_update_time": EditableField(
-        title="Memory sync",
-        label="🧠 Memory sync",
-        instruction=(
-            "Send the local time the dialogue is folded into memory.md, as HH:MM, or off."
-        ),
-        parse=_parse_daily_time,
         show=_clock,
     ),
     "diary_time": EditableField(

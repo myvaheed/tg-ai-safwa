@@ -20,7 +20,7 @@ from safwa.bootstrap.modules import (
     routed_prompt,
 )
 from safwa.features.advisor.agent import ADVISOR_VIEWS
-from safwa.features.memory.store import MemoryFileStore
+from safwa.features.memory.use_cases import MemoryReader
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.models import Base
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
@@ -75,7 +75,7 @@ class E2EHarness:
     sessions: async_sessionmaker[AsyncSession]
     database: Database
     database_path: Path
-    memory: MemoryFileStore
+    memory: MemoryReader
     # One harness is one running bot: the reviews it opens outlive each advisor it builds.
     reviews: ProposalStore = field(default_factory=ProposalStore)
 
@@ -165,11 +165,9 @@ async def e2e_harness(tmp_path: Path, monkeypatch) -> E2EHarness:
         )
         await session.commit()
 
-    memory_path = tmp_path / "memory.md"
-    memory_path.write_text("I prefer sustainable plans.\n", encoding="utf-8")
-    memory = MemoryFileStore(memory_path, database.sessions)
-    await memory.sync()
-    harness = E2EHarness(database.sessions, database, database_path, memory)
+    harness = E2EHarness(
+        database.sessions, database, database_path, MemoryReader(database.sessions)
+    )
     try:
         yield harness
     finally:

@@ -75,15 +75,21 @@ Feature: Retro
       verbose_analyse, the model's own thinking
     And the Sprint's days are read in batches of 3 (ANALYSIS_DAY_BATCH = 3), asked at once with the
       overview, each batch answered with what likely raised the day's rating, what likely lowered
-      it, and what had nothing to do with it
-    And each of those three lists is then reviewed alone, asked at once: a claim said twice, backed
-      by another, or resting on two or more days is confirmed, a claim whose opposite is in the same
-      list is contradicted, and a claim resting on one day alone is left aside; an empty list is not
+      it, what had nothing to do with it, and what happened those days that the next Sprint should
+      know about
+    And a claim rests on its batch's own days, each once: a day the model named twice, or one
+      outside the batch, is not a second day, and a claim with none of the batch's days left rests
+      on none
+    And each of those three lists is then reviewed alone, asked at once, every claim with the
+      batch that made it: a claim said in two or more batches, backed by another, or resting on two
+      or more days is confirmed, a claim whose opposite is in the same list is contradicted, and a
+      claim one batch made about one day, backed by nothing, is left aside; an empty list is not
       asked about
     And the three confirmed lists are then read together in one call, numbered: a claim standing in
       two of them, in the same or other words, is named by its numbers and taken out of both, and
       the record keeps what was taken out; fewer than two lists with a claim are not asked about
-    And one last call writes the analysis from the overview findings and the confirmed claims left
+    And one last call writes the analysis from the overview findings, the confirmed claims left and
+      every event the batches named; an event is not a claim, so nothing reviews it
     And every question is asked in English and answered in the language the owner writes in
 
   Scenario: RT-AI-008 — What the run leaves behind
@@ -91,15 +97,14 @@ Feature: Retro
     Then the Sprint keeps the analysis in place of one an earlier run left
     And the owner reads it as one screen, headed by the days the run read rather than the planned
       dates: the headline, each trend, what raised the day's rating, what lowered it, what had
-      nothing to do with it, and one experiment for the next Sprint
+      nothing to do with it, one experiment for the next Sprint, and what is worth knowing next
+      Sprint
     And the screen says when the run was and the owner's mark as the run read it; a mark changed
       since is named on the screen and counts only once the Sprint is analysed again
     And the screen is one Telegram message: the last call refuses more than 6 trends
       (TRENDS_MAX = 6), more than 3 items in a list (ITEMS_MAX = 3), a headline or an experiment
       over 200 characters (SENTENCE_CHARS = 200), an item over 140 (ITEM_CHARS = 140), a trend's
-      metric over 40 or its note over 120 (METRIC_CHARS = 40, NOTE_CHARS = 120), and a fact over
-      120 (FACT_CHARS = 120); the model's thinking aloud has no such limit
-    And the fact it drew about the owner, if any, is offered on that screen as one button, and the
-      button writes it to memory.md the way a fact typed with /mem is written (MEM-FILE-009), headed
-      by the Sprint it was drawn from
-    And once written it is not offered again, and no later run takes it back out of memory.md
+      metric over 40 or its note over 120 (METRIC_CHARS = 40, NOTE_CHARS = 120); the model's
+      thinking aloud has no such limit
+    And nothing on the screen offers the analysis to memory: from the moment it is written the
+      Sprint is owed to memory, and memory takes it in on its own (MEM-RETRO-011)

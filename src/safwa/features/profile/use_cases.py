@@ -45,9 +45,6 @@ def _validated(field: ProfileField, value: ProfileValue) -> ProfileValue:
                 isinstance(value, bool) or not isinstance(value, int | float) or value <= 0
             ):
                 raise DomainError("Sprint capacity must be a positive number, or off")
-        case ProfileField.MEMORY_UPDATE_TIME:
-            if value is not None and not isinstance(value, time):
-                raise DomainError(f"{field.value} must be a clock time, or off")
         case ProfileField.DIARY_TIME | ProfileField.SUMMARY_TIME | ProfileField.MORNING_TIME:
             # Never off: the hook that reads each has a switch of its own.
             if not isinstance(value, time):

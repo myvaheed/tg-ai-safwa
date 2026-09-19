@@ -110,8 +110,9 @@ meaning anything, so change the mechanism instead.
   `views.py`, never migrated.
 - **The prompt prefix is byte-stable.** New volatile context goes after the dialogue, never into a
   system block — one timestamp in `messages[0]` costs every cache hit.
-- **`data/memory.md` is authoritative.** The `memory_fact_cache` table is a rebuildable derived
-  cache; never treat it as the source.
+- **Memory is what the retro left, and only its poll writes it.** `memory_observation` rows are
+  written by the absorb poll alone, from a Sprint's analysis, and a Sprint replaces its own rows
+  only; the last analysed Sprint is read off its row. No command, file or turn adds a fact.
 - **One lease, and the owner always wins.** `TurnManager` is the single foreground/background lease;
   background work verifies the revision before it publishes or commits.
 
@@ -174,7 +175,7 @@ pre-release database; migration support starts after v1, from the ORM metadata a
 
 Beyond what the table above points at, and none of it required reading for an ordinary task:
 [LLM_GATEWAY.md](docs/LLM_GATEWAY.md) is the provider boundary,
-[SPRINT_ANALYSE_TO_RETRO.md](docs/SPRINT_ANALYSE_TO_RETRO.md) the retro analysis — what it reads, asks and writes,
+[SPRINT_ANALYSE_TO_RETRO_AND_MEM.md](docs/SPRINT_ANALYSE_TO_RETRO_AND_MEM.md) the retro analysis — what it reads, asks and writes — and how memory is written from it,
 [FUTURE_FEATURE.md](docs/FUTURE_FEATURE.md) ideas that are agreed nowhere, and
 [PLAN_FEATURES.md](docs/PLAN_FEATURES.md) the order those ideas would be built in and what each
 costs — a reading order over that file, approving none of it either.

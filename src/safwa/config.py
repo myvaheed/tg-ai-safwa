@@ -12,7 +12,6 @@ from tg_agent_shell.asr import ASR_DEFAULTS, ASRDefaults, ASRProvider
 
 from .constants import SCHEDULER_POLL_SECONDS, SUMMARY_TRIGGER_TOKENS
 from .enums import AIProvider
-from .features.memory.store import MEMORY_POLL_SECONDS, MEMORY_TOKEN_BUDGET
 from .foundation.tokens import TOKEN_CHARS_ESTIMATE
 
 AI_TIMEOUT_SECONDS = 120.0
@@ -100,9 +99,7 @@ class Settings(BaseSettings):
     asr_log_timing: bool = True
     timezone: str = "Europe/Istanbul"
     summary_trigger_tokens: int = SUMMARY_TRIGGER_TOKENS
-    memory_token_budget: int = MEMORY_TOKEN_BUDGET
     token_chars_estimate: float = TOKEN_CHARS_ESTIMATE
-    memory_poll_seconds: float = MEMORY_POLL_SECONDS
     # The Reminder poll. Off means Reminders can be created and scheduled but never fire.
     scheduler_enabled: bool = True
     scheduler_poll_seconds: float = SCHEDULER_POLL_SECONDS
@@ -176,10 +173,6 @@ class Settings(BaseSettings):
         if self.database_url.startswith("sqlite+aiosqlite:"):
             return self.database_url
         return self.database_url.replace("sqlite:", "sqlite+aiosqlite:", 1)
-
-    @property
-    def memory_path(self) -> Path:
-        return self.data_dir / "memory.md"
 
     @property
     def telegram_history_enabled(self) -> bool:

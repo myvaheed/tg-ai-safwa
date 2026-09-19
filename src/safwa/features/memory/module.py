@@ -1,31 +1,21 @@
-"""Memory: the durable facts about the owner that outlive one conversation."""
+"""Memory: what Safwa remembers across Sprints, written from the retro analysis alone."""
 
 from __future__ import annotations
 
 from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import FeatureModule
 
-from .background import MEMORY_FILE_POLL, MEMORY_MAINTENANCE
-from .telegram import command_memory, command_remember, command_syncmem
+from .background import MEMORY_RETRO
+from .telegram import command_memory
 
 MODULE = FeatureModule(
     name="memory",
-    background=(MEMORY_FILE_POLL, MEMORY_MAINTENANCE),
+    background=(MEMORY_RETRO,),
     commands=(
-        ScreenCommand(
-            handler=command_syncmem,
-            command="syncmem",
-            description="Sync Telegram dialogue into memory",
-        ),
-        ScreenCommand(
-            handler=command_remember,
-            command="mem",
-            description="Add a durable memory fact",
-        ),
         ScreenCommand(
             handler=command_memory,
             command="memory",
-            description="Inspect memory.md",
+            description="Show what Safwa remembers",
         ),
     ),
 )

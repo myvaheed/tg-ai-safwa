@@ -74,6 +74,16 @@ def test_a_routed_prompt_carries_the_one_persona_block() -> None:
     assert "(diary:12)" in PERSONA
 
 
+def test_the_advisor_is_told_how_to_read_what_the_retro_left() -> None:
+    """AD-MEMORY-002 — tests/brd/advisor.feature"""
+    memory = SYSTEM_PROMPT.split("# Memory", 1)[1].split("\n# ", 1)[0]
+    assert "1 Sprint is a hypothesis" in memory and "2 or more is a pattern" in memory
+    assert "lowered it in others is not a rule" in memory and "do not plan by it" in memory
+    assert "Last analysed Sprint" in memory and "not a durable fact about the user" in memory
+    assert "Nothing checked the experiment's result" in memory
+    assert "nothing else writes it" in memory
+
+
 def test_the_diary_is_written_only_by_its_subagent() -> None:
     """AG-ROUTE-001 — tests/brd/tg_agent_shell/agents.feature"""
     root_tools = (QUERY_TOOL, open_tool(SCREENS), ROUTE_TOOL)

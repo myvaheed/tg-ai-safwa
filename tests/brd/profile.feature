@@ -1,20 +1,20 @@
 Feature: Profile
   Profile is where the owner tells Safwa things outright, rather than leaving Safwa to infer them.
-  There are nine of them, each edited on its own, each checked before it is stored.
+  There are eight of them, each edited on its own, each checked before it is stored.
 
   Numbers below name the constant they come from; the tests read the constant.
 
   Background:
-    Given a workspace whose Profile holds the nine things the owner can tell Safwa outright
+    Given a workspace whose Profile holds the eight things the owner can tell Safwa outright
 
   Scenario: PS-CONTEXT-001 — What the owner said outright outranks what Safwa remembered
-    Given memory.md and the Profile say different things about the owner
+    Given what Safwa remembered and the Profile say different things about the owner
     When Safwa is given its context
     Then what it remembered comes first
     And About me and Advisor instructions come after it, so they are what it goes by
 
   Scenario: PS-FIELD-002 — Profile writes only the fields it has
-    Given the nine fields
+    Given the eight fields
     When anything tries to write a name that is not one of them
     Then it is refused, no field changes, and nothing is recorded as having changed
 
@@ -31,10 +31,9 @@ Feature: Profile
     But zero and a negative number are refused
 
   Scenario: PS-CLOCK-005 — A time of day is a wall clock
-    Given a time from 00:00 through 23:59, for memory upkeep, the Diary or the daily summary
+    Given a time from 00:00 through 23:59, for the Diary or the daily summary
     Then that local time is accepted
-    And for memory upkeep, off means there is no time, so nothing is scheduled
-    And for the Diary and the daily summary off is refused: each is an automatic reaction with a switch of its own (PS-HOOKS-015)
+    And off is refused: each is an automatic reaction with a switch of its own (PS-HOOKS-015)
     But anything else typed in that box is refused
 
   Scenario: PS-DIARY-006 — The Diary time and prompt are what Safwa's own Diary nudge follows

@@ -16,9 +16,9 @@ from uuid import uuid4
 
 from .config import Settings
 
-FORMAT_VERSION = 1
+# 2: the database alone. Memory is rows of it since the retro started writing it.
+FORMAT_VERSION = 2
 DATABASE_MEMBER = "safwa.db"
-MEMORY_MEMBER = "memory.md"
 MANIFEST_MEMBER = "manifest.json"
 
 
@@ -30,7 +30,6 @@ class BackupError(RuntimeError):
 class BackupInfo:
     path: Path
     created_at: str
-    memory_present: bool
 
 
 @dataclass(frozen=True)
@@ -77,54 +76,46 @@ def _snapshot_database(source_path: Path, destination_path: Path) -> bytes:
 
 def create_backup(
     database_url: str,
-    memory_path: Path,
     destination: Path,
     *,
     now: datetime | None = None,
 ) -> BackupInfo:
-    """Create a ZIP backup containing only the database and authoritative memory file."""
+    """Create a ZIP backup containing the database."""
     database = database_path(database_url)
     destination.mkdir(parents=True, exist_ok=True)
     timestamp = (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%SZ")
     archive_path = _next_backup_path(destination, timestamp)
     with tempfile.TemporaryDirectory(dir=destination) as temporary_dir:
         database_data = _snapshot_database(database, Path(temporary_dir) / DATABASE_MEMBER)
-    memory_present = memory_path.is_file()
-    memory_data = memory_path.read_bytes() if memory_present else b""
     manifest = {
         "format_version": FORMAT_VERSION,
         "created_at": timestamp,
-        "memory_present": memory_present,
         "files": {
             DATABASE_MEMBER: {"sha256": _digest(database_data), "size": len(database_data)},
-            MEMORY_MEMBER: {"sha256": _digest(memory_data), "size": len(memory_data)},
         },
     }
     temporary_archive = archive_path.with_suffix(".zip.tmp")
     try:
         with zipfile.ZipFile(temporary_archive, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.writestr(DATABASE_MEMBER, database_data)
-            archive.writestr(MEMORY_MEMBER, memory_data)
             archive.writestr(MANIFEST_MEMBER, json.dumps(manifest, sort_keys=True, indent=2))
         os.replace(temporary_archive, archive_path)
     except (OSError, zipfile.BadZipFile) as error:
         temporary_archive.unlink(missing_ok=True)
         raise BackupError(f"Could not write backup archive: {error}") from error
-    return BackupInfo(archive_path, timestamp, memory_present)
+    return BackupInfo(archive_path, timestamp)
 
 
-def _validated_members(archive_path: Path) -> tuple[dict[str, object], bytes, bytes]:
+def _validated_members(archive_path: Path) -> tuple[dict[str, object], bytes]:
     if not archive_path.is_file():
         raise BackupError(f"Backup archive does not exist: {archive_path}")
     try:
         with zipfile.ZipFile(archive_path) as archive:
             names = set(archive.namelist())
-            required = {DATABASE_MEMBER, MEMORY_MEMBER, MANIFEST_MEMBER}
-            if names != required:
+            if names != {DATABASE_MEMBER, MANIFEST_MEMBER}:
                 raise BackupError("Backup archive has unexpected or missing files")
             manifest = json.loads(archive.read(MANIFEST_MEMBER))
             database_data = archive.read(DATABASE_MEMBER)
-            memory_data = archive.read(MEMORY_MEMBER)
     except (OSError, ValueError, zipfile.BadZipFile, KeyError) as error:
         if isinstance(error, BackupError):
             raise
@@ -134,17 +125,14 @@ def _validated_members(archive_path: Path) -> tuple[dict[str, object], bytes, by
     files = manifest.get("files")
     if not isinstance(files, dict):
         raise BackupError("Backup archive manifest is invalid")
-    for name, contents in ((DATABASE_MEMBER, database_data), (MEMORY_MEMBER, memory_data)):
-        metadata = files.get(name)
-        if not isinstance(metadata, dict) or metadata.get("sha256") != _digest(contents):
-            raise BackupError(f"Backup archive checksum failed for {name}")
-    if not isinstance(manifest.get("memory_present"), bool):
-        raise BackupError("Backup archive memory metadata is invalid")
-    return manifest, database_data, memory_data
+    metadata = files.get(DATABASE_MEMBER)
+    if not isinstance(metadata, dict) or metadata.get("sha256") != _digest(database_data):
+        raise BackupError(f"Backup archive checksum failed for {DATABASE_MEMBER}")
+    return manifest, database_data
 
 
 def inspect_backup(archive_path: Path) -> BackupInfo:
-    manifest, database_data, _ = _validated_members(archive_path)
+    manifest, database_data = _validated_members(archive_path)
     with tempfile.TemporaryDirectory() as temporary_dir:
         temporary_database = Path(temporary_dir) / DATABASE_MEMBER
         temporary_database.write_bytes(database_data)
@@ -160,29 +148,25 @@ def inspect_backup(archive_path: Path) -> BackupInfo:
     created_at = manifest.get("created_at")
     if not isinstance(created_at, str):
         raise BackupError("Backup archive creation timestamp is invalid")
-    return BackupInfo(archive_path, created_at, bool(manifest["memory_present"]))
+    return BackupInfo(archive_path, created_at)
 
 
 def restore_backup(
     archive_path: Path,
     database_url: str,
-    memory_path: Path,
     *,
     confirmed: bool = False,
 ) -> RestoreResult:
     """Restore a validated archive. Safwa must be stopped before this is called."""
     if not confirmed:
         raise BackupError("Refusing to restore without the explicit --yes confirmation")
-    info = inspect_backup(archive_path)
+    inspect_backup(archive_path)
     database_data = _validated_members(archive_path)[1]
-    memory_data = _validated_members(archive_path)[2]
     database = database_path(database_url)
     database.parent.mkdir(parents=True, exist_ok=True)
-    memory_path.parent.mkdir(parents=True, exist_ok=True)
-    safety = create_backup(database_url, memory_path, database.parent / "backups")
+    safety = create_backup(database_url, database.parent / "backups")
 
     replacement_database = database.with_name(f".{database.name}.{uuid4().hex}.restore")
-    replacement_memory = memory_path.with_name(f".{memory_path.name}.{uuid4().hex}.restore")
     try:
         replacement_database.write_bytes(database_data)
         # Validate the copied replacement immediately before touching live files.
@@ -192,22 +176,15 @@ def restore_backup(
                 raise BackupError("Restored database integrity check failed")
         finally:
             replacement.close()
-        if info.memory_present:
-            replacement_memory.write_bytes(memory_data)
 
         # A stale WAL/SHM pair would otherwise be replayed against the restored main DB.
         for sidecar in (Path(f"{database}-wal"), Path(f"{database}-shm")):
             sidecar.unlink(missing_ok=True)
         os.replace(replacement_database, database)
-        if info.memory_present:
-            os.replace(replacement_memory, memory_path)
-        else:
-            memory_path.unlink(missing_ok=True)
     except (OSError, sqlite3.Error) as error:
         raise BackupError(f"Could not restore backup: {error}") from error
     finally:
         replacement_database.unlink(missing_ok=True)
-        replacement_memory.unlink(missing_ok=True)
     return RestoreResult(archive_path, safety.path)
 
 
@@ -218,11 +195,7 @@ def backup_main() -> None:
     )
     args = parser.parse_args()
     settings = Settings()
-    result = create_backup(
-        settings.database_url,
-        settings.memory_path,
-        args.destination or settings.data_dir / "backups",
-    )
+    result = create_backup(settings.database_url, args.destination or settings.data_dir / "backups")
     print(result.path)
 
 
@@ -234,10 +207,5 @@ def restore_main() -> None:
     )
     args = parser.parse_args()
     settings = Settings()
-    result = restore_backup(
-        args.archive,
-        settings.database_url,
-        settings.memory_path,
-        confirmed=args.yes,
-    )
+    result = restore_backup(args.archive, settings.database_url, confirmed=args.yes)
     print(f"Restored {result.restored_from}; safety backup: {result.safety_backup}")

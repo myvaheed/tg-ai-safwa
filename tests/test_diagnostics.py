@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from types import SimpleNamespace
 
 from ui_harness import FakeMessage, services_for
 
@@ -12,24 +11,12 @@ from safwa.features.diagnostics.telegram import command_status
 from safwa.features.planning.use_cases import start_sprint
 
 
-class _Memory:
-    """What the status asks memory for, and nothing else: whether it can be read."""
-
-    def __init__(self, error: str | None) -> None:
-        self._error = error
-
-    async def sync(self) -> SimpleNamespace:
-        return SimpleNamespace(error=self._error)
-
-
 def _revision(text: str) -> int:
     return int(re.search(r"Revision: (\d+)", text).group(1))
 
 
-def _services(sessions, error: str | None = None):
-    services = services_for(sessions)
-    services.features = SimpleNamespace(memory=_Memory(error))
-    return services
+def _services(sessions):
+    return services_for(sessions)
 
 
 async def test_dg_status_001_the_status_names_the_mode_and_the_revision(sessions) -> None:
@@ -56,17 +43,3 @@ async def test_dg_status_001_the_status_names_the_mode_and_the_revision(sessions
     assert "Mode: sprint" in message.edits[-1][0]
     assert _revision(message.edits[-1][0]) > revision
 
-
-async def test_dg_memory_002_a_memory_that_cannot_be_read_says_so(sessions) -> None:
-    """DG-MEMORY-002 — tests/brd/diagnostics.feature"""
-    message = FakeMessage(311, bot_message=True)
-
-    await command_status(message, _services(sessions, "memory.md could not be read"))
-
-    text = message.edits[-1][0]
-    assert "Memory: memory.md could not be read" in text
-    assert "Mode: planning" in text
-
-    await command_status(message, _services(sessions))
-
-    assert "Memory: OK" in message.edits[-1][0]

@@ -1,7 +1,8 @@
-"""Memory in the background: reading the file, and the upkeep that rewrites it.
+"""Memory in the background: the poll that takes an analysed Sprint into what is remembered.
 
-Both tasks are here rather than beside the operations they call: a task that never
-returns belongs to the lifecycle.
+It is here rather than beside the operation it calls: a task that never returns belongs
+to the lifecycle. The poll is the whole of the reliability — an analysis stays owed until
+the poll has written it, so nothing that ends one attempt is lost.
 """
 
 from __future__ import annotations
@@ -9,35 +10,21 @@ from __future__ import annotations
 from tg_agent_shell.foundation.poll import run_poll
 from tg_agent_shell.telegram.manifest import BackgroundContext, BackgroundTask
 
-from .api import memory_store, memory_upkeep
-from .use_cases import run_due_memory_maintenance
+from .api import memory_reviewer
+from .use_cases import absorb_due
 
-MEMORY_MAINTENANCE_INTERVAL_SECONDS = 60.0
-
-
-async def _poll_memory_file(context: BackgroundContext) -> None:
-    memory = memory_store(context.services)
-    await run_poll(
-        memory.sync, poll_seconds=memory.poll_seconds, name="Reading memory.md"
-    )
+MEMORY_RETRO_INTERVAL_SECONDS = 60.0
 
 
-async def _maintain_memory(context: BackgroundContext) -> None:
-    async def maintain() -> None:
-        await run_due_memory_maintenance(
-            memory_upkeep(context.services),
+async def _absorb_analyses(context: BackgroundContext) -> None:
+    async def tick() -> None:
+        await absorb_due(
+            memory_reviewer(context.services),
             context.sessions,
-            context.owner_id,
-            context.timezone,
             run_background=context.services.turn.run_background,
         )
 
-    await run_poll(
-        maintain,
-        poll_seconds=MEMORY_MAINTENANCE_INTERVAL_SECONDS,
-        name="Memory upkeep",
-    )
+    await run_poll(tick, poll_seconds=MEMORY_RETRO_INTERVAL_SECONDS, name="Memory from the retro")
 
 
-MEMORY_FILE_POLL = BackgroundTask("memory-file-poll", _poll_memory_file)
-MEMORY_MAINTENANCE = BackgroundTask("memory-maintenance", _maintain_memory)
+MEMORY_RETRO = BackgroundTask("memory-retro", _absorb_analyses)

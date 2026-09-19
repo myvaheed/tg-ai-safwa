@@ -7,7 +7,6 @@ from types import SimpleNamespace
 
 import pytest
 
-import safwa.features.memory.background as memory_background
 from safwa.bootstrap import main as safwa_main
 from safwa.config import Settings
 from safwa.foundation.models import Base
@@ -109,10 +108,6 @@ class FakeDispatcher:
         await asyncio.sleep(0)
 
 
-async def wait_until_cancelled(*_args, **_kwargs) -> None:
-    await asyncio.Event().wait()
-
-
 def _prepared_startup(tmp_path: Path, monkeypatch) -> tuple[Path, Settings]:
     repository_root = Path(__file__).parents[2]
     monkeypatch.chdir(repository_root)
@@ -128,7 +123,6 @@ def _prepared_startup(tmp_path: Path, monkeypatch) -> tuple[Path, Settings]:
     monkeypatch.setattr(safwa_main, "OpenAICompatibleProvider", FakeProvider)
     monkeypatch.setattr(safwa_main, "TelegramHistorySource", FakeHistoryFactory)
     monkeypatch.setattr(safwa_main, "Dispatcher", FakeDispatcher)
-    monkeypatch.setattr(memory_background, "run_due_memory_maintenance", wait_until_cancelled)
 
     return database_path, Settings(
         _env_file=None,
@@ -156,7 +150,7 @@ async def test_full_startup_reaches_polling_and_cleans_up(tmp_path: Path, monkey
     assert FakeDispatcher.instances[0].data["services"].bot_username == "configured_safwa_bot"
     assert FakeBot.instances[0].commands_set is True
     command_names = {command.command for command in FakeBot.instances[0].commands}
-    assert {"mem", "syncmem", "sprint"} <= command_names
+    assert {"memory", "sprint"} <= command_names
     # A screen the menu offers does not also take a command line.
     assert {"backlog", "profile"}.isdisjoint(command_names)
     assert FakeBot.instances[0].session.closed is True

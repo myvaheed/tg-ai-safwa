@@ -35,8 +35,8 @@ from tg_agent_shell.turn import TurnManager
 from ..config import Settings
 from ..enums import AIProvider
 from ..features.advisor.agent import ADVISOR_VIEWS
-from ..features.memory.store import MemoryFileStore
-from ..features.memory.upkeep import MemoryUpkeep
+from ..features.memory.absorb import PatternReviewer
+from ..features.memory.use_cases import MemoryReader
 from ..features.planning.key_actions import KeyActions
 from ..features.profile.model import UserProfile
 from ..features.retro.analysis import SprintAnalyst
@@ -76,8 +76,7 @@ class SafwaFeatures:
     """
 
     summary: DialogueSummary
-    memory: MemoryFileStore
-    memory_upkeep: MemoryUpkeep
+    memory_reviewer: PatternReviewer
     key_actions: KeyActions
     analyst: SprintAnalyst
 
@@ -192,14 +191,7 @@ async def run(settings: Settings) -> None:
             default_headers=headers,
         )
     )
-    memory = MemoryFileStore(
-        settings.memory_path,
-        database.sessions,
-        token_budget=settings.memory_token_budget,
-        chars_per_token=settings.token_chars_estimate,
-        poll_seconds=settings.memory_poll_seconds,
-    )
-    await memory.sync()
+    memory = MemoryReader(database.sessions)
     query_runner = ReadOnlyQueryRunner(
         database_path(settings.database_url),
         ALLOWED_VIEWS,
@@ -255,13 +247,6 @@ async def run(settings: Settings) -> None:
         summary_trigger_tokens=settings.summary_trigger_tokens,
         chars_per_token=settings.token_chars_estimate,
     )
-    upkeep = MemoryUpkeep(
-        database.sessions,
-        history,
-        provider,
-        memory,
-        chars_per_token=settings.token_chars_estimate,
-    )
     turn = TurnManager()
     timers: set[asyncio.Task[None]] = set()
 
@@ -307,8 +292,7 @@ async def run(settings: Settings) -> None:
         start_links=FEATURE_START_LINKS,
         features=SafwaFeatures(
             summary=summary,
-            memory=memory,
-            memory_upkeep=upkeep,
+            memory_reviewer=PatternReviewer(provider),
             key_actions=KeyActions(provider),
             analyst=SprintAnalyst(provider),
         ),

@@ -49,15 +49,19 @@ before it, the Diary in three-day batches, one review per list of claims, one ov
 confirmed lists together, and one call that writes the analysis — each a mini session ending in
 one tool call whose first field is the
 model's own thinking ([RT-AI-007](../tests/brd/retro.feature)). The result is a screen drawn by
-code from the Sprint's row; the one fact the run drew about the owner is offered there as a
-button that writes to memory.md the way `/mem` does, headed by the Sprint it came from
-([RT-AI-008](../tests/brd/retro.feature)). An interrupted run keeps nothing and is started again;
-a repeated run replaces the analysis and takes nothing back out of memory.md. The mechanism is
-mapped in [SPRINT_ANALYSE_TO_RETRO.md](SPRINT_ANALYSE_TO_RETRO.md).
+code from the Sprint's row ([RT-AI-008](../tests/brd/retro.feature)). An interrupted run keeps
+nothing and is started again; a repeated run replaces the analysis. The mechanism is mapped in
+[SPRINT_ANALYSE_TO_RETRO_AND_MEM.md](SPRINT_ANALYSE_TO_RETRO_AND_MEM.md), with what memory
+makes of it.
 
-Still open, and its own batch: only the retrospective updates inferred facts in memory.md, so the
-scheduled upkeep in `memory/upkeep.py` goes. The Advisor keeps reading the Diary for mood and
-period reviews; reading it does not update memory.
+Shipped 2026-09-19: the analysis is the only thing that writes memory. The daily upkeep that
+retold the dialogue into facts, the memory file the owner could edit, `/mem` and `/syncmem` and the
+Remember button are gone; a poll takes each analysed Sprint into memory on its own and keeps
+trying until it has ([MEM-RETRO-011](../tests/brd/memory.feature), MEM-RETRO-012). Memory is
+patterns — a claim with the Sprints that showed it, confirmed by recurrence and forgotten when
+nothing confirms it (MEM-RETRO-013, MEM-RETRO-014) — and the last analysed Sprint whole
+(MEM-RETRO-015). The Advisor keeps reading the Diary for mood and period reviews; reading it does
+not update memory.
 
 ## Proposal fulfillment validation
 
@@ -243,10 +247,11 @@ stop it. The Advisor's request and the owner's answer are ordinary turns; a refu
 postponement are words in the dialogue the Advisor reads like any other. Proposal fulfillment
 validation belongs to its own architecture and is unaffected by hooks.
 
-### 15. Carry retrospective decisions through memory — Advisor instruction
+### 15. Carry retrospective decisions through memory — shipped as an Advisor instruction
 
-Put the owner's agreed retrospective takeaway or experiment in memory and instruct the Advisor
-to use it in later planning and advice. Preserve its intended scope, such as "try this in the
-next Sprint", rather than turning a temporary experiment into a permanent fact about the owner.
-An AI suggestion the owner never adopted is not an agreed decision. The existing retrospective
-memory review remains the place to save it; no separate next-Sprint reminder hook is needed.
+Shipped 2026-09-19 as [AD-MEMORY-002](../tests/brd/advisor.feature): the Advisor is told that a
+pattern one Sprint showed is a hypothesis to check in the current Sprint and one several showed
+is a pattern to plan by, and that the last analysed Sprint's experiment and lessons are for
+planning and advising in the current Sprint, never a durable fact about the owner. The takeaway
+is what the analysis drew, not what the owner agreed to: nothing marks a suggestion as adopted,
+and no next-Sprint reminder hook exists.

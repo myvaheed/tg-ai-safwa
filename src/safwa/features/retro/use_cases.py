@@ -72,26 +72,16 @@ async def mark_criterion(session: AsyncSession, sprint_id: int, met: bool | None
 
 async def record_analysis(session: AsyncSession, sprint_id: int, record: dict[str, Any]) -> Sprint:
     """Keep what a run made of the Sprint, in place of whatever an earlier run left, with
-    the owner's mark as the run read it: a mark changed since is not what was analysed."""
+    the owner's mark as the run read it: a mark changed since is not what was analysed.
+    The analysis is owed to memory again from here: the poll finds a Sprint by that."""
     sprint = await require_ended_sprint(session, sprint_id)
     sprint.analysis = {
         **record,
         "met": sprint.criterion_met,
         "analysed_at": utcnow().isoformat(),
-        "remembered": False,
     }
+    sprint.memory_at = None
     return sprint
-
-
-async def mark_remembered(session: AsyncSession, sprint_id: int) -> str:
-    """The fact the analysis drew went to memory; the screen stops offering it. Returns it."""
-    sprint = await require_ended_sprint(session, sprint_id)
-    if sprint.analysis is None or not sprint.analysis.get("memory_fact"):
-        raise DomainError("This analysis drew no fact to remember")
-    if sprint.analysis.get("remembered"):
-        raise DomainError("That fact is already in memory")
-    sprint.analysis = {**sprint.analysis, "remembered": True}
-    return str(sprint.analysis["memory_fact"])
 
 
 async def analysis_input(session: AsyncSession, sprint_id: int) -> AnalysisInput:

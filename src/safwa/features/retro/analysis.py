@@ -3,8 +3,9 @@
 Small questions, each answered with one call: three over the record against the Sprints
 before it, one per three days of the Diary, one per list of claims those returned, one
 over the three confirmed lists together, and one that writes the analysis from what the
-others found. Nothing here reads the database — the record and the Diary are handed in,
-and the analysis is handed back.
+others found. The events the days returned reach that last one as they are: an event is
+not a claim, so nothing confirms it. Nothing here reads the database — the record and the
+Diary are handed in, and the analysis is handed back.
 """
 
 from __future__ import annotations
@@ -38,7 +39,6 @@ SENTENCE_CHARS = 200
 METRIC_CHARS = 40
 NOTE_CHARS = 120
 ITEM_CHARS = 140
-FACT_CHARS = 120
 
 Reporter = Callable[[int, int, str], Awaitable[None]]
 
@@ -79,6 +79,9 @@ class DayBatchFindings(ToolInput):
     )
     unrelated: list[DayClaim] = Field(
         description="What likely had nothing to do with the rating. Empty when nothing stands out."
+    )
+    events: list[DayClaim] = Field(
+        description="What happened these days that the next Sprint should know about. Empty when nothing did."
     )
 
 
@@ -133,10 +136,9 @@ class SprintAnalysis(ToolInput):
     experiment: str = Field(
         max_length=SENTENCE_CHARS, description="One sentence: one thing to try in the next Sprint."
     )
-    memory_fact: str | None = Field(
-        default=None,
-        max_length=FACT_CHARS,
-        description="One durable fact about the user this Sprint showed, at most 120 characters, or null.",
+    notable: list[Item] = Field(
+        max_length=ITEMS_MAX,
+        description="At most 3 events of this Sprint the next one should know about, from the events only.",
     )
 
 
@@ -164,15 +166,16 @@ DAYS_PROMPT = """You read three days of the user's Sprint: what they planned and
 A day's rating is 0-10, given by the user.
 Call day_batch_findings once. Fill verbose_analyse first.
 Then name what likely raised a day's rating, what likely lowered it, and what likely had nothing to do with it.
+Then name what happened these days that the next Sprint should know about: an event, a change, a first time.
 One claim is one thing in at most 12 words, with the dates it rests on. Leave a list empty when nothing fits.
 Write claims in the language the Diary is written in."""
 
-REVIEW_PROMPT = """You are given claims gathered from different three-day batches of one Sprint, each with the days it rests on.
+REVIEW_PROMPT = """You are given claims gathered from different three-day batches of one Sprint, each with the batch it came from and the days it rests on.
 Call claim_review once. Fill verbose_analyse first.
 Then sort every claim into one list:
-confirmed - said twice, backed by another claim, or resting on two or more days; merge those into one wording.
+confirmed - said in two or more batches, backed by another claim, or resting on two or more days; merge those into one wording.
 contradicted - its opposite is also in the list.
-single - rests on one day and nothing backs it.
+single - said in one batch, rests on one day, and nothing backs it.
 Keep the language the claims are written in."""
 
 CROSS_PROMPT = """You are given the confirmed claims about one Sprint, numbered, each in one of three lists: what raised the day's rating, what lowered it, what had nothing to do with it.
@@ -182,7 +185,7 @@ Leave same empty when there is none."""
 
 ANALYSIS_PROMPT = """You write the analysis of one Sprint from the findings and the confirmed claims you are given.
 Call sprint_analysis once. Fill verbose_analyse first.
-Then: headline in one sentence; at most 6 trends from the findings; at most 3 things that raised the day's rating, at most 3 that lowered it, at most 3 that had nothing to do with it, from the confirmed claims only; one experiment for the next Sprint in one sentence; one durable fact about the user this Sprint showed, or null when it showed none.
+Then: headline in one sentence; at most 6 trends from the findings; at most 3 things that raised the day's rating, at most 3 that lowered it, at most 3 that had nothing to do with it, from the confirmed claims only; one experiment for the next Sprint in one sentence; at most 3 events the next Sprint should know about, from the events only.
 Write in the language the claims and the Success criteria are written in."""
 
 # The three lists of claims, in the order every round names them.
@@ -229,7 +232,7 @@ class SprintAnalyst:
         async def days(batch: Sequence[tuple[DayTally, DiaryDay | None]]) -> DayBatchFindings:
             found = await self._ask(DAYS_PROMPT, days_text(batch), DAYS_TOOL)
             await steps.advance(f"Diary {_short(batch[0][0].day)} – {_short(batch[-1][0].day)}")
-            return found
+            return on_its_days(found, [tally.day for tally, _entry in batch])
 
         answers = await _at_once(
             overview(overview_text(given.sprints), "the Sprints"),
@@ -247,7 +250,11 @@ class SprintAnalyst:
         findings = [finding for verdict in verdicts for finding in verdict.findings]
 
         async def review(name: str, about: str) -> ClaimReview:
-            claims = [claim for batch in found for claim in getattr(batch, name)]
+            claims = [
+                (number, claim)
+                for number, batch in enumerate(found, start=1)
+                for claim in getattr(batch, name)
+            ]
             if claims:
                 reviewed = await self._ask(REVIEW_PROMPT, claims_text(claims, about), REVIEW_TOOL)
             else:
@@ -266,8 +273,11 @@ class SprintAnalyst:
             confirmed, dropped = without_same(confirmed, crossed.same)
         await steps.advance("reading the lists together")
 
+        events = [event for batch in found for event in batch.events]
         analysis: SprintAnalysis = await self._ask(
-            ANALYSIS_PROMPT, synthesis_text(given.sprint, findings, confirmed), ANALYSIS_TOOL
+            ANALYSIS_PROMPT,
+            synthesis_text(given.sprint, findings, confirmed, events),
+            ANALYSIS_TOOL,
         )
         await steps.advance("writing the analysis")
         return {
@@ -410,11 +420,33 @@ def days_text(batch: Sequence[tuple[DayTally, DiaryDay | None]]) -> str:
     return "\n".join(lines)
 
 
-def claims_text(claims: Sequence[DayClaim], about: str) -> str:
+def on_its_days(found: DayBatchFindings, days: Sequence[str]) -> DayBatchFindings:
+    """The batch's answer with every claim resting on the batch's own days, each once: a
+    day named twice, or one outside the batch, is not a second day for the review to count,
+    and a claim with none of the batch's days left rests on none."""
+
+    def own(claims: Sequence[DayClaim]) -> list[DayClaim]:
+        return [
+            DayClaim(claim=claim.claim, days=[day for day in dict.fromkeys(claim.days) if day in days])
+            for claim in claims
+        ]
+
+    return DayBatchFindings(
+        verbose_analyse=found.verbose_analyse,
+        helped=own(found.helped),
+        hurt=own(found.hurt),
+        unrelated=own(found.unrelated),
+        events=own(found.events),
+    )
+
+
+def claims_text(claims: Sequence[tuple[int, DayClaim]], about: str) -> str:
+    """Every claim numbered, with the batch that made it: two batches saying one thing is
+    what confirms it, and the days alone do not say which batch a claim came from."""
     lines = [f"Claims about what {about}:"]
     lines += [
-        f"{number}. {claim.claim} — days {', '.join(claim.days) or 'not named'}"
-        for number, claim in enumerate(claims, start=1)
+        f"{number}. {claim.claim} — batch {batch}, days {', '.join(claim.days) or 'not named'}"
+        for number, (batch, claim) in enumerate(claims, start=1)
     ]
     return "\n".join(lines)
 
@@ -462,7 +494,10 @@ def without_same(
 
 
 def synthesis_text(
-    column: SprintColumn, findings: Sequence[Finding], confirmed: Sequence[Sequence[str]]
+    column: SprintColumn,
+    findings: Sequence[Finding],
+    confirmed: Sequence[Sequence[str]],
+    events: Sequence[DayClaim] = (),
 ) -> str:
     lines = [
         f"Sprint {column.number} ({column.first.isoformat()} – {column.last.isoformat()}). "
@@ -476,4 +511,8 @@ def synthesis_text(
     for claims, (_name, about) in zip(confirmed, LISTS, strict=True):
         lines.append(f"Confirmed claims about what {about}:")
         lines += [f"- {claim}" for claim in claims] or ["- nothing confirmed"]
+    lines.append("Events of the Sprint's days the next Sprint should know about:")
+    lines += [
+        f"- {event.claim} — days {', '.join(event.days) or 'not named'}" for event in events
+    ] or ["- none"]
     return "\n".join(lines)

@@ -8,8 +8,8 @@ dist/
 build/
 data/**/*.db*
 data/**/*.session*
-data/backups/
 data/memory.md*
+data/backups/
 docs/*.md.tmp.*
 config/providers.yaml
 .kilocode/

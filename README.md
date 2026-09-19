@@ -40,8 +40,8 @@ bot. The Bot API cannot reread arbitrary chat history, while Safwa uses the Tele
 its canonical bounded advisor dialogue. Create the credentials at `my.telegram.org` and run
 `uv run safwa-auth` once to authorize the local session file.
 
-`data/memory.md` is the authoritative persistent persona memory. Keep exactly one non-empty fact
-per line. Safwa imports local edits automatically and never treats its SQLite mirror as canonical.
+Safwa's memory is written by the retro analysis of each Sprint alone and lives in the database;
+`/memory` shows it, and what you want Safwa told outright goes in the Profile.
 
 ## Voice input
 
@@ -153,13 +153,13 @@ uv run pytest tests\e2e\live --live-telegram -q
 
 The live test sends `/status`, creates and reviews one Action through real Telegram messages and inline
 callbacks, verifies the committed Card in a temporary SQLite database, deletes its QA chat messages, and
-stops the test bot. It never uses the production bot token, database, `memory.md`, Telethon session, or AI
+stops the test bot. It never uses the production bot token, database, Telethon session, or AI
 provider. Set `SAFWA_QA_KEEP_MESSAGES=true` when you want the QA conversation to remain visible after a
 run; its inline buttons will be stale because the test database is temporary.
 
 ## Local backup and restore
 
-Create a portable ZIP backup of the SQLite database and authoritative `data/memory.md`:
+Create a portable ZIP backup of the SQLite database:
 
 ```powershell
 uv run safwa-backup
@@ -173,15 +173,12 @@ before replacing it:
 uv run safwa-restore data\backups\safwa-YYYYMMDDTHHMMSSZ.zip --yes
 ```
 
-Start Safwa again after the restore. A missing `memory.md` in a backup intentionally restores an empty
-file-backed memory state.
+Start Safwa again after the restore.
 
 ## Bot navigation
 
 Use `/start`, `/today`, `/sprint`, `/values`, `/tags`, `/requests`, `/reminders`, `/memory`,
-`/mem`, `/syncmem`, `/summarize`, `/status`, and `/cancel`. The Backlog and the Profile are
-menu buttons only.
-Remove or edit durable facts directly in `data/memory.md`; the file watcher imports the change.
+`/summarize`, `/status`, and `/cancel`. The Backlog and the Profile are menu buttons only.
 
 The advisor reads a window of the chat bounded by a token budget, so nothing has to be started or
 ended. `/summarize` writes a `📜 Summary` on demand, which becomes the far edge of that window.

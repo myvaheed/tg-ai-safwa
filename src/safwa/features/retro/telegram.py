@@ -27,23 +27,14 @@ from tg_agent_shell.telegram import (
     Services,
     menu_row,
     send_registered,
-    send_toast,
     token_button,
 )
 
 from ...foundation.workspace import Workspace
 from ..cards.api import effort_label
-from ..memory.api import memory_store
-from ..memory.store import MemoryFileError
 from ..planning.closing import RetroStatistics
 from ..planning.model import Sprint
-from .use_cases import (
-    analysis_input,
-    mark_criterion,
-    mark_remembered,
-    record_analysis,
-    require_ended_sprint,
-)
+from .use_cases import analysis_input, mark_criterion, record_analysis, require_ended_sprint
 
 logger = logging.getLogger(__name__)
 
@@ -192,19 +183,10 @@ def analysis_text(
         "<b>Experiment for the next Sprint</b>",
         f"→ {html.escape(analysis['experiment'])}",
     ]
-    if analysis.get("memory_fact"):
-        lines += [
-            "",
-            "<b>Worth remembering</b>",
-            html.escape(analysis["memory_fact"])
-            + (" — remembered in memory.md." if analysis.get("remembered") else ""),
-        ]
+    if analysis.get("notable"):
+        lines += ["", "<b>Worth knowing next Sprint</b>"]
+        lines += [f"• {html.escape(item)}" for item in analysis["notable"]]
     return "\n".join(lines)
-
-
-def memory_line(sprint: Sprint, fact: str) -> str:
-    """The line memory.md gets: where the fact was drawn from, then the fact."""
-    return f"Sprint {sprint.number} retro: {fact}"
 
 
 async def render_analysis(message: Message, services: Services, sprint_id: int) -> None:
@@ -217,20 +199,7 @@ async def render_analysis(message: Message, services: Services, sprint_id: int) 
         text = analysis_text(
             sprint, RetroStatistics.from_record(sprint.retro), sprint.analysis, tz
         )
-        rows: list[list[InlineKeyboardButton]] = []
-        if sprint.analysis.get("memory_fact") and not sprint.analysis.get("remembered"):
-            rows.append(
-                [
-                    await token_button(
-                        session,
-                        services.owner_id,
-                        "💾 Remember",
-                        "retro_remember",
-                        {"id": sprint.id},
-                    )
-                ]
-            )
-        rows.append(
+        rows: list[list[InlineKeyboardButton]] = [
             [
                 await token_button(
                     session,
@@ -242,9 +211,9 @@ async def render_analysis(message: Message, services: Services, sprint_id: int) 
                 await token_button(
                     session, services.owner_id, "📊 Retro", "retro_open", {"id": sprint.id}
                 ),
-            ]
-        )
-        rows.append(menu_row())
+            ],
+            menu_row(),
+        ]
         await session.commit()
     await send_registered(
         message,
@@ -313,25 +282,9 @@ async def _on_analyse(context: CallbackContext) -> None:
         await render_retro(context.message, services, sprint_id)
 
 
-async def _on_remember(context: CallbackContext) -> None:
-    """The fact goes to memory.md the way one the owner types with /mem does."""
-    sprint_id = int(context.payload["id"])
-    async with context.sessions() as session:
-        sprint = await require_ended_sprint(session, sprint_id)
-        fact = await mark_remembered(session, sprint_id)
-        try:
-            await memory_store(context.services).append_manual(memory_line(sprint, fact))
-        except MemoryFileError as error:
-            raise DomainError(str(error)) from error
-        await session.commit()
-    await render_analysis(context.message, context.services, sprint_id)
-    await send_toast(context.message, context.services, "Remembered in memory.md.")
-
-
 RETRO_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "retro_open": _on_open,
     "retro_mark": _on_mark,
     "retro_analyse": _on_analyse,
     "retro_analysis": _on_analysis,
-    "retro_remember": _on_remember,
 }

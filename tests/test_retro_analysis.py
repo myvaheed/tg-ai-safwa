@@ -25,7 +25,6 @@ from safwa.features.cards.use_cases import (
     record_today_morning,
 )
 from safwa.features.diary.use_cases import create_diary_entry
-from safwa.features.memory.store import MemoryFileStore
 from safwa.features.planning.api import sprint_metrics
 from safwa.features.planning.closing import RetroStatistics
 from safwa.features.planning.model import Sprint, SprintCommitment
@@ -35,7 +34,6 @@ from safwa.features.retro.analysis import (
     ANALYSIS_PROMPT,
     CROSS_PROMPT,
     DAYS_PROMPT,
-    FACT_CHARS,
     ITEM_CHARS,
     ITEMS_MAX,
     METRIC_CHARS,
@@ -101,10 +99,11 @@ class AnalysisProvider:
 
     A claim about the day's rating carries the dates of the batch it was asked about, so
     the review sees where each came from; "поздний отбой" is claimed as raising the rating
-    and as lowering it, so the cross review has a pair to name. `unrelated` is always
+    and as lowering it, so the cross review has a pair to name — and as raising it, on the
+    last day named twice and on a day of no batch, so the review is handed one day. `unrelated` is always
     empty, so that list is never asked about. `fails` names a tool the model answers in
     prose instead, for good, and `on_request` is called with each tool's name before it is
-    answered.
+    answered. Every batch's days carry one event, "переезд", so the synthesis has one to keep.
     """
 
     def __init__(
@@ -141,19 +140,23 @@ class AnalysisProvider:
                 "verbose_analyse": "Good days had a run.",
                 "helped": [
                     {"claim": "утренняя пробежка", "days": days},
-                    {"claim": "поздний отбой", "days": days[-1:]},
+                    {"claim": "поздний отбой", "days": days[-1:] * 2 + ["1999-01-01"]},
                 ],
                 "hurt": [
                     {"claim": "три рабочих Действия подряд", "days": days[:1]},
                     {"claim": "поздний отбой", "days": days[:1]},
                 ],
                 "unrelated": [],
+                "events": [{"claim": "переезд", "days": days[-1:]}],
             }
         elif name == "claim_review":
-            found = re.findall(r"^\d+\. (.+?) — days (.+)$", context, re.MULTILINE)
-            claims = [claim for claim, _days in found]
-            # Said twice, or resting on two or more days, is confirmed.
-            backed = [claim for claim, days in found if claims.count(claim) > 1 or "," in days]
+            found = re.findall(r"^\d+\. (.+?) — batch (\d+), days (.+)$", context, re.MULTILINE)
+            claims = [claim for claim, _batch, _days in found]
+            # Said in two batches, or resting on two or more days, is confirmed.
+            batches_of = {claim: {b for c, b, _d in found if c == claim} for claim in claims}
+            backed = [
+                claim for claim, _batch, days in found if len(batches_of[claim]) > 1 or "," in days
+            ]
             arguments = {
                 "verbose_analyse": "A claim said twice is confirmed.",
                 "confirmed": list(dict.fromkeys(backed)),
@@ -172,9 +175,9 @@ class AnalysisProvider:
                 ],
             }
         else:
-            confirmed = re.findall(
-                r"^- (.+)$", context.split("Confirmed claims", 1)[1], re.MULTILINE
-            )
+            claims, events = context.split("Confirmed claims", 1)[1].split("Events of", 1)
+            confirmed = re.findall(r"^- (.+)$", claims, re.MULTILINE)
+            named = re.findall(r"^- (.+?) — days", events, re.MULTILINE)
             arguments = {
                 "verbose_analyse": "It went well.",
                 "headline": "Лучший Спринт из трёх.",
@@ -183,7 +186,7 @@ class AnalysisProvider:
                 "hurt": [],
                 "noise": [],
                 "experiment": "Одна пробежка каждое утро.",
-                "memory_fact": "Утренняя пробежка поднимает оценку дня.",
+                "notable": list(dict.fromkeys(named))[:1],
             }
         return CompletionTurn("", tool_calls=(ToolCall("call-1", name, json.dumps(arguments)),))
 
@@ -193,10 +196,7 @@ class AnalysisProvider:
 
 def _services(sessions, provider: AnalysisProvider, tmp_path):
     services = services_for(sessions)
-    services.features = SimpleNamespace(
-        analyst=SprintAnalyst(provider),
-        memory=MemoryFileStore(tmp_path / "memory.md", sessions),
-    )
+    services.features = SimpleNamespace(analyst=SprintAnalyst(provider))
     return services
 
 
@@ -534,12 +534,24 @@ async def test_rt_ai_007_the_run_is_small_questions_each_answered_with_one_call(
     # The cross review answers with numbers, so it alone names no language.
     for prompt in (OVERVIEW_PROMPT, DAYS_PROMPT, REVIEW_PROMPT, ANALYSIS_PROMPT):
         assert "language" in prompt
-    # Two days inside one batch count as said twice.
+    # Two batches saying one thing, or two days inside one batch, confirm it.
+    assert "said in two or more batches" in REVIEW_PROMPT
     assert "resting on two or more days" in REVIEW_PROMPT
     day_batch = provider.requests[3].messages[1]["content"]
     assert len(re.findall(r"^Day ", day_batch, re.MULTILINE)) == ANALYSIS_DAY_BATCH
     review = provider.requests[3 + batches].messages[1]["content"]
     assert review.count("утренняя пробежка") == batches
+    # Each claim says which batch made it, so the review can tell two batches from one.
+    assert re.findall(r"— batch (\d+), days", review)[: batches * 2 : 2] == [
+        str(number) for number in range(1, batches + 1)
+    ]
+    # A claim rests on the batch's own days, each once: the day named twice is one day, and
+    # the day of no batch is not there at all.
+    first_batch_days = re.findall(r"^Day (\S+)", day_batch, re.MULTILINE)
+    assert re.search(
+        rf"^\d+\. поздний отбой — batch 1, days {first_batch_days[-1]}$", review, re.MULTILINE
+    )
+    assert "1999-01-01" not in review
     # The confirmed lists, numbered across, each claim with the list it stands in.
     cross = provider.requests[-2].messages[1]["content"]
     assert re.search(r"^1\. \[raised the day's rating\] утренняя пробежка$", cross, re.MULTILINE)
@@ -549,12 +561,15 @@ async def test_rt_ai_007_the_run_is_small_questions_each_answered_with_one_call(
     assert "утренняя пробежка" in synthesis and "Ship" in synthesis
     assert "три рабочих Действия подряд" in synthesis
     assert "поздний отбой" not in synthesis
+    # Every batch's event reaches the synthesis as it is: nothing reviews an event.
+    assert synthesis.count("- переезд — days") == batches
     # One step per question, the list nobody asked about included, reported from 0 up.
     steps = 3 + batches + 3 + 1 + 1
     assert [done for done, _total, _note in reports] == list(range(steps + 1))
     assert {total for _done, total, _note in reports} == {steps}
     assert record["headline"] == "Лучший Спринт из трёх."
     assert record["helped"] == ["утренняя пробежка"]
+    assert record["notable"] == ["переезд"]
     assert record["dropped"] == ["поздний отбой"]
     assert "verbose_analyse" not in record
     assert set(record) >= set(SprintAnalysis.model_fields) - {"verbose_analyse"}
@@ -610,30 +625,28 @@ async def test_rt_ai_008_what_the_run_leaves_behind(sessions, tmp_path) -> None:
         "▲ Actions finished — 2 of 2",
         "• утренняя пробежка",
         "→ Одна пробежка каждое утро.",
-        "Утренняя пробежка поднимает оценку дня.",
+        "<b>Worth knowing next Sprint</b>",
+        "• переезд",
     ):
         assert line in text
-    assert button_texts(markup) == ["💾 Remember", "🔁 Analyse again", "📊 Retro", "↩️ Menu"]
+    assert button_texts(markup) == ["🔁 Analyse again", "📊 Retro", "↩️ Menu"]
     async with sessions() as session:
-        first = (await session.get(Sprint, sprint_id)).analysis
+        sprint = await session.get(Sprint, sprint_id)
+        first = sprint.analysis
+        # Owed to memory from here; the memory poll takes it in, no button does.
+        assert sprint.memory_at is None
+        sprint.memory_at = utcnow()
+        await session.commit()
     assert first["experiment"] == "Одна пробежка каждое утро."
+    assert "remember" not in text.lower()
 
-    await _press(message, services, "💾 Remember")
-    memory = (tmp_path / "memory.md").read_text(encoding="utf-8")
-    async with sessions() as session:
-        number = (await session.get(Sprint, sprint_id)).number
-    assert f"Sprint {number} retro: Утренняя пробежка поднимает оценку дня." in memory
-    text, markup = message.edits[-1]
-    assert "remembered in memory.md" in text
-    assert "💾 Remember" not in button_texts(markup)
-
-    # A later run replaces the analysis, and takes nothing back out of memory.md.
+    # A later run replaces the analysis, and owes it to memory again.
     await _press(message, services, "🔁 Analyse again")
     async with sessions() as session:
-        second = (await session.get(Sprint, sprint_id)).analysis
+        sprint = await session.get(Sprint, sprint_id)
+        second = sprint.analysis
+        assert sprint.memory_at is None
     assert second["analysed_at"] > first["analysed_at"]
-    assert (tmp_path / "memory.md").read_text(encoding="utf-8") == memory
-    assert "💾 Remember" in button_texts(message.edits[-1][1])
 
     # The retro screen names the analysis from now on.
     await _press(message, services, "📊 Retro")
@@ -669,7 +682,7 @@ async def test_rt_ai_008_the_screen_fits_one_message_at_every_limit(sessions, tm
         hurt=["о" * ITEM_CHARS] * ITEMS_MAX,
         noise=["ш" * ITEM_CHARS] * ITEMS_MAX,
         experiment="э" * SENTENCE_CHARS,
-        memory_fact="ф" * FACT_CHARS,
+        notable=["с" * ITEM_CHARS] * ITEMS_MAX,
     )
     record = {
         **full.model_dump(exclude={"verbose_analyse"}),
@@ -677,7 +690,6 @@ async def test_rt_ai_008_the_screen_fits_one_message_at_every_limit(sessions, tm
         "compared": ["26.08-02", "26.09-01"],
         "met": True,
         "analysed_at": utcnow().isoformat(),
-        "remembered": True,
     }
     sprint_id = await _ended_sprint(sessions, criteria="Ship", days=14)
     async with sessions() as session:
@@ -693,7 +705,7 @@ async def test_rt_ai_008_the_screen_fits_one_message_at_every_limit(sessions, tm
         {"dynamics": [trend] * (TRENDS_MAX + 1)},
         {"headline": "з" * (SENTENCE_CHARS + 1)},
         {"hurt": ["о" * (ITEM_CHARS + 1)]},
-        {"memory_fact": "ф" * (FACT_CHARS + 1)},
+        {"notable": ["с"] * (ITEMS_MAX + 1)},
     ):
         with pytest.raises(ValidationError):
             SprintAnalysis(**{**full.model_dump(), **over})

@@ -143,21 +143,19 @@ async def test_sprint_capacity_accepts_positive_points_or_off(sessions) -> None:
         assert profile.capacity_effort_points is None
 
 
-def test_scheduled_profile_clocks_accept_hhmm_and_only_memory_upkeep_takes_off() -> None:
+def test_scheduled_profile_clocks_accept_hhmm_and_refuse_off() -> None:
     """PS-CLOCK-005 — tests/brd/profile.feature"""
-    memory_clock = PROFILE_FIELDS["memory_update_time"].parse
     diary_clock = PROFILE_FIELDS["diary_time"].parse
     summary_clock = PROFILE_FIELDS["summary_time"].parse
 
-    assert memory_clock("00:00") == time(0, 0)
+    assert diary_clock("00:00") == time(0, 0)
     assert diary_clock("23:59") == time(23, 59)
     assert summary_clock("20:00") == time(20, 0)
-    assert memory_clock("off") is None
     for refused in (diary_clock, summary_clock):
         with pytest.raises(ValueError, match="HH:MM"):
             refused("off")
-    with pytest.raises(ValueError, match="HH:MM"):
-        memory_clock("24:00")
+        with pytest.raises(ValueError, match="HH:MM"):
+            refused("24:00")
     with pytest.raises(ValueError, match="HH:MM"):
         diary_clock("tomorrow")
 
@@ -184,11 +182,7 @@ async def test_ps_morning_016_the_morning_time_is_a_clock_the_daily_hooks_read(s
 async def test_a_scheduled_clock_field_refuses_a_value_that_is_not_a_time(sessions) -> None:
     """PS-CLOCK-005 — tests/brd/profile.feature"""
     async with sessions() as session:
-        for field in (
-            ProfileField.MEMORY_UPDATE_TIME,
-            ProfileField.DIARY_TIME,
-            ProfileField.SUMMARY_TIME,
-        ):
+        for field in (ProfileField.DIARY_TIME, ProfileField.SUMMARY_TIME):
             with pytest.raises(DomainError, match="clock time"):
                 await set_profile_field(session, field, "22:00")
 

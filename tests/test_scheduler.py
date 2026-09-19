@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import select
 
-from safwa.features.profile.model import UserProfile
 from safwa.features.reminders import background
 from safwa.features.reminders.background import (
     REMINDER_FIRE_BATCH,
@@ -266,13 +265,3 @@ async def test_the_loop_survives_a_failing_tick(sessions, monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         await task
     assert calls["count"] >= 2
-
-
-async def test_memory_update_time_column_accepts_a_time(sessions) -> None:
-    """Guards the /setmemtime round-trip the Profile screen renders."""
-    async with sessions() as session:
-        profile = await session.get(UserProfile, 1)
-        profile.memory_update_time = time(3, 0)
-        await session.commit()
-    async with sessions() as session:
-        assert (await session.get(UserProfile, 1)).memory_update_time == time(3, 0)

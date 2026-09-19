@@ -32,38 +32,21 @@ def _database_value(path: Path) -> str:
         database.close()
 
 
-def test_backup_and_restore_replaces_database_and_memory_atomically(tmp_path: Path) -> None:
+def test_backup_and_restore_replaces_the_database_atomically(tmp_path: Path) -> None:
     database = tmp_path / "safwa.db"
-    memory = tmp_path / "memory.md"
     _write_database(database, "original")
-    memory.write_text("prefers morning walks\n", encoding="utf-8")
     backup = create_backup(
         _database_url(database),
-        memory,
         tmp_path / "exports",
         now=datetime(2026, 8, 8, 12, 0, tzinfo=UTC),
     )
     assert inspect_backup(backup.path) == backup
 
     _write_database(database, "changed")
-    memory.write_text("changed locally\n", encoding="utf-8")
     with pytest.raises(BackupError, match="--yes"):
-        restore_backup(backup.path, _database_url(database), memory)
+        restore_backup(backup.path, _database_url(database))
 
-    restored = restore_backup(backup.path, _database_url(database), memory, confirmed=True)
+    restored = restore_backup(backup.path, _database_url(database), confirmed=True)
     assert _database_value(database) == "original"
-    assert memory.read_text(encoding="utf-8") == "prefers morning walks\n"
     assert restored.safety_backup.is_file()
-    assert inspect_backup(restored.safety_backup).memory_present is True
-
-
-def test_restore_missing_memory_file_intentionally_clears_memory(tmp_path: Path) -> None:
-    database = tmp_path / "safwa.db"
-    memory = tmp_path / "memory.md"
-    _write_database(database, "original")
-    backup = create_backup(_database_url(database), memory, tmp_path / "exports")
-    assert backup.memory_present is False
-
-    memory.write_text("will be cleared\n", encoding="utf-8")
-    restore_backup(backup.path, _database_url(database), memory, confirmed=True)
-    assert not memory.exists()
+    assert inspect_backup(restored.safety_backup).path == restored.safety_backup

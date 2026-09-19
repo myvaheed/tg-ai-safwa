@@ -183,13 +183,14 @@ existing table, so the database is rebuilt.
 
 | Entry | | Depends on |
 |---|---|---|
-| **15 — Advisor instruction, not a hook** | S | The AI half of the retrospective, where the takeaway it carries is agreed. |
+| **15 — Advisor instruction, not a hook, shipped** | S | Shipped 2026-09-19 with memory from the retro ([AD-MEMORY-002](../tests/brd/advisor.feature)). |
 
 ## Wave 5 — deliberately later
 
 | Entry | | Why it waits |
 |---|---|---|
-| **The retrospective — the AI analysis half, shipped** | XL | One run from the retro screen, watched on a progress note: small questions over the record and the Diary, each one call ([RT-AI-005](../tests/brd/retro.feature)…[RT-AI-008](../tests/brd/retro.feature)), the owner's mark on the criteria ([RT-CRIT-004](../tests/brd/retro.feature)), and the fact it drew offered to memory.md. Removing memory upkeep from `memory/upkeep.py` is still its own batch. |
+| **The retrospective — the AI analysis half, shipped** | XL | One run from the retro screen, watched on a progress note: small questions over the record and the Diary, each one call ([RT-AI-005](../tests/brd/retro.feature)…[RT-AI-008](../tests/brd/retro.feature)), and the owner's mark on the criteria ([RT-CRIT-004](../tests/brd/retro.feature)). |
+| **Memory from the retro, shipped** | L | Shipped 2026-09-19: the analysis is the only thing that writes memory. The daily upkeep, the memory file, `/mem`, `/syncmem` and the Remember button went; a poll takes each analysed Sprint in and keeps trying until it has ([MEM-RETRO-011](../tests/brd/memory.feature), MEM-RETRO-012); patterns are confirmed by recurrence and forgotten without it (MEM-RETRO-013, MEM-RETRO-014). Two tables and one column went, one table and one column came, so the database is rebuilt. |
 | **Onboarding covers the first start and a return after an absence** | L | Undecided in both halves, and it puts changing state next to the byte-stable prefix. |
 | **Proposal fulfillment validation** | XL | A separate part of Proposal architecture; see [PROPOSAL_VALIDATION.md](PROPOSAL_VALIDATION.md). It coordinates request completion, actual outcomes and interruptions. It does not depend on hooks. |
 | **8 — Retrieve similar existing entities before creating another** | XL | The general BeforeTool interception, retrieval thresholds and clarification/resume contract remain experimental. |

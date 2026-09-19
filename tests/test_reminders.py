@@ -5,7 +5,6 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from safwa.features.reminders.api import parse_clock_or_off
 from safwa.features.reminders.model import ScheduleKind
 from safwa.features.reminders.schedule import (
     Schedule,
@@ -342,25 +341,6 @@ def test_describe_names_a_start_only_while_it_is_still_ahead():
 
 def test_describe_tolerates_an_empty_schedule():
     assert describe(Schedule(kind=ScheduleKind.ONCE), tz=TZ, now=NOW) == "once"
-
-
-
-
-# --- a Settings clock -----------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [("03:00", time(3, 0)), ("23:59", time(23, 59)), ("off", None), ("OFF", None)],
-)
-def test_a_profile_clock_reads_a_time_or_the_off_switch(raw, expected) -> None:
-    assert parse_clock_or_off(raw) == expected
-
-
-@pytest.mark.parametrize("raw", ["", "24:00", "tomorrow"])
-def test_a_profile_clock_rejects_anything_else(raw) -> None:
-    with pytest.raises(ScheduleError):
-        parse_clock_or_off(raw)
 
 
 async def test_rm_system_022_a_sprints_own_reminder_is_not_the_owners_to_edit(sessions) -> None:

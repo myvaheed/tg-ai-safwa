@@ -1,7 +1,7 @@
 {
   "HEAVY_ANALYZER_PROMPT": "cbfa7b9af04d38f2",
   "PERSONA": "4d7d76dae685589c",
-  "SYSTEM_PROMPT": "6b28e79cfe38d37c",
+  "SYSTEM_PROMPT": "f684a0b8e691ca12",
   "agent:diary": "f46a18d31d5195b3",
   "agent:workspace_mutator": "8057ed6ae1947ecd",
   "tool:call_helper": "dd468e92745ed1e8",
