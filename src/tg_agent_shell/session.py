@@ -148,7 +148,11 @@ class RootSession:
             self.adapters,
             self.context,
             self.materializer,
-            routed_kinds=frozenset(self.subagents),
+            # A subagent whose words are shown is handed the turn for those words, so its
+            # first step need not be a tool call.
+            routed_kinds=frozenset(
+                name for name, routed in self.subagents.items() if not routed.shown_as_is
+            ),
             max_tool_calls=MAX_TOOL_CALLS,
             max_repair_rounds=MAX_REPAIR_ROUNDS,
             child_deadline_seconds=SUBAGENT_DEADLINE_SECONDS,

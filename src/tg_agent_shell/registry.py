@@ -63,9 +63,10 @@ def _with_catalogue[Spec: (AgentSpec, HelperSpec)](
 
     `views` is the reader's scope either way: a prompt that spells its own list out, with
     columns trimmed on purpose, keeps what it wrote, and its reads are refused against the
-    same declaration.
+    same declaration. A subagent may declare none, and then reads nothing; a helper is
+    nothing but a reader, so one with no views is a wiring error.
     """
-    if not spec.views:
+    if not spec.views and (isinstance(spec, HelperSpec) or "{views}" in spec.instructions):
         raise RuntimeError(f"The {spec.name} reader declares no views, so it can read nothing")
     if "{views}" not in spec.instructions:
         return spec

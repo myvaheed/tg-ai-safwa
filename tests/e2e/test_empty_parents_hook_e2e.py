@@ -25,6 +25,7 @@ from safwa.features.cards.hooks import (
     REST_TODAY_HOOK,
 )
 from safwa.features.cards.use_cases import create_card
+from safwa.features.onboarding.model import OnboardingNotice
 from safwa.features.profile.api import morning_time
 from safwa.features.profile.model import MORNING_TIME_DEFAULT
 from telegram_llm import ChatHost
@@ -59,6 +60,8 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
     """CD-EMPTY-035 — tests/brd/cards.feature"""
     sessions = e2e_harness.sessions
     async with sessions() as session:
+        # Past the first answer: the onboarding notice was sent long ago.
+        session.add(OnboardingNotice(id=1))
         goal = await create_card(session, kind="goal", title="Learn Spanish")
         goal.created_at = datetime.now(UTC) - timedelta(days=EMPTY_PARENT_GRACE_DAYS, hours=1)
         await session.commit()
@@ -100,6 +103,7 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
         screens=SCREENS,
         bot_username="safwa_ai_bot",
         owner_id=OWNER_ID,
+        features=None,
     )
     runtime = CueRuntime(services, bot=None, owner_id=OWNER_ID)  # type: ignore[arg-type]
     monkeypatch.setattr(runtime, "_anchor", lambda: chat)

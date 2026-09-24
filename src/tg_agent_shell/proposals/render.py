@@ -390,15 +390,26 @@ def results_summary(
         return ""
 
 
-def compose_display_outcome(message: str, summaries: list[str]) -> str:
-    """Attach each application-owned result receipt exactly once.
+def compose_display_outcome(
+    message: str, summaries: list[str], shown: list[str] | None = None
+) -> str:
+    """Attach each application-owned result receipt exactly once, under the blocks shown.
 
     The interface, rather than the model, owns Saved/Discarded/Failed receipts.  Approval
     batches can accumulate overlapping summary blocks, and a provider may still echo a
     receipt in wording of its own.  Anything that opens with a receipt prefix is therefore
     dropped from the body, not only a line that matches one of ours character for
     character.
+
+    A shown block is a subagent's words the owner reads as written, so it comes first,
+    whole, paragraphs and repeated lines intact, and nothing is taken out of it.
     """
+    blocks = [block.strip() for block in shown or [] if block.strip()]
+    rest = _receipts_and_body(message, summaries)
+    return "\n\n".join([*blocks, rest] if rest else blocks)
+
+
+def _receipts_and_body(message: str, summaries: list[str]) -> str:
     receipt_lines: list[str] = []
     for summary in summaries:
         for raw_line in summary.splitlines():

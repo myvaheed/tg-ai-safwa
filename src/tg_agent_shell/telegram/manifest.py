@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..ai.autoapproval import AutoApprovalRule
 from ..ai.mini import ReadToolSpec
 from ..ai.sql import ReadOnlyQueryRunner, SqlView
-from ..ai.subagents import RoutedSubagent
+from ..ai.subagents import SUBAGENT_HISTORY_LAST_MESSAGES, RoutedSubagent
 from ..ai.tools import AfterTool, BeforeTool, Helper
 from ..foundation.screens import ScreenSpec
 from ..history import TelegramHistorySource
@@ -53,11 +53,16 @@ class AgentSpec:
     mutation_tools: tuple[str, ...] = ()
     # The views this subagent may read. They are filled into `{views}` in its instructions
     # when it carries that placeholder; a prompt that spells its own out keeps what it
-    # wrote, and this list is still what its reads are refused against.
+    # wrote, and this list is still what its reads are refused against. A subagent that
+    # declares none reads nothing, and is not handed `query_data`.
     views: tuple[str, ...] = ()
     workspace_state: bool = False
     read_tools: Callable[[AgentContext], tuple[ReadToolSpec, ...]] | None = None
     clock: Callable[[AgentContext], Callable[[], str]] | None = None
+    # How many of the conversation's newest messages it reads.
+    history_messages: int = SUBAGENT_HISTORY_LAST_MESSAGES
+    # Its final words reach the owner as they are, as a block of the Advisor's message.
+    shown_as_is: bool = False
 
     def bind(self, context: AgentContext, *, prompt: str) -> RoutedSubagent:
         """The session this declaration runs as here: its reads, its scope and its clock."""
@@ -69,6 +74,8 @@ class AgentSpec:
             mutation_tools=self.mutation_tools,
             workspace_state=self.workspace_state,
             clock=self.clock(context) if self.clock else None,
+            history_messages=self.history_messages,
+            shown_as_is=self.shown_as_is,
         )
 
 

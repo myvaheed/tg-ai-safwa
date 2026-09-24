@@ -191,7 +191,7 @@ existing table, so the database is rebuilt.
 |---|---|---|
 | **The retrospective — the AI analysis half, shipped** | XL | One run from the retro screen, watched on a progress note: small questions over the record and the Diary, each one call ([RT-AI-005](../tests/brd/retro.feature)…[RT-AI-008](../tests/brd/retro.feature)), and the owner's mark on the criteria ([RT-CRIT-004](../tests/brd/retro.feature)). |
 | **Memory from the retro, shipped** | L | Shipped 2026-09-19: the analysis is the only thing that writes memory. The daily upkeep, the memory file, `/mem`, `/syncmem` and the Remember button went; a poll takes each analysed Sprint in and keeps trying until it has ([MEM-RETRO-011](../tests/brd/memory.feature), MEM-RETRO-012); patterns are confirmed by recurrence and forgotten without it (MEM-RETRO-013, MEM-RETRO-014). Two tables and one column went, one table and one column came, so the database is rebuilt. |
-| **Onboarding covers the first start and a return after an absence** | L | Undecided in both halves, and it puts changing state next to the byte-stable prefix. |
+| **Onboarding — the first start, shipped; a return after an absence, open** | L | The first start shipped 2026-09-24 ([OB-NOTICE-001](../tests/brd/onboarding.feature)…[OB-MANUAL-006](../tests/brd/onboarding.feature)): a notice before the first answer, a tip after each created or finished item, a subagent shown as is. The return after an absence is undecided. |
 | **Proposal fulfillment validation** | XL | A separate part of Proposal architecture; see [PROPOSAL_VALIDATION.md](PROPOSAL_VALIDATION.md). It coordinates request completion, actual outcomes and interruptions. It does not depend on hooks. |
 | **8 — Retrieve similar existing entities before creating another** | XL | The general BeforeTool interception, retrieval thresholds and clarification/resume contract remain experimental. |
 | **The Advisor cannot read the conversation by date** | L | A recorded limitation. Nothing else waits on it. |
@@ -224,8 +224,8 @@ asked means the shared part was fitted to the ones before it.
 **The pre-release window.** Declare a schema batch only if an implementation changes stored
 structure.
 
-**What reaches the cacheable prefix.** Onboarding's changing guidance belongs outside
-`messages[0]`.
+**What reaches the cacheable prefix.** The onboarding shipped with no changing state in any
+prompt: the notice is a message in the chat and each tip a request from the Cue queue.
 
 **The rungs are the unit now.** Hook 7's 15 EP, the Sprint's committed and capacity figures, the
 retro's numbers and the Advisor's judgement of a day's load all count in a scale that says what

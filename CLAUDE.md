@@ -154,6 +154,9 @@ pre-release database; migration support starts after v1, from the ORM metadata a
 - **Everything the model reads is written for a small local model — 4B to 12B.** System prompts,
   tool descriptions, field descriptions, `hint` and `next` are short, imperative and concrete: one
   instruction per line, the exact tool and field names, no rationale and no restating a rule twice.
+- **The onboarding subagent's manual names screens, commands, rules and reactions**
+  ([features/onboarding/agent.py](src/safwa/features/onboarding/agent.py)). A batch that changes
+  one it names, or adds something the owner should meet, updates the manual in the same batch.
 - **Prose for a developer is not held to that.** A non-obvious decision earns the sentence that says
   why. Code comments stay sparse and explain only a non-obvious *why* — a Telegram or Telethon
   quirk, an ordering constraint.

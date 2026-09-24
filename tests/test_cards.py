@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
+from hook_helpers import changes_of
 from pydantic import ValidationError
 from sqlalchemy import func, select
 
@@ -1375,7 +1376,7 @@ async def test_cd_blocked_034_becoming_blocked_is_the_change_a_hook_follows_up(s
         await update_card_fields(
             session, marked.id, {"blocked": True, "blocked_description": "Landlord away"}
         )
-        assert take_changes(session.info) == [
+        assert changes_of(session, CARD_BLOCKED) == [
             Committed(CARD_BLOCKED, born.id), Committed(CARD_BLOCKED, marked.id),
         ]
         # Staying blocked is not becoming blocked, and a Goal never blocks itself.
@@ -1385,7 +1386,7 @@ async def test_cd_blocked_034_becoming_blocked_is_the_change_a_hook_follows_up(s
         await update_card_fields(
             session, marked.id, {"blocked": True, "blocked_description": "Again"}
         )
-        assert take_changes(session.info) == [Committed(CARD_BLOCKED, marked.id)]
+        assert changes_of(session, CARD_BLOCKED) == [Committed(CARD_BLOCKED, marked.id)]
         await session.commit()
 
 
@@ -1477,20 +1478,22 @@ async def test_cd_today_036_entering_today_is_the_change_a_hook_follows_up(sessi
         planned = await create_card(
             session, kind="action", title="Planned", stage="sprint", effort_points=1
         )
-        assert take_changes(session.info) == [Committed(CARD_TODAY, born.id)]
+        assert changes_of(session, CARD_TODAY) == [Committed(CARD_TODAY, born.id)]
         await move_card(session, planned.id, CardStage.TODAY)
         # Staying, renamed or re-estimated in Today is not entering it.
         await move_card(session, planned.id, CardStage.TODAY)
         await update_card_fields(session, planned.id, {"title": "Planned twice"})
         await update_card_fields(session, planned.id, {"effort_points": 5})
-        assert take_changes(session.info) == [Committed(CARD_TODAY, planned.id)]
+        assert changes_of(session, CARD_TODAY) == [Committed(CARD_TODAY, planned.id)]
         # The next instance of a finished repeating Action opens where it was: in Today.
         habit = await create_card(
             session, kind="action", title="Habit", stage="today", effort_points=1, repeatable=True
         )
         take_changes(session.info)
         result = await finish_action(session, habit.id)
-        assert take_changes(session.info) == [Committed(CARD_TODAY, result.successor_ids[0])]
+        assert changes_of(session, CARD_TODAY) == [
+            Committed(CARD_TODAY, result.successor_ids[0])
+        ]
         await session.commit()
 
 

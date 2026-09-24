@@ -60,11 +60,9 @@ from .contracts import (
 from .conversation import conversation_block
 from .mini import ReadToolSpec
 from .sql import QueryRead, ReadOnlyQueryRunner, read_query
-from .subagents import RoutedSubagent
+from .subagents import SUBAGENT_HISTORY_LAST_MESSAGES, RoutedSubagent
 
 logger = logging.getLogger(__name__)
-
-SUBAGENT_HISTORY_LAST_MESSAGES = 10
 
 # What a helper is: it reads, it answers with rows, and it cannot open a screen. `route`
 # is the other half — a subagent that writes, and whose screen suspends the whole chain.
@@ -146,12 +144,15 @@ def response_text(messages: list[dict[str, Any]]) -> str:
     return ""
 
 
-def conversation_for(dialogue: list[dict[str, Any]]) -> str:
-    """The tail of the conversation as data, for anyone who is not its assistant."""
+def conversation_for(
+    dialogue: list[dict[str, Any]], last: int = SUBAGENT_HISTORY_LAST_MESSAGES
+) -> str:
+    """The newest `last` messages of the conversation as data, for anyone who is not its
+    assistant."""
     return conversation_block(
         [
             DialogueMessage(role=str(item["role"]), content=str(item["content"]))
-            for item in dialogue[-SUBAGENT_HISTORY_LAST_MESSAGES:]
+            for item in dialogue[-last:]
         ]
     )
 
@@ -240,8 +241,9 @@ class ToolAdapters:
         subagent gets its own reads and the mutation tools of the features it owns.
 
         `query_data` is the one read door rather than any feature's read tool, so it is
-        published here to every session. `IMMEDIATE_TOOLS` is the whole set the adapters
-        answer themselves, and a subagent declares none of them.
+        published here to every session that has a view to read: a subagent scoped to none
+        would only ever be refused. `IMMEDIATE_TOOLS` is the whole set the adapters answer
+        themselves, and a subagent declares none of them.
         """
         routed = self.subagents.get(kind)
         if routed is None:
@@ -250,10 +252,11 @@ class ToolAdapters:
             )
         # No helper tool: a helper is offered by a complex read, and only the root
         # session's reads are ever offered one.
+        reads_views = routed.query_runner is None or bool(routed.query_runner.views)
         return AgentDefinition(
             kind=kind,
             tools=(
-                QUERY_TOOL,
+                *((QUERY_TOOL,) if reads_views else ()),
                 *(spec.schema for spec in routed.read_tools),
                 *(self.proposals.tools[name].schema() for name in routed.mutation_tools),
             ),

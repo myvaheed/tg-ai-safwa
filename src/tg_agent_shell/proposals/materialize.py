@@ -37,6 +37,12 @@ logger = logging.getLogger(__name__)
 
 MAX_REPAIR_ROUNDS = 5
 
+# What the Advisor reads in place of the words of a subagent whose words are shown as they
+# are. It speaks of that block alone, so it never argues with anything else in the turn.
+SHOWN_AS_IS = (
+    "Shown to the user as is. Do not repeat it. If nothing else was asked, add one short line."
+)
+
 ResolveApproval = Callable[..., Awaitable[AIOutcome | None]]
 
 
@@ -65,15 +71,24 @@ class ProposalMaterializer:
         self.autoapproval = autoapproval
 
     def answer(self, agent: AgentSession, message: str) -> TurnOutcome:
-        """One session's words, and — for the session the owner reads — its receipts.
+        """One session's words, and — for the session the owner reads — the blocks shown as
+        they are and its receipts.
 
-        A subagent's words go to whoever routed to it, so they are handed over untouched.
-        The root is the only participant that writes to the chat, which makes it the one
-        place that has to guarantee the owner is never left with nothing.
+        A subagent's words go to whoever routed to it, so they are handed over untouched —
+        unless it is declared shown as is: then they are a block for the owner to read, and
+        its caller is told they were shown instead of being handed them to retell. The root
+        is the only participant that writes to the chat, which makes it the one place that
+        has to guarantee the owner is never left with nothing.
         """
         if agent.parent_run_id is not None:
+            routed = self.adapters.subagents.get(agent.kind)
+            if routed is not None and routed.shown_as_is and message.strip():
+                agent.shown_blocks.append(message.strip())
+                message = SHOWN_AS_IS
             return as_turn(AIOutcome(AIOutcomeKind.ANSWER, message))
-        composed = compose_display_outcome(message, agent.display_result_summaries)
+        composed = compose_display_outcome(
+            message, agent.display_result_summaries, agent.shown_blocks
+        )
         return as_turn(
             AIOutcome(
                 AIOutcomeKind.ANSWER,

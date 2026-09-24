@@ -13,6 +13,9 @@ from dataclasses import dataclass, field
 from .mini import ReadToolSpec
 from .sql import ReadOnlyQueryRunner
 
+# How much of the conversation a subagent reads, unless it declares its own window.
+SUBAGENT_HISTORY_LAST_MESSAGES = 10
+
 
 @dataclass(frozen=True)
 class RoutedSubagent:
@@ -29,5 +32,10 @@ class RoutedSubagent:
     mutation_tools: tuple[str, ...] = ()
     # Whether the workspace's current state belongs in its context at all.
     workspace_state: bool = False
+    # How many of the conversation's newest messages it reads.
+    history_messages: int = SUBAGENT_HISTORY_LAST_MESSAGES
+    # Its words are the work: they reach the owner as they are, inside the Advisor's own
+    # message, instead of being retold.
+    shown_as_is: bool = False
     # The volatile line that goes after the dialogue, never into the cached prefix.
     clock: Callable[[], str] | None = field(default=None)

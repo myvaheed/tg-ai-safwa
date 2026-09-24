@@ -19,8 +19,10 @@ from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.ai.runs import AgentRun, AgentStep
 from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS
+from tg_agent_shell.proposals.materialize import SHOWN_AS_IS
 from tg_agent_shell.proposals.model import BatchDecision
 from tg_agent_shell.proposals.use_cases import approve_proposal
+from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
 
 TODAY = date.today().isoformat()
 
@@ -821,3 +823,100 @@ async def test_a_script_that_leaves_a_step_out_fails_rather_than_being_repaired(
     )
     with pytest.raises(AssertionError, match="unexpected provider call"):
         await speechless.handle("Что было вчера?")
+
+
+GUIDE_WORDS = (
+    "A Check asks whether something held.\n"
+    "Answer it Passed or Missed.\n\n"
+    "- It hangs on one Card, or none.\n"
+    "- Answer it Passed or Missed."
+)
+
+
+def guide_subagent(harness, **declared) -> RoutedSubagent:
+    """A subagent that reads nothing and whose words are shown, bound as the root binds one."""
+    spec = AgentSpec(
+        name="guide",
+        purpose="explain Safwa.",
+        instructions="You explain Safwa.",
+        shown_as_is=True,
+        **declared,
+    )
+    return spec.bind(
+        AgentContext(owner_id=42, timezone="Europe/Istanbul", query_runner=harness.runner(),
+                     history=None),  # type: ignore[arg-type]
+        prompt=spec.instructions,
+    )
+
+
+async def test_ag_receipt_044_words_shown_as_is_open_the_message_and_survive_a_screen(
+    e2e_harness,
+):
+    """AG-RECEIPT-044 — tests/brd/tg_agent_shell/agents.feature"""
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("guide"),
+            GUIDE_WORDS,
+            route_turn("workspace_mutator"),
+            turn(("check", {"mode": "create", "title": "Posture straight?"}), prefix="mutator"),
+        ],
+        subagents=(guide_subagent(e2e_harness), e2e_harness.subagent("workspace_mutator")),
+    )
+
+    first = await advisor.handle("Explain Checks and add one about posture")
+
+    # Its words are the work, so nothing made it open with a tool call.
+    assert provider.options[1]["tool_choice"] is None
+    receipt = route_receipts(provider)[0]
+    assert receipt == {
+        "subagent": "guide",
+        "outcome": "done",
+        "did": [],
+        "shown": [GUIDE_WORDS],
+        "text": SHOWN_AS_IS,
+    }
+    # The next subagent is not told the explanation was work already saved.
+    mutator_context = json.dumps(provider.calls[3], ensure_ascii=False)
+    assert "Already saved" not in mutator_context
+    assert first.kind is AIOutcomeKind.PROPOSAL
+
+    async with e2e_harness.sessions() as session:
+        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, first.proposal_id)
+        await session.commit()
+    provider.responses.extend(["Added the Check.", "Here it is."])
+    answered = await advisor.resolve_approval(
+        first.proposal_id, decision=BatchDecision.APPROVED, result={"affected_ids": affected}
+    )
+
+    # The screen came between, and the block is still first, whole, with its repeated line.
+    assert answered is not None and answered.kind is AIOutcomeKind.ANSWER
+    assert answered.message.startswith(GUIDE_WORDS + "\n\n")
+    rest = answered.message[len(GUIDE_WORDS):]
+    assert rest.index("Saved") < rest.index("Here it is.")
+
+
+async def test_ag_route_002_a_subagent_reads_the_window_it_declared(e2e_harness):
+    """AG-ROUTE-002 — tests/brd/tg_agent_shell/agents.feature"""
+    dialogue = [
+        DialogueMessage(role="user", content=f"[User]: message {index}")
+        for index in range(14)
+    ]
+    advisor, provider = e2e_harness.advisor(
+        [route_turn("guide"), "Explained.", "Done."],
+        subagents=(guide_subagent(e2e_harness, history_messages=12),),
+    )
+
+    await advisor.handle("Explain it", dialogue=dialogue)
+
+    handed = json.dumps(provider.calls[1], ensure_ascii=False)
+    assert "message 1<" not in handed and "message 2<" in handed
+    assert "message 13<" in handed
+
+
+async def test_ag_read_027_a_subagent_that_declares_no_view_is_handed_no_read(e2e_harness):
+    """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
+    advisor, _ = e2e_harness.advisor(["Done."], subagents=(guide_subagent(e2e_harness),))
+
+    offered = [tool["function"]["name"] for tool in advisor.adapters.definition("guide").tools]
+
+    assert "query_data" not in offered

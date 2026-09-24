@@ -10,7 +10,8 @@ said, so what is said is what is still there.
 
 A hook whose effect reaches the agent — a helper offered to its session, a call refused, a
 request handed to the Advisor — is the owner's to turn off; whether it is on is the application's policy,
-read where the hook is about to work. A hook that runs work of its own is always on.
+read where the hook is about to work. A hook that runs work of its own is always on, unless it
+names another hook as its switch: then it is on exactly when that one is.
 """
 
 from __future__ import annotations
@@ -30,6 +31,16 @@ class AfterTurn:
     owner_id: int
     chat_id: int
     source_message_id: int
+    dialogue_revision: int
+    source: Literal["owner", "system"] = "owner"
+
+
+@dataclass(frozen=True, slots=True)
+class BeforeTurn:
+    """A turn has read its dialogue and has not asked the model yet."""
+
+    owner_id: int
+    chat_id: int
     dialogue_revision: int
     source: Literal["owner", "system"] = "owner"
 
@@ -64,6 +75,14 @@ class OnAfterTurn:
 
     def matches(self, event: AfterTurn) -> bool:
         return event.source == self.source
+
+
+@dataclass(frozen=True, slots=True)
+class OnBeforeTurn:
+    """Every turn, whoever started it; `source` is on the event for a hook that needs it."""
+
+    def matches(self, event: BeforeTurn) -> bool:
+        return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,7 +191,9 @@ class Advise[Item]:
 class HookSpec[Event, Payload]:
     name: str
     owner: str
-    on: tuple[OnAfterTurn | OnAfterTool | OnBeforeTool | OnCommitted | OnTick, ...]
+    on: tuple[
+        OnBeforeTurn | OnAfterTurn | OnAfterTool | OnBeforeTool | OnCommitted | OnTick, ...
+    ]
     evaluate: Callable[[Event], Awaitable[Sequence[Payload]]]
     # OfferTool and RefuseTool checks return the notice the model reads. Run checks return
     # operation data. Advise checks return the items the request will be about.
@@ -181,6 +202,8 @@ class HookSpec[Event, Payload]:
     # switch, and in the feature map either way.
     title: str
     description: str
+    # The hook whose switch turns this one on and off, when it has none of its own.
+    switch: str | None = None
 
     @property
     def agent_related(self) -> bool:

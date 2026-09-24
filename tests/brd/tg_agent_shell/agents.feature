@@ -25,8 +25,8 @@ Feature: Agents — the session, the hand-over, and what comes back
   Scenario: AG-ROUTE-002 — The conversation reaches the subagent as data, not as its own voice
     Given the conversation the subagent is handed
     When it reads it
-    Then the newest 10 messages arrive as one block, each tagged with who wrote it
-      (SUBAGENT_HISTORY_LAST_MESSAGES = 10)
+    Then the newest messages arrive as one block, each tagged with who wrote it: as many as the
+      subagent declared, 10 unless it says otherwise (SUBAGENT_HISTORY_LAST_MESSAGES = 10)
     And none of them arrives as if the subagent had said it
 
   Scenario: AG-ROUTE-003 — A request that names two areas is one request, not two
@@ -50,7 +50,9 @@ Feature: Agents — the session, the hand-over, and what comes back
   Scenario: AG-RECEIPT-006 — Only Safwa writes to the chat
     Given a subagent finished the work it was handed and has something to say about it
     When the request ends
-    Then its words went back to the part answering in the chat, never into the chat themselves
+    Then its words went back to the part answering in the chat, and reach the chat only inside
+      the message that part writes: retold, or printed as they are when the subagent is declared
+      so, by AG-RECEIPT-044
     And that part writes the single message the owner reads, keeping the links to any item named
 
   Scenario: AG-RECEIPT-007 — Work that breaks comes back as a report, not as a silence
@@ -113,7 +115,8 @@ Feature: Agents — the session, the hand-over, and what comes back
   Scenario: AG-ANSWER-014 — A subagent's first step is always the work
     Given a subagent has just been handed a turn
     When it takes its first step
-    Then it has to do something, not answer in words — it was handed the turn for the work
+    Then it has to do something, not answer in words — it was handed the turn for the work —
+      unless it is declared shown as is, whose words are the work, by AG-RECEIPT-044
     And every step after that is free to be the answer, or the work would never finish
 
   Scenario: AG-TURN-015 — Safwa speaks unasked only when nothing of the owner's is open
@@ -341,3 +344,36 @@ Feature: Agents — the session, the hand-over, and what comes back
     And a check that is switched off does not run, and switching it on after its time has passed does not run it for that day
     And a daily check's request not said by the local midnight after its time is dropped: the day it was about is over; one a turn is saying is that turn's to settle
     And work of its own that failed is tried again at every later look until it is done, and nothing else that time handed on is run again
+
+  Scenario: AG-HOOK-042 — A hook may run before any Advisor turn, inside it
+    Given a hook that does work of its own at the start of a turn
+    When a turn begins — on the owner's word or from what Safwa owes them
+    Then the hook runs inside that turn, after the conversation is read and before the model is
+      asked, and a message it puts in the chat stands there before the answer
+    And that message is not in the conversation of the turn it ran in, so the turn still ends on
+      the owner's words
+    When the owner's message takes the turn while the hook is still running
+    Then the hook is stopped with the turn and puts nothing in the chat
+    When the hook fails
+    Then the turn runs on, and the failure is logged
+
+  Scenario: AG-HOOK-043 — A hook may follow another hook's switch
+    Given a hook that names another hook as its switch
+    Then it has no switch of its own and is not on the Profile
+    And it is on exactly when the hook it names is on
+    When that hook is switched off
+    Then this one's condition is not checked and its owed requests are dropped with it
+    And a hook naming an unknown hook, or one without a switch of its own, is refused before the
+      application starts
+
+  Scenario: AG-RECEIPT-044 — A subagent may be shown as is, through the message Safwa writes
+    Given a subagent declared as one whose words are shown as they are
+    When it finishes with words
+    Then those words are a block of the single message Safwa writes, printed before the rest of it,
+      paragraphs and repeated lines intact, and Safwa is told they were shown and not to repeat
+      them
+    And the block is not a receipt: it is not handed to the next subagent of the request as work
+      already saved
+    And it is not made to open with a tool call: its words are the work
+    When a screen stops the request between the subagent's answer and Safwa's
+    Then the block is still there when the request carries on

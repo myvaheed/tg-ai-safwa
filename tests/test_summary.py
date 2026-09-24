@@ -12,8 +12,7 @@ from ui_harness import FakeMessage, services_for
 from llm_gateway import CompletionRequest, CompletionTurn
 from safwa.bootstrap.modules import MODULES, REGISTRY
 from safwa.constants import SUMMARY_TRIGGER_TOKENS
-from safwa.features.profile.api import hook_switched_on
-from safwa.features.profile.use_cases import set_hook_switch
+from safwa.features.profile.api import hook_switched_on, set_hook_switch
 from safwa.features.summary.module import SUMMARY_HOOK
 from safwa.features.summary.summary import DialogueSummary
 from safwa.features.summary.telegram import command_summarize

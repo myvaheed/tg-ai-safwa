@@ -28,7 +28,11 @@ from ..values.api import Value
 from ..values.model import CheckValue
 from .model import Check, CheckOutcome
 
-# The change a hook may follow up on: a Check was answered Missed, however it was saved.
+# The changes a hook may follow up on, however they were saved: a Check was created, answered,
+# or answered Missed. The next instance of a repeating series is the system's, and is created
+# without `CHECK_CREATED`.
+CHECK_CREATED = "check.created"
+CHECK_ANSWERED = "check.answered"
 CHECK_MISSED = "check.missed"
 
 
@@ -133,6 +137,7 @@ async def create_check(session: AsyncSession, *, title: str, repeatable: bool = 
     check = Check(title=clean_title, repeatable=repeatable)
     session.add(check)
     await session.flush()
+    record_change(session, CHECK_CREATED, check.id)
     await bump_workspace(session)
     return check
 
@@ -243,6 +248,7 @@ async def apply_check_outcome(
     was_pending = check.outcome is None
     check.outcome = resolved.value
     check.resolved_by = actor.value
+    record_change(session, CHECK_ANSWERED, check.id)
     if resolved is CheckOutcome.MISSED:
         record_change(session, CHECK_MISSED, check.id)
     if was_pending:

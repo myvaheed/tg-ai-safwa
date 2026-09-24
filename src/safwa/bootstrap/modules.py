@@ -41,6 +41,8 @@ from ..features.heavy_analyzer.module import HEAVY_ANALYZER_HOOK
 from ..features.heavy_analyzer.module import MODULE as HEAVY_ANALYZER
 from ..features.home.module import MODULE as HOME
 from ..features.memory.module import MODULE as MEMORY
+from ..features.onboarding.module import MODULE as ONBOARDING
+from ..features.onboarding.module import NOTICE_HOOK, ONBOARDING_HOOK
 from ..features.planning.module import (
     KEY_ACTIONS_HOOK,
     KEY_WARNING_HOOK,
@@ -83,6 +85,7 @@ MODULES: tuple[FeatureModule, ...] = (
     MEMORY,
     DIAGNOSTICS,
     HEAVY_ANALYZER,
+    ONBOARDING,
 )
 
 
@@ -93,8 +96,9 @@ async def _world(session: AsyncSession) -> World:
 
 
 # The automatic reactions that exist for Safwa. A hook with a switch is turned off and on
-# in the Profile, which is what `hook_switched_on` reads; one without is always on. The
-# daily ones run at the Profile's Morning time.
+# in the Profile, which is what `hook_switched_on` reads; one that follows another's switch
+# goes with it; one with neither is always on. The daily ones run at the Profile's Morning
+# time.
 HOOKS = (
     SUMMARY_HOOK,
     HEAVY_ANALYZER_HOOK,
@@ -113,6 +117,8 @@ HOOKS = (
     SPRINT_EXPIRY_HOOK,
     KEY_ACTIONS_HOOK,
     KEY_WARNING_HOOK,
+    ONBOARDING_HOOK,
+    NOTICE_HOOK,
 )
 
 REGISTRY: Registry = Registry.of(

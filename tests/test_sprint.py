@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
+from hook_helpers import changes_of
 from sqlalchemy import select
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
@@ -597,7 +598,7 @@ async def test_pl_hardtime_021_the_request_names_the_hard_times_the_plan_does_no
         assert await hard_time_request(session, [PLAN_CHECK], now=late) is None
         await plan_one(session)
         sprint = await start_sprint(session, success_criteria="Ship v2", length_days=7)
-        assert take_changes(session.info) == [Committed(SPRINT_STARTED, sprint.id)]
+        assert changes_of(session, SPRINT_STARTED) == [Committed(SPRINT_STARTED, sprint.id)]
         await session.commit()
 
         tax = await fixed("Tax office", 5)
@@ -660,7 +661,7 @@ async def test_pl_energy_022_the_request_names_each_kind_the_sprint_lacks_and_th
         walked = await create_card(session, title="Walked", categories={"rest"})
         await finish_action(session, walked.id)
         sprint = await start_sprint(session, success_criteria="Ship v2")
-        assert take_changes(session.info) == [Committed(SPRINT_STARTED, sprint.id)]
+        assert changes_of(session, SPRINT_STARTED) == [Committed(SPRINT_STARTED, sprint.id)]
         await session.commit()
 
         request = await energy_balance_request(session, [PLAN_CHECK])
@@ -761,7 +762,7 @@ async def test_pl_key_023_a_sprints_actions_are_marked_in_batches_when_it_starts
         ]
         shelved = await create_card(session, title="key but shelved")
         sprint = await start_sprint(session, success_criteria="Ship v2")
-        assert take_changes(session.info) == [Committed(SPRINT_STARTED, sprint.id)]
+        assert changes_of(session, SPRINT_STARTED) == [Committed(SPRINT_STARTED, sprint.id)]
         await session.commit()
         sprint_id = sprint.id
 
@@ -802,11 +803,17 @@ async def test_pl_key_023_an_action_that_joins_is_asked_about_alone_and_a_garble
         # Joining the running Sprint is a change of its own: created into it, moved into it,
         # or brought back; leaving it unfinished is another.
         joined = await create_card(session, title="key newcomer", stage="sprint")
-        assert take_changes(session.info) == [Committed(SPRINT_JOINED, joined.id)]
+        assert changes_of(session, SPRINT_JOINED, SPRINT_LEFT) == [
+            Committed(SPRINT_JOINED, joined.id)
+        ]
         await move_card(session, second.id, CardStage.BACKLOG)
-        assert take_changes(session.info) == [Committed(SPRINT_LEFT, second.id)]
+        assert changes_of(session, SPRINT_JOINED, SPRINT_LEFT) == [
+            Committed(SPRINT_LEFT, second.id)
+        ]
         await move_card(session, second.id, CardStage.SPRINT)
-        assert take_changes(session.info) == [Committed(SPRINT_JOINED, second.id)]
+        assert changes_of(session, SPRINT_JOINED, SPRINT_LEFT) == [
+            Committed(SPRINT_JOINED, second.id)
+        ]
         await session.commit()
     await sink.drain()
 

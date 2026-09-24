@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 
@@ -20,6 +21,9 @@ from ..planning.model import Sprint
 
 # How many of the Sprints that ended before this one the analysis compares it with.
 RETRO_SPRINTS_BEFORE = 2
+
+# The change a hook may follow up on: a Sprint's analysis was written.
+SPRINT_ANALYSED = "sprint.analysed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +85,7 @@ async def record_analysis(session: AsyncSession, sprint_id: int, record: dict[st
         "analysed_at": utcnow().isoformat(),
     }
     sprint.memory_at = None
+    record_change(session, SPRINT_ANALYSED, sprint.id)
     return sprint
 
 

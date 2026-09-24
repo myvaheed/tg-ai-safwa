@@ -10,10 +10,14 @@ from __future__ import annotations
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.errors import DomainError
 
 from ...foundation.workspace import bump_workspace
 from .model import CardTag, Tag
+
+# The change a hook may follow up on: a Tag was created, however it was saved.
+TAG_CREATED = "tag.created"
 
 
 async def create_tag(session: AsyncSession, name: str, description: str | None = None) -> Tag:
@@ -25,6 +29,8 @@ async def create_tag(session: AsyncSession, name: str, description: str | None =
         raise DomainError("A Tag with this name already exists")
     tag = Tag(name=normalized, description=(description or "").strip())
     session.add(tag)
+    await session.flush()
+    record_change(session, TAG_CREATED, tag.id)
     await bump_workspace(session)
     return tag
 

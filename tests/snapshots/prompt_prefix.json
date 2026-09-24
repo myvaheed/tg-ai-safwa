@@ -1,8 +1,9 @@
 {
   "HEAVY_ANALYZER_PROMPT": "cbfa7b9af04d38f2",
   "PERSONA": "4d7d76dae685589c",
-  "SYSTEM_PROMPT": "f684a0b8e691ca12",
+  "SYSTEM_PROMPT": "b25f28f761498921",
   "agent:diary": "f46a18d31d5195b3",
+  "agent:onboarding": "58012ce4f1459e77",
   "agent:workspace_mutator": "8057ed6ae1947ecd",
   "tool:call_helper": "dd468e92745ed1e8",
   "tool:card": "4c6d6c276abb5607",
@@ -14,6 +15,7 @@
   "tool:remove": "07d78cb98a76616e",
   "tool:request": "545d6a4ecc0fcdaa",
   "tool:route": "a521d55911b960de",
+  "tool:stop_onboarding": "793019a269b08c47",
   "tool:tag": "de6d475885c02c39",
   "tool:value": "f1a1affe75a56049"
 }

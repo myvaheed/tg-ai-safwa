@@ -22,8 +22,10 @@ from ..ai.runs import AgentRun
 from ..foundation.clock import utcnow
 from ..foundation.kinds import MessageKind
 from ..history import TelegramMessage
+from ..hooks.contracts import BeforeTurn
 from ..proposals.telegram import render_ai_outcome
 from ..telegram import Services, expire_review
+from ..telegram.dialogue import run_before_turn
 from ..turn import own_cancellation
 
 logger = logging.getLogger(__name__)
@@ -121,10 +123,8 @@ class CueRuntime:
                 return False
             # The turn is its own task, so the lease that was taken for it is what stops
             # it: the owner arriving ends the provider traffic instead of paying for an
-            # answer nobody will read.
-            turn = self.services.turn.start_background(
-                self.services.root.handle(text, dialogue=dialogue)
-            )
+            # answer nobody will read. What stands before the answer is in that task too.
+            turn = self.services.turn.start_background(self._answer(text, dialogue))
             try:
                 outcome = await turn
             except asyncio.CancelledError:
@@ -152,6 +152,21 @@ class CueRuntime:
             # the Cue row remains, and the next tick retries the whole turn.
             logger.exception("A Cue failed to reach the owner")
             return False
+
+    async def _answer(self, text: str, dialogue: list[DialogueMessage]) -> AIOutcome:
+        """One Advisor turn, after the work that stands before any answer."""
+        await run_before_turn(
+            self._anchor(),
+            self.services,
+            BeforeTurn(
+                owner_id=self.owner_id,
+                chat_id=self.owner_id,
+                dialogue_revision=self.services.turn.dialogue_revision,
+                source="system",
+            ),
+            self.still_current,
+        )
+        return await self.services.root.handle(text, dialogue=dialogue)
 
     async def _end_unseen_review(self, outcome: AIOutcome | None) -> None:
         """End the review a turn that lost the chat left open, the way an undrawn one ends.

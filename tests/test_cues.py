@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
+from hook_helpers import before_turn_hooks
 from sqlalchemy import select
 
 from safwa.bootstrap.modules import REGISTRY
@@ -20,6 +22,7 @@ from tg_agent_shell.cues.queue import add_cue, waiting_cues
 from tg_agent_shell.cues.runtime import CueRuntime
 from tg_agent_shell.foundation.changes import Committed
 from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.proposals.model import ChangeAction, ProposalChange
 from tg_agent_shell.proposals.store import PROPOSAL_REVIEW_MINUTES, ProposalStore
 from tg_agent_shell.turn import TurnManager
@@ -338,3 +341,92 @@ async def test_pl_end_015_the_sprints_own_words_are_what_reaches_the_owner(sessi
     # Nothing dresses it as a Reminder that went off: the words are the Sprint's own.
     assert "Reminder" not in said
     assert await remaining(sessions) == []
+
+
+class CueChat:
+    """What a Cue turn puts in the chat, in order: the published words and the answer."""
+
+    def __init__(self) -> None:
+        self.said: list[str] = []
+
+    async def send_parts(self, _message, text, *, kind, event_id=None, replace=None):
+        del event_id, replace
+        self.said.append(f"{kind}: {text}")
+
+
+class CueAdvisor:
+    reviews = ProposalStore()
+
+    def __init__(self) -> None:
+        self.asked = 0
+
+    async def handle(self, text, *, dialogue):
+        del text, dialogue
+        self.asked += 1
+        return SimpleNamespace(proposal_id=None, message="The answer.")
+
+
+def _speaking(sessions, hooks) -> tuple[CueRuntime, CueChat, CueAdvisor]:
+    chat = CueChat()
+    advisor = CueAdvisor()
+
+    async def no_dialogue(_owner_id):
+        return []
+
+    services = SimpleNamespace(
+        sessions=sessions, turn=TurnManager(), root=advisor, hooks=hooks, features=None,
+        chat=chat, history=SimpleNamespace(dialogue=no_dialogue),
+    )
+    return CueRuntime(services, bot=None, owner_id=1), chat, advisor  # type: ignore[arg-type]
+
+
+async def test_ag_hook_042_a_cue_turn_runs_the_work_first_inside_itself(sessions, monkeypatch):
+    """AG-HOOK-042 — tests/brd/tg_agent_shell/agents.feature"""
+    seen = []
+
+    async def say_first(event, context) -> None:
+        seen.append(event)
+        await context.publish("Said first.", MessageKind.DIALOGUE_ASSISTANT.value)
+
+    runtime, chat, _ = _speaking(sessions, before_turn_hooks(say_first))
+
+    async def render(_message, _services, outcome, *, kind, event_id):
+        chat.said.append(f"{kind}: {outcome.message}")
+
+    monkeypatch.setattr("tg_agent_shell.cues.runtime.render_ai_outcome", render)
+
+    assert await runtime.can_speak() is True
+    assert await runtime.speak("d" * 32, "Sprint 1 is over.") is True
+    runtime.release()
+
+    assert chat.said == ["dialogue_assistant: Said first.", "cue: The answer."]
+    assert [event.source for event in seen] == ["system"]
+
+
+async def test_ag_hook_042_the_owner_arriving_stops_it_before_it_says_anything(sessions):
+    """AG-HOOK-042 — tests/brd/tg_agent_shell/agents.feature"""
+    checking = asyncio.Event()
+    stopped = asyncio.Event()
+
+    async def check_then_say(_event, context) -> None:
+        checking.set()
+        try:
+            # Whatever it awaits is where the owner's message lands.
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            stopped.set()
+            raise
+        await context.publish("Said first.", MessageKind.DIALOGUE_ASSISTANT.value)
+
+    runtime, chat, advisor = _speaking(sessions, before_turn_hooks(check_then_say))
+
+    assert await runtime.can_speak() is True
+    speaking = asyncio.create_task(runtime.speak("e" * 32, "Sprint 1 is over."))
+    await asyncio.wait_for(checking.wait(), 2)
+    runtime.services.turn.cancel()
+
+    assert await asyncio.wait_for(speaking, 2) is False
+    assert stopped.is_set()
+    assert chat.said == []
+    assert advisor.asked == 0
+    runtime.release()

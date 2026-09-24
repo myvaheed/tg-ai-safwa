@@ -7,10 +7,14 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.errors import DomainError
 
 from ...foundation.workspace import bump_workspace
 from .model import DiaryEntry
+
+# The change a hook may follow up on: a day was written or rewritten.
+DIARY_WRITTEN = "diary.written"
 
 
 async def diary_entry_for(session: AsyncSession, entry_date: date) -> DiaryEntry | None:
@@ -37,6 +41,7 @@ async def create_diary_entry(
     )
     session.add(entry)
     await session.flush()
+    record_change(session, DIARY_WRITTEN, entry.id)
     await bump_workspace(session)
     return entry
 
@@ -58,6 +63,7 @@ async def update_diary_entry(
     entry.body = text
     entry.feeling_score = _validated_feeling_score(feeling_score)
     entry.version += 1
+    record_change(session, DIARY_WRITTEN, entry.id)
     await bump_workspace(session)
     return entry
 

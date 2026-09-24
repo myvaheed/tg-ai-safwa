@@ -15,12 +15,14 @@ from .contracts import (
     AfterTool,
     AfterTurn,
     BeforeTool,
+    BeforeTurn,
     HookPolicy,
     HookSpec,
     OfferTool,
     OnAfterTool,
     OnAfterTurn,
     OnBeforeTool,
+    OnBeforeTurn,
     OnCommitted,
     OnTick,
     RefuseTool,
@@ -30,12 +32,12 @@ from .contracts import (
     every_switch_on,
 )
 
-HookEvent = AfterTurn | AfterTool | BeforeTool | Committed | Tick
+HookEvent = BeforeTurn | AfterTurn | AfterTool | BeforeTool | Committed | Tick
 
 # Which subscription reads which event; the registry's compatibility rules are below.
 _SUBSCRIPTION_FOR: Mapping[type, type] = MappingProxyType({
-    AfterTurn: OnAfterTurn, AfterTool: OnAfterTool, BeforeTool: OnBeforeTool,
-    Committed: OnCommitted, Tick: OnTick,
+    BeforeTurn: OnBeforeTurn, AfterTurn: OnAfterTurn, AfterTool: OnAfterTool,
+    BeforeTool: OnBeforeTool, Committed: OnCommitted, Tick: OnTick,
 })
 
 
@@ -76,8 +78,10 @@ class HookRegistry:
                 raise RuntimeError(f"Hook {spec.name} names an unknown helper: {spec.effect.helper}")
             for subscription in spec.on:
                 match subscription, spec.effect:
+                    case OnBeforeTurn(), Run():
+                        event_type: type = BeforeTurn
                     case OnAfterTurn(source=source), Run() if source in {"owner", "system"}:
-                        event_type: type = AfterTurn
+                        event_type = AfterTurn
                     case OnAfterTool(tool=tool, agent="root", outcome="success"), OfferTool():
                         if tool not in tools:
                             raise RuntimeError(f"Hook {spec.name} names an unavailable tool boundary: {tool}")
@@ -95,6 +99,16 @@ class HookRegistry:
                 bucket = index.setdefault(event_type, [])
                 if spec not in bucket:
                     bucket.append(spec)
+        by_name = {spec.name: spec for spec in specs}
+        for spec in specs:
+            if spec.switch is None:
+                continue
+            # One step: the hook followed has a switch of its own, and follows nobody.
+            followed = by_name.get(spec.switch)
+            if followed is None or not followed.agent_related or followed.switch is not None:
+                raise RuntimeError(
+                    f"Hook {spec.name} follows {spec.switch!r}, which has no switch of its own"
+                )
         return cls(specs, policy, MappingProxyType({key: tuple(value) for key, value in index.items()}))
 
     @property
@@ -109,8 +123,13 @@ class HookRegistry:
 
     @property
     def agent_related(self) -> tuple[HookSpec, ...]:
-        """The hooks the owner may turn off, in catalogue order."""
-        return tuple(spec for spec in self.specs if spec.agent_related)
+        """The hooks the owner may turn off, in catalogue order: a hook that follows another's
+        switch has none of its own to show."""
+        return tuple(spec for spec in self.specs if spec.agent_related and spec.switch is None)
+
+    def followers(self, name: str) -> tuple[str, ...]:
+        """The hooks that name this one as their switch, which turning it goes for too."""
+        return tuple(spec.name for spec in self.specs if spec.switch == name)
 
     def listens(self, event_type: type) -> bool:
         return event_type in self._index
@@ -119,10 +138,10 @@ class HookRegistry:
         self, sessions: async_sessionmaker[AsyncSession], spec: HookSpec
     ) -> bool:
         """Read the policy now, so a switch the owner just turned counts without a restart."""
-        if not spec.agent_related:
+        if spec.switch is None and not spec.agent_related:
             return True
         async with sessions() as session:
-            return await self.policy(session, spec.name)
+            return await self.policy(session, spec.switch or spec.name)
 
     async def evaluate(
         self, event: HookEvent, sessions: async_sessionmaker[AsyncSession]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from hook_helpers import changes_of
 from sqlalchemy import select
 
 from safwa.features.cards.model import Card, CardEvent, CardStage
@@ -621,9 +622,9 @@ async def test_ch_missed_017_a_run_of_missed_is_raised_at_every_multiple_of_thre
         # Missed is the change; Passed is not. Read before the commit hands them on.
         take_changes(session.info)  # the Action entering Today is Cards' change, not this one
         _, live = await resolve_check(session, live.id, CheckOutcome.PASSED)
-        assert take_changes(session.info) == []
+        assert changes_of(session, CHECK_MISSED) == []
         second, live = await resolve_check(session, live.id, CheckOutcome.MISSED)
-        assert take_changes(session.info) == [Committed(CHECK_MISSED, second.id)]
+        assert changes_of(session, CHECK_MISSED) == [Committed(CHECK_MISSED, second.id)]
         await session.commit()
         await answer(CheckOutcome.MISSED)
         assert await missed_run_request(session, [answered[-1].id]) is None

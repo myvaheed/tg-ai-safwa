@@ -33,6 +33,7 @@ from tg_agent_shell.cues.runtime import CueRuntime
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramMessage
+from tg_agent_shell.hooks.registry import HookRegistry
 from tg_agent_shell.proposals.store import ProposalStore
 from tg_agent_shell.proposals.use_cases import open_batch
 from tg_agent_shell.turn import TurnManager
@@ -414,6 +415,7 @@ async def test_reminder_advisor_receives_canonical_dialogue(sessions, monkeypatc
         history=history,
         root=advisor,
         turn=turn,
+        hooks=HookRegistry.of(),
     )
     runtime = CueRuntime(services, object(), owner_id=42)
     rendered: list[tuple[MessageKind, str]] = []
@@ -485,6 +487,7 @@ async def test_a_cue_render_failure_releases_its_pending_proposal(sessions, monk
         history=History(),
         root=Advisor(),
         turn=TurnManager(),
+        hooks=HookRegistry.of(),
     )
     runtime = CueRuntime(services, object(), owner_id=42)
     # Below the guard, not over it: ending an undrawn review is `render_ai_outcome`'s job.

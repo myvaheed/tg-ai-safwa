@@ -120,14 +120,14 @@ class ContextBuilder:
         Same order as the Advisor's: prompt, then state, then conversation, then what this
         turn has already saved, then the clock — so the stable part stays byte-identical
         and the volatile part stays last.  The receipts sit outside the conversation, so
-        the ``SUBAGENT_HISTORY_LAST_MESSAGES`` window never trims them away.
+        the window the subagent declared never trims them away.
         """
         messages: list[dict[str, Any]] = [{"role": "system", "content": routed.prompt}]
         if routed.workspace_state:
             async with self.sessions() as session:
                 context = await self.workspace_state(session)
             append_user_message(messages, f"[System]: Current workspace state:\n{context.state}")
-        conversation = conversation_for(dialogue)
+        conversation = conversation_for(dialogue, routed.history_messages)
         if conversation:
             append_user_message(
                 messages,

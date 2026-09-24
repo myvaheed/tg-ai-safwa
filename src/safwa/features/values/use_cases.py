@@ -10,10 +10,14 @@ from __future__ import annotations
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.errors import DomainError
 
 from ...foundation.workspace import bump_workspace
 from .model import CardValue, CheckValue, Value
+
+# The change a hook may follow up on: a Value was created, however it was saved.
+VALUE_CREATED = "value.created"
 
 
 async def create_value(
@@ -35,6 +39,8 @@ async def create_value(
         active=bool(active),
     )
     session.add(value)
+    await session.flush()
+    record_change(session, VALUE_CREATED, value.id)
     await bump_workspace(session)
     return value
 

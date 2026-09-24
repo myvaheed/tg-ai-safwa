@@ -21,6 +21,7 @@ from tg_agent_shell.cues.background import tick
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.cues.queue import add_cue
 from tg_agent_shell.cues.runtime import CueRuntime
+from tg_agent_shell.hooks.registry import HookRegistry
 from tg_agent_shell.turn import TurnManager
 
 pytestmark = pytest.mark.e2e
@@ -69,6 +70,7 @@ def _cue_runtime(harness, advisor, turn: TurnManager) -> CueRuntime:
         turn=turn,
         root=advisor,
         history=SimpleNamespace(dialogue=_no_dialogue),
+        hooks=HookRegistry.of(),
     )
     return CueRuntime(services, bot=None, owner_id=OWNER_ID)  # type: ignore[arg-type]
 

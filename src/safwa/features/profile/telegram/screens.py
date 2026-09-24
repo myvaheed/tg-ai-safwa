@@ -34,8 +34,9 @@ from ....constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ....features.cards.api import effort_label
 from ....foundation.workspace import Workspace
 from ...reminders.api import parse_clock
+from ..api import set_hook_switch
 from ..model import UserProfile
-from ..use_cases import profile_field, set_hook_switch, set_profile_field
+from ..use_cases import profile_field, set_profile_field
 
 
 @dataclass(frozen=True, slots=True)
@@ -308,7 +309,9 @@ async def _on_switch(context: CallbackContext) -> None:
         if profile is None:
             raise DomainError("Workspace is not initialized")
         on = name in profile.disabled_hooks
-        await set_hook_switch(session, name, on=on)
+        await set_hook_switch(
+            session, name, on=on, followers=context.services.hooks.followers(name)
+        )
         await session.commit()
     await command_profile(
         context.message,

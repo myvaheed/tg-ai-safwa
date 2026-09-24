@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import time
 
 from sqlalchemy import select
@@ -14,7 +15,11 @@ from safwa.features.profile.model import DIARY_TIME_DEFAULT, ProfileField, UserP
 from safwa.features.profile.telegram import command_profile
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.summary.module import SUMMARY_HOOK
-from tg_agent_shell.hooks.contracts import BeforeTool
+from tg_agent_shell.cues.model import Cue
+from tg_agent_shell.cues.queue import add_hook_cue
+from tg_agent_shell.foundation.changes import Committed
+from tg_agent_shell.hooks.contracts import Advise, BeforeTool, HookSpec, OnCommitted
+from tg_agent_shell.hooks.registry import HookRegistry
 from tg_agent_shell.telegram import callback_token_handler
 from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import UiSession
@@ -149,3 +154,48 @@ async def test_ps_hooks_015_a_reaction_with_a_switch_is_turned_off_and_on_in_the
     assert "🔔 Helper offer: on" in button_texts(markup)
     async with sessions() as session:
         assert (await session.get(UserProfile, 1)).disabled_hooks == []
+
+
+async def test_ag_hook_043_a_follower_is_not_on_the_profile_and_goes_off_with_its_switch(
+    sessions,
+) -> None:
+    """AG-HOOK-043 — tests/brd/tg_agent_shell/agents.feature"""
+    async def subject(event):
+        return (event.subject_id,)
+
+    async def words(session, items):
+        return "About it."
+
+    main = HookSpec(
+        name="test.main", owner="profile", on=(OnCommitted(kind="thing.changed"),),
+        evaluate=subject, effect=Advise(words),
+        title="Main reaction", description="Asks about a changed thing.",
+    )
+    follower = replace(main, name="test.follower", title="Follower reaction", switch=main.name)
+    services = services_for(sessions)
+    services.hooks = HookRegistry.of(
+        (main, follower), owners=frozenset({"profile"}), policy=hook_switched_on
+    )
+    async with sessions() as session:
+        for hook in (main.name, follower.name, "other.hook"):
+            await add_hook_cue(session, hook=hook, items=[1])
+        await session.commit()
+    message = FakeMessage(950, bot_message=True, answer_as_new=True)
+    await command_profile(message, services)
+
+    rendered, markup = message.edits[-1]
+    assert "Main reaction: on" in rendered and "Follower reaction" not in rendered
+    assert not any("Follower" in label for label in button_texts(markup))
+    button = next(
+        item for row in markup.inline_keyboard for item in row
+        if item.text == "🔔 Main reaction: on"
+    )
+    await callback_token_handler(
+        FakeCallback(button.callback_data.split(":", 1)[1], message), services
+    )
+
+    # Off together: what either owed is dropped, and neither checks anything.
+    async with sessions() as session:
+        assert [cue.hook for cue in await session.scalars(select(Cue))] == ["other.hook"]
+    change = Committed(kind="thing.changed", subject_id=1)
+    assert not [item async for item in services.hooks.evaluate(change, sessions)]

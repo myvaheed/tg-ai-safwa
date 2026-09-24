@@ -183,6 +183,7 @@ async def create_card(
     for check_id in sorted(check_ids or set()):
         session.add(CardCheck(card_id=card.id, check_id=check_id))
     await record_card_event(session, card, "create", actor, None, new_correlation_id())
+    record_change(session, CARD_CREATED, card.id)
     if card.blocked:
         record_change(session, CARD_BLOCKED, card.id)
     if card_kind is CardKind.ACTION:
@@ -522,10 +523,13 @@ def validate_blocked_fields(blocked: bool, description: str | None) -> None:
         raise DomainError("A blocked Card needs a blocked description")
 
 
-# The changes a hook may follow up on: an Action became blocked, or entered Today,
-# however it was saved; and one stood in Today when the morning came.
+# The changes a hook may follow up on: a Card was created, an Action became blocked, entered
+# Today or was finished, however it was saved; and one stood in Today when the morning came.
+# A repeating Action's next instance is the system's, so it is created without `CARD_CREATED`.
+CARD_CREATED = "card.created"
 CARD_BLOCKED = "card.blocked"
 CARD_TODAY = "card.today"
+CARD_DONE = "card.done"
 CARD_TODAY_MORNING = "card.today_morning"
 
 
@@ -686,6 +690,7 @@ async def finish_action(
         session, card, CardStage.DONE.value, actor, before, correlation_id
     )
     await record_sprint_result(session, card.id)
+    record_change(session, CARD_DONE, card.id)
     result = OperationResult(card_ids=[card.id])
     if card.blocked:
         result.warnings.append(f"Blocked: {card.blocked_description}")

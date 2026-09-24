@@ -114,6 +114,9 @@ class AgentSession:
     repair_rounds: int = 0
     result_summaries: list[str] = field(default_factory=list)
     display_result_summaries: list[str] = field(default_factory=list)
+    # Words a subagent declared as shown wrote, for the person to read as they are: never
+    # split into receipt lines, and never handed to the next subagent as work done.
+    shown_blocks: list[str] = field(default_factory=list)
     # Who routed here, and this session's own `route` call that has not been answered yet.
     parent_run_id: int | None = None
     awaiting_route: dict[str, Any] | None = None
@@ -169,6 +172,7 @@ class AgentSession:
             "repair_rounds": self.repair_rounds,
             "result_summaries": self.result_summaries,
             "display_result_summaries": self.display_result_summaries,
+            "shown_blocks": self.shown_blocks,
             "awaiting_route": self.awaiting_route,
             "prior_receipts": self.prior_receipts,
             "host_state": self.host_state,
@@ -219,6 +223,7 @@ class AgentSession:
             repair_rounds=int(state.get("repair_rounds", 0)),
             result_summaries=list(state.get("result_summaries") or []),
             display_result_summaries=list(state.get("display_result_summaries") or []),
+            shown_blocks=list(state.get("shown_blocks") or []),
             parent_run_id=record.parent_run_id,
             awaiting_route=state.get("awaiting_route") or None,
             prior_receipts=list(state.get("prior_receipts") or []),
@@ -289,6 +294,7 @@ def route_receipt(
     *,
     error: str | None = None,
     receipt_prefixes: tuple[str, ...] = (),
+    shown: list[str] | None = None,
 ) -> dict[str, Any]:
     """What a finished subagent hands back to whoever routed to it.
 
@@ -296,7 +302,8 @@ def route_receipt(
     accumulated, so there is one shape of receipt in the system.  `text` is the subagent's
     own words with its own citations — real ids the caller can reuse — and never the body
     of what it proposed.  `receipt_prefixes` are the host's receipt openings, so a line the
-    model echoed is not counted twice.
+    model echoed is not counted twice.  `shown` are the blocks the person reads as they
+    were written, beside the receipts and apart from them: whole, and in order.
     """
     receipt_lines = [line for summary in summaries for line in summary.splitlines() if line.strip()]
     receipt: dict[str, Any] = {
@@ -308,6 +315,8 @@ def route_receipt(
         message = "\n".join(
             line for line in message.splitlines() if not line.strip().startswith(receipt_prefixes)
         )
+    if shown:
+        receipt["shown"] = list(shown)
     if message.strip():
         receipt["text"] = message.strip()
     if error:

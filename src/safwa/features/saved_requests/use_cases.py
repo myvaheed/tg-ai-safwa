@@ -13,11 +13,15 @@ from collections.abc import Collection
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.errors import DomainError
 
 from ...foundation.workspace import bump_workspace
 from ..cards.api import CardQueryError, normalize_card_query
 from .model import SavedRequest
+
+# The change a hook may follow up on: a Request was created, however it was saved.
+REQUEST_CREATED = "request.created"
 
 # What a new workspace starts with, so the owner sees what a Request is before
 # asking for one. It is an ordinary Request from the moment it exists: renaming,
@@ -58,6 +62,7 @@ async def create_saved_request(
     )
     session.add(request)
     await session.flush()
+    record_change(session, REQUEST_CREATED, request.id)
     await bump_workspace(session)
     return request
 

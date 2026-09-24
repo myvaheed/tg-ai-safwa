@@ -22,6 +22,7 @@ from safwa.bootstrap.modules import (
     SCREENS,
     SYSTEM_PROMPT,
 )
+from safwa.features.advisor.agent import ADVISOR_VIEWS
 from safwa.features.cards.use_cases import create_card
 from safwa.features.diary.agent import DIARY_AGENT
 from safwa.features.planning.use_cases import start_sprint
@@ -37,14 +38,16 @@ from tg_agent_shell.ai.messages import ContextBuilder, StateBlocks
 from tg_agent_shell.ai.subagents import RoutedSubagent
 
 
-def test_every_mutation_tool_belongs_to_the_board_or_to_the_diary():
+def test_every_mutation_tool_belongs_to_the_board_the_diary_or_the_onboarding():
     """WS-SCOPE-001 — tests/brd/workspace_mutator.feature"""
     # CLAUDE.md: the Advisor holds no mutation tool at all, and preparation runs where the
     # change was authored.  A new tool that reaches no subagent is unreachable.
     routed = {tool for agent in AGENTS for tool in agent.mutation_tools}
 
     assert routed == set(PROPOSALS.tools)
-    assert set(PROPOSALS.tools) - set(MUTATOR_AGENT.mutation_tools) == {"diary"}
+    assert set(PROPOSALS.tools) - set(MUTATOR_AGENT.mutation_tools) == {
+        "diary", "stop_onboarding",
+    }
 
 
 def test_the_board_judges_a_change_against_the_state_it_is_given():
@@ -174,11 +177,11 @@ async def test_ws_context_007_the_clock_is_the_owners_and_comes_last(sessions):
     assert "Current local time" not in json.dumps(messages[:-1])
 
 
-# Every prompt a model reads a view list from, however that list was written.
+# Every prompt a model reads a view list from, however that list was written, and the list.
 CATALOGUE_PROMPTS = {
-    "advisor": SYSTEM_PROMPT,
-    **{name: helper.instructions for name, helper in HELPERS.items()},
-    **{agent.name: agent.instructions for agent in AGENTS},
+    "advisor": (SYSTEM_PROMPT, ADVISOR_VIEWS),
+    **{name: (helper.instructions, helper.views) for name, helper in HELPERS.items()},
+    **{agent.name: (agent.instructions, agent.views) for agent in AGENTS},
 }
 
 
@@ -186,7 +189,9 @@ CATALOGUE_PROMPTS = {
 def test_a_prompt_names_no_view_the_database_does_not_have(reader: str):
     # The catalogue is composed and cannot name a view that is gone. A prompt also names
     # views in its own prose, and there nothing checks the spelling.
-    named = set(re.findall(r"\bai_[a-z_]+\b", CATALOGUE_PROMPTS[reader]))
+    prompt, views = CATALOGUE_PROMPTS[reader]
+    named = set(re.findall(r"\bai_[a-z_]+\b", prompt))
 
     assert named <= ALLOWED_VIEWS
-    assert named
+    # A reader that declares no view is told of none.
+    assert bool(named) == bool(views)

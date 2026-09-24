@@ -35,6 +35,7 @@ from brd_ids import BRD, cited_tests, titled_scenarios  # noqa: E402
 
 from safwa.bootstrap.modules import AGENTS, AI_VIEWS, HELPERS, MODULES, REGISTRY  # noqa: E402
 from safwa.features.advisor.agent import ADVISOR_VIEWS  # noqa: E402
+from tg_agent_shell.hooks.contracts import HookSpec  # noqa: E402
 from tg_agent_shell.telegram.contributions import ScreenCommand  # noqa: E402
 
 # The registry is the source of these names, which is the point of Rule H: a feature that
@@ -812,13 +813,19 @@ def wiring(name: str) -> list[str]:
         ("text_inputs", [flow.name for flow in module.text_inputs]),
         ("start_links", [f"{len(module.start_links)} payloads"] if module.start_links else []),
         ("hooks", [
-            f"{item.name} ({'switched in the Profile' if item.agent_related else 'always on'})"
+            f"{item.name} ({_switch(item)})"
             for item in REGISTRY.hooks.specs if item.owner == module.name
         ]),
         ("recover", ["recover_startup"] if module.recover else []),
         ("background", [task.name for task in module.background]),
     ]
     return [f"  {field:<17}{', '.join(values)}" for field, values in declared if values]
+
+
+def _switch(hook: HookSpec) -> str:
+    if hook.switch is not None:
+        return f"follows {hook.switch}"
+    return "switched in the Profile" if hook.agent_related else "always on"
 
 
 def _command_name(command: ScreenCommand) -> str:

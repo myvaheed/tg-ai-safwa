@@ -15,6 +15,8 @@ from sqlalchemy import select
 from safwa.bootstrap.modules import PROPOSALS, REGISTRY
 from safwa.features.cards.hooks import BLOCKER_HOOK
 from safwa.features.cards.use_cases import create_card, update_card_fields
+from safwa.features.onboarding.hooks import ONBOARDING_HOOK
+from safwa.features.profile.api import set_hook_switch
 from tg_agent_shell.cues.background import tick
 from tg_agent_shell.cues.initiatives import bind_committed
 from tg_agent_shell.cues.model import Cue
@@ -38,6 +40,10 @@ async def _open_gate() -> bool:
 async def test_cd_blocked_034_a_blocker_saved_by_proposal_or_by_hand_is_one_request(e2e_harness):
     """CD-BLOCKED-034 — tests/brd/cards.feature"""
     sink = bind_committed(e2e_harness.sessions, REGISTRY.hooks)
+    # The tips would ask about every Card saved here; this is the blocker's request alone.
+    async with e2e_harness.sessions() as session:
+        await set_hook_switch(session, ONBOARDING_HOOK.name, on=False)
+        await session.commit()
     async with e2e_harness.sessions() as session:
         card = await create_manual_card(session, title="Call the bank")
         await session.commit()

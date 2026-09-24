@@ -1,6 +1,10 @@
 # Онбординг: подсказки по факту и субагент-проводник
 
-Предложение от 2026-09-21 по решениям владельца; ничего не утверждает. Заменяет проект от
+Проект от 2026-09-21 по решениям владельца; реализован 2026-09-24 батчами 1 и 2 (ниже, «Что
+меняется в репозитории»), сценарии — [onboarding.feature](../tests/brd/onboarding.feature) и
+AG-HOOK-042, AG-HOOK-043, AG-RECEIPT-044 в
+[agents.feature](../tests/brd/tg_agent_shell/agents.feature). Не сделан один пункт: прогон на
+живой модели владельца, по которому закрепляется окно в 100. Заменяет проект от
 2026-09-19 — четырнадцать шагов с вычисляемыми отметками и блок в контексте каждого хода. Тот
 проект снят: он заставлял модель 4B исполнять алгоритм, выводил «пройдено» из немонотонных
 признаков и спорил с настоящим запросом владельца в каждом ходе. Здесь ничего из этого нет.
@@ -150,7 +154,7 @@ more»; остальные в подсказку не попадают, и эт�
 | card.today | уже есть: `create_card`, `move_card`, `_copy_repeat_successor` | последний путь — система ставит в Today копию повторяемой Карточки. Поэтому фраза в просьбе — состояние, не действие: «Card [X] is now in Today»; субагент видит, что Карточка повторяемая, и может это сказать. Решение владельца: факт остаётся в списке |
 | card.done | `finish_action` | экран и предложение |
 | value.created, tag.created, request.created | `create_value`, `create_tag`, `create_saved_request` | экран и предложение |
-| reminder.created | `create_reminder` | только Reminder владельца. Предупреждение Спринта делает `create_sprint_reminder` — другая операция, факта нет: «вы создали Reminder» про системный — ложь (RM-SYSTEM-022) |
+| reminder.created | `create_reminder` | только Reminder владельца. Предупреждение Спринта делает `create_sprint_reminder` — другая операция, факта нет: «вы создали Reminder» про системный — ложь (RM-SYSTEM-022). Обе хранят строку через общий `_store_reminder`, и факт ставит только `create_reminder` |
 | diary.written | `create_diary_entry`, `update_diary_entry` | день записан или переписан; только через предложение |
 | sprint.started | уже есть | — |
 | sprint.analysed | `record_analysis` | здесь нет `bump_workspace` — факт ставится в саму операцию. Содержание анализа подсказке не нужно: просьба цитирует экран ретро, субагент объясняет из справочника, где его читать |
@@ -164,9 +168,10 @@ more»; остальные в подсказку не попадают, и эт�
 глаголом, а не «saved»: created a Card, created a Check, answered a Check, finished a Card,
 is now in Today, started a Sprint, wrote the Diary for a day, analysed a Sprint. Предметы
 перечитываются (исчезнувший — выброшен), цитируются; один предмет под несколькими фактами —
-одной строкой. У каждого предмета — его короткое состояние, прочитанное через `api.py`
-фичи-владельца: у Карточки — вид, стадия, есть ли у неё Check и Ценность; у Check — на какой
-Карточке и повторяется ли; у остального состояние — само имя. Это единственные данные о
+одной строкой. У каждого предмета — его короткое состояние, прочитанное из `model.py`
+фичи-владельца — словаря, который открыт каждому слою: у Карточки — вид, стадия, повтор, сколько
+у неё Checks и Ценностей; у Check — на какой Карточке, повторяется ли и каков ответ; у
+остального состояние — само имя. Это единственные данные о
 предметах, которые получает субагент: читать базу сам он не может (механизм 3), и то, что
 раньше было бы его SQL, здесь пишет код. Просьба говорит только, что сделать, и ничего о форме
 всего ответа — в том же ходе могут стоять просьбы других хуков (очередь склеивает всё
@@ -360,7 +365,7 @@ declared, 10 unless it says otherwise», и это правка сценария
 | Что такое Safwa | личный agile-советник: workspace из Карточек, Спринт как обязательство на срок, ретро как урок; Advisor читает и советует, пишет только владелец | [DOMAIN.md](DOMAIN.md) |
 | Как происходит изменение | словами → экран предложения Save/Discard; правка словами поверх экрана переделывает предложение; мелкие правки могут сохраниться без экрана; экраны — те же операции | [proposals.feature](../tests/brd/tg_agent_shell/proposals.feature) |
 | Карточки | Цель, Подцель, Действие; стадии Backlog, Sprint, Today, Done — куда Карточка попадает, когда владелец за неё берётся, а не обязательный маршрут каждой; приоритет; effort как цена, не время; категории и энергия; Hard Time; Blocked; повтор; архив. Словами и кнопками — всё | [cards.feature](../tests/brd/cards.feature) |
-| Check | наблюдение «держится ли», на Карточке или само по себе; Passed/Missed; повторяемый Check рождает следующий; Карточка закрывается, когда отвечены её открытые Checks — экран Done спрашивает их. Словами и кнопками — всё | [checks.feature](../tests/brd/checks.feature) |
+| Check | наблюдение «держится ли», на Карточке или само по себе; Passed/Missed; повторяемый Check рождает следующий; Карточка закрывается, когда отвечены её открытые Checks — экран Done спрашивает их. Словами — всё; кнопками — ответить, повтор, Ценности, удалить; создать и повесить на Карточку — только словами (CH-WRITE-002) | [checks.feature](../tests/brd/checks.feature) |
 | Ценности и Теги | Ценность — фокус, активные в контексте; Тег — свободная метка; словами и кнопками — всё | [values.feature](../tests/brd/values.feature), [tags.feature](../tests/brd/tags.feature) |
 | Запросы | сохранённый запрос по Карточкам; Safwa пишет, владелец сохраняет; /requests; фильтр при планировании. Словами — создать; кнопками — открыть и удалить | [saved_requests.feature](../tests/brd/saved_requests.feature) |
 | Спринт | Planning и Sprint; критерии успеха; старт и завершение — только экран 🏃 Sprint, словами нельзя; ☀️ Today; предупреждения перед концом; конец закрывает Спринт сам | [planning.feature](../tests/brd/planning.feature) |
@@ -395,7 +400,7 @@ Ask nothing. Your answer goes to the user as you wrote it.
 
 # Stopping
 Only when the user's newest message asks to stop onboarding; an onboarding request never does.
-Write one line saying you turn it off, and call the finish tool in that same response.
+Write one line saying you turn it off, and call `stop_onboarding` in that same response.
 ```
 
 Подсказка не привязана к сценарию: субагент знает справочник целиком, видит workspace и
@@ -421,7 +426,7 @@ workspace-субагенту как список сохранённого.
 |---|---|
 | `AgentSpec`, `RoutedSubagent` | флаг «shown as is» |
 | `AgentSession` | список блоков к показу рядом с `display_result_summaries`, но отдельно: не режется на строки, не дедуплицируется, следующему субагенту не передаётся. Сохраняется в state сессии вместе с квитанциями — экран посередине его не теряет |
-| `route_receipt` | у такого субагента финальный текст уходит в квитанцию как блок «shown», а поле `text` — фиксированная строка: «Shown to the user as is. Do not repeat it. If nothing else was asked, add one short line.» Строка говорит только о блоке, поэтому не спорит с просьбами других хуков того же хода |
+| `ProposalMaterializer.answer`, `route_receipt` | финальный текст такого субагента хост кладёт в его список блоков, а вместо текста отдаёт фиксированную строку; `route_receipt` несёт блоки как «shown». Оболочке агентов не нужно знать, какие субагенты показываются: она только передаёт блоки. Строка: «Shown to the user as is. Do not repeat it. If nothing else was asked, add one short line.» Строка говорит только о блоке, поэтому не спорит с просьбами других хуков того же хода |
 | Менеджер | блок переходит родителю так же, как переходят строки `did` |
 | `compose_display_outcome` | блоки печатаются первыми, дословно, с абзацами; затем квитанции; затем тело |
 
@@ -449,13 +454,15 @@ workspace-субагенту как список сохранённого.
 
 ### Выключение — предложение, обычно без экрана
 
-Мутационный инструмент субагента `onboarding` с одним действием — закончить знакомство. Форма
+Мутационный инструмент субагента `onboarding` — `stop_onboarding`, без параметров, с одним
+действием — закончить знакомство. Форма
 Дневника без сущности: `MutationToolSpec` в agent.py, `ProposalHandler` в proposal.py,
 presenter в telegram.py. `prepare` отказывает с `hint` «Tell the user onboarding is already off;
 the switch is in Profile. Propose nothing.», если хук уже выключен — так вызов при выключенном
 хуке безвреден, модель не пробует снова, и строка `route("onboarding")` стоит в промпте всегда.
-`apply` зовёт `set_hook_switch(session, "onboarding", on=False)` с именами зависимых хуков,
-взятыми у реестра, — ту же операцию, что переключатель Профиля; она же снимает недосказанные
+`apply` зовёт `set_hook_switch(session, "onboarding", on=False)` с именем зависимого хука
+уведомления — своего же, объявленного рядом в hooks.py фичи: обработчик предложения реестра не
+видит, а экран Профиля берёт те же имена у реестра, — ту же операцию, что переключатель Профиля; она же снимает недосказанные
 подсказки из очереди и безвредна, если
 владелец успел выключить руками между `prepare` и `apply`. Сегодня эта операция в
 [profile/use_cases.py](../src/safwa/features/profile/use_cases.py), и батч 2 выводит её в
@@ -591,7 +598,8 @@ Safwa; тогда Advisor скажет «выключено, переключа�
 `still_current`, после чтения диалога, в [telegram/dialogue.py](../src/tg_agent_shell/telegram/dialogue.py)
 и внутри фоновой задачи в [cues/runtime.py](../src/tg_agent_shell/cues/runtime.py); флаг показа в
 `AgentSpec` и `RoutedSubagent`; список блоков в `AgentSession` и его сохранение в state; ветка
-в `route_receipt`, передача родителю в [agent_runtime/manager.py](../src/agent_runtime/manager.py),
+в `ProposalMaterializer.answer`, поле `shown` в `route_receipt`, передача родителю в
+[agent_runtime/manager.py](../src/agent_runtime/manager.py),
 печать в `compose_display_outcome`; окно разговора как поле `AgentSpec` и `RoutedSubagent`,
 читаемое в `conversation_for`; `query_data` только у субагента с представлениями — в
 `ToolAdapters.definition`; первый вызов не обязателен у показанного как есть — в

@@ -79,6 +79,8 @@ Feature: Profile
     When Profile is drawn
     Then each reaction that hands the Advisor a request or a helper is on the screen by its title, with its description, and is on
     And one that runs work of its own, such as the automatic Summary, is not on the screen and is always on
+    And one that follows another reaction's switch is not on the screen either: it is on and off
+      with that one, by AG-HOOK-043
     When the owner presses one
     Then that reaction is off from that moment, without a restart, and stays off after one
     And pressing it again turns it back on

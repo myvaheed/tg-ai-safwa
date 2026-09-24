@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from aiogram.exceptions import TelegramAPIError
-from hook_helpers import run_hooks
+from hook_helpers import before_turn_hooks, run_hooks
 from marks import read_kind_mark
 from sqlalchemy import select
 from ui_harness import (
@@ -28,6 +28,7 @@ from safwa.features.planning.telegram import render_sprint
 from safwa.features.planning.use_cases import set_sprint_success_criteria
 from safwa.foundation.workspace import Workspace
 from telegram_llm import (
+    DialogueMessage,
     HistoryEntry,
 )
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
@@ -417,3 +418,76 @@ async def test_a_screen_whose_freeze_fails_stops_being_walked(sessions) -> None:
         assert await session.scalar(
             select(TelegramMessage).where(TelegramMessage.message_id == 60)
         ) is None
+
+
+def _owner_words(message_id: int, text: str) -> HistoryEntry:
+    return HistoryEntry(
+        message_id=message_id,
+        sender_id=42,
+        role="user",
+        text=text,
+        created_at=datetime.now(UTC),
+        kind=MessageKind.DIALOGUE_USER.value,
+    )
+
+
+class ReadingAdvisor:
+    """Keeps the conversation each turn was handed, and answers in one line."""
+
+    def __init__(self) -> None:
+        self.dialogues: list[object] = []
+
+    async def handle(self, request, *, source_message_id=None, dialogue=None):
+        del request, source_message_id
+        self.dialogues.append(dialogue)
+        return AIOutcome(AIOutcomeKind.ANSWER, "The answer.")
+
+
+async def test_ag_hook_042_work_before_the_turn_stands_before_its_answer(sessions) -> None:
+    """AG-HOOK-042 — tests/brd/tg_agent_shell/agents.feature"""
+    seen: list[object] = []
+
+    async def say_first(event, context) -> None:
+        seen.append(event)
+        await context.publish("Said first.", MessageKind.DIALOGUE_ASSISTANT.value)
+
+    async def read_so_far(_chat_id, *, source_message=None):
+        del source_message
+        return [DialogueMessage(role="user", content="[User]: Hello")]
+
+    services = turn_services(sessions)
+    services.root = ReadingAdvisor()
+    services.history = SimpleNamespace(dialogue=read_so_far)
+    services.hooks = before_turn_hooks(say_first)
+    message = FakeMessage(980, text="Hello", bot_message=False, answer_as_new=True)
+
+    await run_dialogue_turn(message, services, "Hello", _owner_words(980, "Hello"))
+
+    said = [read_kind_mark(item.text) for item in message.sent_messages]
+    first = said.index((MessageKind.DIALOGUE_ASSISTANT.value, "Said first."))
+    answer = next(index for index, (_, text) in enumerate(said) if "The answer." in text)
+    assert first < answer
+    # Read before the hook ran, so the turn still ends on the owner's words.
+    assert services.root.dialogues == [[DialogueMessage(role="user", content="[User]: Hello")]]
+    assert [(event.source, event.dialogue_revision, event.chat_id) for event in seen] == [
+        ("owner", 0, 700)
+    ]
+
+
+async def test_ag_hook_042_work_before_the_turn_that_fails_leaves_the_turn_running(
+    sessions, caplog
+) -> None:
+    """AG-HOOK-042 — tests/brd/tg_agent_shell/agents.feature"""
+    async def fall_over(_event, _context) -> None:
+        raise RuntimeError("the table was locked")
+
+    services = turn_services(sessions)
+    services.root = ReadingAdvisor()
+    services.hooks = before_turn_hooks(fall_over)
+    message = FakeMessage(981, text="Hello", bot_message=False, answer_as_new=True)
+
+    await run_dialogue_turn(message, services, "Hello", _owner_words(981, "Hello"))
+
+    assert any("The answer." in item.text for item in message.sent_messages)
+    assert not any("could not be completed" in item.text for item in message.sent_messages)
+    assert "fall_over failed: the table was locked" in caplog.text

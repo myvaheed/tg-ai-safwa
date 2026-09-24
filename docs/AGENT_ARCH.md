@@ -166,7 +166,9 @@ flowchart TB
     MEMR -->|memory_observation| DB
 ```
 
-Only the Advisor writes to the chat. Everything else either hands it words or opens a screen.
+Only the Advisor writes to the chat. Everything else either hands it words or opens a screen,
+and words come back either to be retold or to be printed as they are: a subagent declared
+`shown_as_is` hands its final words over as a block of the Advisor's own message.
 
 ## A session is the unit
 
@@ -177,7 +179,7 @@ row. The row is what survives a suspension:
 |---|---|
 | `kind` | `advisor`, or the subagent's name |
 | `parent_run_id` | who routed here; null for the Advisor |
-| `state_json` | dialogue, transcript, tool count, repair rounds, receipts, `host_state`, `offered_helpers`, `interaction_token` |
+| `state_json` | dialogue, transcript, tool count, repair rounds, receipts, the blocks shown as is, `host_state`, `offered_helpers`, `interaction_token` |
 | `claimed_at` | the atomic claim that stops two resumes of one session |
 | `status` | `running`, `awaiting_approval`, `interrupted`, `completed`, `failed`, `abandoned` |
 
@@ -241,8 +243,9 @@ sequenceDiagram
 ```
 
 `IMMEDIATE_TOOLS` are `query_data`, `route`, `open` and `call_helper` — the tools `ToolAdapters`
-answers itself, and they run inside the turn. `query_data` is published to every session it runs,
-the Advisor's and a subagent's alike, so a feature declares only its own readers.
+answers itself, and they run inside the turn. `query_data` is published to every session it runs
+that has a view to read, the Advisor's and a subagent's alike, so a feature declares only its own
+readers; a subagent that declares no view is not handed it.
 The Advisor holds no mutation tool: every write is a proposal authored by a subagent.
 
 An immediate tool and mutation tools must not arrive in one provider response; the runtime rejects
@@ -296,15 +299,21 @@ sequenceDiagram
     Note over A,B: whole chain suspends, status awaiting_approval
     O->>S: Save / Discard
     S->>B: resume
-    B-->>A: receipt {did, text, error}
+    B-->>A: receipt {did, shown, text, error}
     A-->>O: one message
 ```
 
-- A subagent reads the conversation as **data**: the newest `SUBAGENT_HISTORY_LAST_MESSAGES = 10`
-  come as one `<Conversation>` block, one tag per author, so nothing it did not write reaches it in
-  the `assistant` slot.
+- A subagent reads the conversation as **data**: the newest messages come as one `<Conversation>`
+  block, one tag per author, so nothing it did not write reaches it in the `assistant` slot. How
+  many is the subagent's own declaration, `AgentSpec.history_messages`, and
+  `SUBAGENT_HISTORY_LAST_MESSAGES = 10` unless it says otherwise.
 - A routed session must open with a tool call — only its first turn, because the loop ends on a turn
-  that calls none.
+  that calls none — unless it is declared `shown_as_is`: its words are the work.
+- A subagent declared `shown_as_is` hands its final words back as `shown`, not as `text`: they
+  are not split into receipt lines, not handed to the next subagent as work already saved, kept in
+  the session's state across a screen, and printed first in the Advisor's message, whole, above
+  the receipts and the Advisor's own words. `text` is then a fixed line telling the Advisor they
+  were shown and not to repeat them.
 - A routed subagent has no `route`, so there is no recursion.
 - A request naming two domains is two routes and one message.
 - `SUBAGENT_DEADLINE_SECONDS = 300` bounds a subagent by the clock, not by a call count, because it
@@ -588,7 +597,8 @@ flowchart LR
   message of the owner's kind, or the Advisor never sees them.
 - A receipt line is replayed as a **tool result** rather than as words Safwa said
   (`RECEIPT_MEANINGS`, beside the decision it reports),
-  so `✅ Saved` reads as `applied` rather than as something the persona claimed.
+  so `✅ Saved` reads as `applied` rather than as something the persona claimed. A block shown as
+  is reads back as Safwa's own words, because it is part of her message.
 
 ## Memory
 
@@ -624,8 +634,10 @@ flowchart LR
   `{views}` block in the prompt and narrows that reader's own `query_data`, so a view no list names
   is refused rather than merely unmentioned. The Diary writes its block by hand, with columns
   trimmed on purpose, and still declares the four it may read.
-- `view_catalogue` refuses a name no feature publishes and a view with no `doc`, and a reader that
-  declares no views at all is a wiring error rather than a reader of everything.
+- `view_catalogue` refuses a name no feature publishes and a view with no `doc`. A helper that
+  declares no views, or a prompt with `{views}` and nothing to fill it, is a wiring error rather
+  than a reader of everything; a subagent that declares none reads nothing and has no
+  `query_data`.
 
 `query_data` is triple-guarded: regex validation of one `SELECT`/`WITH … SELECT` over the `ai_*`
 views, a separate read-only connection with an authorizer allowlist, and result caps

@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from safwa.bootstrap.modules import REGISTRY
 from safwa.features.diary.hooks import DIARY_HOOK, DIARY_REQUEST, diary_request
-from safwa.features.profile.api import diary_time, morning_time, summary_time
+from safwa.features.profile.api import diary_time, morning_time, set_hook_switch, summary_time
 from safwa.features.profile.hooks import (
     DAILY_SUMMARY_HOOK,
     DAILY_SUMMARY_REQUEST,
@@ -21,11 +21,7 @@ from safwa.features.profile.model import (
     UserProfile,
 )
 from safwa.features.profile.telegram.screens import PROFILE_FIELDS
-from safwa.features.profile.use_cases import (
-    profile_field,
-    set_hook_switch,
-    set_profile_field,
-)
+from safwa.features.profile.use_cases import profile_field, set_profile_field
 from safwa.features.reminders.model import Reminder
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.workspace import Workspace

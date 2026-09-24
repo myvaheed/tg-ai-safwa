@@ -46,7 +46,7 @@ lines start at 001.
 | The heavy analyzer | `HAN` | Saved Requests | `SR` |
 | Home — the menu and the way in | `HM` | The workspace | `WS` |
 | Retro | `RT` | The Advisor | `AD` |
-| Diagnostics | `DG` | | |
+| Diagnostics | `DG` | Onboarding | `OB` |
 
 `src/tg_agent_shell/`:
 

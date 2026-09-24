@@ -14,7 +14,7 @@ from sqlalchemy import select
 from telegram_llm import AudioClip, HistoryEntry, TranscriptionError
 
 from ..foundation.kinds import MessageKind
-from ..hooks.contracts import AfterTurn, Run, RunContext
+from ..hooks.contracts import AfterTurn, BeforeTurn, Run, RunContext
 from ..proposals.telegram import render_ai_outcome
 from .chat import (
     dismiss_prior_ui,
@@ -141,6 +141,51 @@ def _audio_filename(message: Message) -> str:
     return (message.audio.file_name if message.audio else None) or "audio.mp3"
 
 
+async def run_before_turn(
+    message: Message,
+    services: Services,
+    event: BeforeTurn,
+    still_current: Callable[[], bool],
+) -> None:
+    """Run the work that stands before an answer, inside the turn that is about to give it.
+
+    It runs after the dialogue was read, so what it publishes stands in the chat before the
+    answer and is not in this turn's dialogue. A failure is optional help gone missing: it
+    is logged, and the turn goes on. Cancelling the turn cancels this with it.
+    """
+    if not services.hooks.listens(BeforeTurn):
+        return
+
+    async def publish(text: str, kind: str) -> None:
+        if still_current():
+            await send_prose(
+                message, services, html.escape(text), kind=MessageKind(kind), replace=False
+            )
+
+    context = RunContext(
+        resources=services.features,
+        still_current=still_current,
+        publish=publish,
+        sessions=services.sessions,
+    )
+    async for checked in services.hooks.evaluate(event, services.sessions):
+        error = checked.error
+        if error is None:
+            try:
+                effect = checked.spec.effect
+                if isinstance(effect, Run):
+                    for payload in checked.payloads:
+                        if not still_current():
+                            return
+                        await effect.run(payload, context)
+            except Exception as failure:
+                error = failure
+        if error is not None:
+            logger.error("The before-turn hook %s failed: %s", checked.spec.name, error)
+        if not still_current():
+            return
+
+
 async def run_after_turn(message: Message, services: Services, event: AfterTurn) -> None:
     """Run the work the application does once the owner has been answered.
 
@@ -212,6 +257,14 @@ async def run_dialogue_turn(
         await open_turn_notice(message, services)
         await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
         dialogue = await services.history.dialogue(message.chat.id, source_message=source)
+        await run_before_turn(
+            message, services,
+            BeforeTurn(
+                owner_id=services.owner_id, chat_id=message.chat.id,
+                dialogue_revision=dialogue_revision,
+            ),
+            lambda: services.turn.dialogue_revision == dialogue_revision,
+        )
         outcome = await services.root.handle(
             request,
             source_message_id=source.message_id,

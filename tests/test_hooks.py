@@ -21,11 +21,13 @@ from tg_agent_shell.hooks.contracts import (
     AfterTool,
     AfterTurn,
     BeforeTool,
+    BeforeTurn,
     HookSpec,
     OfferTool,
     OnAfterTool,
     OnAfterTurn,
     OnBeforeTool,
+    OnBeforeTurn,
     OnCommitted,
     OnTick,
     RefuseTool,
@@ -118,6 +120,8 @@ def switched(*names_off):
         (replace(SPEC, on=(OnAfterTool("query_data"),), effect=RefuseTool("reader")), "incompatible"),
         (replace(SPEC, on=(OnCommitted("thing.changed"),)), "incompatible"),
         (replace(SPEC, on=(OnCommitted(" "),), effect=Advise(words)), "incompatible"),
+        (replace(SPEC, on=(OnBeforeTurn(),)), "incompatible"),
+        (replace(SPEC, on=(OnBeforeTurn(),), effect=Advise(words)), "incompatible"),
     ],
 )
 def test_invalid_wiring_is_rejected_on_or_off(bad, reason):
@@ -358,3 +362,75 @@ async def test_ag_hook_036_a_refusal_before_a_call_is_registered_and_read_only_b
     # Another tool, or a subagent's call, is not this boundary.
     for other in (replace(before, tool="open"), replace(before, agent="subagent")):
         assert not [item async for item in hooks.evaluate(other, NO_SESSIONS)]
+
+
+async def test_ag_hook_042_a_turn_starting_reaches_only_the_work_that_waits_for_it():
+    """AG-HOOK-042 — tests/brd/tg_agent_shell/agents.feature"""
+    starting = replace(SPEC, name="reader.first", on=(OnBeforeTurn(),), effect=Run(operation))
+    after = replace(SPEC, name="reader.after", on=(OnAfterTurn(),), effect=Run(operation))
+    hooks = catalogue(starting, after)
+
+    for source in ("owner", "system"):
+        event = BeforeTurn(owner_id=42, chat_id=42, dialogue_revision=3, source=source)
+        checked = [item async for item in hooks.evaluate(event, NO_SESSIONS)]
+        assert [(item.spec.name, item.payloads) for item in checked] == [
+            ("reader.first", ("Use the reader helper.",))
+        ]
+    assert hooks.listens(BeforeTurn)
+    assert not catalogue(after).listens(BeforeTurn)
+
+
+FOLLOWER = HookSpec(
+    name="reader.follower", owner="reader", on=(OnCommitted(kind="thing.changed"),),
+    evaluate=subject, effect=Advise(words), switch=ADVICE.name,
+    title="Reader follower", description="Asks about a changed thing with the advice.",
+)
+
+
+async def test_ag_hook_043_a_hook_that_follows_another_is_on_exactly_when_it_is():
+    """AG-HOOK-043 — tests/brd/tg_agent_shell/agents.feature"""
+    work = replace(
+        FOLLOWER, name="reader.follower_work", effect=Run(operation), evaluate=subject
+    )
+    asked: list[str] = []
+
+    def policy(*names_off):
+        async def read(session, name):
+            asked.append(name)
+            return name not in names_off
+        return read
+
+    on = catalogue(ADVICE, FOLLOWER, work, policy=policy())
+    # Neither has a switch of its own to show, and turning the one they follow goes for both.
+    assert on.agent_related == (ADVICE,)
+    assert on.followers(ADVICE.name) == (FOLLOWER.name, work.name)
+    assert on.followers(FOLLOWER.name) == ()
+    assert [item.spec.name async for item in on.evaluate(CHANGE, NO_SESSIONS)] == [
+        ADVICE.name, FOLLOWER.name, work.name,
+    ]
+    # The switch read is the followed hook's, never one of their own.
+    assert set(asked) == {ADVICE.name}
+
+    off = catalogue(ADVICE, FOLLOWER, work, policy=policy(ADVICE.name))
+    assert not [item async for item in off.evaluate(CHANGE, NO_SESSIONS)]
+    # Off, a follower says nothing either, even for words it already owed.
+    assert await off.prepare(NO_SESSIONS, FOLLOWER.name, [7]) is None
+
+
+@pytest.mark.parametrize(
+    "switch",
+    [
+        "reader.missing",
+        # A hook that runs work of its own has no switch to follow.
+        "reader.work",
+        # One step only: a follower is followed by nobody.
+        "reader.follower",
+    ],
+)
+def test_ag_hook_043_a_follower_of_a_hook_with_no_switch_is_refused(switch):
+    """AG-HOOK-043 — tests/brd/tg_agent_shell/agents.feature"""
+    work = replace(SPEC, name="reader.work", on=(OnAfterTurn(),), effect=Run(operation))
+    second = replace(FOLLOWER, name="reader.second", switch=switch)
+
+    with pytest.raises(RuntimeError, match="no switch of its own"):
+        catalogue(ADVICE, FOLLOWER, work, second)

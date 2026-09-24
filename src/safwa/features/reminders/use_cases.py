@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.errors import DomainError
 
 from ...foundation.workspace import Workspace, bump_workspace
@@ -27,11 +28,24 @@ from .schedule import (
     schedule_of,
 )
 
+# The change a hook may follow up on: the owner's Reminder was created, however it was saved.
+# A Sprint's own warning is Safwa's, and is stored without it.
+REMINDER_CREATED = "reminder.created"
+
 
 async def create_reminder(
     session: AsyncSession, *, instruction: str, schedule: Schedule, tz: ZoneInfo
 ) -> Reminder:
-    """Store a Reminder and compute its first fire. The schedule arrives already resolved."""
+    """Store the owner's Reminder and compute its first fire. The schedule arrives already
+    resolved."""
+    reminder = await _store_reminder(session, instruction=instruction, schedule=schedule, tz=tz)
+    record_change(session, REMINDER_CREATED, reminder.id)
+    return reminder
+
+
+async def _store_reminder(
+    session: AsyncSession, *, instruction: str, schedule: Schedule, tz: ZoneInfo
+) -> Reminder:
     clean = instruction.strip()
     if not clean:
         raise DomainError("Reminder text cannot be empty")
@@ -141,7 +155,7 @@ async def create_sprint_reminder(
     No owner set it, so it is Safwa's: hidden from `/reminders` and from the model, and
     removed by the Sprint ending rather than by hand.
     """
-    reminder = await create_reminder(
+    reminder = await _store_reminder(
         session,
         instruction=instruction,
         schedule=Schedule(kind=ScheduleKind.ONCE, at_time=at_time, anchor_at=anchor_at),
