@@ -325,6 +325,39 @@ async def test_a_subagent_reads_the_tail_of_the_conversation_as_tagged_data(e2e_
     assert not [item for item in provider.calls[1] if item["role"] == "assistant"]
 
 
+async def test_a_subagent_is_handed_a_name_and_works_from_the_owners_own_words(e2e_harness):
+    """AG-ROUTE-040 — tests/brd/tg_agent_shell/agents.feature"""
+    retelling = ProviderTurn(
+        content="The owner wants a tag for their walks.",
+        tool_calls=(
+            ProviderToolCall(
+                id="route-workspace_mutator",
+                name="route",
+                arguments_json=json.dumps({"name": "workspace_mutator"}),
+            ),
+        ),
+    )
+    advisor, provider = e2e_harness.advisor(
+        [retelling, turn(("tag", {"mode": "create", "name": "VrWalk"}))],
+        subagents=(e2e_harness.subagent("workspace_mutator"),),
+    )
+
+    await advisor.handle(
+        "Заведи тег VrWalk",
+        dialogue=[DialogueMessage(role="user", content="[User]: Заведи тег VrWalk")],
+    )
+
+    route = next(
+        tool for tool in provider.options[0]["tools"] if tool["function"]["name"] == "route"
+    )
+    # The hand-over has no field a retelling could travel in, and words the Advisor wrote
+    # beside it stay in its own session: the owner's are what the subagent reads.
+    assert set(route["function"]["parameters"]["properties"]) == {"name"}
+    handed = json.dumps(provider.calls[1], ensure_ascii=False)
+    assert "Заведи тег VrWalk" in handed
+    assert "a tag for their walks" not in handed
+
+
 async def test_a_subagent_is_required_to_open_with_a_tool_call(e2e_harness):
     """AG-ANSWER-014 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, provider = e2e_harness.advisor(

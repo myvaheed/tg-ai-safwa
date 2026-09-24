@@ -16,7 +16,7 @@ Feature: Agents — the session, the hand-over, and what comes back
     When the owner instead asks a question about anything in their workspace, the Diary included
     Then that same part answers it from its own reading, without handing the turn to anyone
 
-  Scenario: AG-ROUTE-002 — The hand-over carries a name, never a retelling
+  Scenario: AG-ROUTE-040 — The hand-over carries a name, never a retelling
     Given the owner wrote a request in their own words
     When the turn is handed to a subagent
     Then the subagent is given the name of its area and no retelling of the request
@@ -66,7 +66,7 @@ Feature: Agents — the session, the hand-over, and what comes back
       out
     And its result then reaches the part that handed it the work, which answers the owner
 
-  Scenario: AG-SESSION-008 — What it knows about the workspace is read fresh, not replayed
+  Scenario: AG-SESSION-041 — What it knows about the workspace is read fresh, not replayed
     Given the subagent stopped for the owner
     When it starts again
     Then what it knows about the workspace and the time of day is read fresh, not replayed from when it

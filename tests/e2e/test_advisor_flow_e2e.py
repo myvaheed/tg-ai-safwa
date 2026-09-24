@@ -17,6 +17,7 @@ from safwa.features.cards.use_cases import finish_action, move_card
 from safwa.features.planning.use_cases import finish_sprint, sprint_metrics, start_sprint
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.values.model import CardValue, Value
+from safwa.features.values.use_cases import create_value
 from safwa.foundation.workspace import Workspace
 from telegram_llm import DialogueMessage
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
@@ -648,6 +649,52 @@ async def test_suspended_batch_persists_the_request_dialogue_and_transcript(e2e_
     assert state["dialogue"] == [{"role": "user", "content": "[User]: Create a VrWalk tag"}]
     assert [message["role"] for message in state["transcript"]] == ["assistant", "tool"]
     assert state["transcript"][0]["tool_calls"][0]["function"]["name"] == "tag"
+
+
+async def test_a_resumed_subagent_reads_the_workspace_as_it_is_now(e2e_harness):
+    """AG-SESSION-041 — tests/brd/tg_agent_shell/agents.feature"""
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
+            "Created the tag.",
+            "Done.",
+        ]
+    )
+    proposal = await advisor.handle(
+        "Create a VrWalk tag",
+        dialogue=[DialogueMessage(role="user", content="[User]: Create a VrWalk tag")],
+    )
+    assert proposal.proposal_id is not None
+    async with e2e_harness.sessions() as session:
+        affected = await approve_proposal(
+            session, advisor.reviews, PROPOSALS, proposal.proposal_id
+        )
+        await session.commit()
+    # Made by hand while the subagent was waiting on its screen.
+    async with e2e_harness.sessions() as session:
+        await create_value(session, "Patience", active=True)
+        await session.commit()
+
+    await advisor.resolve_approval(
+        proposal.proposal_id,
+        decision=BatchDecision.APPROVED,
+        result={"affected_ids": affected},
+    )
+
+    def workspace_state(call: list[dict[str, object]]) -> str:
+        return next(
+            str(message["content"])
+            for message in call
+            if "Current workspace state:" in str(message.get("content", ""))
+        )
+
+    paused, resumed = provider.calls[1], provider.calls[2]
+    assert resumed[0] == paused[0]
+    # Its own steps come back from its record; the workspace is read again, so a Value
+    # made while it waited is there, and was not before.
+    assert "Patience" not in workspace_state(paused)
+    assert "Patience" in workspace_state(resumed)
 
 
 async def test_the_tool_call_budget_is_carried_across_an_approval(e2e_harness):
