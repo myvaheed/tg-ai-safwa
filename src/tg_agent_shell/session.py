@@ -38,7 +38,7 @@ from .foundation.errors import failure_reason
 from .foundation.screens import ScreenCatalogue
 from .hooks.registry import HookRegistry
 from .proposals.api import ProposalDescription, ProposalRegistry
-from .proposals.materialize import MAX_REPAIR_ROUNDS, ProposalMaterializer
+from .proposals.materialize import MAX_REPAIR_ROUNDS, OWNER_REQUEST, ProposalMaterializer
 from .proposals.model import RECEIPT_MEANINGS, BatchDecision
 from .proposals.prepare import ChangePreparer
 from .proposals.reducer import EXPIRED, INTERRUPTED
@@ -139,6 +139,7 @@ class RootSession:
             self.review_view,
             self.preparer,
             self.adapters,
+            provider=provider,
             resolve=self.resolve_approval,
             autoapproval=autoapproval,
         )
@@ -174,9 +175,12 @@ class RootSession:
             else [{"role": "user", "content": text}]
         )
         # Words typed over a screen are an answer to the request that opened it, so that
-        # request continues rather than being replaced by a second one.
+        # request continues rather than being replaced by a second one. A turn with a source
+        # message answers the owner; a Cue's turn has none, and no AfterRequest is about it.
         outcome = await self.runtime.handle(
-            turn_dialogue, source_message_id=source_message_id
+            turn_dialogue,
+            source_message_id=source_message_id,
+            host_state={OWNER_REQUEST: True} if source_message_id is not None else None,
         )
         return await self._decide_or_show(outcome)
 

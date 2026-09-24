@@ -4,7 +4,7 @@ discarded. Plus finding the batch a screen belongs to, and moving it through its
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +16,6 @@ from .model import (
     ApprovalBatch,
     BatchDecision,
     BatchState,
-    ChangeProposal,
     DecideAction,
     InterruptAction,
     ProposalChange,
@@ -29,34 +28,57 @@ from .reducer import reduce
 from .store import ProposalStore
 
 
-async def prepare_proposal(
-    session: AsyncSession,
+async def prepare_change(
+    session: AsyncSession, preparer: ChangePreparer, change: AgentChange
+) -> ProposalChange:
+    """One validated mutation call, checked against live data and ready to be queued.
+
+    Each call is prepared on its own, against committed data, even when it joins another
+    call's proposal: that keeps its receipt its own. Cross-proposal references resolve by
+    name against committed data once the earlier proposal has been saved.
+    """
+    prepared = await preparer.prepare(session, change)
+    return ProposalChange(
+        entity=change.entity,
+        action=change.action,
+        entity_id=change.id,
+        expected_version=prepared.expected_version,
+        values=prepared.values,
+    )
+
+
+def queue_proposals(
     store: ProposalStore,
-    preparer: ChangePreparer,
+    changes: Sequence[tuple[str, ProposalChange]],
     *,
     message: str,
-    change: AgentChange,
-) -> ChangeProposal:
-    """Open one validated mutation call as its own reviewable proposal.
+    workspace_revision: int,
+) -> list[QueueItem]:
+    """Open one response's prepared calls as proposals, in the order they were made.
 
-    Every mutation call gets its own proposal screen, so a proposal always holds exactly
-    one change.  Cross-proposal references resolve by name against committed data once the
-    earlier proposal has been saved.
+    Calls in a row that change the same existing item are one proposal, so the owner reads
+    one screen and presses one Save for that item. Nothing is reordered to make a group.
     """
-    world = await preparer.world(session)
-    prepared = await preparer.prepare(session, change)
-    return store.open_proposal(
-        message=message,
-        workspace_revision=world.revision,
-        changes=[
-            ProposalChange(
-                entity=change.entity,
-                action=change.action,
-                entity_id=change.id,
-                expected_version=prepared.expected_version,
-                values=prepared.values,
-            )
-        ],
+    items: list[QueueItem] = []
+    for call_id, change in changes:
+        last = store.proposal(items[-1].proposal_id) if items else None
+        if last is not None and _same_item(last.changes[-1], change):
+            last.changes.append(change)
+            items[-1] = replace(items[-1], call_ids=(*items[-1].call_ids, call_id))
+            continue
+        proposal = store.open_proposal(
+            message=message, workspace_revision=workspace_revision, changes=[change]
+        )
+        items.append(QueueItem(proposal_id=proposal.id, call_ids=(call_id,)))
+    number_queued_proposals(store, items, message)
+    return items
+
+
+def _same_item(earlier: ProposalChange, later: ProposalChange) -> bool:
+    # A new item has no id yet, so a create never joins another change.
+    return later.entity_id is not None and (earlier.entity, earlier.entity_id) == (
+        later.entity,
+        later.entity_id,
     )
 
 
@@ -96,7 +118,13 @@ async def approve_proposal(
     )
     affected: list[int] = []
     try:
-        for change in proposal.changes:
+        for position, change in enumerate(proposal.changes):
+            if position:
+                # The change before it already moved this item's version, in this same
+                # transaction; the stored change keeps its own, for a Save tried again.
+                change = replace(
+                    change, expected_version=await _current_version(session, proposals, change)
+                )
             affected.extend(await proposals.handler(change.entity).apply(context, change))
         await session.commit()
     except StaleStateError:
@@ -269,9 +297,16 @@ async def refresh_queued_proposal(
         return
     proposal.workspace_revision = (await proposals.world(session)).revision
     for change in proposal.changes:
-        handler = proposals.handlers.get(change.entity)
-        model = handler.version_model if handler is not None else None
-        if model is None or change.entity_id is None:
-            continue
-        entity = await session.get(model, change.entity_id)
-        change.expected_version = entity.version if entity is not None else None
+        change.expected_version = await _current_version(session, proposals, change)
+
+
+async def _current_version(
+    session: AsyncSession, proposals: ProposalRegistry, change: ProposalChange
+) -> int | None:
+    """The version the change's item has now, or the recorded one where none is kept."""
+    handler = proposals.handlers.get(change.entity)
+    model = handler.version_model if handler is not None else None
+    if model is None or change.entity_id is None:
+        return change.expected_version
+    entity = await session.get(model, change.entity_id)
+    return entity.version if entity is not None else None

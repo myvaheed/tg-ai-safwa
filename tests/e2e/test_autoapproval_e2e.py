@@ -86,12 +86,13 @@ async def test_an_exact_allowlisted_edit_is_autoapproved(e2e_harness):
     assert "may be one part of a longer request" in str(reviewer_messages[0]["content"])
     reviewer_context = json.loads(str(reviewer_messages[1]["content"]))
     assert reviewer_context["user_request"] == request
-    assert reviewer_context["operation"] == {
-        "entity": "card",
-        "action": "update",
-        "entity_id": card.id,
-    }
-    assert reviewer_context["normalized_values"]["title"] == "Buy oat milk"
+    [change] = reviewer_context["changes"]
+    assert (change["entity"], change["action"], change["entity_id"]) == (
+        "card",
+        "update",
+        card.id,
+    )
+    assert change["values"]["title"] == "Buy oat milk"
 
     resolved = json.loads(
         str(next(message for message in provider.calls[3] if message["role"] == "tool")["content"])
@@ -105,6 +106,65 @@ async def test_an_exact_allowlisted_edit_is_autoapproved(e2e_harness):
         proposal = next(iter(e2e_harness.reviews.open_proposals), None)
         assert stored is not None and stored.title == "Buy oat milk"
         assert proposal is None
+
+
+async def test_one_items_changes_are_read_in_one_review_and_saved_whole(e2e_harness):
+    """PR-AUTO-024 — tests/brd/tg_agent_shell/proposals.feature"""
+    card = await action(e2e_harness)
+    async with e2e_harness.sessions() as session:
+        tag = await create_tag(session, "Groceries")
+        await session.commit()
+        tag_id = tag.id
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(
+                ("card", {"mode": "update", "id": card.id, "title": "Buy oat milk"}),
+                ("card", {"mode": "link", "id": card.id, "tag_id": tag_id}),
+            ),
+            review_turn("autoapprove", "Both are exactly what was asked for."),
+            "Renamed and tagged.",
+            "Renamed and tagged.",
+        ],
+        autoapprove=True,
+    )
+
+    outcome = await advisor.handle("Rename Buy milk to Buy oat milk and tag it Groceries")
+
+    assert outcome.kind is AIOutcomeKind.ANSWER
+    assert outcome.message.count("⚡ Auto-saved") == 2
+    # One review read both changes: five calls, not six.
+    assert len(provider.calls) == 5
+    reviewer_context = json.loads(str(provider.calls[2][1]["content"]))
+    assert [change["action"] for change in reviewer_context["changes"]] == ["update", "link"]
+    async with e2e_harness.sessions() as session:
+        assert (await session.get(Card, card.id)).title == "Buy oat milk"
+        assert await session.get(CardTag, {"card_id": card.id, "tag_id": tag_id}) is not None
+
+
+async def test_one_unlisted_change_shows_the_whole_proposal(e2e_harness):
+    """PR-AUTO-025 — tests/brd/tg_agent_shell/proposals.feature"""
+    card = await action(e2e_harness)
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(
+                ("card", {"mode": "update", "id": card.id, "title": "Buy oat milk"}),
+                ("card", {"mode": "move", "id": card.id, "stage": "today"}),
+            ),
+        ],
+        autoapprove=True,
+    )
+
+    outcome = await advisor.handle("Rename Buy milk to Buy oat milk and do it today")
+
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
+    [proposal] = e2e_harness.reviews.open_proposals
+    assert len(proposal.changes) == 2
+    # A move is not on the list, so the reviewer is never asked about the rename either.
+    assert len(provider.calls) == 2
+    async with e2e_harness.sessions() as session:
+        assert (await session.get(Card, card.id)).title == "Buy milk"
 
 
 async def test_creation_is_never_autoapproved(e2e_harness):

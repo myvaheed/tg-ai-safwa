@@ -37,18 +37,23 @@ Feature: Proposals
     And it is written only after the owner presses that confirmation
     And a proposal whose feature declares no such change never asks twice
 
-  Scenario: PR-QUEUE-005 — Whatever Safwa proposes at once is one screen
+  Scenario: PR-QUEUE-005 — Everything Safwa proposes for one item at once is one screen
     Given the owner asks for something that needs the workspace changed
-    When Safwa proposes an edit to one item
-    Then it becomes one proposal with one review screen, whether it sets one field or five
-    And whether Safwa proposes two edits to one item together or apart is its own choice,
-      and no rule here decides it
+    When Safwa proposes an edit to one item, whether it sets one field or five
+    Then it becomes one proposal with one review screen
+    When one response carries several calls in a row for one item that already exists — an
+      edit and a link, say
+    Then they are one proposal with one review screen, showing the item as all of them leave it
+      and each change
+    And Save saves all of them or none of them, and Discard discards all of them
+    When a proposal for another item stands between two calls for the same item
+    Then they stay separate proposals, in the order Safwa made them
 
   Scenario: PR-QUEUE-006 — Several proposals from one request are reviewed one at a time, in the order Safwa made them
     Given one request from the owner needs Safwa to propose three times
     When the proposals are put together
     Then there are three review screens, not one screen listing three items
-    And they are queued in the order Safwa made them, not sorted or grouped
+    And they are queued in the order Safwa made them, not sorted, and grouped only by PR-QUEUE-005
     And each is headed with its place in the queue, "Proposal 2/3"
     And a proposal that is alone in its queue carries no such heading
 
@@ -60,7 +65,8 @@ Feature: Proposals
     And once the last one is decided, Safwa is given every decision at once and then answers
 
   Scenario: PR-QUEUE-008 — Saving one proposal does not spoil the ones behind it
-    Given Safwa proposed three edits to the same Card, and all three are queued
+    Given Safwa proposed three edits to the same Card with another Card's edit between each two,
+      so all three are queued
     When the owner saves the first one
     Then the second one is still saveable, and saving it edits the Card as it now is
     And the third one is still saveable after that
@@ -170,6 +176,8 @@ Feature: Proposals
     And it is saved with no screen ever shown, stored and recorded the way one the owner saved by
       hand is
     And Safwa is told autoapproval saved this one and that the owner decided nothing
+    And a proposal holding several changes to one item is read in one review, all of them
+      together, and saved whole or shown whole
 
   Scenario: PR-AUTO-025 — Autoapproval never covers a new item, and never an unlisted change
     Given autoapproval is switched on
@@ -178,6 +186,8 @@ Feature: Proposals
     When Safwa proposes an operation that is not on the list, or one that sets a field outside what
       that operation may set
     Then that one is shown as well, and it is not read against their words either
+    When a proposal holds several changes to one item and any one of them is not on the list
+    Then the whole proposal is shown, and none of them is read against their words
 
   Scenario: PR-AUTO-026 — Doubt leaves the proposal exactly as it was
     Given autoapproval read a proposal that could be read in more than one way
@@ -194,9 +204,11 @@ Feature: Proposals
     Then the third is read then, and autoapproval may still save it with no screen of its own
 
   Scenario: PR-PLAN-028 — A subagent says what it will change before its calls become proposals
-    Given a subagent is sending the calls that would become proposals
+    Given the plan check is on in the feature toggles
+    And a subagent is sending the calls that would become proposals
     When the response carrying them has no text of its own
-    Then none of those calls is prepared, and each comes back refused as plan_required
+    Then none of those calls is prepared, and each comes back refused as plan_required, by
+      AG-HOOK-046
     And the subagent is told to write what it will change, in order, as the text of that
       response and send the calls again
     When it sends them again under such a text
@@ -205,3 +217,5 @@ Feature: Proposals
       the session that is: a read before it needs no text
     And that text is the subagent's own working record, kept in its session and not in
       what the owner reads
+    When the plan check is off in the feature toggles
+    Then a response carrying calls and no text is prepared as it would have been

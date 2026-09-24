@@ -7,7 +7,7 @@ runs that turn.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,7 +66,7 @@ class ReminderProposalPresenter:
         return f"{verb} {head}" + (f" ({schedule})" if schedule else "")
 
     async def screen(
-        self, session: AsyncSession, change: ProposalChange
+        self, session: AsyncSession, changes: Sequence[ProposalChange]
     ) -> ProposalScreen | None:
         # A Reminder is instruction plus timing; the generic change list already says both.
         return None

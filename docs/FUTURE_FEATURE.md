@@ -63,18 +63,23 @@ not update memory.
 
 ## Proposal fulfillment validation
 
-Agreed 2026-09-08: fulfillment validation belongs to the architecture of Proposals and is
-designed independently of hooks and their registration.
+Agreed 2026-09-08 as part of the architecture of Proposals; shipped 2026-09-25 as a hook,
+by the owner's decision that checks stay hooks so the project stays modular.
 
-The intent is to compare the owner's request and subsequent corrections with actual saved,
-discarded, failed and pending Proposal outcomes, then pursue still-authorized missing work.
-A requested Card does not fulfill a request that also asked for a Reminder. Validation must
-avoid duplicating saved work or recreating an intention the owner deliberately withdrew.
+A missing change cannot be judged while the model may still make it, so it is judged at the
+end: before the Advisor answers the owner's message in words, after every screen of the
+request, one review reads the answer with each change the request made and what became of it,
+and holds the answer back once with what was asked and nothing did
+([AG-DONE-045](../tests/brd/tg_agent_shell/agents.feature), on
+[AG-HOOK-047](../tests/brd/tg_agent_shell/agents.feature)). A change the owner discarded,
+refused or took back is not missing. It is on or off in `featuretoggles.py`, beside the plan
+check ([PR-PLAN-028](../tests/brd/tg_agent_shell/proposals.feature)), so what each costs a
+local model can be measured.
 
-[PROPOSAL_VALIDATION.md](PROPOSAL_VALIDATION.md) holds the architecture proposal, including
-request-wide aggregation, bounded correction, foreground execution and interruption handling.
-Those details still need their own agreement; moving this feature out of hooks does not
-implicitly settle them.
+A wrong proposal is not reviewed by a model: proposals are nearly always right. What the owner
+agreed instead, 2026-09-25, is that the calls of one response in a row for one item are one
+proposal with one screen, saved or discarded whole and autoapproved in one review
+([PR-QUEUE-005](../tests/brd/tg_agent_shell/proposals.feature)); it shipped the same day.
 
 ## POTENTIAL HOOKS
 
@@ -188,12 +193,11 @@ the actual retrieval model and the owner's data.
 This candidate is a hook only as an interception before the ordinary Card creation tool. Its
 interactive clarification and continuation still need design.
 
-### 9. Proposal fulfillment validation — moved out of hooks
+### 9. Proposal fulfillment validation — shipped as a hook
 
-Agreed 2026-09-08: this belongs to the architecture of Proposals, not the hook system.
-The number is kept only to preserve the discussion's references. See
-[the separate feature](#proposal-fulfillment-validation) and
-[PROPOSAL_VALIDATION.md](PROPOSAL_VALIDATION.md).
+Agreed 2026-09-08 as part of the architecture of Proposals, and shipped 2026-09-25 as a hook on
+a boundary of its own. The number is kept only to preserve the discussion's references.
+See [the separate feature](#proposal-fulfillment-validation).
 
 ### 10. Key Actions tied to Sprint Success criteria — shipped
 
@@ -242,8 +246,8 @@ when it is delivered, dropped or its hook is switched off. Whether something is 
 asking about is a read just before delivery, not a record of the past; a hook that checks state
 on a schedule simply asks again in its next period, and the Profile switch is the only way to
 stop it. The Advisor's request and the owner's answer are ordinary turns; a refusal or a
-postponement are words in the dialogue the Advisor reads like any other. Proposal fulfillment
-validation belongs to its own architecture and is unaffected by hooks.
+postponement are words in the dialogue the Advisor reads like any other. The checks on the
+model's own work ask the owner nothing, so none of this applies to them.
 
 ### 15. Carry retrospective decisions through memory — shipped as an Advisor instruction
 

@@ -35,8 +35,8 @@ class ProposalChange:
 class ChangeProposal:
     """One review the owner still has open, and the edits Save would carry out.
 
-    `changes` is an ordered list because a proposal keeps the right to hold several edits;
-    nothing writes a second one today, and the screen already lists them all.
+    `changes` holds one call, or the calls of one response in a row that change the same
+    existing item. Save applies them in order, in one transaction, and Discard drops them all.
     """
 
     id: int

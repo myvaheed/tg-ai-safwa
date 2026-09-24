@@ -120,22 +120,6 @@ REPAIR_EXHAUSTED = (
     "No unfinished operation was applied."
 )
 
-# A response that carries mutation calls carries the plan for them as its text. A model
-# that names what it will change before it sends the calls sends fewer wrong ones, and
-# the text stays in the session's own transcript, so a session picked up after a decision
-# still reads what it meant to do. It is the model's working record and never the chat's.
-PLAN_REQUIRED = {
-    "status": "error",
-    "code": "plan_required",
-    "error": "This response carries changes and no text.",
-    "hint": (
-        "Write what you will change, in order, as the text of the response, "
-        "then send these tool calls again in that same response."
-    ),
-    "retryable": True,
-}
-
-
 def response_text(messages: list[dict[str, Any]]) -> str:
     """The words the model wrote beside the calls it is making now."""
     for message in reversed(messages):
@@ -599,9 +583,6 @@ class ToolAdapters:
     async def mutation(
         self, agent: AgentSession, call: ToolCall
     ) -> tuple[AgentChange | None, dict[str, Any]]:
-        if not response_text(agent.messages).strip():
-            logger.info("AI TOOL %s refused: the response carries no plan", call.name)
-            return None, dict(PLAN_REQUIRED)
         arguments: Any = None
         try:
             arguments = json.loads(call.arguments_json)

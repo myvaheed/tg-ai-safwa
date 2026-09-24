@@ -16,10 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.sql import view_catalogue
 from tg_agent_shell.proposals.api import World
+from tg_agent_shell.proposals.hooks import PLAN_HOOK, REQUEST_REVIEW_HOOK
 from tg_agent_shell.proposals.module import MODULE as PROPOSALS_FEATURE
 from tg_agent_shell.registry import Registry
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec, FeatureModule
 
+from .. import featuretoggles
 from ..features.advisor.agent import ADVISOR_VIEWS, PERSONA, SYSTEM_PROMPT_TEMPLATE
 from ..features.cards.module import (
     BLOCKER_HOOK,
@@ -98,7 +100,7 @@ async def _world(session: AsyncSession) -> World:
 # The automatic reactions that exist for Safwa. A hook with a switch is turned off and on
 # in the Profile, which is what `hook_switched_on` reads; one that follows another's switch
 # goes with it; one with neither is always on. The daily ones run at the Profile's Morning
-# time.
+# time. The checks on the model's own work are here only while `featuretoggles` has them on.
 HOOKS = (
     SUMMARY_HOOK,
     HEAVY_ANALYZER_HOOK,
@@ -119,6 +121,8 @@ HOOKS = (
     KEY_WARNING_HOOK,
     ONBOARDING_HOOK,
     NOTICE_HOOK,
+    *((PLAN_HOOK,) if featuretoggles.PLAN_REQUIRED else ()),
+    *((REQUEST_REVIEW_HOOK,) if featuretoggles.REQUEST_REVIEW else ()),
 )
 
 REGISTRY: Registry = Registry.of(

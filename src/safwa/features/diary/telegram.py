@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+from collections.abc import Sequence
 from datetime import date
 from typing import Any
 
@@ -126,14 +127,18 @@ class DiaryProposalPresenter:
         return label if score is None else f"{label} with feeling score {score}"
 
     async def screen(
-        self, session: AsyncSession, change: ProposalChange
+        self, session: AsyncSession, changes: Sequence[ProposalChange]
     ) -> ProposalScreen | None:
         current: dict[str, Any] = {}
-        if change.entity_id:
-            entry = await session.get(DiaryEntry, change.entity_id)
+        if changes[0].entity_id:
+            entry = await session.get(DiaryEntry, changes[0].entity_id)
             if entry is not None:
                 current = {"body": entry.body, "feeling_score": entry.feeling_score}
-        proposed = {**current, **dict(change.values)}
+        proposed = dict(current)
+        for change in changes:
+            proposed.update(change.values)
+        # One day is one entry: whatever the last change does is what Save leaves.
+        change = changes[-1]
         shown = current if change.action is ChangeAction.DELETE else proposed
         heading = f"Date: {html.escape(str(proposed.get('entry_date') or ''))}"
         if shown.get("feeling_score") is not None:

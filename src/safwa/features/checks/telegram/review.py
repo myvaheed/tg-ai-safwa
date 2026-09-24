@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -96,41 +97,47 @@ class CheckProposalPresenter:
         return await named_summary(session, change, details, model=Check)
 
     async def screen(
-        self, session: AsyncSession, change: ProposalChange
+        self, session: AsyncSession, changes: Sequence[ProposalChange]
     ) -> ProposalScreen | None:
-        current: dict[str, Any] = {}
+        first = changes[0]
+        proposed: dict[str, Any] = {}
         archived = False
-        linked_ids: list[int] = []
-        if change.entity_id:
-            check = await session.get(Check, change.entity_id)
+        linked: set[int] = set()
+        if first.entity_id:
+            check = await session.get(Check, first.entity_id)
             if check is not None:
                 archived = check.archived_at is not None
-                linked_ids = await check_value_ids(session, check.id)
-                current = {
+                linked = set(await check_value_ids(session, check.id))
+                proposed = {
                     "title": check.title,
                     "repeatable": check.repeatable,
                     "status": CHECK_OUTCOME_LABELS[check.outcome or "pending"],
-                    "values": await _value_names(session, linked_ids),
+                    "values": await _value_names(session, list(linked)),
                 }
-        payload = {k: v for k, v in change.values.items() if not k.startswith("value_")}
-        proposed = {**current, **payload}
-        if change.action in {ChangeAction.LINK, ChangeAction.UNLINK}:
-            resolved = await resolve_references(session, CHECK_VALUE_REFERENCE, change.values)
-            target = resolved.ids | set(resolved.unknown_ids)
-            after = (
-                set(linked_ids) | target
-                if change.action is ChangeAction.LINK
-                else set(linked_ids) - target
-            )
-            proposed["values"] = await _value_names(session, list(after))
-        if change.action in CHECK_ANSWER_ACTIONS:
-            proposed["status"] = CHECK_OUTCOME_LABELS[CHECK_ANSWER_ACTIONS[change.action]]
-        if change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
-            current["status"] = "Archived" if archived else "Active"
-            proposed["status"] = "Archived" if change.action is ChangeAction.ARCHIVE else "Deleted"
-        if change.action is ChangeAction.CREATE:
+        # One diff for each change, in the order Save applies them.
+        diffs: list[str] = []
+        for change in changes:
+            current = dict(proposed)
+            payload = {k: v for k, v in change.values.items() if not k.startswith("value_")}
+            proposed = {**current, **payload}
+            if change.action in {ChangeAction.LINK, ChangeAction.UNLINK}:
+                resolved = await resolve_references(
+                    session, CHECK_VALUE_REFERENCE, change.values
+                )
+                target = resolved.ids | set(resolved.unknown_ids)
+                linked = linked | target if change.action is ChangeAction.LINK else linked - target
+                proposed["values"] = await _value_names(session, list(linked))
+            if change.action in CHECK_ANSWER_ACTIONS:
+                proposed["status"] = CHECK_OUTCOME_LABELS[CHECK_ANSWER_ACTIONS[change.action]]
+            if change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
+                current["status"] = "Archived" if archived else "Active"
+                proposed["status"] = (
+                    "Archived" if change.action is ChangeAction.ARCHIVE else "Deleted"
+                )
+            diffs.extend(field_diffs(current, proposed))
+        if first.action is ChangeAction.CREATE:
             mode = "Create"
-        elif change.action in CHECK_ANSWER_ACTIONS:
+        elif any(change.action in CHECK_ANSWER_ACTIONS for change in changes):
             mode = "Answer"
         else:
             mode = "Edit"
@@ -144,7 +151,7 @@ class CheckProposalPresenter:
                 f"{html.escape(display_diff_value(proposed.get('repeatable')))}\n"
                 f"Values: {html.escape(display_diff_value(proposed.get('values')))}",
             ),
-            diffs=field_diffs(current, proposed),
+            diffs=tuple(diffs),
         )
 
 

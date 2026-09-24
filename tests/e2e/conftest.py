@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from functools import cache
 from pathlib import Path
 
 import pytest_asyncio
@@ -15,6 +16,8 @@ from safwa.bootstrap.modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
     HELPERS,
+    HOOKS,
+    MODULES,
     REGISTRY,
     SYSTEM_PROMPT,
     routed_prompt,
@@ -25,11 +28,35 @@ from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.models import Base
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from tg_agent_shell.ai.subagents import RoutedSubagent
-from tg_agent_shell.ai.tools import HelperPort
+from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS, HelperPort
 from tg_agent_shell.foundation.database import Database, upgrade_database
+from tg_agent_shell.hooks.contracts import HookSpec
+from tg_agent_shell.hooks.registry import HookRegistry
+from tg_agent_shell.proposals.hooks import PLAN_HOOK, REQUEST_REVIEW_HOOK
 from tg_agent_shell.proposals.store import ProposalStore
+from tg_agent_shell.registry import Registry
 from tg_agent_shell.session import RootSession
 from tg_agent_shell.telegram.manifest import AgentContext
+
+
+@cache
+def registry_with(checks: tuple[HookSpec, ...]) -> Registry:
+    """Safwa's registry, with the checks on the model's work a test wants in place of its own.
+
+    The feature toggles decide them for the running bot; a test decides them for itself, the
+    way it decides autoapproval, because a script would otherwise answer a review in every
+    turn it plays.
+    """
+    return replace(
+        REGISTRY,
+        hooks=HookRegistry.of(
+            (*(spec for spec in HOOKS if spec not in (PLAN_HOOK, REQUEST_REVIEW_HOOK)), *checks),
+            owners=frozenset(module.name for module in MODULES),
+            helpers=frozenset(HELPERS),
+            tools=IMMEDIATE_TOOLS - {"route"},
+            policy=REGISTRY.hooks.policy,
+        ),
+    )
 
 
 class ScriptedProvider:
@@ -109,6 +136,9 @@ class E2EHarness:
         subagents: tuple[RoutedSubagent, ...] | None = None,
         helpers: dict[str, object] | None = None,
         autoapprove: bool = False,
+        plan_required: bool = True,
+        request_review: bool = False,
+        checks: tuple[HookSpec, ...] | None = None,
         provider_factory: Callable[[list[str | CompletionTurn]], ScriptedProvider] = ScriptedProvider,
     ) -> tuple[RootSession, ScriptedProvider]:
         subagents = (self.subagent("workspace_mutator"),) if subagents is None else subagents
@@ -117,7 +147,10 @@ class E2EHarness:
         provider = provider_factory(responses)
         # One harness is one running bot, so every advisor it builds shares its reviews,
         # and it is assembled through the same registry the composition root uses.
-        advisor = REGISTRY.root_session(
+        if checks is None:
+            checks = (PLAN_HOOK,) * plan_required + (REQUEST_REVIEW_HOOK,) * request_review
+        registry = registry_with(checks)
+        advisor = registry.root_session(
             self.sessions,
             provider,
             self.memory,

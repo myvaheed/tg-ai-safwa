@@ -74,8 +74,8 @@ DIARY_PROMPT = """You keep the user's Diary. One day, one entry, in their own vo
      `ai_card_events(id, card_id, sprint_id, actor, operation, created_at)` — work done;
      `ai_checks(id, title, repeatable, status, resolved_at, series_id, card_id)` — what held;
      `ai_cards(id, title, kind, stage, priority, effort_points, parent_id)` — item names.
-3. Write your plan as the text of the response that carries the `diary` tool: what you will
-   write or remove. A response of the tool with no text is refused.
+3. In the response with the `diary` tool, write your plan as text: what you will write or
+   remove.
 4. The `diary` tool, in that same response:
    - `diary(mode="update", date=…, pov=…, remark=…, feeling_score=…)` — whether or not that day
      is written already. Fold in the saved entry: your `pov` replaces it, so what you leave out of

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+from collections.abc import Sequence
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -135,16 +136,15 @@ async def _card_detail_snapshot(session: AsyncSession, card: Card) -> dict[str, 
     }
 
 
-async def _card_state(
-    session: AsyncSession, change: ProposalChange
-) -> tuple[dict[str, Any], dict[str, Any]]:
+async def _card_states(
+    session: AsyncSession, changes: Sequence[ProposalChange]
+) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
+    """The Card as it is, then as each change leaves it, and the names none of them found."""
     current: dict[str, Any] = {}
-    archived = False
     tz = await workspace_zone(session)
-    if change.entity_id:
-        card = await session.get(Card, change.entity_id)
+    if changes[0].entity_id:
+        card = await session.get(Card, changes[0].entity_id)
         if card is not None:
-            archived = card.archived_at is not None
             current = {
                 "id": card.id,
                 "kind": card.kind,
@@ -171,6 +171,8 @@ async def _card_state(
                         )
                     )
                 ),
+                # Only an archive or a delete moves it, so only those show it in a diff.
+                "status": "Archived" if card.archived_at is not None else "Active",
             }
             for spec in CARD_REFERENCE_SPECS:
                 current[spec.plural_key] = sorted(
@@ -178,32 +180,34 @@ async def _card_state(
                         select(spec.link_column).where(spec.link_model.card_id == card.id)
                     )
                 )
-    proposed = _with_hard_time_text({**current, **dict(change.values)}, tz)
-    if change.action is ChangeAction.COMPLETE:
-        proposed["stage"] = CardStage.DONE.value
-    elif change.action is ChangeAction.REOPEN:
-        proposed["stage"] = change.values.get("stage", CardStage.BACKLOG.value)
-    elif change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
-        current["status"] = "Archived" if archived else "Active"
-        proposed["status"] = "Archived" if change.action is ChangeAction.ARCHIVE else "Deleted"
-
+    states = [current]
     unresolved_references: list[tuple[str, str]] = []
-    for spec in CARD_REFERENCE_SPECS:
-        if not spec.mentioned_in(change.values):
-            continue
-        resolved = await resolve_references(session, spec, change.values)
-        target_ids = resolved.ids | set(resolved.unknown_ids)
-        unresolved_references.extend((spec.label, name) for name in resolved.unresolved)
-        existing = set(current.get(spec.plural_key, []))
-        if change.action is ChangeAction.LINK:
-            proposed[spec.plural_key] = sorted(existing | target_ids)
-        elif change.action is ChangeAction.UNLINK:
-            proposed[spec.plural_key] = sorted(existing - target_ids)
-        else:
-            proposed[spec.plural_key] = sorted(target_ids)
-    if unresolved_references:
-        proposed["_unresolved_references"] = unresolved_references
-    return current, proposed
+    for change in changes:
+        before = states[-1]
+        proposed = _with_hard_time_text({**before, **dict(change.values)}, tz)
+        if change.action is ChangeAction.COMPLETE:
+            proposed["stage"] = CardStage.DONE.value
+        elif change.action is ChangeAction.REOPEN:
+            proposed["stage"] = change.values.get("stage", CardStage.BACKLOG.value)
+        elif change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
+            proposed["status"] = (
+                "Archived" if change.action is ChangeAction.ARCHIVE else "Deleted"
+            )
+        for spec in CARD_REFERENCE_SPECS:
+            if not spec.mentioned_in(change.values):
+                continue
+            resolved = await resolve_references(session, spec, change.values)
+            target_ids = resolved.ids | set(resolved.unknown_ids)
+            unresolved_references.extend((spec.label, name) for name in resolved.unresolved)
+            existing = set(before.get(spec.plural_key, []))
+            if change.action is ChangeAction.LINK:
+                proposed[spec.plural_key] = sorted(existing | target_ids)
+            elif change.action is ChangeAction.UNLINK:
+                proposed[spec.plural_key] = sorted(existing - target_ids)
+            else:
+                proposed[spec.plural_key] = sorted(target_ids)
+        states.append(proposed)
+    return states, unresolved_references
 
 
 async def _card_display_state(
@@ -244,7 +248,7 @@ async def _card_diff_value(session: AsyncSession, field: str, value: Any) -> str
 
 async def _card_diffs(
     session: AsyncSession, current: dict[str, Any], proposed: dict[str, Any]
-) -> tuple[str, ...]:
+) -> list[str]:
     labels = {
         "kind": "Kind",
         "title": "Title",
@@ -270,9 +274,7 @@ async def _card_diffs(
         old = await _card_diff_value(session, field, current.get(field))
         new = await _card_diff_value(session, field, proposed.get(field))
         diffs.append(f"• {label}: {html.escape(old)} → {html.escape(new)}")
-    for label, name in proposed.get("_unresolved_references", []):
-        diffs.append(f"• {label}: — → {html.escape(name)} (not found)")
-    return tuple(diffs)
+    return diffs
 
 
 class CardProposalPresenter:
@@ -387,18 +389,23 @@ class CardProposalPresenter:
         return f"{verb} {head}" + (f" ({' · '.join(parts)})" if parts else "")
 
     async def screen(
-        self, session: AsyncSession, change: ProposalChange
+        self, session: AsyncSession, changes: Sequence[ProposalChange]
     ) -> ProposalScreen | None:
-        current, proposed = await _card_state(session, change)
-        display = await _card_display_state(session, proposed)
+        states, unresolved = await _card_states(session, changes)
+        display = await _card_display_state(session, states[-1])
+        creating = changes[0].action is ChangeAction.CREATE
         # The Card screen is the overview itself; a field diff repeats it only when the
-        # Card already exists.
-        diffs = (
-            await _card_diffs(session, current, proposed) if change.action is not ChangeAction.CREATE else ()
-        )
+        # Card already exists, and then there is one for each change, in the order of Save.
+        diffs: list[str] = []
+        if not creating:
+            for before, after in zip(states, states[1:], strict=False):
+                diffs.extend(await _card_diffs(session, before, after))
+            diffs.extend(
+                f"• {label}: — → {html.escape(name)} (not found)" for label, name in unresolved
+            )
         return ProposalScreen(
-            mode="Create" if change.action is ChangeAction.CREATE else "Edit",
+            mode="Create" if creating else "Edit",
             item="Card",
             blocks=(card_overview_text(display, heading="Card overview"),),
-            diffs=diffs,
+            diffs=tuple(diffs),
         )

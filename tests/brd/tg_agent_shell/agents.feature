@@ -377,3 +377,40 @@ Feature: Agents — the session, the hand-over, and what comes back
     And it is not made to open with a tool call: its words are the work
     When a screen stops the request between the subagent's answer and Safwa's
     Then the block is still there when the request carries on
+
+  Scenario: AG-DONE-045 — Before Safwa answers the owner's message, the request is read for what was asked and not done
+    Given the request review is on in the feature toggles
+    When Safwa is about to answer the owner's message, by AG-HOOK-047
+    Then one review reads it, and is told that a change the owner discarded, refused or took
+      back is not missing, and neither is one the answer asks them about
+    When it finds a change the message asked for that nothing made
+    Then Safwa is told what is not done: to route it now, or to tell the owner it was not done
+    When it finds nothing missing, or cannot reach a decision
+    Then the answer is sent as it is
+    When the request review is off in the feature toggles
+    Then no answer is read before it is sent
+
+  Scenario: AG-HOOK-046 — A check may send a subagent's whole response back before any of it is prepared
+    Given a hook that checks the calls a subagent response carries
+    When a subagent response carries calls that would become proposals
+    Then the hook reads them with the text of that response, once, before any is prepared
+    When it answers with words
+    Then none of those calls is prepared, and each comes back refused with the hook's code and
+      its words
+    And when two such hooks would answer, the first in the registration order decides
+    And each response sent back counts as one of the 5 tries (MAX_REPAIR_ROUNDS = 5)
+    When the hook fails
+    Then no call of that response is prepared, and Safwa is told that subagent did not finish
+
+  Scenario: AG-HOOK-047 — A check may hold back Safwa's answer to the owner's message once
+    Given a hook that checks the answer to a request
+    When Safwa is about to answer the owner's message in words, after every screen of the request
+    Then the hook reads the conversation, each change the request made with what became of it,
+      and the answer
+    When it answers with words
+    Then the answer is not sent, those words are handed to Safwa, and the same request goes on
+    And its next answer is sent without the hook reading it
+    When Safwa answers a request of its own, not a message of the owner's
+    Then the hook does not read it
+    When the hook fails
+    Then the answer is sent as it is

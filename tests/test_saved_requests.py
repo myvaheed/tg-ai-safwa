@@ -16,7 +16,7 @@ from safwa.features.saved_requests.use_cases import (
 )
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.workspace_mutator.remove import RemoveToolInput
-from tg_agent_shell.ai.autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
+from tg_agent_shell.ai.autoapproval import AutoApprovalChange, AutoApprovalReviewer
 from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.foundation.errors import DomainError
 
@@ -209,23 +209,15 @@ def test_a_request_query_is_never_allowlisted_for_autoapproval():
     """SR-AI-010 — tests/brd/saved_requests.feature"""
     reviewer = AutoApprovalReviewer(provider=None, rules=AUTOAPPROVALS)
 
-    def candidate(action: str, values: dict[str, object]) -> AutoApprovalCandidate:
-        return AutoApprovalCandidate(
-            user_request="Rename that Request",
-            entity="request",
-            action=action,
-            entity_id=7,
-            values=values,
-            summary="Request “All goals”",
-            fields=[],
-        )
+    def change(action: str, values: dict[str, object]) -> AutoApprovalChange:
+        return AutoApprovalChange(entity="request", action=action, entity_id=7, values=values)
 
-    assert reviewer.rule_for(candidate("update", {"name": "Every goal"})) is not None
+    assert reviewer.rule_for(change("update", {"name": "Every goal"})) is not None
     # `prepare` stores the normalized statement as `query_sql`, so re-aiming a Request never
     # matches the allowlisted field set and never reaches the reviewer at all.
-    assert reviewer.rule_for(candidate("update", {"query_sql": "SELECT id FROM ai_cards"})) is None
-    assert reviewer.rule_for(candidate("update", {"name": "X", "query_sql": "SELECT id"})) is None
-    assert reviewer.rule_for(candidate("create", {"name": "X"})) is None
+    assert reviewer.rule_for(change("update", {"query_sql": "SELECT id FROM ai_cards"})) is None
+    assert reviewer.rule_for(change("update", {"name": "X", "query_sql": "SELECT id"})) is None
+    assert reviewer.rule_for(change("create", {"name": "X"})) is None
 
 
 async def test_a_request_is_deleted_not_archived(sessions):

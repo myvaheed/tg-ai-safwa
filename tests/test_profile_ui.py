@@ -8,7 +8,8 @@ from datetime import time
 from sqlalchemy import select
 from ui_harness import FakeCallback, FakeMessage, button_texts, services_for
 
-from safwa.bootstrap.modules import REGISTRY
+from safwa import featuretoggles
+from safwa.bootstrap.modules import HOOKS, REGISTRY
 from safwa.features.heavy_analyzer.module import HEAVY_ANALYZER_HOOK
 from safwa.features.profile.api import hook_switched_on
 from safwa.features.profile.model import DIARY_TIME_DEFAULT, ProfileField, UserProfile
@@ -20,6 +21,7 @@ from tg_agent_shell.cues.queue import add_hook_cue
 from tg_agent_shell.foundation.changes import Committed
 from tg_agent_shell.hooks.contracts import Advise, BeforeTool, HookSpec, OnCommitted
 from tg_agent_shell.hooks.registry import HookRegistry
+from tg_agent_shell.proposals.hooks import PLAN_HOOK, REQUEST_REVIEW_HOOK
 from tg_agent_shell.telegram import callback_token_handler
 from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import UiSession
@@ -154,6 +156,25 @@ async def test_ps_hooks_015_a_reaction_with_a_switch_is_turned_off_and_on_in_the
     assert "🔔 Helper offer: on" in button_texts(markup)
     async with sessions() as session:
         assert (await session.get(UserProfile, 1)).disabled_hooks == []
+
+
+async def test_ps_hooks_015_a_check_on_the_models_work_is_on_or_off_in_the_feature_toggles(
+    sessions,
+) -> None:
+    """PS-HOOKS-015 — tests/brd/profile.feature"""
+    assert (PLAN_HOOK in HOOKS) is featuretoggles.PLAN_REQUIRED
+    assert (REQUEST_REVIEW_HOOK in HOOKS) is featuretoggles.REQUEST_REVIEW
+    services = services_for(sessions)
+    services.hooks = REGISTRY.hooks
+    message = FakeMessage(941, bot_message=True, answer_as_new=True)
+
+    await command_profile(message, services)
+
+    rendered, markup = message.edits[-1]
+    for check in (PLAN_HOOK, REQUEST_REVIEW_HOOK):
+        assert not check.agent_related
+        assert check.title not in rendered
+        assert not any(check.title in label for label in button_texts(markup))
 
 
 async def test_ag_hook_043_a_follower_is_not_on_the_profile_and_goes_off_with_its_switch(

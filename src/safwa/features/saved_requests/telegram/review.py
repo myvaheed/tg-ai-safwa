@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,7 +46,7 @@ class RequestProposalPresenter:
         return await named_summary(session, change, details, model=SavedRequest)
 
     async def screen(
-        self, session: AsyncSession, change: ProposalChange
+        self, session: AsyncSession, changes: Sequence[ProposalChange]
     ) -> ProposalScreen | None:
         # A Request is its SQL; the generic change list prints it without a second shape.
         return None

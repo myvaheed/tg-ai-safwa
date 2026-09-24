@@ -32,7 +32,7 @@ from tg_agent_shell.proposals.use_cases import (
     approve_proposal,
     decide_batch_item,
     open_batch,
-    prepare_proposal,
+    prepare_change,
 )
 from tg_agent_shell.recovery import recover_startup
 from tg_agent_shell.telegram.model import CallbackToken
@@ -94,12 +94,13 @@ async def _proposal_for(
     session, reviews: ProposalStore, tool: str, arguments: dict
 ) -> ChangeProposal:
     """One prepared change, opened the way a mutation tool call opens it."""
-    return await prepare_proposal(
-        session,
-        reviews,
-        ChangePreparer(None, None, PROPOSALS),  # type: ignore[arg-type]
+    preparer = ChangePreparer(None, None, PROPOSALS)  # type: ignore[arg-type]
+    return reviews.open_proposal(
         message="Safwa proposed this",
-        change=PROPOSALS.change_from_tool(tool, arguments),
+        workspace_revision=(await preparer.world(session)).revision,
+        changes=[
+            await prepare_change(session, preparer, PROPOSALS.change_from_tool(tool, arguments))
+        ],
     )
 
 
@@ -259,6 +260,7 @@ def _autoapproving(sessions, reviews: ProposalStore) -> ProposalMaterializer:
         ProposalRenderer(reviews, PROPOSALS),
         None,  # type: ignore[arg-type]
         None,  # type: ignore[arg-type]
+        provider=None,  # type: ignore[arg-type]
         resolve=resolve,
         autoapproval=_ApprovesEverything(),
     )

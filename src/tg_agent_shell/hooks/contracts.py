@@ -11,17 +11,21 @@ said, so what is said is what is still there.
 A hook whose effect reaches the agent — a helper offered to its session, a call refused, a
 request handed to the Advisor — is the owner's to turn off; whether it is on is the application's policy,
 read where the hook is about to work. A hook that runs work of its own is always on, unless it
-names another hook as its switch: then it is on exactly when that one is.
+names another hook as its switch: then it is on exactly when that one is. A check on the
+model's own work — a response sent back, an answer held — has no switch either: the
+application registers it or leaves it out.
 """
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import time
 from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from llm_gateway import LlmProvider
 
 from ..foundation.changes import Committed
 
@@ -67,6 +71,58 @@ class BeforeTool:
     tool: str
     call_id: str
     arguments_json: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProposedCall:
+    """One call of a subagent response, validated and not prepared yet."""
+
+    call_id: str
+    tool: str
+    entity: str
+    action: str
+    entity_id: int | None
+    values: Mapping[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class BeforeProposals:
+    """A subagent response carried calls that would become proposals, and none is prepared.
+
+    `text` is the words of that response, where a subagent writes its plan.
+    """
+
+    run_id: int
+    agent_kind: str
+    text: str
+    calls: tuple[ProposedCall, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AfterRequest:
+    """Safwa is about to answer the owner's message in words, after every screen of the
+    request. `done` is each change the request made, with what became of it."""
+
+    run_id: int
+    conversation: str
+    done: tuple[str, ...]
+    answer: str
+
+
+@dataclass(frozen=True, slots=True)
+class OnBeforeProposals:
+    """Every subagent response that carries calls."""
+
+    def matches(self, event: BeforeProposals) -> bool:
+        return True
+
+
+@dataclass(frozen=True, slots=True)
+class OnAfterRequest:
+    """Every answer to a message of the owner's, once per request."""
+
+    def matches(self, event: AfterRequest) -> bool:
+        return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,16 +244,54 @@ class Advise[Item]:
 
 
 @dataclass(frozen=True, slots=True)
+class ReturnProposals:
+    """Before a response's calls are prepared: the check's words send every one of them back
+    to the subagent, refused with `code` and those words, and the session runs again. The
+    first hook in the catalogue that answers decides.
+
+    A check that fails, or whose answer is not words, is not a pass: the turn ends there,
+    and no call of that response is prepared."""
+
+    code: str
+
+
+@dataclass(frozen=True, slots=True)
+class HoldAnswer[Payload]:
+    """Before the answer to the owner's message is sent: `review` reads what the check
+    returned, with the model to read it by, and gives words or None. Words hold the answer
+    back and the same request goes on with them; its next answer is not held. A review that
+    fails lets the answer through."""
+
+    review: Callable[[Payload, LlmProvider], Awaitable[str | None]]
+
+
+@dataclass(frozen=True, slots=True)
 class HookSpec[Event, Payload]:
     name: str
     owner: str
     on: tuple[
-        OnBeforeTurn | OnAfterTurn | OnAfterTool | OnBeforeTool | OnCommitted | OnTick, ...
+        OnBeforeTurn
+        | OnAfterTurn
+        | OnAfterTool
+        | OnBeforeTool
+        | OnBeforeProposals
+        | OnAfterRequest
+        | OnCommitted
+        | OnTick,
+        ...,
     ]
     evaluate: Callable[[Event], Awaitable[Sequence[Payload]]]
-    # OfferTool and RefuseTool checks return the notice the model reads. Run checks return
-    # operation data. Advise checks return the items the request will be about.
-    effect: Run[Payload] | OfferTool | RefuseTool | Advise[Payload]
+    # OfferTool, RefuseTool and ReturnProposals checks return the words the model reads. Run
+    # checks return operation data, HoldAnswer checks what its review reads. Advise checks
+    # return the items the request will be about.
+    effect: (
+        Run[Payload]
+        | OfferTool
+        | RefuseTool
+        | Advise[Payload]
+        | ReturnProposals
+        | HoldAnswer[Payload]
+    )
     # What the owner reads about the hook: on the settings screen when it is theirs to
     # switch, and in the feature map either way.
     title: str
@@ -207,7 +301,9 @@ class HookSpec[Event, Payload]:
 
     @property
     def agent_related(self) -> bool:
-        """Whether the effect reaches the agent, which is what makes the hook the owner's to switch."""
+        """Whether the effect hands the agent something of the owner's — a helper, a refusal,
+        a request — which is what makes the hook the owner's to switch. A check on the model's
+        own work is not: it is registered or left out."""
         return isinstance(self.effect, OfferTool | RefuseTool | Advise)
 
 

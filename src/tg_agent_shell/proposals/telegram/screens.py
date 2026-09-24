@@ -36,13 +36,10 @@ async def render_proposal(
         if notice:
             text_parts.append(html.escape(notice))
         text_parts.append(html.escape(proposal.message))
-        # One change of a kind whose feature draws it gets that screen; anything else is
-        # the plain list, which needs to know nothing about the entities in it.
-        screen = None
-        if len(changes) == 1:
-            presenter = services.root.proposals.presenter(changes[0].entity)
-            if presenter is not None:
-                screen = await presenter.screen(session, changes[0])
+        # A proposal changes one item, so the feature that owns it draws the screen; one
+        # that draws none gets the plain list, which knows nothing about the entities in it.
+        presenter = services.root.proposals.presenter(changes[0].entity)
+        screen = await presenter.screen(session, changes) if presenter is not None else None
         if screen is not None:
             text_parts[0] = f"<b>{screen.mode} {screen.item} · AI proposal</b>"
             text_parts.extend(screen.blocks)

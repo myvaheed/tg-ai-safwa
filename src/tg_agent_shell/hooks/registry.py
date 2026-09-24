@@ -12,32 +12,48 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..foundation.changes import Committed
 from .contracts import (
     Advise,
+    AfterRequest,
     AfterTool,
     AfterTurn,
+    BeforeProposals,
     BeforeTool,
     BeforeTurn,
+    HoldAnswer,
     HookPolicy,
     HookSpec,
     OfferTool,
+    OnAfterRequest,
     OnAfterTool,
     OnAfterTurn,
+    OnBeforeProposals,
     OnBeforeTool,
     OnBeforeTurn,
     OnCommitted,
     OnTick,
     RefuseTool,
+    ReturnProposals,
     Run,
     Tick,
     TickTime,
     every_switch_on,
 )
 
-HookEvent = BeforeTurn | AfterTurn | AfterTool | BeforeTool | Committed | Tick
+HookEvent = (
+    BeforeTurn
+    | AfterTurn
+    | AfterTool
+    | BeforeTool
+    | BeforeProposals
+    | AfterRequest
+    | Committed
+    | Tick
+)
 
 # Which subscription reads which event; the registry's compatibility rules are below.
 _SUBSCRIPTION_FOR: Mapping[type, type] = MappingProxyType({
     BeforeTurn: OnBeforeTurn, AfterTurn: OnAfterTurn, AfterTool: OnAfterTool,
-    BeforeTool: OnBeforeTool, Committed: OnCommitted, Tick: OnTick,
+    BeforeTool: OnBeforeTool, BeforeProposals: OnBeforeProposals,
+    AfterRequest: OnAfterRequest, Committed: OnCommitted, Tick: OnTick,
 })
 
 
@@ -90,6 +106,10 @@ class HookRegistry:
                         if tool not in tools:
                             raise RuntimeError(f"Hook {spec.name} names an unavailable tool boundary: {tool}")
                         event_type = BeforeTool
+                    case OnBeforeProposals(), ReturnProposals(code=code) if code.strip():
+                        event_type = BeforeProposals
+                    case OnAfterRequest(), HoldAnswer():
+                        event_type = AfterRequest
                     case OnCommitted(kind=kind), Advise() | Run() if kind.strip():
                         event_type = Committed
                     case OnTick(at=at), Advise() | Run() if callable(at):

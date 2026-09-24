@@ -169,7 +169,7 @@ async def test_pr_plan_028_a_subagent_says_what_it_will_change_before_its_calls_
     )
     assert refusal["code"] == "plan_required"
     assert refusal["retryable"] is True
-    assert "text of the response" in refusal["hint"]
+    assert "text of the response" in refusal["error"]
     assert len(e2e_harness.reviews.open_proposals) == 1
     # The plan is in the session's own record, and not in what the owner reads.
     async with e2e_harness.sessions() as session:
@@ -182,6 +182,24 @@ async def test_pr_plan_028_a_subagent_says_what_it_will_change_before_its_calls_
         for message in run.state_json["transcript"]
     )
     assert "Plan: one Action" not in outcome.message
+
+
+async def test_pr_plan_028_the_plan_check_off_prepares_calls_with_no_text(e2e_harness):
+    """PR-PLAN-028 — tests/brd/tg_agent_shell/proposals.feature"""
+    create = (
+        "card",
+        {"mode": "create", "kind": "action", "title": "Подтянуться 20 раз", "effort_points": 1},
+    )
+    advisor, provider = e2e_harness.advisor(
+        [route_turn("workspace_mutator"), mutation_turn(create, content="")],
+        plan_required=False,
+    )
+
+    outcome = await advisor.handle("Сделай один Action: подтянуться 20 раз")
+
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
+    assert len(provider.calls) == 2
+    assert len(e2e_harness.reviews.open_proposals) == 1
 
 
 async def test_ai_parent_query_sql_resolves_before_card_proposal(e2e_harness):
@@ -1712,32 +1730,161 @@ async def test_one_call_setting_several_fields_is_one_proposal(e2e_harness):
     assert "Proposal 1/" not in proposals[0].message
 
 
-async def test_saving_one_proposal_leaves_the_queued_ones_saveable(e2e_harness):
-    """PR-QUEUE-008 — tests/brd/tg_agent_shell/proposals.feature"""
+async def _card_and_tag(e2e_harness) -> tuple[int, int]:
     async with e2e_harness.sessions() as session:
-        card = await create_manual_card(session, title="Release", effort_points=3)
+        card = await create_manual_card(session, title="Release VrWalk", effort_points=3)
+        tag = await create_tag(session, "VrWalk")
         await session.commit()
-        card_id = card.id
+        return card.id, tag.id
 
+
+def _rename_and_tag(card_id: int, tag_id: int) -> ProviderTurn:
+    return mutation_turn(
+        ("card", {"mode": "update", "id": card_id, "title": "Ship VrWalk"}),
+        ("card", {"mode": "link", "id": card_id, "tag_id": tag_id}),
+    )
+
+
+def _resumed_statuses(provider) -> list[str]:
+    """What each call of the subagent's response came back with, once it was resumed."""
+    return [
+        json.loads(str(message["content"]))["status"]
+        for message in provider.calls[2]
+        if message["role"] == "tool"
+    ]
+
+
+async def _decide_grouped(e2e_harness, action: str, *, before_save=None):
+    """One response renames a Card and tags it; the owner answers its one screen."""
+    card_id, tag_id = await _card_and_tag(e2e_harness)
     advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("workspace_mutator"),
+            _rename_and_tag(card_id, tag_id),
+            "Done with the release card.",
+            "Done with the release card.",
+        ]
+    )
+    outcome = await advisor.handle("Rename the release card to Ship VrWalk and tag it VrWalk")
+    assert outcome.proposal_id is not None
+    [proposal] = e2e_harness.reviews.open_proposals
+    assert [change.action for change in proposal.changes] == [
+        ChangeAction.UPDATE,
+        ChangeAction.LINK,
+    ]
+    if before_save is not None:
+        await before_save(tag_id)
+    message = QueueTestMessage()
+    services = review_services(e2e_harness, advisor)
+    await render_proposal(message, services, outcome.proposal_id)
+    await resolve_queued_proposal(e2e_harness, services, message, outcome.proposal_id, action)
+    assert e2e_harness.reviews.open_proposals == ()
+    async with e2e_harness.sessions() as session:
+        card = await session.get(Card, card_id)
+        linked = await session.get(CardTag, {"card_id": card_id, "tag_id": tag_id})
+    return card, linked, provider, message
+
+
+async def test_calls_in_a_row_for_one_item_are_one_proposal_saved_whole(e2e_harness):
+    """PR-QUEUE-005 — tests/brd/tg_agent_shell/proposals.feature"""
+    card, linked, provider, message = await _decide_grouped(e2e_harness, "proposal_approve")
+
+    assert card.title == "Ship VrWalk"
+    assert linked is not None
+    # Each call is answered on its own, so the receipt stays one line per change.
+    assert _resumed_statuses(provider) == ["approved", "approved"]
+    assert message.rendered[-1].count("✅ Saved") == 2
+    assert len(provider.calls) == 4
+
+
+async def test_discarding_one_items_proposal_discards_every_change_in_it(e2e_harness):
+    """PR-QUEUE-005 — tests/brd/tg_agent_shell/proposals.feature"""
+    card, linked, provider, _message = await _decide_grouped(e2e_harness, "proposal_reject")
+
+    assert card.title == "Release VrWalk"
+    assert linked is None
+    assert _resumed_statuses(provider) == ["discarded", "discarded"]
+
+
+async def test_a_change_that_fails_on_save_takes_the_items_other_changes_with_it(e2e_harness):
+    """PR-QUEUE-005 — tests/brd/tg_agent_shell/proposals.feature"""
+
+    async def delete_tag_quietly(tag_id: int) -> None:
+        # Gone without moving the workspace revision, so the rename is applied first and
+        # the link after it fails, in the same transaction.
+        async with e2e_harness.sessions() as session:
+            await session.delete(await session.get(Tag, tag_id))
+            await session.commit()
+
+    card, linked, provider, _message = await _decide_grouped(
+        e2e_harness, "proposal_approve", before_save=delete_tag_quietly
+    )
+
+    assert card.title == "Release VrWalk"
+    assert linked is None
+    assert _resumed_statuses(provider) == ["failed", "failed"]
+
+
+async def test_calls_for_one_item_with_another_item_between_stay_apart(e2e_harness):
+    """PR-QUEUE-005 — tests/brd/tg_agent_shell/proposals.feature"""
+    card_id, tag_id = await _card_and_tag(e2e_harness)
+    async with e2e_harness.sessions() as session:
+        other = await create_manual_card(session, title="Docs", effort_points=1)
+        await session.commit()
+        other_id = other.id
+    advisor, _provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
             mutation_turn(
                 ("card", {"mode": "update", "id": card_id, "title": "Ship VrWalk"}),
-                ("card", {"mode": "update", "id": card_id, "note": "cut the branch"}),
-                ("card", {"mode": "update", "id": card_id, "effort_points": 5}),
+                ("card", {"mode": "update", "id": other_id, "note": "final"}),
+                ("card", {"mode": "link", "id": card_id, "tag_id": tag_id}),
             ),
-            "All three edits are saved.",
-            "All three edits are saved.",
         ]
     )
-    outcome = await advisor.handle("Three edits to the release card")
+
+    await advisor.handle("Rename the release card, finish the docs, tag the release card")
+
+    proposals = e2e_harness.reviews.open_proposals
+    assert [[change.entity_id for change in review.changes] for review in proposals] == [
+        [card_id],
+        [other_id],
+        [card_id],
+    ]
+    assert proposals[0].message.startswith("Proposal 1/3")
+
+
+async def test_saving_one_proposal_leaves_the_queued_ones_saveable(e2e_harness):
+    """PR-QUEUE-008 — tests/brd/tg_agent_shell/proposals.feature"""
+    async with e2e_harness.sessions() as session:
+        card = await create_manual_card(session, title="Release", effort_points=3)
+        other = await create_manual_card(session, title="Docs", effort_points=1)
+        await session.commit()
+        card_id, other_id = card.id, other.id
+
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("workspace_mutator"),
+            # An edit to another Card between each two keeps the three apart, by PR-QUEUE-005.
+            mutation_turn(
+                ("card", {"mode": "update", "id": card_id, "title": "Ship VrWalk"}),
+                ("card", {"mode": "update", "id": other_id, "note": "draft"}),
+                ("card", {"mode": "update", "id": card_id, "note": "cut the branch"}),
+                ("card", {"mode": "update", "id": other_id, "note": "final"}),
+                ("card", {"mode": "update", "id": card_id, "effort_points": 5}),
+            ),
+            "All five edits are saved.",
+            "All five edits are saved.",
+        ]
+    )
+    outcome = await advisor.handle("Three edits to the release card, two to the docs")
     assert outcome.proposal_id is not None
+    assert len(e2e_harness.reviews.open_proposals) == 5
     message = QueueTestMessage()
     services = review_services(e2e_harness, advisor)
     await render_proposal(message, services, outcome.proposal_id)
 
-    for _ in range(3):
+    for _ in range(5):
         pending = next((review.id for review in e2e_harness.reviews.open_proposals), None)
         assert pending is not None
         await resolve_queued_proposal(
@@ -1746,11 +1893,13 @@ async def test_saving_one_proposal_leaves_the_queued_ones_saveable(e2e_harness):
 
     async with e2e_harness.sessions() as session:
         card = await session.get(Card, card_id)
+        other = await session.get(Card, other_id)
         remaining = [review.id for review in e2e_harness.reviews.open_proposals]
     assert remaining == []
     assert card.title == "Ship VrWalk"
     assert card.note == "cut the branch"
     assert card.effort_points == 5
+    assert other.note == "final"
     assert len(provider.calls) == 4
 
 

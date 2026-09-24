@@ -154,9 +154,10 @@ class AgentManager:
     ) -> TurnOutcome:
         """Store, stamp and materialize one finished loop run.
 
-        The host may hand back nothing, which means it corrected this turn's tool results
-        and the session runs again. That is bounded by the host, not here: it is the same
-        session, so its own repair budget is what ends the exchange.
+        The host may hand back nothing, which means it corrected this turn's tool results,
+        or added to the session's messages, and the session runs again. That is bounded by
+        the host, not here: it is the same session, so its own budget is what ends the
+        exchange.
 
         A session that stops on a person is checkpointed here and nowhere else, before the
         record says it is waiting. Whatever the host does about that wait — draw a screen,
@@ -232,12 +233,16 @@ class AgentManager:
         *,
         kind: str = "advisor",
         source_message_id: int | None = None,
+        host_state: Mapping[str, Any] | None = None,
     ) -> TurnOutcome:
-        """One turn. A request the person wrote over continues instead of starting again."""
+        """One turn. A request the person wrote over continues instead of starting again,
+        with the host state it started with."""
         resumed = await self.resume_interrupted(dialogue)
         if resumed is not None:
             return resumed
-        return await self.start(dialogue, kind=kind, source_message_id=source_message_id)
+        return await self.start(
+            dialogue, kind=kind, source_message_id=source_message_id, host_state=host_state
+        )
 
     async def start(
         self,
@@ -245,12 +250,14 @@ class AgentManager:
         *,
         kind: str = "advisor",
         source_message_id: int | None = None,
+        host_state: Mapping[str, Any] | None = None,
     ) -> TurnOutcome:
         started = self.clock()
         record = await self.store.create(kind=kind, source_message_id=source_message_id)
         try:
             messages = await self.context.messages_for(kind, dialogue)
             agent = AgentSession.start(record.id, self.tools.definition(kind), dialogue=dialogue)
+            agent.host_state.update(host_state or {})
             agent.messages = messages
             agent.prefix_len = len(messages)
             result = await self.run(agent)

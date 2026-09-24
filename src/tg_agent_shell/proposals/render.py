@@ -18,7 +18,7 @@ from __future__ import annotations
 import html
 import json
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import Any
 
@@ -268,21 +268,26 @@ class NamedItemPresenter:
         raise NotImplementedError
 
     async def screen(
-        self, session: AsyncSession, change: ProposalChange
+        self, session: AsyncSession, changes: Sequence[ProposalChange]
     ) -> ProposalScreen | None:
+        first = changes[0]
         current: dict[str, Any] = {}
         archived = False
-        if change.entity_id:
-            item = await session.get(self.model, change.entity_id)
+        if first.entity_id:
+            item = await session.get(self.model, first.entity_id)
             if item is not None:
                 archived = getattr(item, "archived_at", None) is not None
                 current = self._current(item)
-        proposed = {**current, **dict(change.values)}
-        if change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
-            current["status"] = "Archived" if archived else "Active"
-            proposed["status"] = "Archived" if change.action is ChangeAction.ARCHIVE else "Deleted"
+        proposed = dict(current)
+        for change in changes:
+            proposed.update(change.values)
+            if change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
+                current["status"] = "Archived" if archived else "Active"
+                proposed["status"] = (
+                    "Archived" if change.action is ChangeAction.ARCHIVE else "Deleted"
+                )
         return ProposalScreen(
-            mode="Create" if change.action is ChangeAction.CREATE else "Edit",
+            mode="Create" if first.action is ChangeAction.CREATE else "Edit",
             item=self.label,
             blocks=(
                 f"Name: {html.escape(display_diff_value(proposed.get('name')))}\n"
@@ -485,11 +490,6 @@ class ProposalRenderer:
         self.reviews = reviews
         self.registry = registry
 
-    def only_change(self, proposal_id: int) -> ProposalChange | None:
-        """The change a review holds. Nothing writes a second one, and a receipt reads one."""
-        proposal = self.reviews.proposal(proposal_id)
-        return proposal.changes[0] if proposal is not None and proposal.changes else None
-
     def raw_details(self, change: AgentChange | None) -> list[str]:
         """Field lines for a change that never reached a proposal row."""
         if change is None:
@@ -499,32 +499,14 @@ class ProposalRenderer:
             return detail_lines(dict(change.values))
         return presenter.raw_details(change)
 
-    async def display_line(
-        self,
-        session: AsyncSession,
-        proposal_id: int,
-        fallback: AgentChange | None,
-        details: list[str],
+    async def line(
+        self, session: AsyncSession, change: ProposalChange, details: list[str]
     ) -> str:
-        """One sentence describing a proposal the way the owner reads it.
+        """One sentence describing a change the way the owner reads it.
 
         The model still gets `details`; this line trades their IDs for the names the
         owner recognises, so a receipt says which Tag landed on which Card.
         """
-        change = self.only_change(proposal_id)
-        if change is None:
-            return change_label(
-                {
-                    "change": {
-                        "entity": fallback.entity,
-                        "action": fallback.action,
-                        "id": fallback.id,
-                        "values": fallback.values,
-                    }
-                    if fallback is not None
-                    else None
-                }
-            )
         presenter = self.registry.presenter(change.entity)
         if presenter is None:
             return change_label(
@@ -539,29 +521,33 @@ class ProposalRenderer:
             )
         return await presenter.summary(session, change, details)
 
-    async def result_details(
+    async def details(
         self,
         session: AsyncSession,
-        proposal_id: int,
+        change: ProposalChange,
         fallback: AgentChange | None,
     ) -> list[str]:
-        change = self.only_change(proposal_id)
-        if change is None:
-            return self.raw_details(fallback)
+        """The field lines of one change, diffed against committed state."""
         presenter = self.registry.presenter(change.entity)
         if presenter is None:
             return self.raw_details(fallback) or detail_lines(dict(change.values))
         return await presenter.details(session, change, fallback)
 
     async def describe(self, session: AsyncSession, proposal_id: int) -> ProposalDescription:
-        """How one proposal reads to the owner: the same line and fields a receipt uses.
+        """How one proposal reads to the owner: the same lines and fields its receipts use,
+        one line for each change it holds.
 
         Read it **before** applying — the field lines are a before/after diff against
         committed state, and after `apply` that diff is empty.
         """
-        fields = await self.result_details(session, proposal_id, None)
-        summary = await self.display_line(session, proposal_id, None, fields)
-        return ProposalDescription(summary=summary, fields=fields)
+        proposal = self.reviews.proposal(proposal_id)
+        lines: list[str] = []
+        fields: list[str] = []
+        for change in proposal.changes if proposal is not None else ():
+            details = await self.details(session, change, None)
+            lines.append(await self.line(session, change, details))
+            fields.extend(details)
+        return ProposalDescription(summary="\n".join(lines), fields=fields)
 
 
 def proposal_change_summary(change: ProposalChange) -> str:

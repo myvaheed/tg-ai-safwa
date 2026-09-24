@@ -20,7 +20,7 @@ repeat and `target_not_found` belong to the feature that owns the entity.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -175,7 +175,7 @@ def entity_change(entity: str) -> Callable[[BaseModel], AgentChange]:
 
 @dataclass(frozen=True, slots=True)
 class ProposalScreen:
-    """The review screen of a single-change proposal, before any wording is joined."""
+    """The review screen of one proposal, before any wording is joined."""
 
     mode: str
     item: str
@@ -213,9 +213,14 @@ class ProposalPresenter(Protocol):
         """One sentence naming what this change does."""
 
     async def screen(
-        self, session: AsyncSession, change: ProposalChange
+        self, session: AsyncSession, changes: Sequence[ProposalChange]
     ) -> ProposalScreen | None:
-        """The review screen, or None to fall back to the generic change list."""
+        """The review screen of one proposal, or None to fall back to the generic change list.
+
+        `changes` are every change the proposal holds, in the order Save applies them. More
+        than one are all for one existing item: the screen shows it as all of them leave it,
+        and what each one changes.
+        """
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,8 +315,8 @@ async def named_ids(
 ) -> set[int]:
     """Resolve one relationship at approval time against committed data.
 
-    A proposal holds one change, so a name referenced here always belongs to an
-    item an earlier proposal already saved.
+    A proposal changes one item, and a new item is always a proposal of its own, so a name
+    referenced here always belongs to an item an earlier proposal already saved.
     """
     resolved = await resolve_references(session, spec, values)
     if resolved.unresolved:

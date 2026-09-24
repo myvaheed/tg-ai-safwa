@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+from collections.abc import Sequence
 from typing import Any
 
 from aiogram.types import Message
@@ -119,15 +120,16 @@ class EntryProposalPresenter:
         )
 
     async def screen(
-        self, session: AsyncSession, change: ProposalChange
+        self, session: AsyncSession, changes: Sequence[ProposalChange]
     ) -> ProposalScreen | None:
-        lines = await self.details(session, change, None)
+        lines = [line for change in changes for line in await self.details(session, change, None)]
+        action = changes[-1].action
         return ProposalScreen(
             mode=(
                 "Create"
-                if change.action is ChangeAction.CREATE
+                if action is ChangeAction.CREATE
                 else "Remove"
-                if change.action is ChangeAction.DELETE
+                if action is ChangeAction.DELETE
                 else "Edit"
             ),
             item="Ledger entry",

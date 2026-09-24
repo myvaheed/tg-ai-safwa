@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.contracts import AgentChange
@@ -28,7 +30,7 @@ class OnboardingProposalPresenter:
         return TURN_OFF
 
     async def screen(
-        self, session: AsyncSession, change: ProposalChange
+        self, session: AsyncSession, changes: Sequence[ProposalChange]
     ) -> ProposalScreen | None:
         return ProposalScreen(
             mode="Turn off",

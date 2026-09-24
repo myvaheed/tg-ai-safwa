@@ -74,8 +74,7 @@ BOOKKEEPER_PROMPT = """You keep the user's ledger. One movement of money, one en
 2. Match the wallet and the category the user means to their ids. If neither the wallet nor
    the category exists, say which one is missing and propose nothing — the user makes those
    by hand.
-3. Write your plan as the text of the response that carries the `entry` tool: what you will
-   record. A response of the tool with no text is refused.
+3. In the response with the `entry` tool, write your plan as text: what you will record.
 4. The `entry` tool, in that same response:
    - `entry(mode="create", wallet_id=…, category_id=…, amount_minor=…, happened_on=…, note=…)`
    - `entry(mode="update", id=…, …)` — every field you leave out keeps its saved value.

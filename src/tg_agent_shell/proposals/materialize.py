@@ -2,8 +2,12 @@
 
 This is the seam the whole proposal rule rests on: the model never mutates, so its calls
 arrive here as prepared changes, and what leaves is either an open review or words. A call
-that could not be prepared goes back to the model as a corrected tool result, and the
-session runs again — `None` from `materialize` is what asks the runtime for that.
+that could not be prepared, or that a check sent back, goes back to the model as a
+corrected tool result, and the session runs again — `None` from `materialize` is what asks
+the runtime for that. An answer a check held back runs the session again the same way.
+
+The checks are hooks: `BeforeProposals` before any call of a response is prepared, and
+`AfterRequest` before the answer to the owner's message is sent.
 """
 
 from __future__ import annotations
@@ -15,14 +19,30 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from agent_runtime import AgentLoopResult, AgentSession, TurnOutcome, json_safe
+from agent_runtime import (
+    AgentLoopResult,
+    AgentSession,
+    PendingTool,
+    TurnOutcome,
+    json_safe,
+    system_note,
+)
+from llm_gateway import LlmProvider
 
-from ..ai.autoapproval import AutoApprovalCandidate, AutoApprovalReviewer
+from ..ai.autoapproval import AutoApprovalCandidate, AutoApprovalChange, AutoApprovalReviewer
+from ..ai.contracts import ToolResultStatus
 from ..ai.outcome import AIOutcome, AIOutcomeKind, as_turn
-from ..ai.tools import REPAIR_EXHAUSTED, ToolAdapters
+from ..ai.tools import (
+    REPAIR_EXHAUSTED,
+    ToolAdapters,
+    WatcherFailed,
+    conversation_for,
+    response_text,
+)
 from ..foundation.errors import DomainError
+from ..hooks.contracts import AfterRequest, BeforeProposals, HoldAnswer, ProposedCall
 from .api import ProposalRegistry, ToolPreparationError
-from .model import AUTO_SAVED_RECEIPT, BatchDecision, QueueItem
+from .model import AUTO_SAVED_RECEIPT, BatchDecision, ProposalChange
 from .prepare import ChangePreparer
 from .render import (
     AUTOAPPROVED,
@@ -31,7 +51,7 @@ from .render import (
     with_queued_siblings,
 )
 from .store import ProposalStore
-from .use_cases import number_queued_proposals, open_batch, prepare_proposal
+from .use_cases import open_batch, prepare_change, queue_proposals
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +62,10 @@ MAX_REPAIR_ROUNDS = 5
 SHOWN_AS_IS = (
     "Shown to the user as is. Do not repeat it. If nothing else was asked, add one short line."
 )
+
+# Set on a session that answers a message of the owner's, and taken off by its first answer
+# in words, which is the one `AfterRequest` is about.
+OWNER_REQUEST = "owner_request"
 
 ResolveApproval = Callable[..., Awaitable[AIOutcome | None]]
 
@@ -58,6 +82,7 @@ class ProposalMaterializer:
         preparer: ChangePreparer,
         adapters: ToolAdapters,
         *,
+        provider: LlmProvider,
         resolve: ResolveApproval,
         autoapproval: AutoApprovalReviewer | None = None,
     ) -> None:
@@ -69,6 +94,8 @@ class ProposalMaterializer:
         self.adapters = adapters
         self.resolve = resolve
         self.autoapproval = autoapproval
+        # What a check that holds an answer reads it with.
+        self.provider = provider
 
     def answer(self, agent: AgentSession, message: str) -> TurnOutcome:
         """One session's words, and — for the session the owner reads — the blocks shown as
@@ -103,10 +130,11 @@ class ProposalMaterializer:
         """Turn one finished loop run into a review, or into words.
 
         ``None`` means the session's own tool results were corrected in place and it should
-        run again — the repair round, bounded by `MAX_REPAIR_ROUNDS`.
+        run again — the repair round, bounded by `MAX_REPAIR_ROUNDS` — or that its answer
+        was held back with what is missing, which happens once per request.
         """
         if not result.pending_tools:
-            return self.answer(agent, result.message)
+            return await self._answer_unless_held(agent, result.message)
         mutation_tools = [tool for tool in result.pending_tools if tool.change is not None]
         preparation_results = {
             tool.call.id: json_safe(tool.result) for tool in result.pending_tools
@@ -116,20 +144,23 @@ class ProposalMaterializer:
             for tool in result.pending_tools
             if not self.adapters.is_immediate(agent, tool.call.name) and tool.change is None
         }
+        sent_back = await self._sent_back(agent, mutation_tools)
+        if sent_back is not None:
+            for tool in mutation_tools:
+                failed_call_ids.add(tool.call.id)
+                preparation_results[tool.call.id] = sent_back
+            mutation_tools = []
         proposal_details: dict[str, list[str]] = {}
         proposal_displays: dict[str, str] = {}
         # In the order the model made the calls, which is the order the owner reviews them in.
-        queued_proposal_ids: dict[str, int] = {}
+        prepared: list[tuple[str, ProposalChange]] = []
         async with self.sessions() as session:
+            # Preparation writes nothing, so every call of the response is made against this
+            # one revision.
+            revision = (await self.preparer.world(session)).revision
             for tool in mutation_tools:
                 try:
-                    proposal = await prepare_proposal(
-                        session,
-                        self.reviews,
-                        self.preparer,
-                        message=result.message,
-                        change=tool.change,
-                    )
+                    change = await prepare_change(session, self.preparer, tool.change)
                 except ToolPreparationError as error:
                     failed_call_ids.add(tool.call.id)
                     preparation_results[tool.call.id] = error.as_tool_result()
@@ -149,18 +180,19 @@ class ProposalMaterializer:
                     ).as_tool_result()
                     logger.info("AI TOOL %s preparation error: %s", tool.call.name, error)
                     continue
-                proposal_details[tool.call.id] = await self.renderer.result_details(
-                    session, proposal.id, tool.change
+                proposal_details[tool.call.id] = await self.renderer.details(
+                    session, change, tool.change
                 )
-                proposal_displays[tool.call.id] = await self.renderer.display_line(
-                    session, proposal.id, tool.change, proposal_details[tool.call.id]
+                proposal_displays[tool.call.id] = await self.renderer.line(
+                    session, change, proposal_details[tool.call.id]
                 )
-                queued_proposal_ids[tool.call.id] = proposal.id
-            queue = [
-                QueueItem(proposal_id=proposal_id, call_ids=(call_id,))
-                for call_id, proposal_id in queued_proposal_ids.items()
-            ]
-            number_queued_proposals(self.reviews, queue, result.message)
+                prepared.append((tool.call.id, change))
+            queue = queue_proposals(
+                self.reviews, prepared, message=result.message, workspace_revision=revision
+            )
+            queued_proposal_ids = {
+                call_id: item.proposal_id for item in queue for call_id in item.call_ids
+            }
             tool_results = []
             for tool in result.pending_tools:
                 queued_id = queued_proposal_ids.get(tool.call.id)
@@ -173,7 +205,7 @@ class ProposalMaterializer:
                         "result": None
                         if queued_id
                         else with_queued_siblings(
-                            preparation_results[tool.call.id], len(queue)
+                            preparation_results[tool.call.id], len(prepared)
                         ),
                         "details": proposal_details.get(tool.call.id)
                         or self.renderer.raw_details(tool.change),
@@ -220,6 +252,102 @@ class ProposalMaterializer:
         return as_turn(
             AIOutcome(AIOutcomeKind.PROPOSAL, result.message, proposal_id=queue[0].proposal_id)
         )
+
+    async def _sent_back(
+        self, agent: AgentSession, mutation_tools: list[PendingTool]
+    ) -> dict[str, Any] | None:
+        """What every call of this response comes back with, when a check sends it back.
+
+        Read before anything is prepared, because preparing some calls already asks the
+        model. The first hook that answers decides, and one that fails ends the turn.
+        """
+        hooks = self.adapters.hooks
+        if not mutation_tools or not hooks.listens(BeforeProposals):
+            return None
+        event = BeforeProposals(
+            run_id=agent.run_id,
+            agent_kind=agent.kind,
+            # The text of the response carrying the calls, which is where the plan is.
+            text=response_text(agent.messages),
+            calls=tuple(
+                ProposedCall(
+                    call_id=tool.call.id,
+                    tool=tool.call.name,
+                    entity=tool.change.entity,
+                    action=tool.change.action.value,
+                    entity_id=tool.change.id,
+                    values=dict(tool.change.values),
+                )
+                for tool in mutation_tools
+            ),
+        )
+        async for checked in hooks.evaluate(event, self.sessions):
+            name = checked.spec.name
+            if checked.error is not None:
+                raise WatcherFailed(
+                    f"The hook {name}, which checks a response's calls, failed: {checked.error}"
+                ) from checked.error
+            if not checked.payloads:
+                continue
+            if not all(isinstance(words, str) and words.strip() for words in checked.payloads):
+                raise WatcherFailed(f"The hook {name} sent calls back without words")
+            logger.info("HOOK %s sent back %d call(s)", name, len(mutation_tools))
+            return {
+                "status": ToolResultStatus.ERROR.value,
+                "code": checked.spec.effect.code,
+                "error": " ".join(checked.payloads),
+                "retryable": True,
+            }
+        return None
+
+    async def _answer_unless_held(
+        self, agent: AgentSession, message: str
+    ) -> TurnOutcome | None:
+        """The session's words, unless a check holds the answer to the owner's message back.
+
+        Read once per request, and only there: a subagent's words go to its caller, and a
+        request of Safwa's own was never the owner's. Held back, the words stay in the
+        session as its own, and it runs on with what the check said.
+        """
+        hooks = self.adapters.hooks
+        if (
+            agent.parent_run_id is None
+            and hooks.listens(AfterRequest)
+            and agent.host_state.pop(OWNER_REQUEST, False)
+            and message.strip()
+        ):
+            words = await self._held(
+                AfterRequest(
+                    run_id=agent.run_id,
+                    conversation=conversation_for(agent.dialogue),
+                    done=tuple(agent.display_result_summaries),
+                    answer=message,
+                )
+            )
+            if words is not None:
+                agent.messages.append({"role": "assistant", "content": message})
+                agent.messages.append(system_note(words))
+                return None
+        return self.answer(agent, message)
+
+    async def _held(self, event: AfterRequest) -> str | None:
+        """The words of the first check that holds this answer, or None to send it."""
+        async for checked in self.adapters.hooks.evaluate(event, self.sessions):
+            effect = checked.spec.effect
+            error = checked.error
+            if error is None and isinstance(effect, HoldAnswer):
+                try:
+                    for payload in checked.payloads:
+                        words = await effect.review(payload, self.provider)
+                        if words and words.strip():
+                            return words
+                except Exception as failure:
+                    error = failure
+            if error is not None:
+                # A check that cannot decide lets the answer through: the owner still
+                # reads it, and decides every screen.
+                logger.error("The hook %s failed; the answer goes out: %s", checked.spec.name, error)
+        return None
 
     async def advance_autoapprovals(self, outcome: AIOutcome) -> AIOutcome:
         """Auto-save one eligible head; resolving it advances and checks the next head."""
@@ -276,18 +404,21 @@ class ProposalMaterializer:
             if batch is None:
                 return None
             head = batch.state.head
-            if head is None or head.proposal_id != proposal_id:
-                return None
-            change = self.renderer.only_change(proposal_id)
-            if change is None:
+            proposal = self.reviews.proposal(proposal_id)
+            if head is None or head.proposal_id != proposal_id or proposal is None:
                 return None
             description = await self.renderer.describe(session, proposal_id)
             return AutoApprovalCandidate(
                 user_request=batch.request,
-                entity=change.entity,
-                action=change.action,
-                entity_id=change.entity_id,
-                values=dict(change.values),
+                changes=tuple(
+                    AutoApprovalChange(
+                        entity=change.entity,
+                        action=change.action,
+                        entity_id=change.entity_id,
+                        values=dict(change.values),
+                    )
+                    for change in proposal.changes
+                ),
                 summary=description.summary,
                 fields=tuple(description.fields),
             )

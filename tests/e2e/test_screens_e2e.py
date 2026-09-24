@@ -20,15 +20,11 @@ from safwa.bootstrap.modules import (
     SCREENS,
 )
 from safwa.features.tags.model import Tag
-from safwa.foundation.workspace import Workspace
+from safwa.features.tags.use_cases import create_tag
 from telegram_llm import ChatHost
 from tg_agent_shell.ai.runs import AgentRun
 from tg_agent_shell.foundation.kinds import MARKS
 from tg_agent_shell.history import TelegramNotes
-from tg_agent_shell.proposals.model import (
-    ChangeAction,
-    ProposalChange,
-)
 from tg_agent_shell.proposals.telegram import render_ai_outcome, render_proposal
 from tg_agent_shell.recovery import recover_startup
 from tg_agent_shell.telegram import callback_token_handler, dismiss_prior_ui
@@ -268,22 +264,28 @@ async def test_a_proposal_screen_lists_its_fields_behind_save_and_discard(e2e_ha
 async def test_a_proposal_holding_two_changes_lists_both_on_one_screen(e2e_harness):
     """PR-SCREEN-003 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
-        workspace = await session.get(Workspace, 1)
-    proposal_id = e2e_harness.reviews.open_proposal(
-        message="Two tags in one proposal",
-        workspace_revision=workspace.revision,
-        changes=[
-            ProposalChange(entity="tag", action=ChangeAction.CREATE, values={"name": "VrWalk"}),
-            ProposalChange(entity="tag", action=ChangeAction.CREATE, values={"name": "Release"}),
-        ],
-    ).id
-
-    advisor, _provider = e2e_harness.advisor([])
+        card = await create_manual_card(session, title="Release VrWalk", effort_points=3)
+        tag = await create_tag(session, "VrWalk")
+        await session.commit()
+        card_id, tag_id = card.id, tag.id
+    advisor, _provider = e2e_harness.advisor(
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(
+                ("card", {"mode": "update", "id": card_id, "title": "Ship VrWalk"}),
+                ("card", {"mode": "link", "id": card_id, "tag_id": tag_id}),
+            ),
+        ]
+    )
+    outcome = await advisor.handle("Rename the release card and tag it VrWalk")
+    assert outcome.proposal_id is not None
     message = QueueTestMessage()
 
-    await render_proposal(message, review_services(e2e_harness, advisor), proposal_id)
+    await render_proposal(message, review_services(e2e_harness, advisor), outcome.proposal_id)
 
     screen = message.rendered[-1]
-    assert "VrWalk" in screen
-    assert "Release" in screen
+    # The Card as both changes leave it, then what each one changes.
+    assert "Title: <b>Ship VrWalk</b>" in screen
+    assert "• Title: Release VrWalk → Ship VrWalk" in screen
+    assert "• Tags: — → VrWalk" in screen
     assert message.buttons() == ["✅ Save", "🗑 Discard"]

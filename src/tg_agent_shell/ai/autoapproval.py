@@ -47,12 +47,19 @@ RELATIONSHIP_LINK = (
 
 
 @dataclass(frozen=True)
-class AutoApprovalCandidate:
-    user_request: str
+class AutoApprovalChange:
     entity: str
     action: str
     entity_id: int | None
     values: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class AutoApprovalCandidate:
+    """One proposal: a single change, or several to one item that are saved together."""
+
+    user_request: str
+    changes: tuple[AutoApprovalChange, ...]
     summary: str
     fields: tuple[str, ...]
 
@@ -87,7 +94,10 @@ Call autoapprove only when all of these hold:
 - Same target and same action the user asked for.
 - Every value in it is backed by their words.
 - Nothing is added that they did not ask for.
-- It meets `operation_criterion` in the JSON below.
+- Every change in `changes` meets its own `criterion`.
+
+`changes` may hold several changes to one item. They are saved together or not at all, so one
+change that fails a rule makes the whole proposal require_review.
 
 Anything else is require_review: a request you could read two ways, a value you had to guess,
 context you were not given. A wrong autoapprove changes the user's data behind their back; a
@@ -110,13 +120,13 @@ class AutoApprovalReviewer:
         self.provider = provider
         self.rules = dict(rules)
 
-    def rule_for(self, candidate: AutoApprovalCandidate) -> AutoApprovalRule | None:
-        rule = self.rules.get((candidate.entity, candidate.action))
-        return rule if rule is not None and rule.accepts(candidate.values) else None
+    def rule_for(self, change: AutoApprovalChange) -> AutoApprovalRule | None:
+        rule = self.rules.get((change.entity, change.action))
+        return rule if rule is not None and rule.accepts(change.values) else None
 
     async def review(self, candidate: AutoApprovalCandidate) -> AutoApprovalVerdict:
-        rule = self.rule_for(candidate)
-        if rule is None:
+        rules = [self.rule_for(change) for change in candidate.changes]
+        if not rules or None in rules:
             return AutoApprovalVerdict(False, "Operation or changed fields are not allowlisted.")
         if not candidate.user_request.strip():
             return AutoApprovalVerdict(False, "The originating user request is unavailable.")
@@ -124,15 +134,18 @@ class AutoApprovalReviewer:
         context = json.dumps(
             {
                 "user_request": candidate.user_request,
-                "operation": {
-                    "entity": candidate.entity,
-                    "action": candidate.action,
-                    "entity_id": candidate.entity_id,
-                },
-                "normalized_values": candidate.values,
+                "changes": [
+                    {
+                        "entity": change.entity,
+                        "action": change.action,
+                        "entity_id": change.entity_id,
+                        "values": change.values,
+                        "criterion": rule.criteria,
+                    }
+                    for change, rule in zip(candidate.changes, rules, strict=True)
+                ],
                 "proposal_summary": candidate.summary,
                 "proposal_fields": candidate.fields,
-                "operation_criterion": rule.criteria,
             },
             ensure_ascii=False,
             default=str,

@@ -84,8 +84,11 @@ hooks and the background tasks, refusing each collision where it happens.
 A hook whose effect reaches the agent — `OfferTool`, `RefuseTool` or `Advise`, its
 `agent_related` — is the owner's to turn off in the Profile, and `HookRegistry` asks the
 application's policy — `hook_switched_on`, read live — before running its condition or wording
-its request; a hook that runs work of its own, `Run`, is always on. The tool adapter emits
-`BeforeTool` before a call and `AfterTool` after it; the dialogue adapter emits `AfterTurn`
+its request; a hook that runs work of its own, `Run`, is always on, and so is a check on the
+model's own work, `ReturnProposals` or `HoldAnswer`, which Safwa registers or leaves out by
+`featuretoggles.py`. The tool adapter emits `BeforeTool` before a call and `AfterTool` after it;
+the materializer emits `BeforeProposals` before a subagent response's calls are prepared and
+`AfterRequest` before the answer to the owner's message; the dialogue adapter emits `AfterTurn`
 after releasing the owner's turn.
 A `Run` after a turn uses one background lease and a publication port that checks currentness;
 a `Run` on a tick or on a commit has the session factory and no chat, and says anything it has
@@ -387,9 +390,11 @@ flowchart LR
 ```mermaid
 flowchart LR
     T[mutation tool call] --> C[Pydantic contract]
-    C --> P[ChangePreparer.prepare against live data]
-    P -->|refused| ERR[one retryable tool error, and the turn goes on]
-    P --> R[open review in ProposalStore]
+    C --> BP{BeforeProposals hooks}
+    BP -->|sent back| ERR[one retryable tool error, and the turn goes on]
+    BP --> P[ChangePreparer.prepare against live data]
+    P -->|refused| ERR
+    P --> R[open review in ProposalStore · calls in a row for one item share one]
     R --> AUTO{autoapproval?}
     AUTO -->|allowlisted and approved| APPLY
     AUTO -->|no, or any doubt| SCREEN[review screen · Save / Discard]
@@ -399,12 +404,24 @@ flowchart LR
 ```
 
 - The model never mutates and never writes mutation SQL.
+- **Checks on the model's own work are hooks on two boundaries `ProposalMaterializer`
+  raises**, the seam where a `None` already means "run the session again". `BeforeProposals`
+  is read once per subagent response, before any of its calls is prepared — preparing a
+  Reminder already asks the model — and a `ReturnProposals` hook sends every call back with
+  its code (`AG-HOOK-046`). `AfterRequest` is read once per request started by the owner's
+  message, before its answer in words is sent, and a `HoldAnswer` hook holds that answer and
+  hands its words to the Advisor (`AG-HOOK-047`); one that fails lets the answer through.
+  Neither kind is on the Profile: the application registers it or leaves it out, and Safwa
+  decides that in `featuretoggles.py`.
 - **A response that carries mutation calls carries the subagent's plan as its text**
-  (`PR-PLAN-028`): what it will change, in order. `ToolAdapters.mutation` refuses every call
-  in a response with no text as `plan_required`, one retryable error, and the session runs
-  again. The text is the model's working record: it stays in the session's transcript, so a
-  session picked up after a decision still reads what it meant to do, and it never reaches the
-  chat.
+  (`PR-PLAN-028`): what it will change, in order. `PLAN_HOOK` sends a response with no text
+  back as `plan_required`. The text is the model's working record: it stays in the session's
+  transcript, so a session picked up after a decision still reads what it meant to do, and it
+  never reaches the chat.
+- **The answer to the owner's message is read for what was asked and nothing did**
+  (`AG-DONE-045`): `REQUEST_REVIEW_HOOK`, one mini session over the conversation, each change the
+  request made and the answer. A missing change can be judged only there: before it, the model
+  may not have made it yet.
 - **Every mutation tool belongs to a subagent**, never to the Advisor. `workspace` owns the workspace,
   `diary` owns the Diary. Preparation runs where the change was authored.
 - **Every proposal screen is exactly Save/Discard.** A screen that needs a field control is the
@@ -414,7 +431,8 @@ flowchart LR
   stored proposal, and any doubt leaves the pending screen untouched. A Save it asked for that is
   refused because the workspace moved on ends the review with it, and the queue moves on the way a
   failed manual Save moves it. Which actions are eligible is each feature's
-  `ProposalContribution.autoapprovals`; a create is never one of them.
+  `ProposalContribution.autoapprovals`; a create is never one of them. A review holding several
+  changes to one item is read in one call, and only when every change is eligible.
 - **`PR-TARGET-001` is a shell rule the feature keeps.** The generic walk carries no entity, so
   loading the target, `archived_at` and the closed repeat are the owning feature's
   `ProposalHandler.prepare`, and `target_not_found` is the one refusal `proposals/` raises itself.
@@ -422,8 +440,11 @@ flowchart LR
   `workspace.revision` before any handler runs, commits the write itself, and takes the review off
   the screen only once that commit stands. `StaleStateError` is the expected failure, and it is the
   one that ends the review instead — the screen is unanswerable rather than retryable.
-- Several mutation calls in one turn queue as independent screens; the model resumes only after the
-  last one resolves, each result handed back as a tool result.
+- Several mutation calls in one turn queue as screens in the order they were made, and calls in a
+  row for one existing item share one (`PR-QUEUE-005`): each is prepared on its own, so its receipt
+  stays its own, and `approve_proposal` hands each later change of the item the version the one
+  before it left in the same transaction. A presenter's `screen` gets every change of its review.
+  The model resumes only after the last screen resolves, each result handed back as a tool result.
 - A review and its approval batch are process state, not rows: `ProposalStore` holds both, they
   carry no status, and a batch is over when no screen is still waiting. Nothing
   survives a restart, so startup only clears what pointed at a review — the buttons, and the

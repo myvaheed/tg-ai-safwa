@@ -81,6 +81,8 @@ Feature: Profile
     And one that runs work of its own, such as the automatic Summary, is not on the screen and is always on
     And one that follows another reaction's switch is not on the screen either: it is on and off
       with that one, by AG-HOOK-043
+    And a check on the model's own work — one that sends a subagent's calls back or holds an
+      answer — is not on the screen: it is on or off in the feature toggles
     When the owner presses one
     Then that reaction is off from that moment, without a restart, and stays off after one
     And pressing it again turns it back on

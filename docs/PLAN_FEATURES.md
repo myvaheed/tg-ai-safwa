@@ -17,8 +17,7 @@ Four rules, applied in this order.
 2. **A prerequisite before whatever waits on it.** The hook switches in the Profile come before
    the first initiative; the Committed adapter before a hook on a saved transition; the Tick
    adapter before a hook that checks state on a schedule. Service operations, tool availability
-   and Advisor instructions need none of them. Proposal fulfillment validation belongs to its
-   own architecture.
+   and Advisor instructions need none of them.
 3. **Agreed before undecided.** An entry marked *Agreed* needs a scenario package and a batch. One
    marked *Noticed* or *Discussed* needs an owner decision first — that is a question, not an
    implementation, and several questions cost one conversation rather than several.
@@ -54,8 +53,8 @@ Answered 2026-09-08, and written into the entries themselves:
 - **Hooks need an explicit, inspectable registration contract.** A literal model tool call is
   not required for every reaction. [HOOK_ARCH.md](HOOK_ARCH.md) proposes typed event inputs,
   a central connection list, runtime reactions and staged implementation.
-- **Proposal fulfillment validation is not a hook.** Its separate architecture is proposed in
-  [PROPOSAL_VALIDATION.md](PROPOSAL_VALIDATION.md); it is not gated by hook registration.
+- **Proposal fulfillment validation is not an initiative.** It shipped in Wave 5 as a check on
+  a hook boundary of its own, with no switch in the Profile.
 
 ## Wave 1 — the schema and vocabulary window, shipped
 
@@ -192,7 +191,7 @@ existing table, so the database is rebuilt.
 | **The retrospective — the AI analysis half, shipped** | XL | One run from the retro screen, watched on a progress note: small questions over the record and the Diary, each one call ([RT-AI-005](../tests/brd/retro.feature)…[RT-AI-008](../tests/brd/retro.feature)), and the owner's mark on the criteria ([RT-CRIT-004](../tests/brd/retro.feature)). |
 | **Memory from the retro, shipped** | L | Shipped 2026-09-19: the analysis is the only thing that writes memory. The daily upkeep, the memory file, `/mem`, `/syncmem` and the Remember button went; a poll takes each analysed Sprint in and keeps trying until it has ([MEM-RETRO-011](../tests/brd/memory.feature), MEM-RETRO-012); patterns are confirmed by recurrence and forgotten without it (MEM-RETRO-013, MEM-RETRO-014). Two tables and one column went, one table and one column came, so the database is rebuilt. |
 | **Onboarding — the first start, shipped; a return after an absence, open** | L | The first start shipped 2026-09-24 ([OB-NOTICE-001](../tests/brd/onboarding.feature)…[OB-MANUAL-006](../tests/brd/onboarding.feature)): a notice before the first answer, a tip after each created or finished item, a subagent shown as is. The return after an absence is undecided. |
-| **Proposal fulfillment validation** | XL | A separate part of Proposal architecture; see [PROPOSAL_VALIDATION.md](PROPOSAL_VALIDATION.md). It coordinates request completion, actual outcomes and interruptions. It does not depend on hooks. |
+| **Proposal fulfillment validation, shipped** | L | Shipped 2026-09-25 as hooks on two new boundaries ([AG-HOOK-046](../tests/brd/tg_agent_shell/agents.feature), [AG-HOOK-047](../tests/brd/tg_agent_shell/agents.feature)): the Advisor's answer to the owner's message is read once, after every screen of the request, for what was asked and nothing did ([AG-DONE-045](../tests/brd/tg_agent_shell/agents.feature)), and the plan check moved onto a hook ([PR-PLAN-028](../tests/brd/tg_agent_shell/proposals.feature)). Both are on or off in `featuretoggles.py`, so what each costs a local model can be measured. The calls of one response in a row for one item became one proposal with one screen the same day ([PR-QUEUE-005](../tests/brd/tg_agent_shell/proposals.feature)). No column changed. |
 | **8 — Retrieve similar existing entities before creating another** | XL | The general BeforeTool interception, retrieval thresholds and clarification/resume contract remain experimental. |
 | **The Advisor cannot read the conversation by date** | L | A recorded limitation. Nothing else waits on it. |
 

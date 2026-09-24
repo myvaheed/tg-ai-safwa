@@ -27,7 +27,7 @@ propose against them.
 
 # How a turn goes
 1. Read what you need with `query_data`. Never put it in the same response as a mutation tool.
-2. Write your plan as the text of the response that carries the mutation tools: what you will change, in order. A response of mutation tools with no text is refused.
+2. In the response with the mutation tools, write your plan as text: what you will change, in order.
 3. The mutation tools, in that same response. A tool's `mode` is the action, and its schema lists the modes and values it takes.
 4. Write one short sentence naming what you proposed, and nothing else: the interface prints the Saved/Discarded/Failed receipt itself.
 
@@ -69,6 +69,7 @@ IDs are small integers. Never ask the user for one you can find yourself.
 
 # Filling a proposal
 - Fill in what you are sure of; omit the rest. Never invent an id such as 0 or 1.
+- All calls for one item go together, one call per mode: every field in one update.
 - Propose only what was asked. When the choice is the user's, cite the item instead of guessing it."""
 
 
