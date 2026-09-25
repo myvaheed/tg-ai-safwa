@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from tg_agent_shell.foundation.errors import DomainError, StaleStateError
 from tg_agent_shell.proposals.api import (
     ApplyContext,
@@ -50,3 +53,9 @@ class TagProposalHandler:
             else:
                 raise DomainError(f"Unsupported Tag action: {change.action}")
         return [tag.id]
+
+
+async def every_tag(session: AsyncSession) -> list[tuple[int, str]]:
+    """Every Tag: none is ever closed (PR-SIMILAR-030)."""
+    rows = await session.execute(select(Tag.id, Tag.name))
+    return [(tag_id, name) for tag_id, name in rows]

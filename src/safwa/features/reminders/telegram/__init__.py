@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from .review import TEXT_INPUT, ReminderProposalPresenter
+from .review import TEXT_INPUT, ReminderProposalPresenter, reminder_citation_label
 from .screens import REMINDER_CALLBACK_ACTIONS, render_reminder, render_reminders
 
 __all__ = [
     "REMINDER_CALLBACK_ACTIONS",
     "TEXT_INPUT",
     "ReminderProposalPresenter",
+    "reminder_citation_label",
     "render_reminder",
     "render_reminders",
 ]

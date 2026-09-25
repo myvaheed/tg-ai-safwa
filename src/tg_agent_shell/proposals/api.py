@@ -224,6 +224,19 @@ class ProposalPresenter(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class SimilarItems:
+    """What a new item of one entity is compared with on its review screen (PR-SIMILAR-030).
+
+    The items found are cited, so the entity publishes a screen.
+    """
+
+    # The create value that holds the new item's words.
+    field: str
+    # Every open item of the same entity, as (id, words).
+    open_items: Callable[[AsyncSession], Awaitable[Sequence[tuple[int, str]]]]
+
+
+@dataclass(frozen=True, slots=True)
 class ProposalRegistry:
     """Every proposal capability the running application has, keyed the way it is used."""
 
@@ -234,6 +247,8 @@ class ProposalRegistry:
     views: frozenset[str]
     # How the application reports the state a proposal is made and saved against.
     world: WorldReader
+    # By entity; one absent here is created with no similar items listed.
+    similar: Mapping[str, SimilarItems] = field(default_factory=dict)
 
     def handler(self, entity: str) -> ProposalHandler:
         found = self.handlers.get(entity)

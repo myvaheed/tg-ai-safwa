@@ -87,6 +87,7 @@ async def render_reminder(
     reminder_id: int,
     *,
     replace_message_id: int | None = None,
+    replace: bool | None = None,
 ) -> None:
     async with services.sessions() as session:
         reminder = await session.get(Reminder, reminder_id)
@@ -123,6 +124,7 @@ async def render_reminder(
             kind=MessageKind.DASHBOARD,
             markup=markup,
             related_id=reminder_id,
+            replace=replace,
         )
 
 

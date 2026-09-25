@@ -219,3 +219,23 @@ Feature: Proposals
       what the owner reads
     When the plan check is off in the feature toggles
     Then a response carrying calls and no text is prepared as it would have been
+
+  Scenario: PR-SIMILAR-030 — A screen that creates an item lists the open items of its type most like it
+    Given similar items are on in the feature toggles (SIMILAR_ITEMS = True)
+    When a proposal creates a Card, a Check, a Value, a Tag, a Request or a Reminder
+    Then its screen lists, under "Similar items already exist", up to 3 open items of the same
+      type whose words are closest in meaning to the new one's, closest first
+      (SIMILAR_ITEMS_SHOWN = 3)
+    And each is cited
+    And a Card is compared with every open Card, a Goal, a Subgoal or an Action alike
+    And an item is listed only when it is at least 0.70 alike (SIMILAR_THRESHOLD = 0.70)
+    And an open item is a Card not Done and not archived, a Check not answered, any Value, Tag
+      or Request, and a Reminder the owner set
+    And the words compared are a Card's or a Check's title, a Value's, a Tag's or a Request's
+      name, and a Reminder's instruction
+    When nothing is that alike, or the proposal changes or deletes an item
+    Then the screen has no such list
+    When the comparing model has not finished loading, or fails
+    Then the screen comes without the list
+    When similar items are off in the feature toggles
+    Then no screen has the list, and the comparing model is not loaded

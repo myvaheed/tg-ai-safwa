@@ -8,6 +8,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from tg_agent_shell.foundation.errors import DomainError, StaleStateError
 from tg_agent_shell.proposals.api import (
     ApplyContext,
@@ -81,3 +84,9 @@ class RequestProposalHandler:
         else:
             raise DomainError(f"Unsupported Request action: {change.action}")
         return [request.id]
+
+
+async def every_request(session: AsyncSession) -> list[tuple[int, str]]:
+    """Every Request: none is ever closed (PR-SIMILAR-030)."""
+    rows = await session.execute(select(SavedRequest.id, SavedRequest.name))
+    return [(request_id, name) for request_id, name in rows]

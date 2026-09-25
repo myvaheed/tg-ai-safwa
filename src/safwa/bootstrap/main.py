@@ -22,6 +22,7 @@ from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MARKS
 from tg_agent_shell.history import TelegramHistorySource, TelegramNotes
 from tg_agent_shell.recovery import recover_startup
+from tg_agent_shell.similarity import SIMILAR_MODEL, FastEmbedEncoder, Similarity
 from tg_agent_shell.telegram import (
     SHELL_COMMANDS,
     Services,
@@ -32,6 +33,7 @@ from tg_agent_shell.telegram.manifest import AgentContext, BackgroundContext
 from tg_agent_shell.telegram.routing import build_router
 from tg_agent_shell.turn import TurnManager
 
+from .. import featuretoggles
 from ..config import Settings
 from ..enums import AIProvider
 from ..features.advisor.agent import ADVISOR_VIEWS
@@ -277,6 +279,11 @@ async def run(settings: Settings) -> None:
             settings.resolved_asr_model,
             settings.asr_language or "auto",
         )
+    similarity = (
+        Similarity(lambda: FastEmbedEncoder(SIMILAR_MODEL, settings.data_dir / "models"))
+        if featuretoggles.SIMILAR_ITEMS
+        else None
+    )
     services = Services(
         sessions=database.sessions,
         root=advisor,
@@ -299,6 +306,7 @@ async def run(settings: Settings) -> None:
         views=ALLOWED_VIEWS,
         bot_username=settings.telegram_bot_username,
         transcriber=transcriber,
+        similarity=similarity,
     )
     # A commit's facts reach the hooks from here on, with the features a Run reaches for;
     # what recovery ends — a Sprint whose midnight Safwa slept through — is handed on too.
@@ -326,6 +334,9 @@ async def run(settings: Settings) -> None:
     ]
     for task in tasks:
         task.add_done_callback(_report_background_exit)
+    if similarity is not None:
+        # A first start downloads the model. Until it has loaded, screens go without the list.
+        tasks.append(asyncio.create_task(similarity.load(), name="similarity-load"))
     try:
         await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
     finally:

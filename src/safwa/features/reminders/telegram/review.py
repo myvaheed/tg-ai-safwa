@@ -23,7 +23,7 @@ from tg_agent_shell.proposals.render import (
     detail_lines,
     result_value,
 )
-from tg_agent_shell.telegram import required_text
+from tg_agent_shell.telegram import required_text, short_citation_title
 from tg_agent_shell.telegram.contributions import TextInputFlow
 
 from ..model import Reminder
@@ -31,6 +31,12 @@ from ..use_cases import update_reminder_text
 from .screens import render_reminder
 
 logger = logging.getLogger(__name__)
+
+
+async def reminder_citation_label(
+    session: AsyncSession, services: Any, reminder: Reminder
+) -> str:
+    return f"⏰ {short_citation_title(reminder.instruction)}"
 
 
 class ReminderProposalPresenter:

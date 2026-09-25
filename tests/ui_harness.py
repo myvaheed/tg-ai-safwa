@@ -185,6 +185,7 @@ def services_for(sessions, *, root=None, reviews=None, transcriber=None):
         owner_id=42,
         turn=TurnManager(),
         screens=SCREENS,
+        similarity=None,
         chat=ChatHost(TelegramNotes(sessions), MARKS, spawn=spawn_timer),
         commands=(*FEATURE_COMMANDS, *SHELL_COMMANDS),
         callback_actions=CALLBACK_ACTIONS,

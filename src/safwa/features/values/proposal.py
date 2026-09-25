@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from tg_agent_shell.foundation.errors import DomainError, StaleStateError
 from tg_agent_shell.proposals.api import (
     ApplyContext,
@@ -56,3 +59,9 @@ class ValueProposalHandler:
             else:
                 raise DomainError(f"Unsupported Value action: {change.action}")
         return [value.id]
+
+
+async def every_value(session: AsyncSession) -> list[tuple[int, str]]:
+    """Every Value, in focus or not: none is ever closed (PR-SIMILAR-030)."""
+    rows = await session.execute(select(Value.id, Value.name))
+    return [(value_id, name) for value_id, name in rows]

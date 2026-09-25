@@ -166,18 +166,16 @@ and the Actions finished that local day. An Action entering Today is the trigger
 taken when the question is about to be said. This is a daily load check, separate from Sprint
 capacity.
 
-### 8. Retrieve similar existing entities before creating another — candidate hook
+### 8. Retrieve similar existing entities before creating another — shipped on the screen
 
-Consider fast retrieval over database entities, using RAG or a similarity search. Before Card
-creation, a similarity score around 0.94-0.95 could trigger a hook that gives the AI a short list
-of existing Cards to inspect. It can then point out a likely match and ask whether that is the
-Card the owner meant. Similarity selects candidates for review; it does not establish identity.
-
-The retrieval approach and score threshold remain experimental and need to be checked against
-the actual retrieval model and the owner's data.
-
-This candidate is a hook only as an interception before the ordinary Card creation tool. Its
-interactive clarification and continuation still need design.
+Shipped 2026-09-25 as [PR-SIMILAR-030](../tests/brd/tg_agent_shell/proposals.feature), not as a
+hook; the number stays for references. Nothing is intercepted and the model is told nothing: a
+review screen that creates a Card, a Check, a Value, a Tag, a Request or a Reminder lists up to
+three open items of the same type at least 0.70 alike, for the owner to open instead. The model
+is `paraphrase-multilingual-MiniLM-L12-v2`, local, through `fastembed`; on it the 0.94 once
+suggested here lists almost nothing, and `scripts/similarity_probe.py` is what 0.70 was read
+from: it lists some near misses, such as mother and father, rather than miss a duplicate. It
+can be switched off in `featuretoggles.py`.
 
 ### 9. Proposal fulfillment validation — shipped as a hook
 

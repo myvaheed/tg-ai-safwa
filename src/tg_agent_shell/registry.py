@@ -34,6 +34,7 @@ from .proposals.api import (
     ProposalHandler,
     ProposalPresenter,
     ProposalRegistry,
+    SimilarItems,
     WorldReader,
 )
 from .proposals.store import ProposalStore
@@ -296,6 +297,7 @@ def _proposals(
     handlers: dict[str, ProposalHandler] = {}
     presenters: dict[str, ProposalPresenter] = {}
     tools: dict[str, MutationToolSpec] = {}
+    similar: dict[str, SimilarItems] = {}
     # The whole of what may be saved without the owner seeing it. A feature that declares
     # nothing has nothing here, and every other change takes the review screen.
     rules: dict[tuple[str, str], AutoApprovalRule] = {}
@@ -318,6 +320,8 @@ def _proposals(
             handlers[entity] = contribution.handler
             presenters[entity] = contribution.presenter
             register_tool(contribution.tool)
+            if contribution.similar is not None:
+                similar[entity] = contribution.similar
             rules.update(
                 ((entity, action), rule)
                 for action, rule in contribution.autoapprovals.items()
@@ -325,7 +329,8 @@ def _proposals(
         for tool in module.mutation_tools:
             register_tool(tool)
     registry = ProposalRegistry(
-        handlers=handlers, presenters=presenters, tools=tools, views=views, world=world
+        handlers=handlers, presenters=presenters, tools=tools, views=views, world=world,
+        similar=similar,
     )
     return registry, rules
 

@@ -27,6 +27,7 @@ from ..proposals.api import (
     MutationToolSpec,
     ProposalHandler,
     ProposalPresenter,
+    SimilarItems,
 )
 from .contributions import ScreenCommand, StartLink, TextInputFlow
 from .services import Services
@@ -127,6 +128,8 @@ class ProposalContribution:
     # Which of this entity's actions may be saved without the owner seeing the screen,
     # by action. Anything absent takes the review screen.
     autoapprovals: Mapping[str, AutoApprovalRule] = field(default_factory=dict)
+    # What a new item is compared with before the owner saves it, or nothing.
+    similar: SimilarItems | None = None
 
 
 @dataclass(frozen=True, slots=True)

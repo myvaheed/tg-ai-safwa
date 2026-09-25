@@ -16,3 +16,4 @@ config/providers.yaml
 .kilo/
 telegram-bot-exampler/
 ignored_docs/
+data/models/

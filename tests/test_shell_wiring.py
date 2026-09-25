@@ -217,7 +217,7 @@ def test_the_screen_catalogue_is_the_one_list_of_openable_items() -> None:
     """RT-OPEN-002 — tests/brd/retro.feature"""
     # One catalogue answers both questions, so what can be cited and what `open` may name
     # cannot drift apart: the retro is in it, and so is every other published screen.
-    assert set(SCREENS.types) == {"card", "check", "tag", "value", "request", "diary", "retro"}
+    assert set(SCREENS.types) == {"card", "check", "tag", "value", "request", "reminder", "diary", "retro"}
     enum = open_tool(SCREENS)["function"]["parameters"]["properties"]["item_type"]["enum"]
     assert set(enum) == set(SCREENS.types)
 

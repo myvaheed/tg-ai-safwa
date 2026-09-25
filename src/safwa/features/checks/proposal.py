@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from tg_agent_shell.foundation.errors import DomainError, StaleStateError
 from tg_agent_shell.proposals.api import (
     ApplyContext,
@@ -86,3 +89,9 @@ class CheckProposalHandler:
         else:
             raise DomainError(f"Unsupported Check action: {change.action}")
         return [check.id]
+
+
+async def open_checks(session: AsyncSession) -> list[tuple[int, str]]:
+    """Every Check not answered; only an answered one is archived (PR-SIMILAR-030)."""
+    rows = await session.execute(select(Check.id, Check.title).where(Check.outcome.is_(None)))
+    return [(check_id, title) for check_id, title in rows]

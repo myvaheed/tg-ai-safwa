@@ -101,6 +101,7 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
         history=history,
         chat=ChatHost(TelegramNotes(sessions), MARKS, spawn=spawn_timer),
         screens=SCREENS,
+        similarity=None,
         bot_username="safwa_ai_bot",
         owner_id=OWNER_ID,
         features=None,

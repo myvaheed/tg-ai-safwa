@@ -117,7 +117,8 @@ wallets and entries, with none of Safwa's nouns in it.
 | a shutdown | cancel the background tasks, close the history, the provider and the bot | the polling `finally` |
 
 Everything else is the application's own: the persona, the provider, the product dependencies,
-and the startup itself — Safwa's carries ASR, Telethon and OpenRouter headers, and the example's
+and the startup itself — Safwa's carries ASR, the similar items model, Telethon and OpenRouter
+headers, and the example's
 carries none of them, which is why the shell holds no `run()` of its own.
 
 **A second application declares its tables on a `Base` of its own**, and `upgrade_database` takes
@@ -426,6 +427,12 @@ flowchart LR
   `diary` owns the Diary. Preparation runs where the change was authored.
 - **Every proposal screen is exactly Save/Discard.** A screen that needs a field control is the
   wrong screen.
+- **A screen that creates an item lists what is already there** (`PR-SIMILAR-030`). A feature's
+  `ProposalContribution.similar` names the create value holding the new item's words and
+  reads its open items; `Similarity` ([similarity.py](../src/tg_agent_shell/similarity.py))
+  compares them with a local model it loads in the background, and until that has loaded, or
+  once it failed, the screen goes without the list. The list is the owner's alone: the model
+  never reads it, and nothing is refused because of it.
 - **Autoapproval is the one exception to `PR-WRITE-002`, and `PR-AUTO-024` is where it is
   approved.** It decides only whether a screen is shown: it never bypasses preparation or the
   stored proposal, and any doubt leaves the pending screen untouched. A Save it asked for that is
@@ -677,7 +684,7 @@ The model writes `[Go to the market](card:12)`. The host resolves it: `render_ci
 up, builds a `t.me` deep link from the **validated** id, and names the item itself. An item that is
 gone keeps its words and loses its link; a target that is not an id leaves the chat as plain words.
 
-Types: `card`, `check`, `tag`, `value`, `request`, `diary`, `retro`.
+Types: `card`, `check`, `tag`, `value`, `request`, `reminder`, `diary`, `retro`.
 
 **One catalogue answers both questions.** `ScreenCatalogue.types` is what may be cited *and* the
 whole enum of the `open` tool, so a feature that publishes a screen is offered by name and a type

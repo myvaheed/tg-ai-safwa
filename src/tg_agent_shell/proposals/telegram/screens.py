@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 
 from aiogram.types import InlineKeyboardMarkup, Message
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...foundation.clock import utcnow
 from ...foundation.errors import DomainError
@@ -12,10 +13,14 @@ from ...foundation.kinds import MessageKind
 from ...telegram import (
     Services,
     edit_registered_message,
+    render_citations,
     send_registered,
     token_button,
 )
-from ..render import proposal_change_summary
+from ..model import ChangeAction, ProposalChange
+from ..render import proposal_change_summary, result_value
+
+SIMILAR_HEADING = "<b>Similar items already exist</b>"
 
 
 async def render_proposal(
@@ -49,6 +54,7 @@ async def render_proposal(
             text_parts.append(
                 "\n".join(f"• {html.escape(proposal_change_summary(change))}" for change in changes)
             )
+        text_parts.append(await similar_items(session, services, changes[0]))
         # Every proposal screen is read-only: exactly Save and Discard, never a field control.
         rows = [
             [
@@ -90,3 +96,22 @@ async def render_proposal(
             related_id=proposal_id,
             event_id=event_id,
         )
+
+
+async def similar_items(session: AsyncSession, services: Services, change: ProposalChange) -> str:
+    """The open items of a new item's entity most like it, or nothing (PR-SIMILAR-030)."""
+    if change.action is not ChangeAction.CREATE or services.similarity is None:
+        return ""
+    similar = services.root.proposals.similar.get(change.entity)
+    if similar is None:
+        return ""
+    items = await similar.open_items(session)
+    ids = await services.similarity.closest(str(change.values.get(similar.field) or ""), items)
+    if not ids:
+        return ""
+    words = dict(items)
+    lines = [
+        f"• [{html.escape(result_value(words[item_id]))}]({change.entity}:{item_id})"
+        for item_id in ids
+    ]
+    return await render_citations(session, services, "\n".join([SIMILAR_HEADING, *lines]))

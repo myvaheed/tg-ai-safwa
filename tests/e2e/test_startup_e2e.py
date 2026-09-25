@@ -7,10 +7,12 @@ from types import SimpleNamespace
 
 import pytest
 
+from safwa import featuretoggles
 from safwa.bootstrap import main as safwa_main
 from safwa.config import Settings
 from safwa.foundation.models import Base
 from tg_agent_shell.foundation.database import upgrade_database
+from tg_agent_shell.similarity import SIMILAR_MODEL, Similarity
 
 pytestmark = pytest.mark.e2e
 
@@ -70,6 +72,18 @@ class FakeProvider:
         self.closed = True
 
 
+class FakeEncoder:
+    """The similar items model, never downloaded."""
+
+    made: list[tuple[str, Path]] = []
+
+    def __init__(self, model: str, cache_dir: Path) -> None:
+        self.__class__.made.append((model, cache_dir))
+
+    def encode(self, texts):
+        return [[1.0] for _ in texts]
+
+
 class MiddlewareRegistrar:
     def register(self, _middleware) -> None:
         return None
@@ -123,6 +137,8 @@ def _prepared_startup(tmp_path: Path, monkeypatch) -> tuple[Path, Settings]:
     monkeypatch.setattr(safwa_main, "OpenAICompatibleProvider", FakeProvider)
     monkeypatch.setattr(safwa_main, "TelegramHistorySource", FakeHistoryFactory)
     monkeypatch.setattr(safwa_main, "Dispatcher", FakeDispatcher)
+    FakeEncoder.made.clear()
+    monkeypatch.setattr(safwa_main, "FastEmbedEncoder", FakeEncoder)
 
     return database_path, Settings(
         _env_file=None,
@@ -166,3 +182,26 @@ async def test_full_startup_reaches_polling_and_cleans_up(tmp_path: Path, monkey
         assert connection.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='view' AND name='ai_cards'"
         ).fetchone() == (1,)
+
+
+async def test_pr_similar_030_the_comparing_model_loads_only_while_similar_items_are_on(
+    tmp_path: Path, monkeypatch
+):
+    """PR-SIMILAR-030 — tests/brd/tg_agent_shell/proposals.feature"""
+    monkeypatch.setattr(featuretoggles, "SIMILAR_ITEMS", False)
+    (tmp_path / "off").mkdir()
+    _, settings = _prepared_startup(tmp_path / "off", monkeypatch)
+    await safwa_main.run(settings)
+
+    assert FakeDispatcher.instances[0].data["services"].similarity is None
+    assert FakeEncoder.made == []
+
+    monkeypatch.setattr(featuretoggles, "SIMILAR_ITEMS", True)
+    (tmp_path / "on").mkdir()
+    _, settings = _prepared_startup(tmp_path / "on", monkeypatch)
+    await safwa_main.run(settings)
+
+    similarity = FakeDispatcher.instances[0].data["services"].similarity
+    assert isinstance(similarity, Similarity)
+    await similarity.load()
+    assert FakeEncoder.made[-1] == (SIMILAR_MODEL, settings.data_dir / "models")

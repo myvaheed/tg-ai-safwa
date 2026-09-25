@@ -465,3 +465,13 @@ class CardProposalHandler:
         else:
             raise DomainError(f"Unsupported approved Card action: {change.action}")
         return [card.id]
+
+
+async def open_cards(session: AsyncSession) -> list[tuple[int, str]]:
+    """Every Card not Done and not archived, whatever its kind (PR-SIMILAR-030)."""
+    rows = await session.execute(
+        select(Card.id, Card.title).where(
+            Card.effective_stage != CardStage.DONE.value, Card.archived_at.is_(None)
+        )
+    )
+    return [(card_id, title) for card_id, title in rows]

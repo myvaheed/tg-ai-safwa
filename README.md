@@ -43,6 +43,11 @@ its canonical bounded advisor dialogue. Create the credentials at `my.telegram.o
 Safwa's memory is written by the retro analysis of each Sprint alone and lives in the database;
 `/memory` shows it, and what you want Safwa told outright goes in the Profile.
 
+A screen that creates an item lists the open items most like it, compared by a local model.
+The first start downloads that model, about 240 MB, into `data/models/`, and the list appears
+once it has loaded. `SIMILAR_ITEMS` in `src/safwa/featuretoggles.py` turns it off, and then
+nothing is downloaded.
+
 ## Voice input
 
 `SAFWA_ASR_PROVIDER` is `off` by default, which keeps Safwa text-only. `groq`, `openai` and `local`

@@ -1,6 +1,6 @@
-"""Which checks on the model's own work Safwa runs.
+"""Which checks on the model's own work Safwa runs, and what a creating screen compares.
 
-Each one is a hook, registered in `bootstrap/modules.py` only while it is on here, so a
+Each check is a hook, registered in `bootstrap/modules.py` only while it is on here, so a
 change counts from the next start. They are not on the Profile: they check the model, not
 anything of the owner's.
 """
@@ -12,3 +12,6 @@ PLAN_REQUIRED = True
 # Before the answer to the owner's message is sent, one model call reads the request for
 # what was asked and nothing did (AG-DONE-045).
 REQUEST_REVIEW = True
+# A review screen that creates an item lists the open items of its type most like it, by a
+# local model loaded at start; off, the model is neither downloaded nor loaded (PR-SIMILAR-030).
+SIMILAR_ITEMS = True

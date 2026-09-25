@@ -10,6 +10,9 @@ from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from tg_agent_shell.foundation.errors import DomainError, StaleStateError
 from tg_agent_shell.proposals.api import (
     ApplyContext,
@@ -111,3 +114,11 @@ class ReminderProposalHandler:
                 session, reminder.id, schedule=schedule_from_payload(payload), tz=tz
             )
         return [reminder.id]
+
+
+async def owner_reminders(session: AsyncSession) -> list[tuple[int, str]]:
+    """Every Reminder the owner set, by its instruction (PR-SIMILAR-030)."""
+    rows = await session.execute(
+        select(Reminder.id, Reminder.instruction).where(Reminder.system.is_(False))
+    )
+    return [(reminder_id, instruction) for reminder_id, instruction in rows]

@@ -6,6 +6,8 @@ reaches the owner through the Cue queue, like everything else Safwa says first.
 
 from __future__ import annotations
 
+from tg_agent_shell.foundation.screens import ScreenSpec
+from tg_agent_shell.proposals.api import SimilarItems
 from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import (
     BackgroundContext,
@@ -16,7 +18,8 @@ from tg_agent_shell.telegram.manifest import (
 
 from . import agent, proposal, telegram, views
 from .background import run_scheduler
-from .telegram import REMINDER_CALLBACK_ACTIONS, render_reminders
+from .model import Reminder
+from .telegram import REMINDER_CALLBACK_ACTIONS, render_reminder, render_reminders
 from .use_cases import reconcile_reminders
 
 
@@ -37,9 +40,18 @@ MODULE = FeatureModule(
             handler=proposal.ReminderProposalHandler(),
             tool=agent.REMINDER_TOOL,
             presenter=telegram.ReminderProposalPresenter(),
+            similar=SimilarItems(field="instruction", open_items=proposal.owner_reminders),
         ),
     ),
     views=views.VIEWS,
+    screens=(
+        ScreenSpec(
+            item_type="reminder",
+            model=Reminder,
+            open=render_reminder,
+            label=telegram.reminder_citation_label,
+        ),
+    ),
     recover=reconcile_reminders,
     background=(BackgroundTask("reminder-scheduler", _poll_due_reminders),),
     commands=(

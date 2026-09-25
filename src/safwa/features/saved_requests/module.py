@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from tg_agent_shell.foundation.screens import ScreenSpec
+from tg_agent_shell.proposals.api import SimilarItems
 from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import FeatureModule, ProposalContribution
 
@@ -18,6 +19,7 @@ MODULE = FeatureModule(
             tool=agent.REQUEST_TOOL,
             autoapprovals=agent.REQUEST_AUTOAPPROVALS,
             presenter=telegram.RequestProposalPresenter(),
+            similar=SimilarItems(field="name", open_items=proposal.every_request),
         ),
     ),
     views=views.VIEWS,

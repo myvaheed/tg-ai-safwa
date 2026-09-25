@@ -24,6 +24,7 @@ from ..foundation.screens import ScreenCatalogue
 from ..history import TelegramHistorySource
 from ..hooks.registry import HookRegistry
 from ..session import RootSession
+from ..similarity import Similarity
 from ..turn import TurnManager
 from .contributions import ScreenCommand, StartLink, TextInputFlow
 
@@ -55,6 +56,8 @@ class Services:
     views: frozenset[str] = frozenset()
     bot_username: str = ""
     transcriber: Transcriber | None = None
+    # None, and a creating review screen lists no similar items.
+    similarity: Similarity | None = None
 
 
 class OwnerAndWritingMiddleware(BaseMiddleware):
