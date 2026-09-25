@@ -17,6 +17,7 @@ from tg_agent_shell.proposals.api import (
     require_target,
 )
 
+from ...enums import ActorType
 from .model import Tag
 from .use_cases import create_tag, delete_tag, update_tag_fields
 
@@ -36,7 +37,9 @@ class TagProposalHandler:
             name = str(change.values.get("name", change.values.get("title", ""))).strip()
             if not name:
                 raise DomainError("A new Tag needs a name")
-            tag = await create_tag(session, name, change.values.get("description"))
+            tag = await create_tag(
+                session, name, change.values.get("description"), actor=ActorType.AI
+            )
             await session.flush()
         else:
             if tag is None or tag.version != change.expected_version:
@@ -47,9 +50,10 @@ class TagProposalHandler:
                     tag.id,
                     name=change.values.get("name"),
                     description=change.values.get("description"),
+                    actor=ActorType.AI,
                 )
             elif change.action is ChangeAction.DELETE:
-                tag, _unlinked_count = await delete_tag(session, tag.id)
+                tag, _unlinked_count = await delete_tag(session, tag.id, actor=ActorType.AI)
             else:
                 raise DomainError(f"Unsupported Tag action: {change.action}")
         return [tag.id]

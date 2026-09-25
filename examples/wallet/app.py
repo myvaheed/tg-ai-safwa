@@ -156,6 +156,7 @@ def build_root_session(
                 timezone=timezone,
                 query_runner=query_runner,
                 history=history,
+                sessions=sessions,
             ),
             prompt=lambda agent: f"{PERSONA}\n{agent.instructions}",
         ),

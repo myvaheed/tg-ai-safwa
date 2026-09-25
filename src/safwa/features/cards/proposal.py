@@ -453,11 +453,11 @@ class CardProposalHandler:
                 await _apply_stage_change(session, card, CardStage(change.values["stage"]))
             await _replace_card_sets(session, card, change.values)
         elif change.action is ChangeAction.ARCHIVE:
-            await archive_subtree(session, card.id)
+            await archive_subtree(session, card.id, actor=ActorType.AI)
         elif change.action is ChangeAction.DELETE:
             if not context.allow_destructive:
                 raise DomainError("Permanent deletion needs a second confirmation")
-            await delete_subtree(session, card.id)
+            await delete_subtree(session, card.id, actor=ActorType.AI)
         elif change.action in {ChangeAction.LINK, ChangeAction.UNLINK}:
             await _apply_card_links(
                 session, card, change.values, linked=change.action is ChangeAction.LINK

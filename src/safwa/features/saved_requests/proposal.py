@@ -22,6 +22,7 @@ from tg_agent_shell.proposals.api import (
     require_target,
 )
 
+from ...enums import ActorType
 from ..cards.api import CardQueryError, normalize_card_query
 from .model import SavedRequest
 from .use_cases import (
@@ -63,6 +64,7 @@ class RequestProposalHandler:
                 change.values["query_sql"],
                 change.values.get("description"),
                 views=context.views,
+                actor=ActorType.AI,
             )
         elif request is None or request.version != change.expected_version:
             raise StaleStateError("A Request changed; refresh this proposal")
@@ -78,9 +80,10 @@ class RequestProposalHandler:
                 ),
                 query_sql=change.values.get("query_sql"),
                 views=context.views,
+                actor=ActorType.AI,
             )
         elif change.action is ChangeAction.DELETE:
-            request = await delete_saved_request(session, request.id)
+            request = await delete_saved_request(session, request.id, actor=ActorType.AI)
         else:
             raise DomainError(f"Unsupported Request action: {change.action}")
         return [request.id]

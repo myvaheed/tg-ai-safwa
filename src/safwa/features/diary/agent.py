@@ -9,6 +9,8 @@ from typing import Any, Literal, Protocol
 from zoneinfo import ZoneInfo
 
 from pydantic import Field, field_validator, model_validator
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from llm_gateway import ToolCall
 from tg_agent_shell.ai.contracts import ToolInput, ToolResultStatus
@@ -18,6 +20,7 @@ from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
 
 from ...constants import WEEKDAY_NAMES
+from .model import DiaryEntry
 
 DIARY_DAY_TOKEN_BUDGET = 12_000
 
@@ -66,14 +69,7 @@ class DiaryToolInput(ToolInput):
 DIARY_PROMPT = """You keep the user's Diary. One day, one entry, in their own voice.
 
 1. Pick the day: today, unless the user names another.
-2. Read it from every source — work done with buttons never reaches the conversation, and how the
-   day felt never reaches the database.
-   - `read_day(date)` — that day's conversation.
-   - `query_data` — one read-only SELECT over these views only:
-     `ai_diary(id, entry_date, body, feeling_score, created_at, updated_at)` — the saved days;
-     `ai_card_events(id, card_id, sprint_id, actor, operation, created_at)` — work done;
-     `ai_checks(id, title, repeatable, status, resolved_at, series_id, card_id)` — what held;
-     `ai_cards(id, title, kind, stage, priority, effort_points, parent_id)` — item names.
+2. Read it with `read_day(date)`: that day's conversation, and the entry already saved for it.
 3. In the response with the `diary` tool, write your plan as text: what you will write or
    remove.
 4. The `diary` tool, in that same response:
@@ -111,7 +107,10 @@ READ_DAY_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
         "name": "read_day",
-        "description": "One day of the user's conversation with Safwa, oldest first.",
+        "description": (
+            "One day: the user's conversation with Safwa, oldest first, and the Diary entry "
+            "already saved for it."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -136,13 +135,15 @@ class DayReader(Protocol):
 
 def day_read_tool(
     history: DayReader,
+    sessions: async_sessionmaker[AsyncSession],
     *,
     chat_id: int,
     timezone: str = "UTC",
     day_token_budget: int = DIARY_DAY_TOKEN_BUDGET,
     clock: Clock | None = None,
 ) -> ReadToolSpec:
-    """`read_day` bound to one chat: the day as the owner and Safwa actually spoke it."""
+    """`read_day` bound to one chat: the day as the owner and Safwa actually spoke it, and
+    what is saved for it, which a rewrite replaces whole (DI-READ-013)."""
     tz = ZoneInfo(timezone)
     current_clock = clock or SystemClock()
 
@@ -166,9 +167,18 @@ def day_read_tool(
             end=(midnight + timedelta(days=1)).astimezone(UTC),
             token_budget=day_token_budget,
         )
+        async with sessions() as session:
+            entry = await session.scalar(
+                select(DiaryEntry).where(DiaryEntry.entry_date == day)
+            )
         return {
             "date": day.isoformat(),
             "conversation": transcript or "The user said nothing to Safwa that day.",
+            "saved": (
+                {"body": entry.body, "feeling_score": entry.feeling_score}
+                if entry
+                else "Nothing is saved for that day yet."
+            ),
         }
 
     return ReadToolSpec(READ_DAY_TOOL, read_day)
@@ -187,6 +197,7 @@ def _diary_read_tools(context: AgentContext) -> tuple[ReadToolSpec, ...]:
     return (
         day_read_tool(
             context.history,
+            context.sessions,
             chat_id=context.owner_id,
             timezone=context.timezone,
         ),
@@ -203,9 +214,6 @@ DIARY_AGENT = AgentSpec(
     name="diary",
     purpose="write, rewrite or delete a day.",
     instructions=DIARY_PROMPT,
-    # The prompt lists these four itself, with their columns trimmed to what writing a day
-    # needs, so it carries no `{views}`. The list is still what a read is refused against.
-    views=("ai_diary", "ai_card_events", "ai_checks", "ai_cards"),
     mutation_tools=("diary",),
     read_tools=_diary_read_tools,
     clock=_diary_clock,

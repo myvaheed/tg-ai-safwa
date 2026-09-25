@@ -188,9 +188,10 @@ def test_publishing_a_view_reaches_no_reader_whose_own_list_leaves_it_out():
     who = readers()
 
     assert set(who) == set(ALLOWED_VIEWS)
-    # A Card's history is deliberately the Diary's and the heavy analyzer's, not the
-    # Advisor's, and publishing it beside `ai_cards` is what does not change that.
-    assert who["ai_card_events"] == ("diary", "heavy_analyzer")
+    # The log of changes is the Advisor's and the heavy analyzer's, and never the part that
+    # changes the workspace; the application publishing it rather than a feature changes
+    # none of that.
+    assert who["ai_log_events"] == ("advisor", "heavy_analyzer")
     assert "advisor" in who["ai_cards"]
 
 
@@ -201,8 +202,9 @@ def test_the_map_names_the_scenarios_of_a_feature_and_the_tests_citing_them():
     assert "DI-DAY-001" in printed
     for test in cited_tests()["DI-DAY-001"]:
         assert test in printed
-    # The views half is both directions: what it publishes, and what its subagent reads.
-    assert "ai_diary" in printed and "ai_card_events" in printed
+    # The views half is both directions: what it publishes and who reads it, and what its
+    # own subagent reads, which for the Diary is nothing.
+    assert "ai_diary" in printed and "read by advisor" in printed
 
 
 def test_the_map_names_who_opens_the_feature_from_outside():

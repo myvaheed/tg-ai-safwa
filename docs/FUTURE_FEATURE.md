@@ -12,7 +12,9 @@ Noticed 2026-08-30, reviewing how the Advisor reads history.
 
 Asked what was said on Tuesday, the Advisor answers from the window it always reads — the newest
 messages up to the token budget, stopping at the newest Summary. Only the Diary subagent reaches a
-named day, through `read_day`, and a question about the chat is not routed there.
+named day, through `read_day`, and a question about the chat is not routed there. What was
+*done* on a day the Advisor does read, from the log of changes
+([AD-LOG-004](../tests/brd/advisor.feature)); what was *said* still has no way in.
 
 A Summary is a compressed account, not an index into the original messages. Its dated sections do
 not give the Advisor a way to retrieve a named day's conversation.

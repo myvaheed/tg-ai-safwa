@@ -23,7 +23,8 @@ from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 
 from ...enums import ActorType
-from ...foundation.workspace import bump_workspace, require_workspace
+from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
+from ...foundation.workspace import bump_workspace
 from ..checks.model import Check
 from ..checks.use_cases import (
     check_card_id,
@@ -51,7 +52,6 @@ from .model import (
     CardCategory,
     CardCheck,
     CardEnergyType,
-    CardEvent,
     CardKind,
     CardStage,
     Category,
@@ -59,7 +59,6 @@ from .model import (
     Priority,
     TodayDay,
     effort_label,
-    new_correlation_id,
 )
 
 # The fields an Action alone carries. On a Goal and a Subgoal two of them are derived, so
@@ -73,22 +72,6 @@ class OperationResult:
     ancestor_ids: list[int] = field(default_factory=list)
     successor_ids: list[int] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
-
-
-def card_snapshot(card: Card) -> dict[str, Any]:
-    return {
-        "id": card.id,
-        "parent_id": card.parent_id,
-        "kind": card.kind,
-        "title": card.title,
-        "stage": card.effective_stage,
-        "priority": card.priority,
-        "blocked": card.blocked,
-        "blocked_description": card.blocked_description,
-        "effort_points": card.effort_points,
-        "repeatable": card.repeatable,
-        "version": card.version,
-    }
 
 
 async def create_card(
@@ -182,7 +165,7 @@ async def create_card(
     await attach_tags(session, card.id, tag_ids or set())
     for check_id in sorted(check_ids or set()):
         session.add(CardCheck(card_id=card.id, check_id=check_id))
-    await record_card_event(session, card, "create", actor, None, new_correlation_id())
+    await record_card_event(session, card, CREATE, actor)
     record_change(session, CARD_CREATED, card.id)
     if card.blocked:
         record_change(session, CARD_BLOCKED, card.id)
@@ -207,7 +190,7 @@ async def edit_card_text(session: AsyncSession, card_id: int, field: str, value:
     normalized = value.strip()
     if field == "title" and not normalized:
         raise DomainError("Card title cannot be empty")
-    before = card_snapshot(card)
+    before = snapshot(card)
     setattr(card, field, normalized)
     if not card.blocked:
         card.blocked_description = ""
@@ -215,9 +198,7 @@ async def edit_card_text(session: AsyncSession, card_id: int, field: str, value:
         card.hard_time_description = ""
     validate_blocked_fields(card.blocked, card.blocked_description)
     card.version += 1
-    await record_card_event(
-        session, card, f"edit_{field}", ActorType.USER_UI, before, new_correlation_id()
-    )
+    await record_card_event(session, card, f"edit_{field}", ActorType.USER_UI, before)
     await bump_workspace(session)
     return card
 
@@ -254,7 +235,7 @@ async def update_card_fields(
             fields.pop(name, None)
         if not fields:
             raise DomainError("Goal and Subgoal cards cannot have Action-only fields")
-    before = card_snapshot(card)
+    before = snapshot(card)
     for name, value in fields.items():
         if name in {"title", "note", "hard_time_description"}:
             value = str(value).strip()
@@ -275,7 +256,7 @@ async def update_card_fields(
             card.blocked_description = ""
         validate_blocked_fields(card.blocked, card.blocked_description)
     card.version += 1
-    await record_card_event(session, card, "update", actor, before, new_correlation_id())
+    await record_card_event(session, card, UPDATE, actor, before)
     if card.blocked and not before["blocked"]:
         record_change(session, CARD_BLOCKED, card.id)
     await propagate_ancestors(session, card.parent_id)
@@ -296,7 +277,7 @@ async def toggle_card_value(
     link = await session.scalar(
         select(CardValue).where(CardValue.card_id == card_id, CardValue.value_id == value_id)
     )
-    before = card_snapshot(card)
+    before = snapshot(card)
     if link is None:
         session.add(CardValue(card_id=card_id, value_id=value_id))
         operation, linked = "link_value", True
@@ -304,7 +285,7 @@ async def toggle_card_value(
         await session.delete(link)
         operation, linked = "unlink_value", False
     card.version += 1
-    await record_card_event(session, card, operation, actor, before, new_correlation_id())
+    await record_card_event(session, card, operation, actor, before)
     await bump_workspace(session)
     return linked
 
@@ -322,7 +303,7 @@ async def toggle_card_tag(
     link = await session.scalar(
         select(CardTag).where(CardTag.card_id == card_id, CardTag.tag_id == tag_id)
     )
-    before = card_snapshot(card)
+    before = snapshot(card)
     if link is None:
         session.add(CardTag(card_id=card_id, tag_id=tag_id))
         operation, linked = "link_tag", True
@@ -330,7 +311,7 @@ async def toggle_card_tag(
         await session.delete(link)
         operation, linked = "unlink_tag", False
     card.version += 1
-    await record_card_event(session, card, operation, actor, before, new_correlation_id())
+    await record_card_event(session, card, operation, actor, before)
     await bump_workspace(session)
     return linked
 
@@ -353,7 +334,7 @@ async def toggle_card_category(
             CardCategory.category == category.value,
         )
     )
-    before = card_snapshot(card)
+    before = snapshot(card)
     if link is None:
         session.add(CardCategory(card_id=card_id, category=category.value))
         operation, linked = "link_category", True
@@ -361,7 +342,7 @@ async def toggle_card_category(
         await session.delete(link)
         operation, linked = "unlink_category", False
     card.version += 1
-    await record_card_event(session, card, operation, actor, before, new_correlation_id())
+    await record_card_event(session, card, operation, actor, before)
     await bump_workspace(session)
     return linked
 
@@ -384,7 +365,7 @@ async def toggle_card_energy_type(
             CardEnergyType.energy_type == energy_type.value,
         )
     )
-    before = card_snapshot(card)
+    before = snapshot(card)
     if link is None:
         session.add(CardEnergyType(card_id=card_id, energy_type=energy_type.value))
         operation, linked = "link_energy", True
@@ -392,7 +373,7 @@ async def toggle_card_energy_type(
         await session.delete(link)
         operation, linked = "unlink_energy", False
     card.version += 1
-    await record_card_event(session, card, operation, actor, before, new_correlation_id())
+    await record_card_event(session, card, operation, actor, before)
     await bump_workspace(session)
     return linked
 
@@ -410,7 +391,7 @@ async def toggle_card_check(
     link = await session.get(CardCheck, (card_id, check_id))
     if link is None and (held_by := await check_card_id(session, check_id)) is not None:
         raise DomainError(f"Check #{check_id} already belongs to Card #{held_by}")
-    before = card_snapshot(card)
+    before = snapshot(card)
     if link is None:
         session.add(CardCheck(card_id=card_id, check_id=check_id))
         operation, linked = "link_check", True
@@ -419,7 +400,7 @@ async def toggle_card_check(
         operation, linked = "unlink_check", False
     card.version += 1
     check.version += 1
-    await record_card_event(session, card, operation, actor, before, new_correlation_id())
+    await record_card_event(session, card, operation, actor, before)
     await bump_workspace(session)
     return linked
 
@@ -450,18 +431,13 @@ async def set_card_parent(
         return card
 
     previous_parent_id = card.parent_id
-    before = card_snapshot(card)
+    before = snapshot(card)
     card.parent_id = parent_id
     if becomes_subgoal:
         card.kind = CardKind.SUBGOAL.value
     card.version += 1
     await record_card_event(
-        session,
-        card,
-        "edit_kind" if becomes_subgoal else "set_parent",
-        actor,
-        before,
-        new_correlation_id(),
+        session, card, "edit_kind" if becomes_subgoal else "set_parent", actor, before
     )
     await propagate_ancestors(session, previous_parent_id)
     await propagate_ancestors(session, parent_id)
@@ -564,21 +540,9 @@ async def record_card_event(
     card: Card,
     operation: str,
     actor: ActorType,
-    before: dict[str, Any] | None,
-    correlation_id: str,
+    before: dict[str, Any] | None = None,
 ) -> None:
-    workspace = await require_workspace(session)
-    session.add(
-        CardEvent(
-            card_id=card.id,
-            sprint_id=workspace.active_sprint_id,
-            actor=actor.value,
-            operation=operation,
-            before=before,
-            after=card_snapshot(card),
-            correlation_id=correlation_id,
-        )
-    )
+    await record_log_event(session, "card", card, card.title, operation, actor, before)
 
 
 async def move_card(
@@ -603,7 +567,7 @@ async def move_card(
         raise DomainError("An Action reaches Done through finish_action")
     previous = CardStage(card.effective_stage)
     reopening = previous in TERMINAL_STAGES
-    before = card_snapshot(card)
+    before = snapshot(card)
     result = OperationResult(card_ids=[card.id])
     if card.blocked:
         result.warnings.append(f"Blocked: {card.blocked_description}")
@@ -614,7 +578,7 @@ async def move_card(
     card.manual_stage = stage.value
     card.effective_stage = stage.value
     card.version += 1
-    await record_card_event(session, card, "move", actor, before, new_correlation_id())
+    await record_card_event(session, card, "move", actor, before)
     if stage is CardStage.TODAY and previous is not CardStage.TODAY:
         record_change(session, CARD_TODAY, card.id)
     await sync_commitment_for_stage(session, card, previous)
@@ -680,15 +644,12 @@ async def finish_action(
     # Asked before anything is written, so a refusal leaves the Action where it was.
     resolutions = await require_check_answers(session, card.id, check_outcomes)
     previous_live_stage = CardStage(card.effective_stage)
-    before = card_snapshot(card)
+    before = snapshot(card)
     card.manual_stage = CardStage.DONE.value
     card.effective_stage = CardStage.DONE.value
     card.completed_at = utcnow()
     card.version += 1
-    correlation_id = new_correlation_id()
-    await record_card_event(
-        session, card, CardStage.DONE.value, actor, before, correlation_id
-    )
+    await record_card_event(session, card, CardStage.DONE.value, actor, before)
     await record_sprint_result(session, card.id)
     record_change(session, CARD_DONE, card.id)
     result = OperationResult(card_ids=[card.id])
@@ -703,7 +664,13 @@ async def finish_action(
     return result
 
 
-async def archive_subtree(session: AsyncSession, card_id: int, archive: bool = True) -> list[int]:
+async def archive_subtree(
+    session: AsyncSession,
+    card_id: int,
+    archive: bool = True,
+    *,
+    actor: ActorType = ActorType.USER_UI,
+) -> list[int]:
     """Archive or restore a branch by its Actions; a Goal and a Subgoal follow from theirs."""
     card = await session.get(Card, card_id)
     if card is None:
@@ -711,38 +678,37 @@ async def archive_subtree(session: AsyncSession, card_id: int, archive: bool = T
     if archive and CardStage(card.effective_stage) not in TERMINAL_STAGES:
         raise DomainError("Only a Card that is Done may be archived")
     stamp = utcnow() if archive else None
-    correlation_id = new_correlation_id()
     actions = (
         [card] if card.kind == CardKind.ACTION.value else await branch_actions(session, card.id)
     )
     for action in actions:
-        before = card_snapshot(action)
+        before = snapshot(action)
         action.archived_at = stamp
         action.version += 1
         await record_card_event(
-            session,
-            action,
-            "archive" if archive else "restore",
-            ActorType.USER_UI,
-            before,
-            correlation_id,
+            session, action, "archive" if archive else "restore", actor, before
         )
     changed = await settle_archive(session, actions)
     await bump_workspace(session)
     return changed
 
 
-async def _purge_cards(session: AsyncSession, ids: list[int]) -> None:
-    # Every link, commitment and event is deleted by name rather than left to the FK
-    # cascade, which is a connection pragma and not guaranteed here.
+async def _purge_cards(session: AsyncSession, ids: list[int], actor: ActorType) -> None:
+    # Every link and commitment is deleted by name rather than left to the FK cascade,
+    # which is a connection pragma and not guaranteed here. The events stay, and each
+    # Card's deletion is one more.
+    for card in await session.scalars(select(Card).where(Card.id.in_(ids))):
+        await record_card_event(session, card, DELETE, actor, snapshot(card))
     await delete_checks_of_cards(session, ids)
     await delete_commitments_of_cards(session, ids)
-    for model in (CardValue, CardTag, CardCategory, CardEnergyType, CardEvent, TodayDay):
+    for model in (CardValue, CardTag, CardCategory, CardEnergyType, TodayDay):
         await session.execute(delete(model).where(model.card_id.in_(ids)))
     await session.execute(delete(Card).where(Card.id.in_(ids)))
 
 
-async def delete_subtree(session: AsyncSession, card_id: int) -> int:
+async def delete_subtree(
+    session: AsyncSession, card_id: int, *, actor: ActorType = ActorType.USER_UI
+) -> int:
     card = await session.get(Card, card_id)
     if card is None:
         raise DomainError("Card does not exist")
@@ -755,13 +721,15 @@ async def delete_subtree(session: AsyncSession, card_id: int) -> int:
             await collect(child)
 
     await collect(card)
-    await _purge_cards(session, ids)
+    await _purge_cards(session, ids, actor)
     await propagate_ancestors(session, parent_id)
     await bump_workspace(session)
     return len(ids)
 
 
-async def delete_one_card(session: AsyncSession, card_id: int) -> int:
+async def delete_one_card(
+    session: AsyncSession, card_id: int, *, actor: ActorType = ActorType.USER_UI
+) -> int:
     """Delete one Card and leave what was under it standing where the tree allows.
 
     A Subgoal cannot stand without a Goal over it, so one that loses its Goal becomes a
@@ -772,23 +740,17 @@ async def delete_one_card(session: AsyncSession, card_id: int) -> int:
     if card is None:
         raise DomainError("Card does not exist")
     parent_id = card.parent_id
-    correlation_id = new_correlation_id()
     for child in await session.scalars(select(Card).where(Card.parent_id == card.id)):
-        before = card_snapshot(child)
+        before = snapshot(child)
         child.parent_id = None
         promoted = child.kind == CardKind.SUBGOAL.value
         if promoted:
             child.kind = CardKind.GOAL.value
         child.version += 1
         await record_card_event(
-            session,
-            child,
-            "edit_kind" if promoted else "set_parent",
-            ActorType.USER_UI,
-            before,
-            correlation_id,
+            session, child, "edit_kind" if promoted else "set_parent", actor, before
         )
-    await _purge_cards(session, [card_id])
+    await _purge_cards(session, [card_id], actor)
     await propagate_ancestors(session, parent_id)
     await bump_workspace(session)
     return 1

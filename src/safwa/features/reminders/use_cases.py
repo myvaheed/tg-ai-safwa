@@ -8,6 +8,7 @@ what keeps a reworded Reminder firing at the moment it always did.
 from __future__ import annotations
 
 from datetime import UTC, datetime, time, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, select
@@ -16,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.errors import DomainError
 
+from ...enums import ActorType
+from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
 from ...foundation.workspace import Workspace, bump_workspace
 from .model import Reminder, ScheduleKind
 from .schedule import (
@@ -34,11 +37,17 @@ REMINDER_CREATED = "reminder.created"
 
 
 async def create_reminder(
-    session: AsyncSession, *, instruction: str, schedule: Schedule, tz: ZoneInfo
+    session: AsyncSession,
+    *,
+    instruction: str,
+    schedule: Schedule,
+    tz: ZoneInfo,
+    actor: ActorType = ActorType.USER_UI,
 ) -> Reminder:
     """Store the owner's Reminder and compute its first fire. The schedule arrives already
     resolved."""
     reminder = await _store_reminder(session, instruction=instruction, schedule=schedule, tz=tz)
+    await _record(session, reminder, CREATE, actor)
     record_change(session, REMINDER_CREATED, reminder.id)
     return reminder
 
@@ -59,37 +68,59 @@ async def _store_reminder(
 
 
 async def update_reminder_text(
-    session: AsyncSession, reminder_id: int, instruction: str
+    session: AsyncSession, reminder_id: int, instruction: str, *, actor: ActorType = ActorType.USER_UI
 ) -> Reminder:
     """Edit what a Reminder tells the advisor, and nothing about when it fires."""
     reminder = await _editable_reminder(session, reminder_id)
+    before = snapshot(reminder)
     clean = instruction.strip()
     if not clean:
         raise DomainError("Reminder text cannot be empty")
     reminder.instruction = clean
     reminder.version += 1
+    await _record(session, reminder, UPDATE, actor, before)
     await bump_workspace(session)
     return reminder
 
 
 async def reschedule_reminder(
-    session: AsyncSession, reminder_id: int, *, schedule: Schedule, tz: ZoneInfo
+    session: AsyncSession,
+    reminder_id: int,
+    *,
+    schedule: Schedule,
+    tz: ZoneInfo,
+    actor: ActorType = ActorType.USER_UI,
 ) -> Reminder:
     reminder = await _editable_reminder(session, reminder_id)
+    before = snapshot(reminder)
     first = _first_fire(schedule, tz)
     for column, value in schedule_columns(schedule).items():
         setattr(reminder, column, value)
     reminder.next_fire_at = first
     reminder.version += 1
+    await _record(session, reminder, "reschedule", actor, before)
     await bump_workspace(session)
     return reminder
 
 
-async def delete_reminder(session: AsyncSession, reminder_id: int) -> None:
+async def delete_reminder(session: AsyncSession, reminder_id: int, *, actor: ActorType = ActorType.USER_UI) -> None:
     """Remove a Reminder outright; there is no archive."""
     reminder = await _editable_reminder(session, reminder_id)
+    await _record(session, reminder, DELETE, actor, snapshot(reminder))
     await session.delete(reminder)
     await bump_workspace(session)
+
+
+async def _record(
+    session: AsyncSession,
+    reminder: Reminder,
+    operation: str,
+    actor: ActorType,
+    before: dict[str, Any] | None = None,
+) -> None:
+    await record_log_event(
+        session, "reminder", reminder, reminder.instruction, operation, actor, before
+    )
 
 
 async def _editable_reminder(session: AsyncSession, reminder_id: int) -> Reminder:

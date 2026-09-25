@@ -51,7 +51,8 @@ def diary_routed(history: StubDayReader, timezone: str = "Europe/Istanbul") -> R
     return RoutedSubagent(
         name="diary",
         prompt=DIARY_PROMPT,
-        read_tools=(day_read_tool(history, chat_id=42, timezone=timezone),),
+        # Nothing here runs `read_day`, so it has no database to read the saved day from.
+        read_tools=(day_read_tool(history, None, chat_id=42, timezone=timezone),),  # type: ignore[arg-type]
         mutation_tools=("diary",),
         clock=lambda: diary_clock(timezone),
     )
@@ -94,11 +95,11 @@ def test_the_diary_is_written_only_by_its_subagent() -> None:
 
 
 @pytest.mark.parametrize("timezone", ["Europe/Istanbul", "Pacific/Kiritimati"])
-async def test_a_day_is_read_between_its_own_local_midnights(timezone: str) -> None:
+async def test_a_day_is_read_between_its_own_local_midnights(timezone: str, sessions) -> None:
     history = StubDayReader("[10:00] [User]: Morning.")
     current = datetime(2026, 8, 21, 12, tzinfo=UTC)
     read_day = day_read_tool(
-        history, chat_id=42, timezone=timezone, clock=FixedClock(current)
+        history, sessions, chat_id=42, timezone=timezone, clock=FixedClock(current)
     )
     tz = ZoneInfo(timezone)
 
@@ -113,9 +114,9 @@ async def test_a_day_is_read_between_its_own_local_midnights(timezone: str) -> N
     assert local_start.date() == current.astimezone(tz).date()
 
 
-async def test_an_unreadable_date_is_repaired_rather_than_read() -> None:
+async def test_an_unreadable_date_is_repaired_rather_than_read(sessions) -> None:
     history = StubDayReader("")
-    read_day = day_read_tool(history, chat_id=42)
+    read_day = day_read_tool(history, sessions, chat_id=42)
 
     result = await read_day.run(
         ProviderToolCall(
@@ -147,6 +148,7 @@ def test_no_subagent_declares_a_read_tool_the_adapters_already_answer(tmp_path) 
         timezone="Europe/Istanbul",
         query_runner=ReadOnlyQueryRunner(tmp_path / "safwa.db", ALLOWED_VIEWS),
         history=StubDayReader(""),
+        sessions=None,  # type: ignore[arg-type]
     )
     declared = {
         spec.name
@@ -165,6 +167,7 @@ def test_a_subagent_reads_only_the_views_its_own_declaration_names(tmp_path) -> 
         timezone="Europe/Istanbul",
         query_runner=ReadOnlyQueryRunner(tmp_path / "safwa.db", ALLOWED_VIEWS),
         history=StubDayReader(""),
+        sessions=None,  # type: ignore[arg-type]
     )
     bound = {agent.name: agent.bind(context, prompt="") for agent in AGENTS}
 

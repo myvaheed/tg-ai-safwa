@@ -68,6 +68,7 @@ from ..features.summary.module import SUMMARY_HOOK
 from ..features.tags.module import MODULE as TAGS
 from ..features.values.module import MODULE as VALUES
 from ..features.workspace_mutator.module import MODULE as WORKSPACE_MUTATOR
+from ..foundation.log_events import AI_LOG_EVENTS
 from ..foundation.workspace import require_workspace
 
 # Order is what the routing rules and the recovery hooks follow, so it is fixed rather than
@@ -132,8 +133,16 @@ HOOKS = (
     *((REQUEST_REVIEW_HOOK,) if featuretoggles.REQUEST_REVIEW else ()),
 )
 
+# The log of changes is written by every feature that keeps an item, so it is Safwa's own
+# view rather than one feature's.
+OWN_VIEWS = (AI_LOG_EVENTS,)
+
 REGISTRY: Registry = Registry.of(
-    MODULES, world=_world, hooks=HOOKS, hook_policy=hook_switched_on
+    MODULES,
+    world=_world,
+    views=OWN_VIEWS,
+    hooks=HOOKS,
+    hook_policy=hook_switched_on,
 )
 
 # What each part of the application reads off the registry, under the names it reads them

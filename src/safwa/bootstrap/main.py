@@ -36,7 +36,7 @@ from tg_agent_shell.turn import TurnManager
 from .. import featuretoggles
 from ..config import Settings
 from ..enums import AIProvider
-from ..features.advisor.agent import ADVISOR_VIEWS
+from ..features.advisor.agent import ADVISOR_ROW_LIMITS, ADVISOR_VIEWS
 from ..features.memory.absorb import PatternReviewer
 from ..features.memory.use_cases import MemoryReader
 from ..features.planning.key_actions import KeyActions
@@ -228,6 +228,7 @@ async def run(settings: Settings) -> None:
         memory,
         query_runner,
         views=ADVISOR_VIEWS,
+        row_limits=ADVISOR_ROW_LIMITS,
         workspace_state=workspace_context,
         system_prompt=SYSTEM_PROMPT,
         model_name=settings.ai_model,
@@ -239,6 +240,7 @@ async def run(settings: Settings) -> None:
                 timezone=settings.timezone,
                 query_runner=query_runner,
                 history=history,
+                sessions=database.sessions,
             )
         ),
         helpers=REGISTRY.helper_ports(provider, query_runner),

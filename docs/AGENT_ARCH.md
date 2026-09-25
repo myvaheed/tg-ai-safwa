@@ -673,7 +673,9 @@ flowchart LR
 `query_data` is triple-guarded: regex validation of one `SELECT`/`WITH … SELECT` over the `ai_*`
 views, a separate read-only connection with an authorizer allowlist, and result caps
 (`DEFAULT_ROW_LIMIT = 50`, `DEFAULT_CHAR_BUDGET = 12000`, `QUERY_TIMEOUT_SECONDS = 2`). The caps
-exist because a local model pays for what it reads.
+exist because a local model pays for what it reads. A reader may cut one of its views shorter
+still: the Advisor's `ADVISOR_ROW_LIMITS` reads `LOG_EVENTS_SHOWN = 20` rows of the log of
+changes, which grows without end, and its prompt tells it to count the rest instead.
 
 A saved Request shares the validation and nothing else: it runs on the ordinary session, and no cap
 applies, because its result is always a list in the interface and never enters the model's history.

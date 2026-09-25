@@ -4,7 +4,7 @@ import pytest
 from hook_helpers import changes_of
 from sqlalchemy import select
 
-from safwa.features.cards.model import Card, CardEvent, CardStage
+from safwa.features.cards.model import Card, CardStage
 from safwa.features.cards.use_cases import create_card as create_domain_card
 from safwa.features.cards.use_cases import finish_action, move_card, toggle_card_check
 from safwa.features.checks.agent import CheckToolInput
@@ -26,6 +26,7 @@ from safwa.features.checks.use_cases import (
 )
 from safwa.features.planning.use_cases import archive_settled_items, finish_sprint, start_sprint
 from safwa.features.values.use_cases import create_value
+from safwa.foundation.log_events import LogEvent
 from safwa.foundation.marks import live_repeat_instance_id, title_marks
 from tg_agent_shell.foundation.changes import Committed, take_changes
 from tg_agent_shell.foundation.errors import DomainError
@@ -110,7 +111,7 @@ async def test_a_check_belongs_to_one_card_or_to_none(sessions):
         assert await check_card_id(session, loose.id) is None
         # The link is a Card relationship, so it lands in that Card's event log.
         operations = set(
-            await session.scalars(select(CardEvent.operation).where(CardEvent.card_id == market.id))
+            await session.scalars(select(LogEvent.operation).where(LogEvent.item_type == "card", LogEvent.item_id == market.id))
         )
         assert {"link_check", "unlink_check"} <= operations
 

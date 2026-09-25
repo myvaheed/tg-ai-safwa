@@ -61,6 +61,7 @@ class CheckProposalHandler:
                 session,
                 title=str(values["title"]),
                 repeatable=bool(values.get("repeatable", False)),
+                actor=ActorType.AI,
             )
             return [created.id]
         check = await session.get(Check, change.entity_id) if change.entity_id else None
@@ -71,15 +72,17 @@ class CheckProposalHandler:
                 name: value for name, value in values.items() if name in {"title", "repeatable"}
             }
             if scalar_fields:
-                await update_check_fields(session, check.id, scalar_fields)
+                await update_check_fields(
+                    session, check.id, scalar_fields, actor=ActorType.AI
+                )
         elif change.action in CHECK_ANSWER_ACTIONS:
             await resolve_check(
                 session, check.id, CHECK_ANSWER_ACTIONS[change.action], actor=ActorType.AI
             )
         elif change.action is ChangeAction.ARCHIVE:
-            await archive_check(session, check.id)
+            await archive_check(session, check.id, actor=ActorType.AI)
         elif change.action is ChangeAction.DELETE:
-            await delete_check(session, check.id)
+            await delete_check(session, check.id, actor=ActorType.AI)
         elif change.action in {ChangeAction.LINK, ChangeAction.UNLINK}:
             spec = CHECK_VALUE_REFERENCE
             for value_id in sorted(await named_ids(session, values, spec)):

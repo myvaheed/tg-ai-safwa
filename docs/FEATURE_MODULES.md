@@ -264,8 +264,11 @@ entry in that module's `views`, which creates it at startup and puts it in `ALLO
 **Publishing grants nobody anything.** A reader reaches a view when its own list names it —
 `AgentSpec.views`, `HelperSpec.views`, or `ADVISOR_VIEWS` in `features/advisor/agent.py` — and
 that same list is what its reads are refused against and what fills `{views}` in its prompt. So
-the reader's prompt snapshot changes with it. `ai_card_events` is the shape of this: `cards`
-publishes it beside `ai_cards`, and only the Diary subagent and the heavy analyzer read it.
+the reader's prompt snapshot changes with it. `ai_current_sprint` is the shape of this:
+`planning` publishes it, and the workspace subagent and the heavy analyzer read it while the
+Advisor does not. A view over a table no one feature owns is the application's own:
+`ai_log_events`, over the log every feature that keeps an item writes to, is passed to
+`Registry.of` as `views=` in `bootstrap/modules.py`.
 
 **A screen in the menu.** A `ScreenCommand` on the feature's `commands` — `command` for `/name`,
 `nav` for a button, `title` for the words on it, and both fields when it is both. Two more

@@ -16,7 +16,7 @@ import logging
 import re
 import sqlite3
 import time
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from copy import copy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -247,11 +247,6 @@ def validated_read(sql: str, views: Collection[str]) -> tuple[str, set[str]]:
     return statement, scan_statement(statement, views)
 
 
-def validate_read_sql(sql: str, views: Collection[str]) -> str:
-    """The same read, for a caller with no rule about which views it names."""
-    return validated_read(sql, views)[0]
-
-
 def create_ai_views(connection, views: Sequence[SqlView]) -> None:  # type: ignore[no-untyped-def]
     """Rebuild the disposable read views, so an upgrade never keeps an obsolete shape."""
     for view in views:
@@ -295,17 +290,21 @@ class ReadOnlyQueryRunner:
         self.views = frozenset(views)
         self.tz = ZoneInfo(timezone)
         self.row_limit = row_limit
+        self.row_limits: Mapping[str, int] = {}
         self.char_budget = char_budget
         self.column_limit = column_limit
         self.cell_limit = cell_limit
         self.timeout = timeout
 
-    def scoped(self, views: Collection[str]) -> ReadOnlyQueryRunner:
+    def scoped(
+        self, views: Collection[str], *, row_limits: Mapping[str, int] | None = None
+    ) -> ReadOnlyQueryRunner:
         """The same runner for one reader, over the views that reader declared.
 
         The list a reader's prompt describes and the list its reads may name are one
         declaration, so a view it is never told about is one it cannot reach by guessing
         the name. Every cap travels along, because a reader's scope is the only difference.
+        `row_limits` cuts a read of one of its views shorter than the rest.
         """
         narrowed = frozenset(views)
         unknown = narrowed - self.views
@@ -313,6 +312,7 @@ class ReadOnlyQueryRunner:
             raise RuntimeError(f"A reader asks for views no feature publishes: {sorted(unknown)}")
         reader = copy(self)
         reader.views = narrowed
+        reader.row_limits = dict(row_limits or {})
         return reader
 
     def _trim(self, rows: list[sqlite3.Row]) -> tuple[list[dict[str, Any]], bool, bool]:
@@ -357,7 +357,10 @@ class ReadOnlyQueryRunner:
         return " ".join(notes)
 
     def _run(self, sql: str) -> QueryOutcome:
-        statement = validate_read_sql(sql, self.views)
+        statement, read = validated_read(sql, self.views)
+        row_limit = min(
+            [self.row_limit, *(self.row_limits[name] for name in read if name in self.row_limits)]
+        )
         connection = sqlite3.connect(f"file:{self.database_path.as_posix()}?mode=ro", uri=True)
 
         def authorizer(action, arg1, column, _db, trigger):  # type: ignore[no-untyped-def]
@@ -400,9 +403,9 @@ class ReadOnlyQueryRunner:
             cursor = connection.execute(statement)
             if cursor.description and len(cursor.description) > self.column_limit:
                 raise UnsafeQueryError("Query returned too many columns")
-            rows = cursor.fetchmany(self.row_limit + 1)
-            more_rows = len(rows) > self.row_limit
-            result, over_budget, shortened = self._trim(rows[: self.row_limit])
+            rows = cursor.fetchmany(row_limit + 1)
+            more_rows = len(rows) > row_limit
+            result, over_budget, shortened = self._trim(rows[:row_limit])
             return QueryOutcome(
                 result,
                 self._notice(

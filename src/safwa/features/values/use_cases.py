@@ -7,12 +7,16 @@ Check in the same transaction, so nothing is left pointing at a Value that is no
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.errors import DomainError
 
+from ...enums import ActorType
+from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
 from ...foundation.workspace import bump_workspace
 from .model import CardValue, CheckValue, Value
 
@@ -26,6 +30,7 @@ async def create_value(
     description: str | None = None,
     *,
     active: bool | None = None,
+    actor: ActorType = ActorType.USER_UI,
 ) -> Value:
     normalized = name.strip()
     if not normalized:
@@ -40,6 +45,7 @@ async def create_value(
     )
     session.add(value)
     await session.flush()
+    await _record(session, value, CREATE, actor)
     record_change(session, VALUE_CREATED, value.id)
     await bump_workspace(session)
     return value
@@ -52,10 +58,12 @@ async def update_value_fields(
     name: str | None = None,
     description: str | None = None,
     active: bool | None = None,
+    actor: ActorType = ActorType.USER_UI,
 ) -> Value:
     value = await session.get(Value, value_id)
     if value is None:
         raise DomainError("Value does not exist")
+    before = snapshot(value)
     if name is not None:
         normalized = name.strip()
         if not normalized:
@@ -74,6 +82,7 @@ async def update_value_fields(
     if active is not None:
         value.active = active
     value.version += 1
+    await _record(session, value, UPDATE, actor, before)
     await bump_workspace(session)
     return value
 
@@ -87,7 +96,9 @@ async def value_link_counts(session: AsyncSession, value_id: int) -> tuple[int, 
     return len(cards), len(checks)
 
 
-async def delete_value(session: AsyncSession, value_id: int) -> tuple[Value, int]:
+async def delete_value(
+    session: AsyncSession, value_id: int, *, actor: ActorType = ActorType.USER_UI
+) -> tuple[Value, int]:
     """Delete a Value and take it off every Card and Check in the same transaction.
 
     A Value is not archived: the owner keeps a handful, they never finish, and there is
@@ -97,11 +108,22 @@ async def delete_value(session: AsyncSession, value_id: int) -> tuple[Value, int
     if value is None:
         raise DomainError("Value does not exist")
     cards, checks = await value_link_counts(session, value.id)
+    await _record(session, value, DELETE, actor, snapshot(value))
     await session.execute(delete(CardValue).where(CardValue.value_id == value.id))
     await session.execute(delete(CheckValue).where(CheckValue.value_id == value.id))
     await session.delete(value)
     await bump_workspace(session)
     return value, cards + checks
+
+
+async def _record(
+    session: AsyncSession,
+    value: Value,
+    operation: str,
+    actor: ActorType,
+    before: dict[str, Any] | None = None,
+) -> None:
+    await record_log_event(session, "value", value, value.name, operation, actor, before)
 
 
 async def set_value_focus(session: AsyncSession, value_id: int, active: bool | None = None) -> Value:

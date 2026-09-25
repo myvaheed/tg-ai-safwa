@@ -181,11 +181,7 @@ async def test_a_routed_subagent_proposes_for_itself(e2e_harness):
     advisor, provider = e2e_harness.advisor(
         [
             turn(("route", {"name": "diary"})),
-            turn(
-                ("read_day", {}),
-                ("query_data", {"sql": "SELECT card_id, operation FROM ai_card_events"}),
-                prefix="diary",
-            ),
+            turn(("read_day", {}), prefix="diary"),
             turn(
                 (
                     "diary",
@@ -260,7 +256,7 @@ async def test_a_routed_subagent_is_offered_only_its_own_tools(e2e_harness):
     await advisor.handle("Запиши сегодняшний день")
 
     offered = {tool["function"]["name"] for tool in provider.options[1]["tools"]}
-    assert offered == {"read_day", "query_data", "diary"}
+    assert offered == {"read_day", "diary"}
     # No recursion, and no reach into the workspace.
     assert "route" not in offered
     assert "card" not in offered
@@ -774,26 +770,27 @@ async def test_every_session_reads_through_the_one_door_and_no_one_declares_it_t
     for kind in ("advisor", "workspace_mutator", "diary"):
         definition = advisor.adapters.definition(kind)
         names = [tool["function"]["name"] for tool in definition.tools]
-        assert names.count("query_data") == 1, kind
+        # The Diary names no view, so it is handed no read of the database at all.
+        assert names.count("query_data") == (0 if kind == "diary" else 1), kind
         # A session's own read tools are its own: none of them is a name the adapters answer.
         assert not set(definition.read_specs) & IMMEDIATE_TOOLS, kind
 
 
 async def test_ag_read_027_each_reader_reaches_only_the_views_its_own_list_names(e2e_harness):
     """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
-    # `ai_card_events` is on the Diary's list and on neither of the other two, so one query
-    # answers all three questions: who was given it reads it, and who was not is refused.
-    read = turn(("query_data", {"sql": "SELECT card_id FROM ai_card_events"}))
+    # `ai_current_sprint` is on the workspace's list and not on the Advisor's, so one query
+    # answers both questions: who was given it reads it, and who was not is refused.
+    read = turn(("query_data", {"sql": "SELECT id FROM ai_current_sprint"}))
     scripts = {
         "advisor": [read, "Не могу это прочитать."],
-        "workspace_mutator": [turn(("route", {"name": "workspace_mutator"})), read, "Нет.", "Нет."],
-        "diary": [turn(("route", {"name": "diary"})), read, "Прочитал.", "Прочитал."],
+        "workspace_mutator": [
+            turn(("route", {"name": "workspace_mutator"})), read, "Прочитал.", "Прочитал."
+        ],
     }
     answered = {}
     for reader, script in scripts.items():
         advisor, _ = e2e_harness.advisor(
-            script,
-            subagents=(e2e_harness.subagent("workspace_mutator"), diary_subagent(e2e_harness)),
+            script, subagents=(e2e_harness.subagent("workspace_mutator"),)
         )
         await advisor.handle("Что случилось с карточками?")
         async with e2e_harness.sessions() as session:
@@ -804,7 +801,7 @@ async def test_ag_read_027_each_reader_reaches_only_the_views_its_own_list_names
         rows = step.metadata_json["result"]
         answered[reader] = not (rows and rows[0].get("code") == "unsafe_query")
 
-    assert answered == {"advisor": False, "workspace_mutator": False, "diary": True}
+    assert answered == {"advisor": False, "workspace_mutator": True}
 
 
 async def test_a_script_that_leaves_a_step_out_fails_rather_than_being_repaired(e2e_harness):
@@ -844,7 +841,7 @@ def guide_subagent(harness, **declared) -> RoutedSubagent:
     )
     return spec.bind(
         AgentContext(owner_id=42, timezone="Europe/Istanbul", query_runner=harness.runner(),
-                     history=None),  # type: ignore[arg-type]
+                     history=None, sessions=harness.sessions),  # type: ignore[arg-type]
         prompt=spec.instructions,
     )
 

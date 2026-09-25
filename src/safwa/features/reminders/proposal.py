@@ -24,6 +24,7 @@ from tg_agent_shell.proposals.api import (
     require_target,
 )
 
+from ...enums import ActorType
 from ...foundation.workspace import Workspace
 from .agent import resolve_schedule
 from .model import Reminder
@@ -94,13 +95,14 @@ class ReminderProposalHandler:
                 instruction=str(values.get("instruction", "")),
                 schedule=schedule_from_payload(payload),
                 tz=tz,
+                actor=ActorType.AI,
             )
             return [reminder.id]
         if change.entity_id is None:
             raise DomainError("This Reminder change has no target")
         # `remove` may only send archive for a Reminder, and a Reminder has no archive.
         if change.action in {ChangeAction.DELETE, ChangeAction.ARCHIVE}:
-            await delete_reminder(session, change.entity_id)
+            await delete_reminder(session, change.entity_id, actor=ActorType.AI)
             return [change.entity_id]
         if change.action is not ChangeAction.UPDATE:
             raise DomainError(f"Unsupported approved Reminder action: {change.action}")
@@ -108,10 +110,16 @@ class ReminderProposalHandler:
         if reminder is None or reminder.version != change.expected_version:
             raise StaleStateError("A Reminder changed; refresh this proposal")
         if values.get("instruction"):
-            await update_reminder_text(session, reminder.id, str(values["instruction"]))
+            await update_reminder_text(
+                session, reminder.id, str(values["instruction"]), actor=ActorType.AI
+            )
         if payload is not None:
             await reschedule_reminder(
-                session, reminder.id, schedule=schedule_from_payload(payload), tz=tz
+                session,
+                reminder.id,
+                schedule=schedule_from_payload(payload),
+                tz=tz,
+                actor=ActorType.AI,
             )
         return [reminder.id]
 

@@ -105,14 +105,16 @@ class Registry:
     @classmethod
     def of(
         cls, modules: tuple[FeatureModule, ...], *, world: WorldReader,
+        views: tuple[SqlView, ...] = (),
         hooks: tuple[HookSpec, ...] = (), hook_policy: HookPolicy = every_switch_on,
     ) -> Registry:
         """Everything the list implies, with each collision refused where it happens.
 
+        `views` are the application's own, over tables no one feature owns.
         `hook_policy` is the application's answer to whether a hook with a switch is on,
         read where the hook is about to work, never copied.
         """
-        views = _views(modules)
+        views = _views(modules, views)
         allowed = frozenset(view.name for view in views)
         proposals, autoapprovals = _proposals(modules, allowed, world)
         helpers = _helpers(modules, views)
@@ -195,6 +197,7 @@ class Registry:
         query_runner: ReadOnlyQueryRunner,
         *,
         views: tuple[str, ...],
+        row_limits: Mapping[str, int] | None = None,
         workspace_state: Callable[[AsyncSession], Awaitable[StateBlocks]],
         system_prompt: str,
         model_name: str,
@@ -208,13 +211,14 @@ class Registry:
         """The one session that writes to the chat, carrying what the features declared.
 
         `views` is that session's own list, and it is scoped here rather than by the caller,
-        so the reader that answers is the reader its declaration describes.
+        so the reader that answers is the reader its declaration describes. `row_limits`
+        cuts a read of one of those views shorter than the rest.
         """
         return RootSession(
             sessions,
             provider,
             memory,
-            query_runner.scoped(views),
+            query_runner.scoped(views, row_limits=row_limits),
             self.proposals,
             screens=self.screens,
             workspace_state=workspace_state,
@@ -234,13 +238,14 @@ class Registry:
         )
 
 
-def _views(modules: tuple[FeatureModule, ...]) -> tuple[SqlView, ...]:
+def _views(
+    modules: tuple[FeatureModule, ...], own: tuple[SqlView, ...]
+) -> tuple[SqlView, ...]:
     collected: dict[str, SqlView] = {}
-    for module in modules:
-        for view in module.views:
-            if view.name in collected:
-                raise RuntimeError(f"Two features publish the view {view.name}")
-            collected[view.name] = view
+    for view in (*own, *(view for module in modules for view in module.views)):
+        if view.name in collected:
+            raise RuntimeError(f"The view {view.name} is published twice")
+        collected[view.name] = view
     return tuple(collected.values())
 
 

@@ -41,6 +41,7 @@ class AgentContext:
     timezone: str
     query_runner: ReadOnlyQueryRunner
     history: TelegramHistorySource
+    sessions: async_sessionmaker[AsyncSession]
 
 
 @dataclass(frozen=True, slots=True)

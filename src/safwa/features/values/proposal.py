@@ -17,6 +17,7 @@ from tg_agent_shell.proposals.api import (
     require_target,
 )
 
+from ...enums import ActorType
 from .model import Value
 from .use_cases import create_value, delete_value, update_value_fields
 
@@ -41,6 +42,7 @@ class ValueProposalHandler:
                 name,
                 change.values.get("description"),
                 active=change.values.get("active"),
+                actor=ActorType.AI,
             )
             await session.flush()
         else:
@@ -53,9 +55,12 @@ class ValueProposalHandler:
                     name=change.values.get("name"),
                     description=change.values.get("description"),
                     active=change.values.get("active"),
+                    actor=ActorType.AI,
                 )
             elif change.action is ChangeAction.DELETE:
-                value, _unlinked_count = await delete_value(session, value.id)
+                value, _unlinked_count = await delete_value(
+                    session, value.id, actor=ActorType.AI
+                )
             else:
                 raise DomainError(f"Unsupported Value action: {change.action}")
         return [value.id]

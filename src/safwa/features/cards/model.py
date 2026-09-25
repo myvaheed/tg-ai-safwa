@@ -7,7 +7,6 @@ costs no dependency on another feature.
 
 from __future__ import annotations
 
-import secrets
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
@@ -95,11 +94,6 @@ LIVE_STAGE_PRECEDENCE = {
     CardStage.SPRINT: 2,
     CardStage.TODAY: 3,
 }
-
-
-def new_correlation_id() -> str:
-    """Return a short internal audit correlation key, not an entity identifier."""
-    return secrets.token_hex(8)
 
 
 class Card(Base, TimestampMixin):
@@ -234,17 +228,4 @@ class TodayDay(Base):
     )
     day: Mapped[date] = mapped_column(Date, primary_key=True)
 
-class CardEvent(Base):
-    __tablename__ = "card_events"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    card_id: Mapped[int | None] = mapped_column(
-        ForeignKey("cards.id", ondelete="CASCADE"), index=True
-    )
-    sprint_id: Mapped[int | None] = mapped_column(ForeignKey("sprints.id", ondelete="SET NULL"))
-    actor: Mapped[str] = mapped_column(String(20))
-    operation: Mapped[str] = mapped_column(String(80))
-    before: Mapped[dict[str, Any] | None] = mapped_column(JSON)
-    after: Mapped[dict[str, Any] | None] = mapped_column(JSON)
-    correlation_id: Mapped[str] = mapped_column(String(16), default=new_correlation_id, index=True)
-    created_at: Mapped[datetime] = mapped_column(UtcDateTime, server_default=func.now())
 

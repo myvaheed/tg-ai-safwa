@@ -40,11 +40,11 @@ OFFER = (
 HEAVY_ANALYZER_MAX_TOOL_CALLS = 10
 
 # Every view, the log of changes included: a question about a stretch of time is what this
-# helper exists for, and it is the only reader told that log is there.
+# helper exists for.
 VIEWS = (
     "ai_cards",
     "ai_checks",
-    "ai_card_events",
+    "ai_log_events",
     "ai_tags",
     "ai_values",
     "ai_requests",

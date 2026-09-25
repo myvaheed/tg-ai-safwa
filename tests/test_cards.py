@@ -41,7 +41,6 @@ from safwa.features.cards.model import (
     CardCategory,
     CardCheck,
     CardEnergyType,
-    CardEvent,
     CardKind,
     CardStage,
     TodayDay,
@@ -79,6 +78,7 @@ from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import CardValue, Value
 from safwa.features.values.use_cases import create_value, delete_value, set_value_focus
 from safwa.features.workspace_mutator.state import workspace_context
+from safwa.foundation.log_events import LogEvent
 from safwa.foundation.marks import live_repeat_instance_id, title_marks
 from tg_agent_shell.foundation.changes import Committed, take_changes
 from tg_agent_shell.foundation.clock import utcnow
@@ -128,8 +128,8 @@ async def test_cd_tree_002_a_goal_placed_under_a_goal_becomes_a_subgoal(sessions
         await session.refresh(health)
         assert (health.kind, health.parent_id) == (CardKind.SUBGOAL.value, life.id)
         assert await session.scalar(
-            select(CardEvent.operation).where(CardEvent.card_id == health.id).order_by(
-                CardEvent.id.desc()
+            select(LogEvent.operation).where(LogEvent.item_type == "card", LogEvent.item_id == health.id).order_by(
+                LogEvent.id.desc()
             )
         ) == "edit_kind"
 
@@ -1021,7 +1021,10 @@ async def test_cd_delete_025_deleting_a_card_deletes_everything_under_it(session
         assert list(await session.scalars(select(CardValue.card_id))) == []
         assert list(await session.scalars(select(CardTag.card_id))) == []
         assert list(await session.scalars(select(SprintCommitment.card_id))) == []
-        assert list(await session.scalars(select(CardEvent.card_id))) == []
+        # Their events stay, and each deleted Card's deletion is one more.
+        assert set(
+            await session.scalars(select(LogEvent.item_id).where(LogEvent.operation == "delete"))
+        ) == {goal.id, subgoal.id, live.id, closed.id}
 
 
 async def test_cd_repeat_026_a_closed_repeat_names_its_place_and_the_open_one(sessions):
@@ -1190,7 +1193,7 @@ async def test_ui_mutations_use_domain_services_and_are_audited(sessions):
         assert (await session.get(Value, value.id)).active is True
         assert (await session.get(Card, card.id)).title == "Renamed"
         assert await session.get(CardTag, {"card_id": card.id, "tag_id": tag.id}) is not None
-        events = list(await session.scalars(select(CardEvent).where(CardEvent.card_id == card.id)))
+        events = list(await session.scalars(select(LogEvent).where(LogEvent.item_type == "card", LogEvent.item_id == card.id)))
         assert {event.operation for event in events} >= {"edit_title", "archive"}
 
 
@@ -1234,7 +1237,7 @@ async def test_committed_card_relationships_are_validated_propagated_and_audited
         await session.commit()
 
         events = list(
-            await session.scalars(select(CardEvent).where(CardEvent.card_id == action.id))
+            await session.scalars(select(LogEvent).where(LogEvent.item_type == "card", LogEvent.item_id == action.id))
         )
         assert {event.operation for event in events} >= {
             "set_parent",
@@ -1359,8 +1362,8 @@ async def test_cd_delete_025_deleting_a_goal_alone_leaves_its_children_standing(
         assert deep.parent_id == subgoal.id
         # The promotion is written down, so the history says why the kind changed.
         assert await session.scalar(
-            select(CardEvent.operation).where(CardEvent.card_id == subgoal.id).order_by(
-                CardEvent.id.desc()
+            select(LogEvent.operation).where(LogEvent.item_type == "card", LogEvent.item_id == subgoal.id).order_by(
+                LogEvent.id.desc()
             )
         ) == "edit_kind"
 

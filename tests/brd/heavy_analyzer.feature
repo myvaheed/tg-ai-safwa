@@ -53,8 +53,8 @@ Feature: The helper the Advisor calls
     Then it carries one sentence saying the helper could not work it out
     And the Advisor still answers the owner
 
-  Scenario: HAN-READ-012 — The event log is read by the helper and by nobody else
+  Scenario: HAN-READ-012 — The event log is read by the helper and by Safwa itself
     Given the owner asks how much of a stretch of work they closed themselves
-    When the helper reads the log of changes to Cards
+    When the helper reads the log of changes
     Then each change says whether the owner made it on a screen or an approved proposal did
-    And neither the Advisor nor the workspace is told that log exists
+    And the part that changes the workspace is not told that log exists

@@ -22,7 +22,7 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
     routed_prompt,
 )
-from safwa.features.advisor.agent import ADVISOR_VIEWS
+from safwa.features.advisor.agent import ADVISOR_ROW_LIMITS, ADVISOR_VIEWS
 from safwa.features.memory.use_cases import MemoryReader
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.models import Base
@@ -124,6 +124,7 @@ class E2EHarness:
                 timezone=TIMEZONE,
                 query_runner=self.runner(),
                 history=history or SilentHistory(),
+                sessions=self.sessions,
             ),
             prompt=routed_prompt(spec),
         )
@@ -156,6 +157,7 @@ class E2EHarness:
             self.memory,
             self.runner(),
             views=ADVISOR_VIEWS,
+            row_limits=ADVISOR_ROW_LIMITS,
             workspace_state=workspace_context,
             system_prompt=SYSTEM_PROMPT,
             model_name="e2e-scripted-model",

@@ -67,18 +67,4 @@ AI_CARDS = SqlView(
 )
 
 
-# The log the heavy analyzer reads and nobody else: one row per change, which answers a
-# question about a stretch of time and nothing a screen or a proposal ever asks.
-AI_CARD_EVENTS = SqlView(
-    "ai_card_events",
-    """SELECT id, card_id, sprint_id, actor, operation, created_at FROM card_events""",
-    doc="""- `ai_card_events(id, card_id, sprint_id, actor, operation, created_at)`
-  - one row per change to one card, oldest first by `id`
-  - `actor` user_ui | ai — the owner on a screen, or a proposal the owner approved
-  - `operation` create | update | edit_<field> | set_parent | move | done | archive | restore | link_<kind> | unlink_<kind>, where kind is value | tag | check | category | energy
-  - `sprint_id` is the Sprint that was running then, or NULL
-  - archiving that happened on its own writes no row, so `archive` is always the owner's own""",
-)
-
-
-VIEWS = (AI_CARDS, AI_CARD_EVENTS)
+VIEWS = (AI_CARDS,)

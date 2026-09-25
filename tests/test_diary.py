@@ -35,7 +35,7 @@ from safwa.features.diary.use_cases import (
     diary_entry_for,
     update_diary_entry,
 )
-from tg_agent_shell.ai.subagents import RoutedSubagent
+from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
 from tg_agent_shell.ai.tools import ToolAdapters
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.proposals.api import ChangeAction, ToolPreparationError
@@ -77,12 +77,13 @@ async def prepared(sessions, tool_arguments: dict[str, Any]) -> Any:
     return change, result
 
 
-def test_di_read_006_both_readers_know_the_diary_view() -> None:
+def test_di_read_006_the_advisor_reads_the_diary_and_hands_over_only_writing() -> None:
     """DI-READ-006 — tests/brd/diary.feature"""
     assert "ai_diary" in ALLOWED_VIEWS
-    assert "`ai_diary(id, entry_date, body, feeling_score" in DIARY_PROMPT
     assert "ai_diary(id, entry_date, body, feeling_score" in SYSTEM_PROMPT
     assert "(diary:12)" in SYSTEM_PROMPT
+    assert DIARY_AGENT.views == ()
+    assert "ai_diary" not in DIARY_PROMPT
 
 
 def test_di_write_008_write_and_delete_inputs_are_distinct() -> None:
@@ -270,12 +271,13 @@ def test_di_date_012_today_is_the_local_day() -> None:
     assert "Today is 2026-08-22" in line
 
 
-async def test_di_date_012_read_day_defaults_to_the_local_day() -> None:
+async def test_di_date_012_read_day_defaults_to_the_local_day(sessions) -> None:
     """DI-DATE-012 — tests/brd/diary.feature"""
     zone = ZoneInfo("Europe/Istanbul")
     history = RecordingDayReader()
     tool = day_read_tool(
         history,
+        sessions,
         chat_id=42,
         timezone="Europe/Istanbul",
         clock=FrozenClock(datetime(2026, 8, 22, 1, 20, tzinfo=zone)),
@@ -290,11 +292,13 @@ async def test_di_date_012_read_day_defaults_to_the_local_day() -> None:
     )
 
 
-async def test_di_read_016_a_named_day_runs_from_local_midnight_to_local_midnight() -> None:
+async def test_di_read_016_a_named_day_runs_from_local_midnight_to_local_midnight(
+    sessions,
+) -> None:
     """DI-READ-016 — tests/brd/diary.feature"""
     zone = ZoneInfo("Europe/Istanbul")
     history = RecordingDayReader()
-    tool = day_read_tool(history, chat_id=42, timezone="Europe/Istanbul")
+    tool = day_read_tool(history, sessions, chat_id=42, timezone="Europe/Istanbul")
 
     await tool.run(ToolCall(id="1", name="read_day", arguments_json='{"date":"2026-08-22"}'))
 
@@ -304,37 +308,51 @@ async def test_di_read_016_a_named_day_runs_from_local_midnight_to_local_midnigh
     )
 
 
-def test_di_read_013_the_subagent_reads_both_sources() -> None:
+async def test_di_read_013_a_day_is_read_with_the_entry_saved_for_it_and_nothing_else(
+    sessions, tmp_path
+) -> None:
     """DI-READ-013 — tests/brd/diary.feature
 
-    What the session is given, not what the feature declares: `read_day` is the Diary's
-    own, and `query_data` is the one read door the adapters publish to every session.
+    What the session is given, not what the feature declares: the Diary names no view, so
+    the adapters hand it no `query_data`.
     """
+    async with sessions() as session:
+        await create_diary_entry(
+            session, entry_date=date(2026, 8, 22), body="Уже записано.", feeling_score=7
+        )
+        await session.commit()
     context = AgentContext(
         owner_id=42,
         timezone="Europe/Istanbul",
-        query_runner=SimpleNamespace(),
+        query_runner=ReadOnlyQueryRunner(tmp_path / "safwa.db", ALLOWED_VIEWS),
         history=RecordingDayReader(),
+        sessions=sessions,
     )
-    routed = RoutedSubagent(
-        name="diary",
-        prompt=routed_prompt(DIARY_AGENT),
-        read_tools=DIARY_AGENT.read_tools(context),
-        mutation_tools=DIARY_AGENT.mutation_tools,
-    )
-    # Nothing here runs a call, so the adapters need nothing but their roster.
+    routed = DIARY_AGENT.bind(context, prompt=routed_prompt(DIARY_AGENT))
     adapters = ToolAdapters(
         None, None, PROPOSALS, None, SCREENS, subagents={"diary": routed}
     )
+    [read_day] = routed.read_tools
 
     offered = {tool["function"]["name"] for tool in adapters.definition("diary").tools}
+    written = await read_day.run(
+        ToolCall(id="1", name="read_day", arguments_json='{"date":"2026-08-22"}')
+    )
+    unwritten = await read_day.run(
+        ToolCall(id="2", name="read_day", arguments_json='{"date":"2026-08-21"}')
+    )
 
-    assert offered - set(DIARY_AGENT.mutation_tools) == {"read_day", "query_data"}
+    assert offered - set(DIARY_AGENT.mutation_tools) == {"read_day"}
+    assert written["conversation"] == "[user]: Прошёл день."
+    assert written["saved"] == {"body": "Уже записано.", "feeling_score": 7}
+    assert unwritten["saved"] == "Nothing is saved for that day yet."
 
 
-async def test_di_read_015_a_silent_day_reads_as_empty() -> None:
+async def test_di_read_015_a_silent_day_reads_as_empty(sessions) -> None:
     """DI-READ-015 — tests/brd/diary.feature"""
-    tool = day_read_tool(RecordingDayReader(transcript=""), chat_id=42, timezone="UTC")
+    tool = day_read_tool(
+        RecordingDayReader(transcript=""), sessions, chat_id=42, timezone="UTC"
+    )
 
     result = await tool.run(ToolCall(id="1", name="read_day", arguments_json='{"date":"2026-08-22"}'))
 

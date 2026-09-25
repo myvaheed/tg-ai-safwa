@@ -22,6 +22,7 @@ from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 
 from ...enums import ActorType
+from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
 from ...foundation.workspace import bump_workspace
 from ..cards.model import CardCheck
 from ..values.api import Value
@@ -103,7 +104,6 @@ async def toggle_check_value(
     session: AsyncSession, check_id: int, value_id: int, *, actor: ActorType = ActorType.USER_UI
 ) -> bool:
     """Put a Value on a Check or take it off, and say whether it is on now."""
-    del actor  # a Check keeps no event log of its own
     check = await session.get(Check, check_id)
     value = await session.get(Value, value_id)
     if check is None or check.archived_at is not None:
@@ -111,18 +111,26 @@ async def toggle_check_value(
     if value is None:
         raise DomainError("Value does not exist")
     link = await session.get(CheckValue, {"check_id": check_id, "value_id": value_id})
+    before = snapshot(check)
     if link is None:
         session.add(CheckValue(check_id=check_id, value_id=value_id))
-        linked = True
+        operation, linked = "link_value", True
     else:
         await session.delete(link)
-        linked = False
+        operation, linked = "unlink_value", False
     check.version += 1
+    await _record(session, check, operation, actor, before)
     await bump_workspace(session)
     return linked
 
 
-async def create_check(session: AsyncSession, *, title: str, repeatable: bool = False) -> Check:
+async def create_check(
+    session: AsyncSession,
+    *,
+    title: str,
+    repeatable: bool = False,
+    actor: ActorType = ActorType.USER_UI,
+) -> Check:
     """Create one Pending Check, attached to nothing.
 
     Linking is a Card action: `create_card(check_ids=...)` or `toggle_card_check`. Keeping
@@ -137,18 +145,26 @@ async def create_check(session: AsyncSession, *, title: str, repeatable: bool = 
     check = Check(title=clean_title, repeatable=repeatable)
     session.add(check)
     await session.flush()
+    await _record(session, check, CREATE, actor)
     record_change(session, CHECK_CREATED, check.id)
     await bump_workspace(session)
     return check
 
 
-async def update_check_fields(session: AsyncSession, check_id: int, fields: dict[str, Any]) -> Check:
+async def update_check_fields(
+    session: AsyncSession,
+    check_id: int,
+    fields: dict[str, Any],
+    *,
+    actor: ActorType = ActorType.USER_UI,
+) -> Check:
     check = await session.get(Check, check_id)
     if check is None or check.archived_at is not None:
         raise DomainError("Check does not exist or is archived")
     unknown = set(fields) - {"title", "repeatable"}
     if unknown:
         raise DomainError("Unsupported Check fields: " + ", ".join(sorted(unknown)))
+    before = snapshot(check)
     for name, value in fields.items():
         if name == "title":
             value = str(value).strip()
@@ -156,27 +172,37 @@ async def update_check_fields(session: AsyncSession, check_id: int, fields: dict
             raise DomainError("Check title cannot be empty")
         setattr(check, name, value)
     check.version += 1
+    await _record(session, check, UPDATE, actor, before)
     await bump_workspace(session)
     return check
 
 
-async def archive_check(session: AsyncSession, check_id: int, archive: bool = True) -> Check:
+async def archive_check(
+    session: AsyncSession,
+    check_id: int,
+    archive: bool = True,
+    *,
+    actor: ActorType = ActorType.USER_UI,
+) -> Check:
     check = await session.get(Check, check_id)
     if check is None:
         raise DomainError("Check does not exist")
     if archive and check.outcome is None:
         raise DomainError("Only an answered Check can be archived")
+    before = snapshot(check)
     check.archived_at = utcnow() if archive else None
     check.version += 1
+    await _record(session, check, "archive" if archive else "restore", actor, before)
     await bump_workspace(session)
     return check
 
 
-async def delete_check(session: AsyncSession, check_id: int) -> None:
+async def delete_check(session: AsyncSession, check_id: int, *, actor: ActorType = ActorType.USER_UI) -> None:
     """Delete one Check outright, answered or not, with every link it carried."""
     check = await session.get(Check, check_id)
     if check is None:
         raise DomainError("Check does not exist")
+    await _record(session, check, DELETE, actor, snapshot(check))
     await _delete_checks(session, [check.id])
     await bump_workspace(session)
 
@@ -246,6 +272,7 @@ async def apply_check_outcome(
 ) -> Check | None:
     resolved = CheckOutcome(outcome)
     was_pending = check.outcome is None
+    before = snapshot(check)
     check.outcome = resolved.value
     check.resolved_by = actor.value
     record_change(session, CHECK_ANSWERED, check.id)
@@ -256,9 +283,20 @@ async def apply_check_outcome(
         # correction must not move the data point; updated_at carries that edit.
         check.resolved_at = utcnow()
     check.version += 1
+    await _record(session, check, resolved.value, actor, before)
     if not (was_pending and spawn and check.repeatable):
         return None
     return await _spawn_check_successor(session, check)
+
+
+async def _record(
+    session: AsyncSession,
+    check: Check,
+    operation: str,
+    actor: ActorType,
+    before: dict[str, Any] | None = None,
+) -> None:
+    await record_log_event(session, "check", check, check.title, operation, actor, before)
 
 
 async def resolve_check(

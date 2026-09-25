@@ -92,13 +92,11 @@ Feature: Diary
     When a day is read without naming one
     Then it is the owner's day, from their midnight to the next
 
-  Scenario: DI-READ-013 — Neither the conversation nor the data can write a day alone
-    Given what the owner did with buttons never reaches the conversation
-    And how a day felt never reaches the planning data
-    When the Diary is set up
-    Then it is given the reader that hands it the conversation
-    And the reader that hands it the planning data
-    And no other reader, because those two are what a day is written from
+  Scenario: DI-READ-013 — A day is written from what was said that day and what is already written
+    Given the Diary is asked to write a day
+    When it reads that day
+    Then it is handed that day's conversation, and the entry already saved for it if there is one
+    And it is given nothing else to read
 
   Scenario: DI-MOOD-014 — Rewriting a day without naming a rating keeps the rating it had
     Given 15.08.2026 is rated 8
@@ -110,7 +108,7 @@ Feature: Diary
     Given the owner said nothing to Safwa on a day
     When the Diary reads that day
     Then it comes back saying that day's conversation holds nothing
-    And it does not fail, so the planning data is still there to write the day from
+    And it does not fail, so the day can still be written from what the owner asks for
 
   Scenario: DI-READ-016 — Reading one named day reads the whole day
     Given the Diary is asked to read one day, named by its date

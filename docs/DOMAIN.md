@@ -69,7 +69,7 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
   counted. A Value, a Tag and a Saved Request carry no `archived_at` at all.
 - **Only an Action is archived; a Goal and a Subgoal are derived, like everything else they show.**
   A branch leaves sight when its last Card does and comes back the moment one is reopened, so a
-  parent is never stamped, never restored and never carries a `card_events` row of its own.
+  parent is never stamped, never restored and never carries an `archive` event of its own.
 - **A list by stage leaves an archived item out; every other list shows it, marked `[📦]`.** It
   opens, it reads as archived, and no proposal changes it — only the owner, by reopening or deleting
   it. `foundation.marks.title_marks` is the one place both marks are written, and `ai_cards` and

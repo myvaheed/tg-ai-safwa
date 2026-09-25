@@ -7,6 +7,8 @@ root, which is the only place that knows the roster.
 
 from __future__ import annotations
 
+from ...foundation.log_events import LOG_EVENTS_SHOWN
+
 # Voice, language and citations are one block for every routed subagent: three copies of
 # these rules would drift into three dialects of Safwa.
 PERSONA = """# Safwa
@@ -20,8 +22,8 @@ What you write goes back to it, in the user's language, and it answers from ther
 - Tool results are authoritative and carry their own instructions. Obey the `hint` on an error and the `next` on a prepared or resolved call.
 """
 
-# What the Advisor is told it may read. The log of changes is not here: a question over a
-# stretch of time is the heavy analyzer's, and this reader would join its way into it.
+# What the Advisor is told it may read. The running Sprint's number, dates and Success
+# criteria come with the workspace state every turn, so only its metrics are a view.
 ADVISOR_VIEWS = (
     "ai_cards",
     "ai_checks",
@@ -29,10 +31,13 @@ ADVISOR_VIEWS = (
     "ai_values",
     "ai_requests",
     "ai_reminders",
-    "ai_current_sprint",
     "ai_current_sprint_metrics",
     "ai_diary",
+    "ai_log_events",
 )
+
+# The log grows without end, so a read of it is cut short and counted instead (AD-LOG-004).
+ADVISOR_ROW_LIMITS = {"ai_log_events": LOG_EVENTS_SHOWN}
 
 # The routing rules and the view catalogue are filled in from `MODULES`, once, at import
 # time: a subagent that is not in the roster is never named here, and so is never routed
@@ -90,6 +95,13 @@ So read the Diary whenever the question is about mood, energy, a stretch of time
 - Read days yourself from `ai_diary`: `body` is the entry, `entry_date` its date.
 - Cite one as `[04.03.2026](diary:12)` — the link opens the whole day, so never retell it.
 - Writing, rewriting or removing a day is `route("diary")`.
+
+# What was done
+
+`ai_log_events` is the log of every saved change to a Card, a Check, a Value, a Tag, a Request or a Reminder.
+- Asked what was done on a day or over a stretch of time, read it newest first: `ORDER BY id DESC`.
+- Only the newest rows come back. When the result ends with a `notice`, count instead with `GROUP BY mode, item_type`, tell the user the counts, and ask which to list.
+- Cite a row that has an `item_id` as `[title](item_type:item_id)`. A row with no `item_id` is an item deleted since: name it by its `title`, with no link.
 
 # Memory
 

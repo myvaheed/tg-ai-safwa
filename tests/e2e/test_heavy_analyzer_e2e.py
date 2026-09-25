@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from llm_gateway import CompletionTurn, ToolCall
-from safwa.bootstrap.modules import HOOKS, MODULES, PROPOSALS, REGISTRY
+from safwa.bootstrap.modules import HOOKS, MODULES, OWN_VIEWS, PROPOSALS, REGISTRY
 from safwa.features.cards.use_cases import create_card
 from telegram_llm import DialogueMessage
 from tg_agent_shell.ai.outcome import AIOutcomeKind
@@ -102,7 +102,7 @@ async def test_switching_the_offer_off_keeps_the_helper_operation(e2e_harness):
         return False
 
     advisor.adapters.hooks = Registry.of(
-        MODULES, world=REGISTRY.proposals.world, hooks=HOOKS,
+        MODULES, world=REGISTRY.proposals.world, views=OWN_VIEWS, hooks=HOOKS,
         hook_policy=everything_off,
     ).hooks
     await advisor.handle(QUESTION)

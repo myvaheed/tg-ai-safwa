@@ -10,7 +10,7 @@ from marks import read_kind_mark
 from ui_harness import FakeMessage, services_for
 
 from llm_gateway import CompletionRequest, CompletionTurn
-from safwa.bootstrap.modules import MODULES, REGISTRY
+from safwa.bootstrap.modules import MODULES, OWN_VIEWS, REGISTRY
 from safwa.constants import SUMMARY_TRIGGER_TOKENS
 from safwa.features.profile.api import hook_switched_on, set_hook_switch
 from safwa.features.summary.module import SUMMARY_HOOK
@@ -162,7 +162,7 @@ async def test_sum_write_001_below_the_trigger_only_an_outright_request_writes_o
 def summary_services(sessions, provider, history):
     services = services_for(sessions)
     registry = Registry.of(
-        MODULES, world=REGISTRY.proposals.world,
+        MODULES, world=REGISTRY.proposals.world, views=OWN_VIEWS,
         hooks=(SUMMARY_HOOK,), hook_policy=hook_switched_on,
     )
     services.hooks = registry.hooks

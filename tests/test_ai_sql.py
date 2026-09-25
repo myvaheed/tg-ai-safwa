@@ -6,7 +6,7 @@ from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS
 from safwa.features.cards.agent import CardToolInput
 from safwa.features.checks.agent import CheckToolInput
 from tg_agent_shell.ai.contracts import QueryToolInput, tool_json_schema
-from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, UnsafeQueryError, validate_read_sql
+from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, UnsafeQueryError, validated_read
 
 
 def test_native_mutation_tools_become_typed_change_intents():
@@ -315,7 +315,7 @@ def test_query_tool_rejects_null_empty_and_extra_arguments():
 def test_read_sql_rejects_unsafe_queries(sql):
     """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
     with pytest.raises(UnsafeQueryError):
-        validate_read_sql(sql, ALLOWED_VIEWS)
+        validated_read(sql, ALLOWED_VIEWS)
 
 
 @pytest.mark.parametrize(
@@ -332,39 +332,39 @@ def test_read_sql_rejects_unsafe_queries(sql):
 def test_read_sql_reads_keywords_only_outside_quotes(sql):
     """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
     # A word inside a string literal is text, and one column may start with a keyword.
-    assert validate_read_sql(sql, ALLOWED_VIEWS)
+    assert validated_read(sql, ALLOWED_VIEWS)[1] == {"ai_cards"}
 
 
 def test_read_sql_accepts_views_and_ctes():
     """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
-    assert validate_read_sql("SELECT title FROM ai_cards LIMIT 5", ALLOWED_VIEWS)
-    assert validate_read_sql("SELECT id, title FROM ai_cards LIMIT 5", ALLOWED_VIEWS)
-    assert validate_read_sql(
-        "WITH x AS (SELECT * FROM ai_cards) SELECT count(*) FROM x", ALLOWED_VIEWS
-    )
-    assert validate_read_sql(
-        "SELECT count(*) FROM (SELECT id FROM ai_cards)", ALLOWED_VIEWS
-    )
-    assert validate_read_sql(
+    # What comes back beside the statement is the views it reads, and a CTE is none of them.
+    for sql in (
+        "SELECT title FROM ai_cards LIMIT 5",
+        "SELECT id, title FROM ai_cards LIMIT 5",
+        "WITH x AS (SELECT * FROM ai_cards) SELECT count(*) FROM x",
+        "SELECT count(*) FROM (SELECT id FROM ai_cards)",
+    ):
+        assert validated_read(sql, ALLOWED_VIEWS) == (sql, {"ai_cards"})
+    assert validated_read(
         "SELECT c.id FROM ai_cards c JOIN ai_values v "
         "ON c.id = coalesce(v.id, c.id)",
         ALLOWED_VIEWS,
-    )
+    )[1] == {"ai_cards", "ai_values"}
 
 
 def test_read_sql_accepts_recursive_and_column_list_ctes():
     """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
-    assert validate_read_sql(
+    assert validated_read(
         "WITH RECURSIVE tree AS (SELECT id FROM ai_cards WHERE id = 1 "
         "UNION ALL SELECT c.id FROM ai_cards c JOIN tree t ON c.parent_id = t.id) "
         "SELECT id FROM tree",
         ALLOWED_VIEWS,
-    )
-    assert validate_read_sql(
+    )[1] == {"ai_cards"}
+    assert validated_read(
         "WITH t(card_id) AS (SELECT id FROM ai_cards) SELECT card_id FROM t", ALLOWED_VIEWS
-    )
+    )[1] == {"ai_cards"}
     with pytest.raises(UnsafeQueryError):
-        validate_read_sql(
+        validated_read(
             "WITH RECURSIVE tree AS (SELECT id FROM cards) SELECT id FROM tree", ALLOWED_VIEWS
         )
 
@@ -374,9 +374,9 @@ def test_a_reader_is_scoped_to_the_views_it_declared(tmp_path):
     runner = ReadOnlyQueryRunner(tmp_path / "views.db", ALLOWED_VIEWS)
     reader = runner.scoped(("ai_cards",))
 
-    assert validate_read_sql("SELECT id FROM ai_cards", reader.views)
+    assert validated_read("SELECT id FROM ai_cards", reader.views)[1] == {"ai_cards"}
     with pytest.raises(UnsafeQueryError, match="ai_diary"):
-        validate_read_sql("SELECT id FROM ai_diary", reader.views)
+        validated_read("SELECT id FROM ai_diary", reader.views)
     # A scope is narrowed from the catalogue, so a name no feature publishes is a wiring bug.
     with pytest.raises(RuntimeError, match="ai_nothing"):
         runner.scoped(("ai_nothing",))

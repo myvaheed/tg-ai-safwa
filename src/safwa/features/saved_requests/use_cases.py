@@ -9,6 +9,7 @@ by nothing but being valid — the caps in `ReadOnlyQueryRunner` exist for what 
 from __future__ import annotations
 
 from collections.abc import Collection
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.errors import DomainError
 
+from ...enums import ActorType
+from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
 from ...foundation.workspace import bump_workspace
 from ..cards.api import CardQueryError, normalize_card_query
 from .model import SavedRequest
@@ -42,6 +45,7 @@ async def create_saved_request(
     description: str | None = None,
     *,
     views: Collection[str],
+    actor: ActorType = ActorType.USER_UI,
 ) -> SavedRequest:
     normalized_name = name.strip()
     if not normalized_name:
@@ -62,6 +66,7 @@ async def create_saved_request(
     )
     session.add(request)
     await session.flush()
+    await _record(session, request, CREATE, actor)
     record_change(session, REQUEST_CREATED, request.id)
     await bump_workspace(session)
     return request
@@ -75,10 +80,12 @@ async def update_saved_request(
     description: str | None = None,
     query_sql: str | None = None,
     views: Collection[str],
+    actor: ActorType = ActorType.USER_UI,
 ) -> SavedRequest:
     request = await session.get(SavedRequest, request_id)
     if request is None:
         raise DomainError("Request does not exist")
+    before = snapshot(request)
     if name is not None:
         normalized_name = name.strip()
         if not normalized_name:
@@ -100,8 +107,19 @@ async def update_saved_request(
         except CardQueryError as error:
             raise DomainError(str(error)) from error
     request.version += 1
+    await _record(session, request, UPDATE, actor, before)
     await bump_workspace(session)
     return request
+
+
+async def _record(
+    session: AsyncSession,
+    request: SavedRequest,
+    operation: str,
+    actor: ActorType,
+    before: dict[str, Any] | None = None,
+) -> None:
+    await record_log_event(session, "request", request, request.name, operation, actor, before)
 
 
 async def seed_default_requests(
@@ -118,10 +136,13 @@ async def seed_default_requests(
     ]
 
 
-async def delete_saved_request(session: AsyncSession, request_id: int) -> SavedRequest:
+async def delete_saved_request(
+    session: AsyncSession, request_id: int, *, actor: ActorType = ActorType.USER_UI
+) -> SavedRequest:
     request = await session.get(SavedRequest, request_id)
     if request is None:
         raise DomainError("Request does not exist")
+    await _record(session, request, DELETE, actor, snapshot(request))
     await session.delete(request)
     await bump_workspace(session)
     return request

@@ -56,13 +56,13 @@ def terminal(name: str, arguments: dict[str, Any] | None = None) -> CompletionTu
 # ---------------------------------------------------------------- what it may read
 
 
-def test_han_read_012_the_event_log_belongs_to_the_helper(read_views) -> None:
+def test_han_read_012_the_event_log_is_read_by_the_helper_and_the_advisor(read_views) -> None:
     """HAN-READ-012 — tests/brd/heavy_analyzer.feature"""
     workspace = next(agent.instructions for agent in AGENTS if agent.name == "workspace_mutator")
 
-    assert "ai_card_events" in HEAVY_ANALYZER_PROMPT
-    assert "ai_card_events" not in SYSTEM_PROMPT
-    assert "ai_card_events" not in workspace
+    assert "ai_log_events" in HEAVY_ANALYZER_PROMPT
+    assert "ai_log_events" in SYSTEM_PROMPT
+    assert "ai_log_events" not in workspace
     # What the log is for: which of two hands made the change.
     assert "user_ui | ai" in HEAVY_ANALYZER_PROMPT
 

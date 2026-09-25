@@ -7,12 +7,16 @@ same transaction.
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.errors import DomainError
 
+from ...enums import ActorType
+from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
 from ...foundation.workspace import bump_workspace
 from .model import CardTag, Tag
 
@@ -20,7 +24,13 @@ from .model import CardTag, Tag
 TAG_CREATED = "tag.created"
 
 
-async def create_tag(session: AsyncSession, name: str, description: str | None = None) -> Tag:
+async def create_tag(
+    session: AsyncSession,
+    name: str,
+    description: str | None = None,
+    *,
+    actor: ActorType = ActorType.USER_UI,
+) -> Tag:
     normalized = name.strip()
     if not normalized:
         raise DomainError("Tag name cannot be empty")
@@ -30,6 +40,7 @@ async def create_tag(session: AsyncSession, name: str, description: str | None =
     tag = Tag(name=normalized, description=(description or "").strip())
     session.add(tag)
     await session.flush()
+    await _record(session, tag, CREATE, actor)
     record_change(session, TAG_CREATED, tag.id)
     await bump_workspace(session)
     return tag
@@ -41,10 +52,12 @@ async def update_tag_fields(
     *,
     name: str | None = None,
     description: str | None = None,
+    actor: ActorType = ActorType.USER_UI,
 ) -> Tag:
     tag = await session.get(Tag, tag_id)
     if tag is None:
         raise DomainError("Tag does not exist")
+    before = snapshot(tag)
     if name is not None:
         normalized = name.strip()
         if not normalized:
@@ -61,8 +74,19 @@ async def update_tag_fields(
     if description is not None:
         tag.description = description.strip()
     tag.version += 1
+    await _record(session, tag, UPDATE, actor, before)
     await bump_workspace(session)
     return tag
+
+
+async def _record(
+    session: AsyncSession,
+    tag: Tag,
+    operation: str,
+    actor: ActorType,
+    before: dict[str, Any] | None = None,
+) -> None:
+    await record_log_event(session, "tag", tag, tag.name, operation, actor, before)
 
 
 async def tag_link_count(session: AsyncSession, tag_id: int) -> int:
@@ -70,12 +94,15 @@ async def tag_link_count(session: AsyncSession, tag_id: int) -> int:
     return len(list(await session.scalars(select(CardTag.card_id).where(CardTag.tag_id == tag_id))))
 
 
-async def delete_tag(session: AsyncSession, tag_id: int) -> tuple[Tag, int]:
+async def delete_tag(
+    session: AsyncSession, tag_id: int, *, actor: ActorType = ActorType.USER_UI
+) -> tuple[Tag, int]:
     """Delete a Tag and take it off every Card in the same transaction."""
     tag = await session.get(Tag, tag_id)
     if tag is None:
         raise DomainError("Tag does not exist")
     linked_count = await tag_link_count(session, tag.id)
+    await _record(session, tag, DELETE, actor, snapshot(tag))
     await session.execute(delete(CardTag).where(CardTag.tag_id == tag.id))
     await session.delete(tag)
     await bump_workspace(session)

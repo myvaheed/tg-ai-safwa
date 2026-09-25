@@ -24,3 +24,22 @@ Feature: Advisor
     And that the last analysed Sprint — how it went, the experiment it set, what is worth
       knowing — is for planning and advising in the current Sprint, that nothing checked the
       experiment's result, and that none of it is a durable fact about the owner
+
+  Scenario: AD-LOG-003 — Every saved change to what the owner keeps is written down, a deletion too
+    Given a Card, a Check, a Value, a Tag, a Request or a Reminder
+    When it is created, changed or deleted, by the owner on a screen or by a saved proposal
+    Then one row is written: its type, its id, its title at that moment, the operation, who made
+      it, the running Sprint if any, and when
+    And a Check answered Passed or Missed is a row too
+    When the item is deleted
+    Then its rows stay, and the deletion is one more, under the title it had
+
+  Scenario: AD-LOG-004 — Asked what was done, Safwa reads the log of changes itself
+    Given the owner asks what was done on a day or over a stretch of time
+    When Safwa reads the log
+    Then each row says whether the item was created, updated or deleted, and on which local day;
+      a move, a link, a finish or an archive reads as updated
+    And an item still there is cited, and a deleted one is named by the title it had, with no link
+    When a read would bring back more than 20 rows (LOG_EVENTS_SHOWN = 20)
+    Then 20 come back, and Safwa is told the rest were left out, to count them by kind of change
+      and kind of item, and to ask the owner which to list
