@@ -168,6 +168,7 @@ class RootSession:
         *,
         source_message_id: int | None = None,
         dialogue: list[DialogueMessage] | None = None,
+        shown: tuple[str, ...] = (),
     ) -> AIOutcome:
         turn_dialogue = (
             [{"role": item.role, "content": item.content} for item in dialogue]
@@ -181,6 +182,7 @@ class RootSession:
             turn_dialogue,
             source_message_id=source_message_id,
             host_state={OWNER_REQUEST: True} if source_message_id is not None else None,
+            shown=shown,
         )
         return await self._decide_or_show(outcome)
 

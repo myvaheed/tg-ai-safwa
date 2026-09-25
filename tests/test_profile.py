@@ -224,7 +224,7 @@ async def test_ps_summary_014_the_daily_summary_reads_the_summary_time_and_share
     async def gate() -> bool:
         return True
 
-    async def speak(event_id: str, text: str) -> bool:
+    async def speak(event_id: str, text: str, shown: tuple[str, ...]) -> bool:
         said.append(text)
         return True
 

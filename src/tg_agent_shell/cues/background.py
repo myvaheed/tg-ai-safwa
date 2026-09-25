@@ -17,19 +17,24 @@ from uuid import uuid4
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..foundation.poll import run_poll
+from ..hooks.contracts import Shown
 from .queue import forget, settle, stamp, unstamp, waiting_cues
 
 logger = logging.getLogger(__name__)
 
 # Supplied by the runtime so this module stays free of the Advisor and the bot.
 Gate = Callable[[], Awaitable[bool]]
-Speaker = Callable[[str, str], Awaitable[bool]]
+# The turn's id, the request, and the blocks that open the answer as they are.
+Speaker = Callable[[str, str, tuple[str, ...]], Awaitable[bool]]
 # Whether the message of the turn under this id reached the chat.
 Delivered = Callable[[str], Awaitable[bool]]
 LeaseRelease = Callable[[], None]
 Expiry = Callable[[], Awaitable[None]]
 # The words of a hook's request, made now from what it refers to; None drops the request.
-Preparer = Callable[[str, list[Any]], Awaitable[str | None]]
+Preparer = Callable[[str, list[Any]], Awaitable[str | Shown | None]]
+
+# What the Advisor reads after a request whose block opens its answer.
+BLOCK_SHOWN = "Its block is already shown to the user above your words. Do not repeat it."
 
 # One row as the poll read it: id, the stamp, the words, the hook, what it refers to.
 Row = tuple[int, str | None, str | None, str | None, list[Any]]
@@ -39,7 +44,7 @@ async def _nothing_expires() -> None:
     return None
 
 
-async def _no_words(hook: str, payload: list[Any]) -> str | None:
+async def _no_words(hook: str, payload: list[Any]) -> str | Shown | None:
     return None
 
 
@@ -92,7 +97,8 @@ async def tick(
     Everything waiting by then is said in the one turn, oldest first, as one request: a
     hook's rows are worded once, together, once the gate is open, not on every poll the
     Advisor is busy for; one whose words cannot be made stays owed alone, and nothing to
-    say settles it without a turn. The rows the turn says are stamped with its id before
+    say settles it without a turn. A request that carries a block puts it before the
+    answer, in the order the requests are said. The rows the turn says are stamped with its id before
     it starts, the message is registered under that id, and exactly those rows are settled
     once the answer landed — a row written meanwhile carries no stamp.
     """
@@ -120,9 +126,10 @@ async def tick(
     try:
         said: list[int] = []
         texts: list[str] = []
+        blocks: list[str] = []
         nothing: list[int] = []
         for request in requests:
-            text = request.text
+            text: str | Shown | None = request.text
             if request.hook is not None:
                 try:
                     text = await prepare(request.hook, request.items)
@@ -133,6 +140,9 @@ async def tick(
                     nothing += request.ids
                     continue
             said += request.ids
+            if isinstance(text, Shown):
+                blocks.append(text.block)
+                text = f"{text.request}\n{BLOCK_SHOWN}"
             texts.append(text or "")
         if nothing:
             async with sessions() as session:
@@ -144,7 +154,7 @@ async def tick(
         async with sessions() as session:
             await stamp(session, said, event_id)
             await session.commit()
-        if not await speak(event_id, "\n\n".join(texts)):
+        if not await speak(event_id, "\n\n".join(texts), tuple(blocks)):
             # The stamp stays: the next tick asks whether the message reached the chat
             # after all, and settles or frees the rows by the answer.
             return False

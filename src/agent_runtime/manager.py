@@ -21,7 +21,7 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import Callable, Coroutine, Mapping
+from collections.abc import Callable, Coroutine, Mapping, Sequence
 from typing import Any
 from uuid import uuid4
 
@@ -234,14 +234,20 @@ class AgentManager:
         kind: str = "advisor",
         source_message_id: int | None = None,
         host_state: Mapping[str, Any] | None = None,
+        shown: Sequence[str] = (),
     ) -> TurnOutcome:
         """One turn. A request the person wrote over continues instead of starting again,
-        with the host state it started with."""
-        resumed = await self.resume_interrupted(dialogue)
+        with the host state it started with. `shown` are blocks the host already wrote for
+        the person, which open the answer as they are."""
+        resumed = await self.resume_interrupted(dialogue, shown=shown)
         if resumed is not None:
             return resumed
         return await self.start(
-            dialogue, kind=kind, source_message_id=source_message_id, host_state=host_state
+            dialogue,
+            kind=kind,
+            source_message_id=source_message_id,
+            host_state=host_state,
+            shown=shown,
         )
 
     async def start(
@@ -251,6 +257,7 @@ class AgentManager:
         kind: str = "advisor",
         source_message_id: int | None = None,
         host_state: Mapping[str, Any] | None = None,
+        shown: Sequence[str] = (),
     ) -> TurnOutcome:
         started = self.clock()
         record = await self.store.create(kind=kind, source_message_id=source_message_id)
@@ -258,6 +265,7 @@ class AgentManager:
             messages = await self.context.messages_for(kind, dialogue)
             agent = AgentSession.start(record.id, self.tools.definition(kind), dialogue=dialogue)
             agent.host_state.update(host_state or {})
+            agent.shown_blocks.extend(shown)
             agent.messages = messages
             agent.prefix_len = len(messages)
             result = await self.run(agent)
@@ -267,7 +275,9 @@ class AgentManager:
             await self._fail(record.id, started, error)
             raise
 
-    async def resume_interrupted(self, dialogue: list[dict[str, Any]]) -> TurnOutcome | None:
+    async def resume_interrupted(
+        self, dialogue: list[dict[str, Any]], *, shown: Sequence[str] = ()
+    ) -> TurnOutcome | None:
         """Continue the request the person wrote over, instead of starting a new one.
 
         `None` means there was nothing to continue, and the caller starts a fresh turn.
@@ -281,6 +291,7 @@ class AgentManager:
         waiting = dict(agent.awaiting_route or {})
         agent.awaiting_route = None
         agent.dialogue = dialogue
+        agent.shown_blocks.extend(shown)
         receipt = self._receipt(
             str(waiting.get("subagent", "")),
             "",

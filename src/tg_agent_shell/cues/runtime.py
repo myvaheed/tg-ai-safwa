@@ -22,7 +22,7 @@ from ..ai.runs import AgentRun
 from ..foundation.clock import utcnow
 from ..foundation.kinds import MessageKind
 from ..history import TelegramMessage
-from ..hooks.contracts import BeforeTurn
+from ..hooks.contracts import BeforeTurn, Shown
 from ..proposals.telegram import render_ai_outcome
 from ..telegram import Services, expire_review
 from ..telegram.dialogue import run_before_turn
@@ -92,7 +92,7 @@ class CueRuntime:
             self.services.turn.end_background(self._lease_revision)
             self._lease_revision = None
 
-    async def prepare(self, hook: str, payload: list[Any]) -> str | None:
+    async def prepare(self, hook: str, payload: list[Any]) -> str | Shown | None:
         """The words of a hook's request, from the hook's own feature, or None to drop it."""
         return await self.services.hooks.prepare(self.services.sessions, hook, payload)
 
@@ -108,10 +108,10 @@ class CueRuntime:
             )
         return found is not None
 
-    async def speak(self, event_id: str, text: str) -> bool:
+    async def speak(self, event_id: str, text: str, shown: tuple[str, ...] = ()) -> bool:
         """Run one Advisor turn over the request. Returns whether the answer was delivered.
 
-        Returning False leaves the caller's own record untouched, so whatever produced the
+        `shown` opens the answer as it is, before the Advisor's words. Returning False leaves the caller's own record untouched, so whatever produced the
         request is still owed a turn and the next poll asks for it again.
         """
         if not self.still_current():
@@ -124,7 +124,7 @@ class CueRuntime:
             # The turn is its own task, so the lease that was taken for it is what stops
             # it: the owner arriving ends the provider traffic instead of paying for an
             # answer nobody will read. What stands before the answer is in that task too.
-            turn = self.services.turn.start_background(self._answer(text, dialogue))
+            turn = self.services.turn.start_background(self._answer(text, dialogue, shown))
             try:
                 outcome = await turn
             except asyncio.CancelledError:
@@ -153,7 +153,9 @@ class CueRuntime:
             logger.exception("A Cue failed to reach the owner")
             return False
 
-    async def _answer(self, text: str, dialogue: list[DialogueMessage]) -> AIOutcome:
+    async def _answer(
+        self, text: str, dialogue: list[DialogueMessage], shown: tuple[str, ...]
+    ) -> AIOutcome:
         """One Advisor turn, after the work that stands before any answer."""
         await run_before_turn(
             self._anchor(),
@@ -166,7 +168,7 @@ class CueRuntime:
             ),
             self.still_current,
         )
-        return await self.services.root.handle(text, dialogue=dialogue)
+        return await self.services.root.handle(text, dialogue=dialogue, shown=shown)
 
     async def _end_unseen_review(self, outcome: AIOutcome | None) -> None:
         """End the review a turn that lost the chat left open, the way an undrawn one ends.

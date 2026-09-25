@@ -511,6 +511,9 @@ interrupts mid-turn all lose nothing: the row is still there, and the next poll 
   row per finding, and `HookRegistry.prepare` asks that hook's feature for the words of all its
   rows at once, each item once, once the gate is open — after checking the switch is still on,
   and never while the chat is busy. Words that cannot be made leave the rows for the next poll.
+  A feature may answer with a `Shown` instead: its block opens the answer as it is, before the
+  Advisor's words and in the order the requests are said, and the Advisor reads the request
+  with `BLOCK_SHOWN` after it (AG-HOOK-048).
   A row written while the turn ran carries no stamp and is the next request. Switching the hook
   off in the Profile drops its rows (`drop_hook_cue`), and switching it on drops whatever a late
   hand-on wrote while it was off.

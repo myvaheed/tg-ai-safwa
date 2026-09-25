@@ -406,8 +406,9 @@ def compose_display_outcome(
     dropped from the body, not only a line that matches one of ours character for
     character.
 
-    A shown block is a subagent's words the owner reads as written, so it comes first,
-    whole, paragraphs and repeated lines intact, and nothing is taken out of it.
+    A shown block is words the owner reads as written — a subagent's, or a hook request's —
+    so it comes first, whole, paragraphs and repeated lines intact, and nothing is taken out
+    of it.
     """
     blocks = [block.strip() for block in shown or [] if block.strip()]
     rest = _receipts_and_body(message, summaries)

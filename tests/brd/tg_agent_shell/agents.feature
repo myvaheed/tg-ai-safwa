@@ -414,3 +414,11 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then the hook does not read it
     When the hook fails
     Then the answer is sent as it is
+
+  Scenario: AG-HOOK-048 — A hook's request may carry a block that opens Safwa's message
+    Given a hook whose request to the Advisor carries a block its feature wrote
+    When that request is said
+    Then the block opens the single message Safwa writes, paragraphs and repeated lines intact,
+      and the Advisor is told it was shown and not to repeat it
+    When requests of several hooks are said in one turn, and more than one carries a block
+    Then each block is shown once, oldest request first, all of them before the Advisor's words

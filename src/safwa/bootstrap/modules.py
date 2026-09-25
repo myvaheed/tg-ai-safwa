@@ -44,7 +44,12 @@ from ..features.heavy_analyzer.module import MODULE as HEAVY_ANALYZER
 from ..features.home.module import MODULE as HOME
 from ..features.memory.module import MODULE as MEMORY
 from ..features.onboarding.module import MODULE as ONBOARDING
-from ..features.onboarding.module import NOTICE_HOOK, ONBOARDING_HOOK
+from ..features.onboarding.module import (
+    NOTICE_HOOK,
+    ONBOARDING_HOOK,
+    PRESENCE_HOOK,
+    RETURN_HOOK,
+)
 from ..features.planning.module import (
     KEY_ACTIONS_HOOK,
     KEY_WARNING_HOOK,
@@ -121,6 +126,8 @@ HOOKS = (
     KEY_WARNING_HOOK,
     ONBOARDING_HOOK,
     NOTICE_HOOK,
+    PRESENCE_HOOK,
+    RETURN_HOOK,
     *((PLAN_HOOK,) if featuretoggles.PLAN_REQUIRED else ()),
     *((REQUEST_REVIEW_HOOK,) if featuretoggles.REQUEST_REVIEW else ()),
 )

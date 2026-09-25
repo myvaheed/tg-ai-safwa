@@ -15,14 +15,15 @@ from safwa.features.cards.use_cases import create_card
 from safwa.features.planning.api import SPRINT_ENDED
 from safwa.features.planning.use_cases import finish_sprint, start_sprint
 from tg_agent_shell.ai.runs import AgentRun
-from tg_agent_shell.cues.background import tick
+from tg_agent_shell.cues.background import BLOCK_SHOWN, tick
 from tg_agent_shell.cues.initiatives import queue_advice
 from tg_agent_shell.cues.model import Cue
-from tg_agent_shell.cues.queue import add_cue, waiting_cues
+from tg_agent_shell.cues.queue import add_cue, add_hook_cue, waiting_cues
 from tg_agent_shell.cues.runtime import CueRuntime
 from tg_agent_shell.foundation.changes import Committed
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.kinds import MessageKind
+from tg_agent_shell.hooks.contracts import Shown
 from tg_agent_shell.proposals.model import ChangeAction, ProposalChange
 from tg_agent_shell.proposals.store import PROPOSAL_REVIEW_MINUTES, ProposalStore
 from tg_agent_shell.turn import TurnManager
@@ -36,6 +37,7 @@ class Recorder:
         self.open_gate = open_gate
         self.lands = lands
         self.said: list[str] = []
+        self.shown: list[tuple[str, ...]] = []
         self.events: list[str] = []
         self.registered: set[str] = set()
         self.releases = 0
@@ -43,9 +45,10 @@ class Recorder:
     async def gate(self) -> bool:
         return self.open_gate
 
-    async def speak(self, event_id: str, text: str) -> bool:
+    async def speak(self, event_id: str, text: str, shown: tuple[str, ...] = ()) -> bool:
         self.events.append(event_id)
         self.said.append(text)
+        self.shown.append(shown)
         if self.lands:
             self.registered.add(event_id)
         return self.lands
@@ -197,7 +200,7 @@ async def test_ag_cue_029_a_turn_registered_but_not_settled_is_settled_alone_by_
     await write(sessions, "Sprint 1 is over.")
     recorder = Recorder()
 
-    async def register_then_stop(event_id: str, text: str) -> bool:
+    async def register_then_stop(event_id: str, text: str, shown: tuple[str, ...]) -> bool:
         recorder.events.append(event_id)
         recorder.said.append(text)
         recorder.registered.add(event_id)
@@ -222,7 +225,9 @@ async def test_ag_cue_029_settling_a_turn_never_takes_a_row_written_in_its_place
     first = await write(sessions, "Sprint 1 is over.")
     recorder = Recorder()
 
-    async def speak_while_the_row_is_replaced(event_id: str, text: str) -> bool:
+    async def speak_while_the_row_is_replaced(
+        event_id: str, text: str, shown: tuple[str, ...]
+    ) -> bool:
         async with sessions() as session:
             await session.delete(await session.get(Cue, first))
             await session.commit()
@@ -343,6 +348,34 @@ async def test_pl_end_015_the_sprints_own_words_are_what_reaches_the_owner(sessi
     assert await remaining(sessions) == []
 
 
+async def test_ag_hook_048_each_block_is_shown_once_oldest_first_and_its_request_says_so(
+    sessions,
+):
+    """AG-HOOK-048 — tests/brd/tg_agent_shell/agents.feature"""
+    async with sessions() as session:
+        await add_hook_cue(session, hook="first", items=[1])
+        await add_cue(session, text="A Reminder went off.")
+        await add_hook_cue(session, hook="plain", items=[2])
+        await add_hook_cue(session, hook="last", items=[3])
+        await add_hook_cue(session, hook="first", items=[4])
+        await session.commit()
+    first = Shown(block="First:\n\n- one\n- one", request="Ask about the first.")
+    last = Shown(block="Last.", request="Ask about the last.")
+    words = {"first": first, "plain": "Ask about the plain one.", "last": last}
+    recorder = Recorder()
+
+    async def prepare(hook: str, payload: list) -> str | Shown | None:
+        return words[hook]
+
+    assert await tick(sessions, **_hooks(recorder), prepare=prepare) is True
+
+    assert recorder.shown == [(first.block, last.block)]
+    assert recorder.said == [
+        f"Ask about the first.\n{BLOCK_SHOWN}\n\nA Reminder went off.\n\n"
+        f"Ask about the plain one.\n\nAsk about the last.\n{BLOCK_SHOWN}"
+    ]
+
+
 class CueChat:
     """What a Cue turn puts in the chat, in order: the published words and the answer."""
 
@@ -360,7 +393,7 @@ class CueAdvisor:
     def __init__(self) -> None:
         self.asked = 0
 
-    async def handle(self, text, *, dialogue):
+    async def handle(self, text, *, dialogue, shown=()):
         del text, dialogue
         self.asked += 1
         return SimpleNamespace(proposal_id=None, message="The answer.")

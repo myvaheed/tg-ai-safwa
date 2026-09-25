@@ -86,7 +86,7 @@ class Recorder:
     async def gate(self) -> bool:
         return self.open_gate
 
-    async def speak(self, event_id: str, text: str) -> bool:
+    async def speak(self, event_id: str, text: str, shown: tuple[str, ...] = ()) -> bool:
         self.events.append(event_id)
         self.said.append(text)
         return True
@@ -269,7 +269,7 @@ async def test_ag_hook_038_what_the_hook_adds_while_the_request_is_said_is_owed_
     async def prepare(hook, payload):
         return await hooks.prepare(sessions, hook, payload)
 
-    async def speak_while_another_arrives(event_id, text):
+    async def speak_while_another_arrives(event_id, text, shown):
         await queue_advice(hooks, sessions, Committed(KIND, 5))
         return await recorder.speak(event_id, text)
 
@@ -298,7 +298,7 @@ async def test_ag_cue_029_a_hooks_rows_a_turn_said_are_settled_by_its_message_al
         worded.append(payload)
         return await hooks.prepare(sessions, hook, payload)
 
-    async def register_then_stop(event_id, text):
+    async def register_then_stop(event_id, text, shown):
         await recorder.speak(event_id, text)
         raise RuntimeError("the process stopped between the message and the settling")
 

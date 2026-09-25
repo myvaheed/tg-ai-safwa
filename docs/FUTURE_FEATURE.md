@@ -20,20 +20,6 @@ not give the Advisor a way to retrieve a named day's conversation.
 This is a recorded limitation, not an approved request for date-based search. `DI-READ-016` keeps
 the Diary reading a whole named day; a separate Advisor history reader remains undecided.
 
-## Onboarding covers the first start and a return after an absence
-
-Noticed 2026-09-05, discussing what a new owner meets. The first start shipped 2026-09-24 as
-[onboarding.feature](../tests/brd/onboarding.feature): one notice before the first answer, a tip
-after each created or finished item, and a subagent that explains Safwa and proposes to stop —
-nothing leads the owner, and no state reaches a prompt. [ONBOARDING_HOOK.md](ONBOARDING_HOOK.md)
-is the design.
-
-A return after a long absence is the half still open: review what is still relevant and help the
-owner restart the Sprint rhythm without treating all old work as a renewed commitment. Two weeks
-is a candidate threshold, not a settled rule. What counts as absence also needs a definition. If
-it is decided, it is one more request to the Advisor, by a fact or by the clock, on the same
-path.
-
 ## The retrospective is where Safwa learns from a Sprint
 
 Discussed 2026-09-06, shipped 2026-09-18. When a Sprint ends, its retro screen shows statistics

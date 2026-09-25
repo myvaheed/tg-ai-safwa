@@ -17,10 +17,11 @@ from conftest import ScriptedProvider
 from llm_gateway import CompletionRequest, CompletionTurn
 from safwa.features.cards.model import Card
 from tg_agent_shell.ai.runs import AgentRun
-from tg_agent_shell.cues.background import tick
+from tg_agent_shell.cues.background import BLOCK_SHOWN, tick
 from tg_agent_shell.cues.model import Cue
-from tg_agent_shell.cues.queue import add_cue
+from tg_agent_shell.cues.queue import add_cue, add_hook_cue
 from tg_agent_shell.cues.runtime import CueRuntime
+from tg_agent_shell.hooks.contracts import Advise, HookSpec, OnCommitted, Shown
 from tg_agent_shell.hooks.registry import HookRegistry
 from tg_agent_shell.turn import TurnManager
 
@@ -169,3 +170,53 @@ async def test_ag_cue_029_a_cue_turn_cancelled_before_autoapproval_leaves_no_rev
     await _nothing_is_left_open(e2e_harness, advisor, turn)
     async with e2e_harness.sessions() as session:
         assert (await session.get(Card, card_id)).title == "Buy milk"
+
+
+async def _nothing(event) -> tuple:
+    return ()
+
+
+def _advising(name: str, words: Shown) -> HookSpec:
+    async def prepare(session, items) -> Shown:
+        return words
+
+    return HookSpec(
+        name=name, owner="test", on=(OnCommitted(kind=name),), evaluate=_nothing,
+        effect=Advise(prepare=prepare), title=name, description=name,
+    )
+
+
+async def test_ag_hook_048_the_blocks_open_the_single_message_the_advisor_writes(
+    e2e_harness, monkeypatch
+):
+    """AG-HOOK-048 — tests/brd/tg_agent_shell/agents.feature"""
+    first = Shown(block="Still standing:\n\n- Walk\n- Walk", request="Ask which still matter.")
+    last = Shown(block="Nothing else.", request="Ask about the rest.")
+    async with e2e_harness.sessions() as session:
+        await add_hook_cue(session, hook="first", items=[1])
+        await add_hook_cue(session, hook="last", items=[2])
+        await session.commit()
+    advisor, provider = e2e_harness.advisor(["Which of these still matter?"])
+    runtime = _cue_runtime(e2e_harness, advisor, TurnManager())
+    runtime.services.hooks = HookRegistry.of(
+        (_advising("first", first), _advising("last", last)), owners=frozenset({"test"})
+    )
+    said: list[str] = []
+
+    async def render(_message, _services, outcome, *, kind, event_id) -> None:
+        said.append(outcome.message)
+
+    monkeypatch.setattr("tg_agent_shell.cues.runtime.render_ai_outcome", render)
+
+    assert await tick(
+        e2e_harness.sessions, gate=runtime.can_speak, speak=runtime.speak,
+        delivered=runtime.delivered, release=runtime.release, prepare=runtime.prepare,
+    )
+
+    assert said == [
+        "Still standing:\n\n- Walk\n- Walk\n\nNothing else.\n\nWhich of these still matter?"
+    ]
+    read = "\n".join(str(message["content"]) for message in provider.calls[0])
+    assert f"Ask which still matter.\n{BLOCK_SHOWN}" in read
+    assert f"Ask about the rest.\n{BLOCK_SHOWN}" in read
+    assert "Still standing" not in read

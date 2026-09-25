@@ -33,6 +33,7 @@ from .contracts import (
     RefuseTool,
     ReturnProposals,
     Run,
+    Shown,
     Tick,
     TickTime,
     every_switch_on,
@@ -188,7 +189,7 @@ class HookRegistry:
 
     async def prepare(
         self, sessions: async_sessionmaker[AsyncSession], name: str, items: Sequence[Any]
-    ) -> str | None:
+    ) -> str | Shown | None:
         """The words of a hook's pending request, or None when there is nothing to say.
 
         Nothing is said for a hook that is gone, switched off, or whose feature finds none

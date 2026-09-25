@@ -10,10 +10,10 @@ AG-HOOK-042, AG-HOOK-043, AG-RECEIPT-044 в
 признаков и спорил с настоящим запросом владельца в каждом ходе. Здесь ничего из этого нет.
 Замечания внешнего ревью от 2026-09-21 учтены там, где код подтверждает их; где ревью предлагало новый механизм ради случая, который и так
 заканчивается экраном или строкой в доке, механизма нет — см. «Что не делается».
-Закрывает первую половину записи «Onboarding covers the first start and a return after an
-absence» в [FUTURE_FEATURE.md](FUTURE_FEATURE.md) и строку Wave 5 в
-[PLAN_FEATURES.md](PLAN_FEATURES.md); вторая половина — возвращение после перерыва — остаётся
-открытой. Основание — [HOOK_ARCH.md](HOOK_ARCH.md), [AGENT_ARCH.md](AGENT_ARCH.md) и
+Закрыл первую половину записи «Onboarding covers the first start and a return after an
+absence» из [FUTURE_FEATURE.md](FUTURE_FEATURE.md) и строки Wave 5 в
+[PLAN_FEATURES.md](PLAN_FEATURES.md); вторая половина — возвращение после перерыва — сделана
+2026-09-25 отдельно (OB-RETURN-007, AG-HOOK-048), и запись оттуда ушла. Основание — [HOOK_ARCH.md](HOOK_ARCH.md), [AGENT_ARCH.md](AGENT_ARCH.md) и
 [FEATURE_MODULES.md](FEATURE_MODULES.md).
 
 ## Что это

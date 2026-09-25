@@ -67,3 +67,22 @@ Feature: Onboarding
       switches
     Then each of them is registered by the application
     And the menu and the switches it lists are the whole of them
+
+  Scenario: OB-RETURN-007 — The owner's first message after 14 days away is followed by what still stands
+    Given the owner's previous message, typed or spoken, is 14 days old or older
+      (RETURN_AFTER_DAYS = 14)
+    And Safwa wrote on its own in between
+    When the owner writes
+    Then Safwa answers that message first
+    And once the chat is free, one more message comes that opens with how many days it has been
+      and the Actions in Today and in the Sprint, each marked Today or Sprint, under its Goal,
+      and under its Subgoal when it has one, every Card cited
+    And Actions with no Goal stand in a group of their own
+    And below the list the Advisor is asked to find out which of them still matter, and to offer
+      a new Sprint when none is running
+    When more than 30 Actions stand there (RETURN_LIST_ACTIONS = 30)
+    Then 30 are listed and the rest are counted
+    When Today and the Sprint hold nothing
+    Then the message says so, and the Advisor is asked to offer planning
+    When the owner's previous message is less than 14 days old, or there is none
+    Then no such message comes

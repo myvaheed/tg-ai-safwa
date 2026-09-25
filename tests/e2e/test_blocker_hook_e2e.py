@@ -90,7 +90,7 @@ async def test_cd_blocked_034_a_blocker_saved_by_proposal_or_by_hand_is_one_requ
 
     said: list[str] = []
 
-    async def speak(event_id: str, text: str) -> bool:
+    async def speak(event_id: str, text: str, shown: tuple[str, ...] = ()) -> bool:
         said.append(text)
         return True
 

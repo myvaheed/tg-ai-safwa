@@ -402,7 +402,7 @@ async def test_reminder_advisor_receives_canonical_dialogue(sessions, monkeypatc
         reviews = ProposalStore()
 
         async def handle(
-            self, text: str, *, dialogue: list[DialogueMessage]
+            self, text: str, *, dialogue: list[DialogueMessage], shown: tuple[str, ...] = ()
         ) -> AIOutcome:
             self.calls.append((text, dialogue))
             return AIOutcome(AIOutcomeKind.ANSWER, "Reminder answer")
@@ -472,7 +472,7 @@ async def test_a_cue_render_failure_releases_its_pending_proposal(sessions, monk
         reviews = ProposalStore()
 
         async def handle(
-            self, _text: str, *, dialogue: list[DialogueMessage]
+            self, _text: str, *, dialogue: list[DialogueMessage], shown: tuple[str, ...] = ()
         ) -> AIOutcome:
             return AIOutcome(AIOutcomeKind.PROPOSAL, "Review this", proposal_id=17)
 

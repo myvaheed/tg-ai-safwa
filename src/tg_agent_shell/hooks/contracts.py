@@ -232,15 +232,24 @@ class RefuseTool:
 
 
 @dataclass(frozen=True, slots=True)
+class Shown:
+    """A request that carries a block its feature wrote. The block opens the message the
+    Advisor writes, as it is; the Advisor reads `request`, and is told the block was shown."""
+
+    block: str
+    request: str
+
+
+@dataclass(frozen=True, slots=True)
 class Advise[Item]:
     """One request to the Advisor per hook, worded when it is about to be said.
 
     A check returns items — references, not words. Each check writes them down as one row;
     a turn words every row of the hook together, and `prepare` reads what the items refer
-    to and returns the request text, or None when nothing is left to ask about.
+    to and returns the request text, a `Shown`, or None when nothing is left to ask about.
     """
 
-    prepare: Callable[[AsyncSession, Sequence[Item]], Awaitable[str | None]]
+    prepare: Callable[[AsyncSession, Sequence[Item]], Awaitable[str | Shown | None]]
 
 
 @dataclass(frozen=True, slots=True)
