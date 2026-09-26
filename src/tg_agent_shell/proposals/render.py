@@ -31,7 +31,7 @@ from .api import ProposalDescription, ProposalRegistry, ProposalScreen
 from .model import (
     AUTO_SAVED_RECEIPT,
     DECISION_RECEIPTS,
-    RECEIPT_MEANINGS,
+    RECEIPT_PREFIXES,
     BatchDecision,
     ChangeAction,
     ProposalChange,
@@ -427,7 +427,7 @@ def _receipts_and_body(message: str, summaries: list[str]) -> str:
     if not receipt_lines:
         return body
     body_lines = [
-        line for line in body.splitlines() if not line.strip().startswith(tuple(RECEIPT_MEANINGS))
+        line for line in body.splitlines() if not line.strip().startswith(RECEIPT_PREFIXES)
     ]
     body = "\n".join(body_lines).strip()
     receipt = "\n".join(receipt_lines)

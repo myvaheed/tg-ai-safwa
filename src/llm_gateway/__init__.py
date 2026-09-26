@@ -1,6 +1,6 @@
 """Provider-neutral boundary for one LLM completion."""
 
-from .model import CompletionRequest, CompletionTurn, ToolCall, Usage
+from .model import REASONING_FIELDS, CompletionRequest, CompletionTurn, ToolCall, Usage
 from .openai_compatible import (
     OpenAICompatibleConfig,
     OpenAICompatibleError,
@@ -11,6 +11,7 @@ from .provider import LlmProvider
 from .testing import ScriptedProvider
 
 __all__ = [
+    "REASONING_FIELDS",
     "CompletionRequest",
     "CompletionTurn",
     "LlmProvider",

@@ -38,8 +38,13 @@ from .foundation.errors import failure_reason
 from .foundation.screens import ScreenCatalogue
 from .hooks.registry import HookRegistry
 from .proposals.api import ProposalDescription, ProposalRegistry
-from .proposals.materialize import MAX_REPAIR_ROUNDS, OWNER_REQUEST, ProposalMaterializer
-from .proposals.model import RECEIPT_MEANINGS, BatchDecision
+from .proposals.materialize import (
+    CUE_REQUEST,
+    MAX_REPAIR_ROUNDS,
+    OWNER_REQUEST,
+    ProposalMaterializer,
+)
+from .proposals.model import RECEIPT_PREFIXES, BatchDecision
 from .proposals.prepare import ChangePreparer
 from .proposals.reducer import EXPIRED, INTERRUPTED
 from .proposals.render import (
@@ -157,7 +162,7 @@ class RootSession:
             max_tool_calls=MAX_TOOL_CALLS,
             max_repair_rounds=MAX_REPAIR_ROUNDS,
             child_deadline_seconds=SUBAGENT_DEADLINE_SECONDS,
-            receipt_prefixes=tuple(RECEIPT_MEANINGS),
+            receipt_prefixes=RECEIPT_PREFIXES,
             interrupted_note=REFUSED_AND_WROTE,
             observer=self.trail,
         )
@@ -171,7 +176,7 @@ class RootSession:
         shown: tuple[str, ...] = (),
     ) -> AIOutcome:
         turn_dialogue = (
-            [{"role": item.role, "content": item.content} for item in dialogue]
+            [item.as_message() for item in dialogue]
             if dialogue
             else [{"role": "user", "content": text}]
         )
@@ -181,7 +186,9 @@ class RootSession:
         outcome = await self.runtime.handle(
             turn_dialogue,
             source_message_id=source_message_id,
-            host_state={OWNER_REQUEST: True} if source_message_id is not None else None,
+            host_state=(
+                {OWNER_REQUEST: True} if source_message_id is not None else {CUE_REQUEST: text}
+            ),
             shown=shown,
         )
         return await self._decide_or_show(outcome)

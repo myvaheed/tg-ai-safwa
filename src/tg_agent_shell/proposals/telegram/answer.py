@@ -59,7 +59,15 @@ async def render_ai_outcome(
         text = await render_citations(
             session, services, markdown_to_telegram_html(outcome.message)
         )
-    await send_prose(message, services, text, kind=kind, event_id=event_id)
+    # Words no turn produced are the interface's own, so they are never the assistant's.
+    await send_prose(
+        message,
+        services,
+        text,
+        kind=kind if outcome.turn else MessageKind.EVENT,
+        event_id=event_id,
+        reads_as=outcome.turn or None,
+    )
     if outcome.open_item:
         await open_citation(message, services, outcome.open_item)
 
@@ -95,7 +103,7 @@ async def continue_agent_approval(
             f"{resolved_text}\n"
             "⚠️ The change is resolved, but the advisor follow-up was deferred. "
             "You can continue with a new message.",
-            kind=MessageKind.DIALOGUE_ASSISTANT,
+            kind=MessageKind.EVENT,
         )
         return True
     try:
@@ -117,7 +125,7 @@ async def continue_agent_approval(
                 "⚠️ The change is resolved, but the follow-up could not be generated "
                 f"({html.escape(failure_reason(error))}). "
                 "You can continue with a new message.",
-                kind=MessageKind.DIALOGUE_ASSISTANT,
+                kind=MessageKind.EVENT,
             )
             return True
         if outcome is None:

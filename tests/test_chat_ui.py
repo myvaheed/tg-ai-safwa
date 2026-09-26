@@ -51,15 +51,21 @@ async def test_an_over_long_answer_arrives_as_several_dialogue_messages(sessions
     message = FakeMessage(970, bot_message=False, answer_as_new=True)
     answer = " ".join(f"word{index}" for index in range(1_500))
 
-    await render_ai_outcome(message, services, AIOutcome(AIOutcomeKind.ANSWER, answer))
+    turn = ({"role": "assistant", "content": answer},)
+    await render_ai_outcome(
+        message, services, AIOutcome(AIOutcomeKind.ANSWER, answer, turn=turn)
+    )
 
     assert len(message.sent_messages) > 1
     async with sessions() as session:
-        rows = list(await session.scalars(select(TelegramMessage)))
-    # Every part is registered as dialogue, which is what makes the window read them all
-    # and `dialogue()` merge them back into the one answer they were.
+        rows = list(
+            await session.scalars(select(TelegramMessage).order_by(TelegramMessage.message_id))
+        )
     assert [row.kind for row in rows] == [MessageKind.DIALOGUE_ASSISTANT.value] * len(rows)
     assert len(rows) == len(message.sent_messages)
+    # The words are kept once, on the first part, so the conversation reads one answer.
+    assert [row.reads_as for row in rows] == [list(map(dict, turn))] + [None] * (len(rows) - 1)
+    assert all(row.text is None for row in rows[1:])
 
 
 async def test_an_over_long_summary_is_split_and_every_part_is_registered(

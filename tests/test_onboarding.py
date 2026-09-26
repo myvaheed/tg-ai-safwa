@@ -11,13 +11,12 @@ import asyncio
 import html
 import re
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
-from marks import read_kind_mark
 from sqlalchemy import select
-from ui_harness import FakeMessage, services_for
+from ui_harness import FakeMessage, kind_of, services_for
 
 from safwa.bootstrap.modules import AGENTS, FEATURE_COMMANDS, PROPOSALS, REGISTRY
 from safwa.features.cards.hooks import BLOCKER_HOOK
@@ -42,7 +41,6 @@ from safwa.features.planning.use_cases import start_sprint
 from safwa.features.profile.api import hook_switched_on, set_hook_switch
 from safwa.features.values.use_cases import create_value
 from safwa.foundation.workspace import Workspace
-from telegram_llm import HistoryEntry
 from tg_agent_shell.ai.contracts import AgentChange, ChangeAction
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
 from tg_agent_shell.cues.background import BLOCK_SHOWN, tick
@@ -85,8 +83,7 @@ class Answering:
         return AIOutcome(AIOutcomeKind.ANSWER, "The answer.")
 
 
-async def _no_dialogue(_chat_id=None, *, source_message=None):
-    del source_message
+async def _no_dialogue(_chat_id=None):
     return []
 
 
@@ -101,12 +98,10 @@ def _owner_services(sessions):
 async def _owner_turn(services, message_id: int) -> list[tuple[str | None, str]]:
     """One owner turn; what it put in the chat, as kind and text."""
     message = FakeMessage(message_id, text="Hello", bot_message=False, answer_as_new=True)
-    source = HistoryEntry(
-        message_id=message_id, sender_id=42, role="user", text="Hello",
-        created_at=datetime.now(UTC), kind=MessageKind.DIALOGUE_USER.value,
-    )
-    await run_dialogue_turn(message, services, "Hello", source)
-    return [read_kind_mark(item.text) for item in message.sent_messages]
+    await run_dialogue_turn(message, services, "Hello", message_id)
+    return [
+        (await kind_of(services.sessions, item), item.text) for item in message.sent_messages
+    ]
 
 
 # Published as plain text, escaped on the way into the chat.
@@ -125,8 +120,8 @@ async def test_ob_notice_001_the_first_turn_is_preceded_by_the_notice_and_only_t
 
     first = await _owner_turn(services, 700)
 
-    # Safwa's own words, standing before the answer.
-    assert _notices(first) == [MessageKind.DIALOGUE_ASSISTANT.value]
+    # A line the interface wrote, standing before the answer.
+    assert _notices(first) == [MessageKind.EVENT.value]
     texts = [text for _, text in first]
     assert texts.index(SENT_NOTICE) < next(
         index for index, text in enumerate(texts) if "The answer." in text
@@ -156,8 +151,10 @@ class CueChat:
     def __init__(self) -> None:
         self.said: list[str] = []
 
-    async def send_parts(self, _message, text, *, kind, event_id=None, replace=None):
-        del event_id, replace
+    async def send_parts(
+        self, _message, text, *, kind, event_id=None, replace=None, reads_as=None
+    ):
+        del event_id, replace, reads_as
         self.said.append(f"{kind}: {text}")
 
 
@@ -208,7 +205,7 @@ async def test_ob_notice_001_a_turn_of_safwas_own_carries_it_too(sessions, monke
     runtime.release()
 
     assert chat.said == [
-        f"{MessageKind.DIALOGUE_ASSISTANT.value}: {SENT_NOTICE}",
+        f"{MessageKind.EVENT.value}: {SENT_NOTICE}",
         f"{MessageKind.CUE.value}: The answer.",
     ]
 
@@ -233,7 +230,7 @@ async def test_ob_notice_001_the_owner_arriving_mid_check_carries_the_notice_ins
         assert await session.get(OnboardingNotice, 1) is None
     # The owner's own turn is the first one that reaches the chat.
     assert _notices(await _owner_turn(_owner_services(sessions), 720)) == [
-        MessageKind.DIALOGUE_ASSISTANT.value
+        MessageKind.EVENT.value
     ]
 
 

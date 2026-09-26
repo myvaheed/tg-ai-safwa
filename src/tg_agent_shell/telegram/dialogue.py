@@ -11,7 +11,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import Message
 from sqlalchemy import select
 
-from telegram_llm import AudioClip, HistoryEntry, TranscriptionError
+from telegram_llm import AudioClip, TranscriptionError
 
 from ..foundation.kinds import MessageKind
 from ..hooks.contracts import AfterTurn, BeforeTurn, Run, RunContext
@@ -53,15 +53,13 @@ async def ordinary_text(message: Message, services: Services) -> None:
         return
 
     await dismiss_prior_ui(message, services)
-    source = HistoryEntry(
-        message_id=message.message_id,
-        sender_id=message.from_user.id if message.from_user else None,
-        role="user",
-        text=message.text,
-        created_at=message.date.astimezone(UTC),
-        kind=MessageKind.DIALOGUE_USER.value,
-    )
-    await run_dialogue_turn(message, services, message.text, source)
+    await services.chat.keep(message, kind=MessageKind.DIALOGUE_USER.value)
+    await run_dialogue_turn(message, services, message.text, message.message_id)
+
+
+async def edited_text(message: Message, services: Services) -> None:
+    """The owner changed words they already said: the conversation reads the new ones."""
+    await services.chat.amend(message)
 
 
 async def voice_message(message: Message, services: Services) -> None:
@@ -121,15 +119,7 @@ async def voice_message(message: Message, services: Services) -> None:
 
     await dismiss_prior_ui(message, services)
     sent = await send_owner_turn(message, services, result.text)
-    source = HistoryEntry(
-        message_id=sent.message_id,
-        sender_id=message.bot.id,
-        role="user",
-        text=result.text,
-        created_at=sent.date.astimezone(UTC),
-        kind=MessageKind.DIALOGUE_USER.value,
-    )
-    await run_dialogue_turn(message, services, result.text, source)
+    await run_dialogue_turn(message, services, result.text, sent.message_id)
 
 
 def _audio_filename(message: Message) -> str:
@@ -243,20 +233,20 @@ async def run_after_turn(message: Message, services: Services, event: AfterTurn)
 
 
 async def run_dialogue_turn(
-    message: Message, services: Services, request: str, source: HistoryEntry
+    message: Message, services: Services, request: str, source_message_id: int
 ) -> None:
-    """Answer one owner turn.
+    """Answer one owner turn, whose words are already kept.
 
-    `message` is the owner event that holds the turn. `source` is the dialogue turn
-    itself, which is a different message whenever the owner's words reached the chat as a
-    bot message rather than as their own text.
+    `message` is the owner event that holds the turn. `source_message_id` is the dialogue
+    turn itself, which is a different message whenever the owner's words reached the chat
+    as a bot message rather than as their own text.
     """
     dialogue_revision = services.turn.dialogue_revision
     try:
         services.turn.begin(message.message_id)
         await open_turn_notice(message, services)
         await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-        dialogue = await services.history.dialogue(message.chat.id, source_message=source)
+        dialogue = await services.history.dialogue(message.chat.id)
         await run_before_turn(
             message, services,
             BeforeTurn(
@@ -267,7 +257,7 @@ async def run_dialogue_turn(
         )
         outcome = await services.root.handle(
             request,
-            source_message_id=source.message_id,
+            source_message_id=source_message_id,
             dialogue=dialogue,
         )
         # Only the owner invalidates their own answer. The workspace revision does not:
@@ -280,7 +270,7 @@ async def run_dialogue_turn(
 
         await run_after_turn(message, services, AfterTurn(
             owner_id=services.owner_id, chat_id=message.chat.id,
-            source_message_id=source.message_id, dialogue_revision=dialogue_revision,
+            source_message_id=source_message_id, dialogue_revision=dialogue_revision,
         ))
     except Exception as error:
         logger.exception("Could not complete an advisor turn")

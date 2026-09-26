@@ -29,7 +29,7 @@ from telegram_llm import (
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
 from tg_agent_shell.cues.runtime import CueRuntime
 from tg_agent_shell.foundation.clock import utcnow
-from tg_agent_shell.foundation.kinds import MARKS, MessageKind
+from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramMessage, TelegramNotes
 from tg_agent_shell.proposals.model import ChangeAction, ProposalChange
 from tg_agent_shell.proposals.store import PROPOSAL_REVIEW_MINUTES, ProposalStore
@@ -142,7 +142,7 @@ async def test_proposal_ui_gives_up_the_turn_before_after_turn_work(sessions) ->
         sessions=sessions,
         owner_id=42,
         turn=turn,
-        chat=ChatHost(TelegramNotes(sessions), MARKS, spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(sessions), spawn=spawn_timer),
         text_inputs=FEATURE_TEXT_INPUTS,
         root=Advisor(),
         history=History(),
@@ -221,7 +221,7 @@ async def test_new_dialogue_discards_and_freezes_pending_proposal(sessions) -> N
         frozen = await session.scalar(
             select(TelegramMessage).where(TelegramMessage.message_id == 10)
         )
-        assert frozen.kind == MessageKind.DIALOGUE_ASSISTANT.value
+        assert frozen.kind == MessageKind.EVENT.value
         assert (
             await session.scalar(select(TelegramMessage).where(TelegramMessage.message_id == 9))
             is None
@@ -283,7 +283,7 @@ async def test_pr_expire_029_the_screen_nobody_answered_is_frozen_by_the_poll(
         frozen = await session.scalar(
             select(TelegramMessage).where(TelegramMessage.message_id == 10)
         )
-        assert frozen.kind == MessageKind.DIALOGUE_ASSISTANT.value
+        assert frozen.kind == MessageKind.EVENT.value
 
 
 async def test_a_command_dismisses_every_other_screen(sessions) -> None:
@@ -434,7 +434,7 @@ async def test_typed_words_end_the_review_and_are_then_answered(sessions) -> Non
         sessions=sessions,
         owner_id=42,
         turn=TurnManager(),
-        chat=ChatHost(TelegramNotes(sessions), MARKS, spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(sessions), spawn=spawn_timer),
         text_inputs=FEATURE_TEXT_INPUTS,
         root=Advisor(store),
         history=History(),

@@ -13,7 +13,7 @@ from aiogram import F, Router
 from .callbacks import callback_token_handler
 from .commands import dismiss_screens_before_a_command, navigation, register_commands
 from .contributions import ScreenCommand
-from .dialogue import ordinary_text, voice_message
+from .dialogue import edited_text, ordinary_text, voice_message
 from .services import OwnerAndWritingMiddleware
 
 
@@ -26,6 +26,7 @@ def build_router(commands: tuple[ScreenCommand, ...]) -> Router:
     register_commands(router, commands)
     router.message.register(ordinary_text, F.text & ~F.text.startswith("/"))
     router.message.register(voice_message, F.voice | F.audio | F.video_note)
+    router.edited_message.register(edited_text, F.text)
     router.callback_query.register(callback_token_handler, F.data.startswith("cb:"))
     router.callback_query.register(navigation, F.data.startswith("nav:"))
     return router

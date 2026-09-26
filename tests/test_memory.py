@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select
-from ui_harness import FakeMessage, services_for
+from ui_harness import FakeMessage, kind_of, services_for
 
 from safwa.features.cards.use_cases import create_card
 from safwa.features.memory.absorb import (
@@ -41,7 +41,7 @@ from safwa.features.retro.api import AnalysedSprint, analysed_sprints
 from safwa.features.retro.use_cases import record_analysis
 from telegram_llm.text import TELEGRAM_TEXT_LIMIT
 from tg_agent_shell.foundation.clock import utcnow
-from tg_agent_shell.foundation.kinds import MARKS, MessageKind
+from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.turn import TurnManager
 
 WALK = "утренняя прогулка поднимает день"
@@ -550,8 +550,8 @@ async def test_mem_retro_012_absorbing_waits_its_turn_and_is_tried_until_it_is_d
 
 
 def _shown(text: str) -> str:
-    """A message's text as the owner reads it: no mark, no HTML entities."""
-    return html.unescape(MARKS.read(text)[2])
+    """A message's text as the owner reads it: no HTML entities."""
+    return html.unescape(text)
 
 
 async def test_mem_retro_010_memory_is_what_the_retro_left_and_the_owner_reads_the_same(
@@ -615,8 +615,10 @@ async def test_mem_retro_010_memory_is_shown_whole_in_as_many_messages_as_it_tak
 
     parts = [message.edits[-1][0], *message.answers]
     assert len(parts) >= 2
-    assert all(len(MARKS.read(part)[2]) <= TELEGRAM_TEXT_LIMIT for part in parts)
-    assert all(MARKS.read(part)[0] == MessageKind.DASHBOARD.value for part in parts)
+    assert all(len(part) <= TELEGRAM_TEXT_LIMIT for part in parts)
+    assert {await kind_of(sessions, sent) for sent in (message, *message.sent_messages)} == {
+        MessageKind.DASHBOARD.value
+    }
     shown = [_shown(part) for part in parts]
     assert shown[0].startswith("<b>Persistent memory</b>\n")
     assert "\n".join([shown[0].split("\n", 1)[1], *shown[1:]]) == expected

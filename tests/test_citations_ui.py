@@ -6,7 +6,6 @@ import html
 from datetime import date
 
 import pytest
-from marks import read_kind_mark
 from ui_harness import (
     FakeMessage,
     button_texts,
@@ -189,7 +188,7 @@ async def test_ai_markdown_is_rendered_as_safe_html_around_live_citations(sessio
             "`x < y` и <script>.",
         ),
     )
-    _kind, visible = read_kind_mark(message.answers[-1])
+    visible = message.answers[-1]
 
     assert "<b>важно</b>" in visible
     assert f'<b><a href="https://t.me/safwa_ai_bot?start=card-{goal_id}">' in visible

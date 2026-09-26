@@ -19,7 +19,6 @@ from tg_agent_shell.asr import build_transcriber
 from tg_agent_shell.cues.initiatives import bind_committed
 from tg_agent_shell.foundation.database import Database, upgrade_database
 from tg_agent_shell.foundation.errors import DomainError
-from tg_agent_shell.foundation.kinds import MARKS
 from tg_agent_shell.history import TelegramHistorySource, TelegramNotes
 from tg_agent_shell.recovery import recover_startup
 from tg_agent_shell.similarity import SIMILAR_MODEL, FastEmbedEncoder, Similarity
@@ -49,7 +48,6 @@ from ..features.workspace_mutator.state import workspace_context
 from ..foundation.models import Base
 from ..foundation.tokens import estimate_tokens
 from ..foundation.workspace import Workspace
-from .auth import history_client
 from .modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
@@ -151,11 +149,6 @@ def _report_background_exit(task: asyncio.Task[None]) -> None:
 async def run(settings: Settings) -> None:
     configure_logging(settings.log_level)
     logger.info("Safwa console logging enabled (level=%s)", settings.log_level.upper())
-    if settings.telegram_history_required and not settings.telegram_history_enabled:
-        raise RuntimeError(
-            "Canonical Telegram history is required. Set SAFWA_TELEGRAM_API_ID and "
-            "SAFWA_TELEGRAM_API_HASH, then run `uv run safwa-auth`."
-        )
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     database = Database(settings.async_database_url)
     async with database.sessions() as session:
@@ -207,20 +200,14 @@ async def run(settings: Settings) -> None:
         # would be noise.
         default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True),
     )
-    me = await bot.get_me()
     history = TelegramHistorySource(
-        history_client(settings) if settings.telegram_history_enabled else None,
         database.sessions,
-        marks=MARKS,
-        bot_user_id=me.id,
-        owner_id=settings.telegram_owner_id,
         count_tokens=estimate_tokens,
         token_budget=settings.summary_trigger_tokens,
         edge=SummaryEdge(),
         citation_types=SCREENS.types,
         timezone=settings.timezone,
     )
-    await history.start()
     # The advisor is built after the history source because a subagent reads through it.
     advisor = REGISTRY.root_session(
         database.sessions,
@@ -261,7 +248,7 @@ async def run(settings: Settings) -> None:
         timer.add_done_callback(timers.discard)
         return timer
 
-    chat = ChatHost(TelegramNotes(database.sessions), MARKS, spawn=spawn)
+    chat = ChatHost(TelegramNotes(database.sessions), spawn=spawn)
     # Home is a feature now, and `/start` leads the published list, so its commands come first.
     commands = (*FEATURE_COMMANDS, *SHELL_COMMANDS)
     transcriber = build_transcriber(
@@ -349,7 +336,6 @@ async def run(settings: Settings) -> None:
             task.cancel()
         await asyncio.gather(*live_timers, *tasks, return_exceptions=True)
         await committed.close()
-        await history.close()
         if transcriber is not None:
             await transcriber.close()
         await provider.aclose()

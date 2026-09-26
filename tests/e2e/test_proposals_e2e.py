@@ -36,7 +36,7 @@ from telegram_llm import ChatHost
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.ai.runs import AgentRun
 from tg_agent_shell.foundation.clock import utcnow
-from tg_agent_shell.foundation.kinds import MARKS, MessageKind
+from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramMessage, TelegramNotes
 from tg_agent_shell.proposals.model import (
     BatchDecision,
@@ -950,7 +950,7 @@ async def test_pr_expire_029_a_review_nobody_answered_closes_the_request_for_goo
         note = await session.scalar(
             select(TelegramMessage).where(TelegramMessage.message_id == screen.message_id)
         )
-        assert note.kind == MessageKind.DIALOGUE_ASSISTANT.value
+        assert note.kind == MessageKind.EVENT.value
 
     # The request is over: the next words are a new one, and the closed chain is not resumed.
     answered = await advisor.handle("Hello again")
@@ -1123,7 +1123,7 @@ async def test_single_tag_proposal_save_and_discard_callbacks_resume_agent(
         turn=TurnManager(),
         screens=SCREENS,
         similarity=None,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -1181,7 +1181,7 @@ async def test_read_queries_beside_a_proposal_still_resume_the_agent(e2e_harness
         turn=TurnManager(),
         screens=SCREENS,
         similarity=None,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -1240,7 +1240,7 @@ async def test_discarding_the_last_queued_proposal_still_reports_saved_siblings(
         turn=TurnManager(),
         screens=SCREENS,
         similarity=None,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -1319,7 +1319,7 @@ async def test_new_message_discarding_a_queue_reports_what_was_already_saved(e2e
         turn=TurnManager(),
         screens=SCREENS,
         similarity=None,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -1376,7 +1376,7 @@ async def test_proposal_ui_queues_mutations_and_reports_dependency_failure(e2e_h
         turn=TurnManager(),
         screens=SCREENS,
         similarity=None,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -1435,7 +1435,7 @@ async def test_single_proposal_save_error_is_reported_and_resolved(e2e_harness):
         turn=TurnManager(),
         screens=SCREENS,
         similarity=None,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -1495,7 +1495,7 @@ async def test_single_tag_callback_never_leaves_dead_buttons_when_follow_up_fail
         turn=TurnManager(),
         screens=SCREENS,
         similarity=None,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -1680,7 +1680,7 @@ async def test_a_resolved_proposal_leaves_one_readable_line_in_the_dialogue(
         turn=TurnManager(),
         screens=SCREENS,
         similarity=None,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )

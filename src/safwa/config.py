@@ -62,10 +62,6 @@ class Settings(BaseSettings):
     telegram_bot_token: SecretStr
     telegram_bot_username: str = Field(default="", pattern=r"^[A-Za-z0-9_]*$")
     telegram_owner_id: int
-    telegram_api_id: int | None = None
-    telegram_api_hash: SecretStr | None = None
-    telegram_history_required: bool = True
-    telegram_user_session_path: Path = Path("data/telegram-user")
     database_url: str = "sqlite:///data/safwa.db"
     data_dir: Path = Path("data")
     ai_provider: AIProvider = AIProvider.LMSTUDIO
@@ -173,7 +169,3 @@ class Settings(BaseSettings):
         if self.database_url.startswith("sqlite+aiosqlite:"):
             return self.database_url
         return self.database_url.replace("sqlite:", "sqlite+aiosqlite:", 1)
-
-    @property
-    def telegram_history_enabled(self) -> bool:
-        return self.telegram_api_id is not None and self.telegram_api_hash is not None

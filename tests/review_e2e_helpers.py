@@ -17,7 +17,6 @@ from safwa.bootstrap.modules import (
     SCREENS,
 )
 from telegram_llm import ChatHost
-from tg_agent_shell.foundation.kinds import MARKS
 from tg_agent_shell.history import TelegramNotes
 from tg_agent_shell.telegram import callback_token_handler
 from tg_agent_shell.telegram.model import CallbackToken
@@ -69,7 +68,7 @@ def review_services(e2e_harness, advisor) -> SimpleNamespace:
         turn=TurnManager(),
         screens=SCREENS,
         similarity=None,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
         commands=FEATURE_COMMANDS,

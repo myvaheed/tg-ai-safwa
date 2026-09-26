@@ -101,20 +101,7 @@ async def run_loop(
             agent, provider, first_call_required=agent.kind in routed_kinds
         )
         if turn.tool_calls:
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": turn.content or None,
-                    "tool_calls": [
-                        {
-                            "id": call.id,
-                            "type": "function",
-                            "function": {"name": call.name, "arguments": call.arguments_json},
-                        }
-                        for call in turn.tool_calls
-                    ],
-                }
-            )
+            messages.append(turn.as_message())
             # A route can suspend the whole chain, and a suspended response cannot carry
             # results for its siblings: the transcript would resume malformed.
             route_not_shared = len(turn.tool_calls) > 1 and any(

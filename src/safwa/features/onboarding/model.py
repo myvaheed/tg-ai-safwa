@@ -22,11 +22,7 @@ class OnboardingNotice(Base, TimestampMixin):
 
 
 class OwnerPresence(Base):
-    """The one row saying when the owner last wrote to Safwa. No row, no message yet.
-
-    Kept here rather than read from the chat: the owner's own messages are not registered,
-    and reading the chat back through Telethon is not something a turn waits on.
-    """
+    """The one row saying when the owner last wrote to Safwa. No row, no message yet."""
 
     __tablename__ = "owner_presence"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)

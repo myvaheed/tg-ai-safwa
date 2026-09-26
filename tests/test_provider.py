@@ -153,6 +153,55 @@ async def test_tool_call_keeps_invalid_arguments_json_raw():
 
 
 @respx.mock
+async def test_the_reasoning_is_read_in_whichever_field_the_provider_used():
+    """TG-THINK-017 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    details = [{"type": "reasoning.encrypted", "data": "opaque", "index": 0}]
+    returned = [
+        {"reasoning_content": "Read first."},
+        {"reasoning": "Read first.", "reasoning_details": details},
+        {},
+    ]
+    responses = []
+    for fields in returned:
+        response = _response().json()
+        response["choices"][0]["message"].update(fields)
+        responses.append(httpx.Response(200, json=response))
+    respx.post(COMPLETIONS).mock(side_effect=responses)
+    provider = OpenAICompatibleProvider(_config())
+    try:
+        turns = [await provider.complete(_request()) for _ in returned]
+    finally:
+        await provider.aclose()
+
+    assert [dict(turn.reasoning) for turn in turns] == returned
+
+
+def test_a_response_goes_back_as_its_assistant_message_with_its_reasoning():
+    """TG-THINK-017 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    details = [{"type": "reasoning.encrypted", "data": "opaque", "index": 0}]
+    turn = CompletionTurn(
+        "",
+        (ToolCall("call-1", "query_data", "{}"),),
+        reasoning={"reasoning": "Read first.", "reasoning_details": details},
+    )
+
+    assert turn.as_message() == {
+        "role": "assistant",
+        "content": None,
+        "reasoning": "Read first.",
+        "reasoning_details": details,
+        "tool_calls": [
+            {
+                "id": "call-1",
+                "type": "function",
+                "function": {"name": "query_data", "arguments": "{}"},
+            }
+        ],
+    }
+    assert CompletionTurn("Hi.").as_message() == {"role": "assistant", "content": "Hi."}
+
+
+@respx.mock
 async def test_usage_includes_openrouter_cache_fields():
     route = respx.post(COMPLETIONS).mock(
         return_value=_response(

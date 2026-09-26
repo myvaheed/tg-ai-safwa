@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from datetime import UTC, date
+from datetime import date
 from pathlib import Path
 
 from sqlalchemy import select
@@ -28,10 +28,10 @@ from wallet.wallets.model import CategoryKind  # noqa: E402
 from wallet.wallets.use_cases import create_category, create_wallet  # noqa: E402
 
 from llm_gateway import CompletionTurn, ScriptedProvider  # noqa: E402
-from telegram_llm import ChatHost, HistoryEntry  # noqa: E402
+from telegram_llm import ChatHost  # noqa: E402
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner  # noqa: E402
 from tg_agent_shell.foundation.database import Database  # noqa: E402
-from tg_agent_shell.foundation.kinds import MARKS, MessageKind  # noqa: E402
+from tg_agent_shell.foundation.kinds import MessageKind  # noqa: E402
 from tg_agent_shell.history import TelegramNotes  # noqa: E402
 from tg_agent_shell.session import RootSession  # noqa: E402
 from tg_agent_shell.telegram import Services, callback_token_handler  # noqa: E402
@@ -40,7 +40,6 @@ from tg_agent_shell.telegram.model import CallbackToken  # noqa: E402
 
 OWNER_ID = 42
 TIMEZONE = "Europe/Istanbul"
-BOT_USER_ID = 999
 TODAY = date(2026, 9, 7)
 READ = "SELECT id, name FROM ai_wallets WHERE name = 'Cash'"
 
@@ -84,9 +83,7 @@ class WalletHarness:
         self.database = prepared.database
         sessions = prepared.database.sessions
         provider = ScriptedProvider(turns)
-        history = app.build_history(
-            sessions, bot_user_id=BOT_USER_ID, owner_id=OWNER_ID, timezone=TIMEZONE
-        )
+        history = app.build_history(sessions, timezone=TIMEZONE)
         runner = ReadOnlyQueryRunner(self.path, app.REGISTRY.allowed_views, timezone=TIMEZONE)
         root = app.build_root_session(
             sessions,
@@ -101,7 +98,7 @@ class WalletHarness:
             sessions,
             root,
             history,
-            ChatHost(TelegramNotes(sessions), MARKS, spawn=spawn_timer),
+            ChatHost(TelegramNotes(sessions), spawn=spawn_timer),
             owner_id=OWNER_ID,
         )
         owner_message = QueueTestMessage(owner_id=OWNER_ID, is_bot=False, answer_as_new=True)
@@ -164,15 +161,11 @@ class Press:
 
 
 async def take_a_turn(running: Running, request: str) -> None:
-    source = HistoryEntry(
-        message_id=running.message.message_id,
-        sender_id=running.services.owner_id,
-        role="user",
-        text=request,
-        created_at=running.message.date.astimezone(UTC),
-        kind=MessageKind.DIALOGUE_USER.value,
+    running.message.text = request
+    await running.services.chat.keep(running.message, kind=MessageKind.DIALOGUE_USER.value)
+    await run_dialogue_turn(
+        running.message, running.services, request, running.message.message_id
     )
-    await run_dialogue_turn(running.message, running.services, request, source)
 
 
 async def live_token(running: Running, action: str) -> str:

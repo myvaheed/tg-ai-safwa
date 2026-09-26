@@ -31,6 +31,7 @@ from llm_gateway import LlmProvider
 
 from ..ai.autoapproval import AutoApprovalCandidate, AutoApprovalChange, AutoApprovalReviewer
 from ..ai.contracts import ToolResultStatus
+from ..ai.conversation import kept_turn
 from ..ai.outcome import AIOutcome, AIOutcomeKind, as_turn
 from ..ai.tools import (
     REPAIR_EXHAUSTED,
@@ -66,6 +67,8 @@ SHOWN_AS_IS = (
 # Set on a session that answers a message of the owner's, and taken off by its first answer
 # in words, which is the one `AfterRequest` is about.
 OWNER_REQUEST = "owner_request"
+# Set on a session nobody asked for: the request that caused it, which its answer keeps.
+CUE_REQUEST = "cue_request"
 
 ResolveApproval = Callable[..., Awaitable[AIOutcome | None]]
 
@@ -121,6 +124,11 @@ class ProposalMaterializer:
                 AIOutcomeKind.ANSWER,
                 composed or "⚠️ There was nothing to say about that. You can ask again.",
                 open_item=agent.host_state.get("open_item"),
+                turn=kept_turn(
+                    json_safe(agent.transcript),
+                    message,
+                    request=agent.host_state.get(CUE_REQUEST),
+                ),
             )
         )
 

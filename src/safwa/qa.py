@@ -41,6 +41,11 @@ class ResolvedQAConfig:
     settings: Settings
     live_timeout_seconds: float
     keep_messages: bool
+    # The owner's side of a live test: a Telethon user session that writes to the QA
+    # bot and reads its answers. Safwa itself never signs in as anyone.
+    telegram_api_id: int
+    telegram_api_hash: str
+    telegram_user_session_path: Path
 
 
 def _secret(value: SecretStr | None) -> str | None:
@@ -73,14 +78,13 @@ def resolve_qa_config(
     if qa_token == production_token:
         raise ValueError("Safwa-QA must not reuse SAFWA_TELEGRAM_BOT_TOKEN")
 
-    qa_session = qa.telegram_user_session_path
-    if qa_session.resolve() == base.telegram_user_session_path.resolve():
-        raise ValueError("Safwa-QA must use a separate Telegram user session path")
-
-    api_id = qa.telegram_api_id or base.telegram_api_id
-    api_hash = _secret(qa.telegram_api_hash) or _secret(base.telegram_api_hash)
+    api_id = qa.telegram_api_id
+    api_hash = _secret(qa.telegram_api_hash)
     if api_id is None or api_hash is None:
-        raise ValueError("Set Telegram API credentials for the Safwa-QA Telethon session")
+        raise ValueError(
+            "Set SAFWA_QA_TELEGRAM_API_ID and SAFWA_QA_TELEGRAM_API_HASH for the Safwa-QA "
+            "Telethon session"
+        )
 
     owner_id = qa.telegram_owner_id or base.telegram_owner_id
     settings = Settings(
@@ -88,10 +92,6 @@ def resolve_qa_config(
         telegram_bot_token=qa_token,
         telegram_bot_username=_text(qa.telegram_bot_username) or "",
         telegram_owner_id=owner_id,
-        telegram_api_id=api_id,
-        telegram_api_hash=api_hash,
-        telegram_history_required=True,
-        telegram_user_session_path=qa_session,
         database_url=database_url,
         data_dir=data_dir,
         ai_provider=base.ai_provider,
@@ -112,7 +112,14 @@ def resolve_qa_config(
         scheduler_poll_seconds=base.scheduler_poll_seconds,
         log_level=qa.log_level,
     )
-    return ResolvedQAConfig(settings, qa.live_timeout_seconds, qa.keep_messages)
+    return ResolvedQAConfig(
+        settings,
+        qa.live_timeout_seconds,
+        qa.keep_messages,
+        api_id,
+        api_hash,
+        qa.telegram_user_session_path,
+    )
 
 
 def auth_main() -> None:
@@ -125,11 +132,11 @@ def auth_main() -> None:
     settings = resolved.settings
 
     async def authenticate() -> None:
-        settings.telegram_user_session_path.parent.mkdir(parents=True, exist_ok=True)
+        resolved.telegram_user_session_path.parent.mkdir(parents=True, exist_ok=True)
         client = TelegramClient(
-            str(settings.telegram_user_session_path),
-            settings.telegram_api_id,
-            settings.telegram_api_hash.get_secret_value(),  # type: ignore[union-attr]
+            str(resolved.telegram_user_session_path),
+            resolved.telegram_api_id,
+            resolved.telegram_api_hash,
         )
         await client.start(
             phone=lambda: input("Telegram phone: "),

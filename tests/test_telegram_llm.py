@@ -40,10 +40,9 @@ FOREIGN = frozenset(
     }
 )
 
-# The package is the chat of an aiogram bot. Where the notes are kept and how the chat is
-# read back are the two things it asks an application for, so neither the database Safwa
-# keeps them in nor the user session Safwa reads through may be named here.
-FOREIGN_IMPORTS = frozenset({"safwa", "sqlalchemy", "telethon"})
+# The package is the chat of an aiogram bot. Where the notes are kept is the one thing it
+# asks an application for, so the database Safwa keeps them in may not be named here.
+FOREIGN_IMPORTS = frozenset({"safwa", "sqlalchemy"})
 
 BOT_ID = 4242
 PERSON_ID = 77
@@ -156,7 +155,7 @@ async def test_the_example_answers_and_reads_its_own_answer_back() -> None:
     provider = ScriptedProvider(
         [CompletionTurn(content="Hello to you."), CompletionTurn(content="You said hello.")]
     )
-    talker = bot.Talker(provider, BOT_ID)
+    talker = bot.Talker(provider)
     telegram = FakeTelegram()
 
     await talker.answer(telegram.says("hello"))
@@ -164,7 +163,7 @@ async def test_the_example_answers_and_reads_its_own_answer_back() -> None:
 
     said = [message.text for message in telegram.sent if message.from_user.is_bot]
     assert len(said) == 2
-    # Nothing was remembered between the turns: the second request is the chat, read back.
+    # The second request is the chat as the bot kept it, read back.
     second = list(provider.requests[1].messages)
     assert second[0]["role"] == "system"
     spoken = [(item["role"], item["content"]) for item in second[1:]]
@@ -176,7 +175,7 @@ async def test_the_example_answers_and_reads_its_own_answer_back() -> None:
 async def test_the_example_splits_an_answer_too_long_for_one_message() -> None:
     bot = _load_example()
     long_answer = "word " * (TELEGRAM_TEXT_LIMIT // 2)
-    talker = bot.Talker(ScriptedProvider([CompletionTurn(content=long_answer)]), BOT_ID)
+    talker = bot.Talker(ScriptedProvider([CompletionTurn(content=long_answer)]))
     telegram = FakeTelegram()
 
     await talker.answer(telegram.says("say a lot"))

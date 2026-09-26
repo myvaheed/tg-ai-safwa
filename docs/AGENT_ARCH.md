@@ -45,8 +45,8 @@ flowchart TD
 - **`agent_runtime`** — the session that can stop on a person and be continued. It knows neither
   what a tool does nor what a proposal is: a suspension hands out an opaque `InteractionRef`, and
   the resume comes back carrying it.
-- **`telegram_llm`** — the chat between the bot and the person: every outgoing message sent
-  registered and marked, a button used once, a screen replaced or taken down. What each kind means
+- **`telegram_llm`** — the chat between the bot and the person: every message kept with its kind
+  as it passes, a button used once, a screen replaced or taken down. What each kind means
   the host says once, in a `ChatVocabulary`.
 - **`tg_agent_shell`** — `ai/` the engine, `proposals/` the review flow, `telegram/` the
   application, `turn/` the single foreground lease, `cues/`, `hooks/` and `foundation/`; at its root
@@ -109,16 +109,16 @@ wallets and entries, with none of Safwa's nouns in it.
 | the database | its own `Base`, plus `upgrade_database(url, Base.metadata)` | `safwa/foundation/models.py` |
 | durable notes | `Memory` — one `sync()` returning something with `.text` | `MemoryReader`, over `memory_observation` and the last analysed Sprint |
 | the state a session reads first | `(session) -> StateBlocks(state, clock)` | `workspace_context` |
-| the chat, and where its window ends | `TelegramHistorySource` with `MARKS` and a `WindowEdge` | `SummaryEdge` |
+| the chat, and where its window ends | `TelegramHistorySource` and a `WindowEdge` | `SummaryEdge` |
 | what the model is told it is | one system prompt, with `Registry.routes` filling the routes in | `SYSTEM_PROMPT` |
 | the container every handler reads | `Services`, filled from the registry | `bootstrap/main.py` |
 | the home screen | exactly one `ScreenCommand` with `nav=HOME_NAV` | the `home` feature |
 | a restart | `recover_startup(session, registry.recovery)` | called once the hooks are bound, before polling starts, so what recovery ends is handed on |
-| a shutdown | cancel the background tasks, close the history, the provider and the bot | the polling `finally` |
+| a shutdown | cancel the background tasks, close the provider and the bot | the polling `finally` |
 
 Everything else is the application's own: the persona, the provider, the product dependencies,
-and the startup itself — Safwa's carries ASR, the similar items model, Telethon and OpenRouter
-headers, and the example's
+and the startup itself — Safwa's carries ASR, the similar items model and OpenRouter headers,
+and the example's
 carries none of them, which is why the shell holds no `run()` of its own.
 
 **A second application declares its tables on a `Base` of its own**, and `upgrade_database` takes
@@ -153,7 +153,7 @@ flowchart TB
         REM[reminder-scheduler]
         MEMR[memory-retro]
     end
-    HIST[(telegram_history.py · Telethon)]
+    HIST[(telegram_messages · the kept chat)]
     DB[(SQLite · ai_* views)]
 
     OWNER --> HANDLERS --> GUARD --> MGR
@@ -276,7 +276,7 @@ can cache the stable prefix:
 ```text
 messages[0]  system   SYSTEM_PROMPT                  ← cache breakpoint
 messages[1]  user     [System]: memory + workspace state
-   …         user/assistant   the dialogue window
+   …         user/assistant/tool   the dialogue window, earlier answers with their calls
 messages[-1] user     [System]: the clock            ← volatile, always last
 ```
 
@@ -599,41 +599,11 @@ how the Actions ended up, the titles of what is still open. Nothing dresses it a
 went off: the words are the Sprint's own. Safwa is told how the Sprint went so it does not go
 reading tables to find out, and ends its message with `[Sprint retro](retro:12)`.
 
-## History — Telegram is the store, not SQLite
+## History
 
-```mermaid
-flowchart LR
-    CHAT[(the real private chat)] -->|Telethon, every turn| SCAN[backwards scan]
-    SCAN --> KIND{MessageKind}
-    KIND -->|dialogue_user · dialogue_assistant<br/>cue · summary| WINDOW[the window]
-    KIND -->|dashboard · editor · approval · receipt<br/>ui_input · status · error| DROP[excluded]
-    WINDOW --> BUDGET{over SUMMARY_TRIGGER_TOKENS = 6000?}
-    BUDGET -->|yes| SUM[write a 📜 Summary]
-    SUM --> WINDOW
-```
-
-- `history.py` re-reads the real chat on every advisor turn.
-  `telegram_messages` stores event metadata, never persona text.
-- **Every bot message is sent registered and marked** with a `MessageKind`. An unregistered or
-  unmarked message is invisible to the LLM; a wrongly-kinded one leaks UI noise into persona history.
-- The window is a **token budget**, not a message count. There is no one budget split between the
-  blocks: the dialogue is worth `SUMMARY_TRIGGER_TOKENS = 6000`, which is also what says when a
-  Summary is written, and a Summary is asked to stay under `SUMMARY_TOKEN_CEILING = 2000`; memory
-  is bounded by its own ceilings, `MEMORY_PATTERNS_MAX` patterns of at most `ITEM_CHARS` each.
-  The newest Summary is the far edge of the window,
-  and up to `EDGE_CONTEXT_MESSAGE_LIMIT = 20` of the messages just before it come along with it.
-- The window itself is [`telegram_llm/window.py`](../src/telegram_llm/window.py) and knows nothing
-  of Summaries; which message ends it is answered on every read by
-  [`features/summary/window.py`](../src/safwa/features/summary/window.py), and what each
-  `MessageKind` means is said once in `history.py`.
-- Owner text still in the chat **is** dialogue: commands and typed field values are deleted, so
-  survival is the evidence.
-- Words that never reached the chat as owner text — a voice transcript — are posted back as a bot
-  message of the owner's kind, or the Advisor never sees them.
-- A receipt line is replayed as a **tool result** rather than as words Safwa said
-  (`RECEIPT_MEANINGS`, beside the decision it reports),
-  so `✅ Saved` reads as `applied` rather than as something the persona claimed. A block shown as
-  is reads back as Safwa's own words, because it is part of her message.
+What the model reads as the conversation — the kept chat, the window and its budget, the
+Summary that ends it, and why each turn has the shape it has — is
+[LLM_HISTORY.md](LLM_HISTORY.md).
 
 ## Memory
 

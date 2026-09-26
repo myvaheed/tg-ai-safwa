@@ -303,7 +303,7 @@ async def _on_save(context: CallbackContext) -> None:
         context.message,
         context.services,
         f"✅ Created <b>{html.escape(card.title)}</b>.",
-        kind=MessageKind.DIALOGUE_ASSISTANT,
+        kind=MessageKind.EVENT,
         related_id=card.id,
     )
 

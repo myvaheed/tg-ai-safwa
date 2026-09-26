@@ -556,12 +556,12 @@ TAP_ACKNOWLEDGERS = frozenset({"callback", "event"})
 
 
 def rule_p() -> list[Violation]:
-    """Every bot message goes through the one place that marks it.
+    """Every bot message goes through the one place that keeps it.
 
-    A message's kind is written into its own text by `telegram_llm`, and that kind is the
+    `telegram_llm` keeps each message the bot sends with its kind, and that kind is the
     only thing deciding whether the model ever reads the message back.  A raw aiogram send
-    is therefore a message with no kind — invisible to the reader, and unfixable later
-    because Telegram is the store rather than a cache of one.
+    is therefore a message that was never kept — invisible to the reader, and unfixable
+    later because nothing reads the chat back from Telegram.
     """
     out = []
     for module in modules():
@@ -607,10 +607,10 @@ RULES = {
     "Rule H": Rule("nothing outside a feature fans out over entity names", rule_h),
     "Rule K": Rule("a proposal handler carries no wording, an agent no domain call", rule_k),
     "Rule M": Rule("the agent engine imports none of the shell above it", rule_m),
-    "Rule P": Rule("every bot message goes through the one place that marks it", rule_p),
+    "Rule P": Rule("every bot message goes through the one place that keeps it", rule_p),
     "Rule R": Rule("every Safwa feature package is registered in MODULES", rule_r),
 }
-# Rules I, J and O are snapshots of built artefacts rather than of the source tree, so they
+# Rules I and J are snapshots of built artefacts rather than of the source tree, so they
 # live with their baselines in `tests/test_architecture.py`.
 
 
