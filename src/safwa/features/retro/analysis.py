@@ -160,6 +160,7 @@ OVERVIEW_PROMPT = """You compare a Sprint with the Sprints that ended before it.
 Read the Sprints oldest first. The last one is this Sprint.
 Call overview_verdict once. Fill verbose_analyse first.
 Then give at most 6 findings: one metric each, its trend across the Sprints, and the numbers that say so.
+The share of the active day tracked is how well the user kept their time; set it beside how the Sprint went.
 Write note in the language the Success criteria are written in."""
 
 DAYS_PROMPT = """You read three days of the user's Sprint: what they planned and finished, and their Diary.
@@ -352,6 +353,7 @@ def overview_text(columns: Sequence[SprintColumn]) -> str:
     lines = []
     if len(columns) == 1:
         lines.append("No Sprint ended before this one: describe this Sprint on its own.")
+    timed = any(column.statistics.time_tracking for column in columns)
     for position, column in enumerate(columns):
         stats = column.statistics
         lines += [
@@ -368,6 +370,11 @@ def overview_text(columns: Sequence[SprintColumn]) -> str:
                 else ""
             ),
         ]
+        # Time reaches the analysis as this one number, and only when a Sprint kept it.
+        if timed and stats.day_share is not None:
+            lines.append(f"- Time tracked: {stats.day_share}% of the active day on average")
+        elif timed and not stats.time_tracking:
+            lines.append("- Time: not tracked")
     return "\n".join(lines)
 
 

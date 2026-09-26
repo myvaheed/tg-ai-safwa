@@ -24,6 +24,7 @@ from ..model import (
     EnergyType,
     Priority,
     effort_label,
+    minutes_label,
 )
 
 _KIND_EMOJIS = {
@@ -160,6 +161,8 @@ def card_overview_text(
             )
     if kind == CardKind.ACTION.value:
         lines.append(f"Effort: {effort_label(state.get('effort_points'))}")
+        if state.get("tracked_mins"):
+            lines.append(f"Time spent: {minutes_label(state['tracked_mins'])}")
         if not compact:
             lines.extend(
                 [
@@ -179,6 +182,8 @@ def card_overview_text(
                 f"{state.get('completed_children', 0)}/{state.get('total_children', 0)} completed",
             ]
         )
+        if state.get("tracked_mins"):
+            lines.append(f"Time spent: {minutes_label(state['tracked_mins'])}")
     if compact:
         # A Goal keeps its Values even here: an empty list is what the compact view
         # exists to put in front of the owner, not what it hides.

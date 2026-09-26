@@ -61,6 +61,19 @@ def effort_label(points: float | None) -> str:
     return "—" if points is None else f"{points:g}"
 
 
+# The most minutes one Action may carry: a day. An Action is meant to fit in one, so the
+# limit catches a typo rather than capping what is tracked.
+TRACKED_MINS_MAX = 1440
+
+
+def minutes_label(minutes: int) -> str:
+    """Hours and minutes, never a count of minutes: 5h 31m, 2h, 45m."""
+    hours, rest = divmod(minutes, 60)
+    if not hours:
+        return f"{rest}m"
+    return f"{hours}h {rest}m" if rest else f"{hours}h"
+
+
 class Priority(StrEnum):
     CRITICAL = "critical"
     MEDIUM = "medium"
@@ -119,6 +132,8 @@ class Card(Base, TimestampMixin):
     blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     blocked_description: Mapped[str] = mapped_column(Text, default="")
     effort_points: Mapped[float | None] = mapped_column(Float)
+    # The minutes the owner says an Action took; on a Goal and a Subgoal, the sum below it.
+    tracked_mins: Mapped[int | None] = mapped_column(Integer)
     repeatable: Mapped[bool] = mapped_column(Boolean, default=False)
     repeat_series_id: Mapped[int | None] = mapped_column(Integer, index=True)
     source_instance_id: Mapped[int | None] = mapped_column(

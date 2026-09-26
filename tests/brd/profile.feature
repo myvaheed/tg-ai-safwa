@@ -1,11 +1,11 @@
 Feature: Profile
   Profile is where the owner tells Safwa things outright, rather than leaving Safwa to infer them.
-  There are eight of them, each edited on its own, each checked before it is stored.
+  There are nine of them, each edited on its own, each checked before it is stored.
 
   Numbers below name the constant they come from; the tests read the constant.
 
   Background:
-    Given a workspace whose Profile holds the eight things the owner can tell Safwa outright
+    Given a workspace whose Profile holds the nine things the owner can tell Safwa outright
 
   Scenario: PS-CONTEXT-001 — What the owner said outright outranks what Safwa remembered
     Given what Safwa remembered and the Profile say different things about the owner
@@ -14,7 +14,7 @@ Feature: Profile
     And About me and Advisor instructions come after it, so they are what it goes by
 
   Scenario: PS-FIELD-002 — Profile writes only the fields it has
-    Given the eight fields
+    Given the nine fields
     When anything tries to write a name that is not one of them
     Then it is refused, no field changes, and nothing is recorded as having changed
 
@@ -87,6 +87,7 @@ Feature: Profile
     Then that reaction is off from that moment, without a restart, and stays off after one
     And pressing it again turns it back on
     And while it is off its condition is not checked
+    And the Time tracking reminder is on the screen only while Time tracking is on (PS-TIME-017)
 
   Scenario: PS-MORNING-016 — The Morning time is when Safwa's morning checks run
     Given a new workspace, whose Morning time is 09:00 (MORNING_TIME_DEFAULT = "09:00")
@@ -94,3 +95,13 @@ Feature: Profile
     And off is refused: each morning check has a switch of its own (PS-HOOKS-015)
     When the Morning time changes
     Then the morning checks — Goals without Actions (CD-EMPTY-035), Hard Time outside the plan (PL-HARDTIME-021), Rest in Today (CD-REST-037) and the mornings in Today (CD-STALE-038) — run at the new time from the next time it passes, without a restart
+
+  Scenario: PS-TIME-017 — Time tracking is off until the owner switches it on
+    Given a new workspace
+    Then the Profile shows Time tracking, and it is off
+    And while it is off, the full editing of an Action has no control for its time, and the Time tracking reminder is not on the Profile screen
+    When the owner presses it
+    Then it is on from that moment, without a restart, and stays on after one
+    And the full editing of an Action offers its time (CD-TIME-039), and the Time tracking reminder is on the Profile screen with a switch of its own, on until the owner turns it off (CD-TIME-041)
+    And the Profile says the active day it measures runs from the Morning time to the Diary time, 09:00 to 22:00 in a new workspace (MORNING_TIME_DEFAULT = "09:00", DIARY_TIME_DEFAULT = "22:00")
+    And pressing it again turns it off

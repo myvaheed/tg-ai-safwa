@@ -33,7 +33,15 @@ from ...tags.model import CardTag
 from ...values.model import CardValue
 from ..hard_time import hard_time_text, workspace_zone
 from ..hierarchy import card_progress
-from ..model import Card, CardCategory, CardEnergyType, CardKind, CardStage, Priority
+from ..model import (
+    Card,
+    CardCategory,
+    CardEnergyType,
+    CardKind,
+    CardStage,
+    Priority,
+    minutes_label,
+)
 from ..references import CARD_REFERENCE_SPECS
 from .presentation import card_overview_text, category_expression, energy_expression
 
@@ -48,15 +56,17 @@ CARD_DETAIL_FIELDS = (
     "blocked",
     "blocked_description",
     "effort_points",
+    "tracked_mins",
     "repeatable",
     "categories",
     "energy_types",
     "parent_id",
 )
 
-# The three fields a screen words shorter than the field name does.
+# The fields a screen words otherwise than the field name does.
 CARD_LABELS = {
     "effort_points": "Effort",
+    "tracked_mins": "Time spent",
     "energy_types": "Energy",
     "parent_id": "Parent ID",
 }
@@ -95,6 +105,13 @@ def _with_hard_time_text(fields: dict[str, Any], tz: ZoneInfo) -> dict[str, Any]
     return fields
 
 
+def _detail(field: str, value: Any) -> str:
+    """One side of a detail line; the time reads in hours and minutes."""
+    if field == "tracked_mins" and value:
+        return minutes_label(value)
+    return detail_value(value)
+
+
 async def _card_detail_snapshot(session: AsyncSession, card: Card) -> dict[str, Any]:
     return {
         "kind": card.kind,
@@ -107,6 +124,7 @@ async def _card_detail_snapshot(session: AsyncSession, card: Card) -> dict[str, 
         "blocked": card.blocked,
         "blocked_description": card.blocked_description,
         "effort_points": card.effort_points,
+        "tracked_mins": card.tracked_mins,
         "repeatable": card.repeatable,
         "categories": sorted(
             await session.scalars(
@@ -157,6 +175,7 @@ async def _card_states(
                 "blocked": card.blocked,
                 "blocked_description": card.blocked_description,
                 "effort_points": card.effort_points,
+                "tracked_mins": card.tracked_mins,
                 "repeatable": card.repeatable,
                 "parent_id": card.parent_id,
                 "categories": sorted(
@@ -241,6 +260,8 @@ async def _card_diff_value(session: AsyncSession, field: str, value: Any) -> str
         return category_expression(value)
     if field == "energy_types":
         return energy_expression(value)
+    if field == "tracked_mins" and value:
+        return minutes_label(value)
     if field in {"kind", "stage", "priority"} and value:
         return str(value).title()
     return display_diff_value(value)
@@ -261,6 +282,7 @@ async def _card_diffs(
         "blocked": "Blocked",
         "blocked_description": "Blocked Description",
         "effort_points": "Effort",
+        "tracked_mins": "Time spent",
         "repeatable": "Repeatable",
         "categories": "Categories",
         "energy_types": "Energy",
@@ -321,12 +343,15 @@ class CardProposalPresenter:
             proposed = {"stage": values.get("stage")}
         elif change.action is ChangeAction.COMPLETE:
             proposed = {"stage": CardStage.DONE.value}
+            if "tracked_mins" in values:
+                proposed["tracked_mins"] = values["tracked_mins"]
         elif change.action is ChangeAction.REOPEN:
             proposed = {"stage": values.get("stage", CardStage.BACKLOG.value)}
         elif change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
             return [f"Card: {card.kind.title()} #{card.id} “{card.title}”"]
         return [
-            f"{detail_label(field, CARD_LABELS)}: {detail_value(before.get(field))} → {detail_value(value)}"
+            f"{detail_label(field, CARD_LABELS)}: "
+            f"{_detail(field, before.get(field))} → {_detail(field, value)}"
             for field, value in proposed.items()
             if before.get(field) != value
         ]
@@ -382,6 +407,8 @@ class CardProposalPresenter:
             parts.extend(await reference_groups(session, values, CARD_REFERENCE_SPECS))
         elif action in {ChangeAction.MOVE, ChangeAction.REOPEN} and values.get("stage"):
             parts.append(str(values["stage"]).title())
+        elif action is ChangeAction.COMPLETE and values.get("tracked_mins"):
+            parts.append(f"{minutes_label(values['tracked_mins'])} spent")
         elif action is ChangeAction.UPDATE:
             parts.extend(detail for detail in details if not detail.startswith("Parent ID:"))
         if parent is not None:

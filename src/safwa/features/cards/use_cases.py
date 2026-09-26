@@ -48,6 +48,7 @@ from .hierarchy import branch_actions, card_children, propagate_ancestors, settl
 from .model import (
     EFFORT_POINTS,
     TERMINAL_STAGES,
+    TRACKED_MINS_MAX,
     Card,
     CardCategory,
     CardCheck,
@@ -61,9 +62,15 @@ from .model import (
     effort_label,
 )
 
-# The fields an Action alone carries. On a Goal and a Subgoal two of them are derived, so
+# The fields an Action alone carries. On a Goal and a Subgoal three of them are derived, so
 # nothing outside `propagate_ancestors` may write one.
-ACTION_ONLY_FIELDS = ("effort_points", "repeatable", "blocked", "blocked_description")
+ACTION_ONLY_FIELDS = (
+    "effort_points",
+    "tracked_mins",
+    "repeatable",
+    "blocked",
+    "blocked_description",
+)
 
 
 @dataclass
@@ -223,14 +230,16 @@ async def update_card_fields(
         "blocked",
         "blocked_description",
         "effort_points",
+        "tracked_mins",
         "repeatable",
     }
     unknown = set(fields) - allowed
     if unknown:
         raise DomainError("Unsupported Card fields: " + ", ".join(sorted(unknown)))
     if card.kind != CardKind.ACTION.value:
-        # `blocked` and `effort_points` on a parent are derived values this walk writes;
-        # a caller that set one by hand would be overwritten at the next Action change.
+        # `blocked`, `effort_points` and `tracked_mins` on a parent are derived values this
+        # walk writes; a caller that set one by hand would be overwritten at the next Action
+        # change.
         for name in ACTION_ONLY_FIELDS:
             fields.pop(name, None)
         if not fields:
@@ -252,6 +261,7 @@ async def update_card_fields(
         card.hard_time_description = ""
     if card.kind == CardKind.ACTION.value:
         validate_action_fields(card.kind, card.effort_points, card.repeatable, blocked=card.blocked)
+        validate_tracked_mins(card.tracked_mins)
         if not card.blocked:
             card.blocked_description = ""
         validate_blocked_fields(card.blocked, card.blocked_description)
@@ -494,6 +504,16 @@ def validate_action_fields(
         raise DomainError("Goal and Subgoal cards cannot have Action-only fields")
 
 
+def validate_tracked_mins(minutes: int | None) -> None:
+    """None, or a whole number of minutes an Action may have taken."""
+    if minutes is None:
+        return
+    if isinstance(minutes, bool) or not isinstance(minutes, int):
+        raise DomainError("The time an Action took is a whole number of minutes")
+    if not 1 <= minutes <= TRACKED_MINS_MAX:
+        raise DomainError(f"The time an Action took is 1 to {TRACKED_MINS_MAX} minutes")
+
+
 def validate_blocked_fields(blocked: bool, description: str | None) -> None:
     if blocked and not (description or "").strip():
         raise DomainError("A blocked Card needs a blocked description")
@@ -633,7 +653,9 @@ async def finish_action(
     *,
     actor: ActorType = ActorType.USER_UI,
     check_outcomes: dict[int, Any] | None = None,
+    tracked_mins: int | None = None,
 ) -> OperationResult:
+    """Finish one Action; the minutes it took, when given, are written with it."""
     card = await session.get(Card, card_id)
     if card is None:
         raise DomainError("Card does not exist")
@@ -641,6 +663,7 @@ async def finish_action(
         raise DomainError("Only Actions are finished directly")
     if CardStage(card.effective_stage) in TERMINAL_STAGES:
         raise DomainError("Action is already terminal")
+    validate_tracked_mins(tracked_mins)
     # Asked before anything is written, so a refusal leaves the Action where it was.
     resolutions = await require_check_answers(session, card.id, check_outcomes)
     previous_live_stage = CardStage(card.effective_stage)
@@ -648,6 +671,8 @@ async def finish_action(
     card.manual_stage = CardStage.DONE.value
     card.effective_stage = CardStage.DONE.value
     card.completed_at = utcnow()
+    if tracked_mins is not None:
+        card.tracked_mins = tracked_mins
     card.version += 1
     await record_card_event(session, card, CardStage.DONE.value, actor, before)
     await record_sprint_result(session, card.id)

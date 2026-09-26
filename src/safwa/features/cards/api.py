@@ -23,6 +23,7 @@ from .model import Card as Card
 from .model import CardKind
 from .model import CardStage as CardStage
 from .model import effort_label as effort_label
+from .model import minutes_label as minutes_label
 from .views import AI_CARDS
 
 PLANNED_STAGES = (CardStage.SPRINT, CardStage.TODAY)

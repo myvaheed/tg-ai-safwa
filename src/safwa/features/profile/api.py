@@ -24,6 +24,11 @@ from .model import (
     UserProfile,
 )
 
+# The question after an Action is Done without its time. It is the Cards' hook, named here
+# because the Profile decides when it is silent: while Time tracking is off, whatever its
+# own switch says.
+TIME_TRACKING_REMINDER = "cards.time_tracking_reminder"
+
 
 async def sprint_length_days(session: AsyncSession) -> int:
     """How many days the owner wants a Sprint to run, or the default nobody changed."""
@@ -61,9 +66,27 @@ async def summary_time(session: AsyncSession) -> time:
     return profile.summary_time if profile is not None else time.fromisoformat(SUMMARY_TIME_DEFAULT)
 
 
+async def time_tracking_on(session: AsyncSession) -> bool:
+    """Whether the owner records the time an Action took."""
+    profile = await session.get(UserProfile, 1)
+    return profile is not None and profile.time_tracking
+
+
+async def active_day_minutes(session: AsyncSession) -> int:
+    """How long the owner's active day is: from the Morning time to the Diary time.
+
+    A Diary time before the Morning time is a day that runs past midnight; the two equal
+    is a day of no length.
+    """
+    start, end = await morning_time(session), await diary_time(session)
+    return (end.hour * 60 + end.minute - start.hour * 60 - start.minute) % (24 * 60)
+
+
 async def hook_switched_on(session: AsyncSession, name: str) -> bool:
     """Whether the owner left the automatic reaction of that name on: the shell's policy."""
     profile = await session.get(UserProfile, 1)
+    if name == TIME_TRACKING_REMINDER and (profile is None or not profile.time_tracking):
+        return False
     return profile is None or name not in profile.disabled_hooks
 
 

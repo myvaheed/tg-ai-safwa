@@ -1,11 +1,13 @@
 """What a Sprint adds up to when it closes, written down with its end and never again: the
 effort it took and finished, the Actions it holds, how both fell by Category and Energy
-type and by day, and the Checks tied to a Value answered while it ran. The retro screen
+type and by day, the Checks tied to a Value answered while it ran, and — when Time tracking
+was on as it closed — the time its finished Actions took. The retro screen
 shows this record and the retro analysis reads it; what happens to those Actions and
 Checks afterwards is another Sprint's story."""
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
 from typing import Any
@@ -19,6 +21,7 @@ from tg_agent_shell.foundation.clock import utcnow
 from ..cards.api import Card, CardStage
 from ..cards.model import CardCategory, CardEnergyType, Category, EnergyType, TodayDay
 from ..checks.model import Check, CheckOutcome
+from ..profile.api import active_day_minutes, time_tracking_on
 from ..values.model import CheckValue, Value
 from .api import effort_sums
 from .model import Sprint, SprintCommitment
@@ -28,6 +31,8 @@ from .model import Sprint, SprintCommitment
 NONE_BUCKET = "none"
 CATEGORY_BUCKETS = (*(kind.value for kind in Category), NONE_BUCKET)
 ENERGY_BUCKETS = (*(kind.value for kind in EnergyType), NONE_BUCKET)
+# How many of the longest finished Actions a Sprint's record names.
+LONGEST_SHOWN = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +57,18 @@ class Bucket:
     done_effort: float = 0.0
     count: int = 0
     done_count: int = 0
+    # Of the finished ones, those that carry a time: the minutes, how many, and their effort.
+    minutes: int = 0
+    timed_count: int = 0
+    timed_effort: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class TimedAction:
+    """One finished Action and the minutes it took, titled as it was when the Sprint closed."""
+
+    title: str
+    minutes: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +108,22 @@ class RetroStatistics:
     by_energy: dict[str, Bucket]
     days: tuple[DayTally, ...]
     series: tuple[SeriesTally, ...]
+    # Whether Time tracking was on as the Sprint closed, and the active day then; of its
+    # finished Actions, the minutes of those that carry a time, how many do, their effort,
+    # and the longest. A Sprint closed with it off, or before a record kept it, has none.
+    time_tracking: bool = False
+    active_day_minutes: int = 0
+    minutes: int = 0
+    timed: int = 0
+    timed_effort: float = 0.0
+    longest: tuple[TimedAction, ...] = ()
+
+    @property
+    def day_share(self) -> int | None:
+        """The time a day on average, as a whole percent of the active day; None untracked."""
+        if not self.time_tracking or not self.active_day_minutes:
+            return None
+        return round(100 * self.minutes / (len(self.days) * self.active_day_minutes))
 
     @property
     def done_share(self) -> int:
@@ -111,7 +144,7 @@ class RetroStatistics:
 
     @classmethod
     def from_record(cls, record: dict[str, Any]) -> RetroStatistics:
-        nested = {"series", "by_category", "by_energy", "days"}
+        nested = {"series", "by_category", "by_energy", "days", "longest"}
         return cls(
             **{key: value for key, value in record.items() if key not in nested},
             by_category={name: Bucket(**bucket) for name, bucket in record["by_category"].items()},
@@ -123,6 +156,7 @@ class RetroStatistics:
                 )
                 for tally in record["series"]
             ),
+            longest=tuple(TimedAction(**action) for action in record.get("longest", ())),
         )
 
 
@@ -153,6 +187,10 @@ async def sprint_closing(
     key = [item for item in held if item.key_action]
     labels = await _labels(session, [item.card_id for item in commitments])
     tz = ZoneInfo(timezone)
+    tracking = await time_tracking_on(session)
+    timed = await _timed_actions(session, commitments) if tracking else []
+    minutes = {card_id: spent for card_id, _, spent in timed}
+    effort_of = {item.card_id: item.effort_snapshot for item in commitments}
     return RetroStatistics(
         taken=effort["committed"] + effort["added"],
         done=effort["completed"],
@@ -166,11 +204,32 @@ async def sprint_closing(
         key_total=len(key),
         key_finished=sum(1 for item in key if item.result == CardStage.DONE.value),
         key_unknown=sum(1 for item in held if item.key_action is None),
-        by_category=_buckets(commitments, labels[0], CATEGORY_BUCKETS),
-        by_energy=_buckets(commitments, labels[1], ENERGY_BUCKETS),
+        by_category=_buckets(commitments, labels[0], CATEGORY_BUCKETS, minutes),
+        by_energy=_buckets(commitments, labels[1], ENERGY_BUCKETS, minutes),
         days=await _day_tallies(session, sprint, commitments, labels, tz),
         series=await _series_tallies(session, sprint),
+        time_tracking=tracking,
+        active_day_minutes=await active_day_minutes(session) if tracking else 0,
+        minutes=sum(minutes.values()),
+        timed=len(timed),
+        timed_effort=sum(effort_of[card_id] for card_id in minutes),
+        longest=tuple(TimedAction(title, spent) for _, title, spent in timed[:LONGEST_SHOWN]),
     )
+
+
+async def _timed_actions(
+    session: AsyncSession, commitments: list[SprintCommitment]
+) -> list[tuple[int, str, int]]:
+    """The finished Actions that carry a time, longest first; of two alike, the earlier finished."""
+    finished = [item.card_id for item in commitments if item.result == CardStage.DONE.value]
+    if not finished:
+        return []
+    rows = await session.execute(
+        select(Card.id, Card.title, Card.tracked_mins)
+        .where(Card.id.in_(finished), Card.tracked_mins.is_not(None))
+        .order_by(Card.tracked_mins.desc(), Card.completed_at, Card.id)
+    )
+    return [(card_id, title, spent) for card_id, title, spent in rows]
 
 
 Labels = tuple[dict[int, list[str]], dict[int, list[str]]]
@@ -201,22 +260,21 @@ async def _labels(session: AsyncSession, card_ids: list[int]) -> Labels:
 
 
 def _buckets(
-    commitments: list[SprintCommitment], labelled: dict[int, list[str]], names: tuple[str, ...]
+    commitments: list[SprintCommitment],
+    labelled: dict[int, list[str]],
+    names: tuple[str, ...],
+    minutes: dict[int, int],
 ) -> dict[str, Bucket]:
-    sums = {name: [0.0, 0.0, 0, 0] for name in names}
+    sums: dict[str, Counter[str]] = {name: Counter() for name in names}
     for item in commitments:
-        finished = item.result == CardStage.DONE.value
+        spent = minutes.get(item.card_id)
         for name in labelled[item.card_id]:
-            tally = sums[name]
-            tally[0] += item.effort_snapshot
-            tally[2] += 1
-            if finished:
-                tally[1] += item.effort_snapshot
-                tally[3] += 1
-    return {
-        name: Bucket(effort=effort, done_effort=done_effort, count=count, done_count=done_count)
-        for name, (effort, done_effort, count, done_count) in sums.items()
-    }
+            sums[name].update(effort=item.effort_snapshot, count=1)
+            if item.result == CardStage.DONE.value:
+                sums[name].update(done_effort=item.effort_snapshot, done_count=1)
+            if spent is not None:
+                sums[name].update(minutes=spent, timed_count=1, timed_effort=item.effort_snapshot)
+    return {name: Bucket(**tally) for name, tally in sums.items()}
 
 
 async def _day_tallies(

@@ -34,8 +34,8 @@ from ....constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ....features.cards.api import effort_label
 from ....foundation.workspace import Workspace
 from ...reminders.api import parse_clock
-from ..api import set_hook_switch
-from ..model import UserProfile
+from ..api import TIME_TRACKING_REMINDER, set_hook_switch
+from ..model import ProfileField, UserProfile
 from ..use_cases import profile_field, set_profile_field
 
 
@@ -156,6 +156,19 @@ PROFILE_FIELDS: dict[str, EditableField] = {
 }
 
 
+def _visible_switches(profile: UserProfile, services: Services) -> tuple[HookSpec, ...]:
+    """The switches the screen offers: the Time tracking reminder only while Time tracking is on."""
+    return tuple(
+        hook
+        for hook in services.hooks.agent_related
+        if profile.time_tracking or hook.name != TIME_TRACKING_REMINDER
+    )
+
+
+def _time_tracking_label(profile: UserProfile) -> str:
+    return f"⌛ Time tracking: {'on' if profile.time_tracking else 'off'}"
+
+
 def _switch_state(profile: UserProfile, hook: HookSpec) -> str:
     return "off" if hook.name in profile.disabled_hooks else "on"
 
@@ -177,6 +190,11 @@ def profile_text(
     for name, field in PROFILE_FIELDS.items():
         lines.append(f"{field.title}: {html.escape(field.show(getattr(profile, name)))}")
     lines.append(f"Timezone: {html.escape(timezone)}")
+    lines.append(
+        f"Time tracking: {'on' if profile.time_tracking else 'off'} — records the time an "
+        f"Action took; your active day runs from the Morning time to the Diary time, "
+        f"{_clock(profile.morning_time)} to {_clock(profile.diary_time)}."
+    )
     for hook in switches:
         lines.append(
             f"{html.escape(hook.title)}: {_switch_state(profile, hook)} — "
@@ -205,9 +223,15 @@ async def command_profile(
                     session, services.owner_id, field.label, "profile_edit", {"field": name}
                 )
             )
-        switches = services.hooks.agent_related
+        switches = _visible_switches(profile, services)
         rendered = profile_text(profile, workspace.timezone, switches)
         rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
+        rows.append([
+            await token_button(
+                session, services.owner_id, _time_tracking_label(profile),
+                "profile_time_tracking", {},
+            )
+        ])
         # One row per switch: its label is the state, so the press that flips it is visible.
         for hook in switches:
             rows.append([
@@ -301,13 +325,14 @@ async def _on_edit(context: CallbackContext) -> None:
 async def _on_switch(context: CallbackContext) -> None:
     """Flip one automatic reaction and redraw the Profile in place."""
     name = str(context.payload["hook"])
-    hook = next((spec for spec in context.services.hooks.agent_related if spec.name == name), None)
-    if hook is None:
-        raise DomainError("That setting is no longer available.")
     async with context.sessions() as session:
         profile = await session.get(UserProfile, 1)
         if profile is None:
             raise DomainError("Workspace is not initialized")
+        switches = _visible_switches(profile, context.services)
+        hook = next((spec for spec in switches if spec.name == name), None)
+        if hook is None:
+            raise DomainError("That setting is no longer available.")
         on = name in profile.disabled_hooks
         await set_hook_switch(
             session, name, on=on, followers=context.services.hooks.followers(name)
@@ -317,6 +342,23 @@ async def _on_switch(context: CallbackContext) -> None:
         context.message,
         context.services,
         notice=f"{hook.title} switched {'on' if on else 'off'}.",
+        replace_message_id=context.message.message_id,
+    )
+
+
+async def _on_time_tracking(context: CallbackContext) -> None:
+    """Flip Time tracking and redraw the Profile in place."""
+    async with context.sessions() as session:
+        profile = await session.get(UserProfile, 1)
+        if profile is None:
+            raise DomainError("Workspace is not initialized")
+        on = not profile.time_tracking
+        await set_profile_field(session, ProfileField.TIME_TRACKING, on)
+        await session.commit()
+    await command_profile(
+        context.message,
+        context.services,
+        notice=f"Time tracking switched {'on' if on else 'off'}.",
         replace_message_id=context.message.message_id,
     )
 
@@ -331,5 +373,6 @@ async def _on_back(context: CallbackContext) -> None:
 PROFILE_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "profile_edit": _on_edit,
     "profile_switch": _on_switch,
+    "profile_time_tracking": _on_time_tracking,
     "profile_back": _on_back,
 }

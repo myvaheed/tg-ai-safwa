@@ -1,6 +1,6 @@
 """What a parent Card shows, and the one walk that keeps it true.
 
-A Goal and a Subgoal carry no stage, block, effort or archive of their own: each is added up
+A Goal and a Subgoal carry no stage, block, effort, time or archive of their own: each is added up
 from the row of children below it and written into the plain columns, so every screen and
 every view reads one column that means the same thing on every Card.  `propagate_ancestors`
 is the only writer of those columns, and every path that changes an Action ends there.
@@ -51,8 +51,8 @@ async def branch_actions(session: AsyncSession, card_id: int) -> list[Card]:
 
 def derived_from_children(
     children: list[Card],
-) -> tuple[CardStage, bool, int | None, datetime | None]:
-    """What a Goal or a Subgoal shows: the stage, the block, the effort and the archive.
+) -> tuple[CardStage, bool, float | None, int | None, datetime | None]:
+    """What a Goal or a Subgoal shows: the stage, the block, the effort, the time and the archive.
 
     Every child already carries its own derived values, so a parent adds up the row below
     it and the recursion reaches the Actions on its own. Reading the branch's Actions
@@ -60,8 +60,9 @@ def derived_from_children(
     a child that never started.
     """
     if not children:
-        return CardStage.BACKLOG, False, None, None
+        return CardStage.BACKLOG, False, None, None, None
     effort = [child.effort_points for child in children if child.effort_points is not None]
+    tracked = [child.tracked_mins for child in children if child.tracked_mins is not None]
     stamps = [child.archived_at for child in children]
     return (
         aggregate_child_stages(children),
@@ -70,13 +71,14 @@ def derived_from_children(
             for child in children
         ),
         sum(effort) if effort else None,
+        sum(tracked) if tracked else None,
         # A branch leaves sight when its last Card does, and one live Card brings it back.
         max(stamps) if all(stamp is not None for stamp in stamps) else None,
     )
 
 
 async def propagate_ancestors(session: AsyncSession, start_parent_id: int | None) -> list[int]:
-    """The one walk that writes a parent's derived values: stage, blocked, effort, archive.
+    """The one walk that writes a parent's derived values: stage, blocked, effort, time, archive.
 
     They are stored in the plain columns rather than computed on read, so Safwa reads one
     column that means the same thing on every row. The price is that every path which
@@ -91,15 +93,22 @@ async def propagate_ancestors(session: AsyncSession, start_parent_id: int | None
         # An archived child still counts in what its parent shows: archiving is a matter
         # of sight, and the effort it took is still the owner's.
         children = list(await session.scalars(select(Card).where(Card.parent_id == parent.id)))
-        stage, blocked, effort, archived = derived_from_children(children)
-        current = (parent.effective_stage, parent.blocked, parent.effort_points, parent.archived_at)
-        if current != (stage.value, blocked, effort, archived):
+        stage, blocked, effort, tracked, archived = derived_from_children(children)
+        current = (
+            parent.effective_stage,
+            parent.blocked,
+            parent.effort_points,
+            parent.tracked_mins,
+            parent.archived_at,
+        )
+        if current != (stage.value, blocked, effort, tracked, archived):
             parent.effective_stage = stage.value
             parent.blocked = blocked
             # Several blocked Actions have several reasons, and picking one would be
             # Safwa writing the owner's words. The screen quotes each Action instead.
             parent.blocked_description = ""
             parent.effort_points = effort
+            parent.tracked_mins = tracked
             parent.archived_at = archived
             parent.version += 1
             changed.append(parent.id)

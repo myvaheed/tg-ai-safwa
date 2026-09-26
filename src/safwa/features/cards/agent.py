@@ -10,10 +10,12 @@ from tg_agent_shell.ai.autoapproval import RELATIONSHIP_LINK, SCALAR_UPDATE, Aut
 from tg_agent_shell.ai.contracts import ToolInput
 from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 
+from .model import TRACKED_MINS_MAX
+
 
 class CardToolInput(ToolInput):
     content_fields = frozenset({"title", "note", "blocked_description", "hard_time_description"})
-    semantic_null_fields = frozenset({"parent_id", "hard_time"})
+    semantic_null_fields = frozenset({"parent_id", "hard_time", "tracked_mins"})
 
     mode: Literal["create", "update", "move", "complete", "reopen", "link", "unlink"] = Field(
         description=(
@@ -50,6 +52,15 @@ class CardToolInput(ToolInput):
             "8 only light work left today. 13 nothing else today. "
             "On a repeating Action this is one occurrence, not the series. "
             "Work that does not fit one day is a Subgoal with Actions under it, never a 13."
+        ),
+    )
+    tracked_mins: int | None = Field(
+        default=None,
+        ge=1,
+        le=TRACKED_MINS_MAX,
+        description=(
+            "Minutes the user says the Action took, in total: 1.5 hours is 90. Only what the "
+            "user said, never an estimate. On update, null removes it."
         ),
     )
     repeatable: bool | None = None
@@ -101,6 +112,8 @@ class CardToolInput(ToolInput):
                 raise ValueError("a new Card needs kind and title")
             if self.kind == "action" and self.effort_points is None:
                 raise ValueError("a new Action needs effort_points")
+            if "tracked_mins" in supplied:
+                raise ValueError("a new Card has no time spent yet; omit tracked_mins")
             if self.blocked and not (self.blocked_description or "").strip():
                 raise ValueError("a blocked Card needs blocked_description")
             if self.parent_id is not None and self.parent_query is not None:
@@ -118,6 +131,7 @@ class CardToolInput(ToolInput):
             "blocked",
             "blocked_description",
             "effort_points",
+            "tracked_mins",
             "repeatable",
             "categories",
             "energy_types",
@@ -150,8 +164,8 @@ class CardToolInput(ToolInput):
             if self.stage == "done":
                 raise ValueError("use complete mode to finish a Card")
         elif self.mode == "complete":
-            if supplied:
-                raise ValueError("Card complete does not accept fields")
+            if supplied - {"tracked_mins"}:
+                raise ValueError("Card complete accepts only tracked_mins")
         elif self.mode == "reopen":
             if supplied - {"stage"}:
                 raise ValueError("Card reopen accepts only an optional stage")
@@ -268,6 +282,7 @@ CARD_AUTOAPPROVALS = {
                 "blocked",
                 "blocked_description",
                 "effort_points",
+                "tracked_mins",
                 "repeatable",
             }
         ),

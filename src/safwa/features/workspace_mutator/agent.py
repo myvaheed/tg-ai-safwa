@@ -34,10 +34,11 @@ propose against them.
 # Cards
 - `goal` is created root-level. Give an existing Goal a Goal `parent_id` and it becomes a `subgoal`.
 - `subgoal` is always under a Goal. `action` is root or under a Goal or Subgoal and has no children.
-- Only an Action carries a stage, effort, repeat and blocked. A Goal and a Subgoal show what the
+- Only an Action carries a stage, effort, time, repeat and blocked. A Goal and a Subgoal show what the
   Cards under them add up to, so move, complete and reopen an Action, never a parent.
 - A new Card lands in `backlog` unless the user committed it further. Effort is what the Action
   costs the user, never how long it takes; the field description carries the rungs.
+- Time the user says an Action took is `tracked_mins`, in minutes; send it with `complete` when they finish it.
 - Values, Tags and Checks attach to a Card through the `card` tool with `mode="link"` or `mode="unlink"`, one relationship type per call.
 - A Value attaches to a Check through the `check` tool the same way. Each link is written from the side that carries it.
 - `remove` is the only way to delete anything — Card, Check, Value, Tag, Request or Reminder. Every other tool creates and updates.
@@ -53,6 +54,7 @@ A Check may carry Values: a Check shows how well a Value is held to, while a Car
 # Repeats
 A title ending in ` [🔄2, live #7]` is a finished instance: #7 is the open one, and no tool may touch this one — not even to reopen or link it.
 - Use #7. ` [🔄2]` with no id means the series has ended: tell the user instead.
+- The one exception: the time a finished instance took is `tracked_mins` on that instance, never on #7.
 - ` [📦]` means archived. No tool may change it: name it to the user as [title](card:12) and let them open it.
 
 # Reminders

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -13,6 +14,7 @@ from tg_agent_shell.telegram.contributions import TextInputFlow
 from tg_agent_shell.telegram.model import UiSession
 
 from ..hard_time import hard_time_columns, typed_hard_time
+from ..model import TRACKED_MINS_MAX
 from ..use_cases import edit_card_text, update_card_fields
 from .creation import render_card_creation
 from .draft import sanitize_card_creation_state
@@ -22,10 +24,36 @@ _BLOCKED_FLOW = "card_blocked"
 # What the editor added to the draft state, and what the draft must not carry back.
 _DRAFT_EDITOR_KEYS = frozenset({"text_input", "input_field", "flow"})
 CARD_DRAFT_TTL = timedelta(minutes=30)
+TIME_SPENT_INSTRUCTION = (
+    f"Send the time it took, up to {TRACKED_MINS_MAX // 60}h: 331, 5:31 or 5h 31m. "
+    "Send off to clear it."
+)
 
 
-def _card_text_validator(field: str) -> TextValidator[str] | None:
-    """Only the two fields a Card cannot be left without are required."""
+def parse_minutes(raw: str) -> int | None:
+    """The time typed as minutes, as hours:minutes or as hours and minutes; off is none."""
+    text = raw.strip()
+    if text.casefold() == "off":
+        return None
+    minutes: int | None = None
+    if text.isdecimal():
+        minutes = int(text)
+    elif (clock := re.fullmatch(r"(\d+):([0-5]\d)", text)) is not None:
+        minutes = int(clock[1]) * 60 + int(clock[2])
+    elif text and (
+        spoken := re.fullmatch(r"(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?", text, re.IGNORECASE)
+    ) is not None:
+        minutes = int(spoken[1] or 0) * 60 + int(spoken[2] or 0)
+    if minutes is None or not 1 <= minutes <= TRACKED_MINS_MAX:
+        raise ValueError(TIME_SPENT_INSTRUCTION)
+    return minutes
+
+
+def _card_text_validator(field: str) -> TextValidator[Any] | None:
+    """The time is read as minutes; only the two fields a Card cannot be left without are
+    required."""
+    if field == "tracked_mins":
+        return parse_minutes
     if field == "title":
         return required_text("Card title")
     if field == "blocked_description":
@@ -78,6 +106,8 @@ async def _apply_card_text(
         await update_card_fields(
             session, card_id, {"hard_time": await typed_hard_time(session, value)}
         )
+    elif state["field"] == "tracked_mins":
+        await update_card_fields(session, card_id, {"tracked_mins": value})
     else:
         await edit_card_text(session, card_id, str(state["field"]), value)
 
