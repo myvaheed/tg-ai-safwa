@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import time
 from enum import StrEnum
 
-from sqlalchemy import JSON, Float, Integer, Text, Time
+from sqlalchemy import JSON, Boolean, Float, Integer, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...foundation.models import Base, TimestampMixin
@@ -34,12 +34,15 @@ class UserProfile(Base, TimestampMixin):
     morning_time: Mapped[time] = mapped_column(
         Time, default=time.fromisoformat(MORNING_TIME_DEFAULT)
     )
+    # Whether the owner records the time an Action took: the button on an Action, a
+    # Sprint's time in its retro, and the question after Done follow it.
+    time_tracking: Mapped[bool] = mapped_column(Boolean, default=False)
     # The automatic reactions the owner turned off, by hook name. A hook that is not
     # here is on, so a new hook needs no column of its own.
     disabled_hooks: Mapped[list[str]] = mapped_column(JSON, default=list)
 
 
-ProfileValue = str | int | float | time | None
+ProfileValue = str | bool | int | float | time | None
 
 
 class ProfileField(StrEnum):
@@ -53,3 +56,4 @@ class ProfileField(StrEnum):
     DIARY_INSTRUCTIONS = "diary_instructions"
     SUMMARY_TIME = "summary_time"
     MORNING_TIME = "morning_time"
+    TIME_TRACKING = "time_tracking"

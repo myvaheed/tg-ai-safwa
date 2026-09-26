@@ -31,8 +31,8 @@ from tg_agent_shell.telegram import (
 )
 
 from ...foundation.workspace import Workspace
-from ..cards.api import effort_label
-from ..planning.closing import RetroStatistics
+from ..cards.api import effort_label, minutes_label
+from ..planning.closing import Bucket, RetroStatistics
 from ..planning.model import Sprint
 from .use_cases import analysis_input, mark_criterion, record_analysis, require_ended_sprint
 
@@ -60,6 +60,7 @@ def retro_text(sprint: Sprint, statistics: RetroStatistics) -> str:
         f"Finished {statistics.finished}, remaining {statistics.remaining}, "
         f"of them blocked {statistics.blocked}",
         "",
+        *(time_lines(statistics) if statistics.time_tracking else ()),
         "<b>Checks on a Value</b>",
     ]
     if statistics.series:
@@ -71,6 +72,58 @@ def retro_text(sprint: Sprint, statistics: RetroStatistics) -> str:
     else:
         lines.append("None was answered while the Sprint ran.")
     return "\n".join(lines)
+
+
+def _per_hour(effort: float, minutes: int) -> str:
+    return f"{effort / (minutes / 60):.1f}"
+
+
+def _bucket_lines(kind: str, buckets: dict[str, Bucket]) -> list[str]:
+    """Each Category or Energy type with a time, the most time first."""
+    timed = sorted(
+        ((name, bucket) for name, bucket in buckets.items() if bucket.timed_count),
+        key=lambda pair: -pair[1].minutes,
+    )
+    whole = sum(bucket.minutes for _, bucket in timed)
+    return [f"By {kind}: time · share · per Action · EP an hour"] + [
+        f"{name} {minutes_label(bucket.minutes)} · {round(100 * bucket.minutes / whole)}% · "
+        f"{minutes_label(round(bucket.minutes / bucket.timed_count))} · "
+        f"{_per_hour(bucket.timed_effort, bucket.minutes)}"
+        for name, bucket in timed
+    ]
+
+
+def time_lines(statistics: RetroStatistics) -> list[str]:
+    """The Time section of a Sprint closed with Time tracking on; every average is over the
+    finished Actions that carry a time."""
+    lines = ["<b>Time</b>"]
+    if not statistics.timed:
+        lines += [f"No time on any of the {statistics.finished} finished Actions.", ""]
+        return lines
+    tracked = (
+        f"Tracked {minutes_label(statistics.minutes)}, "
+        f"{minutes_label(round(statistics.minutes / len(statistics.days)))} a day"
+    )
+    if statistics.day_share is not None:
+        tracked += (
+            f" — {statistics.day_share}% of a "
+            f"{minutes_label(statistics.active_day_minutes)} active day"
+        )
+    lines += [
+        tracked,
+        f"{_per_hour(statistics.timed_effort, statistics.minutes)} EP an hour; recorded on "
+        f"{statistics.timed} of {statistics.finished} finished Actions "
+        f"({round(100 * statistics.timed / statistics.finished)}%)",
+        *_bucket_lines("Category", statistics.by_category),
+        *_bucket_lines("Energy type", statistics.by_energy),
+        "Longest: "
+        + ", ".join(
+            f"«{html.escape(action.title)}» {minutes_label(action.minutes)}"
+            for action in statistics.longest
+        ),
+        "",
+    ]
+    return lines
 
 
 async def _retro_buttons(

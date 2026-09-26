@@ -24,7 +24,7 @@ from tg_agent_shell.telegram import (
 
 from ...checks.use_cases import unobserved_series
 from ..hard_time import HARD_TIME_INSTRUCTION, hard_time_text, workspace_zone
-from ..model import Card, CardStage
+from ..model import Card, CardStage, minutes_label
 from ..use_cases import (
     archive_subtree,
     delete_one_card,
@@ -44,6 +44,7 @@ from .selectors import (
     RELATION_CHOICES,
     render_card_choices,
 )
+from .text_input import TIME_SPENT_INSTRUCTION
 
 
 async def _on_dashboard_page(context: CallbackContext) -> None:
@@ -113,6 +114,13 @@ async def _on_move(context: CallbackContext) -> None:
     )
 
 
+_FIELD_TITLES = {"tracked_mins": "Time Spent"}
+_FIELD_INSTRUCTIONS = {
+    "hard_time": HARD_TIME_INSTRUCTION,
+    "tracked_mins": TIME_SPENT_INSTRUCTION,
+}
+
+
 async def _on_edit_text(context: CallbackContext) -> None:
     card_id = context.payload["id"]
     field = context.payload["field"]
@@ -123,19 +131,17 @@ async def _on_edit_text(context: CallbackContext) -> None:
             raise DomainError("Card does not exist")
         if field == "hard_time":
             current = hard_time_text(card.hard_time, tz=await workspace_zone(session)) or ""
+        elif field == "tracked_mins":
+            current = minutes_label(card.tracked_mins) if card.tracked_mins else ""
         else:
             current = str(getattr(card, field) or "")
     await render_text_input(
         context.message,
         context.services,
         screen=TextInputScreen(
-            title=f"Edit Card {field.replace('_', ' ').title()}",
+            title=f"Edit Card {_FIELD_TITLES.get(field, field.replace('_', ' ').title())}",
             current_value=current,
-            instruction=(
-                HARD_TIME_INSTRUCTION
-                if field == "hard_time"
-                else f"Send the new {field.replace('_', ' ')}."
-            ),
+            instruction=_FIELD_INSTRUCTIONS.get(field, f"Send the new {field.replace('_', ' ')}."),
             back_action="card_view",
             back_payload={"id": card_id, "back": back_state, "full": True},
             related_id=card_id,

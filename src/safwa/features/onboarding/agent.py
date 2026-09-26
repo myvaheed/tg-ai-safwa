@@ -33,6 +33,7 @@ MANUAL = """# Safwa
 - An Action has a stage: Backlog, Sprint, Today, Done. It goes to Sprint or Today when the user takes it on; it need not pass every stage. A Goal shows the stage of the Actions under it.
 - Priority: Critical, Medium, Low.
 - Effort is what an Action costs the user, not how long it takes: 0.5, 1, 2, 3, 5, 8 or 13.
+- Time spent is how long an Action took, as "5h 31m". A Goal shows the time of the Actions under it. With Time tracking on in the Profile, "⌛ Time spent" in "✏️ Full editing" records it; in words it is recorded either way.
 - Categories (Self, Contribution, Work, Rest) and energy (Physical, Cognitive, Social, Values) describe an Action.
 - Hard Time is when a Card must happen, as a schedule, with a note of what fixes it.
 - Blocked is a warning on an Action, with its reason. It stops nothing.
@@ -73,7 +74,7 @@ MANUAL = """# Safwa
 - In words: moving Actions into Sprint or Today, or back to Backlog.
 
 # Retro and memory
-- When a Sprint ends, Safwa says how it went and links its retro: "📊 Sprint … retro". The retro screen shows what the Sprint added up to.
+- When a Sprint ends, Safwa says how it went and links its retro: "📊 Sprint … retro". The retro screen shows what the Sprint added up to, and its time when Time tracking was on as it ended.
 - On the retro screen: "✅ Met" or "❌ Not met" for the Success criteria, and "🔎 Analyse with AI" for what raised and lowered the days, with one experiment for the next Sprint.
 - Memory is what the analyses left: patterns seen across Sprints, and the last analysed Sprint. /memory shows it. Nothing else writes it.
 - Buttons only. The Advisor cannot analyse a Sprint or change memory.
@@ -92,12 +93,14 @@ MANUAL = """# Safwa
 - Deleting is the only way to stop one.
 
 # Automatic reactions
-- Safwa speaks first on its own: about a blocked Action, a day holding too much, Goals with no Action, Hard Times outside the plan, energy and rest in the Sprint, an Action stuck in Today, a Check Missed again and again, the Diary, the day's summary, a Sprint's end, a Success criterion out of reach, a read too heavy for the Advisor, what stands in Today and the Sprint when the user writes after 14 days or more away, and these onboarding tips.
+- Safwa speaks first on its own: about a blocked Action, an Action finished without its time, a day holding too much, Goals with no Action, Hard Times outside the plan, energy and rest in the Sprint, an Action stuck in Today, a Check Missed again and again, the Diary, the day's summary, a Sprint's end, a Success criterion out of reach, a read too heavy for the Advisor, what stands in Today and the Sprint when the user writes after 14 days or more away, and these onboarding tips.
 - Each is switched off and on in "⚙️ Profile", by its title.
-- Switches in the Profile: "Helper offer", "Blocker follow-up", "Today overload", "Goals without Actions", "Hard Time outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Diary nudge", "Daily summary", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
+- Switches in the Profile: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Today overload", "Goals without Actions", "Hard Time outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Diary nudge", "Daily summary", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
+- "Time tracking reminder" is in the Profile only while Time tracking is on, and asks nothing while it is off.
 
 # Profile
-- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Sprint length, Sprint capacity, Morning time, Diary time, Diary instruction, Daily summary, and the switches.
+- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Sprint length, Sprint capacity, Morning time, Diary time, Diary instruction, Daily summary, Time tracking, and the switches.
+- "⌛ Time tracking" is off until pressed. On, it offers "⌛ Time spent" on an Action, keeps a Sprint's time for its retro and turns on "Time tracking reminder". The active day it measures runs from the Morning time to the Diary time.
 - Buttons only. The Advisor cannot change the Profile. Onboarding alone may be turned off in words.
 
 # Screens and commands

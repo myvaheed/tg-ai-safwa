@@ -108,3 +108,28 @@ Feature: Retro
       thinking aloud has no such limit
     And nothing on the screen offers the analysis to memory: from the moment it is written the
       Sprint is owed to memory, and memory takes it in on its own (MEM-RETRO-011)
+
+  Scenario: RT-TIME-009 — A Sprint that ends with Time tracking on keeps its time
+    Given a Sprint that ends while Time tracking is on in the Profile, some of its finished Actions carrying a time
+    Then its record keeps that Time tracking was on, and how long the active day was, from the Morning time to the Diary time
+    And the minutes of the finished Actions that carry a time, how many of them carry one and their effort; the minutes, the Actions with a time and their effort by Category and by Energy type; and the 3 longest by title and minutes (LONGEST_SHOWN = 3)
+    And an Action with two Categories counts in both, and one with none counts as none, as effort does
+    And a time recorded after the Sprint ended changes nothing in its record
+    And a Sprint that ends while Time tracking is off keeps no time, and neither does one that ended before its record could
+
+  Scenario: RT-TIME-010 — The retro shows how the Sprint's time went
+    Given a Sprint that ended while Time tracking was on
+    Then its retro screen has a Time section after the Actions, whether Time tracking is on or off now
+    And it shows the time in all, a day on average over the Sprint's days, and that day as a share of the active day
+    And the effort points an hour, and how many of the finished Actions carry a time out of all of them
+    And for each Category and each Energy type with a time: the time, its share of the time, the time per Action and the effort points an hour
+    And the 3 longest Actions by title and time
+    And every average and every rate is over the Actions that carry a time
+    And a Sprint that ended while Time tracking was off has no Time section
+
+  Scenario: RT-TIME-011 — The analysis reads how much of the active day was tracked, and nothing else of time
+    Given the Sprints the analysis compares (RT-AI-006)
+    Then the question about their totals and criteria gives each Sprint that ended with Time tracking on its share of the active day tracked, on average, and each other one as not tracked
+    And the model is asked to set that share beside how each Sprint went
+    And with no compared Sprint tracked, the question says nothing of time
+    And no other number of time reaches the analysis

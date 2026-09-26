@@ -25,7 +25,7 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
 ## The Card tree, and what is derived
 
 - A Goal is created root-level, and a Goal placed under a Goal becomes a Subgoal; a Subgoal is
-  always under a Goal; an Action may be root or under Goal/Subgoal and has no children. **Stage**, effort, repeat, categories, energy and **Blocked** belong to an
+  always under a Goal; an Action may be root or under Goal/Subgoal and has no children. **Stage**, effort, time spent, repeat, categories, energy and **Blocked** belong to an
   Action alone, and are stripped for Goal/Subgoal at both the AI and the domain boundary. A
   Card's parent is set by proposal only; no screen offers the control, which is why no screen
   offers Subgoal as a kind either.
@@ -38,11 +38,11 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
   own derived values, so the recursion reaches the Actions, and a child that never started still
   counts: a Subgoal with nothing in it is in Backlog and holds its Goal there.
 - `propagate_ancestors` is the one walk that writes it, into the plain `effective_stage`, `blocked`,
-  `effort_points` and `archived_at` columns, so Safwa reads one column that means the same thing on
-  every row. Every path that changes an Action ends there.
+  `effort_points`, `tracked_mins` and `archived_at` columns, so Safwa reads one column that means
+  the same thing on every row. Every path that changes an Action ends there.
 - A parent with nothing under it shows Backlog and never Done, and it has no
-  `blocked_description` of its own. Summing `effort_points` over every row counts each Action again
-  inside every ancestor — a real total says `WHERE kind = 'action'`.
+  `blocked_description` of its own. Summing `effort_points` or `tracked_mins` over every row counts
+  each Action again inside every ancestor — a real total says `WHERE kind = 'action'`.
 - `manual_stage` is what the user set, and it is an Action's alone; `effective_stage` is what
   dashboards and queries read.
 - Effort is restricted to `EFFORT_POINTS` and required for Actions; the `Literal` in
@@ -51,6 +51,12 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
   `EFFORT_RUNGS` is that wording, read by the effort selector and by the tool's field
   description alike. The column is a float because 0.5 is a rung; recovery does not add
   up, so a Sprint total is a load signal of the right order and never a percentage base.
+- **Time spent** (`tracked_mins`) is the minutes the owner says an Action took, 1 to
+  `TRACKED_MINS_MAX`, shown as hours and minutes by `minutes_label`. It is optional and never
+  written on creation. The column and the `card` tool field always exist, because the prompt
+  prefix cannot follow a Profile setting; **Time tracking** in the Profile governs only the
+  "⌛ Time spent" button, whether a closing Sprint keeps its time for the retro, and the
+  question after Done. A finished repeat takes its own time and no other change.
 
 ## Checks
 

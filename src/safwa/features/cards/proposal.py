@@ -77,6 +77,7 @@ STAGE_ACTIONS = frozenset(
 
 ACTION_ONLY_FIELDS = (
     "effort_points",
+    "tracked_mins",
     "repeatable",
     "categories",
     "energy_types",
@@ -95,6 +96,7 @@ CARD_SCALAR_FIELDS = frozenset(
         "blocked",
         "blocked_description",
         "effort_points",
+        "tracked_mins",
         "repeatable",
     }
 )
@@ -332,7 +334,12 @@ class CardProposalHandler:
         self, context: PreparationContext, change: Any
     ) -> PreparedChange:
         card, expected_version = await require_target(context, change, Card)
-        if card is not None:
+        # The time an Action took belongs to the instance that was finished: its successor
+        # was copied without one, so a closed repeat takes that and nothing else.
+        time_only = change.action is ChangeAction.UPDATE and set(change.values) == {
+            "tracked_mins"
+        }
+        if card is not None and not time_only:
             refusal = await closed_repeat_refusal(context.session, card, change.entity)
             if refusal is not None:
                 raise ToolPreparationError(*refusal)
@@ -428,7 +435,12 @@ class CardProposalHandler:
         if change.action is ChangeAction.MOVE:
             await _apply_stage_change(session, card, CardStage(change.values["stage"]))
         elif change.action is ChangeAction.COMPLETE:
-            await finish_action(session, card.id, actor=ActorType.AI)
+            await finish_action(
+                session,
+                card.id,
+                actor=ActorType.AI,
+                tracked_mins=change.values.get("tracked_mins"),
+            )
         elif change.action is ChangeAction.REOPEN:
             await _apply_stage_change(
                 session, card, CardStage(change.values.get("stage", CardStage.BACKLOG.value))

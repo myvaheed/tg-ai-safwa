@@ -324,3 +324,33 @@ Feature: Cards
     And the next instance of a finished repeating Action is another Action, with mornings of its own
     And the list is read when the question is about to be said: one that has left Today by then is left out
     And a day is the workspace's local day
+
+  Scenario: CD-TIME-039 — An Action may carry the minutes it took
+    Given an Action "Write the report", and Time tracking on in the Profile
+    When the owner records 331 minutes on it, typed as "331", "5:31" or "5h 31m" under "⌛ Time spent" in its full editing
+    Then the Card carries 331 minutes, and its screen shows "5h 31m", compact and full alike; a whole hour shows as "2h", and less than an hour as "45m"
+    And Safwa may propose the time on an existing Action, or with finishing it, in one proposal, whether Time tracking is on or off
+    And a Card that carries a time shows it whether Time tracking is on or off
+    And a new Card is not written with a time
+    And a whole number of minutes from 1 through 1440 is accepted (TRACKED_MINS_MAX = 1440), and anything else is refused, the Card keeping what it had
+    And "off" typed on the screen, or a proposal sending none, takes the time away
+    And a time on a Goal or a Subgoal is refused
+    When a repeating Action carrying a time is finished
+    Then the Action that takes its place carries none
+    And reopening an Action keeps its time, and an archived one's time cannot be changed
+
+  Scenario: CD-TIME-040 — A Goal shows the time of the Actions under it
+    Given a Goal with two Actions under it, of 30 and 45 minutes, and a third with no time
+    Then the Goal shows 1h 15m, and so does a Subgoal between them for its own branch
+    And an archived Action's time still counts
+    And a Goal with no time on any Action under it shows none
+
+  Scenario: CD-TIME-041 — After an Action is finished without its time, Safwa asks how long it took
+    Given Time tracking is on in the Profile, and so is the Time tracking reminder
+    When an Action with no time is finished — by hand or by a proposal the owner saved — and the chat is free
+    Then the Advisor is asked once to ask how long it took and, if the owner says, to record it on that Action
+    And two Actions finished before it is said make one question about both
+    And an Action reopened, archived, deleted or given a time before then is left out, and a question with nothing in it is not asked
+    And an Action finished with its time in the same proposal asks nothing
+    And for a repeating Action the question is about the instance that was finished, not the open one after it, and its time is the one change Safwa may propose on that finished instance
+    But with Time tracking off, or the reminder switched off, nothing is asked, and a question not yet said is not said

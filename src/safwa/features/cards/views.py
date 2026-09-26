@@ -38,7 +38,7 @@ AI_CARDS = SqlView(
                  || CASE WHEN c.archived_at IS NULL THEN '' ELSE '{ARCHIVE_MARKER}' END AS title,
                c.note, c.kind, c.effective_stage AS stage, c.priority,
                c.hard_time_at, c.hard_time_description, c.blocked, c.blocked_description,
-               c.effort_points, c.repeatable, c.parent_id,
+               c.effort_points, c.tracked_mins, c.repeatable, c.parent_id,
                COALESCE(c.repeat_series_id, c.id) AS series_id,
                (SELECT group_concat(cc.category, ',') FROM card_categories cc
                 WHERE cc.card_id=c.id) AS categories,
@@ -50,13 +50,14 @@ AI_CARDS = SqlView(
                 JOIN tags t ON t.id=ct.tag_id WHERE ct.card_id=c.id) AS direct_tags,
                c.created_at, c.updated_at
         FROM cards c""",
-    doc="""- `ai_cards(id, title, note, kind, stage, priority, hard_time_at, hard_time_description, blocked, blocked_description, effort_points, repeatable, parent_id, series_id, categories, energy_types, direct_values, direct_tags, created_at, updated_at)`
+    doc="""- `ai_cards(id, title, note, kind, stage, priority, hard_time_at, hard_time_description, blocked, blocked_description, effort_points, tracked_mins, repeatable, parent_id, series_id, categories, energy_types, direct_values, direct_tags, created_at, updated_at)`
   - `kind` goal | subgoal | action
   - `stage` backlog | sprint | today | done
   - `priority` critical | medium | low
   - `effort_points` 0.5 | 1 | 2 | 3 | 5 | 8 | 13, what one action costs the user
-  - on a goal or a subgoal, `stage`, `blocked` and `effort_points` are what the cards under it add up to
-  - to total effort always add `WHERE kind = 'action'`, or each action is counted again inside every parent
+  - `tracked_mins` is the minutes the user spent on an action, NULL when not recorded
+  - on a goal or a subgoal, `stage`, `blocked`, `effort_points` and `tracked_mins` are what the cards under it add up to
+  - to total effort or time always add `WHERE kind = 'action'`, or each action is counted again inside every parent
   - `categories` self | contribution | work | rest
   - `energy_types` physical | cognitive | social | values
   - `hard_time_at` is when the card must happen, UTC, NULL when nothing fixes it; `hard_time_description` says what fixes it

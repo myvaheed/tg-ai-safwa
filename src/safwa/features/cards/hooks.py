@@ -1,8 +1,9 @@
-"""What the Cards ask the Advisor to raise on their own: a blocker just set, a day loaded
-past what it is meant to hold, a Sprint started without a kind of energy the Backlog has,
-an Action found in Today morning after morning, and — each morning, and when a Sprint
-starts — the Goals and Subgoals that still have no Action under them, the Hard Times the
-plan does not hold, and a day planned without the rest the Sprint holds.
+"""What the Cards ask the Advisor to raise on their own: a blocker just set, an Action
+finished without the time it took, a day loaded past what it is meant to hold, a Sprint
+started without a kind of energy the Backlog has, an Action found in Today morning after
+morning, and — each morning, and when a Sprint starts — the Goals and Subgoals that still
+have no Action under them, the Hard Times the plan does not hold, and a day planned without
+the rest the Sprint holds.
 
 The mornings themselves are written down by work of its own on the same tick, on whether
 or not the question about them is switched off."""
@@ -28,7 +29,7 @@ from tg_agent_shell.hooks.contracts import (
 )
 
 from ..planning.api import SPRINT_STARTED, active_sprint_end_date, sprint_is_active
-from ..profile.api import morning_time
+from ..profile.api import TIME_TRACKING_REMINDER, morning_time
 from .api import HARD_TIME_NOTICE_DAYS, PLANNED_STAGES, actions_on_stages
 from .hard_time import workspace_zone
 from .hierarchy import branch_actions
@@ -45,7 +46,13 @@ from .model import (
     TodayDay,
     effort_label,
 )
-from .use_cases import CARD_BLOCKED, CARD_TODAY, CARD_TODAY_MORNING, record_today_morning
+from .use_cases import (
+    CARD_BLOCKED,
+    CARD_DONE,
+    CARD_TODAY,
+    CARD_TODAY_MORNING,
+    record_today_morning,
+)
 
 # How old a Goal or a Subgoal is before having no Action under it is worth a question.
 EMPTY_PARENT_GRACE_DAYS = 1
@@ -89,6 +96,13 @@ BLOCKER_REQUEST = (
     "Blocked since we last spoke:\n{cards}\n"
     "Ask the user whether to set a Reminder to come back to each; if they want one, agree "
     "when and propose it. Do not create anything without their answer."
+)
+
+TIME_TRACKING_REQUEST = (
+    "Finished without the time they took:\n{cards}\n"
+    "Ask the user in one message how long each took. If they tell you, route to "
+    "workspace_mutator to record it on that exact Card, not on its open repeat. "
+    "If they do not know, leave it."
 )
 
 ENERGY_BALANCE_REQUEST = (
@@ -151,6 +165,46 @@ BLOCKER_HOOK = HookSpec(
     effect=Advise(prepare=blocker_request),
     title="Blocker follow-up",
     description="After an Action is blocked, asks whether to set a Reminder to come back to it.",
+)
+
+
+async def finished_cards(event: Committed) -> tuple[int, ...]:
+    return (event.subject_id,)
+
+
+async def time_tracking_request(session: AsyncSession, items: Sequence[int]) -> str | None:
+    """The request about the Actions still Done, not archived and without a time, or nothing."""
+    cards = list(
+        await session.scalars(
+            select(Card)
+            .where(
+                Card.id.in_([int(item) for item in items]),
+                Card.kind == CardKind.ACTION.value,
+                Card.effective_stage == CardStage.DONE.value,
+                Card.archived_at.is_(None),
+                Card.tracked_mins.is_(None),
+            )
+            .order_by(Card.id)
+        )
+    )
+    if not cards:
+        return None
+    lines = "\n".join(
+        f"- #{card.id} «{card.title}» ({effort_label(card.effort_points)} EP)" for card in cards
+    )
+    return TIME_TRACKING_REQUEST.format(cards=lines)
+
+
+# Silent while Time tracking is off in the Profile, whatever its own switch says:
+# `hook_switched_on` answers for it.
+TIME_TRACKING_REMINDER_HOOK = HookSpec(
+    name=TIME_TRACKING_REMINDER,
+    owner="cards",
+    on=(OnCommitted(kind=CARD_DONE),),
+    evaluate=finished_cards,
+    effect=Advise(prepare=time_tracking_request),
+    title="Time tracking reminder",
+    description="After an Action is Done without its time, asks how long it took.",
 )
 
 
