@@ -93,6 +93,9 @@ class Settings(BaseSettings):
     asr_device: str = Field(default="auto", pattern=r"^(auto|cpu|cuda)$")
     asr_compute_type: str = ""
     asr_log_timing: bool = True
+    # Photos. Off, a photo gets one plain reply. On, the AI model must read images: it
+    # labels each photo as it arrives and looks at one again when asked.
+    image_input: bool = False
     timezone: str = "Europe/Istanbul"
     summary_trigger_tokens: int = SUMMARY_TRIGGER_TOKENS
     token_chars_estimate: float = TOKEN_CHARS_ESTIMATE

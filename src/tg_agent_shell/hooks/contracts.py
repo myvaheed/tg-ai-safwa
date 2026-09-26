@@ -86,16 +86,26 @@ class ProposedCall:
 
 
 @dataclass(frozen=True, slots=True)
+class SessionRead:
+    """One call of the session's own read tools, and what came back, as the model read it."""
+
+    tool: str
+    result: str
+
+
+@dataclass(frozen=True, slots=True)
 class BeforeProposals:
     """A subagent response carried calls that would become proposals, and none is prepared.
 
-    `text` is the words of that response, where a subagent writes its plan.
+    `text` is the words of that response, where a subagent writes its plan. `reads` is what
+    the session read with its own read tools before it, oldest first.
     """
 
     run_id: int
     agent_kind: str
     text: str
     calls: tuple[ProposedCall, ...]
+    reads: tuple[SessionRead, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

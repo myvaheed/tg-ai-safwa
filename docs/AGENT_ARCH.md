@@ -115,7 +115,7 @@ wallets and entries, with none of Safwa's nouns in it.
 | the container every handler reads | `Services`, filled from the registry | `bootstrap/main.py` |
 | the home screen | exactly one `ScreenCommand` with `nav=HOME_NAV` | the `home` feature |
 | a restart | `recover_startup(session, registry.recovery)` | called once the hooks are bound, before polling starts, so what recovery ends is handed on |
-| photos, if it takes them | a `MediaLibrary` on `Services.media` and `AgentContext.media`, and the media `MODULE` among its features | none yet |
+| photos, if it takes them | a `MediaLibrary` on `Services.media`, `AgentContext.media` and `root_session(media=…)`, and the media `MODULE` among its features | none yet |
 | a shutdown | cancel the background tasks, close the provider and the bot | the polling `finally` |
 
 Everything else is the application's own: the persona, the provider, the product dependencies,
@@ -637,15 +637,19 @@ flowchart LR
   never as a Telegram link, which carries the bot's token.
 - Where `Services.media` is None a photo is refused with one line and nothing is answered
   (`TG-OFF-021`).
+- The root session is given `relook` by `root_session(media=…)`: a second look at one photo, for
+  a question its label leaves open, answered in words. Without a library there is no such tool,
+  so a model that cannot read images is never handed one (`TG-RELOOK-022`).
 
-**What an application writes.** A reader that needs more than the label is given a read tool
+**What an application writes.** A subagent that needs more than the label is given a read tool
 made for its task with `media_read_tool`: the task is its `instructions`, it takes the number from
 the label, and it answers in words, as long as the task needs. The example's bookkeeper has
 `read_receipt`, which lists a receipt's lines and its total; nothing else in a session ever sees
 the photo (`TG-SIGHT-020`). A screen that shows photos draws them with `send_photo_screen`: an
 album of up to `TELEGRAM_ALBUM_LIMIT = 10` above its words and buttons, kept with the screen's kind
 so the next screen takes it away. It sends Telegram's own `file_id`, and the kept file when
-Telegram no longer knows it (`SC-ALBUM-010`).
+Telegram no longer knows it (`SC-ALBUM-010`). The root session's own reads beside `relook` are
+`root_session(read_tools=…)`; the shell answers them as it answers a subagent's.
 
 ## Memory
 

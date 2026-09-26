@@ -8,7 +8,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Literal, Protocol
 from zoneinfo import ZoneInfo
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, PositiveInt, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -16,13 +16,24 @@ from llm_gateway import ToolCall
 from tg_agent_shell.ai.contracts import ToolInput, ToolResultStatus
 from tg_agent_shell.ai.mini import ReadToolSpec
 from tg_agent_shell.foundation.clock import Clock, SystemClock
+from tg_agent_shell.media.library import DESCRIPTION_MAX_WORDS, media_label
 from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
 
 from ...constants import WEEKDAY_NAMES
-from .model import DiaryEntry
+from .model import DiaryEntry, DiaryMedia
 
 DIARY_DAY_TOKEN_BUDGET = 12_000
+
+
+class DiaryMediaInput(ToolInput):
+    """One photo put on a day."""
+
+    media_id: PositiveInt = Field(description="N from the photo's [words](media:N) label.")
+    meta: str = Field(
+        description=f"At most {DESCRIPTION_MAX_WORDS} words: what the photo shows, as the user "
+        "names it."
+    )
 
 
 class DiaryToolInput(ToolInput):
@@ -34,7 +45,10 @@ class DiaryToolInput(ToolInput):
     date: str = Field(description="The day this settles, as YYYY-MM-DD.")
     pov: str | None = Field(
         default=None,
-        description="With update: that whole day in the user's voice. It replaces the saved entry.",
+        description=(
+            "With update: that whole day in the user's voice. It replaces the saved words. "
+            "Omit it to keep them."
+        ),
     )
     remark: str | None = Field(
         default=None,
@@ -48,6 +62,12 @@ class DiaryToolInput(ToolInput):
             "With update: how the day felt, 0-10. Omit it to keep the score already saved."
         ),
     )
+    add_media: list[DiaryMediaInput] | None = Field(
+        default=None, description="With update: photos to put on that day."
+    )
+    remove_media: list[PositiveInt] | None = Field(
+        default=None, description="With update: N of each photo to take off that day."
+    )
 
     @field_validator("date")
     @classmethod
@@ -59,25 +79,42 @@ class DiaryToolInput(ToolInput):
 
     @model_validator(mode="after")
     def entry_needs_its_text(self) -> DiaryToolInput:
-        if self.mode == "update" and not (self.pov or "").strip():
-            raise ValueError("pov is the day itself and is required to write one")
-        if self.mode == "delete" and (self.pov or self.feeling_score is not None):
+        if self.mode == "update" and not (
+            (self.pov or "").strip() or self.add_media or self.remove_media
+        ):
+            raise ValueError("An update carries pov, add_media or remove_media")
+        if self.mode == "delete" and (
+            self.pov
+            or self.feeling_score is not None
+            or self.add_media
+            or self.remove_media
+        ):
             raise ValueError("A deletion carries only mode and date")
         return self
 
 
-DIARY_PROMPT = """You keep the user's Diary. One day, one entry, in their own voice.
+DIARY_PROMPT = f"""You keep the user's Diary. One day, one entry, in their own voice.
 
 1. Pick the day: today, unless the user names another.
-2. Read it with `read_day(date)`: that day's conversation, and the entry already saved for it.
+2. Read it with `read_day(date)`: that day's conversation, and the words and photos already
+   saved for it.
 3. In the response with the `diary` tool, write your plan as text: what you will write or
    remove.
 4. The `diary` tool, in that same response:
    - `diary(mode="update", date=…, pov=…, remark=…, feeling_score=…)` — whether or not that day
-     is written already. Fold in the saved entry: your `pov` replaces it, so what you leave out of
-     `pov` is lost. `feeling_score` is the one exception — see below.
+     is written already. Fold in the saved words: your `pov` replaces them, so what you leave out
+     of `pov` is lost. `feeling_score` is the one exception — see below.
    - `diary(mode="delete", date=…)` — the user asked for that day to go.
    If your sources do not make the day writable, say in one sentence what is missing instead.
+
+# Photos
+A photo the user sent reads as `[words](media:N)`, then their caption if they wrote one.
+- A photo with no caption: `diary(mode="update", date=…, add_media=[{{"media_id": N, "meta": "…"}}])`
+  and nothing more. No `pov`, no `remark`: a photo is not words of the user's, and the saved words
+  stay.
+- A caption that says something about the day: put the photo on it and write `pov` too.
+- `meta`: at most {DESCRIPTION_MAX_WORDS} words, what the photo shows, as the user names it.
+- Take one off the day: `remove_media=[N]`.
 
 # pov
 `pov` is the day itself, and only the user speaks in it: first person, their words, their language.
@@ -108,8 +145,8 @@ READ_DAY_TOOL: dict[str, Any] = {
     "function": {
         "name": "read_day",
         "description": (
-            "One day: the user's conversation with Safwa, oldest first, and the Diary entry "
-            "already saved for it."
+            "One day: the user's conversation with Safwa, oldest first, and the Diary words "
+            "and photos already saved for it."
         ),
         "parameters": {
             "type": "object",
@@ -143,7 +180,8 @@ def day_read_tool(
     clock: Clock | None = None,
 ) -> ReadToolSpec:
     """`read_day` bound to one chat: the day as the owner and Safwa actually spoke it, and
-    what is saved for it, which a rewrite replaces whole (DI-READ-013)."""
+    what is saved for it — the words a rewrite replaces whole, and the photos by their labels
+    (DI-READ-013)."""
     tz = ZoneInfo(timezone)
     current_clock = clock or SystemClock()
 
@@ -171,14 +209,27 @@ def day_read_tool(
             entry = await session.scalar(
                 select(DiaryEntry).where(DiaryEntry.entry_date == day)
             )
+            photos = (
+                [
+                    media_label(row.media_id, row.meta)
+                    for row in await session.scalars(
+                        select(DiaryMedia)
+                        .where(DiaryMedia.entry_id == entry.id)
+                        .order_by(DiaryMedia.id)
+                    )
+                ]
+                if entry
+                else []
+            )
+        saved: dict[str, Any] | str = "Nothing is saved for that day yet."
+        if entry:
+            saved = {"body": entry.body, "feeling_score": entry.feeling_score}
+            if photos:
+                saved["media"] = photos
         return {
             "date": day.isoformat(),
             "conversation": transcript or "The user said nothing to Safwa that day.",
-            "saved": (
-                {"body": entry.body, "feeling_score": entry.feeling_score}
-                if entry
-                else "Nothing is saved for that day yet."
-            ),
+            "saved": saved,
         }
 
     return ReadToolSpec(READ_DAY_TOOL, read_day)

@@ -556,6 +556,7 @@ async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
         [
             "Переименовал.",
             turn(("route", {"name": "diary"})),
+            turn(("read_day", {"date": TODAY}), prefix="read"),
             turn(("diary", {"mode": "update", "date": TODAY, "pov": "Готовил пиццу."})),
         ]
     )
@@ -725,9 +726,11 @@ async def test_saving_finishes_the_subagent_and_the_next_route_starts_fresh(e2e_
     advisor, provider = e2e_harness.advisor(
         [
             turn(("route", {"name": "diary"})),
+            turn(("read_day", {"date": TODAY}), prefix="read"),
             turn(("diary", DIARY_DRAFT), prefix="diary"),
             "Записал день.",
             turn(("route", {"name": "diary"}), prefix="again"),
+            turn(("read_day", {"date": TODAY}), prefix="reread"),
             turn(("diary", {**DIARY_DRAFT, "pov": "И ещё одно."}), prefix="second"),
         ],
         subagents=(diary_subagent(e2e_harness),),

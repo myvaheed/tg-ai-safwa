@@ -83,7 +83,8 @@ MANUAL = """# Safwa
 - In words only: ask the Advisor to write, rewrite or delete a day. It shows the day for Save.
 - Ask what was done on a day or over a week: Safwa reads the log of changes and names each item created, changed or deleted. When there are many, it counts them and asks which to list.
 - At the Diary time Safwa offers to write the day up. The retro reads the Diary.
-- A day opens from its link. No screen edits a day by hand.
+- A day opens from its link, its photos above its words. No screen edits a day by hand.
+- A photo sent with no words, or with words about the day, goes to the Diary: Safwa shows it for Save on today, or on the day named. A day holds up to 10 photos.
 
 # Reminders
 - A Reminder is words and a time. When it fires, its words come to the Advisor as a request, and the Advisor answers them.
@@ -104,6 +105,7 @@ MANUAL = """# Safwa
 - The menu, /start: "☀️ Today", "🏃 Sprint", "📚 Backlog", "➕ Add", "💎 Values", "🏷 Tags", "⚙️ Profile", "⏰ Reminders", "🔎 Requests".
 - Commands: /start, /today, /sprint, /values, /tags, /reminders, /requests, /memory, /status for the workspace mode, /summarize to fold the conversation into a Summary now, /cancel to stop an answer being written.
 - A voice message is transcribed and answered like text.
+- A photo is read as a few words when it arrives, when image input is on. Asked what a photo shows, Safwa looks at it again. A link to a photo opens it.
 - A link in an answer opens its item."""
 
 ONBOARDING_PROMPT = f"""You explain Safwa to the user from the manual below. You read no data.

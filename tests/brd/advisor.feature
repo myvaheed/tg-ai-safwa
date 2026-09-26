@@ -43,3 +43,9 @@ Feature: Advisor
     When a read would bring back more than 20 rows (LOG_EVENTS_SHOWN = 20)
     Then 20 come back, and Safwa is told the rest were left out, to count them by kind of change
       and kind of item, and to ask the owner which to list
+
+  Scenario: AD-PHOTO-005 — A photo goes to the Diary, a question about one is answered
+    Given the owner sends a photo with no words, or with words about their day
+    Then Safwa hands it to the Diary
+    But when the owner asks what a photo shows
+    Then Safwa looks at it again itself and answers in words, handing it to no one

@@ -20,6 +20,7 @@ from tg_agent_shell.cues.initiatives import bind_committed
 from tg_agent_shell.foundation.database import Database, upgrade_database
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.history import TelegramHistorySource, TelegramNotes
+from tg_agent_shell.media.library import MediaLibrary
 from tg_agent_shell.recovery import recover_startup
 from tg_agent_shell.similarity import SIMILAR_MODEL, FastEmbedEncoder, Similarity
 from tg_agent_shell.telegram import (
@@ -208,6 +209,9 @@ async def run(settings: Settings) -> None:
         citation_types=SCREENS.types,
         timezone=settings.timezone,
     )
+    media = MediaLibrary(database.sessions, provider) if settings.image_input else None
+    if media is not None:
+        logger.info("Image input enabled: %s reads the photos", settings.ai_model)
     # The advisor is built after the history source because a subagent reads through it.
     advisor = REGISTRY.root_session(
         database.sessions,
@@ -228,9 +232,11 @@ async def run(settings: Settings) -> None:
                 query_runner=query_runner,
                 history=history,
                 sessions=database.sessions,
+                media=media,
             )
         ),
         helpers=REGISTRY.helper_ports(provider, query_runner),
+        media=media,
     )
     summary = DialogueSummary(
         history,
@@ -296,6 +302,7 @@ async def run(settings: Settings) -> None:
         bot_username=settings.telegram_bot_username,
         transcriber=transcriber,
         similarity=similarity,
+        media=media,
     )
     # A commit's facts reach the hooks from here on, with the features a Run reaches for;
     # what recovery ends — a Sprint whose midnight Safwa slept through — is handed on too.

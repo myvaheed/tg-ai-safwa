@@ -152,15 +152,25 @@ async def send_photo_screen(
 
     An album cannot be put above a message already in the chat, so a screen this one
     replaces is taken out and the whole screen is drawn below. Each photo is kept with the
-    screen's kind, so the next screen takes the album away with the words.
+    screen's kind, so the next screen takes the album away with the words. A screen with no
+    photos is an ordinary one, replaced in place.
     """
+    if not media_ids:
+        return await send_registered(
+            message,
+            services,
+            text,
+            kind=kind,
+            markup=markup,
+            related_id=related_id,
+            replace=replace,
+        )
     should_replace = (
         bool(message.from_user and message.from_user.is_bot) if replace is None else replace
     )
     if should_replace:
         await services.chat.remove_screen(message, message.message_id)
-    if media_ids:
-        await send_media(message, services, media_ids, kind=kind, related_id=related_id)
+    await send_media(message, services, media_ids, kind=kind, related_id=related_id)
     return await send_registered(
         message,
         services,

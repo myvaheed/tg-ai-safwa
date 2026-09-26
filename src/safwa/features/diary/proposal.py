@@ -1,7 +1,8 @@
 """How a proposed Diary day is checked and then written.
 
 A Diary change names its date, never an id: preparation resolves the day and settles
-whether the change creates it, replaces it or removes it.
+whether the change creates it, replaces it or removes it, and whether the photos it puts
+on the day and takes off it fit there.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from datetime import date as calendar_date
 from typing import Any
 
 from tg_agent_shell.foundation.errors import DomainError, StaleStateError
+from tg_agent_shell.media.library import ChatMedia
 from tg_agent_shell.proposals.api import (
     ApplyContext,
     ChangeAction,
@@ -22,7 +24,9 @@ from tg_agent_shell.proposals.api import (
 
 from .model import DiaryEntry
 from .use_cases import (
+    DIARY_DAY_PHOTOS,
     create_diary_entry,
+    day_media,
     delete_diary_entry,
     diary_entry_for,
     update_diary_entry,
@@ -70,24 +74,77 @@ class DiaryProposalHandler:
             # score they already have.  Resolved here so the review screen shows what Save
             # will actually store.
             score = saved.feeling_score
+        added, removed = await self._resolve_media(context, saved, entry_date, values)
         change.values = {
             "entry_date": entry_date.isoformat(),
-            "body": str(values.get("pov") or ""),
+            # None leaves the words already saved for that day.
+            "body": values.get("pov"),
             "feeling_score": score,
             "remark": str(values.get("remark") or ""),
+            **({"add_media": added} if added else {}),
+            **({"remove_media": removed} if removed else {}),
         }
+
+    async def _resolve_media(
+        self,
+        context: PreparationContext,
+        saved: DiaryEntry | None,
+        entry_date: calendar_date,
+        values: dict[str, Any],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """The photos a change puts on the day and takes off it, each by number and words."""
+        day = entry_date.isoformat()
+        on_day = (
+            {row.media_id: row.meta for row in await day_media(context.session, saved.id)}
+            if saved is not None
+            else {}
+        )
+        removed: list[dict[str, Any]] = []
+        for media_id in dict.fromkeys(int(number) for number in values.get("remove_media") or ()):
+            if media_id not in on_day:
+                raise ToolPreparationError(
+                    "media_not_on_day",
+                    f"Photo {media_id} is not on {day}.",
+                    "Take off only a photo read_day lists for that day.",
+                )
+            removed.append({"media_id": media_id, "meta": on_day[media_id]})
+        added: dict[int, dict[str, Any]] = {}
+        for item in values.get("add_media") or ():
+            media_id = int(item["media_id"])
+            if await context.session.get(ChatMedia, media_id) is None:
+                raise ToolPreparationError(
+                    "media_not_found",
+                    f"No photo has the number {media_id}.",
+                    "Use N from a photo's [words](media:N) label in the conversation.",
+                )
+            if media_id in on_day and media_id not in {item["media_id"] for item in removed}:
+                raise ToolPreparationError(
+                    "media_already_on_day",
+                    f"Photo {media_id} is already on {day}.",
+                    "Leave it out of add_media.",
+                )
+            added.setdefault(media_id, {"media_id": media_id, "meta": str(item["meta"]).strip()})
+        if len(on_day) - len(removed) + len(added) > DIARY_DAY_PHOTOS:
+            raise ToolPreparationError(
+                "day_full",
+                f"{day} holds {len(on_day)} photos, and a day holds at most {DIARY_DAY_PHOTOS}.",
+                "Tell the user that day is full. Put the photo on it only once they take one off.",
+            )
+        return list(added.values()), removed
 
     async def apply(self, context: ApplyContext, change: ProposalChange) -> list[int]:
         session = context.session
         values = dict(change.values)
         entry_date = calendar_date.fromisoformat(str(values["entry_date"]))
         feeling_score = values.get("feeling_score")
+        added = [(item["media_id"], item["meta"]) for item in values.get("add_media") or ()]
         if change.action is ChangeAction.CREATE:
             entry = await create_diary_entry(
                 session,
                 entry_date=entry_date,
-                body=str(values.get("body", "")),
+                body=values.get("body"),
                 feeling_score=feeling_score,
+                media=added,
             )
             return [entry.id]
         if change.action not in {ChangeAction.UPDATE, ChangeAction.DELETE}:
@@ -100,6 +157,11 @@ class DiaryProposalHandler:
             await delete_diary_entry(session, entry_id)
         else:
             await update_diary_entry(
-                session, entry_id, str(values.get("body", "")), feeling_score
+                session,
+                entry_id,
+                values.get("body"),
+                feeling_score,
+                add_media=added,
+                remove_media=[item["media_id"] for item in values.get("remove_media") or ()],
             )
         return [entry_id]

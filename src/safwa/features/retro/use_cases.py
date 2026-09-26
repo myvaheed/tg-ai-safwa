@@ -95,7 +95,7 @@ async def analysis_input(session: AsyncSession, sprint_id: int) -> AnalysisInput
     columns = tuple(_column(row) for row in [*await sprints_before(session, sprint), sprint])
     this = columns[-1]
     diary = {
-        day: DiaryDay(day=day, score=entry.feeling_score, body=entry.body)
+        day: DiaryDay(day=day, score=entry.feeling_score, body=entry.body or "")
         for day, entry in (await diary_between(session, this.first, this.last)).items()
     }
     return AnalysisInput(sprints=columns, diary=diary)

@@ -41,7 +41,13 @@ from ..ai.tools import (
     response_text,
 )
 from ..foundation.errors import DomainError
-from ..hooks.contracts import AfterRequest, BeforeProposals, HoldAnswer, ProposedCall
+from ..hooks.contracts import (
+    AfterRequest,
+    BeforeProposals,
+    HoldAnswer,
+    ProposedCall,
+    SessionRead,
+)
 from .api import ProposalRegistry, ToolPreparationError
 from .model import AUTO_SAVED_RECEIPT, BatchDecision, ProposalChange
 from .prepare import ChangePreparer
@@ -287,6 +293,11 @@ class ProposalMaterializer:
                     values=dict(tool.change.values),
                 )
                 for tool in mutation_tools
+            ),
+            reads=tuple(
+                SessionRead(tool=message["name"], result=str(message.get("content") or ""))
+                for message in agent.messages
+                if message.get("role") == "tool" and message.get("name") in agent.read_specs
             ),
         )
         async for checked in hooks.evaluate(event, self.sessions):

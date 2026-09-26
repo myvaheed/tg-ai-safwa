@@ -191,6 +191,7 @@ class ToolAdapters:
         before_tool: tuple[BeforeTool, ...] = (),
         after_tool: tuple[AfterTool, ...] = (),
         hooks: HookRegistry | None = None,
+        read_tools: tuple[ReadToolSpec, ...] = (),
     ) -> None:
         self.sessions = sessions
         self.query_runner = query_runner
@@ -207,8 +208,12 @@ class ToolAdapters:
         # The root session reads and routes. Every mutation tool belongs to the
         # subagent that owns that feature, so judging *which* change to propose
         # happens where the change is authored. An empty roster means there is
-        # nothing to route to, so the tool is not offered.
-        reads = (QUERY_TOOL, open_tool(screens))
+        # nothing to route to, so the tool is not offered. The root's own reads are the
+        # application's, beside the two every root session has.
+        self.root_reads = {spec.name: spec for spec in read_tools}
+        if taken := sorted(IMMEDIATE_TOOLS & set(self.root_reads)):
+            raise RuntimeError(f"A root read tool takes the name of a shell tool: {taken}")
+        reads = (QUERY_TOOL, open_tool(screens), *(spec.schema for spec in read_tools))
         self.root_tools = (*reads, ROUTE_TOOL) if self.subagents else reads
         self.helpers = dict(helpers or {})
 
@@ -226,7 +231,10 @@ class ToolAdapters:
         routed = self.subagents.get(kind)
         if routed is None:
             return AgentDefinition(
-                kind=kind, tools=self.root_tools, helper_tool=CALL_HELPER_TOOL
+                kind=kind,
+                tools=self.root_tools,
+                helper_tool=CALL_HELPER_TOOL,
+                read_specs=self.root_reads,
             )
         # No helper tool: a helper is offered by a complex read, and only the root
         # session's reads are ever offered one.

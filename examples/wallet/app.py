@@ -61,6 +61,7 @@ SYSTEM_PROMPT = f"""{PERSONA}
 
 You answer in words. You never write to the ledger yourself: hand the turn over instead.
 A photo the user sent reads as `[words](media:N)`. A receipt photo is an entry to write.
+A question about what a photo shows: `relook(media_id=N, question=...)`, then answer.
 
 {REGISTRY.routes(lambda agent: f'- `route("{agent.name}")` — {agent.purpose}')}
 
@@ -153,6 +154,7 @@ def build_root_session(
         workspace_state=world_state(timezone),
         system_prompt=SYSTEM_PROMPT,
         model_name=model_name,
+        media=media,
         subagents=REGISTRY.subagents(
             AgentContext(
                 owner_id=owner_id,

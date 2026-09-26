@@ -30,9 +30,10 @@ Feature: Diary
     But 11 is refused
 
   Scenario: DI-DELETE-005 — An approved deletion takes the day away
-    Given 15.08.2026 reads "Есть что удалять.", rated 6
+    Given 15.08.2026 reads "Есть что удалять.", rated 6, and holds 1 photo
     When the owner approves deleting that day
-    Then nothing is written for that day any more
+    Then nothing is written for that day any more, and it holds no photos
+    And the photo is still in the chat
 
   Scenario: DI-DELETE-005 — Deleting a day that was never written says so, and Safwa can carry on
     Given nothing is written for 15.08.2026
@@ -96,6 +97,7 @@ Feature: Diary
     Given the Diary is asked to write a day
     When it reads that day
     Then it is handed that day's conversation, and the entry already saved for it if there is one
+    And the photos on that day, each by its words and its number
     And it is given nothing else to read
 
   Scenario: DI-MOOD-014 — Rewriting a day without naming a rating keeps the rating it had
@@ -115,3 +117,47 @@ Feature: Diary
     When a Summary was written in the middle of that day
     Then the whole day is read as it was spoken, and the Summary is not read at all
     And the day runs from midnight to midnight in the owner's timezone
+
+  Scenario: DI-PHOTO-017 — A photo the owner sends with no words is put up for today
+    Given the owner sends a photo with no words
+    When Safwa answers
+    Then one screen puts that photo on today, named in at most 5 words
+      (DESCRIPTION_MAX_WORDS = 5)
+    And the words already saved for today stay as they are
+    And nothing is in the Diary until the owner saves it
+
+  Scenario: DI-PHOTO-018 — Words sent with a photo reach the day's words
+    Given the owner sends a photo captioned "Отличный день в парке с Лейлой"
+    When Safwa answers
+    Then one screen puts the photo on today and rewrites today's words with what the caption said
+    And one Save saves both
+
+  Scenario: DI-PHOTO-019 — A day holds photos with no words written on it
+    Given nothing is written for 26.09.2026
+    When the owner saves a photo for that day
+    Then that day holds the photo and no words
+    And words written for that day later keep the photo
+
+  Scenario: DI-PHOTO-020 — A day holds at most 10 photos
+    Given 26.09.2026 holds 10 photos (DIARY_DAY_PHOTOS = 10)
+    When the Diary is asked to add one more
+    Then it answers that the day is full
+    And Safwa can act on that answer, rather than the turn ending there
+
+  Scenario: DI-PHOTO-021 — A photo taken off a day leaves the rest of the day
+    Given 26.09.2026 reads "День в парке." and holds 2 photos
+    When the owner approves taking one of them off
+    Then the day keeps its words and the other photo
+    And a day left with neither words nor photos is gone
+
+  Scenario: DI-PHOTO-022 — A day's screen shows its photos above its words
+    Given 26.09.2026 reads "День в парке.", rated 7, and holds 3 photos
+    When the owner opens that day
+    Then the 3 photos come as one album, with the date, the rating and the words below it
+    And the album goes when the next screen comes
+
+  Scenario: DI-READ-023 — A day's words are rewritten only after that day was read
+    Given the Diary sends new words for 26.09.2026 without having read that day
+    When Safwa checks them
+    Then they go back to the Diary, asking it to read that day first
+    And nothing is put up for the owner until it has read that day and sent them again

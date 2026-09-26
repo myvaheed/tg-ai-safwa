@@ -156,3 +156,10 @@ Feature: The conversation in Telegram
     When the owner sends a photo
     Then Safwa says image input is off
     And nothing is answered, and the photo is not in the conversation
+
+  Scenario: TG-RELOOK-022 — Safwa looks at a photo again only where it takes photos
+    Given the application takes photos
+    When the owner asks what a photo sent earlier shows
+    Then Safwa looks at that photo again and answers in words, with no subagent
+    And the photo itself does not enter the conversation
+    But where images are off, Safwa has no way to look at a photo

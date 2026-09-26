@@ -56,6 +56,7 @@ from tg_agent_shell.ai.contracts import (
 from tg_agent_shell.ai.messages import ContextBuilder, StateBlocks
 from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.foundation.models import Base as ShellBase
+from tg_agent_shell.media.library import relook_tool
 
 SNAPSHOTS = Path(__file__).parent / "snapshots"
 
@@ -233,6 +234,8 @@ def test_rule_i_prompt_prefix_is_byte_stable(request):
         "tool:route": _digest(json.dumps(ROUTE_TOOL, sort_keys=True)),
         "tool:query_data": _digest(json.dumps(QUERY_TOOL, sort_keys=True)),
         "tool:call_helper": _digest(json.dumps(CALL_HELPER_TOOL, sort_keys=True)),
+        # The schema names no photo, so it is read without a library to read one from.
+        "tool:relook": _digest(json.dumps(relook_tool(None).schema, sort_keys=True)),
     }
     # The instructions as assembled, not as written: `{views}` is filled in at import
     # time, so the raw constant is not what any subagent reads.

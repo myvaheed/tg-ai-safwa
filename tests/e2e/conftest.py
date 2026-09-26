@@ -32,6 +32,7 @@ from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS, HelperPort
 from tg_agent_shell.foundation.database import Database, upgrade_database
 from tg_agent_shell.hooks.contracts import HookSpec
 from tg_agent_shell.hooks.registry import HookRegistry
+from tg_agent_shell.media.library import MediaLibrary
 from tg_agent_shell.proposals.hooks import PLAN_HOOK, REQUEST_REVIEW_HOOK
 from tg_agent_shell.proposals.store import ProposalStore
 from tg_agent_shell.registry import Registry
@@ -141,6 +142,7 @@ class E2EHarness:
         request_review: bool = False,
         checks: tuple[HookSpec, ...] | None = None,
         provider_factory: Callable[[list[str | CompletionTurn]], ScriptedProvider] = ScriptedProvider,
+        images: bool = False,
     ) -> tuple[RootSession, ScriptedProvider]:
         subagents = (self.subagent("workspace_mutator"),) if subagents is None else subagents
         # A test about what happens *during* a turn needs the boundary to hold still, so
@@ -172,6 +174,8 @@ class E2EHarness:
                 for name, run in (helpers or {}).items()
             },
             reviews=self.reviews,
+            # The photos are read by the same scripted model that answers.
+            media=MediaLibrary(self.sessions, provider) if images else None,
         )
         return advisor, provider
 

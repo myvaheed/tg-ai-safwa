@@ -29,6 +29,7 @@ from telegram_llm import DialogueMessage
 
 from .ai.autoapproval import AutoApprovalReviewer
 from .ai.messages import ContextBuilder, Memory, StateBlocks
+from .ai.mini import ReadToolSpec
 from .ai.outcome import AIOutcome, AIOutcomeKind
 from .ai.runs import AgentRunStore, AgentStepTrail
 from .ai.sql import ReadOnlyQueryRunner
@@ -102,6 +103,7 @@ class RootSession:
         hooks: HookRegistry | None = None,
         autoapproval: AutoApprovalReviewer | None = None,
         reviews: ProposalStore | None = None,
+        read_tools: tuple[ReadToolSpec, ...] = (),
     ) -> None:
         self.sessions = sessions
         self.proposals = proposals
@@ -127,6 +129,7 @@ class RootSession:
             before_tool=before_tool,
             after_tool=after_tool,
             hooks=hooks,
+            read_tools=read_tools,
         )
         self.context = ContextBuilder(
             sessions,

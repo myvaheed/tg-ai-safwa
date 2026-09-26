@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from types import NoneType, UnionType
@@ -155,6 +155,23 @@ def _without_titles(node: Any) -> Any:
     }
 
 
+def _inlined(node: Any, definitions: Mapping[str, Any]) -> Any:
+    """Put a nested model's shape where it is used, in place of a `$ref` to `$defs`.
+
+    A small model reads a field's shape where the field is, and not every constrained
+    decoder follows a reference.
+    """
+    if isinstance(node, list):
+        return [_inlined(item, definitions) for item in node]
+    if not isinstance(node, dict):
+        return node
+    reference = node.get("$ref")
+    if isinstance(reference, str) and reference.startswith("#/$defs/"):
+        shape = _inlined(definitions[reference.removeprefix("#/$defs/")], definitions)
+        return {**shape, **{key: value for key, value in node.items() if key != "$ref"}}
+    return {key: _inlined(value, definitions) for key, value in node.items() if key != "$defs"}
+
+
 def tool_json_schema(model: type[BaseModel]) -> dict[str, Any]:
     """Return a schema that lets constrained decoders choose null for omitted options.
 
@@ -162,7 +179,8 @@ def tool_json_schema(model: type[BaseModel]) -> dict[str, Any]:
     inventing placeholder IDs such as 0 or 1; the input normalizer then removes those nulls.
     A `title` carries no such reason: it is the property name written a second way, so it goes.
     """
-    return _without_titles(model.model_json_schema())
+    schema = model.model_json_schema()
+    return _without_titles(_inlined(schema, schema.get("$defs", {})))
 
 
 def validation_error_summary(error: ValidationError) -> str:

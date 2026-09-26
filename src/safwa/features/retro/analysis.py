@@ -415,7 +415,7 @@ def days_text(batch: Sequence[tuple[DayTally, DiaryDay | None]]) -> str:
             f"- Actions: {tally.planned} in Today that morning, {tally.done} finished; "
             f"finished by Category: {_counts(tally.done_by_category)}; "
             f"by Energy type: {_counts(tally.done_by_energy)}",
-            f"- Diary: {entry.body if entry else 'nothing written'}",
+            f"- Diary: {entry.body if entry and entry.body else 'nothing written'}",
         ]
     return "\n".join(lines)
 

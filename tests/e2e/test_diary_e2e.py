@@ -36,6 +36,11 @@ def write(date_value: str, pov: str, **extra: object) -> ProviderTurn:
     return turn(("diary", {"mode": "update", "date": date_value, "pov": pov, **extra}))
 
 
+def read(date_value: str) -> ProviderTurn:
+    # New words for a day come only after that day was read (DI-READ-023).
+    return turn(("read_day", {"date": date_value}))
+
+
 async def _save(harness, advisor, proposal_id: int) -> tuple[list[int], object]:
     async with harness.sessions() as session:
         description = await advisor.describe_proposal(session, proposal_id)
@@ -76,14 +81,14 @@ async def test_di_day_002_second_write_replaces_the_day(e2e_harness):
     """DI-DAY-002 — tests/brd/diary.feature"""
     subagent = diary_subagent(e2e_harness)
     advisor, _ = e2e_harness.advisor(
-        [turn(("route", {"name": "diary"})), write(TODAY, "Утро прошло спокойно.")],
+        [turn(("route", {"name": "diary"})), read(TODAY), write(TODAY, "Утро прошло спокойно.")],
         subagents=(subagent,),
     )
     first = await advisor.handle("Запиши утро")
     entry_ids, _ = await _save(e2e_harness, advisor, first.proposal_id)
 
     advisor, _ = e2e_harness.advisor(
-        [turn(("route", {"name": "diary"})), write(TODAY, "Утро и вечер вместе.")],
+        [turn(("route", {"name": "diary"})), read(TODAY), write(TODAY, "Утро и вечер вместе.")],
         subagents=(subagent,),
     )
     second = await advisor.handle("Допиши вечер")
@@ -102,14 +107,14 @@ async def test_di_mood_014_an_unnamed_score_keeps_the_saved_one(e2e_harness):
     """DI-MOOD-014 — tests/brd/diary.feature"""
     subagent = diary_subagent(e2e_harness)
     advisor, _ = e2e_harness.advisor(
-        [turn(("route", {"name": "diary"})), write(TODAY, "Утро.", feeling_score=8)],
+        [turn(("route", {"name": "diary"})), read(TODAY), write(TODAY, "Утро.", feeling_score=8)],
         subagents=(subagent,),
     )
     first = await advisor.handle("Запиши утро")
     await _save(e2e_harness, advisor, first.proposal_id)
 
     advisor, _ = e2e_harness.advisor(
-        [turn(("route", {"name": "diary"})), write(TODAY, "Утро и вечер.")],
+        [turn(("route", {"name": "diary"})), read(TODAY), write(TODAY, "Утро и вечер.")],
         subagents=(subagent,),
     )
     second = await advisor.handle("Допиши вечер")
@@ -122,7 +127,11 @@ async def test_di_mood_014_an_unnamed_score_keeps_the_saved_one(e2e_harness):
     assert "Feeling: 8" in description.fields
 
     advisor, _ = e2e_harness.advisor(
-        [turn(("route", {"name": "diary"})), write(TODAY, "Вечер испортился.", feeling_score=3)],
+        [
+            turn(("route", {"name": "diary"})),
+            read(TODAY),
+            write(TODAY, "Вечер испортился.", feeling_score=3),
+        ],
         subagents=(subagent,),
     )
     third = await advisor.handle("Стало хуже")
@@ -198,8 +207,10 @@ async def test_a_correction_reaches_the_session_that_wrote_the_refused_day(e2e_h
     advisor, provider = e2e_harness.advisor(
         [
             turn(("route", {"name": "diary"})),
+            read(TODAY),
             write(TODAY, "встретил ахмета на рынке."),
             turn(("route", {"name": "diary"})),
+            # The resumed session read that day before, so it writes straight away.
             write(TODAY, "Встретил Ахмета на рынке."),
         ],
         subagents=(diary_subagent(e2e_harness),),
@@ -233,8 +244,11 @@ async def test_a_correction_reaches_the_session_that_wrote_the_refused_day(e2e_h
     assert len(diary_runs) == 1
     assert diary_runs[0].status == "awaiting_approval"
     # It resumed on a settled record: its refused proposal came back as a tool result.
-    replayed = [item for item in provider.calls[3] if item.get("role") == "tool"]
-    assert [json.loads(str(item["content"]))["status"] for item in replayed] == ["discarded"]
+    replayed = [item for item in provider.calls[4] if item.get("role") == "tool"]
+    assert [json.loads(str(item["content"])).get("status") for item in replayed] == [
+        None,
+        "discarded",
+    ]
     # The day itself never entered the conversation the Advisor reads.
     assert "Ахмета" not in json.dumps(provider.calls[0], ensure_ascii=False)
 
@@ -243,7 +257,11 @@ async def test_a_refused_day_is_over_once_the_advisor_answers_something_else(e2e
     """AG-WORDS-020 — tests/brd/tg_agent_shell/agents.feature"""
     subagent = diary_subagent(e2e_harness)
     advisor, _ = e2e_harness.advisor(
-        [turn(("route", {"name": "diary"})), write(TODAY, "встретил ахмета на рынке.")],
+        [
+            turn(("route", {"name": "diary"})),
+            read(TODAY),
+            write(TODAY, "встретил ахмета на рынке."),
+        ],
         subagents=(subagent,),
     )
     first = await advisor.handle("Запиши день")
@@ -262,7 +280,7 @@ async def test_a_refused_day_is_over_once_the_advisor_answers_something_else(e2e
 
     # A later route therefore starts clean: the refused draft is not waiting behind it.
     advisor, provider = e2e_harness.advisor(
-        [turn(("route", {"name": "diary"})), write(TODAY, "Спокойный день.")],
+        [turn(("route", {"name": "diary"})), read(TODAY), write(TODAY, "Спокойный день.")],
         subagents=(subagent,),
     )
     second = await advisor.handle("Запиши день заново")
@@ -287,7 +305,7 @@ async def test_a_screen_still_open_keeps_its_session_restorable(e2e_harness):
     workspace = e2e_harness.subagent("workspace_mutator")
     diary = diary_subagent(e2e_harness)
     advisor, _ = e2e_harness.advisor(
-        [turn(("route", {"name": "diary"})), write(TODAY, "Долгий день.")],
+        [turn(("route", {"name": "diary"})), read(TODAY), write(TODAY, "Долгий день.")],
         subagents=(workspace, diary),
     )
     first = await advisor.handle("Запиши день")

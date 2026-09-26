@@ -107,11 +107,14 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
             )
         )
     critical = await _critical_cards(session)
-    lines.append("Critical Cards:")
-    lines.extend(
-        f"- {citation(card.title, 'card', card.id)} kind={card.kind} stage={card.effective_stage}"
-        for card in critical
-    )
+    # An empty heading would read the owner's next line as its first item.
+    if critical:
+        lines.append("Critical Cards:")
+        lines.extend(
+            f"- {citation(card.title, 'card', card.id)} kind={card.kind} "
+            f"stage={card.effective_stage}"
+            for card in critical
+        )
     if sprint is not None:
         today = await today_actions(session)
         lines.append("Today Actions:")

@@ -15,13 +15,16 @@ import pytest
 from agent_turns import mutation_turn, route_turn
 from sqlalchemy import select
 from telegram_fakes import QueueTestMessage, owner_photo
+from wallet import app
 from wallet.ledger.agent import RECEIPT_INSTRUCTIONS
 from wallet.ledger.model import Entry
-from wallet_harness import TODAY, press, seed_lists, take_a_turn
+from wallet_harness import TIMEZONE, TODAY, press, seed_lists, take_a_turn
 
 import tg_agent_shell.telegram.services as services_module
-from llm_gateway import CompletionTurn
+from llm_gateway import CompletionTurn, ScriptedProvider
 from telegram_llm import TELEGRAM_ALBUM_LIMIT
+from tg_agent_shell.ai.mini import ReadToolSpec
+from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramMessage
 from tg_agent_shell.media.library import (
@@ -29,6 +32,7 @@ from tg_agent_shell.media.library import (
     DESCRIBE_REASONING,
     DESCRIPTION_EXCHANGES,
     DESCRIPTION_MAX_WORDS,
+    RELOOK_INSTRUCTIONS,
     Photo,
 )
 from tg_agent_shell.media.telegram import photo_message, send_photo_screen
@@ -313,3 +317,76 @@ async def test_a_photo_the_answer_points_at_opens_as_that_photo(wallet_bot):
 
     await dismiss_prior_ui(QueueTestMessage(message_id=991, is_bot=False, parent=running.message), running.services)
     assert shown in bot.deleted
+
+
+def tool_names(request) -> set[str]:
+    return {tool["function"]["name"] for tool in request.tools}
+
+
+async def test_the_root_session_looks_at_a_photo_again_only_where_photos_are_taken(wallet_bot):
+    """TG-RELOOK-022 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    running = await wallet_bot.start(
+        answer("Кот на окне"),
+        answer("A cat."),
+        mutation_turn(
+            ("relook", {"media_id": 1, "question": "Какого цвета кот?"}),
+            prefix="look",
+            content="",
+        ),
+        answer("Рыжий"),
+        answer("Кот рыжий."),
+    )
+    await photo_message(owner_photo(running.message, 980), running.services)
+    running.message.message_id = 990
+    await take_a_turn(running, "Какого цвета кот?")
+
+    requests = running.provider.requests
+    assert "relook" in tool_names(requests[2])
+    relook = requests[3]
+    assert relook.messages[0]["content"] == RELOOK_INSTRUCTIONS
+    assert described(relook) == "[Кот на окне](media:1)\nКакого цвета кот?"
+    assert len(images_in(relook)) == 1
+    # The root session reads the words, and nothing after the look carries the photo.
+    assert "Рыжий" in text_of(requests[4])
+    assert [index for index, request in enumerate(requests) if images_in(request)] == [0, 3]
+    assert running.chat[-1] == "Кот рыжий."
+
+    blind = await wallet_bot.start(answer("Hello."), images=False)
+    await take_a_turn(blind, "Hi")
+    assert "relook" not in tool_names(blind.provider.requests[0])
+
+
+async def test_an_application_hands_its_root_session_reads_of_its_own(wallet_bot):
+    running = await wallet_bot.start()
+    weather = {
+        "type": "function",
+        "function": {
+            "name": "weather",
+            "description": "Today's weather.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }
+
+    async def forecast(_call) -> dict[str, str]:
+        return {"weather": "Sunny"}
+
+    provider = ScriptedProvider(
+        [mutation_turn(("weather", {}), prefix="read", content=""), answer("It is sunny.")]
+    )
+    root = app.REGISTRY.root_session(
+        running.sessions,
+        provider,
+        app.NoNotes(),
+        ReadOnlyQueryRunner(wallet_bot.path, app.REGISTRY.allowed_views, timezone=TIMEZONE),
+        views=app.ROOT_VIEWS,
+        workspace_state=app.world_state(TIMEZONE),
+        system_prompt=app.SYSTEM_PROMPT,
+        model_name="shell-test-model",
+        read_tools=(ReadToolSpec(weather, forecast),),
+    )
+
+    outcome = await root.handle("Weather?")
+
+    assert outcome.message == "It is sunny."
+    assert "weather" in tool_names(provider.requests[0])
+    assert "Sunny" in text_of(provider.requests[1])

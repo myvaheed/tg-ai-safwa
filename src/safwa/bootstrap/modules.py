@@ -15,6 +15,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.sql import view_catalogue
+from tg_agent_shell.media.module import MODULE as MEDIA_FEATURE
 from tg_agent_shell.proposals.api import World
 from tg_agent_shell.proposals.hooks import PLAN_HOOK, REQUEST_REVIEW_HOOK
 from tg_agent_shell.proposals.module import MODULE as PROPOSALS_FEATURE
@@ -37,7 +38,7 @@ from ..features.cards.module import MODULE as CARDS
 from ..features.checks.module import MISSED_RUN_HOOK
 from ..features.checks.module import MODULE as CHECKS
 from ..features.diagnostics.module import MODULE as DIAGNOSTICS
-from ..features.diary.module import DIARY_HOOK
+from ..features.diary.module import DIARY_HOOK, DIARY_READ_HOOK
 from ..features.diary.module import MODULE as DIARY
 from ..features.heavy_analyzer.module import HEAVY_ANALYZER_HOOK
 from ..features.heavy_analyzer.module import MODULE as HEAVY_ANALYZER
@@ -89,6 +90,7 @@ MODULES: tuple[FeatureModule, ...] = (
     REMINDERS,
     SAVED_REQUESTS,
     PROPOSALS_FEATURE,
+    MEDIA_FEATURE,
     SUMMARY,
     MEMORY,
     DIAGNOSTICS,
@@ -131,6 +133,7 @@ HOOKS = (
     RETURN_HOOK,
     *((PLAN_HOOK,) if featuretoggles.PLAN_REQUIRED else ()),
     *((REQUEST_REVIEW_HOOK,) if featuretoggles.REQUEST_REVIEW else ()),
+    *((DIARY_READ_HOOK,) if featuretoggles.DAY_READ_REQUIRED else ()),
 )
 
 # The log of changes is written by every feature that keeps an item, so it is Safwa's own

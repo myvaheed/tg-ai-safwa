@@ -233,3 +233,19 @@ def media_read_tool(
         return {"media_id": media.id, "text": await library.read(media, instructions, question)}
 
     return ReadToolSpec(schema, run)
+
+
+RELOOK_INSTRUCTIONS = """Answer the question about the photo the user sent.
+Say only what the photo shows. When it does not show the answer, say so.
+With no question, say what the photo shows, in detail.
+Answer in the language of the question."""
+
+
+def relook_tool(library: MediaLibrary) -> ReadToolSpec:
+    """The root session's second look at a photo, which its label is too short to answer."""
+    return media_read_tool(
+        library,
+        name="relook",
+        description="Look at a photo again, to answer the user's question about what it shows.",
+        instructions=RELOOK_INSTRUCTIONS,
+    )

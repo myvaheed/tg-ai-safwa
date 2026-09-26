@@ -183,6 +183,8 @@ async def test_diary_proposal_shows_the_entry_itself_and_only_save_or_discard(
 ) -> None:
     store = ProposalStore()
     async with sessions() as session:
+        # The day it rewrites is saved, with words of its own.
+        saved = await create_diary_entry(session, entry_date=date(2026, 8, 15), body="Утро.")
         workspace = await session.get(Workspace, 1)
         proposal = store.open_proposal(
             message="Save today's Diary entry",
@@ -191,8 +193,8 @@ async def test_diary_proposal_shows_the_entry_itself_and_only_save_or_discard(
                 ProposalChange(
                     entity="diary",
                     action=ChangeAction.UPDATE,
-                    entity_id=7,
-                    expected_version=1,
+                    entity_id=saved.id,
+                    expected_version=saved.version,
                     values={
                     "entry_date": "2026-08-15",
                     "body": "Сходил на рынок, вечером стало легче.",

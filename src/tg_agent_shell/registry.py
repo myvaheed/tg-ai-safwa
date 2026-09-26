@@ -22,6 +22,7 @@ from llm_gateway import LlmProvider
 
 from .ai.autoapproval import AutoApprovalReviewer, AutoApprovalRule
 from .ai.messages import Memory, StateBlocks
+from .ai.mini import ReadToolSpec
 from .ai.sql import ReadOnlyQueryRunner, SqlView, view_catalogue
 from .ai.subagents import RoutedSubagent
 from .ai.tools import IMMEDIATE_TOOLS, AfterTool, BeforeTool, HelperPort
@@ -29,6 +30,7 @@ from .cues.module import CUE_QUEUE, HOOK_TICKS
 from .foundation.screens import ScreenCatalogue, ScreenSpec
 from .hooks.contracts import HookPolicy, HookSpec, every_switch_on
 from .hooks.registry import HookRegistry
+from .media.library import MediaLibrary, relook_tool
 from .proposals.api import (
     MutationToolSpec,
     ProposalHandler,
@@ -207,12 +209,16 @@ class Registry:
         helpers: Mapping[str, HelperPort] | None = None,
         autoapprove: bool = True,
         reviews: ProposalStore | None = None,
+        media: MediaLibrary | None = None,
+        read_tools: tuple[ReadToolSpec, ...] = (),
     ) -> RootSession:
         """The one session that writes to the chat, carrying what the features declared.
 
         `views` is that session's own list, and it is scoped here rather than by the caller,
         so the reader that answers is the reader its declaration describes. `row_limits`
-        cuts a read of one of those views shorter than the rest.
+        cuts a read of one of those views shorter than the rest. With `media` it can look
+        at a photo again; without it, it has no way to. `read_tools` are the application's
+        own reads for it.
         """
         return RootSession(
             sessions,
@@ -235,6 +241,7 @@ class Registry:
             after_tool=self.after_tool,
             hooks=self.hooks,
             reviews=reviews,
+            read_tools=(*((relook_tool(media),) if media is not None else ()), *read_tools),
         )
 
 
