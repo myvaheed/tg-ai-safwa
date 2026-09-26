@@ -7,7 +7,9 @@ Applications depend on `LlmProvider`: `complete(CompletionRequest)` returns a
 `CompletionTurn`, and `aclose()` releases provider resources.  A request contains neutral
 messages, tool specifications, tool choice, a response schema, and temperature/reasoning hints.
 `ToolCall.arguments_json` remains raw so that the tool owner can validate it and issue a useful
-repair message.
+repair message.  `CompletionTurn.reasoning` is the provider's reasoning in the fields it came
+in, and `CompletionTurn.as_message` is the assistant message the next request of the same loop
+carries, that reasoning included.
 
 `OpenAICompatibleProvider` is the current adapter.  Its configuration owns endpoint, key, model,
 timeouts, headers, and provider dialect options.  It normalizes usage—including cache fields—and

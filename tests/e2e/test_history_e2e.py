@@ -24,20 +24,22 @@ pytestmark = pytest.mark.e2e
 
 CHAT = 42
 READ = "SELECT id, title FROM ai_cards WHERE title LIKE '%milk%'"
+THOUGHT = {"reasoning_content": "Find the milk Card first, then hand the change on."}
 
 
 def read_turn() -> CompletionTurn:
     return CompletionTurn(
         content="",
         tool_calls=(ToolCall(id="read-1", name="query_data", arguments_json=json.dumps({"sql": READ})),),
+        reasoning=THOUGHT,
     )
 
 
-async def two_requests(e2e_harness) -> tuple[list[dict], FakeMessage, int]:
+async def two_requests(e2e_harness) -> tuple[list[dict], FakeMessage, int, list[dict]]:
     """A request that read and saved a Card, answered; then the request after it.
 
-    Returns what the model was sent for the second, where the first answer was drawn, and the
-    Card's id.
+    Returns what the model was sent for the second, where the first answer was drawn, the
+    Card's id, and what the model was sent right after the first request's read.
     """
     services = services_for(e2e_harness.sessions)
     history = history_source(e2e_harness.sessions)
@@ -56,6 +58,7 @@ async def two_requests(e2e_harness) -> tuple[list[dict], FakeMessage, int]:
     outcome = await advisor.handle(
         first.text, source_message_id=1, dialogue=await history.dialogue(CHAT)
     )
+    after_read = provider.calls[1]
     async with e2e_harness.sessions() as session:
         affected = await approve_proposal(session, advisor.reviews, PROPOSALS, outcome.proposal_id)
         await session.commit()
@@ -74,12 +77,12 @@ async def two_requests(e2e_harness) -> tuple[list[dict], FakeMessage, int]:
     await follow_up.handle(
         second.text, source_message_id=5_000, dialogue=await history.dialogue(CHAT)
     )
-    return provider.calls[0], anchor, affected[0]
+    return provider.calls[0], anchor, affected[0], after_read
 
 
 async def test_the_next_request_carries_the_calls_the_last_answer_made(e2e_harness):
     """TG-TOOLS-013 — tests/brd/tg_agent_shell/telegram_history.feature"""
-    request, _, card = await two_requests(e2e_harness)
+    request, _, card, _ = await two_requests(e2e_harness)
 
     shape = [
         (
@@ -105,10 +108,19 @@ async def test_the_next_request_carries_the_calls_the_last_answer_made(e2e_harne
 
 async def test_what_the_change_did_comes_back_as_the_result_of_its_call(e2e_harness):
     """TG-RECEIPT-009 — tests/brd/tg_agent_shell/telegram_history.feature"""
-    request, anchor, _ = await two_requests(e2e_harness)
+    request, anchor, _, _ = await two_requests(e2e_harness)
 
     route = next(message for message in request if message.get("name") == "route")
     assert json.loads(route["content"])["did"] == ["✅ Saved — New Action “Buy milk” (1 EP)"]
     # The owner read the receipt above the answer; the answer's own words do not carry it.
     assert anchor.sent_messages[0].text.startswith("✅ Saved — New Action")
     assert "✅" not in request[-2]["content"]
+
+
+async def test_the_reasoning_goes_back_between_calls_and_is_never_kept(e2e_harness):
+    """TG-THINK-017 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    request, _, _, after_read = await two_requests(e2e_harness)
+
+    read = next(message for message in after_read if message.get("tool_calls"))
+    assert read["reasoning_content"] == THOUGHT["reasoning_content"]
+    assert not any("reasoning_content" in message for message in request)

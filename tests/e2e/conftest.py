@@ -91,7 +91,7 @@ OWNER_ID = 42
 
 
 class SilentHistory:
-    """The Telethon boundary for a subagent that never reads the conversation."""
+    """The kept chat, for a subagent that never reads the conversation."""
 
     async def day_transcript(self, _chat_id: int, *, start, end, token_budget) -> str:  # noqa: ARG002
         return ""

@@ -108,7 +108,7 @@ async def run_mini_session(
                     f"The session answered in prose instead of calling one of: "
                     f"{', '.join(by_name)}"
                 )
-            messages.append({"role": "assistant", "content": turn.content or ""})
+            messages.append(turn.as_message())
             messages.append(
                 {
                     "role": "user",
@@ -120,20 +120,7 @@ async def run_mini_session(
             )
             continue
 
-        messages.append(
-            {
-                "role": "assistant",
-                "content": turn.content or None,
-                "tool_calls": [
-                    {
-                        "id": call.id,
-                        "type": "function",
-                        "function": {"name": call.name, "arguments": call.arguments_json},
-                    }
-                    for call in turn.tool_calls
-                ],
-            }
-        )
+        messages.append(turn.as_message())
         for call in turn.tool_calls:
             calls += 1
             if max_tool_calls is not None and calls > max_tool_calls:

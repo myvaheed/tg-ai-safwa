@@ -9,7 +9,7 @@ from typing import Any
 
 from openai import AsyncOpenAI, OpenAIError
 
-from .model import CompletionRequest, CompletionTurn, ToolCall, Usage
+from .model import REASONING_FIELDS, CompletionRequest, CompletionTurn, ToolCall, Usage
 
 logger = logging.getLogger(__name__)
 
@@ -151,4 +151,8 @@ def _read_turn(response: Any) -> tuple[CompletionTurn | None, str]:
     reason = getattr(choice, "finish_reason", None)
     if not content and not tool_calls and reason != "stop":
         return None, f"no content and no tool calls, finish_reason={reason}"
-    return CompletionTurn(content, tool_calls, _read_usage(getattr(response, "usage", None))), ""
+    reasoning = {
+        name: value for name in REASONING_FIELDS if (value := _extra(message, name))
+    }
+    usage = _read_usage(getattr(response, "usage", None))
+    return CompletionTurn(content, tool_calls, usage, reasoning), ""

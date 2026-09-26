@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 type Message = Mapping[str, Any]
 type ToolSpec = Mapping[str, Any]
 type ResponseSchema = Mapping[str, Any]
+
+# Where a provider returns the reasoning behind a response: LM Studio `reasoning_content`,
+# OpenRouter `reasoning` and `reasoning_details`. OpenRouter asks for them back unchanged.
+REASONING_FIELDS = ("reasoning_content", "reasoning", "reasoning_details")
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +42,30 @@ class CompletionTurn:
     content: str
     tool_calls: tuple[ToolCall, ...] = ()
     usage: Usage | None = None
+    reasoning: Mapping[str, Any] = field(default_factory=dict)
+    """The provider's `REASONING_FIELDS` exactly as it returned them."""
+
+    def as_message(self) -> dict[str, Any]:
+        """This response as the assistant message the next request of its loop carries.
+
+        The reasoning goes back with it: a model that thinks between its calls continues
+        from its own reasoning, and without it stops thinking or thinks into the answer.
+        """
+        message: dict[str, Any] = {
+            "role": "assistant",
+            "content": self.content or (None if self.tool_calls else ""),
+            **self.reasoning,
+        }
+        if self.tool_calls:
+            message["tool_calls"] = [
+                {
+                    "id": call.id,
+                    "type": "function",
+                    "function": {"name": call.name, "arguments": call.arguments_json},
+                }
+                for call in self.tool_calls
+            ]
+        return message
 
 
 @dataclass(frozen=True, slots=True)

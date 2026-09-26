@@ -261,7 +261,7 @@ async def say_once(event: BeforeTurn, context: RunContext) -> None:
             return
     if not context.still_current():
         return
-    await context.publish(ONBOARDING_NOTICE, MessageKind.DIALOGUE_ASSISTANT.value)
+    await context.publish(ONBOARDING_NOTICE, MessageKind.EVENT.value)
     async with context.sessions() as session:
         session.add(OnboardingNotice(id=1))
         await session.commit()

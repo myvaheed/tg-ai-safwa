@@ -120,8 +120,8 @@ async def test_ob_notice_001_the_first_turn_is_preceded_by_the_notice_and_only_t
 
     first = await _owner_turn(services, 700)
 
-    # Safwa's own words, standing before the answer.
-    assert _notices(first) == [MessageKind.DIALOGUE_ASSISTANT.value]
+    # A line the interface wrote, standing before the answer.
+    assert _notices(first) == [MessageKind.EVENT.value]
     texts = [text for _, text in first]
     assert texts.index(SENT_NOTICE) < next(
         index for index, text in enumerate(texts) if "The answer." in text
@@ -205,7 +205,7 @@ async def test_ob_notice_001_a_turn_of_safwas_own_carries_it_too(sessions, monke
     runtime.release()
 
     assert chat.said == [
-        f"{MessageKind.DIALOGUE_ASSISTANT.value}: {SENT_NOTICE}",
+        f"{MessageKind.EVENT.value}: {SENT_NOTICE}",
         f"{MessageKind.CUE.value}: The answer.",
     ]
 
@@ -230,7 +230,7 @@ async def test_ob_notice_001_the_owner_arriving_mid_check_carries_the_notice_ins
         assert await session.get(OnboardingNotice, 1) is None
     # The owner's own turn is the first one that reaches the chat.
     assert _notices(await _owner_turn(_owner_services(sessions), 720)) == [
-        MessageKind.DIALOGUE_ASSISTANT.value
+        MessageKind.EVENT.value
     ]
 
 

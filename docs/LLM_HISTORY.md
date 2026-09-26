@@ -71,10 +71,14 @@ them.
 - **A Cue opens with its cause.** A turn nobody asked for keeps the request that caused it
   (`CUE_REQUEST`) as its first message, on the owner's side, so the model never reads itself
   speaking without a reason and two answers never run together.
-- **Words the interface wrote are never the assistant's.** An outcome no turn produced is kept as
-  `MessageKind.EVENT` and read on the owner's side after `EVENT_LABEL`. The onboarding notice is
-  the exception its scenario names: `ONBOARDING_NOTICE` is registered as Safwa's own words
-  ([OB-NOTICE-001](../tests/brd/onboarding.feature)).
+- **Words the interface wrote are never the assistant's.** An outcome no turn produced, a review
+  that closed or was interrupted, a Card created by hand and the onboarding notice are kept as
+  `MessageKind.EVENT` and read on the owner's side after `EVENT_LABEL`.
+- **Reasoning goes back between calls and is never kept.** A response's reasoning comes in the
+  field its provider uses (`REASONING_FIELDS`: LM Studio's `reasoning_content`, OpenRouter's
+  `reasoning` and `reasoning_details`) and goes back unchanged on that response's assistant
+  message (`CompletionTurn.as_message`) for every later request of the same session.
+  `kept_turn` leaves it out, so no later request reads it.
 - A turn that suspends on a review screen is written when it finishes after the decision. Words
   the owner typed over the screen are therefore kept before the turn they interrupted — the order
   the resumed session read them in.
@@ -168,8 +172,11 @@ the reasoning of assistant turns before the last user message.
 4. **Old tool output is the first thing to cut, and the call stays.** Replacing an old result with
    a short placeholder while keeping the call is how production agents trim history: the model
    knows it looked, and re-reads when it needs the rows again.
-5. **Earlier turns' reasoning is not replayed.** Inside one turn's tool loop some models expect
-   their reasoning back (section 7).
+5. **Reasoning goes back inside a turn and never past it.** The template renders the reasoning
+   of the assistant messages after the last user message and drops the rest. Qwen3.5 thinks
+   between its calls: without that reasoning it can write its thinking into the answer, and
+   a 4B one in LM Studio stops thinking by its third call and batches fewer calls. OpenRouter
+   asks for it back unchanged on the message that made the calls.
 6. **Append-only history is what caching needs.** A remote provider caches the longest identical
    prefix, and a local llama.cpp-based server reuses its KV cache the same way.
 7. **Compaction goes on the user side, at the start** — which is where the Summary is read.
@@ -253,12 +260,3 @@ Each lever is one number or one string, and none changes the shape of the histor
 A change to a prompt, a tool result's shape or the placeholder is read by the model, so it
 updates `tests/snapshots/prompt_prefix.json` where it touches the prefix, and it is worth one live
 run against the local model before it stays.
-
-## 7. Not done: reasoning inside one turn
-
-The gateway drops a turn's reasoning. Across turns that is what the models' own templates do;
-inside one turn's tool loop some models expect it back — Qwen3.5's interleaved thinking can leak
-into the answer text without it, and OpenRouter asks for the reasoning details to be returned on
-tool-call messages. Handing it back within a turn, and never keeping it past the turn, is a batch
-of its own: done when a multi-call turn on Qwen3.5 in LM Studio shows no reasoning in the answer
-text, and `openai/gpt-5.6-luna` keeps its reasoning across the calls of one turn.

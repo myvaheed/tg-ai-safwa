@@ -9,7 +9,8 @@ Feature: Onboarding
     Given onboarding is on and no onboarding notice was ever sent to this chat
     When Safwa's first turn begins — on the owner's word or on its own initiative
     Then before the answer comes one notice: tips will come, ask anything, say stop to end it
-    And it is registered as Safwa's own words, and the model reads it so in later turns
+    And it is kept as a line the interface wrote, and the model reads it as a system line in
+      later turns
     When any later turn begins, or Safwa restarts, or onboarding is switched off and on
     Then no second notice comes
     When the owner's message arrives while a turn of Safwa's own is still checking whether the

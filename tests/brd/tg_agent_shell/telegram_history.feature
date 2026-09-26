@@ -115,7 +115,13 @@ Feature: The conversation in Telegram
 
   Scenario: TG-SYSTEM-016 — A line the interface wrote is a system line, never Safwa's words
     Given the interface wrote into the chat itself — a review that closed or was interrupted,
-      a Card created by hand, words no turn of Safwa's produced
+      a Card created by hand, the onboarding notice, words no turn of Safwa's produced
     When Safwa reads the conversation back
     Then each is on the owner's side, marked as a system line
     And none of it reads as something Safwa said
+
+  Scenario: TG-THINK-017 — Safwa's reasoning goes back between its calls and is never kept
+    Given the model returned its reasoning beside a call it made
+    When the same session asks the model again, after that call's result
+    Then the call comes back with that reasoning, unchanged
+    And the answer kept in the chat carries none of it

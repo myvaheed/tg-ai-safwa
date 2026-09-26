@@ -8,6 +8,8 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from llm_gateway import REASONING_FIELDS
+
 # The reads whose rows are stale by the next turn. The call stays in the conversation and the
 # rows go: the workspace state is read fresh every turn, and a read can be made again.
 CLEARED_READS = frozenset({"query_data", "call_helper"})
@@ -35,12 +37,14 @@ def kept_turn(
     The calls it made and what came back, in the order it made them, then its own words —
     the shape a model is trained on, so the next turn sees that a change is made by calling,
     not by saying so. A turn nobody asked for opens with the request that caused it.
+    The reasoning between its calls stays behind: a model's own template drops the
+    reasoning of every turn before the last request.
     """
     turn: list[dict[str, Any]] = [{"role": "user", "content": request}] if request else []
     for message in transcript:
         if message.get("role") == "tool" and message.get("name") in CLEARED_READS:
             message = {**message, "content": json.dumps(CLEARED_READ)}
-        turn.append(dict(message))
+        turn.append({key: value for key, value in message.items() if key not in REASONING_FIELDS})
     if words.strip():
         turn.append({"role": "assistant", "content": words})
     return tuple(turn)
