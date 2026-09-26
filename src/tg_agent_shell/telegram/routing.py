@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from aiogram import F, Router
 
+from ..media.telegram import photo_message
 from .callbacks import callback_token_handler
 from .commands import dismiss_screens_before_a_command, navigation, register_commands
 from .contributions import ScreenCommand
@@ -26,6 +27,7 @@ def build_router(commands: tuple[ScreenCommand, ...]) -> Router:
     register_commands(router, commands)
     router.message.register(ordinary_text, F.text & ~F.text.startswith("/"))
     router.message.register(voice_message, F.voice | F.audio | F.video_note)
+    router.message.register(photo_message, F.photo)
     router.edited_message.register(edited_text, F.text)
     router.callback_query.register(callback_token_handler, F.data.startswith("cb:"))
     router.callback_query.register(navigation, F.data.startswith("nav:"))

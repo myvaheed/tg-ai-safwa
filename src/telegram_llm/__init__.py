@@ -10,7 +10,7 @@ conversation is the host's to say, once, in a `ChatVocabulary`.
 
 from __future__ import annotations
 
-from .host import ChatHost, Freeze
+from .host import TELEGRAM_ALBUM_LIMIT, ChatHost, Freeze
 from .notes import Note, NoteStore
 from .text import (
     TELEGRAM_TEXT_LIMIT,
@@ -34,6 +34,7 @@ from .window import (
 )
 
 __all__ = [
+    "TELEGRAM_ALBUM_LIMIT",
     "TELEGRAM_TEXT_LIMIT",
     "AudioClip",
     "ChatHost",

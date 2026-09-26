@@ -33,6 +33,7 @@ from tg_agent_shell.ai.sql import ReadOnlyQueryRunner  # noqa: E402
 from tg_agent_shell.foundation.database import Database  # noqa: E402
 from tg_agent_shell.foundation.kinds import MessageKind  # noqa: E402
 from tg_agent_shell.history import TelegramNotes  # noqa: E402
+from tg_agent_shell.media.library import MediaLibrary  # noqa: E402
 from tg_agent_shell.session import RootSession  # noqa: E402
 from tg_agent_shell.telegram import Services, callback_token_handler  # noqa: E402
 from tg_agent_shell.telegram.dialogue import run_dialogue_turn  # noqa: E402
@@ -77,12 +78,13 @@ class WalletHarness:
         self.path = path
         self.database: Database | None = None
 
-    async def start(self, *turns: CompletionTurn) -> Running:
+    async def start(self, *turns: CompletionTurn, images: bool = True) -> Running:
         await self.stop()
         prepared = await app.open_database(self.path, owner_id=OWNER_ID, timezone=TIMEZONE)
         self.database = prepared.database
         sessions = prepared.database.sessions
         provider = ScriptedProvider(turns)
+        media = MediaLibrary(sessions, provider) if images else None
         history = app.build_history(sessions, timezone=TIMEZONE)
         runner = ReadOnlyQueryRunner(self.path, app.REGISTRY.allowed_views, timezone=TIMEZONE)
         root = app.build_root_session(
@@ -93,6 +95,7 @@ class WalletHarness:
             owner_id=OWNER_ID,
             timezone=TIMEZONE,
             model_name="shell-test-model",
+            media=media,
         )
         services = app.build_services(
             sessions,
@@ -100,6 +103,7 @@ class WalletHarness:
             history,
             ChatHost(TelegramNotes(sessions), spawn=spawn_timer),
             owner_id=OWNER_ID,
+            media=media,
         )
         owner_message = QueueTestMessage(owner_id=OWNER_ID, is_bot=False, answer_as_new=True)
         return Running(sessions, services, root, provider, owner_message)

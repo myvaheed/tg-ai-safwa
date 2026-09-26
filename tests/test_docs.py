@@ -12,12 +12,14 @@ from pathlib import Path
 import pytest
 
 from safwa.bootstrap.modules import SCREENS
+from tg_agent_shell.media.library import MEDIA_TYPE
 
 ROOT = Path(__file__).parent.parent
 
 LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
-# `[16.08.2026](diary:12)` is a citation Safwa writes, quoted in docs as an example.
-CITATION = re.compile(rf"^({'|'.join(SCREENS.types)}):")
+# `[16.08.2026](diary:12)` is a citation Safwa writes, quoted in docs as an example, and
+# `[words](media:14)` is the label the shell gives a photo.
+CITATION = re.compile(rf"^({'|'.join((*SCREENS.types, MEDIA_TYPE))}):")
 
 CHECKED = [
     ROOT / "CLAUDE.md",

@@ -545,10 +545,13 @@ def rule_r() -> list[Violation]:
 # tap acknowledgement carries the same name and writes nothing, so its receivers are named.
 TELEGRAM_SENDS = (
     "answer",
+    "answer_media_group",
+    "answer_photo",
     "delete_message",
     "edit_message_text",
     "edit_text",
     "reply",
+    "send_media_group",
     "send_message",
     "send_photo",
 )

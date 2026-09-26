@@ -48,10 +48,11 @@ flowchart TD
 - **`telegram_llm`** — the chat between the bot and the person: every message kept with its kind
   as it passes, a button used once, a screen replaced or taken down. What each kind means
   the host says once, in a `ChatVocabulary`.
-- **`tg_agent_shell`** — `ai/` the engine, `proposals/` the review flow, `telegram/` the
-  application, `turn/` the single foreground lease, `cues/`, `hooks/` and `foundation/`; at its root
-  `registry.py` derives an application's wiring, `recovery.py` reconciles a restart, and
-  `session.py`, `history.py` and `asr.py` are the root session, the chat window and the voice.
+- **`tg_agent_shell`** — `ai/` the engine, `proposals/` the review flow, `media/` the photos,
+  `telegram/` the application, `turn/` the single foreground lease, `cues/`, `hooks/` and
+  `foundation/`; at its root `registry.py` derives an application's wiring, `recovery.py`
+  reconciles a restart, and `session.py`, `history.py` and `asr.py` are the root session, the
+  chat window and the voice.
 - **`safwa/features/*`** — `MODULES` lists eighteen: seventeen Safwa features, each with its rules in
   `tests/brd/`, and the shell's own `proposals`. `advisor` is the eighteenth feature package and is
   in no registry — it is the root session's prompt and the views it is told it may read, wired
@@ -114,6 +115,7 @@ wallets and entries, with none of Safwa's nouns in it.
 | the container every handler reads | `Services`, filled from the registry | `bootstrap/main.py` |
 | the home screen | exactly one `ScreenCommand` with `nav=HOME_NAV` | the `home` feature |
 | a restart | `recover_startup(session, registry.recovery)` | called once the hooks are bound, before polling starts, so what recovery ends is handed on |
+| photos, if it takes them | a `MediaLibrary` on `Services.media` and `AgentContext.media`, and the media `MODULE` among its features | none yet |
 | a shutdown | cancel the background tasks, close the provider and the bot | the polling `finally` |
 
 Everything else is the application's own: the persona, the provider, the product dependencies,
@@ -604,6 +606,46 @@ reading tables to find out, and ends its message with `[Sprint retro](retro:12)`
 What the model reads as the conversation — the kept chat, the window and its budget, the
 Summary that ends it, and why each turn has the shape it has — is
 [LLM_HISTORY.md](LLM_HISTORY.md).
+
+## Photos
+
+A photo is looked at once, when it arrives, and read in words from then on. The
+conversation never carries one: every reader of it gets the photo's label.
+
+```mermaid
+flowchart LR
+    P[the owner's photo] --> D["one model call: the photo, its caption,<br/>the owner's name, the last exchanges"]
+    D --> ROW[(chat_media)]
+    D --> L["[words](media:N) and the caption,<br/>kept as the owner's message"]
+    L --> R[every reader of the conversation]
+    ROW --> T["a read tool: one photo, one task,<br/>answered in words"]
+    ROW --> S[a screen that shows it]
+```
+
+- `photo_message` keeps the size no longer than `PHOTO_MAX_SIDE = 1280`, asks `DESCRIBE_PROMPT`
+  for a label of at most `DESCRIPTION_MAX_WORDS = 5` words from the photo, its caption, the
+  owner's Telegram name and the last `DESCRIPTION_EXCHANGES = 3` exchanges, and keeps the photo in
+  `chat_media`. The owner's message is kept with the caption as its words and the label and the
+  caption as what the model reads (`TG-IMAGE-018`). The number in the label is the row's id,
+  counted from 1. The call asks for no reasoning (`DESCRIBE_REASONING`): on a local vision
+  model thinking first cost 20 seconds a photo and wrote no better label.
+- An album reaches the bot as one message per photo. `AlbumGatherer` holds the first for
+  `ALBUM_GATHER_SECONDS` and the rest join it, so the album is one turn (`TG-ALBUM-019`).
+- The label is a citation, so the model reads a photo in the shape it cites one, and the media
+  `MODULE` opens it: `open_media` sends the photo under its label's words (`SC-CITE-011`).
+- A photo reaches a model as the file itself, in base64 inside the request (`image_part`),
+  never as a Telegram link, which carries the bot's token.
+- Where `Services.media` is None a photo is refused with one line and nothing is answered
+  (`TG-OFF-021`).
+
+**What an application writes.** A reader that needs more than the label is given a read tool
+made for its task with `media_read_tool`: the task is its `instructions`, it takes the number from
+the label, and it answers in words, as long as the task needs. The example's bookkeeper has
+`read_receipt`, which lists a receipt's lines and its total; nothing else in a session ever sees
+the photo (`TG-SIGHT-020`). A screen that shows photos draws them with `send_photo_screen`: an
+album of up to `TELEGRAM_ALBUM_LIMIT = 10` above its words and buttons, kept with the screen's kind
+so the next screen takes it away. It sends Telegram's own `file_id`, and the kept file when
+Telegram no longer knows it (`SC-ALBUM-010`).
 
 ## Memory
 

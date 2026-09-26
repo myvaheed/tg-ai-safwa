@@ -127,9 +127,9 @@ meaning anything, so change the mechanism instead.
 - **The prompt snapshot travels with the prompt.** A changed system prompt, tool description or
   reader view list updates `tests/snapshots/prompt_prefix.json` in the same batch; no separate
   permission is needed, and the update names that one test.
-- **The schema snapshot is its own declared batch**, because it stamps something already outside
-  the repository: the schema has no migrations, so a changed column reaches a database only by
-  rebuilding it, which is the owner's to do.
+- **The schema snapshot travels with the model that changed it.** A changed column or table
+  updates `tests/snapshots/schema.json` in the same batch, and the batch names the table; during
+  the alpha nothing else is owed (see Schema).
 
 ## Schema
 
@@ -137,8 +137,13 @@ There are no migrations and no Alembic. The ORM model modules are the schema sou
 `upgrade_database` ([foundation/database.py](src/tg_agent_shell/foundation/database.py)) adds
 missing tables and indexes at startup but **never alters an existing one** — so a fresh database
 always matches the declared models while a changed column never reaches an existing
-`data/safwa.db`. A schema change means editing the owning model and rebuilding the database, backed
-up first with `uv run safwa-backup`.
+`data/safwa.db`. A schema change means editing the owning model and rebuilding the database.
+
+**Alpha: breaking the database costs nothing.** Until the owner says the alpha is over, the owner
+wipes the database and the chat at will. Design a schema on its merits alone: change the column the
+design wants instead of adding a table to avoid a rebuild, and never name a rebuild, lost rows or a
+backup as a cost, a step or a reminder. Delete this paragraph when the owner declares the alpha
+finished.
 
 **Do not add Alembic or write migrations before the first release.** The owner recreates the
 pre-release database; migration support starts after v1, from the ORM metadata at that point.

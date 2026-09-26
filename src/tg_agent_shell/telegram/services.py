@@ -8,6 +8,7 @@ else of the shell. The router that carries the handlers is `routing.py`'s.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
@@ -23,6 +24,7 @@ from telegram_llm import ChatHost, Transcriber
 from ..foundation.screens import ScreenCatalogue
 from ..history import TelegramHistorySource
 from ..hooks.registry import HookRegistry
+from ..media.library import MediaLibrary
 from ..session import RootSession
 from ..similarity import Similarity
 from ..turn import TurnManager
@@ -30,10 +32,40 @@ from .contributions import ScreenCommand, StartLink, TextInputFlow
 
 logger = logging.getLogger(__name__)
 
+# How long the first photo of an album waits for the rest. Telegram hands an album over as
+# one message per photo, a few milliseconds apart.
+ALBUM_GATHER_SECONDS = 1.0
+
 
 def audio_payload(message: Message) -> Audio | Voice | VideoNote | None:
     """The audio a message carries, whichever of the three Telegram shapes it arrived in."""
     return message.voice or message.audio or message.video_note
+
+
+class AlbumGatherer:
+    """The photos of one album, gathered so the album is answered once.
+
+    Telegram sends each photo of an album as a message of its own. The first one waits for
+    the rest and carries them all; each later one joins it and goes no further, so none of
+    them reaches the turn as a second message and is taken out of the chat.
+    """
+
+    def __init__(self) -> None:
+        self.albums: dict[str, list[Message]] = {}
+
+    async def gather(self, message: Message) -> list[Message] | None:
+        """The whole album for its first photo, and None for every later one."""
+        group = str(message.media_group_id)
+        album = self.albums.get(group)
+        if album is not None:
+            album.append(message)
+            return None
+        album = self.albums[group] = [message]
+        try:
+            await asyncio.sleep(ALBUM_GATHER_SECONDS)
+        finally:
+            del self.albums[group]
+        return sorted(album, key=lambda photo: photo.message_id)
 
 
 @dataclass
@@ -58,6 +90,9 @@ class Services:
     transcriber: Transcriber | None = None
     # None, and a creating review screen lists no similar items.
     similarity: Similarity | None = None
+    # None, and a photo is refused with a line saying image input is off.
+    media: MediaLibrary | None = None
+    albums: AlbumGatherer = field(default_factory=AlbumGatherer)
 
 
 class OwnerAndWritingMiddleware(BaseMiddleware):
@@ -74,6 +109,12 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
         )
         if user is None or user.id != services.owner_id or (chat and chat.type != "private"):
             return None
+        album: list[Message] | None = None
+        if isinstance(event, Message) and event.media_group_id is not None:
+            album = await services.albums.gather(event)
+            if album is None:
+                return None
+            data["album"] = album
         command = ""
         command_deleted = False
         if isinstance(event, Message):
@@ -96,11 +137,12 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
                 return await handler(event, data)
             if event.message_id != services.turn.source_message_id:
                 # Nothing joins a running answer: the message leaves the chat, and leaving
-                # the chat is what makes it not something the owner said. A recording is
-                # refused here rather than downloaded, so nothing is paid to transcribe it.
+                # the chat is what makes it not something the owner said. A recording or a
+                # photo is refused here rather than downloaded, so nothing is paid to read it.
                 if not command_deleted:
                     try:
-                        await event.delete()
+                        for refused in album or [event]:
+                            await refused.delete()
                     except TelegramAPIError:
                         # It could not be taken out, so it is theirs and stays theirs.
                         services.turn.cancel()
@@ -112,8 +154,10 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
         taken = False
         if isinstance(event, Message) and not services.turn.active:
             is_dialogue = (
-                bool(event.text) and not event.text.lstrip().startswith("/")
-            ) or audio_payload(event) is not None
+                (bool(event.text) and not event.text.lstrip().startswith("/"))
+                or audio_payload(event) is not None
+                or bool(event.photo)
+            )
             if is_dialogue:
                 taken = services.turn.try_begin(event.message_id)
         try:

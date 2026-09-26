@@ -10,7 +10,9 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, PositiveInt, field_validator, model_validator
 
 from tg_agent_shell.ai.contracts import ToolInput
+from tg_agent_shell.ai.mini import ReadToolSpec
 from tg_agent_shell.foundation.clock import SystemClock
+from tg_agent_shell.media.library import media_read_tool
 from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
 
@@ -80,7 +82,14 @@ BOOKKEEPER_PROMPT = """You keep the user's ledger. One movement of money, one en
    - `entry(mode="update", id=…, …)` — every field you leave out keeps its saved value.
    - `entry(mode="delete", id=…)` — the user asked for that line to go.
    `amount_minor` is always positive. The category's `kind` is what makes it income or expense.
+5. A receipt photo reads as `[words](media:N)`. Read it with `read_receipt(media_id=N)` first,
+   and write one entry for its total.
 """
+
+RECEIPT_INSTRUCTIONS = """You read one receipt photo.
+Write one line per item: its name, then its price.
+Then write `Total:`, the total, and the currency.
+Write only what the receipt shows."""
 
 
 def bookkeeper_clock(timezone: str) -> str:
@@ -90,6 +99,19 @@ def bookkeeper_clock(timezone: str) -> str:
 
 def _clock(context: AgentContext) -> Callable[[], str]:
     return lambda: bookkeeper_clock(context.timezone)
+
+
+def _read_tools(context: AgentContext) -> tuple[ReadToolSpec, ...]:
+    if context.media is None:
+        return ()
+    return (
+        media_read_tool(
+            context.media,
+            name="read_receipt",
+            description="The lines and the total of one receipt photo, as text.",
+            instructions=RECEIPT_INSTRUCTIONS,
+        ),
+    )
 
 
 def today_in(timezone: str) -> date:
@@ -102,6 +124,7 @@ BOOKKEEPER = AgentSpec(
     instructions=BOOKKEEPER_PROMPT,
     views=("ai_wallets", "ai_categories", "ai_entries", "ai_wallet_balances"),
     mutation_tools=("entry",),
+    read_tools=_read_tools,
     clock=_clock,
 )
 

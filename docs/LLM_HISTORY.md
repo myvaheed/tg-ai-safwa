@@ -31,8 +31,10 @@ flowchart LR
   never reach `ordinary_text`, and a value typed into a field is kept without words. A message the
   owner deletes is not seen, and stays in the conversation.
 - A message can carry `reads_as`: what the model reads for it, in the provider's own shape, when
-  that is not simply its words — an answer's turn (section 2.2), or a voice transcript without the
-  name heading the owner sees above it.
+  that is not simply its words — an answer's turn (section 2.2), a voice transcript without the
+  name heading the owner sees above it, or a photo's label before its caption:
+  `[Анна с дочкой в парке](media:14) вот я с дочкой`. The photo itself is never in the history
+  ([AGENT_ARCH.md](AGENT_ARCH.md#photos)).
 
 ## 2. What the model reads
 

@@ -16,6 +16,7 @@ SHELL_TABLES = {
     "agent_runs",
     "agent_steps",
     "callback_tokens",
+    "chat_media",
     "cues",
     "telegram_messages",
     "ui_sessions",

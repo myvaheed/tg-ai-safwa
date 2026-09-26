@@ -94,3 +94,16 @@ Feature: Screens
     And it appears with the first report, is redrawn in place only when what it would show changed,
       and is taken out of the chat when the job ends
     And it is never part of the conversation, by TG-KIND-002
+
+  Scenario: SC-ALBUM-010 — A screen with photos shows them as one album above its words
+    Given a screen shows photos above its words
+    When it is drawn
+    Then up to 10 photos arrive as one album, with its words and buttons below it
+      (TELEGRAM_ALBUM_LIMIT = 10)
+    And when the screen is replaced or taken away, its photos go with it
+
+  Scenario: SC-CITE-011 — A photo Safwa points at opens as that photo
+    Given Safwa's answer cites a photo by its label
+    When the owner taps it
+    Then Safwa sends that photo, under its description
+    And it goes when the next screen comes, like any other screen

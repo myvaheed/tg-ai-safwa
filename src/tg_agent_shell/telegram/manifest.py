@@ -23,6 +23,7 @@ from ..ai.subagents import SUBAGENT_HISTORY_LAST_MESSAGES, RoutedSubagent
 from ..ai.tools import AfterTool, BeforeTool, Helper
 from ..foundation.screens import ScreenSpec
 from ..history import TelegramHistorySource
+from ..media.library import MediaLibrary
 from ..proposals.api import (
     MutationToolSpec,
     ProposalHandler,
@@ -42,6 +43,8 @@ class AgentContext:
     query_runner: ReadOnlyQueryRunner
     history: TelegramHistorySource
     sessions: async_sessionmaker[AsyncSession]
+    # None where the application takes no photos: a tool that reads one is not handed out.
+    media: MediaLibrary | None = None
 
 
 @dataclass(frozen=True, slots=True)

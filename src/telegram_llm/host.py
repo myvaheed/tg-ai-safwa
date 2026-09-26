@@ -22,12 +22,21 @@ from uuid import uuid4
 from aiogram import Bot
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError
-from aiogram.types import InlineKeyboardMarkup, InputRichMessage, Message
+from aiogram.types import (
+    InlineKeyboardMarkup,
+    InputFile,
+    InputMediaPhoto,
+    InputRichMessage,
+    Message,
+)
 
 from .notes import Note, NoteStore
 from .text import split_telegram_text
 
 logger = logging.getLogger(__name__)
+
+# The most photos Telegram puts in one album.
+TELEGRAM_ALBUM_LIMIT = 10
 
 # What becomes of a screen that is not the live one: the text to freeze it into and the kind
 # it is from then on, or None to take it out of the chat.
@@ -210,6 +219,47 @@ class ChatHost:
             )
         return sent
 
+    async def send_photos(
+        self,
+        message: Message,
+        photos: Sequence[str | InputFile],
+        *,
+        kind: str,
+        caption: str | None = None,
+        related_id: int | None = None,
+    ) -> list[Message]:
+        """Put photos in the chat as one message — a photo, or an album — and keep each.
+
+        A photo is a Telegram file id or the file itself. The caption is HTML and goes under
+        the first photo. An album is its photos alone: Telegram draws no buttons under one,
+        so a screen puts its words and buttons in a message of their own below it. Each
+        photo is kept with its kind and no words, so it is never part of the conversation.
+        """
+        if not 0 < len(photos) <= TELEGRAM_ALBUM_LIMIT:
+            raise ValueError(f"An album holds 1 to {TELEGRAM_ALBUM_LIMIT} photos")
+        if len(photos) == 1:
+            sent = [
+                await message.answer_photo(
+                    photos[0], caption=caption, parse_mode=ParseMode.HTML
+                )
+            ]
+        else:
+            sent = list(
+                await message.answer_media_group(
+                    [
+                        InputMediaPhoto(
+                            media=photo,
+                            caption=caption if index == 0 else None,
+                            parse_mode=ParseMode.HTML,
+                        )
+                        for index, photo in enumerate(photos)
+                    ]
+                )
+            )
+        for photo in sent:
+            await self._note(photo, kind, uuid4().hex, text=None, related_id=related_id)
+        return sent
+
     async def relay(self, message: Message, name: str, text: str, *, kind: str) -> Message:
         """Put words in the chat as the person's own turn, because they never arrived as one.
 
@@ -286,16 +336,27 @@ class ChatHost:
             )
         )
 
-    async def keep(self, message: Message, *, kind: str) -> None:
-        """Keep what the person said, as the chat shows it. Nothing else records it."""
+    async def keep(
+        self,
+        message: Message,
+        *,
+        kind: str,
+        reads_as: Sequence[Mapping[str, Any]] | None = None,
+    ) -> None:
+        """Keep what the person said, as the chat shows it. Nothing else records it.
+
+        A photo's words are its caption. What the model reads for a message whose words are
+        not all of it — a photo's label — is `reads_as`.
+        """
         await self.notes.write(
             Note(
                 chat_id=message.chat.id,
                 message_id=message.message_id,
                 direction="in",
                 kind=kind,
-                text=html.escape(message.text or ""),
+                text=html.escape(message.text or message.caption or ""),
                 at=message.date,
+                reads_as=tuple(reads_as) if reads_as is not None else None,
             )
         )
 

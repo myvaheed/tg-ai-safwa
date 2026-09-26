@@ -29,6 +29,8 @@ from tg_agent_shell.ai.messages import StateBlocks
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views, view_catalogue
 from tg_agent_shell.foundation.database import Database, upgrade_database
 from tg_agent_shell.history import TelegramHistorySource, TelegramNotes
+from tg_agent_shell.media.library import MediaLibrary
+from tg_agent_shell.media.module import MODULE as MEDIA_FEATURE
 from tg_agent_shell.proposals.module import MODULE as PROPOSALS_FEATURE
 from tg_agent_shell.recovery import recover_startup
 from tg_agent_shell.registry import Registry
@@ -45,7 +47,7 @@ from .wallets.module import MODULE as WALLETS
 from .wallets.use_cases import wallet_balance
 from .world import bootstrap_ledger, ledger_world
 
-MODULES: tuple[FeatureModule, ...] = (WALLETS, LEDGER, PROPOSALS_FEATURE)
+MODULES: tuple[FeatureModule, ...] = (WALLETS, LEDGER, MEDIA_FEATURE, PROPOSALS_FEATURE)
 
 REGISTRY: Registry = Registry.of(MODULES, world=ledger_world)
 
@@ -58,6 +60,7 @@ ROOT_VIEWS = ("ai_wallets", "ai_categories", "ai_wallet_balances")
 SYSTEM_PROMPT = f"""{PERSONA}
 
 You answer in words. You never write to the ledger yourself: hand the turn over instead.
+A photo the user sent reads as `[words](media:N)`. A receipt photo is an entry to write.
 
 {REGISTRY.routes(lambda agent: f'- `route("{agent.name}")` — {agent.purpose}')}
 
@@ -139,6 +142,7 @@ def build_root_session(
     owner_id: int,
     timezone: str,
     model_name: str,
+    media: MediaLibrary | None = None,
 ) -> RootSession:
     return REGISTRY.root_session(
         sessions,
@@ -156,6 +160,7 @@ def build_root_session(
                 query_runner=query_runner,
                 history=history,
                 sessions=sessions,
+                media=media,
             ),
             prompt=lambda agent: f"{PERSONA}\n{agent.instructions}",
         ),
@@ -169,6 +174,7 @@ def build_services(
     chat: ChatHost,
     *,
     owner_id: int,
+    media: MediaLibrary | None = None,
 ) -> Services:
     return Services(
         sessions=sessions,
@@ -184,6 +190,7 @@ def build_services(
         hooks=REGISTRY.hooks,
         start_links=REGISTRY.start_links,
         views=REGISTRY.allowed_views,
+        media=media,
     )
 
 
@@ -226,6 +233,7 @@ async def main() -> None:
         timer.add_done_callback(timers.discard)
         return timer
 
+    media = MediaLibrary(prepared.database.sessions, provider)
     history = build_history(prepared.database.sessions, timezone=timezone)
     query_runner = ReadOnlyQueryRunner(
         prepared.path, REGISTRY.allowed_views, timezone=timezone
@@ -238,6 +246,7 @@ async def main() -> None:
         owner_id=owner_id,
         timezone=timezone,
         model_name=os.environ.get("LLM_MODEL", "local-model"),
+        media=media,
     )
     services = build_services(
         prepared.database.sessions,
@@ -245,6 +254,7 @@ async def main() -> None:
         history,
         ChatHost(TelegramNotes(prepared.database.sessions), spawn=spawn),
         owner_id=owner_id,
+        media=media,
     )
     dispatcher = Dispatcher()
     dispatcher.include_router(build_router(services.commands))

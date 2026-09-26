@@ -125,3 +125,34 @@ Feature: The conversation in Telegram
     When the same session asks the model again, after that call's result
     Then the call comes back with that reasoning, unchanged
     And the answer kept in the chat carries none of it
+
+  Scenario: TG-IMAGE-018 — A photo the owner sends is kept as their message, under a short label
+    Given the owner sent a photo with a caption
+    When Safwa reads the conversation back
+    Then the photo is in it as something the owner said: its label, then the caption
+    And the label cites that photo by its number, under a description written when it arrived
+    And the description is asked for in at most 5 words (DESCRIPTION_MAX_WORDS = 5), from the
+      photo, its caption, the owner's name and the last 3 exchanges of the conversation
+      (DESCRIPTION_EXCHANGES = 3)
+    And the label reads the same in every later turn
+    And a photo sent without a caption is in it as its label alone
+
+  Scenario: TG-ALBUM-019 — Photos sent together as an album are one message, answered once
+    Given the owner sent several photos at once, with a caption on one of them
+    When Safwa answers
+    Then it answers once, for every photo and the caption together
+    And each photo has a label of its own
+    And none of the photos is taken out of the chat
+
+  Scenario: TG-SIGHT-020 — The conversation carries a photo's label, never the photo
+    Given the conversation holds a photo
+    When Safwa, a subagent, the Summary or a day read back reads the conversation
+    Then each reads the photo's label and caption, never the photo itself
+    And the photo itself is seen only when its label is written, and by a tool made to read
+      photos, which answers in words
+
+  Scenario: TG-OFF-021 — A photo sent where images are off is refused plainly
+    Given the application runs without image input
+    When the owner sends a photo
+    Then Safwa says image input is off
+    And nothing is answered, and the photo is not in the conversation

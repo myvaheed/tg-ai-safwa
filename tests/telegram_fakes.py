@@ -12,6 +12,7 @@ from collections.abc import Coroutine
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import InlineKeyboardMarkup
 
 
@@ -30,6 +31,19 @@ class QueueTestBot:
         self.drawn: list[str] = []
         self.deleted: list[int] = []
         self.published_commands: list[list[str]] = []
+        # The files the owner's photos stand for, by file id, and every one fetched.
+        self.files: dict[str, bytes] = {}
+        self.downloads: list[str] = []
+        # Every photo message the bot sent, as the list of what each carried.
+        self.photos_sent: list[list[object]] = []
+        # Telegram no longer knowing the file ids it handed out, as after a move to another bot.
+        self.forgot_file_ids = False
+
+    async def download(self, file_id, destination):
+        self.downloads.append(file_id)
+        destination.write(self.files[file_id])
+        destination.seek(0)
+        return destination
 
     async def send_chat_action(self, _chat_id, _action) -> None:
         self.typing_calls += 1
@@ -90,6 +104,10 @@ class QueueTestMessage:
         )
         self.sent: list[QueueTestMessage] = parent.sent if parent is not None else []
         self.was_deleted = False
+        self.caption: str | None = None
+        self.photo: list[SimpleNamespace] | None = None
+        self.media_group_id: str | None = None
+        self.voice = self.audio = self.video_note = None
 
     async def edit_text(self, text, *, reply_markup=None, parse_mode=None):
         del parse_mode
@@ -117,12 +135,64 @@ class QueueTestMessage:
         self.sent.append(sent)
         return sent
 
+    async def answer_photo(self, photo, *, caption=None, parse_mode=None):
+        del parse_mode
+        return (await self._send_photos([photo], caption))[0]
+
+    async def answer_media_group(self, media):
+        return await self._send_photos([item.media for item in media], media[0].caption)
+
+    async def _send_photos(self, photos, caption):
+        if self.bot.forgot_file_ids and any(isinstance(photo, str) for photo in photos):
+            raise TelegramBadRequest(method=None, message="Bad Request: wrong file identifier")
+        self.bot.photos_sent.append(list(photos))
+        self.bot.drawn.append(caption or "[photo]")
+        sent = []
+        for photo in photos:
+            message = QueueTestMessage(
+                message_id=self.message_id + 1_000 + len(self.sent),
+                owner_id=self.owner_id,
+                answer_as_new=True,
+                parent=self,
+            )
+            file_id = photo if isinstance(photo, str) else f"uploaded-{message.message_id}"
+            message.photo = [SimpleNamespace(file_id=file_id, width=1280, height=960)]
+            message.caption = caption if not sent else None
+            self.sent.append(message)
+            sent.append(message)
+        return sent
+
     async def delete(self) -> None:
         self.was_deleted = True
 
     def buttons(self) -> list[str]:
         markup = self.markups[-1]
         return [button.text for row in markup.inline_keyboard for button in row]
+
+
+def owner_photo(
+    parent: QueueTestMessage,
+    message_id: int,
+    *,
+    caption: str | None = None,
+    media_group_id: str | None = None,
+    data: bytes = b"jpeg-",
+) -> QueueTestMessage:
+    """A photo the owner sent, in the three sizes Telegram keeps of one."""
+    photo = QueueTestMessage(
+        message_id=message_id, owner_id=parent.owner_id, is_bot=False, parent=parent
+    )
+    photo.answer_as_new = True
+    photo.caption = caption
+    photo.media_group_id = media_group_id
+    photo.photo = [
+        SimpleNamespace(file_id=f"{message_id}-s", width=320, height=240),
+        SimpleNamespace(file_id=f"{message_id}-y", width=1280, height=960),
+        SimpleNamespace(file_id=f"{message_id}-w", width=2560, height=1920),
+    ]
+    for size in photo.photo:
+        parent.bot.files[size.file_id] = data + size.file_id.encode()
+    return photo
 
 
 class QueueTestCallback:

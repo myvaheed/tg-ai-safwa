@@ -105,6 +105,9 @@ class FakeMessage:
         self.voice = voice
         self.audio = None
         self.video_note = None
+        self.photo = None
+        self.caption = None
+        self.media_group_id = None
         self.bot = bot or FakeBot()
         self.chat = SimpleNamespace(id=chat_id, type="private")
         self.from_user = SimpleNamespace(id=42, is_bot=bot_message, full_name="Name Surname")
