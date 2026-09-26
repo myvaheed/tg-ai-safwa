@@ -13,7 +13,6 @@ a second model review may approve on its own.
 ```powershell
 Copy-Item .env.example .env
 uv sync --extra dev
-uv run safwa-auth
 uv run safwa
 ```
 
@@ -36,10 +35,9 @@ citations.
 Safwa is still under active development and has no production database. Schema migrations are not
 supported yet: after a schema change, rebuild the local SQLite database from scratch.
 
-`SAFWA_TELEGRAM_API_ID` and `SAFWA_TELEGRAM_API_HASH` belong to the Telethon user-client, not the
-bot. The Bot API cannot reread arbitrary chat history, while Safwa uses the Telegram conversation as
-its canonical bounded advisor dialogue. Create the credentials at `my.telegram.org` and run
-`uv run safwa-auth` once to authorize the local session file.
+Safwa keeps the conversation itself: each message is stored in the local database as it passes
+through the bot, and an edit you make to your own message replaces its words there. Deleting a
+message in Telegram does not take it out of what Safwa reads back; rebuilding the database does.
 
 Safwa's memory is written by the retro analysis of each Sprint alone and lives in the database;
 `/memory` shows it, and what you want Safwa told outright goes in the Profile.
@@ -159,8 +157,7 @@ uv run pytest tests\e2e\live --live-telegram -q
 
 The live test sends `/status`, creates and reviews one Action through real Telegram messages and inline
 callbacks, verifies the committed Card in a temporary SQLite database, deletes its QA chat messages, and
-stops the test bot. It never uses the production bot token, database, Telethon session, or AI
-provider. Set `SAFWA_QA_KEEP_MESSAGES=true` when you want the QA conversation to remain visible after a
+stops the test bot. It never uses the production bot token, database, or AI provider. Set `SAFWA_QA_KEEP_MESSAGES=true` when you want the QA conversation to remain visible after a
 run; its inline buttons will be stale because the test database is temporary.
 
 ## Local backup and restore

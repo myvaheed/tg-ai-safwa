@@ -6,8 +6,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 from hook_helpers import run_hooks
-from marks import read_kind_mark
-from ui_harness import FakeMessage, services_for
+from ui_harness import FakeMessage, kind_of, services_for
 
 from llm_gateway import CompletionRequest, CompletionTurn
 from safwa.bootstrap.modules import MODULES, OWN_VIEWS, REGISTRY
@@ -64,7 +63,6 @@ class SequenceHistory:
 def said(message_id: int, text: str, kind: MessageKind = MessageKind.DIALOGUE_USER) -> HistoryEntry:
     return HistoryEntry(
         message_id=message_id,
-        sender_id=42,
         role="user",
         text=text,
         created_at=datetime.now(UTC),
@@ -187,9 +185,8 @@ async def test_the_summary_hook_writes_after_a_turn_whatever_the_stored_switches
     assert not services.turn.active
     await command_summarize(message, services)
     assert len(provider.requests) == 2
-    kind, text = read_kind_mark(message.sent_messages[-1].text)
-    assert kind == MessageKind.SUMMARY.value
-    assert "Manual" in text
+    assert await kind_of(sessions, message.sent_messages[-1]) == MessageKind.SUMMARY.value
+    assert "Manual" in message.sent_messages[-1].text
 
 
 async def test_summary_hook_keeps_the_snapshot_check(sessions):

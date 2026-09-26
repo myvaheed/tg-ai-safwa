@@ -26,7 +26,6 @@ from safwa.features.summary.window import SummaryEdge
 from safwa.foundation.tokens import estimate_tokens
 from telegram_llm import ChatHost, TranscriptionError, TranscriptionResult
 from tg_agent_shell.ai.sql import create_ai_views
-from tg_agent_shell.foundation.kinds import MARKS
 from tg_agent_shell.history import TelegramHistorySource, TelegramNotes
 from tg_agent_shell.proposals.api import ProposalDescription
 from tg_agent_shell.proposals.store import ProposalStore
@@ -186,7 +185,7 @@ def services_for(sessions, *, root=None, reviews=None, transcriber=None):
         turn=TurnManager(),
         screens=SCREENS,
         similarity=None,
-        chat=ChatHost(TelegramNotes(sessions), MARKS, spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(sessions), spawn=spawn_timer),
         commands=(*FEATURE_COMMANDS, *SHELL_COMMANDS),
         callback_actions=CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
@@ -203,20 +202,22 @@ def services_for(sessions, *, root=None, reviews=None, transcriber=None):
     )
 
 
-def history_source(client, sessions, *, bot_user_id: int, owner_id: int):
+def history_source(sessions):
     """The build the composition root does: the budget and the edge are Safwa's, not the
     window's."""
     return TelegramHistorySource(
-        client,
         sessions,
-        marks=MARKS,
-        bot_user_id=bot_user_id,
-        owner_id=owner_id,
         count_tokens=estimate_tokens,
         token_budget=SUMMARY_TRIGGER_TOKENS,
         edge=SummaryEdge(),
         citation_types=SCREENS.types,
     )
+
+
+async def kind_of(sessions, message) -> str | None:
+    """The kind a message the bot sent was kept under."""
+    note = await TelegramNotes(sessions).note(message.chat.id, message.message_id)
+    return note.kind if note is not None else None
 
 
 def button_texts(markup) -> list[str]:
@@ -315,8 +316,8 @@ def capture_dialogue_turns(monkeypatch) -> list[tuple[str, object]]:
 
     turns: list[tuple[str, object]] = []
 
-    async def fake_turn(_message, _services, request, source):
-        turns.append((request, source))
+    async def fake_turn(_message, _services, request, source_message_id):
+        turns.append((request, source_message_id))
 
     monkeypatch.setattr(dialogue_module, "run_dialogue_turn", fake_turn)
     return turns

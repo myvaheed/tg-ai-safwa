@@ -1,12 +1,12 @@
 Feature: The running Summary of the conversation
-  Telegram is where the conversation really lives, and a long conversation outgrows what Safwa can
-  read at once. A Summary is the message that stands for everything said before it, so the older
-  part still counts.
+  Safwa keeps the conversation as it happens, and a long conversation outgrows what Safwa can read
+  at once. A Summary is the message that stands for everything said before it, so the older part
+  still counts.
 
   Numbers below name the constant they come from; the tests read the constant.
 
   Background:
-    Given a conversation in Telegram
+    Given a conversation with Safwa
 
   Scenario: SUM-WRITE-001 — A Summary is written when the window fills, and not before
     Given the conversation is under 6000 tokens (SUMMARY_TRIGGER_TOKENS = 6000)

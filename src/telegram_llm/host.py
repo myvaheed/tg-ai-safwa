@@ -1,7 +1,7 @@
 """Putting a message in the chat, and taking a screen back out of it.
 
-Every message the bot sends leaves through here, so every one of them carries its kind mark
-and leaves a note behind. One that does not is invisible to the window.
+Every message the bot sends leaves through here, so every one of them leaves a note behind,
+words included. One that does not is invisible to the window.
 
 A screen is a message the person can still act on, and only one is ever live: drawing a new
 one takes the others away. What a screen that is being taken away should say instead, if
@@ -15,14 +15,14 @@ import html
 import logging
 from collections.abc import Awaitable, Callable, Collection, Coroutine
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from uuid import uuid4
 
 from aiogram import Bot
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import InlineKeyboardMarkup, InputRichMessage, Message
 
-from .marking import KindMarks
 from .notes import Note, NoteStore
 from .text import split_telegram_text
 
@@ -54,7 +54,6 @@ class ChatHost:
     """The bot's side of the chat: what it says, and what it takes back."""
 
     notes: NoteStore
-    marks: KindMarks
     spawn: Spawn = field(kw_only=True)
     # Two taps arriving together would otherwise edit the same message at once, and
     # Telegram answers the loser with "canceled by new edit message request" instead of
@@ -84,18 +83,17 @@ class ChatHost:
         the caller means a message to be added rather than a state to be redrawn.
 
         `rich` reads `text` as Rich HTML — a block dialect with tables, sent as a rich
-        message instead of a parse-mode one. Marking and the note are the same for both.
+        message instead of a parse-mode one. The note is the same for both.
         """
         should_replace = (
             bool(message.from_user and message.from_user.is_bot) if replace is None else replace
         )
-        visible_text = text
         # A supplied event id belongs to a caller that owns the delivery record — one that
         # posts a new message rather than replacing one, so no stored id is looked up for it.
         if should_replace and event_id is None:
             stored = await self.notes.note(message.chat.id, message.message_id)
             event_id = stored.event_id if stored is not None else None
-        text, event_id = self.marks.write(visible_text, kind, event_id=event_id)
+        event_id = event_id or uuid4().hex
 
         async def deliver_edit(body: str) -> None:
             if rich:
@@ -127,7 +125,7 @@ class ChatHost:
                         message.message_id,
                         error,
                     )
-                    text, event_id = self.marks.write(visible_text, kind)
+                    event_id = uuid4().hex
                     sent = await deliver_new(text)
         else:
             sent = await deliver_new(text)
@@ -139,6 +137,8 @@ class ChatHost:
                 kind=kind,
                 related_id=related_id,
                 event_id=event_id,
+                text=text,
+                at=sent.date,
             )
         )
         return sent
@@ -154,7 +154,7 @@ class ChatHost:
     ) -> Message:
         """Put words in the chat in as many messages as Telegram needs, and return the last.
 
-        Every part is marked and noted on its own, so the window reads all of them and
+        Every part is noted on its own, so the window reads all of them and
         `dialogue` merges them back into the one turn they were. Only the first part may
         replace a screen; the rest are always new messages below it.
 
@@ -205,20 +205,19 @@ class ChatHost:
     ) -> None:
         """Redraw a known screen after consuming a separate message the person sent."""
         stored = await self.notes.note(message.chat.id, message_id)
-        event_id = stored.event_id if stored is not None else None
-        marked_text, event_id = self.marks.write(text, kind, event_id=event_id)
+        event_id = stored.event_id if stored is not None else uuid4().hex
         try:
             async with self.edit_lock:
                 if rich:
                     await message.bot.edit_message_text(
-                        rich_message=InputRichMessage(html=marked_text),
+                        rich_message=InputRichMessage(html=text),
                         chat_id=message.chat.id,
                         message_id=message_id,
                         reply_markup=markup,
                     )
                 else:
                     await message.bot.edit_message_text(
-                        marked_text,
+                        text,
                         chat_id=message.chat.id,
                         message_id=message_id,
                         reply_markup=markup,
@@ -250,8 +249,33 @@ class ChatHost:
                 kind=kind,
                 related_id=related_id,
                 event_id=event_id,
+                text=text,
             )
         )
+
+    async def keep(self, message: Message, *, kind: str) -> None:
+        """Keep what the person said, as the chat shows it. Nothing else records it."""
+        await self.notes.write(
+            Note(
+                chat_id=message.chat.id,
+                message_id=message.message_id,
+                direction="in",
+                kind=kind,
+                text=html.escape(message.text or ""),
+                at=message.date,
+            )
+        )
+
+    async def amend(self, message: Message) -> None:
+        """Take in the person's edit of words already kept.
+
+        Only what `keep` took in has words to change: an edit to anything else the person
+        sent changes nothing that is read back.
+        """
+        kept = await self.notes.note(message.chat.id, message.message_id)
+        if kept is None or kept.direction != "in" or kept.text is None:
+            return
+        await self.notes.write(replace(kept, text=html.escape(message.text or "")))
 
     async def remove_incoming(self, message: Message, *, kind: str) -> bool:
         """Note what the person sent, then take it out of the chat.
@@ -311,7 +335,7 @@ class ChatHost:
         """Leave a screen standing as what became of it: these words, this kind, no buttons."""
         try:
             await message.bot.edit_message_text(
-                self.marks.write(text, kind, event_id=screen.event_id)[0],
+                text,
                 chat_id=message.chat.id,
                 message_id=screen.message_id,
                 parse_mode=ParseMode.HTML,
@@ -329,6 +353,7 @@ class ChatHost:
                 kind=kind,
                 related_id=screen.related_id,
                 event_id=screen.event_id,
+                text=text,
             )
         )
 

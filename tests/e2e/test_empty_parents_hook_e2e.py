@@ -2,8 +2,8 @@
 words, and read back on the owner's next turn.
 
 The real registry, the real Cue poll, the real Advisor turn and the real chat window; the
-provider is scripted, the chat is a fake that keeps what was sent, and Telethon is a fake
-reading that chat back.
+provider is scripted and the chat is a fake; what was sent is read back from the notes the
+bot kept.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
-from telegram_fakes import FakeTelegramClient, FakeTelegramMessage, spawn_timer
+from telegram_fakes import spawn_timer
 from ui_harness import FakeMessage, history_source
 
 from safwa.bootstrap.modules import REGISTRY, SCREENS
@@ -33,7 +33,6 @@ from tg_agent_shell.cues.background import tick
 from tg_agent_shell.cues.initiatives import queue_advice
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.cues.runtime import CueRuntime
-from tg_agent_shell.foundation.kinds import MARKS
 from tg_agent_shell.history import TelegramNotes
 from tg_agent_shell.hooks.contracts import RunContext, Tick
 from tg_agent_shell.turn import TurnManager
@@ -41,7 +40,6 @@ from tg_agent_shell.turn import TurnManager
 pytestmark = pytest.mark.e2e
 
 OWNER_ID = 42
-BOT_ID = 999
 # What a well-behaved Advisor answers the request with: both ways forward, in one message.
 ANSWER = (
     "У Цели «Learn Spanish» пока нет Действий. Хотите запланировать их сейчас или создать "
@@ -89,17 +87,14 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
 
     advisor, provider = e2e_harness.advisor([ANSWER])
     chat = FakeMessage(900, bot_message=False, chat_id=OWNER_ID, answer_as_new=True)
-    read_back: list[FakeTelegramMessage] = []
-    history = history_source(
-        FakeTelegramClient(read_back), sessions, bot_user_id=BOT_ID, owner_id=OWNER_ID
-    )
+    history = history_source(sessions)
     services = SimpleNamespace(
         sessions=sessions,
         hooks=REGISTRY.hooks,
         turn=TurnManager(),
         root=advisor,
         history=history,
-        chat=ChatHost(TelegramNotes(sessions), MARKS, spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(sessions), spawn=spawn_timer),
         screens=SCREENS,
         similarity=None,
         bot_username="safwa_ai_bot",
@@ -137,10 +132,6 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
     assert len(chat.sent_messages) == 1
 
     # The chat holds the Advisor's words, and the owner's next turn reads them back.
-    for sent in chat.sent_messages:
-        read_back.insert(
-            0, FakeTelegramMessage(sent.message_id, sent.text, BOT_ID, datetime.now(UTC))
-        )
     dialogue = await history.dialogue(OWNER_ID)
     assert [message.role for message in dialogue] == ["assistant"]
     assert ANSWER in dialogue[0].content

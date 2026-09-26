@@ -28,7 +28,6 @@ from telegram_llm import ChatHost
 from tg_agent_shell.ai.messages import StateBlocks
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views, view_catalogue
 from tg_agent_shell.foundation.database import Database, upgrade_database
-from tg_agent_shell.foundation.kinds import MARKS
 from tg_agent_shell.history import TelegramHistorySource, TelegramNotes
 from tg_agent_shell.proposals.module import MODULE as PROPOSALS_FEATURE
 from tg_agent_shell.recovery import recover_startup
@@ -189,19 +188,11 @@ def build_services(
 
 
 def build_history(
-    sessions: async_sessionmaker[AsyncSession],
-    *,
-    bot_user_id: int,
-    owner_id: int,
-    timezone: str,
+    sessions: async_sessionmaker[AsyncSession], *, timezone: str
 ) -> TelegramHistorySource:
-    """No Telethon here: the window is read out of the notes this bot wrote itself."""
+    """The window over the chat this bot keeps. With no edge, only the budget ends it."""
     return TelegramHistorySource(
-        None,
         sessions,
-        marks=MARKS,
-        bot_user_id=bot_user_id,
-        owner_id=owner_id,
         count_tokens=estimate_tokens,
         token_budget=8_000,
         edge=NoEdge(),
@@ -227,7 +218,6 @@ async def main() -> None:
         token=os.environ["BOT_TOKEN"],
         default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True),
     )
-    me = await bot.get_me()
     timers: set[asyncio.Task[None]] = set()
 
     def spawn(work: Coroutine[None, None, None], name: str) -> asyncio.Task[None]:
@@ -236,10 +226,7 @@ async def main() -> None:
         timer.add_done_callback(timers.discard)
         return timer
 
-    history = build_history(
-        prepared.database.sessions, bot_user_id=me.id, owner_id=owner_id, timezone=timezone
-    )
-    await history.start()
+    history = build_history(prepared.database.sessions, timezone=timezone)
     query_runner = ReadOnlyQueryRunner(
         prepared.path, REGISTRY.allowed_views, timezone=timezone
     )
@@ -256,7 +243,7 @@ async def main() -> None:
         prepared.database.sessions,
         root,
         history,
-        ChatHost(TelegramNotes(prepared.database.sessions), MARKS, spawn=spawn),
+        ChatHost(TelegramNotes(prepared.database.sessions), spawn=spawn),
         owner_id=owner_id,
     )
     dispatcher = Dispatcher()
@@ -269,7 +256,6 @@ async def main() -> None:
         for timer in tuple(timers):
             timer.cancel()
         await asyncio.gather(*timers, return_exceptions=True)
-        await history.close()
         await provider.aclose()
         await bot.session.close()
         await prepared.database.dispose()

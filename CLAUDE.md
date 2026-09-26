@@ -91,10 +91,10 @@ goes:
 Each is a property some mechanism exists to hold. Break one and the mechanism around it stops
 meaning anything, so change the mechanism instead.
 
-- **Telegram is the dialogue store, not SQLite.** Every bot message is sent registered and marked
-  with a `MessageKind`, and its kind is the only thing that decides whether the model ever sees it.
-  An unregistered or wrongly-kinded message is a silent bug weeks wide. Rule P keeps the send path
-  single, and Rule O keeps a released `MARKS` code from ever meaning something else.
+- **The chat is kept as it passes, and the kept chat is the dialogue.** Every bot message is sent
+  through `ChatHost`, which keeps it with a `MessageKind`, and the owner's words are kept as they
+  arrive; the kind is the only thing that decides whether the model ever sees a message. An
+  unkept or wrongly-kinded message is a silent bug weeks wide. Rule P keeps the send path single.
 - **The model proposes; it never writes.** Every mutation tool belongs to a subagent, never to the
   Advisor, and Save calls the *same* use cases the manual UI calls. A proposal screen is exactly
   Save/Discard: a screen that needs a field control is the wrong screen.
@@ -127,10 +127,9 @@ meaning anything, so change the mechanism instead.
 - **The prompt snapshot travels with the prompt.** A changed system prompt, tool description or
   reader view list updates `tests/snapshots/prompt_prefix.json` in the same batch; no separate
   permission is needed, and the update names that one test.
-- **The other two snapshots are each their own declared batch**, because each stamps something
-  already outside the repository. A released `MARKS` code is on messages sitting in the owner's
-  chat, so a code is added and never reassigned. The schema has no migrations, so a changed column
-  reaches a database only by rebuilding it, which is the owner's to do.
+- **The schema snapshot is its own declared batch**, because it stamps something already outside
+  the repository: the schema has no migrations, so a changed column reaches a database only by
+  rebuilding it, which is the owner's to do.
 
 ## Schema
 
@@ -155,7 +154,7 @@ pre-release database; migration support starts after v1, from the ORM metadata a
   ([features/onboarding/agent.py](src/safwa/features/onboarding/agent.py)). A batch that changes
   one it names, or adds something the owner should meet, updates the manual in the same batch.
 - **Prose for a developer is not held to that.** A non-obvious decision earns the sentence that says
-  why. Code comments stay sparse and explain only a non-obvious *why* — a Telegram or Telethon
+  why. Code comments stay sparse and explain only a non-obvious *why* — a Telegram or aiogram
   quirk, an ordering constraint.
 - Docs are kept current by deleting: a line that stopped being true is removed or replaced in place,
   never left standing next to its correction. One explanation has one home, and a diagram lives
@@ -169,12 +168,13 @@ pre-release database; migration support starts after v1, from the ORM metadata a
 - E2E tests use the real SQLite database and real services, replacing only Telegram and the provider
   at their network boundaries — keep new tests on that pattern rather than mocking domain functions.
   QA and live test config never touch production state: `resolve_qa_config`
-  ([qa.py](src/safwa/qa.py)) hard-fails on a reused bot token or Telethon session path.
+  ([qa.py](src/safwa/qa.py)) hard-fails on a reused bot token.
 
 ## The rest of `docs/`
 
 Beyond what the table above points at, and none of it required reading for an ordinary task:
-[LLM_GATEWAY.md](docs/LLM_GATEWAY.md) is the provider boundary, and
+[LLM_GATEWAY.md](docs/LLM_GATEWAY.md) is the provider boundary,
+[LLM_HISTORY.md](docs/LLM_HISTORY.md) what the model reads as the conversation and why, and
 [SPRINT_ANALYSE_TO_RETRO_AND_MEM.md](docs/SPRINT_ANALYSE_TO_RETRO_AND_MEM.md) the retro analysis — what it reads, asks and writes — and how memory is written from it.
 A feature's own package is a pointer like any other: its `.feature`
 file is the rule, and the package is what keeps it. `docs/` is where anything written from now on

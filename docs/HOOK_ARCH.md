@@ -850,8 +850,7 @@ create_diary_entry и update_diary_entry, record_analysis; и Run onboarding.not
 словами — предложение stop_onboarding с AutoApprovalRule, по PR-AUTO-024
 ([OB-STOP-005](../tests/brd/onboarding.feature)). Схема: новая таблица onboarding_notice —
 upgrade_database создаёт её при старте без пересборки. Отметка уведомления — таблица фичи, а
-не свой вид в MessageKind: оболочка назвала бы фичу Safwa, а код в MARKS навсегда остался бы
-на сообщениях, уже лежащих в чате.
+не свой вид в MessageKind: оболочка назвала бы фичу Safwa.
 
 ### Батч 10. Проверки работы модели — реализован
 

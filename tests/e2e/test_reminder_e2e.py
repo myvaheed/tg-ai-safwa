@@ -23,7 +23,6 @@ from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import schedule_of
 from telegram_llm import ChatHost, DialogueMessage
 from tg_agent_shell.ai.outcome import AIOutcomeKind
-from tg_agent_shell.foundation.kinds import MARKS
 from tg_agent_shell.history import TelegramNotes
 from tg_agent_shell.proposals.telegram import render_proposal
 from tg_agent_shell.proposals.use_cases import approve_proposal
@@ -241,6 +240,7 @@ class _TestMessage:
         self.chat = SimpleNamespace(id=700, type="private")
         self.from_user = SimpleNamespace(id=42, is_bot=True)
         self.bot = _TestBot()
+        self.date = datetime.now(UTC)
         self.text = ""
         self.rendered: list[str] = []
         self.markups: list[object] = []
@@ -296,7 +296,7 @@ def _services(harness, advisor) -> SimpleNamespace:
         turn=TurnManager(),
         screens=SCREENS,
         similarity=None,
-        chat=ChatHost(TelegramNotes(harness.sessions), MARKS, spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(harness.sessions), spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
         bot_username="safwa_ai_bot",

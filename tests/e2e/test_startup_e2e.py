@@ -42,25 +42,6 @@ class FakeBot:
         self.commands_set = bool(commands)
 
 
-class FakeHistory:
-    def __init__(self) -> None:
-        self.started = False
-        self.closed = False
-
-    async def start(self) -> None:
-        self.started = True
-
-    async def close(self) -> None:
-        self.closed = True
-
-
-class FakeHistoryFactory:
-    instance = FakeHistory()
-
-    def __new__(cls, *_args, **_kwargs):
-        return cls.instance
-
-
 class FakeProvider:
     instances: list[FakeProvider] = []
 
@@ -132,10 +113,8 @@ def _prepared_startup(tmp_path: Path, monkeypatch) -> tuple[Path, Settings]:
     FakeBot.instances.clear()
     FakeProvider.instances.clear()
     FakeDispatcher.instances.clear()
-    FakeHistoryFactory.instance = FakeHistory()
     monkeypatch.setattr(safwa_main, "Bot", FakeBot)
     monkeypatch.setattr(safwa_main, "OpenAICompatibleProvider", FakeProvider)
-    monkeypatch.setattr(safwa_main, "TelegramHistorySource", FakeHistoryFactory)
     monkeypatch.setattr(safwa_main, "Dispatcher", FakeDispatcher)
     FakeEncoder.made.clear()
     monkeypatch.setattr(safwa_main, "FastEmbedEncoder", FakeEncoder)
@@ -145,10 +124,6 @@ def _prepared_startup(tmp_path: Path, monkeypatch) -> tuple[Path, Settings]:
         telegram_bot_token="123456:test-token",
         telegram_bot_username="configured_safwa_bot",
         telegram_owner_id=42,
-        telegram_api_id=12345,
-        telegram_api_hash="test-api-hash",
-        telegram_history_required=True,
-        telegram_user_session_path=tmp_path / "telegram-user",
         database_url=database_url,
         data_dir=tmp_path / "data",
         ai_base_url="http://127.0.0.1:1234/v1",
@@ -171,8 +146,6 @@ async def test_full_startup_reaches_polling_and_cleans_up(tmp_path: Path, monkey
     assert {"backlog", "profile"}.isdisjoint(command_names)
     assert FakeBot.instances[0].session.closed is True
     assert FakeProvider.instances[0].closed is True
-    assert FakeHistoryFactory.instance.started is True
-    assert FakeHistoryFactory.instance.closed is True
 
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM workspace").fetchone() == (1,)

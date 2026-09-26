@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -28,7 +29,7 @@ from safwa.features.checks.use_cases import (
 from safwa.features.home.telegram import render_home
 from telegram_llm import ChatHost, DialogueMessage
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
-from tg_agent_shell.foundation.kinds import MARKS, MessageKind
+from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramMessage, TelegramNotes
 from tg_agent_shell.proposals.telegram import render_ai_outcome, render_proposal
 from tg_agent_shell.telegram import callback_token_handler
@@ -54,6 +55,7 @@ class _TestMessage:
         self.chat = SimpleNamespace(id=700, type="private")
         self.from_user = SimpleNamespace(id=42, is_bot=True)
         self.bot = _TestBot(self)
+        self.date = datetime.now(UTC)
         self.text = ""
         self.rendered: list[str] = []
         self.sent: list[str] = []
@@ -116,7 +118,7 @@ def _services(harness, advisor) -> SimpleNamespace:
         turn=TurnManager(),
         screens=SCREENS,
         similarity=None,
-        chat=ChatHost(TelegramNotes(harness.sessions), MARKS, spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(harness.sessions), spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
         start_links=(),

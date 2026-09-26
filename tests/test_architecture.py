@@ -4,9 +4,9 @@ The rules live in `scripts/architecture_metrics.py` so the same scanner produces
 a batch attaches to its summary.  Every one of them reads zero, and the one exception any
 rule grants is named inside that rule.
 
-Rules I, J and O are snapshots of built artefacts rather than of the source tree, so they
+Rules I and J are snapshots of built artefacts rather than of the source tree, so they
 are here.  Regenerate one by naming its own test, never the whole file, so a batch cannot
-re-baseline the two it did not change:
+re-baseline the one it did not change:
 
     uv run pytest tests/test_architecture.py::test_rule_i_prompt_prefix_is_byte_stable --snapshot-update
 """
@@ -47,7 +47,7 @@ from scripts.architecture_metrics import (
     readers,
     unregistered_packages,
 )
-from telegram_llm import DialogueMessage, KindMarks, code_for
+from telegram_llm import DialogueMessage
 from tg_agent_shell.ai.contracts import (
     CALL_HELPER_TOOL,
     QUERY_TOOL,
@@ -56,7 +56,6 @@ from tg_agent_shell.ai.contracts import (
 )
 from tg_agent_shell.ai.messages import ContextBuilder, StateBlocks
 from tg_agent_shell.ai.subagents import RoutedSubagent
-from tg_agent_shell.foundation.kinds import MARKS
 from tg_agent_shell.foundation.models import Base as ShellBase
 
 SNAPSHOTS = Path(__file__).parent / "snapshots"
@@ -369,34 +368,6 @@ def test_the_declared_schema_is_what_a_fresh_database_gets(tmp_path):
         engine.dispose()
 
     assert set(Base.metadata.tables) <= built
-
-
-# ------------------------------------------- Rule O: the marker codes are append-only
-
-
-def test_rule_o_marker_codes_are_unchanged(request):
-    # The code is written into the message text and Telegram is the store, so a code that
-    # moves re-labels every message already sent under it and nothing can migrate them back.
-    # It follows from the kind's name, so the two ways to move one are renaming a kind and
-    # changing the derivation, and this is what notices either.
-    produced = {kind: str(code) for kind, code in MARKS.codes.items()}
-
-    _snapshot("marker_codes", produced, request.config.getoption("--snapshot-update"))
-
-
-def test_rule_o_two_kinds_on_one_code_are_refused():
-    # A derived code can only go wrong one way, and it goes wrong silently, so the search
-    # for a colliding pair is worth what it costs.
-    seen: dict[int, str] = {}
-    for index in range(1 << 18):
-        name = f"kind_{index}"
-        code = code_for(name)
-        if code in seen:
-            with pytest.raises(ValueError):
-                KindMarks([seen[code], name])
-            return
-        seen[code] = name
-    pytest.fail("no colliding pair in the searched range")
 
 
 # ------------------------------------------------- the package names no application

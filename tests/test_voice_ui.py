@@ -34,9 +34,7 @@ async def test_voice_message_becomes_one_owner_dialogue_turn(sessions, monkeypat
         rows = list(await session.scalars(select(TelegramMessage)))
     dialogue_rows = [row for row in rows if row.kind == MessageKind.DIALOGUE_USER.value]
     assert [row.direction for row in dialogue_rows] == ["out"]
-    assert turns == [("Renew the passport this week.", turns[0][1])]
-    assert turns[0][1].role == "user"
-    assert turns[0][1].message_id == posted[0].message_id
+    assert turns == [("Renew the passport this week.", posted[0].message_id)]
 
 
 async def test_long_transcript_is_split_and_answered_once(sessions, monkeypatch) -> None:

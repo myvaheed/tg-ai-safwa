@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
 from aiogram.exceptions import TelegramAPIError
 from hook_helpers import before_turn_hooks, run_hooks
-from marks import read_kind_mark
 from sqlalchemy import select
 from ui_harness import (
     FakeBot,
@@ -17,6 +15,7 @@ from ui_harness import (
     ScriptedTranscriber,
     StubAdvisor,
     capture_dialogue_turns,
+    kind_of,
     services_for,
     voice_message_for,
 )
@@ -27,10 +26,7 @@ from safwa.bootstrap.modules import (
 from safwa.features.planning.telegram import render_sprint
 from safwa.features.planning.use_cases import set_sprint_success_criteria
 from safwa.foundation.workspace import Workspace
-from telegram_llm import (
-    DialogueMessage,
-    HistoryEntry,
-)
+from telegram_llm import DialogueMessage
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramMessage
@@ -68,8 +64,7 @@ def turn_services(sessions):
     return services
 
 
-async def _empty_dialogue(_chat_id, *, source_message=None):
-    del source_message
+async def _empty_dialogue(_chat_id):
     return []
 
 
@@ -77,16 +72,8 @@ async def test_an_autoapproved_change_still_reaches_the_chat(sessions) -> None:
     """The workspace revision moves inside the turn, so it cannot invalidate the answer."""
     services = turn_services(sessions)
     message = FakeMessage(960, text="Save it", bot_message=False, answer_as_new=True)
-    source = HistoryEntry(
-        message_id=960,
-        sender_id=42,
-        role="user",
-        text="Save it",
-        created_at=datetime.now(UTC),
-        kind=MessageKind.DIALOGUE_USER.value,
-    )
 
-    await run_dialogue_turn(message, services, "Save it", source)
+    await run_dialogue_turn(message, services, "Save it", 960)
 
     assert any("Auto-saved" in item.text for item in message.sent_messages)
     async with sessions() as session:
@@ -114,16 +101,8 @@ async def test_ag_turn_034_after_turn_work_that_fails_leaves_the_answer_standing
 
         monkeypatch.setattr("tg_agent_shell.telegram.dialogue.send_registered", fail_report)
     message = FakeMessage(970, text="Save it", bot_message=False, answer_as_new=True)
-    source = HistoryEntry(
-        message_id=970,
-        sender_id=42,
-        role="user",
-        text="Save it",
-        created_at=datetime.now(UTC),
-        kind=MessageKind.DIALOGUE_USER.value,
-    )
 
-    await run_dialogue_turn(message, services, "Save it", source)
+    await run_dialogue_turn(message, services, "Save it", 970)
 
     said = [item.text for item in message.sent_messages]
     assert any("Auto-saved" in text for text in said)
@@ -140,20 +119,14 @@ async def test_ag_turn_022_the_notice_stands_while_the_answer_is_written(session
     """AG-TURN-022 — tests/brd/tg_agent_shell/agents.feature"""
     services = turn_services(sessions)
     message = FakeMessage(966, text="Save it", bot_message=False, answer_as_new=True)
-    source = HistoryEntry(
-        message_id=966,
-        sender_id=42,
-        role="user",
-        text="Save it",
-        created_at=datetime.now(UTC),
-        kind=MessageKind.DIALOGUE_USER.value,
-    )
 
-    await run_dialogue_turn(message, services, "Save it", source)
+    await run_dialogue_turn(message, services, "Save it", 966)
 
     notice = message.sent_messages[0]
-    assert read_kind_mark(notice.text) == (MessageKind.UI_INPUT.value, TURN_NOTICE)
+    assert notice.text == TURN_NOTICE
     assert notice.message_id in message.bot.deleted
+    # Taken out of the chat, so nothing of it is kept to be read back.
+    assert await kind_of(sessions, notice) is None
     assert any("Auto-saved" in item.text for item in message.sent_messages)
 
 
@@ -170,19 +143,11 @@ async def test_ag_turn_022_a_cancelled_turn_leaves_no_notice_and_no_answer(sessi
 
     services.root.handle = cancel_then_answer
     message = FakeMessage(961, text="Save it", bot_message=False, answer_as_new=True)
-    source = HistoryEntry(
-        message_id=961,
-        sender_id=42,
-        role="user",
-        text="Save it",
-        created_at=datetime.now(UTC),
-        kind=MessageKind.DIALOGUE_USER.value,
-    )
 
-    await run_dialogue_turn(message, services, "Save it", source)
+    await run_dialogue_turn(message, services, "Save it", 961)
 
     notice = message.sent_messages[0]
-    assert read_kind_mark(notice.text)[1] == TURN_NOTICE
+    assert notice.text == TURN_NOTICE
     assert notice.message_id in message.bot.deleted
     assert [item for item in message.sent_messages if "Auto-saved" in item.text] == []
 
@@ -206,16 +171,8 @@ async def test_a_review_that_could_not_be_drawn_ends_and_the_owner_is_told(sessi
     services = turn_services(sessions)
     services.root = ProposalAdvisor()
     message = FakeMessage(965, text="Save it", bot_message=False, answer_as_new=True)
-    source = HistoryEntry(
-        message_id=965,
-        sender_id=42,
-        role="user",
-        text="Save it",
-        created_at=datetime.now(UTC),
-        kind=MessageKind.DIALOGUE_USER.value,
-    )
 
-    await run_dialogue_turn(message, services, "Save it", source)
+    await run_dialogue_turn(message, services, "Save it", 965)
 
     assert cancelled == [77]
     assert any(
@@ -241,7 +198,7 @@ async def test_a_turn_with_no_owner_message_is_headed_by_the_bare_role(sessions)
 
     await send_owner_turn(anchor, services, "Later, then.")
 
-    assert read_kind_mark(anchor.sent_messages[-1].text)[1].startswith("<b>User:</b>")
+    assert anchor.sent_messages[-1].text.startswith("<b>User:</b>")
 
 
 async def test_a_screen_deleted_outside_the_bot_is_redrawn_instead_of_failing(sessions) -> None:
@@ -295,17 +252,11 @@ async def test_a_cancelled_generation_still_gives_up_its_lease(sessions, monkeyp
     monkeypatch.setattr(dialogue_module, "render_ai_outcome", cancelled)
     services = turn_services(sessions)
     message = FakeMessage(1, text="Plan my week", bot_message=False, answer_as_new=True)
-    source = HistoryEntry(
-        message_id=message.message_id,
-        sender_id=42,
-        role="user",
-        text="Plan my week",
-        created_at=message.date,
-        kind=MessageKind.DIALOGUE_USER.value,
-    )
 
     with pytest.raises(asyncio.CancelledError):
-        await dialogue_module.run_dialogue_turn(message, services, "Plan my week", source)
+        await dialogue_module.run_dialogue_turn(
+            message, services, "Plan my week", message.message_id
+        )
 
     assert services.turn.active is False, "the lease outlived the generation that held it"
 
@@ -420,17 +371,6 @@ async def test_a_screen_whose_freeze_fails_stops_being_walked(sessions) -> None:
         ) is None
 
 
-def _owner_words(message_id: int, text: str) -> HistoryEntry:
-    return HistoryEntry(
-        message_id=message_id,
-        sender_id=42,
-        role="user",
-        text=text,
-        created_at=datetime.now(UTC),
-        kind=MessageKind.DIALOGUE_USER.value,
-    )
-
-
 class ReadingAdvisor:
     """Keeps the conversation each turn was handed, and answers in one line."""
 
@@ -451,8 +391,7 @@ async def test_ag_hook_042_work_before_the_turn_stands_before_its_answer(session
         seen.append(event)
         await context.publish("Said first.", MessageKind.DIALOGUE_ASSISTANT.value)
 
-    async def read_so_far(_chat_id, *, source_message=None):
-        del source_message
+    async def read_so_far(_chat_id):
         return [DialogueMessage(role="user", content="[User]: Hello")]
 
     services = turn_services(sessions)
@@ -461,9 +400,9 @@ async def test_ag_hook_042_work_before_the_turn_stands_before_its_answer(session
     services.hooks = before_turn_hooks(say_first)
     message = FakeMessage(980, text="Hello", bot_message=False, answer_as_new=True)
 
-    await run_dialogue_turn(message, services, "Hello", _owner_words(980, "Hello"))
+    await run_dialogue_turn(message, services, "Hello", 980)
 
-    said = [read_kind_mark(item.text) for item in message.sent_messages]
+    said = [(await kind_of(sessions, item), item.text) for item in message.sent_messages]
     first = said.index((MessageKind.DIALOGUE_ASSISTANT.value, "Said first."))
     answer = next(index for index, (_, text) in enumerate(said) if "The answer." in text)
     assert first < answer
@@ -486,7 +425,7 @@ async def test_ag_hook_042_work_before_the_turn_that_fails_leaves_the_turn_runni
     services.hooks = before_turn_hooks(fall_over)
     message = FakeMessage(981, text="Hello", bot_message=False, answer_as_new=True)
 
-    await run_dialogue_turn(message, services, "Hello", _owner_words(981, "Hello"))
+    await run_dialogue_turn(message, services, "Hello", 981)
 
     assert any("The answer." in item.text for item in message.sent_messages)
     assert not any("could not be completed" in item.text for item in message.sent_messages)

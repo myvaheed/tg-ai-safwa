@@ -1,19 +1,18 @@
 Feature: The conversation in Telegram
-  Safwa keeps no copy of what was said. Before every answer it reads the real private chat back,
-  and what it finds there is the conversation. So a message that is still in the chat counts, one
-  that was taken out of it does not, and a message Safwa sent says for itself whether it was
-  something said or a screen to act on.
+  Safwa keeps the private chat as it happens: every message it sends, and every message of the
+  owner's that is conversation, with the kind of message each one is. Before every answer it
+  reads the conversation back out of what it kept, never out of Telegram.
 
   Background:
-    Given a private chat between the owner and Safwa, read back message by message
+    Given a private chat between the owner and Safwa, kept message by message
 
-  Scenario: TG-MARK-001 — A message Safwa sent off the record is not part of the conversation
-    Given a message Safwa put in the chat without saying what kind of message it was
+  Scenario: TG-MARK-001 — A message Safwa sends is kept with its kind
+    Given Safwa put a review screen in the chat
     When Safwa reads the conversation back
-    Then that message is not in it
-    And on the messages that do say, the marking is invisible to the owner
-    And a message Safwa rewrites in place stays the same message, so rewriting a review screen
-      into an account of what became of it does not add a second one
+    Then the screen is not in it
+    When Safwa rewrites that screen in place into an account of what became of it
+    Then the account is in the conversation once, where the screen stood
+    And it is still the same message, not a second one
 
   Scenario: TG-KIND-002 — Screens, receipts and progress notes are never part of the conversation
     Given a dashboard, a line reporting what a button just did, a progress note and an error
@@ -23,14 +22,12 @@ Feature: The conversation in Telegram
     And what is in it is what was said: the owner's words, Safwa's answers, what Safwa said
       unasked, and the Summaries
 
-  Scenario: TG-OWNER-003 — Owner text still in the chat is what the owner said
-    Given a message the owner sent themselves, carrying no marking of any kind
+  Scenario: TG-OWNER-003 — The owner's words are kept as they arrive
+    Given the owner wrote to Safwa
     When Safwa reads the conversation back
-    Then it counts as something they said
-    And a command, or a value they typed into a field, is not found at all — Safwa took each of
-      those out of the chat as it read them
-    When a command Safwa failed to take out is left standing in the chat
-    Then it is still not part of the conversation, because text opening with "/" never is
+    Then their message is in it as something they said
+    And a value they typed into a field is not in it
+    And text opening with "/" is never in it
 
   Scenario: TG-RELAY-004 — Words that never reached the chat as the owner's are put there as theirs
     Given the owner spoke instead of typing, so what they said is in the chat as a recording and
@@ -57,13 +54,12 @@ Feature: The conversation in Telegram
     And which message that is, the window does not decide: in Safwa it is the newest Summary,
       by SUM-WRITE-001
 
-  Scenario: TG-NOTES-007 — The conversation is read from the chat, and from nothing Safwa keeps
-    Given every note Safwa kept about this chat is gone
+  Scenario: TG-NOTES-007 — The conversation is what Safwa kept, not what the chat shows
+    Given the owner deleted one of their messages from the chat
+    And Safwa took one of its own messages out of the chat
     When Safwa reads the conversation back
-    Then the marking on its own messages still says what each of them was
-    And the owner's surviving messages still count as theirs
-    And the conversation reads as it did
-    And what stops the read is the token budget, or the newest Summary — never a note
+    Then the owner's deleted message is still in it
+    And the message Safwa took out is not
 
   Scenario: TG-CURRENT-008 — The message Safwa is answering is in the conversation exactly once
     Given the owner just sent a message and Safwa is answering it
@@ -84,6 +80,12 @@ Feature: The conversation in Telegram
       the next answer
     And answers with nothing between them are read as one answer
     And the time is written once for each hour of conversation, not once per message
+
+  Scenario: TG-EDIT-012 — An edit the owner makes is what the conversation reads
+    Given the owner said something, and then edited that message
+    When Safwa reads the conversation back
+    Then it reads the edited words, where the message always stood
+    And an edit to a value they typed into a field changes nothing
 
   Scenario: TG-CITE-011 — A link Safwa wrote reads back as the citation it wrote
     Given Safwa's answer pointed the owner at a Card, and they see a tappable link

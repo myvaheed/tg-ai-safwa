@@ -2,16 +2,17 @@
 
 Out: render the Markdown subset a model writes as safe Telegram HTML, and cut a message
 Telegram would refuse into ones it takes without leaving formatting open across the cut.
-Back: a message read out of the chat is not what was written into it — a citation returned
-as a link, and a line the interface added rather than the model. All four are pure.
+Back: the chat is kept as Telegram HTML and a model reads words — a citation written back
+from the link it became, and a line the interface added rather than the model. All four
+are pure.
 """
 
 from __future__ import annotations
 
 import html
 import re
-from collections.abc import Mapping, Sequence
-from typing import Any
+from collections.abc import Mapping
+from html.parser import HTMLParser
 from urllib.parse import parse_qs, urlparse
 
 # Telegram accepts 4096 characters. The rest is headroom for what a host appends to a part
@@ -152,49 +153,43 @@ def split_receipts(text: str, meanings: Mapping[str, str]) -> tuple[list[str], s
     return notes, "\n".join(spoken).strip()
 
 
-def restore_citations(
-    text: str, entities: Sequence[Any] | None, citation_types: tuple[str, ...]
-) -> str:
-    """Rewrite the item links of a bot message back into `[text](card:12)` citations.
+def telegram_html_to_text(text: str, citation_types: tuple[str, ...]) -> str:
+    """Read a message kept as Telegram HTML back as the words it shows.
 
-    The chat hands back plain text, so a link would otherwise return as bare words and
-    teach the model that citing is optional.
+    The tags go and the entities are read, which is what the person sees. A link to one of
+    the bot's own items is written back as the `[text](card:12)` citation it was rendered
+    from, so a model reading its own answer sees that citing is how it names an item; any
+    other link reads as its words.
     """
-    if not text or not entities or not citation_types:
-        return text
-    # Entity offsets count UTF-16 units, so every slice happens in surrogate space.
-    surrogate = _to_utf16_units(text)
-    found: list[tuple[int, int, str]] = []
-    for entity in entities:
-        target = _citation_from_url(getattr(entity, "url", None), citation_types)
-        if target is None:
-            continue
-        offset, length = int(entity.offset), int(entity.length)
-        label = _from_utf16_units(surrogate[offset : offset + length])
-        found.append((offset, length, f"[{label}]({target})"))
-    for offset, length, citation in sorted(found, reverse=True):
-        surrogate = (
-            surrogate[:offset] + _to_utf16_units(citation) + surrogate[offset + length :]
-        )
-    return _from_utf16_units(surrogate)
+    reader = _Words(citation_types)
+    reader.feed(text)
+    reader.close()
+    return "".join(reader.parts)
 
 
-def _to_utf16_units(text: str) -> str:
-    """One character per UTF-16 unit, so a slice at an entity offset lands where it says."""
-    units: list[str] = []
-    for char in text:
-        point = ord(char)
-        if point > 0xFFFF:
-            point -= 0x10000
-            units.append(chr(0xD800 + (point >> 10)))
-            units.append(chr(0xDC00 + (point & 0x3FF)))
-        else:
-            units.append(char)
-    return "".join(units)
+class _Words(HTMLParser):
+    def __init__(self, citation_types: tuple[str, ...]) -> None:
+        super().__init__(convert_charrefs=True)
+        self.citation_types = citation_types
+        self.parts: list[str] = []
+        # Each open link: the citation it stands for, or None, and where its words begin.
+        self.links: list[tuple[str | None, int]] = []
 
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "a":
+            target = _citation_from_url(dict(attrs).get("href"), self.citation_types)
+            self.links.append((target, len(self.parts)))
 
-def _from_utf16_units(text: str) -> str:
-    return text.encode("utf-16", "surrogatepass").decode("utf-16")
+    def handle_endtag(self, tag: str) -> None:
+        if tag != "a" or not self.links:
+            return
+        target, start = self.links.pop()
+        if target is not None:
+            label = "".join(self.parts[start:])
+            self.parts[start:] = [f"[{label}]({target})"]
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
 
 
 def _citation_from_url(url: str | None, citation_types: tuple[str, ...]) -> str | None:

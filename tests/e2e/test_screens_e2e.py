@@ -23,7 +23,6 @@ from safwa.features.tags.model import Tag
 from safwa.features.tags.use_cases import create_tag
 from telegram_llm import ChatHost
 from tg_agent_shell.ai.runs import AgentRun
-from tg_agent_shell.foundation.kinds import MARKS
 from tg_agent_shell.history import TelegramNotes
 from tg_agent_shell.proposals.telegram import render_ai_outcome, render_proposal
 from tg_agent_shell.recovery import recover_startup
@@ -62,7 +61,7 @@ async def test_a_review_whose_screen_could_not_be_sent_does_not_stay_open(
         turn=TurnManager(),
         screens=SCREENS,
         similarity=None,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -100,7 +99,7 @@ async def test_restart_invalidates_an_unanswered_proposal_button(e2e_harness):
         turn=TurnManager(),
         screens=SCREENS,
         similarity=None,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -176,7 +175,7 @@ async def test_a_button_works_once(e2e_harness):
         turn=TurnManager(),
         screens=SCREENS,
         similarity=None,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
@@ -219,7 +218,7 @@ async def test_navigating_away_freezes_the_proposal_into_the_same_outcome_text(e
         turn=TurnManager(),
         screens=SCREENS,
         similarity=None,
-        chat=ChatHost(TelegramNotes(e2e_harness.sessions), MARKS, spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(e2e_harness.sessions), spawn=spawn_timer),
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
     )
