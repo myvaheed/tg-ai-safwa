@@ -68,8 +68,6 @@ scenario identifier.
     When the owner finishes it as Done
     Then it is refused, and the refusal names the Check that is still unanswered
     And nothing about the Action changed
-    When the owner cancels the same Action instead
-    Then it is cancelled with the Check left unanswered
 ```
 
 The title after the em dash states the rule, not the mechanism.

@@ -52,8 +52,8 @@ flowchart TD
   application, `turn/` the single foreground lease, `cues/`, `hooks/` and `foundation/`; at its root
   `registry.py` derives an application's wiring, `recovery.py` reconciles a restart, and
   `session.py`, `history.py` and `asr.py` are the root session, the chat window and the voice.
-- **`safwa/features/*`** — `MODULES` lists seventeen: sixteen Safwa features, each with its rules in
-  `tests/brd/`, and the shell's own `proposals`. `advisor` is the seventeenth feature package and is
+- **`safwa/features/*`** — `MODULES` lists eighteen: seventeen Safwa features, each with its rules in
+  `tests/brd/`, and the shell's own `proposals`. `advisor` is the eighteenth feature package and is
   in no registry — it is the root session's prompt and the views it is told it may read, wired
   directly by the composition root.
 
@@ -87,8 +87,9 @@ its request; a hook that runs work of its own, `Run`, is always on, and so is a 
 model's own work, `ReturnProposals` or `HoldAnswer`, which Safwa registers or leaves out by
 `featuretoggles.py`. The tool adapter emits `BeforeTool` before a call and `AfterTool` after it;
 the materializer emits `BeforeProposals` before a subagent response's calls are prepared and
-`AfterRequest` before the answer to the owner's message; the dialogue adapter emits `AfterTurn`
-after releasing the owner's turn.
+`AfterRequest` before the answer to the owner's message; the dialogue adapter emits `BeforeTurn`
+inside a turn, once the dialogue is read and before the model is asked — the owner's turn and a
+Cue's alike — and `AfterTurn` after releasing the owner's turn.
 A `Run` after a turn uses one background lease and a publication port that checks currentness;
 a `Run` on a tick or on a commit has the session factory and no chat, and says anything it has
 to say through a recorded fact and an Advise hook. Summary retains its own window threshold and
@@ -148,6 +149,7 @@ flowchart TB
     end
     subgraph BG[background loops]
         CUE[cue-queue]
+        TICK[hook-ticks]
         REM[reminder-scheduler]
         MEMR[memory-retro]
     end
@@ -165,6 +167,7 @@ flowchart TB
     MINI --> SQL
     HIST --> ADV
     CUE --> ADV
+    TICK --> CUE
     REM --> CUE
     MEMR -->|memory_observation| DB
 ```
@@ -347,7 +350,7 @@ exactly when its `AgentSpec` is in `MODULES`; its `purpose` **is** the prompt li
 
 ```mermaid
 flowchart LR
-    Q[query_data result] -->|JOIN, GROUP BY, subquery, or capped| OFFER[notice names call_helper]
+    Q[query_data call, not yet run] -->|past one flat scan| OFFER[not run: the notice names call_helper]
     OFFER --> TOOLS[tool added to this session]
     TOOLS --> CALL[call_helper]
     CALL --> HA[heavy_analyzer mini session]
@@ -366,8 +369,8 @@ flowchart LR
   the whole result, and the named helper is granted. The grant names the helper, so `call_helper`
   runs only a helper this session was offered, and it belongs to that session alone. `HelperSpec`
   holds the helper's capability independently of the offer.
-- A read that *failed* offers nothing, whatever the helper would have said: its `hint` already
-  says to repair that one SELECT, and that half stays the engine's.
+- Arguments that are not a read at all offer nothing: the runner refuses them with the `hint`
+  that repairs that one SELECT, and that half stays the engine's.
 - `heavy_analyzer` is a **mini session** (`ai/mini.py`), not a routed subagent: read tools plus two
   terminal tools, prose is never accepted, and it is in no routing rule and no base tool set.
 - It never speaks. The answer is the last read itself — fifty rows cannot be retold, and a small
@@ -421,7 +424,7 @@ flowchart LR
   (`AG-DONE-045`): `REQUEST_REVIEW_HOOK`, one mini session over the conversation, each change the
   request made and the answer. A missing change can be judged only there: before it, the model
   may not have made it yet.
-- **Every mutation tool belongs to a subagent**, never to the Advisor. `workspace` owns the workspace,
+- **Every mutation tool belongs to a subagent**, never to the Advisor. `workspace_mutator` owns the workspace,
   `diary` owns the Diary. Preparation runs where the change was authored.
 - **Every proposal screen is exactly Save/Discard.** A screen that needs a field control is the
   wrong screen.
@@ -468,8 +471,9 @@ flowchart LR
 ## Cues — what Safwa is given to say when nobody asked
 
 Only the Advisor writes to the chat, so anything the system wants said reaches the owner as one
-ordinary Advisor turn. A **Cue** is the finished request for that turn: whoever had the facts wrote
-them down, so the Advisor relays rather than goes looking.
+ordinary Advisor turn. A **Cue** is the request for that turn: a Reminder's words written down by
+its poll, or a hook's finding its feature words just before it is said. Either way whoever had the
+facts supplies them, so the Advisor relays rather than goes looking.
 
 ```mermaid
 flowchart TB
@@ -530,7 +534,7 @@ interrupts mid-turn all lose nothing: the row is still there, and the next poll 
 
 ```mermaid
 flowchart TB
-    TICK[tick every SCHEDULER_POLL_SECONDS = 30] --> PEND{a Cue still waiting?}
+    TICK[tick every SCHEDULER_POLL_SECONDS = 30] --> PEND{Reminders' words still waiting?}
     PEND -->|yes| TICK
     PEND -->|no| DUE{next_fire_at <= now?}
     DUE -->|no| TICK
@@ -545,9 +549,11 @@ nothing more: the tick writes the words down and moves the row on in the **same 
 holds no gate, takes no lease and runs no Advisor turn — what guarantees the owner gets the words is
 the Cue row, exactly as for anything else Safwa says first.
 
-- **One thing waits to be said at a time.** A tick that finds a Cue still waiting writes nothing, and
-  the Reminders it would have carried stay due for a later tick. That is what stops an hour of a busy
-  owner turning into twelve messages the moment they are free.
+- **One batch of Reminders waits to be said at a time.** A tick that finds Reminders' words still
+  waiting writes nothing, and the Reminders it would have carried stay due for a later tick. That is
+  what stops an hour of a busy owner turning into twelve messages the moment they are free. A
+  hook's request waiting is no reason to hold them: the Cue poll says everything waiting in one
+  turn (`RM-GATE-017`).
 - `is_stale`: a *repeating* Reminder more than `REMINDER_CATCHUP_GRACE_MINUTES = 120` overdue rolls
   forward silently, so a weekend offline does not produce 32 messages. A one-shot is never stale: it
   always fires, however late, and the Cue says how late.
@@ -588,7 +594,7 @@ end is not optional the way a request is — while a Run on a commit gets one at
 last day, a `Run` on a tick whose missed midnight `recover_startup` makes up for — records
 `sprint.ended` beside its transaction and says nothing itself. The Sprint summary hook keeps
 that as its one pending row, and at delivery `sprint_summary` writes six lines from the Sprint's
-own record — which Sprint and when, how it ended, its Success criteria, the five effort figures,
+own record — which Sprint and when, how it ended, its Success criteria, the four effort figures,
 how the Actions ended up, the titles of what is still open. Nothing dresses it as a Reminder that
 went off: the words are the Sprint's own. Safwa is told how the Sprint went so it does not go
 reading tables to find out, and ends its message with `[Sprint retro](retro:12)`.
@@ -661,8 +667,7 @@ flowchart LR
 - A `SqlView` carries its own `doc`, so the block a model reads about a view lives beside the SELECT.
 - **A reader declares its views once, and that list both describes and scopes it**: it fills the
   `{views}` block in the prompt and narrows that reader's own `query_data`, so a view no list names
-  is refused rather than merely unmentioned. The Diary writes its block by hand, with columns
-  trimmed on purpose, and still declares the four it may read.
+  is refused rather than merely unmentioned. The Diary declares none: `read_day` is its one read.
 - `view_catalogue` refuses a name no feature publishes and a view with no `doc`. A helper that
   declares no views, or a prompt with `{views}` and nothing to fill it, is a wiring error rather
   than a reader of everything; a subagent that declares none reads nothing and has no

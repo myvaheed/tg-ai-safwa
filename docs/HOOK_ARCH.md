@@ -835,7 +835,7 @@ Run по commit — одна попытка: после Р2 неудача кл�
 
 ### Батч 9. Онбординг — реализован
 
-Проект — [ONBOARDING_HOOK.md](ONBOARDING_HOOK.md). Оболочка получила событие BeforeTurn и
+Сценарии — [onboarding.feature](../tests/brd/onboarding.feature). Оболочка получила событие BeforeTurn и
 зависимый хук (выше: «Что работает сейчас», «Включение и выключение», «Перед ходом»);
 субагент, чьи слова показываются как есть, и окно разговора, которое объявляет субагент, —
 [AGENT_ARCH.md](AGENT_ARCH.md). Фича onboarding — два хука: Advise onboarding на двенадцати
@@ -849,7 +849,9 @@ create_diary_entry и update_diary_entry, record_analysis; и Run onboarding.not
 [profile/api.py](../src/safwa/features/profile/api.py) и снимает строки зависимых. Выключение
 словами — предложение stop_onboarding с AutoApprovalRule, по PR-AUTO-024
 ([OB-STOP-005](../tests/brd/onboarding.feature)). Схема: новая таблица onboarding_notice —
-upgrade_database создаёт её при старте без пересборки.
+upgrade_database создаёт её при старте без пересборки. Отметка уведомления — таблица фичи, а
+не свой вид в MessageKind: оболочка назвала бы фичу Safwa, а код в MARKS навсегда остался бы
+на сообщениях, уже лежащих в чате.
 
 ### Батч 10. Проверки работы модели — реализован
 

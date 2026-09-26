@@ -100,8 +100,9 @@ an in-flight answer, because the answer's own autoapproved change moves `workspa
 
 ## Safwa speaks first only from a Cue
 
-A **Cue** is a Reminder that came due or a Sprint that ended, and nothing else. The producer writes
-the finished request into `cues` in its own transaction; `CueRuntime` owns the gate, the lease and
-the one turn, and deletes the row only once the owner has the words. That row is the single record
-of what Safwa still owes, so the Reminder poll does schedule arithmetic and nothing else, and one
-thing waits to be said at a time. The mechanism is in [AGENT_ARCH.md](AGENT_ARCH.md).
+A **Cue** is a Reminder that came due or a hook's finding — a Sprint that ended is one of those.
+The Reminder poll writes its words into `cues` in its own transaction; a hook's row carries only
+its name and what it refers to, and its feature words it just before it is said. `CueRuntime` owns
+the gate, the lease and the one turn that says everything waiting, and deletes the rows only once
+the owner has the words. That row is the single record of what Safwa still owes, so the Reminder
+poll does schedule arithmetic and nothing else. The mechanism is in [AGENT_ARCH.md](AGENT_ARCH.md).

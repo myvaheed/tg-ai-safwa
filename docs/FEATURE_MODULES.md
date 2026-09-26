@@ -13,7 +13,7 @@ declares the same `FeatureModule`, and a role is only what its declaration turns
 | Role | What one owns | In `MODULES` |
 |---|---|---|
 | a domain feature | its own rows, the operations every adapter calls, its screens, and the `ai_*` views it publishes | `cards`, `checks`, `values`, `tags`, `planning`, `retro`, `diary`, `profile`, `reminders`, `saved_requests`, `memory` |
-| a reader or a writer for the model | a subagent or a helper, the views its own list names and the tools it may call — no rows of its own | `workspace_mutator`, `heavy_analyzer`, and the subagent `diary` declares beside its rows |
+| a reader or a writer for the model | a subagent or a helper, the views its own list names and the tools it may call — no rows of its own | `workspace_mutator`, `heavy_analyzer`, the subagent `diary` declares beside its rows, and `onboarding` — a subagent and hooks, with only the rows those hooks keep |
 | a screen with no rows behind it | a command, the menu, a report the owner reads | `home`, `diagnostics`, `summary` |
 | a process of the shell | a flow the shell runs for every feature, registered the way a feature is | `proposals` |
 

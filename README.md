@@ -30,7 +30,8 @@ SAFWA_AI_MODEL=openai/gpt-5.6-luna
 Every derived value (`SAFWA_AI_BASE_URL`, `SAFWA_AI_MAX_RETRIES`, `SAFWA_AI_SEND_TEMPERATURE`,
 `SAFWA_AI_CACHE_BREAKPOINTS`, `SAFWA_AI_REASONING_EFFORT`) can still be set explicitly. Set the
 model and Telegram credentials in `.env`. Set `SAFWA_TELEGRAM_BOT_USERNAME` without `@`; Safwa uses
-it to build `t.me` links for Card, Check, Tag, Value, and Saved Request citations.
+it to build `t.me` links for Card, Check, Tag, Value, Saved Request, Reminder, Diary and retro
+citations.
 
 Safwa is still under active development and has no production database. Schema migrations are not
 supported yet: after a schema change, rebuild the local SQLite database from scratch.
@@ -138,7 +139,7 @@ uv run pytest tests\shell -q
 uv run ruff check .
 ```
 
-The E2E suite uses a real migrated SQLite database and real Safwa application services while replacing
+The E2E suite uses a real SQLite database and real Safwa application services while replacing
 Telegram and the AI provider at their network boundaries. It never reads `.env` or contacts live services.
 
 ### Live Safwa-QA integration tests
