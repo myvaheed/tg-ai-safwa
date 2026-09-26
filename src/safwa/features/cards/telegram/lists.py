@@ -16,6 +16,7 @@ from tg_agent_shell.telegram import (
     Page,
     Services,
     menu_row,
+    paginate,
     paging_row,
     send_registered,
     token_button,
@@ -28,7 +29,7 @@ from ..api import actions_on_stages
 from ..hard_time import workspace_zone
 from ..hierarchy import card_children
 from ..model import LIVE_STAGE_PRECEDENCE, Card, CardStage, effort_label
-from .presentation import card_title_marks, kind_label, paginate_cards
+from .presentation import card_title_marks, kind_label, live_card_order, paginate_cards
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,12 +73,13 @@ async def card_list_rows(
 ) -> tuple[Page, list[str], list[list[InlineKeyboardButton]]]:
     """One Card list: the page, its plain-text lines, and one button row per Card.
 
-    `stage` is the list's own stage, which is what decides the one-tap move: where it
-    sends an Action, and which side of the row it sits on.
+    `cards` come in the order the list shows them.  `stage` is the list's own stage,
+    which is what decides the one-tap move: where it sends an Action, and which side of
+    the row it sits on.
     """
     move = STAGE_QUICK_MOVE.get(stage) if stage is not None else None
     tz = await workspace_zone(session)
-    current = paginate_cards(cards, page)
+    current = paginate(cards, page)
     back = {**back, "page": current.index}
     rows: list[list[InlineKeyboardButton]] = []
     descriptions: list[str] = []
@@ -150,7 +152,7 @@ async def stage_list_block(
     cards = (
         await today_actions(session)
         if stage is CardStage.TODAY
-        else await actions_on_stages(session, stage)
+        else sorted(await actions_on_stages(session, stage), key=live_card_order)
     )
     current, descriptions, rows = await card_list_rows(
         session,

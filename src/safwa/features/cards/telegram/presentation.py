@@ -96,9 +96,9 @@ def energy_expression(values: Any) -> str:
 _PRIORITY_ORDER = {Priority.CRITICAL.value: 0, Priority.MEDIUM.value: 1, Priority.LOW.value: 2}
 
 
-def _live_card_order(card: Card) -> tuple[bool, datetime, int, datetime]:
-    """Hard Time first and the sooner one before, then priority, then oldest — one
-    ordering for every Card list."""
+def live_card_order(card: Card) -> tuple[bool, datetime, int, datetime]:
+    """Hard Time first and the sooner one before, then priority, then oldest — the
+    ordering of every Card list but Today, which is in the order the day cannot move."""
     return (
         card.hard_time_at is None,
         card.hard_time_at or card.created_at,
@@ -108,7 +108,7 @@ def _live_card_order(card: Card) -> tuple[bool, datetime, int, datetime]:
 
 
 def paginate_cards(cards: list[Card], page: int) -> Page:
-    return paginate(sorted(cards, key=_live_card_order), page)
+    return paginate(sorted(cards, key=live_card_order), page)
 
 
 def card_overview_text(
