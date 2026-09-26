@@ -1,8 +1,7 @@
 # Agent architecture
 
 How the AI side of Safwa is put together: what a session is, how a turn runs, and what each
-subsystem around it owns. Sections describe the code as it stands except the explicitly planned
-Proposal lifecycle below, agreed 2026-09-13 for the follow-up after Wave 1.
+subsystem around it owns. Every section describes the code as it stands.
 
 The rules behind these mechanisms live in [CLAUDE.md](../CLAUDE.md); this file is the shape.
 
@@ -325,8 +324,7 @@ sequenceDiagram
   owner's own time deciding is outside it. A subagent the clock stops hands its caller an error
   receipt, so the turn still answers.
 
-**Current behavior, to be replaced by the planned Proposal lifecycle:** words typed over a screen
-resume the turn that opened it. Every pending proposal in that batch is
+Words typed over a screen resume the turn that opened it. Every pending proposal in that batch is
 discarded, the screen is frozen into an account of what the request did, and only then is anything
 generated: the Advisor's pending `route` is answered with what was proposed, what was refused, what
 was already saved, and the owner's words.
