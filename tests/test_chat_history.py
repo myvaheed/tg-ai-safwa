@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -8,8 +10,8 @@ from ui_harness import FakeMessage, history_source
 
 from safwa.bootstrap.modules import SCREENS
 from safwa.features.summary.window import SUMMARY_HEADER
-from telegram_llm import ChatHost, DialogueMessage, HistoryEntry, Note, telegram_html_to_text
-from tg_agent_shell.ai.conversation import conversation_block
+from telegram_llm import ChatHost, HistoryEntry, Note, telegram_html_to_text
+from tg_agent_shell.ai.conversation import CLEARED_READ, conversation_block, kept_turn
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramNotes
 from tg_agent_shell.telegram import SHELL_COMMANDS
@@ -18,7 +20,13 @@ from tg_agent_shell.telegram.routing import build_router
 
 
 async def keep(
-    sessions, chat_id: int, message_id: int, text: str, kind: MessageKind, at: datetime
+    sessions,
+    chat_id: int,
+    message_id: int,
+    text: str,
+    kind: MessageKind,
+    at: datetime,
+    reads_as: tuple[dict, ...] | None = None,
 ) -> None:
     """One message as the bot keeps it: the person's words come in, everything else goes out."""
     direction = "in" if kind is MessageKind.DIALOGUE_USER else "out"
@@ -30,8 +38,33 @@ async def keep(
             kind=kind.value,
             text=text,
             at=at,
+            reads_as=reads_as,
         )
     )
+
+
+def route_call(call_id: str) -> dict:
+    return {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": call_id,
+                "type": "function",
+                "function": {"name": "route", "arguments": '{"name": "workspace_mutator"}'},
+            }
+        ],
+    }
+
+
+def route_result(call_id: str, *did: str) -> dict:
+    receipt = {"subagent": "workspace_mutator", "outcome": "done", "did": list(did)}
+    return {
+        "role": "tool",
+        "tool_call_id": call_id,
+        "name": "route",
+        "content": json.dumps(receipt, ensure_ascii=False),
+    }
 
 
 def owner_message(message_id: int, text: str, chat_id: int) -> FakeMessage:
@@ -111,7 +144,7 @@ async def test_summary_is_pinned_first_with_twenty_prior_messages(sessions) -> N
     # The whole window falls inside one hour, so it carries exactly one stamp.
     assert dialogue[0].content.count("[2026-08-08") == 1
     assert dialogue[-2].role == "assistant"
-    assert dialogue[-1].content == "[User]: Current turn"
+    assert dialogue[-1].content == "Current turn"
 
 
 async def test_the_window_is_cut_on_a_message_boundary_when_the_budget_runs_out(
@@ -145,19 +178,19 @@ async def test_the_answered_message_is_read_exactly_once(sessions) -> None:
     dialogue = await history_source(sessions).dialogue(chat_id)
 
     assert dialogue[-1].role == "user"
-    assert dialogue[-1].content.endswith("[User]: Как дела?")
+    assert dialogue[-1].content.endswith("Как дела?")
     assert dialogue[-1].content.count("Как дела?") == 1
 
 
-async def test_dialogue_groups_every_user_message_until_the_next_ai_response(sessions) -> None:
+async def test_the_owner_s_side_is_one_turn_and_only_it_carries_the_time(sessions) -> None:
     """TG-SHAPE-010 — tests/brd/tg_agent_shell/telegram_history.feature"""
     source = history_source(sessions)
     at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
     entries = [
         HistoryEntry(1, "user", "First thought", at, "dialogue_user"),
         HistoryEntry(2, "user", "Second thought", at, "dialogue_user"),
-        HistoryEntry(3, "assistant", "Safwa reply", at, "dialogue_assistant"),
-        HistoryEntry(4, "user", "Follow-up", at + timedelta(hours=1), "dialogue_user"),
+        HistoryEntry(3, "assistant", "Safwa reply", at + timedelta(minutes=65), "dialogue_assistant"),
+        HistoryEntry(4, "user", "Follow-up", at + timedelta(minutes=70), "dialogue_user"),
     ]
 
     async def recent(*_args, **_kwargs):
@@ -166,11 +199,40 @@ async def test_dialogue_groups_every_user_message_until_the_next_ai_response(ses
     source.recent = recent  # type: ignore[method-assign]
     dialogue = await source.dialogue(100)
 
-    # One stamp per hour of conversation, not one per message.
+    # The owner's words carry no label, and an answer never carries the time: the hour it
+    # opened is stamped on the owner's next words instead.
     assert [(item.role, item.content) for item in dialogue] == [
-        ("user", "[2026-08-08 12:00] [User]: First thought\n[User]: Second thought"),
+        ("user", "[2026-08-08 12:00] First thought\nSecond thought"),
         ("assistant", "Safwa reply"),
-        ("user", "[2026-08-08 13:00] [User]: Follow-up"),
+        ("user", "[2026-08-08 13:10] Follow-up"),
+    ]
+
+
+async def test_a_line_the_interface_wrote_reads_as_a_system_event(sessions) -> None:
+    """TG-SYSTEM-016 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    chat_id = 119
+    at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
+    await keep(sessions, chat_id, 1, "Rename the Tag", MessageKind.DIALOGUE_USER, at)
+    await keep(
+        sessions, chat_id, 2, "<b>Request interrupted</b>\nNothing was saved.",
+        MessageKind.EVENT, at + timedelta(minutes=1),
+    )
+    await keep(
+        sessions, chat_id, 3, "✅ Created <b>Stretch</b>.", MessageKind.EVENT,
+        at + timedelta(minutes=2),
+    )
+    await keep(sessions, chat_id, 4, "Call it Home", MessageKind.DIALOGUE_USER, at + timedelta(minutes=3))
+
+    dialogue = await history_source(sessions).dialogue(chat_id)
+
+    assert [(item.role, item.content) for item in dialogue] == [
+        (
+            "user",
+            "[2026-08-08 12:00] Rename the Tag\n"
+            "[System]: Request interrupted\nNothing was saved.\n"
+            "[System]: ✅ Created Stretch.\n"
+            "Call it Home",
+        ),
     ]
 
 
@@ -223,24 +285,28 @@ async def test_an_edit_the_owner_makes_is_what_the_conversation_reads(sessions) 
 async def test_a_summary_too_long_for_one_message_reads_as_one(sessions) -> None:
     """SC-SPLIT-004 — tests/brd/tg_agent_shell/screens.feature"""
     chat_id = 115
-    at = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
-    await keep(sessions, chat_id, 80, "Before the Summary", MessageKind.DIALOGUE_USER, at)
-    await keep(
-        sessions, chat_id, 81, f"{SUMMARY_HEADER}\nFirst half,", MessageKind.SUMMARY,
-        at + timedelta(minutes=1),
+    host = ChatHost(TelegramNotes(sessions), spawn=spawn_timer)
+    await host.keep(
+        owner_message(80, "Before the Summary", chat_id), kind=MessageKind.DIALOGUE_USER.value
     )
-    await keep(sessions, chat_id, 82, "second half.", MessageKind.SUMMARY, at + timedelta(minutes=2))
-    await keep(
-        sessions, chat_id, 83, "After the Summary", MessageKind.DIALOGUE_USER,
-        at + timedelta(minutes=3),
+    body = "An earlier part of the conversation. " * 150
+    anchor = FakeMessage(81, bot_message=True, chat_id=chat_id, answer_as_new=True)
+    last = await host.send_parts(
+        anchor, html.escape(f"{SUMMARY_HEADER}\n{body}"), kind=MessageKind.SUMMARY.value,
+        replace=False,
+    )
+    await host.keep(
+        owner_message(2_000, "After the Summary", chat_id), kind=MessageKind.DIALOGUE_USER.value
     )
 
     entries = await history_source(sessions).recent(chat_id)
 
+    assert len(anchor.sent_messages) > 1
     assert entries[0].kind == MessageKind.SUMMARY.value
-    assert entries[0].text == "[Summary]: First half,\nsecond half."
-    # The newest part is where the backwards read meets the Summary, so it is the cut.
-    assert entries[0].message_id == 82
+    assert entries[0].text == f"[Summary]: {body.strip()}"
+    # Kept once, on its first part; the others keep no words of their own.
+    assert entries[0].message_id == anchor.sent_messages[0].message_id
+    assert (await TelegramNotes(sessions).note(chat_id, last.message_id)).text is None
     assert [entry.text for entry in entries[1:]] == ["Before the Summary", "After the Summary"]
 
 
@@ -345,37 +411,146 @@ async def test_a_screen_rewritten_in_place_stays_one_kept_message(sessions) -> N
     ]
 
 
-async def test_a_receipt_reads_back_as_a_tool_result_rather_than_as_safwa_words(
-    sessions,
-) -> None:
-    """TG-RECEIPT-009 — tests/brd/tg_agent_shell/telegram_history.feature"""
-    source = history_source(sessions)
+async def test_an_answer_reads_back_as_its_calls_their_results_and_its_words(sessions) -> None:
+    """TG-TOOLS-013 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    chat_id = 120
     at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
-    entries = [
-        HistoryEntry(1, "user", "Создай действие убраться в комнате", at, "dialogue_user"),
-        HistoryEntry(
-            2,
-            "assistant",
-            "✅ Saved — New Action “Убраться в комнате” (Backlog · 2 EP)\n\nГотово!",
-            at,
-            "dialogue_assistant",
-        ),
+    await keep(sessions, chat_id, 1, "Add a card to buy milk", MessageKind.DIALOGUE_USER, at)
+    turn = (
+        route_call("call-1"),
+        route_result("call-1", "✅ Saved — New Action “Buy milk” (1 EP)"),
+        {"role": "assistant", "content": "Done — [Buy milk](card:1) is in your Backlog."},
+    )
+    await keep(
+        sessions, chat_id, 2, "✅ Saved — New Action “Buy milk” (1 EP)\n\nDone — Buy milk.",
+        MessageKind.DIALOGUE_ASSISTANT, at + timedelta(minutes=2), reads_as=turn,
+    )
+    await keep(sessions, chat_id, 3, "And eggs too", MessageKind.DIALOGUE_USER, at + timedelta(minutes=5))
+
+    dialogue = await history_source(sessions).dialogue(chat_id)
+
+    assert [item.as_message() for item in dialogue] == [
+        {"role": "user", "content": "[2026-08-08 12:00] Add a card to buy milk"},
+        *turn,
+        {"role": "user", "content": "And eggs too"},
     ]
 
-    async def recent(*_args, **_kwargs):
-        return entries
 
-    source.recent = recent  # type: ignore[method-assign]
-    dialogue = await source.dialogue(100)
+async def test_a_read_comes_back_as_its_call_and_a_receipt_comes_back_whole(sessions) -> None:
+    """TG-READS-014 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    read = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "read-1",
+                "type": "function",
+                "function": {"name": "query_data", "arguments": '{"sql": "SELECT id FROM ai_cards"}'},
+            }
+        ],
+    }
+    rows = {"role": "tool", "tool_call_id": "read-1", "name": "query_data", "content": "[{\"id\": 1}]"}
+    receipt = route_result("call-1", "✅ Saved — Edit Action “Buy milk”")
 
+    turn = kept_turn([read, rows, route_call("call-1"), receipt], "Renamed it.")
+
+    assert turn == (
+        read,
+        {**rows, "content": json.dumps(CLEARED_READ)},
+        route_call("call-1"),
+        receipt,
+        {"role": "assistant", "content": "Renamed it."},
+    )
+    chat_id = 121
+    at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
+    await keep(sessions, chat_id, 1, "Rename it", MessageKind.DIALOGUE_USER, at)
+    await keep(
+        sessions, chat_id, 2, "Renamed it.", MessageKind.DIALOGUE_ASSISTANT, at, reads_as=turn
+    )
+    dialogue = await history_source(sessions).dialogue(chat_id)
+    assert [item.as_message() for item in dialogue][1:] == list(turn)
+
+
+async def test_a_cue_reads_back_after_the_request_that_caused_it(sessions) -> None:
+    """TG-CUE-015 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    chat_id = 122
+    at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
+    await keep(sessions, chat_id, 1, "What is left today?", MessageKind.DIALOGUE_USER, at)
+    await keep(
+        sessions, chat_id, 2, "Two Actions.", MessageKind.DIALOGUE_ASSISTANT, at,
+        reads_as=({"role": "assistant", "content": "Two Actions."},),
+    )
+    await keep(
+        sessions, chat_id, 3, "Time to stretch.", MessageKind.CUE, at + timedelta(minutes=30),
+        reads_as=kept_turn([], "Time to stretch.", request="Reminder: stretch at noon."),
+    )
+
+    dialogue = await history_source(sessions).dialogue(chat_id)
+
+    # Two answers never merge: the Cue follows the request it answered.
     assert [(item.role, item.content) for item in dialogue] == [
-        (
-            "user",
-            "[2026-08-08 12:00] [User]: Создай действие убраться в комнате\n"
-            "[Tool result]: New Action “Убраться в комнате” (Backlog · 2 EP) — applied",
-        ),
-        ("assistant", "Готово!"),
+        ("user", "[2026-08-08 12:00] What is left today?"),
+        ("assistant", "Two Actions."),
+        ("user", "Reminder: stretch at noon."),
+        ("assistant", "Time to stretch."),
     ]
+
+
+async def test_a_relayed_transcript_reads_as_the_owner_s_words_alone(sessions) -> None:
+    """TG-RELAY-004 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    chat_id = 123
+    host = ChatHost(TelegramNotes(sessions), spawn=spawn_timer)
+
+    sent = await host.relay(
+        next_in_chat(5, chat_id), "User Name", "Plan my week.", kind=MessageKind.DIALOGUE_USER.value
+    )
+
+    assert sent.answers[-1].startswith("<b>User Name:</b>")
+    dialogue = await history_source(sessions).dialogue(chat_id)
+    assert [(item.role, item.content.split("] ", 1)[1]) for item in dialogue] == [
+        ("user", "Plan my week.")
+    ]
+
+
+async def test_an_answer_is_read_whole_with_its_calls_or_not_at_all(sessions) -> None:
+    """TG-WINDOW-005 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    chat_id = 124
+    at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
+    await keep(sessions, chat_id, 1, "Older words", MessageKind.DIALOGUE_USER, at)
+    heavy = kept_turn(
+        [route_call("call-1"), route_result("call-1", *(["✅ Saved — a line"] * 40))], "Done."
+    )
+    await keep(
+        sessions, chat_id, 2, "Done.", MessageKind.DIALOGUE_ASSISTANT, at, reads_as=heavy
+    )
+    await keep(sessions, chat_id, 3, "Newest words", MessageKind.DIALOGUE_USER, at)
+
+    # Its words are short, but what it put in front of the model is not.
+    entries = await history_source(sessions).recent(chat_id, token_budget=150)
+
+    assert [entry.text for entry in entries] == ["Newest words"]
+    entries = await history_source(sessions).recent(chat_id, token_budget=1_000)
+    assert [(entry.text, len(entry.turn)) for entry in entries] == [
+        ("Older words", 0),
+        ("Done.", 3),
+        ("Newest words", 0),
+    ]
+
+
+async def test_an_answer_reads_back_with_the_citations_the_model_wrote(sessions) -> None:
+    """TG-CITE-011 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    chat_id = 125
+    words = "Answer **[Milk](check:14)** first."
+    await keep(
+        sessions, chat_id, 1,
+        'Answer <b><a href="https://t.me/safwa_ai_bot?start=check-14">Milk</a></b> first.',
+        MessageKind.DIALOGUE_ASSISTANT, datetime(2026, 8, 8, 12, 0, tzinfo=UTC),
+        reads_as=({"role": "assistant", "content": words},),
+    )
+
+    dialogue = await history_source(sessions).dialogue(chat_id)
+
+    assert [(item.role, item.content) for item in dialogue] == [("assistant", words)]
 
 
 async def test_screens_receipts_and_progress_notes_are_not_the_conversation(sessions) -> None:
@@ -400,28 +575,6 @@ async def test_screens_receipts_and_progress_notes_are_not_the_conversation(sess
         (MessageKind.DIALOGUE_USER.value, "I want to stretch daily"),
         (MessageKind.DIALOGUE_ASSISTANT.value, "Good idea."),
         (MessageKind.CUE.value, "Your Sprint ended."),
-    ]
-
-
-async def test_two_answers_with_nothing_between_them_read_as_one(sessions) -> None:
-    """TG-SHAPE-010 — tests/brd/tg_agent_shell/telegram_history.feature"""
-    source = history_source(sessions)
-    at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
-    entries = [
-        HistoryEntry(1, "user", "What is left today?", at, "dialogue_user"),
-        HistoryEntry(2, "assistant", "Two Actions.", at, "dialogue_assistant"),
-        HistoryEntry(3, "assistant", "Both are short.", at, "dialogue_assistant"),
-    ]
-
-    async def recent(*_args, **_kwargs):
-        return entries
-
-    source.recent = recent  # type: ignore[method-assign]
-    dialogue = await source.dialogue(100)
-
-    assert [(item.role, item.content) for item in dialogue] == [
-        ("user", "[2026-08-08 12:00] [User]: What is left today?"),
-        ("assistant", "Two Actions.\nBoth are short."),
     ]
 
 
@@ -453,22 +606,37 @@ def test_conversation_block_tags_every_line_by_who_wrote_it() -> None:
     """A reader that took no part in the conversation gets it as data, not as its turns."""
     block = conversation_block(
         [
-            DialogueMessage(
-                role="user",
-                content=(
-                    "[2026-08-08 12:00] [User]: Создай действие убраться в комнате\n"
-                    "[Tool result]: New Action “Убраться” (Backlog · 2 EP) — applied"
+            {
+                "role": "user",
+                "content": (
+                    "[2026-08-08 12:00] Создай действие убраться в комнате\n"
+                    "[System]: Request interrupted."
                 ),
-            ),
-            DialogueMessage(role="assistant", content="Готово!\nЧто дальше?"),
+            },
+            route_call("call-1"),
+            route_result("call-1", "✅ Saved — New Action “Убраться” (Backlog · 2 EP)"),
+            {"role": "tool", "tool_call_id": "r", "name": "query_data", "content": "[]"},
+            {"role": "assistant", "content": "Готово!\nЧто дальше?"},
         ]
     )
 
+    # What `route` did is kept; a read is how the Advisor answered, not what it said.
     assert block == (
         "<Conversation>\n"
         '<User at="2026-08-08 12:00">Создай действие убраться в комнате</User>\n'
-        "<ToolResult>New Action “Убраться” (Backlog · 2 EP) — applied</ToolResult>\n"
+        "<System>Request interrupted.</System>\n"
+        "<ToolResult>✅ Saved — New Action “Убраться” (Backlog · 2 EP)</ToolResult>\n"
         "<Advisor>Готово!\nЧто дальше?</Advisor>\n"
+        "</Conversation>"
+    )
+
+
+def test_conversation_block_keeps_the_newest_things_said() -> None:
+    dialogue = [{"role": "user", "content": f"message {index}"} for index in range(3)]
+    dialogue.insert(1, {"role": "assistant", "content": "an answer"})
+
+    assert conversation_block(dialogue, last=2) == (
+        "<Conversation>\n<Advisor>an answer</Advisor>\n<User>message 1\nmessage 2</User>\n"
         "</Conversation>"
     )
 

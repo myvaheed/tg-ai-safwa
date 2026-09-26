@@ -950,7 +950,7 @@ async def test_pr_expire_029_a_review_nobody_answered_closes_the_request_for_goo
         note = await session.scalar(
             select(TelegramMessage).where(TelegramMessage.message_id == screen.message_id)
         )
-        assert note.kind == MessageKind.DIALOGUE_ASSISTANT.value
+        assert note.kind == MessageKind.EVENT.value
 
     # The request is over: the next words are a new one, and the closed chain is not resumed.
     answered = await advisor.handle("Hello again")

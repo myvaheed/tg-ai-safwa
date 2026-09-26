@@ -14,7 +14,6 @@ from typing import Any, Protocol
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agent_runtime import append_user_message, cache_breakpoint, system_note
-from telegram_llm import DialogueMessage
 
 from .subagents import RoutedSubagent
 from .tools import conversation_for
@@ -78,14 +77,9 @@ class ContextBuilder:
         routed = self.subagents.get(kind)
         if routed is not None:
             return await self.routed(routed, dialogue, prior_receipts)
-        return await self.root(
-            [
-                DialogueMessage(role=str(item["role"]), content=str(item["content"]))
-                for item in dialogue
-            ]
-        )
+        return await self.root(dialogue)
 
-    async def root(self, dialogue: list[DialogueMessage]) -> list[dict[str, Any]]:
+    async def root(self, dialogue: list[dict[str, Any]]) -> list[dict[str, Any]]:
         memory = await self.memory.sync()
         async with self.sessions() as session:
             context = await self.workspace_state(session)
@@ -96,12 +90,13 @@ class ContextBuilder:
             {"role": "system", "content": self.system_prompt},
             system_note(ordered_owner_context(memory.text, context.state)),
         ]
-        # The history source has already bounded the window by its token budget.
+        # The history source has already bounded the window by its token budget, and
+        # laid it out as the provider's own messages, earlier calls and results included.
         for item in dialogue:
-            if item.role == "user":
-                append_user_message(messages, item.content)
+            if item["role"] == "user":
+                append_user_message(messages, str(item["content"]))
             else:
-                messages.append({"role": item.role, "content": item.content})
+                messages.append(dict(item))
         append_user_message(messages, f"[System]: {context.clock}")
         if self.cache_breakpoints:
             messages[0] = cache_breakpoint(messages[0])

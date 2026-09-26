@@ -35,7 +35,6 @@ from agent_runtime import (
     log_preview,
 )
 from llm_gateway import ToolCall
-from telegram_llm import DialogueMessage
 
 from ..foundation.errors import failure_reason
 from ..foundation.screens import ScreenCatalogue
@@ -131,14 +130,9 @@ def response_text(messages: list[dict[str, Any]]) -> str:
 def conversation_for(
     dialogue: list[dict[str, Any]], last: int = SUBAGENT_HISTORY_LAST_MESSAGES
 ) -> str:
-    """The newest `last` messages of the conversation as data, for anyone who is not its
-    assistant."""
-    return conversation_block(
-        [
-            DialogueMessage(role=str(item["role"]), content=str(item["content"]))
-            for item in dialogue[-last:]
-        ]
-    )
+    """The newest `last` things said in the conversation, as data, for anyone who is not
+    its assistant."""
+    return conversation_block(dialogue, last)
 
 
 def add_notice(rows: list[dict[str, Any]], text: str) -> None:

@@ -16,6 +16,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
 from llm_gateway import CompletionRequest, LlmProvider
+from tg_agent_shell.ai.conversation import receipt_lines
 from tg_agent_shell.foundation.kinds import MessageKind
 
 from ...constants import SUMMARY_TRIGGER_TOKENS
@@ -59,10 +60,15 @@ class DialogueSummary:
         previous = next(
             (entry for entry in entries if entry.kind == MessageKind.SUMMARY.value), None
         )
+        # What was said, and what each answer's calls did — never the rows a read returned.
         dialogue = "\n".join(
-            f"[{entry.role}]: {entry.text}"
+            line
             for entry in entries
             if entry.kind != MessageKind.SUMMARY.value and not entry.before_edge
+            for line in (
+                *(f"[tool]: {done}" for done in receipt_lines(entry.turn)),
+                f"[{entry.role}]: {entry.text}",
+            )
         )
         tokens = estimate_tokens(dialogue, self.chars_per_token)
         if not dialogue or (not force and tokens < self.summary_trigger_tokens):

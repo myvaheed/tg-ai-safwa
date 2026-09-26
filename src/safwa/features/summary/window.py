@@ -7,8 +7,6 @@ place are all decided here.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 from tg_agent_shell.foundation.kinds import MessageKind
 
 # Written on the first message of a Summary, for the owner. `stands_for` strips it back
@@ -26,10 +24,8 @@ class SummaryEdge:
     def ends_window(self, message_id: int, kind: str | None, text: str) -> bool:
         return kind == MessageKind.SUMMARY.value
 
-    def stands_for(self, parts: Sequence[str]) -> str:
-        # Only the first part carries the heading, and only if the Summary was long
-        # enough for Telegram to split it at all.
-        first, separator, rest = parts[0].partition("\n")
+    def stands_for(self, text: str) -> str:
+        first, separator, rest = text.partition("\n")
         if separator and first.strip().casefold() == SUMMARY_HEADER.casefold():
-            parts = [rest.strip(), *parts[1:]]
-        return f"{SUMMARY_LABEL} " + "\n".join(parts)
+            text = rest.strip()
+        return f"{SUMMARY_LABEL} {text}"

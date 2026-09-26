@@ -2,16 +2,14 @@
 
 Out: render the Markdown subset a model writes as safe Telegram HTML, and cut a message
 Telegram would refuse into ones it takes without leaving formatting open across the cut.
-Back: the chat is kept as Telegram HTML and a model reads words — a citation written back
-from the link it became, and a line the interface added rather than the model. All four
-are pure.
+Back: the chat is kept as Telegram HTML and a model reads words, a citation written back
+from the link it became. All three are pure.
 """
 
 from __future__ import annotations
 
 import html
 import re
-from collections.abc import Mapping
 from html.parser import HTMLParser
 from urllib.parse import parse_qs, urlparse
 
@@ -130,27 +128,6 @@ def _outside_markup(text: str, cut: int) -> int:
         if start != -1 and text.find(closer, start, cut) == -1:
             cut = start
     return cut
-
-
-def split_receipts(text: str, meanings: Mapping[str, str]) -> tuple[list[str], str]:
-    """Split a bot message into tool-result lines and the words the bot actually said.
-
-    A receipt is the interface speaking, not the model.  Left inside an assistant message
-    it is the only example of a mutation the model ever sees, because the chat keeps no
-    tool call — so it reads as "answering means printing Saved" and the model stops calling
-    the tool.  Replaying it in the person's channel keeps the fact and drops the example.
-    """
-    notes: list[str] = []
-    spoken: list[str] = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        prefix = next((item for item in meanings if stripped.startswith(item)), None)
-        if prefix is None:
-            spoken.append(line)
-        else:
-            change = stripped[len(prefix) :].removeprefix(" — ").strip()
-            notes.append(f"[Tool result]: {change} — {meanings[prefix]}")
-    return notes, "\n".join(spoken).strip()
 
 
 def telegram_html_to_text(text: str, citation_types: tuple[str, ...]) -> str:

@@ -33,7 +33,6 @@ from safwa.features.values.use_cases import create_value
 from safwa.features.workspace_mutator.agent import MUTATOR_AGENT
 from safwa.features.workspace_mutator.remove import ARCHIVABLE, RemoveToolInput
 from safwa.features.workspace_mutator.state import workspace_context
-from telegram_llm import DialogueMessage
 from tg_agent_shell.ai.messages import ContextBuilder, StateBlocks
 from tg_agent_shell.ai.subagents import RoutedSubagent
 
@@ -98,7 +97,7 @@ async def test_ws_context_004_the_advisor_reads_it_always_and_a_subagent_only_wh
     turn = [{"role": "user", "content": "Move the roof Card to Today."}]
 
     answering = json.dumps(
-        await builder.root([DialogueMessage(role="user", content="What is open?")])
+        await builder.root([{"role": "user", "content": "What is open?"}])
     )
     asked = json.dumps(
         await builder.routed(RoutedSubagent("mutator", "Change it.", workspace_state=True), turn)
@@ -168,7 +167,7 @@ async def test_ws_context_007_the_clock_is_the_owners_and_comes_last(sessions):
     assert context.clock.endswith("(Europe/Istanbul)")
 
     builder = _builder("Workspace mode: planning")
-    turn = [DialogueMessage(role="user", content="What is open?")]
+    turn = [{"role": "user", "content": "What is open?"}]
 
     messages = await builder.root(turn)
 

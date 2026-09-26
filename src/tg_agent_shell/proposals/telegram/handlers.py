@@ -80,7 +80,7 @@ async def _on_approve(context: CallbackContext) -> None:
         context.message,
         context.services,
         proposal_outcome_text(BatchDecision.APPROVED, description.summary, description.fields),
-        kind=MessageKind.DIALOGUE_ASSISTANT,
+        kind=MessageKind.EVENT,
     )
 
 
@@ -112,7 +112,7 @@ async def _on_delete_confirm(context: CallbackContext) -> None:
             description.fields,
             notice=f"Permanently deleted {len(affected)} item(s).",
         ),
-        kind=MessageKind.DIALOGUE_ASSISTANT,
+        kind=MessageKind.EVENT,
     )
 
 
@@ -133,7 +133,7 @@ async def _on_reject(context: CallbackContext) -> None:
         context.message,
         context.services,
         proposal_outcome_text(BatchDecision.DISCARDED, description.summary, description.fields),
-        kind=MessageKind.DIALOGUE_ASSISTANT,
+        kind=MessageKind.EVENT,
     )
 
 

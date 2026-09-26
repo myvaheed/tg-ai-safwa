@@ -12,6 +12,9 @@ from enum import StrEnum
 class MessageKind(StrEnum):
     DIALOGUE_USER = "dialogue_user"
     DIALOGUE_ASSISTANT = "dialogue_assistant"
+    # Words the interface wrote about what happened: read on the owner's side as a
+    # system line, never as something the assistant said.
+    EVENT = "event"
     CUE = "cue"
     SUMMARY = "summary"
     UI_INPUT = "ui_input"

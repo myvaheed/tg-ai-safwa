@@ -57,8 +57,8 @@ class BatchDecision(StrEnum):
     EXPIRED = "expired"
 
 
-# The interface owns this line, never the model. History replays it as a tool result
-# rather than as words the assistant said, so each one also says what it meant.
+# The interface owns this line, never the model: the model reads what a change did in the
+# result of the call that made it.
 SAVED_RECEIPT = "✅ Saved"
 AUTO_SAVED_RECEIPT = "⚡ Auto-saved"
 DISCARDED_RECEIPT = "🗑 Discarded"
@@ -72,13 +72,14 @@ DECISION_RECEIPTS = {
     BatchDecision.EXPIRED: EXPIRED_RECEIPT,
 }
 
-RECEIPT_MEANINGS = {
-    SAVED_RECEIPT: "applied",
-    AUTO_SAVED_RECEIPT: "applied",
-    DISCARDED_RECEIPT: "not applied, the user rejected it",
-    FAILED_RECEIPT: "not applied, it failed",
-    EXPIRED_RECEIPT: "not applied, the review was left unanswered",
-}
+# How a line the interface wrote about a change opens, so words that echo one are known.
+RECEIPT_PREFIXES = (
+    SAVED_RECEIPT,
+    AUTO_SAVED_RECEIPT,
+    DISCARDED_RECEIPT,
+    FAILED_RECEIPT,
+    EXPIRED_RECEIPT,
+)
 
 
 @dataclass(frozen=True, slots=True)

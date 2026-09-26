@@ -151,8 +151,10 @@ class CueChat:
     def __init__(self) -> None:
         self.said: list[str] = []
 
-    async def send_parts(self, _message, text, *, kind, event_id=None, replace=None):
-        del event_id, replace
+    async def send_parts(
+        self, _message, text, *, kind, event_id=None, replace=None, reads_as=None
+    ):
+        del event_id, replace, reads_as
         self.said.append(f"{kind}: {text}")
 
 

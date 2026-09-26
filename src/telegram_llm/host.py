@@ -13,9 +13,10 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
-from collections.abc import Awaitable, Callable, Collection, Coroutine
+from collections.abc import Awaitable, Callable, Collection, Coroutine, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
+from typing import Any
 from uuid import uuid4
 
 from aiogram import Bot
@@ -85,6 +86,23 @@ class ChatHost:
         `rich` reads `text` as Rich HTML — a block dialect with tables, sent as a rich
         message instead of a parse-mode one. The note is the same for both.
         """
+        sent, event_id = await self._draw(
+            message, text, markup=markup, event_id=event_id, replace=replace, rich=rich
+        )
+        await self._note(sent, kind, event_id, text=text, related_id=related_id)
+        return sent
+
+    async def _draw(
+        self,
+        message: Message,
+        text: str,
+        *,
+        markup: InlineKeyboardMarkup | None = None,
+        event_id: str | None = None,
+        replace: bool | None = None,
+        rich: bool = False,
+    ) -> tuple[Message, str]:
+        """Put one message in the chat, and say which it is and under which delivery."""
         should_replace = (
             bool(message.from_user and message.from_user.is_bot) if replace is None else replace
         )
@@ -110,25 +128,33 @@ class ChatHost:
                 )
             return await message.answer(body, reply_markup=markup, parse_mode=ParseMode.HTML)
 
-        if should_replace:
-            try:
-                async with self.edit_lock:
-                    await deliver_edit(text)
-                sent = message
-            except TelegramAPIError as error:
-                # Telegram rejects a no-op edit.  It is still the same rendered state.
-                if "message is not modified" in str(error).casefold():
-                    sent = message
-                else:
-                    logger.warning(
-                        "Could not replace Telegram UI message %s; sending a new screen: %s",
-                        message.message_id,
-                        error,
-                    )
-                    event_id = uuid4().hex
-                    sent = await deliver_new(text)
-        else:
-            sent = await deliver_new(text)
+        if not should_replace:
+            return await deliver_new(text), event_id
+        try:
+            async with self.edit_lock:
+                await deliver_edit(text)
+            return message, event_id
+        except TelegramAPIError as error:
+            # Telegram rejects a no-op edit.  It is still the same rendered state.
+            if "message is not modified" in str(error).casefold():
+                return message, event_id
+            logger.warning(
+                "Could not replace Telegram UI message %s; sending a new screen: %s",
+                message.message_id,
+                error,
+            )
+            return await deliver_new(text), uuid4().hex
+
+    async def _note(
+        self,
+        sent: Message,
+        kind: str,
+        event_id: str,
+        *,
+        text: str | None,
+        related_id: int | None = None,
+        reads_as: Sequence[Mapping[str, Any]] | None = None,
+    ) -> None:
         await self.notes.write(
             Note(
                 chat_id=sent.chat.id,
@@ -139,9 +165,9 @@ class ChatHost:
                 event_id=event_id,
                 text=text,
                 at=sent.date,
+                reads_as=tuple(reads_as) if reads_as is not None else None,
             )
         )
-        return sent
 
     async def send_parts(
         self,
@@ -151,12 +177,14 @@ class ChatHost:
         kind: str,
         event_id: str | None = None,
         replace: bool | None = None,
+        reads_as: Sequence[Mapping[str, Any]] | None = None,
     ) -> Message:
         """Put words in the chat in as many messages as Telegram needs, and return the last.
 
-        Every part is noted on its own, so the window reads all of them and
-        `dialogue` merges them back into the one turn they were. Only the first part may
-        replace a screen; the rest are always new messages below it.
+        What was said is one message however many Telegram needs, so it is kept once: the
+        first part holds all of its words, and `reads_as` when the model reads it as
+        something else, and the rest hold none. Only the first part may replace a screen;
+        the rest are always new messages below it.
 
         A caller's own delivery identifier names the **last** part, so it appears only once
         the whole of what was said is in the chat. A caller that reads it back to decide
@@ -165,31 +193,36 @@ class ChatHost:
         parts = split_telegram_text(text)
         if not parts:
             raise ValueError("Refusing to put an empty message in the chat")
-        for index, part in enumerate(parts[:-1]):
-            await self.send(
-                message, part, kind=kind, replace=replace if index == 0 else False
+        for index, part in enumerate(parts):
+            first, last = index == 0, index == len(parts) - 1
+            sent, delivery = await self._draw(
+                message,
+                part,
+                event_id=event_id if last else None,
+                replace=replace if first else False,
             )
-        return await self.send(
-            message,
-            parts[-1],
-            kind=kind,
-            event_id=event_id,
-            replace=replace if len(parts) == 1 else False,
-        )
+            await self._note(
+                sent,
+                kind,
+                delivery,
+                text=text if first else None,
+                reads_as=reads_as if first else None,
+            )
+        return sent
 
     async def relay(self, message: Message, name: str, text: str, *, kind: str) -> Message:
         """Put words in the chat as the person's own turn, because they never arrived as one.
 
         A voice message carries no text, so the transcript is the only record of what was
-        said, and it has to be in the chat under their name or the model never sees it.
-        `dialogue` merges consecutive turns of one person, so the name is written once,
-        before the split; repeating it per part would read as several turns.
+        said, and it has to be in the chat under their name. The name is for the person:
+        the model reads the words alone, as it reads anything else they said.
         """
         return await self.send_parts(
             message,
             f"<b>{html.escape(name)}:</b>\n{html.escape(text)}",
             kind=kind,
             replace=False,
+            reads_as=({"role": "user", "content": text},),
         )
 
     async def edit(

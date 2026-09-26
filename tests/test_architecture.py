@@ -47,7 +47,6 @@ from scripts.architecture_metrics import (
     readers,
     unregistered_packages,
 )
-from telegram_llm import DialogueMessage
 from tg_agent_shell.ai.contracts import (
     CALL_HELPER_TOOL,
     QUERY_TOOL,
@@ -282,9 +281,9 @@ async def test_rule_i_the_clock_never_reaches_the_advisor_prefix():
     # Three turns, because `append_user_message` folds the state block into the first user
     # message: one turn collapses the whole list into two entries and asserts nothing.
     dialogue = [
-        DialogueMessage(role="user", content="What is open?"),
-        DialogueMessage(role="assistant", content="Two Cards."),
-        DialogueMessage(role="user", content="Close the shopping one."),
+        {"role": "user", "content": "What is open?"},
+        {"role": "assistant", "content": "Two Cards."},
+        {"role": "user", "content": "Close the shopping one."},
     ]
 
     early = await _builder("Now: Tuesday 09:00.").root(dialogue)

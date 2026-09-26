@@ -221,7 +221,7 @@ async def test_new_dialogue_discards_and_freezes_pending_proposal(sessions) -> N
         frozen = await session.scalar(
             select(TelegramMessage).where(TelegramMessage.message_id == 10)
         )
-        assert frozen.kind == MessageKind.DIALOGUE_ASSISTANT.value
+        assert frozen.kind == MessageKind.EVENT.value
         assert (
             await session.scalar(select(TelegramMessage).where(TelegramMessage.message_id == 9))
             is None
@@ -283,7 +283,7 @@ async def test_pr_expire_029_the_screen_nobody_answered_is_frozen_by_the_poll(
         frozen = await session.scalar(
             select(TelegramMessage).where(TelegramMessage.message_id == 10)
         )
-        assert frozen.kind == MessageKind.DIALOGUE_ASSISTANT.value
+        assert frozen.kind == MessageKind.EVENT.value
 
 
 async def test_a_command_dismisses_every_other_screen(sessions) -> None:

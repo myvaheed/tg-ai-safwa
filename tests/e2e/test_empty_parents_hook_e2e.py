@@ -131,10 +131,12 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
     assert await _pending(sessions) == []
     assert len(chat.sent_messages) == 1
 
-    # The chat holds the Advisor's words, and the owner's next turn reads them back.
+    # The chat holds the Advisor's words, and the owner's next turn reads them back after
+    # the request that caused them.
     dialogue = await history.dialogue(OWNER_ID)
-    assert [message.role for message in dialogue] == ["assistant"]
-    assert ANSWER in dialogue[0].content
+    assert [message.role for message in dialogue] == ["user", "assistant"]
+    assert "plan its Actions now, or create one Action" in dialogue[0].content
+    assert ANSWER in dialogue[1].content
     follow_up, provider = e2e_harness.advisor(["Создаю Действие."])
     await follow_up.handle("Давай второй вариант", dialogue=dialogue)
     heard = [message for message in provider.calls[0] if message["role"] == "assistant"]

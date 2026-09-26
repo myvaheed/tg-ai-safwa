@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 from agent_runtime import TurnOutcome
 
@@ -24,6 +25,10 @@ class AIOutcome:
     # The item `open` resolved, as a deep-link payload: the chat shows its screen after
     # the answer.
     open_item: str | None = None
+    # What the conversation keeps of the turn that said this, in the provider's shape:
+    # its calls and their results, then the model's own words. Empty for words the
+    # interface wrote itself.
+    turn: tuple[dict[str, Any], ...] = ()
 
 
 def as_turn(outcome: AIOutcome) -> TurnOutcome:

@@ -8,10 +8,12 @@ window ends arrives the same way, as a `WindowEdge`.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
+    JSON,
     Integer,
     String,
     Text,
@@ -27,7 +29,6 @@ from telegram_llm import ChatVocabulary, ChatWindow, Note, WindowEdge
 
 from .foundation.kinds import MessageKind
 from .foundation.models import Base, UtcDateTime
-from .proposals.model import RECEIPT_MEANINGS
 
 __all__ = [
     "TelegramHistorySource",
@@ -48,8 +49,10 @@ class TelegramMessage(Base):
     direction: Mapped[str] = mapped_column(String(10))
     kind: Mapped[str] = mapped_column(String(40), default=MessageKind.DASHBOARD.value)
     related_id: Mapped[int | None] = mapped_column(Integer)
-    # The message as it stands in the chat, in Telegram HTML; None when its words are not kept.
+    # The words it carries, in Telegram HTML; None when its words are not kept.
     text: Mapped[str | None] = mapped_column(Text)
+    # What the model reads for it, in the provider's shape, when that is not its words.
+    reads_as: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, server_default=func.now())
     __table_args__ = (UniqueConstraint("chat_id", "message_id"),)
 
@@ -59,8 +62,8 @@ def vocabulary(citation_types: tuple[str, ...]) -> ChatVocabulary:
     return ChatVocabulary(
         person=MessageKind.DIALOGUE_USER.value,
         assistant=frozenset({MessageKind.DIALOGUE_ASSISTANT.value, MessageKind.CUE.value}),
+        events=frozenset({MessageKind.EVENT.value}),
         citation_types=citation_types,
-        receipts=RECEIPT_MEANINGS,
     )
 
 
@@ -74,6 +77,7 @@ def _note(row: TelegramMessage) -> Note:
         event_id=row.event_id,
         text=row.text,
         at=row.created_at,
+        reads_as=tuple(row.reads_as) if row.reads_as is not None else None,
     )
 
 
@@ -135,6 +139,7 @@ class TelegramNotes:
                 note.event_id,
                 text=note.text,
                 at=note.at,
+                reads_as=note.reads_as,
             )
             await session.commit()
 
@@ -160,7 +165,9 @@ async def register_message(
     *,
     text: str | None = None,
     at: datetime | None = None,
+    reads_as: Sequence[Mapping[str, Any]] | None = None,
 ) -> None:
+    kept = [dict(message) for message in reads_as] if reads_as is not None else None
     existing = await session.scalar(
         select(TelegramMessage).where(
             TelegramMessage.chat_id == chat_id,
@@ -171,6 +178,7 @@ async def register_message(
         existing.kind = kind.value
         existing.related_id = related_id
         existing.text = text
+        existing.reads_as = kept
         if event_id is not None:
             existing.event_id = event_id
     else:
@@ -182,6 +190,7 @@ async def register_message(
             kind=kind.value,
             related_id=related_id,
             text=text,
+            reads_as=kept,
         )
         if at is not None:
             row.created_at = at

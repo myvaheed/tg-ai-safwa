@@ -9,6 +9,7 @@ from __future__ import annotations
 import html
 import logging
 import secrets
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from aiogram import Bot
@@ -181,7 +182,7 @@ async def _interrupted_review(services: Services, screen: Note) -> tuple[str, st
             description.fields,
             notice="You continued the conversation without saving it.",
         )
-    return text, MessageKind.DIALOGUE_ASSISTANT.value
+    return text, MessageKind.EVENT.value
 
 
 async def expire_review(message: Message, services: Services, proposal_id: int) -> None:
@@ -217,9 +218,7 @@ async def expire_review(message: Message, services: Services, proposal_id: int) 
         )
     for screen in screens:
         if screen.related_id == review.id:
-            await services.chat.freeze_screen(
-                message, screen, text, MessageKind.DIALOGUE_ASSISTANT.value
-            )
+            await services.chat.freeze_screen(message, screen, text, MessageKind.EVENT.value)
 
 
 def owner_display_name(message: Message, services: Services) -> str:
@@ -243,9 +242,10 @@ async def send_prose(
     kind: MessageKind,
     event_id: str | None = None,
     replace: bool | None = None,
+    reads_as: Sequence[Mapping[str, Any]] | None = None,
 ) -> Message:
     return await services.chat.send_parts(
-        message, text, kind=kind.value, event_id=event_id, replace=replace
+        message, text, kind=kind.value, event_id=event_id, replace=replace, reads_as=reads_as
     )
 
 

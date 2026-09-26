@@ -276,7 +276,7 @@ can cache the stable prefix:
 ```text
 messages[0]  system   SYSTEM_PROMPT                  ← cache breakpoint
 messages[1]  user     [System]: memory + workspace state
-   …         user/assistant   the dialogue window
+   …         user/assistant/tool   the dialogue window, earlier answers with their calls
 messages[-1] user     [System]: the clock            ← volatile, always last
 ```
 

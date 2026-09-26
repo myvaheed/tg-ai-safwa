@@ -11,10 +11,10 @@ shape the package asks of it.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Any, Protocol
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,12 +27,17 @@ class Note:
     kind: str
     related_id: int | None = None
     event_id: str | None = None
-    # The message as it stands in the chat, in Telegram HTML. None for one the person sent
-    # that is not conversation — a value typed into a field — whose words are not kept.
+    # The words this message carries, in Telegram HTML. None for one whose words are not
+    # kept: a value typed into a field, or a later part of something Telegram needed
+    # several messages for — the first part keeps all of it.
     text: str | None = None
     # When it was put in the chat. The first note written for a message stamps it, and a
     # rewrite never moves it: an answer drawn over a screen stands where the screen stood.
     at: datetime | None = None
+    # What the model reads for this message, in the provider's shape, when it is not its
+    # words alone: an answer's calls, their results and the model's own words, or the
+    # person's words a relayed message carries without its heading.
+    reads_as: tuple[Mapping[str, Any], ...] | None = None
 
 
 class NoteStore(Protocol):
