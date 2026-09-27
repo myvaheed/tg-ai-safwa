@@ -36,8 +36,8 @@ _PRIORITY_ORDER = {Priority.CRITICAL.value: 0, Priority.MEDIUM.value: 1, Priorit
 
 
 def list_order(card: Card) -> tuple[bool, datetime, int, datetime]:
-    """Hard Time first and the sooner one before, then priority, then oldest: one
-    ordering for every Card list."""
+    """Hard Time first and the sooner one before, then priority, then oldest: the
+    ordering of every Card list but Today, which is in the order the day cannot move."""
     return (
         card.hard_time_at is None,
         card.hard_time_at or card.created_at,

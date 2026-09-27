@@ -33,7 +33,7 @@ in [home.feature](../tests/brd/home.feature) and PS-HOME-018 in
 
 - **The next Actions**: the first `HOME_ACTIONS_SHOWN = 5` of Today in its own order
   (`today_actions`); with Today empty, of the Sprint; with that empty, of the Backlog — both in
-  the order every Card list uses (`list_order`). The heading names the list and how many it
+  the order every other Card list uses (`list_order`). The heading names the list and how many it
   holds. An Action under a Goal stands under it (`goal_of` skips a Subgoal between them); Goals
   come in the order of their first Action, Actions with no Goal after them.
 - **Values in focus**, by name, each with the words written for it, or its name alone when

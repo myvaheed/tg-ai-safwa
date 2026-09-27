@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from hook_helpers import changes_of
 from sqlalchemy import select
+from ui_harness import FakeMessage, services_for
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.bootstrap.modules import MODULES, RECOVERY_HOOKS, REGISTRY
@@ -23,7 +24,8 @@ from safwa.features.cards.hooks import (
     energy_balance_request,
     hard_time_request,
 )
-from safwa.features.cards.model import CardStage
+from safwa.features.cards.model import Card, CardStage
+from safwa.features.cards.telegram import command_today
 from safwa.features.cards.use_cases import (
     archive_subtree,
     delete_subtree,
@@ -1007,7 +1009,18 @@ async def test_pl_key_025_today_is_ordered_by_what_the_day_cannot_move(sessions)
         assert [line.split("]")[0] for line in handed.splitlines() if line.startswith("- [")] == [
             "- [Tomorrow", "- [Critical", "- [Key", "- [Later this week", "- [Plain",
         ]
+
+    # The Today screen shows them in that order too.
+    message = FakeMessage(974, bot_message=True)
+    await command_today(message, services_for(sessions))
+    shown = message.edits[-1][0].splitlines()
+    assert [line[2:].split(" · ")[0] for line in shown if line.startswith("• ")] == [
+        "Tomorrow", "Critical", "Key", "Later this week", "Plain",
+    ]
+
+    async with sessions() as session:
         # A Hard Time that passed yesterday holds nothing today.
+        soon = await session.get(Card, soon.id)
         soon.hard_time_at = utcnow() - timedelta(days=1)
         await session.commit()
         assert [card.title for card in await today_actions(session)][:2] == ["Critical", "Key"]
