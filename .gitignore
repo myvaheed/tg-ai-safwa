@@ -7,6 +7,7 @@ __pycache__/
 dist/
 build/
 data/**/*.db*
+data/**/*.key*
 data/**/*.session*
 data/memory.md*
 data/backups/

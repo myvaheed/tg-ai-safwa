@@ -6,6 +6,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
+from database_key import keyed
 
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.bootstrap.modules import (
@@ -161,7 +162,7 @@ def test_no_subagent_declares_a_read_tool_the_adapters_already_answer(tmp_path) 
     context = AgentContext(
         owner_id=42,
         timezone="Europe/Istanbul",
-        query_runner=ReadOnlyQueryRunner(tmp_path / "safwa.db", ALLOWED_VIEWS),
+        query_runner=ReadOnlyQueryRunner(keyed(tmp_path / "safwa.db"), ALLOWED_VIEWS),
         history=StubDayReader(""),
         sessions=None,  # type: ignore[arg-type]
     )
@@ -180,7 +181,7 @@ def test_a_subagent_reads_only_the_views_its_own_declaration_names(tmp_path) -> 
     context = AgentContext(
         owner_id=42,
         timezone="Europe/Istanbul",
-        query_runner=ReadOnlyQueryRunner(tmp_path / "safwa.db", ALLOWED_VIEWS),
+        query_runner=ReadOnlyQueryRunner(keyed(tmp_path / "safwa.db"), ALLOWED_VIEWS),
         history=StubDayReader(""),
         sessions=None,  # type: ignore[arg-type]
     )

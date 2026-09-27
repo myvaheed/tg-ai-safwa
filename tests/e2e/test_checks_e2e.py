@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from advisor_e2e_helpers import PLAN, route_turn
+from database_key import keyed
 from sqlalchemy import select
 from ui_harness import spawn_timer
 
@@ -306,7 +307,7 @@ async def test_a_closed_repeat_is_marked_everywhere_it_is_read(e2e_harness):
         run_id, live_run_id = run.id, closed_run.successor_ids[0]
 
     # The model reads the marker: a closed instance names itself, the open one does not.
-    runner = ReadOnlyQueryRunner(e2e_harness.database_path, ALLOWED_VIEWS)
+    runner = ReadOnlyQueryRunner(keyed(e2e_harness.database_path), ALLOWED_VIEWS)
     titles = {
         row["id"]: row["title"]
         for row in (await runner.run("SELECT id, title FROM ai_checks")).rows

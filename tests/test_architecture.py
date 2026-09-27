@@ -42,6 +42,7 @@ from scripts.architecture_metrics import (
     agent_domain_calls,
     business_imports,
     cycles,
+    database_openings,
     feature_map,
     process_modules,
     readers,
@@ -155,6 +156,30 @@ def test_rule_k_catches_a_domain_call_however_it_is_imported(source: str, caught
     found = agent_domain_calls(_example("safwa/features/diary/agent.py", source))
 
     assert bool(found) is caught, found
+
+
+@pytest.mark.parametrize(
+    "source, caught",
+    [
+        ("import sqlite3", True),
+        ("from sqlcipher3 import dbapi2", True),
+        ("import aiosqlite", True),
+        ("from sqlalchemy import create_engine\ncreate_engine('sqlite://')", True),
+        ("import sqlalchemy.ext.asyncio as aio\naio.create_async_engine(url)", True),
+        ("from tg_agent_shell.foundation.database import DatabaseFile, driver", False),
+    ],
+)
+def test_rule_s_catches_a_database_opened_outside_its_module(source: str, caught: bool):
+    found = database_openings(_example("safwa/features/cards/proposal.py", source))
+
+    assert bool(found) is caught, found
+
+
+def test_rule_s_leaves_the_driver_to_the_database_module():
+    source = "import sqlcipher3.dbapi2 as driver\nfrom sqlalchemy import create_engine"
+    module = _example("tg_agent_shell/foundation/database.py", source)
+
+    assert database_openings(module) == []
 
 
 def test_a_second_operations_module_is_under_the_business_rules_too():
@@ -410,13 +435,12 @@ def test_rule_j_schema_is_unchanged_outside_a_schema_batch(request):
 def test_the_declared_schema_is_what_a_fresh_database_gets(tmp_path):
     # `create_all` never alters an existing table, so the only guarantee the project has is
     # that a rebuilt database matches `models.py`.  This is that guarantee, asserted.
-    from sqlalchemy import create_engine
+    from database_key import keyed, keyed_engine
 
     from tg_agent_shell.foundation.database import upgrade_database
 
-    url = f"sqlite:///{(tmp_path / 'fresh.db').as_posix()}"
-    upgrade_database(url, Base.metadata)
-    engine = create_engine(url)
+    upgrade_database(keyed(tmp_path / "fresh.db"), Base.metadata)
+    engine = keyed_engine(tmp_path / "fresh.db")
     try:
         built = set(inspect(engine).get_table_names())
     finally:

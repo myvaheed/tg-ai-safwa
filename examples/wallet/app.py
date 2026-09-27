@@ -4,7 +4,8 @@ Everything derived from the feature list is the shell's `Registry`; what is writ
 only what the shell cannot know — which features exist, what a world is, what the model is
 told it is, and where the durable notes come from.
 
-Run it: `BOT_TOKEN=... OWNER_ID=... uv run python -m wallet.app` from `examples/`.
+Run it: `BOT_TOKEN=... OWNER_ID=... uv run python -m wallet.app` from `examples/`. It asks
+for the passphrase that unlocks the database key, and makes the key on the first run.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import os
 from collections.abc import Coroutine, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from getpass import getpass
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -27,7 +29,8 @@ from llm_gateway import LlmProvider, OpenAICompatibleConfig, OpenAICompatiblePro
 from telegram_llm import ChatHost
 from tg_agent_shell.ai.messages import StateBlocks
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views, view_catalogue
-from tg_agent_shell.foundation.database import Database, upgrade_database
+from tg_agent_shell.foundation.database import Database, DatabaseFile, upgrade_database
+from tg_agent_shell.foundation.key_file import create_key, key_path, unlock_database
 from tg_agent_shell.history import TelegramHistorySource, TelegramNotes
 from tg_agent_shell.media.library import MediaLibrary
 from tg_agent_shell.media.module import MODULE as MEDIA_FEATURE
@@ -117,13 +120,13 @@ class Bootstrapped:
     """What one prepared database hands back to whoever starts the application."""
 
     database: Database
-    path: Path
+    file: DatabaseFile
 
 
-async def open_database(path: Path, *, owner_id: int, timezone: str) -> Bootstrapped:
+async def open_database(file: DatabaseFile, *, owner_id: int, timezone: str) -> Bootstrapped:
     """Bring the schema up, bind the world row, rebuild the views, reconcile a restart."""
-    upgrade_database(f"sqlite:///{path.as_posix()}", Base.metadata)
-    database = Database(f"sqlite+aiosqlite:///{path.as_posix()}")
+    upgrade_database(file, Base.metadata)
+    database = Database(file)
     async with database.sessions() as session:
         await bootstrap_ledger(session, owner_id, timezone)
         await recover_startup(session, REGISTRY.recovery)
@@ -131,7 +134,7 @@ async def open_database(path: Path, *, owner_id: int, timezone: str) -> Bootstra
             lambda sync_session: create_ai_views(sync_session.connection(), REGISTRY.views)
         )
         await session.commit()
-    return Bootstrapped(database, path)
+    return Bootstrapped(database, file)
 
 
 def build_root_session(
@@ -213,9 +216,11 @@ def build_history(
 async def main() -> None:
     owner_id = int(os.environ["OWNER_ID"])
     timezone = os.environ.get("TIMEZONE", "UTC")
-    prepared = await open_database(
-        Path(os.environ.get("WALLET_DB", "wallet.db")), owner_id=owner_id, timezone=timezone
-    )
+    path = Path(os.environ.get("WALLET_DB", "wallet.db"))
+    if not key_path(path).exists():
+        create_key(path, getpass("A new passphrase for the database: "))
+    file = unlock_database(path, getpass("Passphrase: "))
+    prepared = await open_database(file, owner_id=owner_id, timezone=timezone)
     provider = OpenAICompatibleProvider(
         OpenAICompatibleConfig(
             base_url=os.environ.get("LLM_URL", "http://localhost:1234/v1"),
@@ -237,9 +242,7 @@ async def main() -> None:
 
     media = MediaLibrary(prepared.database.sessions, provider)
     history = build_history(prepared.database.sessions, timezone=timezone)
-    query_runner = ReadOnlyQueryRunner(
-        prepared.path, REGISTRY.allowed_views, timezone=timezone
-    )
+    query_runner = ReadOnlyQueryRunner(prepared.file, REGISTRY.allowed_views, timezone=timezone)
     root = build_root_session(
         prepared.database.sessions,
         provider,

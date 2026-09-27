@@ -63,7 +63,7 @@ def _text(value: str | None) -> str | None:
 def resolve_qa_config(
     *,
     data_dir: Path,
-    database_url: str,
+    database_path: Path,
     base: Settings | None = None,
     qa: QAConfig | None = None,
 ) -> ResolvedQAConfig:
@@ -92,7 +92,7 @@ def resolve_qa_config(
         telegram_bot_token=qa_token,
         telegram_bot_username=_text(qa.telegram_bot_username) or "",
         telegram_owner_id=owner_id,
-        database_url=database_url,
+        database_path=database_path,
         data_dir=data_dir,
         ai_provider=base.ai_provider,
         ai_base_url=_text(qa.ai_base_url) or base.ai_base_url,
@@ -127,7 +127,7 @@ def auth_main() -> None:
 
     resolved = resolve_qa_config(
         data_dir=Path("data/qa"),
-        database_url="sqlite:///data/qa/safwa.db",
+        database_path=Path("data/qa/safwa.db"),
     )
     settings = resolved.settings
 

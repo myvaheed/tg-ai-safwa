@@ -4,7 +4,7 @@
     uv run python scripts/similarity_probe.py "Позвонить маме" "Набрать маму"
 
 With no arguments it prints, for each entity a creating screen compares, the closest pairs of
-its open items in `data/safwa.db`, then a fixed set of pairs that should be listed and pairs
+its open items in `data/safwa.db` (it asks for the passphrase), then a fixed set of pairs that should be listed and pairs
 that should not; with two texts, the score of that one pair. The first run downloads the model
 into `data/models/`.
 """
@@ -13,13 +13,13 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from pathlib import Path
 
 import numpy
 
 from safwa.bootstrap.modules import REGISTRY
 from safwa.config import Settings
-from tg_agent_shell.foundation.database import Database
+from safwa.security import unlock
+from tg_agent_shell.foundation.database import Database, DatabaseFile
 from tg_agent_shell.similarity import SIMILAR_MODEL, SIMILAR_THRESHOLD, FastEmbedEncoder
 
 PAIRS_SHOWN = 10
@@ -60,8 +60,8 @@ def _print_pair(score: float, left: str, right: str) -> None:
     print(f"  {score:.3f} {mark}  {left!r} ~ {right!r}")
 
 
-async def _open_items() -> dict[str, list[tuple[int, str]]]:
-    database = Database(Settings().async_database_url)
+async def _open_items(file: DatabaseFile) -> dict[str, list[tuple[int, str]]]:
+    database = Database(file)
     try:
         async with database.sessions() as session:
             return {
@@ -78,8 +78,9 @@ def main() -> None:
     if len(sys.argv) == 3:
         _print_pair(_score(encoder, sys.argv[1], sys.argv[2]), sys.argv[1], sys.argv[2])
         return
-    if Path(Settings().database_url.removeprefix("sqlite:///")).exists():
-        for entity, items in asyncio.run(_open_items()).items():
+    if Settings().database_path.exists():
+        file = unlock(Settings().database_path)
+        for entity, items in asyncio.run(_open_items(file)).items():
             print(f"\n{entity}: {len(items)} open")
             if len(items) < 2:
                 continue

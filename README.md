@@ -13,8 +13,13 @@ a second model review may approve on its own.
 ```powershell
 Copy-Item .env.example .env
 uv sync --extra dev
+uv run safwa-key new
 uv run safwa
 ```
+
+The database is encrypted. `safwa-key new` makes its key once and locks it with a passphrase you
+choose, and `uv run safwa` asks for that passphrase at every start. How it works, and how to back
+up, restore and move the database, is [docs/SECURITY.md](docs/SECURITY.md).
 
 `SAFWA_AI_PROVIDER` selects the endpoint: `local` (the default) or `openrouter`. Each is one row
 of `PRESETS` in [src/llm_gateway/presets.py](src/llm_gateway/presets.py), which knows the
@@ -166,24 +171,6 @@ The live test sends `/status`, creates and reviews one Action through real Teleg
 callbacks, verifies the committed Card in a temporary SQLite database, deletes its QA chat messages, and
 stops the test bot. It never uses the production bot token, database, or AI provider. Set `SAFWA_QA_KEEP_MESSAGES=true` when you want the QA conversation to remain visible after a
 run; its inline buttons will be stale because the test database is temporary.
-
-## Local backup and restore
-
-Create a portable ZIP backup of the SQLite database:
-
-```powershell
-uv run safwa-backup
-```
-
-The archive is written to `data/backups/` by default. To restore, stop Safwa first, then use the
-explicit confirmation flag. Safwa validates the archive and creates a safety backup of the current data
-before replacing it:
-
-```powershell
-uv run safwa-restore data\backups\safwa-YYYYMMDDTHHMMSSZ.zip --yes
-```
-
-Start Safwa again after the restore.
 
 ## Bot navigation
 

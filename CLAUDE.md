@@ -24,8 +24,8 @@ naming a feature prints that feature's map instead — no document is kept in st
 
 ## Commands
 
-Windows / PowerShell, `uv`-managed, Python pinned to `>=3.12,<3.13`. Setup, the voice extras, backup
-and restore are [README.md](README.md); here is what a change is checked with.
+Windows / PowerShell, `uv`-managed, Python pinned to `>=3.12,<3.13`. Setup and the voice extras are
+[README.md](README.md); here is what a change is checked with.
 
 ```powershell
 uv run pytest -q
@@ -181,8 +181,9 @@ Beyond what the table above points at, and none of it required reading for an or
 [LLM_GATEWAY.md](docs/LLM_GATEWAY.md) is the provider boundary,
 [LLM_HISTORY.md](docs/LLM_HISTORY.md) what the model reads as the conversation and why, and
 [SPRINT_ANALYSE_TO_RETRO_AND_MEM.md](docs/SPRINT_ANALYSE_TO_RETRO_AND_MEM.md) the retro analysis — what it reads, asks and writes — and how memory is written from it,
-and [HOME_DASHBOARD.md](docs/HOME_DASHBOARD.md) how a quiet chat is cleared down to the Home
-dashboard and what it shows.
+[HOME_DASHBOARD.md](docs/HOME_DASHBOARD.md) how a quiet chat is cleared down to the Home
+dashboard and what it shows, and [SECURITY.md](docs/SECURITY.md) how the database is encrypted,
+where its key lives, and how to back it up and restore it.
 A feature's own package is a pointer like any other: its `.feature`
 file is the rule, and the package is what keeps it. `docs/` is where anything written from now on
 goes.

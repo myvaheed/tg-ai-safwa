@@ -13,7 +13,8 @@ import sys
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, inspect
+from database_key import keyed_engine
+from sqlalchemy import inspect
 
 from safwa.bootstrap.modules import (
     AGENTS,
@@ -98,7 +99,7 @@ def test_the_view_allowlist_is_the_catalogue_the_database_gets(tmp_path):
     assert ALLOWED_VIEWS == {view.name for view in AI_VIEWS}
     assert len(AI_VIEWS) == len({view.name for view in AI_VIEWS})
 
-    engine = create_engine(f"sqlite:///{(tmp_path / 'views.db').as_posix()}")
+    engine = keyed_engine(tmp_path / "views.db")
     Base.metadata.create_all(engine)
     with engine.begin() as connection:
         create_ai_views(connection, AI_VIEWS)

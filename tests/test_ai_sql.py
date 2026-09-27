@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from database_key import keyed, keyed_engine
 
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS
 from safwa.features.cards.agent import CardToolInput
@@ -373,7 +374,7 @@ def test_read_sql_accepts_recursive_and_column_list_ctes():
 
 def test_a_reader_is_scoped_to_the_views_it_declared(tmp_path):
     """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
-    runner = ReadOnlyQueryRunner(tmp_path / "views.db", ALLOWED_VIEWS)
+    runner = ReadOnlyQueryRunner(keyed(tmp_path / "views.db"), ALLOWED_VIEWS)
     reader = runner.scoped(("ai_cards",))
 
     assert validated_read("SELECT id FROM ai_cards", reader.views)[1] == {"ai_cards"}
@@ -385,13 +386,11 @@ def test_a_reader_is_scoped_to_the_views_it_declared(tmp_path):
 
 
 def _runner_over_cards(tmp_path, count: int, note: str = "", **caps):
-    from sqlalchemy import create_engine
-
     from safwa.foundation.models import Base
     from tg_agent_shell.ai.sql import create_ai_views
 
     path = tmp_path / "caps.db"
-    engine = create_engine(f"sqlite:///{path.as_posix()}")
+    engine = keyed_engine(path)
     Base.metadata.create_all(engine)
     with engine.begin() as connection:
         create_ai_views(connection, AI_VIEWS)
@@ -404,7 +403,7 @@ def _runner_over_cards(tmp_path, count: int, note: str = "", **caps):
                 (index + 1, f"Card {index:03d}", note),
             )
     engine.dispose()
-    return ReadOnlyQueryRunner(path, ALLOWED_VIEWS, **caps)
+    return ReadOnlyQueryRunner(keyed(path), ALLOWED_VIEWS, **caps)
 
 
 async def test_query_result_reports_the_row_cap_and_asks_to_narrow(tmp_path):
@@ -510,12 +509,9 @@ async def test_uncapped_query_carries_no_notice(tmp_path):
 
 def test_rebuilding_views_leaves_every_other_table_alone(tmp_path):
     """Rebuilding the read views touches the views and nothing else the database holds."""
-    from sqlalchemy import create_engine
-
     from tg_agent_shell.ai.sql import create_ai_views
 
-    path = tmp_path / "foreign.db"
-    engine = create_engine(f"sqlite:///{path.as_posix()}")
+    engine = keyed_engine(tmp_path / "foreign.db")
     with engine.begin() as connection:
         connection.exec_driver_sql("CREATE TABLE card_search(id INTEGER PRIMARY KEY)")
         connection.exec_driver_sql("CREATE TABLE cards(id INTEGER PRIMARY KEY)")
