@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import sqlite3
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,6 +10,7 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 from aiogram import Bot
+from database_key import keyed
 from telethon import TelegramClient
 from telethon.tl.custom.message import Message
 from telethon.tl.types import User
@@ -132,12 +132,12 @@ async def live_telegram_harness(tmp_path: Path, monkeypatch) -> LiveTelegramHarn
     try:
         resolved = resolve_qa_config(
             data_dir=data_dir,
-            database_url=f"sqlite:///{database_path.as_posix()}",
+            database_path=database_path,
         )
     except (ValueError, OSError) as error:
         pytest.fail(f"Invalid Safwa-QA configuration: {error}")
     settings = resolved.settings
-    upgrade_database(settings.database_url, Base.metadata)
+    upgrade_database(keyed(database_path), Base.metadata)
 
     probe = Bot(token=settings.telegram_bot_token.get_secret_value())
     try:
@@ -165,7 +165,7 @@ async def live_telegram_harness(tmp_path: Path, monkeypatch) -> LiveTelegramHarn
     NoAIProvider.calls = 0
     monkeypatch.setattr(safwa_main, "OpenAICompatibleProvider", NoAIProvider)
     monkeypatch.setattr(safwa_main, "BACKGROUND_TASKS", ())
-    app_task = asyncio.create_task(safwa_main.run(settings), name="safwa-qa-live")
+    app_task = asyncio.create_task(safwa_main.run(settings, keyed(database_path)), name="safwa-qa-live")
     harness = LiveTelegramHarness(
         client,
         bot_entity,
@@ -263,7 +263,7 @@ async def test_qa_status_and_manual_card_review_flow(live_telegram_harness):
         assert created.id == titled_review.id
         assert title in created.raw_text
 
-        with sqlite3.connect(qa.database_path) as connection:
+        with keyed(qa.database_path).connect() as connection:
             assert connection.execute(
                 "SELECT COUNT(*) FROM cards WHERE title=?", (title,)
             ).fetchone() == (1,)
@@ -276,7 +276,7 @@ async def _wait_for_row(database_path: Path, sql: str, parameters: tuple, timeou
     deadline = monotonic() + timeout
     row: tuple = ()
     while monotonic() < deadline:
-        with sqlite3.connect(database_path) as connection:
+        with keyed(database_path).connect() as connection:
             row = connection.execute(sql, parameters).fetchone()
         if row and row[0] is not None:
             return row
@@ -290,7 +290,7 @@ def _seed_linked_check(database_path: Path, card_title: str, check_title: str) -
     Creating and linking a Check are AI proposals only, and this test refuses every
     provider call, so the fixture is written rather than clicked.
     """
-    with sqlite3.connect(database_path) as connection:
+    with keyed(database_path).connect() as connection:
         card_id = connection.execute(
             "SELECT id FROM cards WHERE title=?", (card_title,)
         ).fetchone()[0]

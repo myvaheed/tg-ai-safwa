@@ -587,13 +587,44 @@ def rule_p() -> list[Violation]:
     return out
 
 
+# Rule S: what opens a database file. `DatabaseFile.connect` is the one opening that sets the
+# key, so the module that holds it is the one allowed the drivers and the engine constructors.
+DATABASE_DRIVERS = ("sqlite3", "sqlcipher3", "aiosqlite")
+ENGINE_CONSTRUCTORS = ("create_engine", "create_async_engine")
+DATABASE_MODULE = "tg_agent_shell/foundation/database.py"
+
+
+def database_openings(module: Module) -> list[Violation]:
+    """Each driver import and engine construction in one module, outside the database module."""
+    if module.rel == DATABASE_MODULE:
+        return []
+    out = [
+        Violation("Rule S", module.rel, line, f"imports {root}")
+        for root, line in module.imported_roots()
+        if root in DATABASE_DRIVERS
+    ]
+    for call in _calls_named(module.tree, *ENGINE_CONSTRUCTORS):
+        out.append(Violation("Rule S", module.rel, call.lineno, "builds its own engine"))
+    return out
+
+
+def rule_s() -> list[Violation]:
+    """The database is opened in one place.
+
+    Anywhere else a driver opens the file without the key, or on a key nothing checked. The
+    standard `sqlite3` also names error classes the encrypting driver never raises, so an
+    `except` written with it quietly catches nothing.
+    """
+    return [item for module in modules() for item in database_openings(module)]
+
+
 @dataclass(frozen=True, slots=True)
 class Rule:
     """One rule as the report shows it: what it is called, and what answers it.
 
     The letter it is keyed by is the stable reference — it is what a `Violation` carries
     and what a document cites — so a rule is renamed freely and never re-lettered. Letters
-    A to Q have all been used at some point; a new rule takes the next unused one.
+    A to S have all been used at some point; a new rule takes the next unused one.
     """
 
     name: str
@@ -612,6 +643,7 @@ RULES = {
     "Rule M": Rule("the agent engine imports none of the shell above it", rule_m),
     "Rule P": Rule("every bot message goes through the one place that keeps it", rule_p),
     "Rule R": Rule("every Safwa feature package is registered in MODULES", rule_r),
+    "Rule S": Rule("the database is opened in one place", rule_s),
 }
 # Rules I and J are snapshots of built artefacts rather than of the source tree, so they
 # live with their baselines in `tests/test_architecture.py`.

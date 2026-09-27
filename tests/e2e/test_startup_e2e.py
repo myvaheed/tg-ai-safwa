@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import asyncio
-import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from database_key import keyed
 
 from safwa import featuretoggles
 from safwa.bootstrap import main as safwa_main
 from safwa.config import Settings
 from safwa.foundation.models import Base
-from tg_agent_shell.foundation.database import upgrade_database
+from tg_agent_shell.foundation.database import DatabaseFile, upgrade_database
 from tg_agent_shell.similarity import SIMILAR_MODEL, Similarity
 
 pytestmark = pytest.mark.e2e
@@ -103,12 +103,11 @@ class FakeDispatcher:
         await asyncio.sleep(0)
 
 
-def _prepared_startup(tmp_path: Path, monkeypatch) -> tuple[Path, Settings]:
+def _prepared_startup(tmp_path: Path, monkeypatch) -> tuple[DatabaseFile, Settings]:
     repository_root = Path(__file__).parents[2]
     monkeypatch.chdir(repository_root)
-    database_path = tmp_path / "startup-e2e.db"
-    database_url = f"sqlite:///{database_path.as_posix()}"
-    upgrade_database(database_url, Base.metadata)
+    database = keyed(tmp_path / "startup-e2e.db")
+    upgrade_database(database, Base.metadata)
 
     FakeBot.instances.clear()
     FakeProvider.instances.clear()
@@ -119,12 +118,12 @@ def _prepared_startup(tmp_path: Path, monkeypatch) -> tuple[Path, Settings]:
     FakeEncoder.made.clear()
     monkeypatch.setattr(safwa_main, "FastEmbedEncoder", FakeEncoder)
 
-    return database_path, Settings(
+    return database, Settings(
         _env_file=None,
         telegram_bot_token="123456:test-token",
         telegram_bot_username="configured_safwa_bot",
         telegram_owner_id=42,
-        database_url=database_url,
+        database_path=database.path,
         data_dir=tmp_path / "data",
         ai_base_url="http://127.0.0.1:1234/v1",
         ai_api_key="test-key",
@@ -134,8 +133,8 @@ def _prepared_startup(tmp_path: Path, monkeypatch) -> tuple[Path, Settings]:
 
 
 async def test_full_startup_reaches_polling_and_cleans_up(tmp_path: Path, monkeypatch):
-    database_path, settings = _prepared_startup(tmp_path, monkeypatch)
-    await safwa_main.run(settings)
+    database, settings = _prepared_startup(tmp_path, monkeypatch)
+    await safwa_main.run(settings, database)
 
     assert FakeDispatcher.instances[0].polling_started is True
     assert FakeDispatcher.instances[0].data["services"].bot_username == "configured_safwa_bot"
@@ -147,7 +146,8 @@ async def test_full_startup_reaches_polling_and_cleans_up(tmp_path: Path, monkey
     assert FakeBot.instances[0].session.closed is True
     assert FakeProvider.instances[0].closed is True
 
-    with sqlite3.connect(database_path) as connection:
+    connection = database.connect()
+    try:
         assert connection.execute("SELECT COUNT(*) FROM workspace").fetchone() == (1,)
         assert connection.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='tags'"
@@ -155,6 +155,8 @@ async def test_full_startup_reaches_polling_and_cleans_up(tmp_path: Path, monkey
         assert connection.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='view' AND name='ai_cards'"
         ).fetchone() == (1,)
+    finally:
+        connection.close()
 
 
 async def test_pr_similar_030_the_comparing_model_loads_only_while_similar_items_are_on(
@@ -163,16 +165,16 @@ async def test_pr_similar_030_the_comparing_model_loads_only_while_similar_items
     """PR-SIMILAR-030 — tests/brd/tg_agent_shell/proposals.feature"""
     monkeypatch.setattr(featuretoggles, "SIMILAR_ITEMS", False)
     (tmp_path / "off").mkdir()
-    _, settings = _prepared_startup(tmp_path / "off", monkeypatch)
-    await safwa_main.run(settings)
+    database, settings = _prepared_startup(tmp_path / "off", monkeypatch)
+    await safwa_main.run(settings, database)
 
     assert FakeDispatcher.instances[0].data["services"].similarity is None
     assert FakeEncoder.made == []
 
     monkeypatch.setattr(featuretoggles, "SIMILAR_ITEMS", True)
     (tmp_path / "on").mkdir()
-    _, settings = _prepared_startup(tmp_path / "on", monkeypatch)
-    await safwa_main.run(settings)
+    database, settings = _prepared_startup(tmp_path / "on", monkeypatch)
+    await safwa_main.run(settings, database)
 
     similarity = FakeDispatcher.instances[0].data["services"].similarity
     assert isinstance(similarity, Similarity)

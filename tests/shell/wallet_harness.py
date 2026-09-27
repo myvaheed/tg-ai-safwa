@@ -22,6 +22,7 @@ for folder in (REPOSITORY / "examples", REPOSITORY / "tests"):
         sys.path.insert(0, str(folder))
 
 from agent_turns import mutation_turn, route_turn  # noqa: E402
+from database_key import keyed  # noqa: E402
 from telegram_fakes import QueueTestMessage, spawn_timer  # noqa: E402
 from wallet import app  # noqa: E402
 from wallet.wallets.model import CategoryKind  # noqa: E402
@@ -80,13 +81,13 @@ class WalletHarness:
 
     async def start(self, *turns: CompletionTurn, images: bool = True) -> Running:
         await self.stop()
-        prepared = await app.open_database(self.path, owner_id=OWNER_ID, timezone=TIMEZONE)
+        prepared = await app.open_database(keyed(self.path), owner_id=OWNER_ID, timezone=TIMEZONE)
         self.database = prepared.database
         sessions = prepared.database.sessions
         provider = ScriptedProvider(turns)
         media = MediaLibrary(sessions, provider) if images else None
         history = app.build_history(sessions, timezone=TIMEZONE)
-        runner = ReadOnlyQueryRunner(self.path, app.REGISTRY.allowed_views, timezone=TIMEZONE)
+        runner = ReadOnlyQueryRunner(prepared.file, app.REGISTRY.allowed_views, timezone=TIMEZONE)
         root = app.build_root_session(
             sessions,
             provider,

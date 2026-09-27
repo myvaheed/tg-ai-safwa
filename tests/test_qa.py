@@ -35,7 +35,7 @@ def test_qa_config_inherits_safe_non_bot_defaults(tmp_path: Path):
     )
     resolved = resolve_qa_config(
         data_dir=tmp_path / "runtime",
-        database_url=f"sqlite:///{(tmp_path / 'qa.db').as_posix()}",
+        database_path=tmp_path / "qa.db",
         base=base,
         qa=qa,
     )
@@ -62,7 +62,7 @@ def test_qa_config_rejects_the_production_bot(tmp_path: Path):
     with pytest.raises(ValueError, match="must not reuse"):
         resolve_qa_config(
             data_dir=tmp_path / "runtime",
-            database_url=f"sqlite:///{(tmp_path / 'qa.db').as_posix()}",
+            database_path=tmp_path / "qa.db",
             base=base,
             qa=qa,
         )

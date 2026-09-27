@@ -5,7 +5,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, inspect
+from database_key import keyed, keyed_engine
+from sqlalchemy import inspect
 
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
 from safwa.foundation.models import Base
@@ -40,8 +41,8 @@ async def test_ag_poll_030_a_poll_outlives_a_failing_round_and_ends_on_shutdown(
 def test_startup_bootstraps_a_new_database_from_the_models(tmp_path, monkeypatch):
     monkeypatch.chdir(Path(__file__).parents[1])
     path = tmp_path / "safwa.db"
-    upgrade_database(f"sqlite:///{path.as_posix()}", Base.metadata)
-    engine = create_engine(f"sqlite:///{path.as_posix()}")
+    upgrade_database(keyed(path), Base.metadata)
+    engine = keyed_engine(path)
     assert set(Base.metadata.tables).issubset(set(engine.dialect.get_table_names(engine.connect())))
     indexes = {index["name"] for index in inspect(engine).get_indexes("agent_steps")}
     assert "ix_agent_steps_kind" in indexes
@@ -86,7 +87,7 @@ async def test_startup_closes_every_session_waiting_on_a_process_local_screen(se
 
 async def test_read_only_query_runner_reads_only_ai_views(tmp_path):
     path = tmp_path / "query.db"
-    engine = create_engine(f"sqlite:///{path.as_posix()}")
+    engine = keyed_engine(path)
     Base.metadata.create_all(engine)
     with engine.begin() as connection:
         create_ai_views(connection, AI_VIEWS)
@@ -105,7 +106,7 @@ async def test_read_only_query_runner_reads_only_ai_views(tmp_path):
             "INSERT INTO saved_requests(id,name,description,query_sql,version,created_at,updated_at) "
             "VALUES (3,'Family actions','','SELECT id FROM ai_cards',1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
         )
-    runner = ReadOnlyQueryRunner(path, ALLOWED_VIEWS)
+    runner = ReadOnlyQueryRunner(keyed(path), ALLOWED_VIEWS)
     cards = await runner.run("SELECT title FROM ai_cards")
     assert cards.rows == [{"title": "Read"}]
     assert cards.notice is None

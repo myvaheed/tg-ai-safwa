@@ -6,6 +6,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
+from database_key import keyed
 from sqlalchemy import select
 
 from llm_gateway import ToolCall
@@ -327,7 +328,7 @@ async def test_di_read_013_the_entry_and_what_was_said_are_read_apart_and_nothin
     context = AgentContext(
         owner_id=42,
         timezone="Europe/Istanbul",
-        query_runner=ReadOnlyQueryRunner(tmp_path / "safwa.db", ALLOWED_VIEWS),
+        query_runner=ReadOnlyQueryRunner(keyed(tmp_path / "safwa.db"), ALLOWED_VIEWS),
         history=RecordingDayReader(),
         sessions=sessions,
     )

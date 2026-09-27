@@ -8,6 +8,7 @@ sends nothing.
 
 from __future__ import annotations
 
+import asyncio
 import html
 
 from aiogram.types import Message
@@ -36,23 +37,27 @@ class Progress:
         self.title = title
         self.message_id: int | None = None
         self._text = ""
+        # Steps that run side by side report side by side, and each report writes the kept
+        # message on a connection of its own; unqueued, a later percent could land first.
+        self._in_order = asyncio.Lock()
 
     async def report(self, done: float, total: float, note: str = "") -> None:
         text = f"{html.escape(self.title)}\n{progress_bar(done, total)}"
         if note:
             text += f" · {html.escape(note)}"
-        if text == self._text:
-            return
-        self._text = text
-        if self.message_id is None:
-            sent = await send_registered(
-                self.message, self.services, text, kind=MessageKind.STATUS, replace=False
+        async with self._in_order:
+            if text == self._text:
+                return
+            self._text = text
+            if self.message_id is None:
+                sent = await send_registered(
+                    self.message, self.services, text, kind=MessageKind.STATUS, replace=False
+                )
+                self.message_id = sent.message_id
+                return
+            await edit_registered_message(
+                self.message, self.services, self.message_id, text, kind=MessageKind.STATUS
             )
-            self.message_id = sent.message_id
-            return
-        await edit_registered_message(
-            self.message, self.services, self.message_id, text, kind=MessageKind.STATUS
-        )
 
     async def clear(self) -> None:
         if self.message_id is None:

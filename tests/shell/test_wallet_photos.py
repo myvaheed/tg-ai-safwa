@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from agent_turns import mutation_turn, route_turn
+from database_key import keyed
 from sqlalchemy import select
 from telegram_fakes import QueueTestMessage, owner_photo
 from wallet import app
@@ -377,7 +378,7 @@ async def test_an_application_hands_its_root_session_reads_of_its_own(wallet_bot
         running.sessions,
         provider,
         app.NoNotes(),
-        ReadOnlyQueryRunner(wallet_bot.path, app.REGISTRY.allowed_views, timezone=TIMEZONE),
+        ReadOnlyQueryRunner(keyed(wallet_bot.path), app.REGISTRY.allowed_views, timezone=TIMEZONE),
         views=app.ROOT_VIEWS,
         workspace_state=app.world_state(TIMEZONE),
         system_prompt=app.SYSTEM_PROMPT,

@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     telegram_bot_token: SecretStr
     telegram_bot_username: str = Field(default="", pattern=r"^[A-Za-z0-9_]*$")
     telegram_owner_id: int
-    database_url: str = "sqlite:///data/safwa.db"
+    database_path: Path = Path("data/safwa.db")
     data_dir: Path = Path("data")
     ai_provider: AIProvider = AIProvider.LMSTUDIO
     ai_api_key: SecretStr = SecretStr("lm-studio")
@@ -166,9 +166,3 @@ class Settings(BaseSettings):
     @property
     def resolved_asr_model(self) -> str:
         return self.asr_model or self.asr_defaults.model
-
-    @property
-    def async_database_url(self) -> str:
-        if self.database_url.startswith("sqlite+aiosqlite:"):
-            return self.database_url
-        return self.database_url.replace("sqlite:", "sqlite+aiosqlite:", 1)

@@ -7,6 +7,7 @@ from functools import cache
 from pathlib import Path
 
 import pytest_asyncio
+from database_key import keyed
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from llm_gateway import CompletionRequest, CompletionTurn
@@ -109,7 +110,7 @@ class E2EHarness:
 
     def runner(self) -> ReadOnlyQueryRunner:
         """The application's one runner, which each reader is then scoped out of."""
-        return ReadOnlyQueryRunner(self.database_path, ALLOWED_VIEWS, timezone=TIMEZONE)
+        return ReadOnlyQueryRunner(keyed(self.database_path), ALLOWED_VIEWS, timezone=TIMEZONE)
 
     def subagent(self, name: str, *, history: object | None = None) -> RoutedSubagent:
         """One declared subagent, bound the way the composition root binds it.
@@ -195,8 +196,8 @@ async def e2e_harness(tmp_path: Path, monkeypatch) -> E2EHarness:
     repository_root = Path(__file__).parents[2]
     monkeypatch.chdir(repository_root)
     database_path = tmp_path / "safwa-e2e.db"
-    upgrade_database(f"sqlite:///{database_path.as_posix()}", Base.metadata)
-    database = Database(f"sqlite+aiosqlite:///{database_path.as_posix()}")
+    upgrade_database(keyed(database_path), Base.metadata)
+    database = Database(keyed(database_path))
     async with database.sessions() as session:
         await bootstrap_workspace(session, 42, TIMEZONE)
         await session.run_sync(

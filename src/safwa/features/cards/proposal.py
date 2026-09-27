@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -11,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.sql import UnsafeQueryError
+from tg_agent_shell.foundation.database import driver
 from tg_agent_shell.foundation.errors import DomainError, StaleStateError
 from tg_agent_shell.proposals.api import (
     ApplyContext,
@@ -139,7 +139,7 @@ async def _resolve_parent_reference(
                     f"Invalid parent query: {error}",
                     "Use one read-only SELECT over ai_cards that returns only the id column.",
                 ) from error
-            except (sqlite3.Error, TimeoutError) as error:
+            except (driver.Error, TimeoutError) as error:
                 raise ToolPreparationError(
                     "invalid_arguments",
                     f"Parent query failed: {error}",

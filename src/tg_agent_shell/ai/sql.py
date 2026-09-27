@@ -14,13 +14,11 @@ import asyncio
 import json
 import logging
 import re
-import sqlite3
 import time
 from collections.abc import Collection, Mapping, Sequence
 from copy import copy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -28,6 +26,7 @@ from pydantic import ValidationError
 
 from llm_gateway import ToolCall
 
+from ..foundation.database import DatabaseFile, driver
 from .contracts import (
     QueryToolInput,
     ToolResultStatus,
@@ -276,7 +275,7 @@ class ReadOnlyQueryRunner:
 
     def __init__(
         self,
-        database_path: Path,
+        database: DatabaseFile,
         views: Collection[str],
         *,
         row_limit: int = DEFAULT_ROW_LIMIT,
@@ -286,7 +285,7 @@ class ReadOnlyQueryRunner:
         timeout: float = QUERY_TIMEOUT_SECONDS,
         timezone: str = "UTC",
     ) -> None:
-        self.database_path = database_path.resolve()
+        self.database = database
         self.views = frozenset(views)
         self.tz = ZoneInfo(timezone)
         self.row_limit = row_limit
@@ -315,7 +314,7 @@ class ReadOnlyQueryRunner:
         reader.row_limits = dict(row_limits or {})
         return reader
 
-    def _trim(self, rows: list[sqlite3.Row]) -> tuple[list[dict[str, Any]], bool, bool]:
+    def _trim(self, rows: list[driver.Row]) -> tuple[list[dict[str, Any]], bool, bool]:
         result: list[dict[str, Any]] = []
         shortened = False
         over_budget = False
@@ -361,33 +360,35 @@ class ReadOnlyQueryRunner:
         row_limit = min(
             [self.row_limit, *(self.row_limits[name] for name in read if name in self.row_limits)]
         )
-        connection = sqlite3.connect(f"file:{self.database_path.as_posix()}?mode=ro", uri=True)
+        # The key is set before the authorizer, which refuses every PRAGMA.
+        connection = self.database.connect(read_only=True)
 
         def authorizer(action, arg1, column, _db, trigger):  # type: ignore[no-untyped-def]
             if action in {
-                sqlite3.SQLITE_INSERT,
-                sqlite3.SQLITE_UPDATE,
-                sqlite3.SQLITE_DELETE,
-                sqlite3.SQLITE_CREATE_TABLE,
-                sqlite3.SQLITE_DROP_TABLE,
-                sqlite3.SQLITE_ATTACH,
-                sqlite3.SQLITE_PRAGMA,
+                driver.SQLITE_INSERT,
+                driver.SQLITE_UPDATE,
+                driver.SQLITE_DELETE,
+                driver.SQLITE_CREATE_TABLE,
+                driver.SQLITE_DROP_TABLE,
+                # An attached file under an empty key is how SQLCipher would export a plain copy.
+                driver.SQLITE_ATTACH,
+                driver.SQLITE_PRAGMA,
             }:
-                return sqlite3.SQLITE_DENY
+                return driver.SQLITE_DENY
             # A view flattened into a rowid scan reports its base table with no column and
             # no view attribution — `('cards', '', None)`, which is the same callback a
             # bare `count(*)` over a forbidden table makes. The authorizer cannot tell the
             # two apart, so `scan_statement` owns every table source by name and this
             # independently refuses every attributed base column.
             if (
-                action == sqlite3.SQLITE_READ
+                action == driver.SQLITE_READ
                 and arg1
                 and column
                 and arg1.casefold() not in self.views
                 and (not trigger or trigger.casefold() not in self.views)
             ):
-                return sqlite3.SQLITE_DENY
-            return sqlite3.SQLITE_OK
+                return driver.SQLITE_DENY
+            return driver.SQLITE_OK
 
         connection.create_function(
             "local_time", 1, lambda stored: local_time(stored, self.tz), deterministic=True
@@ -398,7 +399,7 @@ class ReadOnlyQueryRunner:
             lambda: 1 if time.monotonic() > deadline else 0,
             1_000,
         )
-        connection.row_factory = sqlite3.Row
+        connection.row_factory = driver.Row
         try:
             cursor = connection.execute(statement)
             if cursor.description and len(cursor.description) > self.column_limit:
@@ -453,7 +454,7 @@ async def read_query(runner: ReadOnlyQueryRunner, call: ToolCall) -> QueryRead:
     # ``UnsafeQueryError`` is a ``ValueError``, so it has to be caught before the
     # argument-shape clause or a rejected SELECT is reported as a bad argument and the
     # model rewrites the call instead of the query.
-    except (UnsafeQueryError, sqlite3.Error, TimeoutError, OSError) as error:
+    except (UnsafeQueryError, driver.Error, TimeoutError, OSError) as error:
         return QueryRead(
             sql,
             [

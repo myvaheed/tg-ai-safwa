@@ -5,7 +5,6 @@ import logging
 import sys
 from collections.abc import Coroutine
 from dataclasses import dataclass
-from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -17,7 +16,7 @@ from telegram_llm import ChatHost
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from tg_agent_shell.asr import build_transcriber
 from tg_agent_shell.cues.initiatives import bind_committed
-from tg_agent_shell.foundation.database import Database, upgrade_database
+from tg_agent_shell.foundation.database import Database, DatabaseFile, upgrade_database
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.history import TelegramHistorySource, TelegramNotes
 from tg_agent_shell.media.library import MediaLibrary
@@ -50,6 +49,7 @@ from ..features.workspace_mutator.state import workspace_context
 from ..foundation.models import Base
 from ..foundation.tokens import estimate_tokens
 from ..foundation.workspace import Workspace
+from ..security import held, unlock
 from .modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
@@ -128,12 +128,6 @@ async def bootstrap_workspace(
     return workspace, created
 
 
-def database_path(database_url: str) -> Path:
-    if not database_url.startswith("sqlite:///"):
-        raise ValueError("Safwa v1 requires a local SQLite database")
-    return Path(database_url.removeprefix("sqlite:///"))
-
-
 def _report_background_exit(task: asyncio.Task[None]) -> None:
     """A background loop that ends before shutdown has stopped its feature for good.
 
@@ -149,11 +143,11 @@ def _report_background_exit(task: asyncio.Task[None]) -> None:
         logger.warning("Background task %s returned before shutdown", task.get_name())
 
 
-async def run(settings: Settings) -> None:
+async def run(settings: Settings, database_file: DatabaseFile) -> None:
     configure_logging(settings.log_level)
     logger.info("Safwa console logging enabled (level=%s)", settings.log_level.upper())
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    database = Database(settings.async_database_url)
+    database = Database(database_file)
     async with database.sessions() as session:
         _, created = await bootstrap_workspace(
             session, settings.telegram_owner_id, settings.timezone
@@ -191,7 +185,7 @@ async def run(settings: Settings) -> None:
     )
     memory = MemoryReader(database.sessions)
     query_runner = ReadOnlyQueryRunner(
-        database_path(settings.database_url),
+        database_file,
         ALLOWED_VIEWS,
         row_limit=settings.ai_query_row_limit,
         char_budget=settings.ai_query_char_budget,
@@ -355,8 +349,12 @@ async def run(settings: Settings) -> None:
 
 def main() -> None:
     settings = Settings()
-    upgrade_database(settings.database_url, Base.metadata)
-    asyncio.run(run(settings))
+    # Held until Safwa stops, so no restore or passphrase change swaps the files under it.
+    with held(settings.database_path):
+        # The passphrase comes first: nothing else starts on a database it has not unlocked.
+        database_file = unlock(settings.database_path)
+        upgrade_database(database_file, Base.metadata)
+        asyncio.run(run(settings, database_file))
 
 
 if __name__ == "__main__":

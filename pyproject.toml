@@ -11,12 +11,14 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
   "aiogram>=3.22,<4",
   "aiosqlite>=0.20,<1",
+  "cryptography>=46,<47",
   "fastembed>=0.7,<1",
   "greenlet>=3.0,<4",
   "openai>=1.70,<3",
   "pydantic>=2.10,<3",
   "pydantic-settings>=2.7,<3",
   "SQLAlchemy>=2.0,<3",
+  "sqlcipher3-wheels>=0.5.7,<1",
   "Telethon>=1.44,<2",
   "tzdata>=2025.2",
 ]
@@ -42,8 +44,9 @@ dev = [
 [project.scripts]
 safwa = "safwa.bootstrap.main:main"
 safwa-qa-auth = "safwa.qa:auth_main"
-safwa-backup = "safwa.backup:backup_main"
-safwa-restore = "safwa.backup:restore_main"
+safwa-backup = "safwa.security:backup_main"
+safwa-restore = "safwa.security:restore_main"
+safwa-key = "safwa.security:key_main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/safwa", "src/llm_gateway", "src/agent_runtime", "src/telegram_llm", "src/tg_agent_shell"]
