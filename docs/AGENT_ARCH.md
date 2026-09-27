@@ -122,7 +122,7 @@ wallets and entries, with none of Safwa's nouns in it.
 | a shutdown | cancel the background tasks, close the provider and the bot | the polling `finally` |
 
 Everything else is the application's own: the persona, the provider, the product dependencies,
-and the startup itself — Safwa's carries ASR, the similar items model and OpenRouter headers,
+and the startup itself — Safwa's carries ASR, the similar items model and its attribution headers,
 and the example's
 carries none of them, which is why the shell holds no `run()` of its own.
 
@@ -285,6 +285,9 @@ messages[1]  user     [System]: memory + workspace state
    …         user/assistant/tool   the dialogue window, earlier answers with their calls
 messages[-1] user     [System]: the clock            ← volatile, always last
 ```
+
+The marker is the gateway's, not the builder's: the provider's row decides whether the prompt
+and what ends before the newest request are marked ([LLM_GATEWAY.md](LLM_GATEWAY.md)).
 
 Only `messages[0]` is a system message. Every other context block goes through `system_note`, which
 sends it as a user message prefixed `[System]: ` — the Qwen3.5 chat template raises on a second

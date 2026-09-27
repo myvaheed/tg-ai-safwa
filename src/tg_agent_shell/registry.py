@@ -204,7 +204,6 @@ class Registry:
         system_prompt: str,
         model_name: str,
         provider_name: str = "openai-compatible",
-        cache_breakpoints: bool = False,
         subagents: tuple[RoutedSubagent, ...] = (),
         helpers: Mapping[str, HelperPort] | None = None,
         autoapprove: bool = True,
@@ -231,7 +230,6 @@ class Registry:
             system_prompt=system_prompt,
             model_name=model_name,
             provider_name=provider_name,
-            cache_breakpoints=cache_breakpoints,
             autoapproval=(
                 AutoApprovalReviewer(provider, self.autoapprovals) if autoapprove else None
             ),

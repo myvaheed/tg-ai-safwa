@@ -1,17 +1,27 @@
 """Provider-neutral boundary for one LLM completion."""
 
-from .model import REASONING_FIELDS, CompletionRequest, CompletionTurn, ToolCall, Usage
+from .model import (
+    STANDARD_KEYS,
+    CompletionRequest,
+    CompletionTurn,
+    ToolCall,
+    Usage,
+    standard_message,
+)
 from .openai_compatible import (
     OpenAICompatibleConfig,
     OpenAICompatibleError,
     OpenAICompatibleProvider,
     create_openai_client,
 )
+from .presets import DEFAULT_PRESET, PRESETS, preset_config
 from .provider import LlmProvider
 from .testing import ScriptedProvider
 
 __all__ = [
-    "REASONING_FIELDS",
+    "DEFAULT_PRESET",
+    "PRESETS",
+    "STANDARD_KEYS",
     "CompletionRequest",
     "CompletionTurn",
     "LlmProvider",
@@ -22,4 +32,6 @@ __all__ = [
     "ToolCall",
     "Usage",
     "create_openai_client",
+    "preset_config",
+    "standard_message",
 ]
