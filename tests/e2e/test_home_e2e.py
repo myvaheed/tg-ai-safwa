@@ -1,7 +1,7 @@
 """A chat the owner left quiet, cleared down to the Home dashboard.
 
-The real database, the real notes and the real dashboard; Telegram is the queue fake and
-the model a script, each at its network boundary.
+The real database, the real notes, the real tick poll and the real hook; Telegram is the
+queue fake and the model a script, each at its network boundary.
 """
 
 from __future__ import annotations
@@ -16,15 +16,18 @@ from telegram_fakes import QueueTestMessage, spawn_timer
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.bootstrap.modules import FEATURE_COMMANDS, SCREENS
-from safwa.features.home.background import clear_when_quiet
+from safwa.features.home.hooks import HOME_HOOK, HOME_LOOK_EVERY
 from safwa.features.home.motivation import Motivator
 from safwa.features.home.telegram import render_home
 from safwa.features.profile.model import HOME_AFTER_MINUTES_DEFAULT
 from safwa.features.values.use_cases import create_value
 from telegram_llm import ChatHost, Note
+from tg_agent_shell.cues.initiatives import TickPoll
+from tg_agent_shell.cues.runtime import tick_chat
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramNotes
+from tg_agent_shell.hooks.registry import HookRegistry
 from tg_agent_shell.proposals.store import ProposalStore
 from tg_agent_shell.telegram import dismiss_prior_ui
 from tg_agent_shell.turn import TurnManager
@@ -69,6 +72,25 @@ def _services(harness, model: Model, *, busy: bool = False) -> SimpleNamespace:
     )
 
 
+class Looks:
+    """The tick poll with the Home hook alone, looking once per interval."""
+
+    def __init__(self, services: SimpleNamespace, anchor: QueueTestMessage) -> None:
+        self.moment = utcnow()
+        self.poll = TickPoll(
+            HookRegistry.of((HOME_HOOK,), owners=frozenset({"home"})),
+            services.sessions,
+            resources=services.features,
+            timezone="UTC",
+            now=self.moment,
+            chat=tick_chat(services, anchor),  # type: ignore[arg-type]
+        )
+
+    async def next(self) -> None:
+        self.moment += HOME_LOOK_EVERY
+        await self.poll.look(self.moment)
+
+
 async def _keep(harness, message_id: int, kind: MessageKind, text: str, at=None) -> None:
     direction = "in" if kind is MessageKind.DIALOGUE_USER else "out"
     await TelegramNotes(harness.sessions).write(
@@ -104,13 +126,14 @@ async def test_a_quiet_chat_is_cleared_down_to_the_dashboard(e2e_harness) -> Non
     await _a_chat(e2e_harness)
     services = _services(e2e_harness, Model())
     anchor = QueueTestMessage(message_id=150, is_bot=False, answer_as_new=True)
+    looks = Looks(services, anchor)
 
-    await clear_when_quiet(services, anchor)
+    await looks.next()
 
     [dashboard] = anchor.sent
     assert dashboard.message_id == 1150
     assert anchor.bot.silent == [dashboard.text]
-    assert "💎 Values in focus" in dashboard.text and WORDS in dashboard.text
+    assert "<b>💎 Values in focus</b>" in dashboard.text and WORDS in dashboard.text
     assert anchor.bot.deleted == list(range(1100, 1150))
     # What was said is still kept; the screen is gone with its message.
     assert await _kinds(e2e_harness) == {
@@ -121,12 +144,12 @@ async def test_a_quiet_chat_is_cleared_down_to_the_dashboard(e2e_harness) -> Non
     }
 
     # Nothing came and the owner did nothing: the dashboard is left as it is.
-    await clear_when_quiet(services, anchor)
+    await looks.next()
     assert len(anchor.sent) == 1
 
     # A Reminder said while the owner was away goes at the next look, with the rest.
     await _keep(e2e_harness, 1151, MessageKind.CUE, "Time to stretch.")
-    await clear_when_quiet(services, anchor)
+    await looks.next()
     assert len(anchor.sent) == 2
     assert anchor.bot.deleted[50:] == list(range(1150, anchor.sent[-1].message_id))
 
@@ -134,14 +157,17 @@ async def test_a_quiet_chat_is_cleared_down_to_the_dashboard(e2e_harness) -> Non
 async def test_a_waiting_review_or_a_short_quiet_clears_nothing(e2e_harness) -> None:
     """HM-QUIET-003 — tests/brd/home.feature"""
     await _a_chat(e2e_harness)
+    model = Model()
     anchor = QueueTestMessage(message_id=150, is_bot=False, answer_as_new=True)
 
-    await clear_when_quiet(_services(e2e_harness, Model(), busy=True), anchor)
-    recent = _services(e2e_harness, Model())
+    await Looks(_services(e2e_harness, model, busy=True), anchor).next()
+    recent = _services(e2e_harness, model)
     recent.owner_acted_at = utcnow() - timedelta(minutes=HOME_AFTER_MINUTES_DEFAULT - 1)
-    await clear_when_quiet(recent, anchor)
+    await Looks(recent, anchor).next()
 
     assert anchor.sent == [] and anchor.bot.deleted == []
+    # Nothing was going to be drawn, so nothing was written for it.
+    assert model.calls == 0
 
 
 async def test_the_owner_acting_stops_the_clearing(e2e_harness) -> None:
@@ -151,10 +177,12 @@ async def test_the_owner_acting_stops_the_clearing(e2e_harness) -> None:
     services = _services(e2e_harness, model)
     anchor = QueueTestMessage(message_id=150, is_bot=False, answer_as_new=True)
 
-    clearing = asyncio.create_task(clear_when_quiet(services, anchor))
+    clearing = asyncio.create_task(Looks(services, anchor).next())
     await asyncio.wait_for(model.reached.wait(), timeout=5)
     # What the middleware does when the owner's message or press arrives.
+    services.owner_acted_at = utcnow()
     services.turn.cancel()
+    model.go.set()
     await asyncio.wait_for(clearing, timeout=5)
 
     assert anchor.sent == [] and anchor.bot.deleted == []
@@ -169,7 +197,7 @@ async def test_a_dashboard_from_an_earlier_day_is_drawn_again(e2e_harness) -> No
     services.owner_acted_at = yesterday - timedelta(hours=1)
     anchor = QueueTestMessage(message_id=150, is_bot=False, answer_as_new=True)
 
-    await clear_when_quiet(services, anchor)
+    await Looks(services, anchor).next()
 
     assert [message.message_id for message in anchor.sent] == [1150]
     assert 1140 in anchor.bot.deleted
@@ -181,7 +209,7 @@ async def test_the_dashboard_stays_until_the_next_clear(e2e_harness) -> None:
     await _a_chat(e2e_harness)
     services = _services(e2e_harness, Model())
     anchor = QueueTestMessage(message_id=150, is_bot=False, answer_as_new=True)
-    await clear_when_quiet(services, anchor)
+    await Looks(services, anchor).next()
     assert anchor.markups == [None]
     deleted = list(anchor.bot.deleted)
 

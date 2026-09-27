@@ -316,7 +316,7 @@ def owner_anchor(bot: Bot, owner_id: int) -> Message:
     ).as_(bot)
 
 
-async def draw_home(message: Message, services: Services, text: str) -> None:
+async def clear_draw_home(message: Message, services: Services, text: str) -> None:
     """Clear the chat down to one new message: `text`, drawn without a sound.
 
     Everything from the previous one down, the owner's messages included, leaves the

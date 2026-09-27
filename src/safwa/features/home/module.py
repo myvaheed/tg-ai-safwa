@@ -5,7 +5,7 @@ from __future__ import annotations
 from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import FeatureModule
 
-from .background import HOME_DASHBOARD
+from .hooks import HOME_HOOK as HOME_HOOK
 from .telegram import render_home
 
 MODULE = FeatureModule(
@@ -15,5 +15,4 @@ MODULE = FeatureModule(
             handler=render_home, command="start", description="Open Safwa", nav="home"
         ),
     ),
-    background=(HOME_DASHBOARD,),
 )

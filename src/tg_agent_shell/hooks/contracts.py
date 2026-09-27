@@ -2,8 +2,9 @@
 
 Only the event boundaries with real consumers are implemented. Checks receive no session
 or delivery objects. Run handlers receive the application's resources and a session
-factory, and after a turn a publication port too, under the lease the event adapter owns;
-on a tick there is no chat, and words go through a recorded change and an Advise hook.
+factory, and around a turn and on a tick a publication port too: around a turn under the
+lease the event adapter owns, on a tick while the chat is free and the owner has not acted
+since the look. On a commit there is no chat, and words go through an Advise hook.
 Advise keeps what a check returned as
 the hook's one pending request and asks the feature for the words just before they are
 said, so what is said is what is still there.
@@ -20,7 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import time
+from datetime import datetime, time, timedelta
 from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -186,22 +187,51 @@ class OnCommitted:
 TickTime = Callable[[AsyncSession], Awaitable[time]]
 
 
+# How often a check may ask to run every so long: no more often than the tick poll looks,
+# and at least once a day.
+TICK_EVERY_MIN = timedelta(seconds=30)
+TICK_EVERY_MAX = timedelta(hours=24)
+
+
+@dataclass(frozen=True, slots=True)
+class ChatState:
+    """The owner's chat as one look saw it."""
+
+    # When the owner last wrote, spoke, sent a photo or pressed a button.
+    owner_acted_at: datetime
+    # No turn, no review waiting, no session claimed: a message could go now.
+    free: bool
+    # The kind and time of the newest message kept in it; None while it keeps nothing.
+    newest_kind: str | None = None
+    newest_at: datetime | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class Tick:
-    """The workspace's clock passed a daily time since the last look. `at` is that time
-    as "HH:MM", which is all a daily check has to keep; `clock` is the reader that named it."""
+    """A daily time passed, or an interval ran out, since the last look.
+
+    `at` is the local time as "HH:MM", which is all a daily check has to keep. `clock` is the
+    reader that named a daily time, `every` the interval that ran out, and `chat` the owner's
+    chat at this look, where the application has one.
+    """
 
     at: str
-    clock: TickTime
+    clock: TickTime | None = None
+    every: timedelta | None = None
+    chat: ChatState | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class OnTick:
-    """A check once a day, at the local time the reader `at` names."""
+    """A check once a day, at the local time the reader `at` names; or every `every`, from
+    `TICK_EVERY_MIN` to `TICK_EVERY_MAX`, counted from the last time it ran."""
 
-    at: TickTime
+    at: TickTime | None = None
+    every: timedelta | None = None
 
     def matches(self, event: Tick) -> bool:
+        if self.every is not None:
+            return event.every == self.every
         return event.clock is self.at
 
 
@@ -209,7 +239,8 @@ class OnTick:
 class RunContext[Resources]:
     resources: Resources
     still_current: Callable[[], bool]
-    # Text is plain text. The adapter escapes and registers every publication.
+    # Text is plain text, and the adapter escapes and registers every publication; on a tick,
+    # a Home dashboard's is Markdown with citations, as an answer is.
     publish: Callable[[str, str], Awaitable[None]]
     sessions: async_sessionmaker[AsyncSession]
 

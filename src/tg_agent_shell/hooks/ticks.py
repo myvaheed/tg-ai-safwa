@@ -1,14 +1,15 @@
-"""When a daily check comes due: the workspace's clock passed the time its reader names.
+"""When a check on a schedule comes due: the workspace's clock passed the time its reader
+names, or its interval ran out.
 
 The last look is kept in process memory, and starting is the first look: a time that
 passed while Safwa was down is not run late, and a day of many polls runs its check once.
 The times themselves are handed to every look, so one the owner moves counts from the next
-time it passes.
+time it passes. An interval counts from the last time it ran, and from the start before that.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -26,13 +27,26 @@ class TickSchedule:
     def __init__(self, *, now: datetime, tz: ZoneInfo) -> None:
         self.tz = tz
         self.looked = now
+        self.started = now
+        self.ran: dict[timedelta, datetime] = {}
 
-    def due(self, now: datetime, clocks: Mapping[TickTime, time]) -> list[Tick]:
-        """A Tick per daily time that passed since the last look; this look is the last one now."""
+    def due(
+        self,
+        now: datetime,
+        clocks: Mapping[TickTime, time],
+        intervals: Sequence[timedelta] = (),
+    ) -> list[Tick]:
+        """A Tick per daily time that passed since the last look, and per interval that ran
+        out since it last ran; this look is the last one now."""
         ticks = [
             Tick(at.strftime("%H:%M"), clock)
             for clock, at in clocks.items()
             if self.looked < last_passing(at, now=now, tz=self.tz)
         ]
+        local = now.astimezone(self.tz).strftime("%H:%M")
+        for every in intervals:
+            if now - self.ran.get(every, self.started) >= every:
+                self.ran[every] = now
+                ticks.append(Tick(local, every=every))
         self.looked = now
         return ticks

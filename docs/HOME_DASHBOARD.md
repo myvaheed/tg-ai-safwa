@@ -4,7 +4,10 @@ When the owner does nothing in the chat for the Profile's quiet time, Safwa clea
 message goes, and one is left — the Home dashboard, built from the workspace at that moment.
 The conversation Safwa reads starts over after it. The rules are HM-QUIET-003 to HM-HISTORY-010
 in [home.feature](../tests/brd/home.feature) and PS-HOME-018 in
-[profile.feature](../tests/brd/profile.feature).
+[profile.feature](../tests/brd/profile.feature); what a Home message does to the chat is the
+shell's, TG-HOME-023 in [telegram_history.feature](../tests/brd/tg_agent_shell/telegram_history.feature),
+and the check that draws it is a hook on a schedule, AG-HOOK-049 and AG-HOOK-050 in
+[agents.feature](../tests/brd/tg_agent_shell/agents.feature).
 
 ## How it looks
 
@@ -49,22 +52,25 @@ answer does. The message has no buttons; `/start` is still the menu.
 
 ## When the chat is cleared
 
-`home-dashboard` ([background.py](../src/safwa/features/home/background.py)) looks every
-`SCHEDULER_POLL_SECONDS = 30` and clears when all three hold:
+`home.dashboard` ([hooks.py](../src/safwa/features/home/hooks.py)) is a `Run` on
+`OnTick(every=HOME_LOOK_EVERY)`, 30 seconds: the hook tick poll hands it the owner's chat as
+that look saw it (`ChatState`), and it clears when all three hold:
 
 1. **The owner is quiet** for `home_after_minutes` (`HOME_AFTER_MINUTES_DEFAULT = 30`, 5 to 1440).
    `OwnerAndWritingMiddleware` stamps `Services.owner_acted_at` on every message and press of the
    owner's, in memory; starting counts as one. Safwa's own messages do not count, so a Reminder
    said while the owner is away goes at the next look.
-2. **Something is owed**: no dashboard yet, one drawn on an earlier local day, the owner acted
-   after it, or a message was kept after it.
+2. **Something is owed**: the newest message kept is not a dashboard, or is one drawn on an
+   earlier local day, or the owner acted after it.
 3. **The chat is free** (`chat_is_free`, the gate Cues use too): no turn, no review waiting, no
    session claimed. A review waiting holds the clear until it is answered or expires.
 
-The clear runs under `TurnManager.run_background`, so any action of the owner's cancels it. It
-writes the Values' words first, then `draw_home` sends the dashboard as a new, silent message of
-`MessageKind.HOME` and `ChatHost.clear` deletes every id from the previous dashboard up to it,
-in `TELEGRAM_DELETE_BATCH = 100` a call. Both sides share one id sequence in a private chat, so
+It writes the Values' words first and publishes the dashboard as Markdown of kind `home`.
+`speak_on_schedule` drops it if the owner acted since that look, renders it the way an answer
+is rendered, and takes the background lease for the sending alone, so the owner acting stops it
+there too. `clear_draw_home` sends it as a new, silent message of `MessageKind.HOME`, and
+`ChatHost.clear` deletes every id from the previous dashboard up to it, in
+`TELEGRAM_DELETE_BATCH = 100` a call. Both sides share one id sequence in a private chat, so
 the range takes the owner's messages and commands too. It starts no earlier than the oldest
 message kept in the last `TELEGRAM_DELETE_WINDOW` of 48 hours: Telegram lets a bot delete nothing
 older.

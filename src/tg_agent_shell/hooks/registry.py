@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import timedelta
 from types import MappingProxyType
 from typing import Any
 
@@ -11,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..foundation.changes import Committed
 from .contracts import (
+    TICK_EVERY_MAX,
+    TICK_EVERY_MIN,
     Advise,
     AfterRequest,
     AfterTool,
@@ -94,6 +97,11 @@ class HookRegistry:
             if isinstance(spec.effect, OfferTool | RefuseTool) and spec.effect.helper not in helpers:
                 raise RuntimeError(f"Hook {spec.name} names an unknown helper: {spec.effect.helper}")
             for subscription in spec.on:
+                every = subscription.every if isinstance(subscription, OnTick) else None
+                if every is not None and not TICK_EVERY_MIN <= every <= TICK_EVERY_MAX:
+                    raise RuntimeError(
+                        f"Hook {spec.name} runs every {every}, outside 30 seconds to 24 hours"
+                    )
                 match subscription, spec.effect:
                     case OnBeforeTurn(), Run():
                         event_type: type = BeforeTurn
@@ -113,7 +121,9 @@ class HookRegistry:
                         event_type = AfterRequest
                     case OnCommitted(kind=kind), Advise() | Run() if kind.strip():
                         event_type = Committed
-                    case OnTick(at=at), Advise() | Run() if callable(at):
+                    case OnTick(at=at, every=every), Advise() | Run() if callable(at) != (
+                        every is not None
+                    ):
                         event_type = Tick
                     case _:
                         raise RuntimeError(f"Hook {spec.name} has an incompatible subscription/effect")
@@ -138,9 +148,21 @@ class HookRegistry:
         clocks: list[TickTime] = []
         for spec in self.specs:
             for subscription in spec.on:
-                if isinstance(subscription, OnTick) and subscription.at not in clocks:
-                    clocks.append(subscription.at)
+                if isinstance(subscription, OnTick) and subscription.at is not None:
+                    if subscription.at not in clocks:
+                        clocks.append(subscription.at)
         return tuple(clocks)
+
+    @property
+    def intervals(self) -> tuple[timedelta, ...]:
+        """Each interval a check runs every once, in catalogue order."""
+        found: list[timedelta] = []
+        for spec in self.specs:
+            for subscription in spec.on:
+                if isinstance(subscription, OnTick) and subscription.every is not None:
+                    if subscription.every not in found:
+                        found.append(subscription.every)
+        return tuple(found)
 
     @property
     def agent_related(self) -> tuple[HookSpec, ...]:

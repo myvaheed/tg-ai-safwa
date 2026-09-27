@@ -43,6 +43,7 @@ from ..features.diary.module import DIARY_HOOK, DIARY_READ_HOOK
 from ..features.diary.module import MODULE as DIARY
 from ..features.heavy_analyzer.module import HEAVY_ANALYZER_HOOK
 from ..features.heavy_analyzer.module import MODULE as HEAVY_ANALYZER
+from ..features.home.module import HOME_HOOK
 from ..features.home.module import MODULE as HOME
 from ..features.memory.module import MODULE as MEMORY
 from ..features.onboarding.module import MODULE as ONBOARDING
@@ -133,6 +134,7 @@ HOOKS = (
     NOTICE_HOOK,
     PRESENCE_HOOK,
     RETURN_HOOK,
+    HOME_HOOK,
     *((PLAN_HOOK,) if featuretoggles.PLAN_REQUIRED else ()),
     *((REQUEST_REVIEW_HOOK,) if featuretoggles.REQUEST_REVIEW else ()),
     *((DIARY_READ_HOOK,) if featuretoggles.DAY_READ_REQUIRED else ()),

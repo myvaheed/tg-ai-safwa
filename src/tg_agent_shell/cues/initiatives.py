@@ -4,9 +4,11 @@ An operation records what it changed beside its transaction (`foundation/changes
 After the commit, the one listener below hands those facts to the hooks that subscribe to
 that kind of change, and whatever an Advise check returns is written down as one `Cue`
 row of that hook. A rollback leaves nothing to hand on. The one tick poll hands a `Tick` to
-the daily hooks when the time of day their reader names passes, by the same path. A Run
-hook does its work there and then, with no chat to publish to: on a tick inside the poll,
-on a commit once that commit's facts are handed on, outside the order they are kept in.
+the daily hooks when the time of day their reader names passes, and to the hooks that run
+every so long when their interval runs out, by the same path. A Run hook does its work there
+and then: on a tick inside the poll, with the owner's chat to publish to while it is free; on
+a commit once that commit's facts are handed on, outside the order they are kept in, with no
+chat.
 
 The facts are handed on outside the transaction that made them: a process that dies in
 between loses one request, never the change itself.
@@ -17,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass, replace
 from datetime import datetime, time
 from functools import partial
 from typing import Any
@@ -29,7 +32,7 @@ from sqlalchemy.orm import Session
 from ..foundation.changes import CHANGES, Committed, take_changes
 from ..foundation.clock import utcnow
 from ..foundation.poll import run_poll
-from ..hooks.contracts import Advise, OnTick, Run, RunContext
+from ..hooks.contracts import Advise, ChatState, OnTick, Run, RunContext, Tick
 from ..hooks.registry import HookEvent, HookRegistry
 from ..hooks.ticks import TickSchedule
 from .queue import add_hook_cue, forget_before
@@ -96,12 +99,28 @@ async def _no_chat(text: str, kind: str) -> None:
     raise RuntimeError("A hook off the dialogue has no chat to publish to: record a change, and let an Advise hook say it")
 
 
+@dataclass(frozen=True, slots=True)
+class TickChat:
+    """The owner's chat, as the checks on a schedule see it and speak in it."""
+
+    # When the owner last acted.
+    owner_acted_at: Callable[[], datetime]
+    # Whether a message could go now.
+    free: Callable[[], Awaitable[bool]]
+    # The kind and time of the newest message kept in the chat, or None while it keeps none.
+    newest: Callable[[], Awaitable[tuple[str, datetime | None] | None]]
+    # Puts a message in the chat while it is free, and not once `still_current` turns.
+    speak: Callable[[str, str, Callable[[], bool]], Awaitable[None]]
+
+
 class TickPoll:
-    """Hands the daily checks their Tick when their time comes: once, however many looks.
+    """Hands the checks on a schedule their Tick when their time comes: once, however many
+    looks.
 
     A look also drops a daily hook's request the local midnight has passed since — the day
     it was about is over — and tries again the work an earlier look could not finish, until
-    it is done: a Sprint's midnight end is not optional the way a request is.
+    it is done: a Sprint's midnight end is not optional the way a request is. The work of a
+    check that runs every so long is not tried again: its next interval is its next try.
     """
 
     def __init__(
@@ -112,16 +131,20 @@ class TickPoll:
         resources: Any,
         timezone: str,
         now: datetime | None = None,
+        chat: TickChat | None = None,
     ) -> None:
         self.hooks = hooks
         self.sessions = sessions
+        self.chat = chat
         self.tz = ZoneInfo(timezone)
         self.schedule = TickSchedule(now=now or utcnow(), tz=self.tz)
         self.work = RunContext(
             resources=resources, still_current=lambda: True, publish=_no_chat, sessions=sessions
         )
         self.daily = tuple(
-            spec.name for spec in hooks.specs if any(isinstance(on, OnTick) for on in spec.on)
+            spec.name
+            for spec in hooks.specs
+            if any(isinstance(on, OnTick) and on.at is not None for on in spec.on)
         )
         self.owed: list[Work] = []
 
@@ -134,9 +157,36 @@ class TickPoll:
                 await session.commit()
             # Each reader once: hooks that share one share its Tick.
             clocks = {clock: await clock(session) for clock in self.hooks.daily_clocks}
-        for tick in self.schedule.due(moment, clocks):
-            self.owed += await hand_on(self.hooks, self.sessions, tick, work=self.work)
+        due = self.schedule.due(moment, clocks, self.hooks.intervals)
+        work = self.work
+        if due and self.chat is not None:
+            work, due = await self._in_chat(due)
+        for tick in due:
+            jobs = await hand_on(self.hooks, self.sessions, tick, work=work)
+            if tick.every is None:
+                self.owed += jobs
+            else:
+                for job in jobs:
+                    await job()
         self.owed = [job for job in self.owed if not await job()]
+
+    async def _in_chat(self, due: list[Tick]) -> tuple[RunContext, list[Tick]]:
+        """This look's work, able to speak until the owner acts, and its Ticks with the chat
+        as the look saw it."""
+        chat = self.chat
+        assert chat is not None
+        acted = chat.owner_acted_at()
+        newest = await chat.newest()
+        state = ChatState(acted, await chat.free(), *(newest or (None, None)))
+
+        def still_current() -> bool:
+            return chat.owner_acted_at() == acted
+
+        async def publish(text: str, kind: str) -> None:
+            await chat.speak(text, kind, still_current)
+
+        work = replace(self.work, still_current=still_current, publish=publish)
+        return work, [replace(tick, chat=state) for tick in due]
 
 
 async def run_ticks(
@@ -146,8 +196,9 @@ async def run_ticks(
     resources: Any,
     timezone: str,
     poll_seconds: float,
+    chat: TickChat | None = None,
 ) -> None:
-    poll = TickPoll(hooks, sessions, resources=resources, timezone=timezone)
+    poll = TickPoll(hooks, sessions, resources=resources, timezone=timezone, chat=chat)
     await run_poll(poll.look, poll_seconds=poll_seconds, name="The hook tick poll")
 
 
