@@ -17,7 +17,12 @@ from safwa.bootstrap.modules import (
     routed_prompt,
 )
 from safwa.features.advisor.agent import PERSONA
-from safwa.features.diary.agent import DIARY_PROMPT, day_read_tool, diary_clock
+from safwa.features.diary.agent import (
+    DIARY_PROMPT,
+    conversation_read_tool,
+    day_read_tool,
+    diary_clock,
+)
 from tg_agent_shell.ai.contracts import (
     QUERY_TOOL,
     ROUTE_TOOL,
@@ -52,7 +57,10 @@ def diary_routed(history: StubDayReader, timezone: str = "Europe/Istanbul") -> R
         name="diary",
         prompt=DIARY_PROMPT,
         # Nothing here runs `read_day`, so it has no database to read the saved day from.
-        read_tools=(day_read_tool(history, None, chat_id=42, timezone=timezone),),  # type: ignore[arg-type]
+        read_tools=(
+            day_read_tool(None, timezone=timezone),  # type: ignore[arg-type]
+            conversation_read_tool(history, chat_id=42, timezone=timezone),
+        ),
         mutation_tools=("diary",),
         clock=lambda: diary_clock(timezone),
     )
@@ -98,12 +106,14 @@ def test_the_diary_is_written_only_by_its_subagent() -> None:
 async def test_a_day_is_read_between_its_own_local_midnights(timezone: str, sessions) -> None:
     history = StubDayReader("[10:00] [User]: Morning.")
     current = datetime(2026, 8, 21, 12, tzinfo=UTC)
-    read_day = day_read_tool(
-        history, sessions, chat_id=42, timezone=timezone, clock=FixedClock(current)
+    read_conversation = conversation_read_tool(
+        history, chat_id=42, timezone=timezone, clock=FixedClock(current)
     )
     tz = ZoneInfo(timezone)
 
-    await read_day.run(ProviderToolCall(id="call-1", name="read_day", arguments_json="{}"))
+    await read_conversation.run(
+        ProviderToolCall(id="call-1", name="read_conversation", arguments_json="{}")
+    )
 
     start: datetime = history.reads[0]["start"]
     end: datetime = history.reads[0]["end"]
@@ -116,16 +126,21 @@ async def test_a_day_is_read_between_its_own_local_midnights(timezone: str, sess
 
 async def test_an_unreadable_date_is_repaired_rather_than_read(sessions) -> None:
     history = StubDayReader("")
-    read_day = day_read_tool(history, sessions, chat_id=42)
+    read_conversation = conversation_read_tool(history, chat_id=42)
+    read_day = day_read_tool(sessions)
+    yesterday = json.dumps({"date": "yesterday"})
 
-    result = await read_day.run(
-        ProviderToolCall(
-            id="call-1", name="read_day", arguments_json=json.dumps({"date": "yesterday"})
-        )
+    said = await read_conversation.run(
+        ProviderToolCall(id="call-1", name="read_conversation", arguments_json=yesterday)
+    )
+    saved = await read_day.run(
+        ProviderToolCall(id="call-2", name="read_day", arguments_json=yesterday)
     )
 
-    assert result["code"] == "invalid_arguments"
-    assert result["retryable"] is True
+    assert said["code"] == saved["code"] == "invalid_arguments"
+    assert said["retryable"] is saved["retryable"] is True
+    assert said["hint"].startswith("Retry read_conversation")
+    assert saved["hint"].startswith("Retry read_day")
     assert history.reads == []
 
 

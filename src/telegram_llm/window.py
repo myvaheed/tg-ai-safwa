@@ -101,6 +101,9 @@ class ChatVocabulary:
     events: frozenset[str] = frozenset()
     # Item types the bot cites, so a link it wrote reads back as the citation it wrote.
     citation_types: tuple[str, ...] = ()
+    # What starts the conversation over: the window ends at the newest message of one of
+    # these kinds, and nothing older is read — an edge neither. A period read goes past it.
+    resets: frozenset[str] = frozenset()
 
 
 class WindowEdge(Protocol):
@@ -157,7 +160,7 @@ class ChatWindow:
 
         ``stop_at_edge=False`` reads past the host's edge instead of stopping at it, for a
         caller that asked for a period rather than for a window: an edge written at noon
-        must not cut that day in half.
+        must not cut that day in half. A reset is passed the same way.
         """
         budget = self.token_budget if token_budget is None else token_budget
         since = _aware(since) if since else None
@@ -171,6 +174,10 @@ class ChatWindow:
             if since is not None and created_at <= since:
                 break
             if until is not None and created_at >= until:
+                continue
+            if note.kind in self.vocabulary.resets:
+                if stop_at_edge:
+                    break
                 continue
             turn = tuple(note.reads_as or ())
             text = (

@@ -30,6 +30,8 @@ class QueueTestBot:
         # edited one in place. A screen replaced through the Bot API is still a screen.
         self.drawn: list[str] = []
         self.deleted: list[int] = []
+        # What was sent without a notification.
+        self.silent: list[str] = []
         self.published_commands: list[list[str]] = []
         # The files the owner's photos stand for, by file id, and every one fetched.
         self.files: dict[str, bytes] = {}
@@ -116,8 +118,12 @@ class QueueTestMessage:
         self.bot.drawn.append(text)
         return self
 
-    async def answer(self, text, *, reply_markup=None, parse_mode=None):
+    async def answer(
+        self, text, *, reply_markup=None, parse_mode=None, disable_notification=False
+    ):
         del parse_mode
+        if disable_notification:
+            self.bot.silent.append(text)
         self.rendered.append(text)
         self.markups.append(reply_markup)
         self.bot.drawn.append(text)

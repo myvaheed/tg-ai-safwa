@@ -37,6 +37,7 @@ from .. import featuretoggles
 from ..config import Settings
 from ..enums import AIProvider
 from ..features.advisor.agent import ADVISOR_ROW_LIMITS, ADVISOR_VIEWS
+from ..features.home.motivation import Motivator
 from ..features.memory.absorb import PatternReviewer
 from ..features.memory.use_cases import MemoryReader
 from ..features.planning.key_actions import KeyActions
@@ -80,6 +81,7 @@ class SafwaFeatures:
     memory_reviewer: PatternReviewer
     key_actions: KeyActions
     analyst: SprintAnalyst
+    motivator: Motivator
 
 
 def configure_logging(level_name: str) -> None:
@@ -297,6 +299,7 @@ async def run(settings: Settings) -> None:
             memory_reviewer=PatternReviewer(provider),
             key_actions=KeyActions(provider),
             analyst=SprintAnalyst(provider),
+            motivator=Motivator(provider),
         ),
         views=ALLOWED_VIEWS,
         bot_username=settings.telegram_bot_username,

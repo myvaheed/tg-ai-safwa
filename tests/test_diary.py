@@ -20,6 +20,7 @@ from safwa.features.diary.agent import (
     DIARY_AGENT,
     DIARY_PROMPT,
     DiaryToolInput,
+    conversation_read_tool,
     day_read_tool,
     diary_clock,
 )
@@ -52,7 +53,8 @@ class FrozenClock:
 
 
 class RecordingDayReader:
-    """The slice of the history source `read_day` uses, and the window it was asked for."""
+    """The slice of the history source `read_conversation` uses, and the window it was asked
+    for."""
 
     def __init__(self, transcript: str = "[user]: Прошёл день.") -> None:
         self.transcript = transcript
@@ -271,21 +273,20 @@ def test_di_date_012_today_is_the_local_day() -> None:
     assert "Today is 2026-08-22" in line
 
 
-async def test_di_date_012_read_day_defaults_to_the_local_day(sessions) -> None:
+async def test_di_date_012_a_read_defaults_to_the_local_day(sessions) -> None:
     """DI-DATE-012 — tests/brd/diary.feature"""
     zone = ZoneInfo("Europe/Istanbul")
+    clock = FrozenClock(datetime(2026, 8, 22, 1, 20, tzinfo=zone))
     history = RecordingDayReader()
-    tool = day_read_tool(
-        history,
-        sessions,
-        chat_id=42,
-        timezone="Europe/Istanbul",
-        clock=FrozenClock(datetime(2026, 8, 22, 1, 20, tzinfo=zone)),
+    said = conversation_read_tool(
+        history, chat_id=42, timezone="Europe/Istanbul", clock=clock
     )
+    saved = day_read_tool(sessions, timezone="Europe/Istanbul", clock=clock)
 
-    result = await tool.run(ToolCall(id="1", name="read_day", arguments_json="{}"))
+    result = await said.run(ToolCall(id="1", name="read_conversation", arguments_json="{}"))
+    entry = await saved.run(ToolCall(id="2", name="read_day", arguments_json="{}"))
 
-    assert result["date"] == "2026-08-22"
+    assert result["date"] == entry["date"] == "2026-08-22"
     assert history.window == (
         datetime(2026, 8, 22, tzinfo=zone).astimezone(UTC),
         datetime(2026, 8, 23, tzinfo=zone).astimezone(UTC),
@@ -298,9 +299,11 @@ async def test_di_read_016_a_named_day_runs_from_local_midnight_to_local_midnigh
     """DI-READ-016 — tests/brd/diary.feature"""
     zone = ZoneInfo("Europe/Istanbul")
     history = RecordingDayReader()
-    tool = day_read_tool(history, sessions, chat_id=42, timezone="Europe/Istanbul")
+    tool = conversation_read_tool(history, chat_id=42, timezone="Europe/Istanbul")
 
-    await tool.run(ToolCall(id="1", name="read_day", arguments_json='{"date":"2026-08-22"}'))
+    await tool.run(
+        ToolCall(id="1", name="read_conversation", arguments_json='{"date":"2026-08-22"}')
+    )
 
     assert history.window == (
         datetime(2026, 8, 22, tzinfo=zone).astimezone(UTC),
@@ -308,7 +311,7 @@ async def test_di_read_016_a_named_day_runs_from_local_midnight_to_local_midnigh
     )
 
 
-async def test_di_read_013_a_day_is_read_with_the_entry_saved_for_it_and_nothing_else(
+async def test_di_read_013_the_entry_and_what_was_said_are_read_apart_and_nothing_else(
     sessions, tmp_path
 ) -> None:
     """DI-READ-013 — tests/brd/diary.feature
@@ -332,7 +335,7 @@ async def test_di_read_013_a_day_is_read_with_the_entry_saved_for_it_and_nothing
     adapters = ToolAdapters(
         None, None, PROPOSALS, None, SCREENS, subagents={"diary": routed}
     )
-    [read_day] = routed.read_tools
+    [read_day, read_conversation] = routed.read_tools
 
     offered = {tool["function"]["name"] for tool in adapters.definition("diary").tools}
     written = await read_day.run(
@@ -341,20 +344,28 @@ async def test_di_read_013_a_day_is_read_with_the_entry_saved_for_it_and_nothing
     unwritten = await read_day.run(
         ToolCall(id="2", name="read_day", arguments_json='{"date":"2026-08-21"}')
     )
+    said = await read_conversation.run(
+        ToolCall(id="3", name="read_conversation", arguments_json='{"date":"2026-08-22"}')
+    )
 
-    assert offered - set(DIARY_AGENT.mutation_tools) == {"read_day"}
-    assert written["conversation"] == "[user]: Прошёл день."
-    assert written["saved"] == {"body": "Уже записано.", "feeling_score": 7}
+    assert offered - set(DIARY_AGENT.mutation_tools) == {"read_day", "read_conversation"}
+    assert written == {
+        "date": "2026-08-22",
+        "saved": {"body": "Уже записано.", "feeling_score": 7},
+    }
     assert unwritten["saved"] == "Nothing is saved for that day yet."
+    assert said == {"date": "2026-08-22", "conversation": "[user]: Прошёл день."}
+    # When to read what was said is the Diary's own call, and its prompt is where it is told.
+    assert "If this conversation does not say what to write for that day" in DIARY_PROMPT
 
 
 async def test_di_read_015_a_silent_day_reads_as_empty(sessions) -> None:
     """DI-READ-015 — tests/brd/diary.feature"""
-    tool = day_read_tool(
-        RecordingDayReader(transcript=""), sessions, chat_id=42, timezone="UTC"
-    )
+    tool = conversation_read_tool(RecordingDayReader(transcript=""), chat_id=42, timezone="UTC")
 
-    result = await tool.run(ToolCall(id="1", name="read_day", arguments_json='{"date":"2026-08-22"}'))
+    result = await tool.run(
+        ToolCall(id="1", name="read_conversation", arguments_json='{"date":"2026-08-22"}')
+    )
 
     assert result["date"] == "2026-08-22"
     assert "nothing" in result["conversation"]

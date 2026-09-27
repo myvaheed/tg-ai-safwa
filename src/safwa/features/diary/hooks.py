@@ -62,7 +62,7 @@ async def unread_days(event: BeforeProposals) -> tuple[str, ...]:
             result = json.loads(item.result)
         except json.JSONDecodeError:
             continue
-        if isinstance(result, dict) and "conversation" in result:
+        if isinstance(result, dict) and "saved" in result:
             read.add(str(result.get("date")))
     written = dict.fromkeys(
         str(call.values.get("date"))

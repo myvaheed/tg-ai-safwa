@@ -87,7 +87,7 @@ async def test_profile_rejects_an_undeclared_field_without_changes(sessions) -> 
 def test_the_declared_fields_are_exactly_the_editable_settings() -> None:
     """PS-FIELD-002 — tests/brd/profile.feature"""
     # Time tracking is pressed rather than typed, so it has no prompt of its own.
-    assert len(ProfileField) == 9
+    assert len(ProfileField) == 10
     assert {field.value for field in ProfileField} == set(PROFILE_FIELDS) | {
         ProfileField.TIME_TRACKING.value
     }

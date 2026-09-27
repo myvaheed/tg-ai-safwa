@@ -251,7 +251,9 @@ class _TestMessage:
         self.markups.append(reply_markup)
         return self
 
-    async def answer(self, text, *, reply_markup=None, parse_mode=None):
+    async def answer(
+        self, text, *, reply_markup=None, parse_mode=None, disable_notification=False
+    ):
         del parse_mode
         self.rendered.append(text)
         self.markups.append(reply_markup)

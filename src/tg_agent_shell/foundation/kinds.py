@@ -19,6 +19,9 @@ class MessageKind(StrEnum):
     SUMMARY = "summary"
     UI_INPUT = "ui_input"
     DASHBOARD = "dashboard"
+    # What a quiet chat was cleared down to: no screen and no conversation, and the
+    # conversation starts over after it.
+    HOME = "home"
     EDITOR = "editor"
     APPROVAL = "approval"
     RECEIPT = "receipt"

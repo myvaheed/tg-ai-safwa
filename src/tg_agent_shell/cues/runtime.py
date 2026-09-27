@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime
 from typing import Any
 
 from aiogram import Bot
-from aiogram.types import Chat, Message, User
+from aiogram.types import Message
 from sqlalchemy import func, select
 
 from telegram_llm import DialogueMessage
@@ -24,11 +23,28 @@ from ..foundation.kinds import MessageKind
 from ..history import TelegramMessage
 from ..hooks.contracts import BeforeTurn, Shown
 from ..proposals.telegram import render_ai_outcome
-from ..telegram import Services, expire_review
+from ..telegram import Services, expire_review, owner_anchor
 from ..telegram.dialogue import run_before_turn
 from ..turn import own_cancellation
 
 logger = logging.getLogger(__name__)
+
+
+async def chat_is_free(services: Services) -> bool:
+    """Whether work nobody asked for may use the chat: no turn, no review, no session.
+
+    An open proposal is an unanswered question; raising a second one on top of it, one
+    the owner did not even initiate, turns the chat into a stack of screens.
+    """
+    if services.turn.active or services.root.reviews.busy:
+        return False
+    async with services.sessions() as session:
+        # "Resolved completely" includes the model's continuation after the last queue
+        # item: that runs with the batch already closed and the session claimed.
+        claimed = await session.scalar(
+            select(func.count(AgentRun.id)).where(AgentRun.claimed_at.is_not(None))
+        )
+    return not claimed
 
 
 class CueRuntime:
@@ -57,23 +73,10 @@ class CueRuntime:
             self.services.turn.end_background(revision)
 
     async def can_speak(self) -> bool:
-        """Whether the Advisor is free enough to be handed an unsolicited request.
-
-        An open proposal is an unanswered question; raising a second one on top of it —
-        one the owner did not even initiate — turns the chat into a stack of screens.
-        """
-        if self.services.turn.active:
+        """Whether the Advisor is free enough to be handed an unsolicited request, with
+        the lease taken for it when it is."""
+        if not await chat_is_free(self.services):
             return False
-        if self.services.root.reviews.busy:
-            return False
-        async with self.services.sessions() as session:
-            # "Resolved completely" includes the model's continuation after the last queue
-            # item: that runs with the batch already closed and the session claimed.
-            claimed = await session.scalar(
-                select(func.count(AgentRun.id)).where(AgentRun.claimed_at.is_not(None))
-            )
-            if claimed:
-                return False
         if not self.services.turn.try_begin_background():
             return False
         self._lease_revision = self.services.turn.dialogue_revision
@@ -184,14 +187,5 @@ class CueRuntime:
             logger.exception("Could not end a review the owner's arrival cut short")
 
     def _anchor(self) -> Message:
-        """A stand-in for the message that would normally have started this turn.
-
-        `from_user` is the owner, which is what makes `send_registered` post a new screen
-        instead of trying to edit a message id that does not exist.
-        """
-        return Message(
-            message_id=0,
-            date=datetime.now(UTC),
-            chat=Chat(id=self.owner_id, type="private"),
-            from_user=User(id=self.owner_id, is_bot=False, first_name="Owner"),
-        ).as_(self.bot)
+        """A stand-in for the message that would normally have started this turn."""
+        return owner_anchor(self.bot, self.owner_id)

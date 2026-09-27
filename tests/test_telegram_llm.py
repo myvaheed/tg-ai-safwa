@@ -121,7 +121,9 @@ class FakeMessage:
     telegram: FakeTelegram
     chat: FakeChat = field(default_factory=FakeChat)
 
-    async def answer(self, text: str, reply_markup=None, parse_mode=None) -> FakeMessage:
+    async def answer(
+        self, text: str, reply_markup=None, parse_mode=None, disable_notification=False
+    ) -> FakeMessage:
         return self.telegram.mint(text, FakeUser(BOT_ID, is_bot=True))
 
 

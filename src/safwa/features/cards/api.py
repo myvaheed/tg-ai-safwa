@@ -9,8 +9,9 @@ Planning's, which is what keeps the two acyclic.
 from __future__ import annotations
 
 from collections.abc import Collection, Iterable
+from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,7 +21,7 @@ from tg_agent_shell.foundation.errors import DomainError
 from ...foundation.marks import title_marks
 from .model import TERMINAL_STAGES as TERMINAL_STAGES
 from .model import Card as Card
-from .model import CardKind
+from .model import CardKind, Priority
 from .model import CardStage as CardStage
 from .model import effort_label as effort_label
 from .model import minutes_label as minutes_label
@@ -29,6 +30,20 @@ from .views import AI_CARDS
 PLANNED_STAGES = (CardStage.SPRINT, CardStage.TODAY)
 # How many days ahead a Hard Time is near enough to belong in Today: today and tomorrow.
 HARD_TIME_NOTICE_DAYS = 1
+
+
+_PRIORITY_ORDER = {Priority.CRITICAL.value: 0, Priority.MEDIUM.value: 1, Priority.LOW.value: 2}
+
+
+def list_order(card: Card) -> tuple[bool, datetime, int, datetime]:
+    """Hard Time first and the sooner one before, then priority, then oldest: one
+    ordering for every Card list."""
+    return (
+        card.hard_time_at is None,
+        card.hard_time_at or card.created_at,
+        _PRIORITY_ORDER[card.priority],
+        card.created_at,
+    )
 
 
 class CardQueryError(ValueError):
@@ -88,6 +103,63 @@ async def actions_on_stages(session: AsyncSession, *stages: CardStage) -> list[C
             )
         )
     )
+
+
+async def goal_of(session: AsyncSession, action: Card) -> Card | None:
+    """The Goal an Action is under, past a Subgoal between them, or None."""
+    parent = await session.get(Card, action.parent_id) if action.parent_id else None
+    if parent is not None and parent.kind == CardKind.SUBGOAL.value:
+        return await session.get(Card, parent.parent_id) if parent.parent_id else None
+    return parent
+
+
+async def finished_actions(session: AsyncSession, limit: int) -> list[Card]:
+    """The Actions finished last, newest first, however long ago and archived or not."""
+    return list(
+        await session.scalars(
+            select(Card)
+            .where(
+                Card.kind == CardKind.ACTION.value,
+                Card.effective_stage == CardStage.DONE.value,
+                Card.completed_at.is_not(None),
+            )
+            .order_by(Card.completed_at.desc(), Card.id.desc())
+            .limit(limit)
+        )
+    )
+
+
+async def open_goal_titles(session: AsyncSession) -> list[str]:
+    """What the Goals still to reach are called, oldest first."""
+    return list(
+        await session.scalars(
+            select(Card.title)
+            .where(
+                Card.kind == CardKind.GOAL.value,
+                Card.effective_stage != CardStage.DONE.value,
+                Card.archived_at.is_(None),
+            )
+            .order_by(Card.created_at, Card.id)
+        )
+    )
+
+
+async def tracked_between(
+    session: AsyncSession, start: datetime, end: datetime
+) -> tuple[int, int]:
+    """The minutes on the Actions finished in `[start, end)`, and how many carry one."""
+    minutes, count = (
+        await session.execute(
+            select(func.coalesce(func.sum(Card.tracked_mins), 0), func.count(Card.id)).where(
+                Card.kind == CardKind.ACTION.value,
+                Card.effective_stage == CardStage.DONE.value,
+                Card.tracked_mins.is_not(None),
+                Card.completed_at >= start,
+                Card.completed_at < end,
+            )
+        )
+    ).one()
+    return int(minutes), int(count)
 
 
 async def planned_actions(session: AsyncSession) -> list[Card]:

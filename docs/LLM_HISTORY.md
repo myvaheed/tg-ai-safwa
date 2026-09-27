@@ -44,7 +44,9 @@ In a private chat Telegram numbers both sides' messages in one sequence, so the 
 order of the chat. [`telegram_llm/window.py`](../src/telegram_llm/window.py) walks the kept messages
 newest first and stops at the first of: `SUMMARY_TRIGGER_TOKENS = 6000` spent, the newest Summary
 (`SummaryEdge`, plus up to `EDGE_CONTEXT_MESSAGE_LIMIT = 20` messages before it, as their words
-alone), or `SCAN_LIMIT = 2000` messages. The budget counts everything a message puts in front of
+alone), the newest Home dashboard (`MessageKind.HOME`, which the vocabulary `resets`: nothing older
+is read, a Summary neither — [HOME_DASHBOARD.md](HOME_DASHBOARD.md)), or `SCAN_LIMIT = 2000`
+messages. A period read — the Diary's day — goes past both. The budget counts everything a message puts in front of
 the model, an answer's calls and their results included, and an answer is taken whole or not at
 all, so a tool result is never cut away from its call.
 
@@ -230,14 +232,17 @@ calls did, never from the rows a read returned; a Summary stays under
 [assistant]: Готово — [Купить молоко](card:1) в Backlog.
 ```
 
-**The Diary** reads one day with `day_transcript`: the words, each stamped to the minute and
-labelled with who said it.
+**The Diary** reads what was said on one day with `read_conversation`, which is `day_transcript`:
+the words, each stamped to the minute and labelled with who said it. It reads the entry already
+saved apart, with `read_day`, and the conversation only when its own window does not say what to
+write.
 
 ## 5. What the owner accepts with it
 
-- **Deleting a message in Telegram does not take it out of the history**, and clearing the chat does
-  not reset the conversation; rebuilding the database does. The history lives in `data/safwa.db`,
-  and `uv run safwa-backup` keeps it.
+- **Deleting a message in Telegram does not take it out of the history**, and clearing the chat by
+  hand does not reset the conversation; the clear down to the Home dashboard after a quiet time
+  does, and rebuilding the database does. The history lives in `data/safwa.db`, and
+  `uv run safwa-backup` keeps it.
 - **A turn's steps cost room in the window.** Measured with `estimate_tokens`, the unit the budget
   is counted in: a `route` call is about 25, its receipt 55–86, a read's call about 42 and its
   cleared result 27. An answer that routes costs about 1.8 times as much as one that calls

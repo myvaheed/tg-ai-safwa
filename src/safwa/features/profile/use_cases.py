@@ -16,7 +16,13 @@ from tg_agent_shell.foundation.errors import DomainError
 
 from ...constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ...foundation.workspace import bump_workspace
-from .model import ProfileField, ProfileValue, UserProfile
+from .model import (
+    HOME_AFTER_MINUTES_MAX,
+    HOME_AFTER_MINUTES_MIN,
+    ProfileField,
+    ProfileValue,
+    UserProfile,
+)
 
 
 def profile_field(name: str) -> ProfileField:
@@ -44,6 +50,16 @@ def _validated(field: ProfileField, value: ProfileValue) -> ProfileValue:
                 isinstance(value, bool) or not isinstance(value, int | float) or value <= 0
             ):
                 raise DomainError("Sprint capacity must be a positive number, or off")
+        case ProfileField.HOME_AFTER_MINUTES:
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or not HOME_AFTER_MINUTES_MIN <= value <= HOME_AFTER_MINUTES_MAX
+            ):
+                raise DomainError(
+                    f"The quiet time before the Home dashboard must be between "
+                    f"{HOME_AFTER_MINUTES_MIN} and {HOME_AFTER_MINUTES_MAX} minutes"
+                )
         case ProfileField.TIME_TRACKING:
             if not isinstance(value, bool):
                 raise DomainError("Time tracking is on or off")
