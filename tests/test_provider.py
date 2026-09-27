@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 from pathlib import Path
 
 import httpx
@@ -9,12 +10,15 @@ import pytest
 import respx
 
 from llm_gateway import (
+    PRESETS,
     CompletionRequest,
     CompletionTurn,
     OpenAICompatibleConfig,
     OpenAICompatibleProvider,
     ScriptedProvider,
     ToolCall,
+    preset_config,
+    standard_message,
 )
 
 BASE_URL = "https://openrouter.test/api/v1"
@@ -173,7 +177,7 @@ async def test_the_reasoning_is_read_in_whichever_field_the_provider_used():
     finally:
         await provider.aclose()
 
-    assert [dict(turn.reasoning) for turn in turns] == returned
+    assert [dict(turn.extensions) for turn in turns] == returned
 
 
 def test_a_response_goes_back_as_its_assistant_message_with_its_reasoning():
@@ -182,7 +186,7 @@ def test_a_response_goes_back_as_its_assistant_message_with_its_reasoning():
     turn = CompletionTurn(
         "",
         (ToolCall("call-1", "query_data", "{}"),),
-        reasoning={"reasoning": "Read first.", "reasoning_details": details},
+        extensions={"reasoning": "Read first.", "reasoning_details": details},
     )
 
     assert turn.as_message() == {
@@ -199,6 +203,132 @@ def test_a_response_goes_back_as_its_assistant_message_with_its_reasoning():
         ],
     }
     assert CompletionTurn("Hi.").as_message() == {"role": "assistant", "content": "Hi."}
+
+
+@respx.mock
+async def test_what_the_provider_adds_goes_back_to_it_as_it_came():
+    """TG-THINK-017 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    signature = {"google": {"thought_signature": "opaque"}}
+    response = _response().json()
+    response["choices"][0]["message"].update(
+        {
+            "content": None,
+            "reasoning_content": "Read first.",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "index": 0,
+                    "type": "function",
+                    "function": {"name": "query_data", "arguments": "{}"},
+                    "extra_content": signature,
+                }
+            ],
+        }
+    )
+    respx.post(COMPLETIONS).mock(return_value=httpx.Response(200, json=response))
+    provider = OpenAICompatibleProvider(_config())
+    try:
+        turn = await provider.complete(_request())
+    finally:
+        await provider.aclose()
+
+    message = turn.as_message()
+    call = {"id": "call_1", "type": "function", "function": {"name": "query_data", "arguments": "{}"}}
+    assert message["reasoning_content"] == "Read first."
+    assert message["tool_calls"] == [{**call, "extra_content": signature}]
+    assert standard_message(message) == {"role": "assistant", "content": None, "tool_calls": [call]}
+
+
+@respx.mock
+async def test_a_call_id_another_model_would_refuse_is_replaced_before_anything_keeps_it():
+    ids = ["call_ok-1", "functions.card:0", "", "call_ok-1", "x" * 41]
+    response = _response().json()
+    response["choices"][0]["message"]["tool_calls"] = [
+        {"id": call_id, "type": "function", "function": {"name": "query_data", "arguments": "{}"}}
+        for call_id in ids
+    ]
+    respx.post(COMPLETIONS).mock(return_value=httpx.Response(200, json=response))
+    provider = OpenAICompatibleProvider(_config())
+    try:
+        turn = await provider.complete(_request())
+    finally:
+        await provider.aclose()
+
+    kept = [call.id for call in turn.tool_calls]
+    assert kept[0] == "call_ok-1"
+    assert all(re.fullmatch(r"[A-Za-z0-9_-]{1,40}", call_id) for call_id in kept)
+    assert len(set(kept)) == len(ids)
+
+
+@respx.mock
+async def test_cache_breakpoints_mark_the_prompt_and_what_ends_before_the_newest_request():
+    route = respx.post(COMPLETIONS).mock(return_value=_response())
+    messages = (
+        {"role": "system", "content": "Prompt."},
+        {"role": "user", "content": "Plan this week."},
+        {"role": "assistant", "content": "What matters most?"},
+        {"role": "user", "content": "Health.\n[System]: Current local time: 10:00"},
+        {"role": "assistant", "content": None, "tool_calls": [_CALL]},
+        {"role": "tool", "tool_call_id": "call_1", "content": "{}"},
+    )
+    provider = OpenAICompatibleProvider(_config(cache_breakpoints=True))
+    try:
+        await provider.complete(_request(messages=messages))
+    finally:
+        await provider.aclose()
+
+    sent = json.loads(route.calls[0].request.content)["messages"]
+    assert [index for index, message in enumerate(sent) if isinstance(message["content"], list)] == [0, 2]
+    assert sent[0]["content"] == [
+        {"type": "text", "text": "Prompt.", "cache_control": {"type": "ephemeral"}}
+    ]
+    # The marker is on the wire only: the session's own messages stay as they were.
+    assert messages[0]["content"] == "Prompt."
+
+
+_CALL = {"id": "call_1", "type": "function", "function": {"name": "query_data", "arguments": "{}"}}
+
+# What each row puts on the wire. A new row states its own here; why each value is what it
+# is, model by model, is docs/LLM_GATEWAY.md.
+WIRE = {
+    "local": {"temperature": True, "cache": False},
+    "openrouter": {"temperature": False, "cache": True},
+}
+
+
+def test_every_row_states_what_it_puts_on_the_wire():
+    assert set(WIRE) == set(PRESETS)
+
+
+@pytest.mark.parametrize("preset", sorted(PRESETS))
+async def test_a_request_goes_out_as_its_row_says(preset):
+    expected = WIRE[preset]
+    config = preset_config(preset, api_key="test-key", model="some-model", max_output_tokens=512)
+    messages = (
+        {"role": "system", "content": "Prompt."},
+        {"role": "user", "content": "Add a Card to buy milk."},
+        {"role": "assistant", "content": None, "tool_calls": [_CALL]},
+        {"role": "tool", "tool_call_id": "call_1", "content": "{}"},
+        {"role": "assistant", "content": "Added."},
+        {"role": "user", "content": "Thanks!"},
+    )
+    with respx.mock:
+        route = respx.post(url__regex=r".*/chat/completions$").mock(return_value=_response())
+        provider = OpenAICompatibleProvider(config)
+        try:
+            await provider.complete(_request(messages=messages, reasoning_effort="none"))
+        finally:
+            await provider.aclose()
+
+    request = route.calls[0].request
+    body = json.loads(request.content)
+    assert str(request.url).startswith(config.base_url.rstrip("/"))
+    assert body["max_tokens"] == 512
+    assert ("temperature" in body) is expected["temperature"]
+    assert body["reasoning_effort"] == "none"
+    assert [message["role"] for message in body["messages"]] == [m["role"] for m in messages]
+    marked = [index for index, message in enumerate(body["messages"]) if isinstance(message["content"], list)]
+    assert marked == ([0, 4] if expected["cache"] else [])
 
 
 @respx.mock
@@ -382,3 +512,53 @@ def test_openai_sdk_is_imported_only_by_the_gateway_adapter():
             importers.append(path.relative_to(source_root).as_posix())
 
     assert importers == ["llm_gateway/openai_compatible.py"]
+
+
+# What only the gateway may know: an endpoint's name or address, or a field of its wire.
+PROVIDER_WORDS = (
+    "openrouter",
+    "lmstudio",
+    "ollama",
+    "anthropic",
+    "reasoning_content",
+    "reasoning_details",
+    "cache_control",
+)
+
+
+def _code_words(tree: ast.AST) -> list[str]:
+    """Every name and string the code uses, its docstrings left out: prose may say why."""
+    docstrings = {
+        id(node.body[0].value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef)
+        and node.body
+        and isinstance(node.body[0], ast.Expr)
+        and isinstance(node.body[0].value, ast.Constant)
+    }
+    words: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if id(node) not in docstrings:
+                words.append(node.value)
+        elif isinstance(node, ast.Name):
+            words.append(node.id)
+        elif isinstance(node, ast.Attribute):
+            words.append(node.attr)
+        elif isinstance(node, ast.arg | ast.keyword) and node.arg:
+            words.append(node.arg)
+    return words
+
+
+def test_provider_knowledge_stays_in_the_gateway():
+    source_root = Path(__file__).parents[1] / "src"
+    leaks = sorted(
+        f"{path.relative_to(source_root).as_posix()}: {term}"
+        for path in source_root.rglob("*.py")
+        if "llm_gateway" not in path.parts
+        for word in _code_words(ast.parse(path.read_text(encoding="utf-8")))
+        for term in PROVIDER_WORDS
+        if term in word.lower()
+    )
+
+    assert not leaks, leaks

@@ -2,12 +2,13 @@
 
 Four blocks, each read through the door of the feature that owns it: the next Actions, the
 Values in focus with the words written for them, the time tracked today, and the last
-changes. Every item is a citation, so it reads and links the way it does in an answer.
+changes. It is Markdown, as an answer is, and every item is a citation, so it reads and
+links the way it does in an answer.
 """
 
 from __future__ import annotations
 
-import html
+import re
 from collections.abc import Mapping
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
@@ -16,7 +17,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.clock import utcnow
-from tg_agent_shell.telegram import Services, render_citations
 
 from ...foundation.log_events import CREATE, DELETE, UPDATE, LogEvent
 from ...foundation.workspace import require_workspace
@@ -60,31 +60,38 @@ _DONE_TO = {
 }
 
 
+_MARKDOWN = re.compile(r"([\\`*_~])")
+
+
+def _plain(words: str, limit: int | None = None) -> str:
+    """Words read as they are: no bracket a citation could take, no Markdown of their own."""
+    flat = words.replace("[", "(").replace("]", ")").replace("\n", " ")[:limit]
+    return _MARKDOWN.sub(r"\\\1", flat)
+
+
 def _cite(item_type: str, item_id: int, words: str) -> str:
-    """A citation `render_citations` turns into a link, or into its words when it is gone."""
-    plain = words.replace("[", "(").replace("]", ")").replace("\n", " ")[:60]
-    label = html.escape(plain, quote=False)
-    return f"[{label}]({item_type}:{item_id})"
+    """A citation that becomes a link, or its words when the item is gone."""
+    return f"[{_plain(words, 60)}]({item_type}:{item_id})"
 
 
 async def dashboard_text(
     session: AsyncSession,
-    services: Services,
     words: Mapping[int, str],
     *,
     now: datetime | None = None,
 ) -> str:
-    """The dashboard as Telegram HTML, `words` under the Values they were written for."""
+    """The dashboard as Markdown with citations, `words` under the Values they were written
+    for."""
     tz = ZoneInfo((await require_workspace(session)).timezone)
     local = (now or utcnow()).astimezone(tz)
     blocks = (
-        f"<b>🏠 {local:%a, %d %b}</b>",
+        f"**🏠 {local:%a, %d %b}**",
         await _actions(session),
         await _values(session, words),
         await _time(session, local),
-        await _changes(session, services, local),
+        await _changes(session, local),
     )
-    return await render_citations(session, services, "\n\n".join(block for block in blocks if block))
+    return "\n\n".join(block for block in blocks if block)
 
 
 async def _first_list(session: AsyncSession) -> tuple[str, list[Card]] | None:
@@ -113,7 +120,7 @@ async def _actions(session: AsyncSession) -> str:
         if goal is not None:
             goals[goal.id] = goal
         under.setdefault(goal.id if goal else None, []).append(action)
-    lines = [f"<b>{heading} · {min(len(cards), HOME_ACTIONS_SHOWN)} of {len(cards)}</b>"]
+    lines = [f"**{heading} · {min(len(cards), HOME_ACTIONS_SHOWN)} of {len(cards)}**"]
     for goal_id, actions in sorted(under.items(), key=lambda item: item[0] is None):
         indent = ""
         if goal_id is not None:
@@ -127,11 +134,11 @@ async def _values(session: AsyncSession, words: Mapping[int, str]) -> str:
     values = await values_in_focus(session)
     if not values:
         return ""
-    lines = ["<b>💎 Values in focus</b>"]
+    lines = ["**💎 Values in focus**"]
     for value in values:
         said = words.get(value.id)
         cited = _cite("value", value.id, value.name)
-        lines.append(f"{cited} — {html.escape(said)}" if said else cited)
+        lines.append(f"{cited} — {_plain(said)}" if said else cited)
     return "\n".join(lines)
 
 
@@ -145,20 +152,20 @@ async def _time(session: AsyncSession, local: datetime) -> str:
     return f"⌛ Tracked today: {minutes_label(minutes)} over {count} Action{'s' * (count != 1)}"
 
 
-async def _changes(session: AsyncSession, services: Services, local: datetime) -> str:
+async def _changes(session: AsyncSession, local: datetime) -> str:
     rows = list(
         await session.scalars(select(LogEvent).order_by(LogEvent.id.desc()).limit(HOME_LOG_SHOWN))
     )
     if not rows:
         return ""
-    lines = ["<b>🗒 Latest changes</b>"]
+    lines = ["**🗒 Latest changes**"]
     for row in rows:
         at = row.at.astimezone(local.tzinfo)
         when = f"{at:%H:%M}" if at.date() == local.date() else f"{at:%d.%m %H:%M}"
         title = (
-            _cite(row.item_type, row.item_id, row.title)
-            if row.item_type in services.screens.by_type and not await _deleted_since(session, row)
-            else html.escape(row.title)
+            _plain(row.title)
+            if await _deleted_since(session, row)
+            else _cite(row.item_type, row.item_id, row.title)
         )
         lines.append(f"{when} {_ICONS.get(row.operation, '✏️')} {title} — {_what(row.operation)}")
     return "\n".join(lines)

@@ -375,33 +375,6 @@ async def test_cacheable_prefix_is_byte_stable_across_turns(e2e_harness):
     assert "[System]: Current local time:" in str(first[-1]["content"])
 
 
-async def test_cache_breakpoints_mark_exactly_the_stable_prefix(e2e_harness):
-    dialogue = [
-        DialogueMessage(role="user", content="[Initial request]: Plan this week."),
-        DialogueMessage(role="assistant", content="What matters most?"),
-        DialogueMessage(role="user", content="[User]: Health."),
-    ]
-    advisor, provider = e2e_harness.advisor(["Noted."], cache_breakpoints=True)
-
-    await advisor.handle("Health.", dialogue=dialogue)
-
-    messages = provider.calls[0]
-    marked = [index for index, message in enumerate(messages) if isinstance(message["content"], list)]
-    assert marked == [0, len(messages) - 2]
-    assert messages[0]["content"] == [
-        {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}
-    ]
-    assert isinstance(messages[-1]["content"], str)
-
-
-async def test_cache_breakpoints_are_absent_by_default(e2e_harness):
-    advisor, provider = e2e_harness.advisor(["Noted."])
-
-    await advisor.handle("Hi", dialogue=[DialogueMessage(role="user", content="[User]: Hi")])
-
-    assert all(isinstance(message["content"], str) for message in provider.calls[0])
-
-
 async def test_advisor_combines_context_when_history_is_absent(e2e_harness):
     advisor, provider = e2e_harness.advisor(["Noted."])
 

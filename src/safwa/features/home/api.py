@@ -1,5 +1,4 @@
-"""What another feature may ask of Home: the menu, drawn the way this screen draws it,
-and the words its dashboard writes under the Values.
+"""What another feature may ask of Home: the menu, drawn the way this screen draws it.
 
 A screen says what it is called. Where that name is offered as a button is the menu's own
 business, so the layout is here and no feature knows a row number.
@@ -9,10 +8,7 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from tg_agent_shell.telegram import Services
 from tg_agent_shell.telegram.contributions import ScreenCommand
-
-from .motivation import Motivator
 
 # One row per line, each naming the `nav` action of a screen that declared a title.
 MENU_LAYOUT: tuple[tuple[str, ...], ...] = (
@@ -21,11 +17,6 @@ MENU_LAYOUT: tuple[tuple[str, ...], ...] = (
     ("values", "tags"),
     ("profile", "reminders", "requests"),
 )
-
-
-def motivator(services: Services) -> Motivator:
-    """The one writer of the Values' words, off the bag the composition root filled."""
-    return services.features.motivator
 
 
 def menu_markup(commands: tuple[ScreenCommand, ...]) -> InlineKeyboardMarkup:

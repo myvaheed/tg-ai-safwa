@@ -10,9 +10,9 @@ type Message = Mapping[str, Any]
 type ToolSpec = Mapping[str, Any]
 type ResponseSchema = Mapping[str, Any]
 
-# Where a provider returns the reasoning behind a response: LM Studio `reasoning_content`,
-# OpenRouter `reasoning` and `reasoning_details`. OpenRouter asks for them back unchanged.
-REASONING_FIELDS = ("reasoning_content", "reasoning", "reasoning_details")
+# The keys of a chat message every OpenAI-compatible endpoint reads. Whatever a provider
+# returns beyond them — a reasoning trace, a signature on a call — is its own.
+STANDARD_KEYS = ("role", "content", "tool_calls", "tool_call_id", "name")
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +26,9 @@ class ToolCall:
     id: str
     name: str
     arguments_json: str
+    extensions: Mapping[str, Any] = field(default_factory=dict)
+    """What the provider put on the call beyond its id and function, as it returned it:
+    a signature on the call rides here."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,19 +45,21 @@ class CompletionTurn:
     content: str
     tool_calls: tuple[ToolCall, ...] = ()
     usage: Usage | None = None
-    reasoning: Mapping[str, Any] = field(default_factory=dict)
-    """The provider's `REASONING_FIELDS` exactly as it returned them."""
+    extensions: Mapping[str, Any] = field(default_factory=dict)
+    """What the provider put on the message beyond `STANDARD_KEYS`, as it returned it:
+    its reasoning, in whichever field it uses."""
 
     def as_message(self) -> dict[str, Any]:
         """This response as the assistant message the next request of its loop carries.
 
-        The reasoning goes back with it: a model that thinks between its calls continues
-        from its own reasoning, and without it stops thinking or thinks into the answer.
+        What the provider added goes back with it, unchanged: a model that thinks between
+        its calls continues from its own reasoning, and without it stops thinking, thinks
+        into the answer, or is refused the request.
         """
         message: dict[str, Any] = {
             "role": "assistant",
             "content": self.content or (None if self.tool_calls else ""),
-            **self.reasoning,
+            **self.extensions,
         }
         if self.tool_calls:
             message["tool_calls"] = [
@@ -62,10 +67,34 @@ class CompletionTurn:
                     "id": call.id,
                     "type": "function",
                     "function": {"name": call.name, "arguments": call.arguments_json},
+                    **call.extensions,
                 }
                 for call in self.tool_calls
             ]
         return message
+
+
+def standard_message(message: Message) -> dict[str, Any]:
+    """The message as every endpoint reads it, with nothing one provider added.
+
+    What outlives a session is kept in this shape, so a conversation one model wrote reads
+    the same to the next: a signature or a reasoning trace goes back only to its author,
+    and only while its session runs.
+    """
+    kept = {key: message[key] for key in STANDARD_KEYS if key in message}
+    if "tool_calls" in kept:
+        kept["tool_calls"] = [
+            {
+                "id": call["id"],
+                "type": "function",
+                "function": {
+                    "name": call["function"]["name"],
+                    "arguments": call["function"]["arguments"],
+                },
+            }
+            for call in kept["tool_calls"]
+        ]
+    return kept
 
 
 @dataclass(frozen=True, slots=True)

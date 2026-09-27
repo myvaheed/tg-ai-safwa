@@ -1,55 +1,26 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from llm_gateway import DEFAULT_PRESET, PRESETS, OpenAICompatibleConfig, preset_config
 from tg_agent_shell.ai.sql import DEFAULT_CHAR_BUDGET, DEFAULT_ROW_LIMIT
 from tg_agent_shell.asr import ASR_DEFAULTS, ASRDefaults, ASRProvider
 
 from .constants import SCHEDULER_POLL_SECONDS, SUMMARY_TRIGGER_TOKENS
-from .enums import AIProvider
 from .foundation.tokens import TOKEN_CHARS_ESTIMATE
 
 AI_TIMEOUT_SECONDS = 120.0
 AI_MAX_OUTPUT_TOKENS = 4096
-LMSTUDIO_BASE_URL = "http://localhost:1234/v1"
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-# A local server either answers or is down; a metered remote returns 429/502 and
-# is worth retrying with the SDK's backoff.
-AI_MAX_RETRIES_LOCAL = 1
-AI_MAX_RETRIES_REMOTE = 3
-
-
-@dataclass(frozen=True)
-class ProviderDefaults:
-    """Per-endpoint defaults for knobs the owner rarely needs to set by hand."""
-
-    base_url: str
-    max_retries: int
-    # GPT-5.6 and other reasoning models reject `temperature`; a local model needs it.
-    send_temperature: bool
-    # Content-block `cache_control` markers. A local server may reject the extra key.
-    cache_breakpoints: bool
-
-
-PROVIDER_DEFAULTS: dict[AIProvider, ProviderDefaults] = {
-    AIProvider.LMSTUDIO: ProviderDefaults(
-        base_url=LMSTUDIO_BASE_URL,
-        max_retries=AI_MAX_RETRIES_LOCAL,
-        send_temperature=True,
-        cache_breakpoints=False,
-    ),
-    AIProvider.OPENROUTER: ProviderDefaults(
-        base_url=OPENROUTER_BASE_URL,
-        max_retries=AI_MAX_RETRIES_REMOTE,
-        send_temperature=False,
-        cache_breakpoints=True,
-    ),
-}
+# Request attribution a gateway may show beside the requests; an endpoint that does not
+# read these headers ignores them.
+AI_ATTRIBUTION_HEADERS = (
+    ("HTTP-Referer", "https://github.com/myvaheed/tg-ai-safwa"),
+    ("X-Title", "Safwa"),
+)
 
 
 class Settings(BaseSettings):
@@ -64,14 +35,15 @@ class Settings(BaseSettings):
     telegram_owner_id: int
     database_path: Path = Path("data/safwa.db")
     data_dir: Path = Path("data")
-    ai_provider: AIProvider = AIProvider.LMSTUDIO
+    # A row of llm_gateway.PRESETS: local or openrouter.
+    ai_provider: str = DEFAULT_PRESET
     ai_api_key: SecretStr = SecretStr("lm-studio")
     ai_model: str = "local-model"
     ai_timeout_seconds: float = AI_TIMEOUT_SECONDS
     ai_max_output_tokens: int = AI_MAX_OUTPUT_TOKENS
     ai_structured_output: bool = False
     ai_tool_choice_required: bool = True
-    # Left unset these follow PROVIDER_DEFAULTS for the selected ai_provider.
+    # Left unset these follow the ai_provider's row.
     ai_base_url: str | None = None
     ai_max_retries: int | None = Field(default=None, ge=0)
     ai_send_temperature: bool | None = None
@@ -109,6 +81,14 @@ class Settings(BaseSettings):
     def normalize_bot_username(cls, value: object) -> str:
         return str(value or "").strip().removeprefix("@")
 
+    @field_validator("ai_provider", mode="before")
+    @classmethod
+    def known_ai_provider(cls, value: object) -> str:
+        name = str(value or "").strip().lower()
+        if name not in PRESETS:
+            raise ValueError(f"ai_provider must be one of: {', '.join(PRESETS)}")
+        return name
+
     @field_validator("asr_language", "asr_compute_type", mode="before")
     @classmethod
     def normalize_asr_text(cls, value: object) -> str:
@@ -125,31 +105,23 @@ class Settings(BaseSettings):
         ZoneInfo(value)
         return value
 
-    @property
-    def provider_defaults(self) -> ProviderDefaults:
-        return PROVIDER_DEFAULTS[self.ai_provider]
-
-    @property
-    def resolved_ai_base_url(self) -> str:
-        return self.ai_base_url or self.provider_defaults.base_url
-
-    @property
-    def resolved_ai_max_retries(self) -> int:
-        if self.ai_max_retries is None:
-            return self.provider_defaults.max_retries
-        return self.ai_max_retries
-
-    @property
-    def resolved_ai_send_temperature(self) -> bool:
-        if self.ai_send_temperature is None:
-            return self.provider_defaults.send_temperature
-        return self.ai_send_temperature
-
-    @property
-    def resolved_ai_cache_breakpoints(self) -> bool:
-        if self.ai_cache_breakpoints is None:
-            return self.provider_defaults.cache_breakpoints
-        return self.ai_cache_breakpoints
+    def ai_config(self) -> OpenAICompatibleConfig:
+        """The ai_provider's row, with every SAFWA_AI_* value that is set put over it."""
+        return preset_config(
+            self.ai_provider,
+            base_url=self.ai_base_url,
+            api_key=self.ai_api_key.get_secret_value(),
+            model=self.ai_model,
+            timeout_seconds=self.ai_timeout_seconds,
+            max_output_tokens=self.ai_max_output_tokens,
+            structured_output=self.ai_structured_output,
+            tool_choice_required=self.ai_tool_choice_required,
+            max_retries=self.ai_max_retries,
+            send_temperature=self.ai_send_temperature,
+            cache_breakpoints=self.ai_cache_breakpoints,
+            reasoning_effort=self.ai_reasoning_effort,
+            default_headers=AI_ATTRIBUTION_HEADERS,
+        )
 
     @property
     def asr_enabled(self) -> bool:

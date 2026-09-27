@@ -7,10 +7,11 @@ alongside the feature tasks rather than through a `FeatureModule` of their own.
 from __future__ import annotations
 
 from ..hooks.contracts import Tick
+from ..telegram import owner_anchor
 from ..telegram.manifest import BackgroundContext, BackgroundTask
 from .background import run_cue_queue
 from .initiatives import run_ticks
-from .runtime import CueRuntime
+from .runtime import CueRuntime, tick_chat
 
 
 async def _poll_cues(context: BackgroundContext) -> None:
@@ -40,6 +41,7 @@ async def _tick_hooks(context: BackgroundContext) -> None:
         resources=context.services.features,
         timezone=context.timezone,
         poll_seconds=context.poll_seconds,
+        chat=tick_chat(context.services, owner_anchor(context.bot, context.owner_id)),
     )
 
 

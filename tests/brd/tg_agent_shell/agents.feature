@@ -422,3 +422,16 @@ Feature: Agents — the session, the hand-over, and what comes back
       and the Advisor is told it was shown and not to repeat it
     When requests of several hooks are said in one turn, and more than one carries a block
     Then each block is shown once, oldest request first, all of them before the Advisor's words
+
+  Scenario: AG-HOOK-049 — A check may run every so long
+    Given a hook declares a check every so long, from 30 seconds to 24 hours (TICK_EVERY_MIN, TICK_EVERY_MAX)
+    Then it runs at the first look after that long has passed since it last ran, counting from Safwa's start
+    And a hook that names less than 30 seconds or more than 24 hours stops Safwa from starting
+    And its work that failed is not tried again: the next time it runs is its next try
+
+  Scenario: AG-HOOK-050 — Work on a schedule may put a message in the chat, and the owner wins
+    Given a check on a schedule does work of its own that puts a message in the chat
+    Then it is told when the owner last acted and whether the chat is free
+    And the message goes only while the chat is free and the owner has not acted since the look that ran it
+    And the owner acting while it goes stops it
+    And work that puts nothing in the chat runs on whatever the owner does

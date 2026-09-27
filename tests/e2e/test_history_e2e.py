@@ -31,7 +31,7 @@ def read_turn() -> CompletionTurn:
     return CompletionTurn(
         content="",
         tool_calls=(ToolCall(id="read-1", name="query_data", arguments_json=json.dumps({"sql": READ})),),
-        reasoning=THOUGHT,
+        extensions=THOUGHT,
     )
 
 

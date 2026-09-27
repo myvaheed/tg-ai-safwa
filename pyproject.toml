@@ -58,6 +58,7 @@ filterwarnings = ["error::pytest.PytestUnhandledThreadExceptionWarning"]
 markers = [
   "e2e: isolated end-to-end tests using real SQLite and mocked remote boundaries",
   "live_telegram: opt-in live integration tests against the dedicated Safwa-QA bot",
+  "live_provider: opt-in requests to the LLM provider SAFWA_AI_* configures",
 ]
 
 [tool.ruff]

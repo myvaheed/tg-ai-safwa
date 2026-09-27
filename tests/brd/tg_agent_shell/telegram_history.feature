@@ -163,3 +163,14 @@ Feature: The conversation in Telegram
     Then Safwa looks at that photo again and answers in words, with no subagent
     And the photo itself does not enter the conversation
     But where images are off, Safwa has no way to look at a photo
+
+  Scenario: TG-HOME-023 — A Home message clears the chat down to itself, and the conversation starts after it
+    Given the application puts a Home message in the chat, from a check on a schedule (AG-HOOK-050)
+    Then it arrives as a new message that makes no sound
+    And every message above it, back to the previous Home message, is taken out of the chat, the owner's and Safwa's alike
+    But a message older than 48 hours stays in the chat (TELEGRAM_DELETE_WINDOW = 48 hours)
+    And what was said stays kept, and a day read back still reads all of it
+    And a screen, a progress line or anything else that was not said is forgotten with its message
+    When Safwa reads the conversation back
+    Then it begins after the newest Home message: nothing said before it, a Summary included, and not the Home message itself
+    And an application that never puts a Home message in the chat has nothing taken out and nothing started over

@@ -92,8 +92,10 @@ the materializer emits `BeforeProposals` before a subagent response's calls are 
 inside a turn, once the dialogue is read and before the model is asked — the owner's turn and a
 Cue's alike — and `AfterTurn` after releasing the owner's turn.
 A `Run` after a turn uses one background lease and a publication port that checks currentness;
-a `Run` on a tick or on a commit has the session factory and no chat, and says anything it has
-to say through a recorded fact and an Advise hook. Summary retains its own window threshold and
+a `Run` on a tick has a publication port too, which sends only while the chat is free and the
+owner has not acted since the look that ran it, taking the lease for the sending alone
+(`speak_on_schedule`); a `Run` on a commit has the session factory and no chat, and says anything
+it has to say through a recorded fact and an Advise hook. Summary retains its own window threshold and
 history comparison; its manual command calls the same writer directly. The whole of it, batch by
 batch, is [HOOK_ARCH.md](HOOK_ARCH.md).
 
@@ -115,11 +117,12 @@ wallets and entries, with none of Safwa's nouns in it.
 | the container every handler reads | `Services`, filled from the registry | `bootstrap/main.py` |
 | the home screen | exactly one `ScreenCommand` with `nav=HOME_NAV` | the `home` feature |
 | a restart | `recover_startup(session, registry.recovery)` | called once the hooks are bound, before polling starts, so what recovery ends is handed on |
+| a Home message, if it wants one | a `Run` on `OnTick(every=…)` that publishes text of kind `home`: the chat is cleared down to it and the conversation starts after it (`TG-HOME-023`) | `home.dashboard`, after the Profile's quiet time |
 | photos, if it takes them | a `MediaLibrary` on `Services.media`, `AgentContext.media` and `root_session(media=…)`, and the media `MODULE` among its features | none yet |
 | a shutdown | cancel the background tasks, close the provider and the bot | the polling `finally` |
 
 Everything else is the application's own: the persona, the provider, the product dependencies,
-and the startup itself — Safwa's carries ASR, the similar items model and OpenRouter headers,
+and the startup itself — Safwa's carries ASR, the similar items model and its attribution headers,
 and the example's
 carries none of them, which is why the shell holds no `run()` of its own.
 
@@ -154,7 +157,6 @@ flowchart TB
         TICK[hook-ticks]
         REM[reminder-scheduler]
         MEMR[memory-retro]
-        HOME[home-dashboard]
     end
     HIST[(telegram_messages · the kept chat)]
     DB[(SQLite · ai_* views)]
@@ -173,7 +175,7 @@ flowchart TB
     TICK --> CUE
     REM --> CUE
     MEMR -->|memory_observation| DB
-    HOME -->|clears down to the dashboard| HIST
+    TICK -->|clears down to the Home dashboard| HIST
 ```
 
 Only the Advisor writes to the chat. Everything else either hands it words or opens a screen,
@@ -283,6 +285,9 @@ messages[1]  user     [System]: memory + workspace state
    …         user/assistant/tool   the dialogue window, earlier answers with their calls
 messages[-1] user     [System]: the clock            ← volatile, always last
 ```
+
+The marker is the gateway's, not the builder's: the provider's row decides whether the prompt
+and what ends before the newest request are marked ([LLM_GATEWAY.md](LLM_GATEWAY.md)).
 
 Only `messages[0]` is a system message. Every other context block goes through `system_note`, which
 sends it as a user message prefixed `[System]: ` — the Qwen3.5 chat template raises on a second
@@ -592,6 +597,14 @@ time is dropped at the next look (`forget_before`): the day it was about is over
 that failed is kept and tried again at every later look until it is done — a Sprint's midnight
 end is not optional the way a request is — while a Run on a commit gets one attempt.
 
+A hook that runs every so long declares `OnTick(every=...)` instead, from `TICK_EVERY_MIN`, 30
+seconds, to `TICK_EVERY_MAX`, 24 hours; the registry refuses one outside that. It comes due at the
+first look after that long has passed since it last ran, counted from the start before that, and
+hooks that name the same interval share its `Tick`. Its work that failed is not tried again: the
+next time is its next try. Every `Tick` a look hands on carries the owner's chat as that look saw
+it (`ChatState`: when the owner last acted, whether the chat is free, the kind and time of the
+newest message kept) — the Home dashboard's `home.dashboard` is the one that reads it.
+
 ### A Sprint's end is a fact, and its summary is a hook's words
 
 `finish_sprint` — by hand, or by the Sprint expiry hook at the local midnight after the planned
@@ -757,7 +770,6 @@ stateDiagram-v2
 | `hook-ticks` | `SCHEDULER_POLL_SECONDS = 30` | `cues/initiatives.py` |
 | `reminder-scheduler` | `SCHEDULER_POLL_SECONDS = 30` | `features/reminders/background.py` |
 | `memory-retro` | `MEMORY_RETRO_INTERVAL_SECONDS = 60` | `features/memory/background.py` |
-| `home-dashboard` | `SCHEDULER_POLL_SECONDS = 30` | `features/home/background.py` |
 
 Each is a `BackgroundTask`. All but the Cue poll and the hook tick poll are declared in a
 feature's `module.py`; those two belong to no feature, so the registry puts them in front of

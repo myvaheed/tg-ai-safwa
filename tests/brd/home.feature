@@ -28,8 +28,7 @@ Feature: Home
   Scenario: HM-QUIET-003 — A chat the owner left quiet is cleared down to the Home dashboard
     Given the owner has not written, spoken, sent a photo or pressed a button for 30 minutes (HOME_AFTER_MINUTES_DEFAULT = 30)
     And the chat is free: no answer is being written and no review is waiting
-    Then the Home dashboard is drawn as a new message that makes no sound
-    And every message above it is taken out of the chat, the owner's and Safwa's alike
+    Then the Home dashboard is drawn, and the chat is cleared down to it (TG-HOME-023)
     And a message Safwa sent on its own while the owner was quiet, a Reminder included, is taken out with the rest
     When a review is waiting
     Then nothing is cleared until it is answered or closes by itself
@@ -86,5 +85,5 @@ Feature: Home
 
   Scenario: HM-HISTORY-010 — After a clear Safwa starts the conversation over
     Given the chat was cleared down to the dashboard
-    Then the conversation Safwa reads begins after the dashboard: nothing said before it, a Summary included, and not the dashboard itself
+    Then the conversation Safwa reads begins after the dashboard (TG-HOME-023)
     And the Diary still reads everything said that day, before the clear as much as after it (DI-READ-016)

@@ -3,19 +3,28 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime, time, timedelta
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import select, text
+from telegram_fakes import QueueTestMessage, spawn_timer
 
+from telegram_llm import ChatHost
 from tg_agent_shell.cues.background import tick
-from tg_agent_shell.cues.initiatives import TickPoll, bind_committed, queue_advice
+from tg_agent_shell.cues.initiatives import TickChat, TickPoll, bind_committed, queue_advice
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.cues.queue import add_cue, add_hook_cue, drop_hook_cue
+from tg_agent_shell.cues.runtime import speak_on_schedule
 from tg_agent_shell.foundation.changes import Committed, record_change
+from tg_agent_shell.foundation.kinds import MessageKind
+from tg_agent_shell.history import TelegramNotes
 from tg_agent_shell.hooks.contracts import (
+    TICK_EVERY_MAX,
+    TICK_EVERY_MIN,
     Advise,
+    ChatState,
     HookSpec,
     OnCommitted,
     OnTick,
@@ -24,6 +33,8 @@ from tg_agent_shell.hooks.contracts import (
 )
 from tg_agent_shell.hooks.registry import HookRegistry
 from tg_agent_shell.hooks.ticks import TickSchedule
+from tg_agent_shell.proposals.store import ProposalStore
+from tg_agent_shell.turn import TurnManager
 
 KIND = "thing.changed"
 TZ = ZoneInfo("Europe/Istanbul")
@@ -514,3 +525,153 @@ async def test_ag_hook_039_work_of_a_daily_check_that_failed_is_tried_again_unti
     await poll.look(local(16, 9, 2))
     await poll.look(local(16, 9, 3))
     assert attempts == ["09:00"] * 3
+
+
+async def the_tick(event: Tick) -> tuple[Tick, ...]:
+    return (event,)
+
+
+def every(interval: timedelta, run) -> HookSpec:
+    return HookSpec(
+        name="test.every", owner="test", on=(OnTick(every=interval),),
+        evaluate=the_tick, effect=Run(run),
+        title="Every", description="Does something every so long.",
+    )
+
+
+async def test_ag_hook_049_a_check_runs_every_so_long_counted_from_the_start(sessions):
+    """AG-HOOK-049 — tests/brd/tg_agent_shell/agents.feature"""
+    assert (TICK_EVERY_MIN, TICK_EVERY_MAX) == (timedelta(seconds=30), timedelta(hours=24))
+    half, hour = timedelta(seconds=30), timedelta(hours=1)
+    start = local(16, 8, 0)
+    schedule = TickSchedule(now=start, tz=TZ)
+
+    assert schedule.due(start + timedelta(seconds=29), {}, [half, hour]) == []
+    assert schedule.due(start + half, {}, [half, hour]) == [Tick("08:00", every=half)]
+    # Counted from the last time it ran, not from the last look.
+    assert schedule.due(start + timedelta(seconds=45), {}, [half, hour]) == []
+    assert schedule.due(start + timedelta(seconds=61), {}, [half, hour]) == [
+        Tick("08:01", every=half)
+    ]
+    assert schedule.due(start + hour, {}, [half, hour]) == [
+        Tick("09:00", every=half), Tick("09:00", every=hour)
+    ]
+
+    async def nothing(event, context) -> None:
+        return None
+
+    catalogue(every(TICK_EVERY_MIN, nothing))
+    catalogue(every(TICK_EVERY_MAX, nothing))
+    for outside in (TICK_EVERY_MIN - timedelta(seconds=1), TICK_EVERY_MAX + timedelta(seconds=1)):
+        with pytest.raises(RuntimeError, match="outside 30 seconds to 24 hours"):
+            catalogue(every(outside, nothing))
+    both = HookSpec(
+        name="test.both", owner="test", on=(OnTick(at=at_nine, every=hour),),
+        evaluate=marker, effect=Run(nothing), title="Both", description="Both at once.",
+    )
+    with pytest.raises(RuntimeError, match="incompatible"):
+        catalogue(both)
+
+
+async def test_ag_hook_049_work_that_failed_waits_for_its_next_time(sessions):
+    """AG-HOOK-049 — tests/brd/tg_agent_shell/agents.feature"""
+    attempts: list[str] = []
+
+    async def flaky(event: Tick, context) -> None:
+        attempts.append(event.at)
+        raise RuntimeError("the database was busy")
+
+    poll = TickPoll(
+        catalogue(every(TICK_EVERY_MIN, flaky)), sessions, resources=None,
+        timezone="Europe/Istanbul", now=local(16, 8, 0),
+    )
+
+    await poll.look(local(16, 8, 0) + timedelta(seconds=30))
+    await poll.look(local(16, 8, 0) + timedelta(seconds=45))
+    assert attempts == ["08:00"]
+    await poll.look(local(16, 8, 1))
+    assert attempts == ["08:00", "08:01"]
+
+
+class Chat:
+    """The owner's chat as a test holds it: who acted when, and what was put in it."""
+
+    def __init__(self, *, free: bool = True) -> None:
+        self.acted = local(16, 7, 0)
+        self.is_free = free
+        self.said: list[tuple[str, str, bool]] = []
+
+    async def free(self) -> bool:
+        return self.is_free
+
+    async def newest(self):
+        return ("home", local(16, 7, 30))
+
+    async def speak(self, text: str, kind: str, still_current) -> None:
+        self.said.append((text, kind, still_current()))
+
+    def port(self) -> TickChat:
+        return TickChat(
+            owner_acted_at=lambda: self.acted, free=self.free, newest=self.newest, speak=self.speak
+        )
+
+
+async def test_ag_hook_050_work_on_a_schedule_is_told_the_chat_and_speaks_until_the_owner_acts(
+    sessions,
+):
+    """AG-HOOK-050 — tests/brd/tg_agent_shell/agents.feature"""
+    chat = Chat()
+    seen: list[ChatState | None] = []
+    owner_acts = False
+
+    async def say(event: Tick, context) -> None:
+        seen.append(event.chat)
+        if owner_acts:
+            chat.acted = local(16, 8, 1)
+        await context.publish("Hello.", MessageKind.EVENT.value)
+
+    poll = TickPoll(
+        catalogue(every(TICK_EVERY_MIN, say)), sessions, resources=None,
+        timezone="Europe/Istanbul", now=local(16, 8, 0), chat=chat.port(),
+    )
+
+    await poll.look(local(16, 8, 0) + timedelta(seconds=30))
+    assert seen == [ChatState(local(16, 7, 0), True, "home", local(16, 7, 30))]
+    assert chat.said == [("Hello.", "event", True)]
+
+    # The owner acted after the look that ran it: what it says is no longer current.
+    owner_acts = True
+    await poll.look(local(16, 8, 1))
+    assert chat.said[-1] == ("Hello.", "event", False)
+
+    # A poll given no chat tells its checks of none.
+    quiet = TickPoll(
+        catalogue(every(TICK_EVERY_MIN, say)), sessions, resources=None,
+        timezone="Europe/Istanbul", now=local(16, 8, 0),
+    )
+    await quiet.look(local(16, 8, 0) + timedelta(seconds=30))
+    assert seen[-1] is None
+
+
+async def test_ag_hook_050_a_message_on_a_schedule_goes_only_while_the_chat_is_free(sessions):
+    """AG-HOOK-050 — tests/brd/tg_agent_shell/agents.feature"""
+    anchor = QueueTestMessage(message_id=150, is_bot=False, answer_as_new=True)
+    busy = SimpleNamespace(busy=True)
+    services = SimpleNamespace(
+        sessions=sessions,
+        owner_id=42,
+        turn=TurnManager(),
+        chat=ChatHost(TelegramNotes(sessions), spawn=spawn_timer),
+        root=SimpleNamespace(reviews=busy),
+    )
+
+    await speak_on_schedule(services, anchor, "A review waits.", "event", lambda: True)
+    services.root.reviews = ProposalStore()
+    await speak_on_schedule(services, anchor, "The owner acted.", "event", lambda: False)
+    assert anchor.sent == []
+
+    await speak_on_schedule(services, anchor, "Free <now>.", "event", lambda: True)
+    [said] = anchor.sent
+    assert said.text == "Free &lt;now&gt;."
+    assert (await TelegramNotes(sessions).note(700, said.message_id)).kind == "event"
+    assert services.turn.active is False

@@ -135,7 +135,6 @@ class E2EHarness:
         self,
         responses: list[str | CompletionTurn],
         *,
-        cache_breakpoints: bool = False,
         subagents: tuple[RoutedSubagent, ...] | None = None,
         helpers: dict[str, object] | None = None,
         autoapprove: bool = False,
@@ -164,7 +163,6 @@ class E2EHarness:
             workspace_state=workspace_context,
             system_prompt=SYSTEM_PROMPT,
             model_name="e2e-scripted-model",
-            cache_breakpoints=cache_breakpoints,
             autoapprove=autoapprove,
             subagents=subagents,
             # A test replaces what a helper does, never how the feature declared it.

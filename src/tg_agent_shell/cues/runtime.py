@@ -7,14 +7,17 @@ and what comes back is the Advisor's own answer.
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
+from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 from aiogram import Bot
 from aiogram.types import Message
 from sqlalchemy import func, select
 
-from telegram_llm import DialogueMessage
+from telegram_llm import DialogueMessage, markdown_to_telegram_html
 
 from ..ai.outcome import AIOutcome
 from ..ai.runs import AgentRun
@@ -23,9 +26,11 @@ from ..foundation.kinds import MessageKind
 from ..history import TelegramMessage
 from ..hooks.contracts import BeforeTurn, Shown
 from ..proposals.telegram import render_ai_outcome
-from ..telegram import Services, expire_review, owner_anchor
+from ..telegram import Services, expire_review, owner_anchor, render_citations, send_prose
+from ..telegram.chat import clear_draw_home
 from ..telegram.dialogue import run_before_turn
 from ..turn import own_cancellation
+from .initiatives import TickChat
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +50,55 @@ async def chat_is_free(services: Services) -> bool:
             select(func.count(AgentRun.id)).where(AgentRun.claimed_at.is_not(None))
         )
     return not claimed
+
+
+async def speak_on_schedule(
+    services: Services,
+    anchor: Message,
+    text: str,
+    kind: str,
+    still_current: Callable[[], bool],
+) -> None:
+    """Put the message of a check on a schedule in the chat, while the chat is free.
+
+    The lease is taken for the sending alone, so the owner acting stops it, and the work
+    before it runs on. A Home dashboard is drawn over everything above it.
+    """
+    if not still_current() or not await chat_is_free(services):
+        return
+
+    async def say(current: Callable[[], bool]) -> None:
+        if not (current() and still_current()):
+            return
+        if kind != MessageKind.HOME.value:
+            await send_prose(
+                anchor, services, html.escape(text), kind=MessageKind(kind), replace=False
+            )
+            return
+        async with services.sessions() as session:
+            body = await render_citations(session, services, markdown_to_telegram_html(text))
+        if current() and still_current():
+            await clear_draw_home(anchor, services, body)
+
+    await services.turn.run_background(say)
+
+
+def tick_chat(services: Services, anchor: Message) -> TickChat:
+    """The owner's chat, for the checks on a schedule; `anchor` stands for the owner in it."""
+
+    async def newest() -> tuple[str, datetime | None] | None:
+        notes = await services.chat.notes.messages(anchor.chat.id, limit=1)
+        return (notes[0].kind, notes[0].at) if notes else None
+
+    async def speak(text: str, kind: str, still_current: Callable[[], bool]) -> None:
+        await speak_on_schedule(services, anchor, text, kind, still_current)
+
+    async def free() -> bool:
+        return await chat_is_free(services)
+
+    return TickChat(
+        owner_acted_at=lambda: services.owner_acted_at, free=free, newest=newest, speak=speak
+    )
 
 
 class CueRuntime:

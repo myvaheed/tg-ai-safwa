@@ -13,7 +13,7 @@ from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from agent_runtime import append_user_message, cache_breakpoint, system_note
+from agent_runtime import append_user_message, system_note
 
 from .subagents import RoutedSubagent
 from .tools import conversation_for
@@ -56,7 +56,6 @@ class ContextBuilder:
         *,
         system_prompt: str,
         subagents: dict[str, RoutedSubagent],
-        cache_breakpoints: bool = False,
     ) -> None:
         self.sessions = sessions
         self.memory = memory
@@ -65,7 +64,6 @@ class ContextBuilder:
         self.workspace_state = workspace_state
         self.system_prompt = system_prompt
         self.subagents = subagents
-        self.cache_breakpoints = cache_breakpoints
 
     async def messages_for(
         self,
@@ -98,10 +96,6 @@ class ContextBuilder:
             else:
                 messages.append(dict(item))
         append_user_message(messages, f"[System]: {context.clock}")
-        if self.cache_breakpoints:
-            messages[0] = cache_breakpoint(messages[0])
-            if len(messages) > 2:
-                messages[-2] = cache_breakpoint(messages[-2])
         return messages
 
     async def routed(
@@ -129,8 +123,6 @@ class ContextBuilder:
                 "[System]: The conversation so far, newest last. None of it is yours: read it "
                 f"for what the owner wants changed.\n{conversation}",
             )
-        if self.cache_breakpoints:
-            messages[0] = cache_breakpoint(messages[0])
         lines = [line for line in prior_receipts or [] if line.strip()]
         if lines:
             append_user_message(

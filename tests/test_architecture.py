@@ -247,6 +247,20 @@ def test_the_map_answers_for_a_shell_package_and_refuses_a_name_nothing_register
 # ------------------------------------------------- Rule I: the prompt prefix is stable
 
 
+def _tool_schemas() -> dict[str, dict]:
+    """Every tool a model is handed, by name."""
+    tools = {
+        "open": open_tool(SCREENS),
+        "route": ROUTE_TOOL,
+        "query_data": QUERY_TOOL,
+        "call_helper": CALL_HELPER_TOOL,
+        # The schema names no photo, so it is read without a library to read one from.
+        "relook": relook_tool(None).schema,
+    }
+    tools.update({name: tool.schema() for name, tool in PROPOSALS.tools.items()})
+    return tools
+
+
 def test_rule_i_prompt_prefix_is_byte_stable(request):
     # Everything a provider sees before the dialogue: the prompts and the tool schemas.
     # `_context_messages` orders the volatile blocks after it, so this is the whole of
@@ -255,21 +269,61 @@ def test_rule_i_prompt_prefix_is_byte_stable(request):
         "SYSTEM_PROMPT": _digest(SYSTEM_PROMPT),
         "PERSONA": _digest(PERSONA),
         "HEAVY_ANALYZER_PROMPT": _digest(HELPERS["heavy_analyzer"].instructions),
-        "tool:open": _digest(json.dumps(open_tool(SCREENS), sort_keys=True)),
-        "tool:route": _digest(json.dumps(ROUTE_TOOL, sort_keys=True)),
-        "tool:query_data": _digest(json.dumps(QUERY_TOOL, sort_keys=True)),
-        "tool:call_helper": _digest(json.dumps(CALL_HELPER_TOOL, sort_keys=True)),
-        # The schema names no photo, so it is read without a library to read one from.
-        "tool:relook": _digest(json.dumps(relook_tool(None).schema, sort_keys=True)),
     }
     # The instructions as assembled, not as written: `{views}` is filled in at import
     # time, so the raw constant is not what any subagent reads.
     for agent in AGENTS:
         produced[f"agent:{agent.name}"] = _digest(agent.instructions)
-    for name, tool in PROPOSALS.tools.items():
-        produced[f"tool:{name}"] = _digest(json.dumps(tool.schema(), sort_keys=True))
+    for name, schema in _tool_schemas().items():
+        produced[f"tool:{name}"] = _digest(json.dumps(schema, sort_keys=True))
 
     _snapshot("prompt_prefix", produced, request.config.getoption("--snapshot-update"))
+
+
+# The JSON Schema every provider reads in a tool's parameters. Gemini refuses the rest —
+# `exclusiveMinimum` among them — and reads `enum` only beside a `type`.
+PORTABLE_KEYWORDS = frozenset(
+    {
+        "type",
+        "properties",
+        "required",
+        "description",
+        "enum",
+        "items",
+        "anyOf",
+        "minimum",
+        "maximum",
+        "additionalProperties",
+        "default",
+    }
+)
+
+
+def _schema_keywords(node, found: set[str]) -> None:
+    if isinstance(node, list):
+        for item in node:
+            _schema_keywords(item, found)
+    elif isinstance(node, dict):
+        if "enum" in node and "type" not in node:
+            found.add("enum without type")
+        for key, value in node.items():
+            found.add(key)
+            if key == "properties":
+                for field in value.values():
+                    _schema_keywords(field, found)
+            elif key != "default":
+                _schema_keywords(value, found)
+
+
+def test_every_tool_schema_keeps_to_the_keywords_every_provider_reads():
+    refused = {}
+    for name, schema in _tool_schemas().items():
+        found: set[str] = set()
+        _schema_keywords(schema["function"]["parameters"], found)
+        if found - PORTABLE_KEYWORDS:
+            refused[name] = sorted(found - PORTABLE_KEYWORDS)
+
+    assert not refused
 
 
 # The snapshot above is what the prompts *say*, which catches an edit to one.  What follows
@@ -301,7 +355,6 @@ def _builder(clock: str) -> ContextBuilder:
         workspace_state,
         system_prompt="You keep the owner's Cards.",
         subagents={},
-        cache_breakpoints=True,
     )
 
 

@@ -5,7 +5,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
-from telegram_fakes import spawn_timer
+from telegram_fakes import QueueTestMessage, spawn_timer
 from ui_harness import FakeMessage, history_source
 
 from safwa.bootstrap.modules import SCREENS
@@ -15,6 +15,7 @@ from tg_agent_shell.ai.conversation import CLEARED_READ, conversation_block, kep
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramNotes
 from tg_agent_shell.telegram import SHELL_COMMANDS
+from tg_agent_shell.telegram.chat import clear_draw_home
 from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.routing import build_router
 
@@ -643,3 +644,47 @@ def test_conversation_block_keeps_the_newest_things_said() -> None:
 
 def test_conversation_block_is_empty_when_the_conversation_is() -> None:
     assert conversation_block([]) == ""
+
+
+async def test_a_home_message_clears_the_chat_down_to_itself(sessions) -> None:
+    """TG-HOME-023 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    chat_id, now = 700, datetime.now(UTC)
+    await keep(sessions, chat_id, 1000, "Too old", MessageKind.DIALOGUE_USER, now - timedelta(days=3))
+    await keep(sessions, chat_id, 1100, "What is next?", MessageKind.DIALOGUE_USER, now - timedelta(hours=1))
+    await keep(sessions, chat_id, 1101, "Pay the rent.", MessageKind.DIALOGUE_ASSISTANT, now - timedelta(minutes=59))
+    await keep(sessions, chat_id, 1102, "<b>Today</b>", MessageKind.DASHBOARD, now - timedelta(minutes=58))
+    services = SimpleNamespace(
+        sessions=sessions, owner_id=42, chat=ChatHost(TelegramNotes(sessions), spawn=spawn_timer)
+    )
+    anchor = QueueTestMessage(message_id=150, is_bot=False, answer_as_new=True)
+    source = history_source(sessions)
+    notes = TelegramNotes(sessions)
+
+    # No Home message yet: nothing is taken out, and the conversation runs back to the start.
+    assert [entry.text for entry in await source.recent(chat_id)] == [
+        "Too old", "What is next?", "Pay the rent."
+    ]
+
+    await clear_draw_home(anchor, services, "<b>🏠 Home</b>")
+
+    [home] = anchor.sent
+    assert anchor.bot.silent == [home.text]
+    # Older than 48 hours stays; the rest above goes, the owner's words with it.
+    assert anchor.bot.deleted == list(range(1100, home.message_id))
+    # What was said stays kept; the screen is forgotten with its message.
+    assert None not in [await notes.note(chat_id, 1100), await notes.note(chat_id, 1101)]
+    assert await notes.note(chat_id, 1102) is None
+    assert await source.recent(chat_id) == []
+    await keep(sessions, chat_id, home.message_id + 1, "Hello again", MessageKind.DIALOGUE_USER, now)
+    assert [entry.text for entry in await source.recent(chat_id)] == ["Hello again"]
+    day = await source.day_transcript(
+        chat_id, start=now - timedelta(hours=2), end=now + timedelta(hours=1), token_budget=10_000
+    )
+    assert "What is next?" in day and "Hello again" in day and "Home" not in day
+
+    # The next one takes out everything back to this one, and no further.
+    deleted = len(anchor.bot.deleted)
+    await clear_draw_home(anchor, services, "<b>🏠 Home again</b>")
+    again = anchor.sent[-1]
+    assert anchor.bot.deleted[deleted:] == list(range(home.message_id, again.message_id))
+    assert await notes.note(chat_id, home.message_id) is None

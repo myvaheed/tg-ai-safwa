@@ -34,11 +34,11 @@ from safwa.features.profile.telegram.screens import PROFILE_FIELDS
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.summary.window import SUMMARY_HEADER
 from safwa.features.values.use_cases import create_value
-from telegram_llm import Note
+from telegram_llm import Note, markdown_to_telegram_html
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramNotes
-from tg_agent_shell.telegram import OwnerAndWritingMiddleware
+from tg_agent_shell.telegram import OwnerAndWritingMiddleware, render_citations
 
 
 async def keep(sessions, chat_id, message_id, text, kind: MessageKind, at: datetime) -> None:
@@ -58,8 +58,12 @@ async def _action(session, title: str, **fields) -> Card:
 
 
 async def _text(sessions, words=None, now=None) -> str:
+    """The dashboard as the chat shows it: its Markdown rendered the way an answer is."""
     async with sessions() as session:
-        return await dashboard_text(session, services_for(sessions), words or {}, now=now)
+        text = await dashboard_text(session, words or {}, now=now)
+        return await render_citations(
+            session, services_for(sessions), markdown_to_telegram_html(text)
+        )
 
 
 def _block(text: str, heading: str) -> list[str]:
