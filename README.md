@@ -16,9 +16,13 @@ uv sync --extra dev
 uv run safwa
 ```
 
-`SAFWA_AI_PROVIDER` selects the endpoint. The default `lmstudio` uses
-`http://localhost:1234/v1`; `openrouter` uses `https://openrouter.ai/api/v1` and drops the
-`temperature` parameter that GPT-5.6 and other reasoning models reject:
+`SAFWA_AI_PROVIDER` selects the endpoint: `local` (the default) or `openrouter`. Each is one row
+of `PRESETS` in [src/llm_gateway/presets.py](src/llm_gateway/presets.py), which knows the
+endpoint's address and what it refuses. `local` is any server on this machine that speaks the
+OpenAI API, at LM Studio's `http://localhost:1234/v1` unless `SAFWA_AI_BASE_URL` names another:
+Ollama is `http://localhost:11434/v1`, llama.cpp's `llama-server` `http://localhost:8080/v1`,
+vLLM `http://localhost:8000/v1`. Every hosted model — GPT, Claude, Gemini, Grok, DeepSeek, Qwen,
+GLM — is reached through OpenRouter:
 
 ```dotenv
 SAFWA_AI_PROVIDER=openrouter
@@ -26,8 +30,11 @@ SAFWA_AI_API_KEY=sk-or-v1-...
 SAFWA_AI_MODEL=openai/gpt-5.6-luna
 ```
 
-Every derived value (`SAFWA_AI_BASE_URL`, `SAFWA_AI_MAX_RETRIES`, `SAFWA_AI_SEND_TEMPERATURE`,
-`SAFWA_AI_CACHE_BREAKPOINTS`, `SAFWA_AI_REASONING_EFFORT`) can still be set explicitly. Set the
+Every value a row derives (`SAFWA_AI_BASE_URL`, `SAFWA_AI_MAX_RETRIES`,
+`SAFWA_AI_SEND_TEMPERATURE`, `SAFWA_AI_CACHE_BREAKPOINTS`) can still be set explicitly, and
+`SAFWA_AI_REASONING_EFFORT` sets the model's effort. Which models are known to work, and what
+breaks on which, is [docs/LLM_GATEWAY.md](docs/LLM_GATEWAY.md);
+`uv run pytest tests/test_provider_live.py --live-provider` checks the one `.env` configures. Set the
 model and Telegram credentials in `.env`. Set `SAFWA_TELEGRAM_BOT_USERNAME` without `@`; Safwa uses
 it to build `t.me` links for Card, Check, Tag, Value, Saved Request, Reminder, Diary and retro
 citations.

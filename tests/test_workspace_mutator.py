@@ -87,7 +87,6 @@ def _builder(state: str) -> ContextBuilder:
         workspace_state,
         system_prompt="You keep what the owner keeps.",
         subagents={},
-        cache_breakpoints=False,
     )
 
 

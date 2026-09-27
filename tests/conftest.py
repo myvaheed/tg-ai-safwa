@@ -19,6 +19,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="run tests that send messages to the dedicated Safwa-QA Telegram bot",
     )
     parser.addoption(
+        "--live-provider",
+        action="store_true",
+        default=False,
+        help="run tests that send requests to the provider SAFWA_AI_* configures",
+    )
+    parser.addoption(
         "--brd",
         default=None,
         metavar="SCENARIO_ID",
@@ -48,12 +54,13 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         config.hook.pytest_deselected(items=[i for i in items if i not in selected])
         items[:] = selected
 
-    if config.getoption("--live-telegram"):
-        return
-    skip = pytest.mark.skip(reason="requires explicit --live-telegram opt-in")
-    for item in items:
-        if "live_telegram" in item.keywords:
-            item.add_marker(skip)
+    for marker, flag in (("live_telegram", "--live-telegram"), ("live_provider", "--live-provider")):
+        if config.getoption(flag):
+            continue
+        skip = pytest.mark.skip(reason=f"requires explicit {flag} opt-in")
+        for item in items:
+            if marker in item.keywords:
+                item.add_marker(skip)
 
 
 @pytest_asyncio.fixture

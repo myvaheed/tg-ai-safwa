@@ -263,7 +263,9 @@ def test_model_facing_tool_schemas_keep_optional_fields_nullable_for_constrained
         for variant in schema["properties"]["id"]["anyOf"]
         if variant.get("type") == "integer"
     )
-    assert id_integer["exclusiveMinimum"] == 0
+    # `gt=0`, said as every provider reads it.
+    assert id_integer["minimum"] == 1
+    assert "exclusiveMinimum" not in id_integer
     assert schema["additionalProperties"] is False
     assert "parent_id" not in schema.get("required", [])
 

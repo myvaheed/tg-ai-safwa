@@ -95,7 +95,6 @@ class RootSession:
         system_prompt: str,
         model_name: str,
         provider_name: str = "openai-compatible",
-        cache_breakpoints: bool = False,
         subagents: tuple[RoutedSubagent, ...] = (),
         helpers: Mapping[str, HelperPort] | None = None,
         before_tool: tuple[BeforeTool, ...] = (),
@@ -137,7 +136,6 @@ class RootSession:
             workspace_state,
             system_prompt=system_prompt,
             subagents=self.subagents,
-            cache_breakpoints=cache_breakpoints,
         )
         self.preparer = ChangePreparer(provider, query_runner, proposals)
         self.materializer = ProposalMaterializer(

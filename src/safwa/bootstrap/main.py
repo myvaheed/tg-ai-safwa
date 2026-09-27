@@ -12,7 +12,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from llm_gateway import OpenAICompatibleConfig, OpenAICompatibleProvider
+from llm_gateway import OpenAICompatibleProvider
 from telegram_llm import ChatHost
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from tg_agent_shell.asr import build_transcriber
@@ -35,7 +35,6 @@ from tg_agent_shell.turn import TurnManager
 
 from .. import featuretoggles
 from ..config import Settings
-from ..enums import AIProvider
 from ..features.advisor.agent import ADVISOR_ROW_LIMITS, ADVISOR_VIEWS
 from ..features.memory.absorb import PatternReviewer
 from ..features.memory.use_cases import MemoryReader
@@ -165,28 +164,7 @@ async def run(settings: Settings) -> None:
             await seed_default_requests(session, views=ALLOWED_VIEWS)
         await session.commit()
 
-    headers: tuple[tuple[str, str], ...] = ()
-    if settings.ai_provider is AIProvider.OPENROUTER:
-        # Sent to OpenRouter as HTTP-Referer/X-Title for request attribution.
-        headers = (
-            ("HTTP-Referer", "https://github.com/myvaheed/tg-ai-safwa"),
-            ("X-Title", "Safwa"),
-        )
-    provider = OpenAICompatibleProvider(
-        OpenAICompatibleConfig(
-            base_url=settings.resolved_ai_base_url,
-            api_key=settings.ai_api_key.get_secret_value(),
-            model=settings.ai_model,
-            timeout_seconds=settings.ai_timeout_seconds,
-            max_output_tokens=settings.ai_max_output_tokens,
-            structured_output=settings.ai_structured_output,
-            tool_choice_required=settings.ai_tool_choice_required,
-            max_retries=settings.resolved_ai_max_retries,
-            send_temperature=settings.resolved_ai_send_temperature,
-            reasoning_effort=settings.ai_reasoning_effort,
-            default_headers=headers,
-        )
-    )
+    provider = OpenAICompatibleProvider(settings.ai_config())
     memory = MemoryReader(database.sessions)
     query_runner = ReadOnlyQueryRunner(
         database_path(settings.database_url),
@@ -223,8 +201,7 @@ async def run(settings: Settings) -> None:
         workspace_state=workspace_context,
         system_prompt=SYSTEM_PROMPT,
         model_name=settings.ai_model,
-        provider_name=settings.ai_provider.value,
-        cache_breakpoints=settings.resolved_ai_cache_breakpoints,
+        provider_name=settings.ai_provider,
         subagents=routed_subagents(
             AgentContext(
                 owner_id=settings.telegram_owner_id,

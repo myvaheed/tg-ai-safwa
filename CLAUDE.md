@@ -68,8 +68,8 @@ wrong solution. Several mechanisms that all compensate for one missing property 
 
 ## Architecture
 
-Single-owner Telegram bot (aiogram 3) + an OpenAI-compatible LLM (`SAFWA_AI_PROVIDER`, LM Studio by
-default, OpenRouter for `openai/gpt-5.6-luna`) + SQLite/SQLAlchemy 2 async. The five packages and
+Single-owner Telegram bot (aiogram 3) + an OpenAI-compatible LLM (`SAFWA_AI_PROVIDER`, a local server
+such as LM Studio by default, OpenRouter for `openai/gpt-5.6-luna`) + SQLite/SQLAlchemy 2 async. The five packages and
 what each owns are [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md). Three facts that decide where an edit
 goes:
 

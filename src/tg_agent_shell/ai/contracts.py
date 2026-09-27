@@ -172,6 +172,41 @@ def _inlined(node: Any, definitions: Mapping[str, Any]) -> Any:
     return {key: _inlined(value, definitions) for key, value in node.items() if key != "$defs"}
 
 
+def _enum_type(values: list[Any]) -> str:
+    if all(isinstance(value, str) for value in values):
+        return "string"
+    if all(isinstance(value, bool) for value in values):
+        return "boolean"
+    if all(isinstance(value, int) and not isinstance(value, bool) for value in values):
+        return "integer"
+    return "number"
+
+
+def _portable(node: Any) -> Any:
+    """Say a bound and a choice in the keywords every provider reads.
+
+    Gemini refuses `exclusiveMinimum` and reads `enum` only beside a `type`, so `gt=0` on an
+    integer becomes `minimum: 1` and an enum names its type. The tool owner's validator still
+    holds the exact bound.
+    """
+    if isinstance(node, list):
+        return [_portable(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    portable = {key: _portable(value) for key, value in node.items()}
+    for exclusive, inclusive, step in (
+        ("exclusiveMinimum", "minimum", 1),
+        ("exclusiveMaximum", "maximum", -1),
+    ):
+        bound = portable.get(exclusive)
+        if isinstance(bound, int | float) and not isinstance(bound, bool):
+            del portable[exclusive]
+            portable[inclusive] = bound + step if portable.get("type") == "integer" else bound
+    if isinstance(portable.get("enum"), list) and "type" not in portable:
+        portable["type"] = _enum_type(portable["enum"])
+    return portable
+
+
 def tool_json_schema(model: type[BaseModel]) -> dict[str, Any]:
     """Return a schema that lets constrained decoders choose null for omitted options.
 
@@ -180,7 +215,7 @@ def tool_json_schema(model: type[BaseModel]) -> dict[str, Any]:
     A `title` carries no such reason: it is the property name written a second way, so it goes.
     """
     schema = model.model_json_schema()
-    return _without_titles(_inlined(schema, schema.get("$defs", {})))
+    return _portable(_without_titles(_inlined(schema, schema.get("$defs", {}))))
 
 
 def validation_error_summary(error: ValidationError) -> str:

@@ -6,7 +6,7 @@ change is, and where the state is kept are the application's, through `ports`.
 
 from __future__ import annotations
 
-from .context import append_user_message, cache_breakpoint, system_note
+from .context import append_user_message, system_note
 from .loop import ToolBudgetExceeded
 from .manager import AgentManager
 from .model import (
@@ -47,7 +47,6 @@ __all__ = [
     "ToolRunner",
     "TurnOutcome",
     "append_user_message",
-    "cache_breakpoint",
     "flatten_content",
     "json_safe",
     "log_preview",

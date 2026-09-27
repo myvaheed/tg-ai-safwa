@@ -76,11 +76,13 @@ them.
 - **Words the interface wrote are never the assistant's.** An outcome no turn produced, a review
   that closed or was interrupted, a Card created by hand and the onboarding notice are kept as
   `MessageKind.EVENT` and read on the owner's side after `EVENT_LABEL`.
-- **Reasoning goes back between calls and is never kept.** A response's reasoning comes in the
-  field its provider uses (`REASONING_FIELDS`: LM Studio's `reasoning_content`, OpenRouter's
-  `reasoning` and `reasoning_details`) and goes back unchanged on that response's assistant
-  message (`CompletionTurn.as_message`) for every later request of the same session.
-  `kept_turn` leaves it out, so no later request reads it.
+- **Reasoning goes back between calls and is never kept.** Whatever the provider put on a
+  response beyond the standard keys — LM Studio's `reasoning_content`, OpenRouter's `reasoning`
+  and `reasoning_details`, Gemini's signature on each call — goes back unchanged on that
+  response's assistant message (`CompletionTurn.as_message`) for every later request of the same
+  session. `kept_turn` keeps the standard keys alone (`standard_message`), so no later request
+  reads it, and a turn one model wrote reads the same to the next
+  ([LLM_GATEWAY.md](LLM_GATEWAY.md#what-goes-back-and-what-is-kept)).
 - A turn that suspends on a review screen is written when it finishes after the decision. Words
   the owner typed over the screen are therefore kept before the turn they interrupted — the order
   the resumed session read them in.
@@ -160,6 +162,12 @@ SYSTEM_PROMPT … # Tools … <tools>{route, query_data, open}</tools><|im_end|>
 The template renders the tool calls and results of every earlier turn. What it removes by itself is
 the reasoning of assistant turns before the last user message.
 
+Every other family has its own template, and a hosted model its own native format; the endpoint
+renders the same roles into it, so the argument holds for any model trained on tool trajectories.
+What differs is the reasoning: Qwen's template drops it before the last user message, Gemini 3
+refuses the next step of a turn without its signature, and DeepSeek V4 thinking with tools wants
+the reasoning of every earlier turn back ([LLM_GATEWAY.md](LLM_GATEWAY.md#models)).
+
 ### 3.2 What follows for a 4–12B model
 
 1. **The history is the strongest few-shot the model gets.** A small model follows the pattern of
@@ -178,12 +186,39 @@ the reasoning of assistant turns before the last user message.
    of the assistant messages after the last user message and drops the rest. Qwen3.5 thinks
    between its calls: without that reasoning it can write its thinking into the answer, and
    a 4B one in LM Studio stops thinking by its third call and batches fewer calls. OpenRouter
-   asks for it back unchanged on the message that made the calls.
+   asks for it back unchanged on the message that made the calls, and Gemini 3 refuses the step
+   without it. Past the turn nothing of it is kept: a model switch must never replay what
+   another model signed.
 6. **Append-only history is what caching needs.** A remote provider caches the longest identical
-   prefix, and a local llama.cpp-based server reuses its KV cache the same way.
+   prefix, and a local llama.cpp-based server reuses its KV cache the same way. OpenAI, xAI,
+   Gemini and DeepSeek find the prefix themselves; Anthropic caches only up to a marked block,
+   which the gateway marks when its row says so.
 7. **Compaction goes on the user side, at the start** — which is where the Summary is read.
 8. **A delegated agent reads the conversation as data** — which is how a subagent reads it
    (section 4).
+
+### 3.3 Portable by construction
+
+What keeps the same history readable by every endpoint, and by the next model after a switch:
+
+- **Only `messages[0]` is a system message.** Anthropic hoists every system message to the top,
+  and a chat template raises on a second one; everything else the interface says is user text
+  after `[System]:`.
+- **The roles alternate.** The owner's side is one user message up to the next answer, which is
+  what Anthropic, Gemini and a strict template expect.
+- **A tool result follows its call directly**, paired by an id every endpoint takes back, and its
+  content is a JSON string.
+- **No photo is in the history**, only its label, so a model without vision reads it too. The one
+  request that carries an image is the look itself, in the base64 `image_url` form every
+  OpenAI-compatible endpoint takes; a JPEG at `PHOTO_MAX_SIDE = 1280` is inside every provider's
+  limit.
+- **Nothing one provider added is kept**, so a model switch changes nothing the next model reads.
+- **A tool schema keeps to the keywords every provider reads.** `tool_json_schema` turns `gt=0`
+  into `minimum: 1` and gives an enum its type, and
+  `test_every_tool_schema_keeps_to_the_keywords_every_provider_reads` holds the rest.
+
+One case is left: a turn that ended without words ends on a tool result, and Mistral refuses a
+user message after one.
 
 Sources:
 [Qwen3 chat template](https://huggingface.co/Qwen/Qwen3-8B/blob/main/tokenizer_config.json) ·
@@ -192,7 +227,11 @@ Sources:
 [Anthropic: context editing](https://platform.claude.com/docs/en/build-with-claude/context-editing) ·
 [Claude cookbook: memory, compaction and tool clearing](https://platform.claude.com/cookbook/tool-use-context-engineering-context-engineering-tools) ·
 [OpenRouter: reasoning tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens) ·
-[Manus: context engineering for AI agents](https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus)
+[Manus: context engineering for AI agents](https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus) ·
+[Anthropic: OpenAI SDK compatibility](https://platform.claude.com/docs/en/api/openai-sdk) ·
+[Gemini: OpenAI compatibility](https://ai.google.dev/gemini-api/docs/openai) ·
+[DeepSeek: thinking mode](https://api-docs.deepseek.com/guides/thinking_mode/) ·
+[OpenAI: reasoning](https://developers.openai.com/api/docs/guides/reasoning)
 
 ## 4. Other readers of the kept chat
 
@@ -245,6 +284,11 @@ labelled with who said it.
   often. The longest request does not grow: the dialogue stays within `SUMMARY_TRIGGER_TOKENS`,
   beside a system prompt of about 4450. A read kept whole — 15 tokens for one row, 2716 for fifty —
   could take 45% of the window at once, which is why its rows are cleared.
+- **The window is counted in estimated tokens.** `estimate_tokens` divides characters by
+  `TOKEN_CHARS_ESTIMATE`, and every model's tokenizer counts differently, Cyrillic most of all.
+  The longest request is the system prompt (about 4450), the window (6000), a turn's reads before
+  they are cleared (up to `DEFAULT_CHAR_BUDGET = 12000` characters each) and the output (4096):
+  a model with less than a 32k context runs out.
 
 ## 6. What to tune when the window runs short
 

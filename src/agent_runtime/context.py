@@ -30,21 +30,3 @@ def append_user_message(messages: list[dict[str, Any]], content: str) -> None:
         messages[-1]["content"] += "\n" + content
         return
     messages.append({"role": "user", "content": content})
-
-
-def cache_breakpoint(message: dict[str, Any]) -> dict[str, Any]:
-    """Mark the end of a reusable prefix.
-
-    OpenRouter accepts the Anthropic form and converts it to OpenAI's
-    ``prompt_cache_breakpoint`` for GPT-5.6 and newer, so one marker is portable.
-    """
-
-    content = message.get("content")
-    if not isinstance(content, str) or not content:
-        return message
-    return {
-        **message,
-        "content": [
-            {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
-        ],
-    }
