@@ -180,7 +180,9 @@ pre-release database; migration support starts after v1, from the ORM metadata a
 Beyond what the table above points at, and none of it required reading for an ordinary task:
 [LLM_GATEWAY.md](docs/LLM_GATEWAY.md) is the provider boundary,
 [LLM_HISTORY.md](docs/LLM_HISTORY.md) what the model reads as the conversation and why, and
-[SPRINT_ANALYSE_TO_RETRO_AND_MEM.md](docs/SPRINT_ANALYSE_TO_RETRO_AND_MEM.md) the retro analysis — what it reads, asks and writes — and how memory is written from it.
+[SPRINT_ANALYSE_TO_RETRO_AND_MEM.md](docs/SPRINT_ANALYSE_TO_RETRO_AND_MEM.md) the retro analysis — what it reads, asks and writes — and how memory is written from it,
+and [HOME_DASHBOARD.md](docs/HOME_DASHBOARD.md) how a quiet chat is cleared down to the Home
+dashboard and what it shows.
 A feature's own package is a pointer like any other: its `.feature`
 file is the rule, and the package is what keeps it. `docs/` is where anything written from now on
 goes.

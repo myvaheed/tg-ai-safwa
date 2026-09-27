@@ -17,6 +17,11 @@ SPRINT_LENGTH_DAYS = 14
 DIARY_TIME_DEFAULT = "22:00"
 SUMMARY_TIME_DEFAULT = "20:00"
 MORNING_TIME_DEFAULT = "09:00"
+# How many minutes the owner may leave the chat before it is cleared down to the Home
+# dashboard, out of the box, and what the Profile accepts.
+HOME_AFTER_MINUTES_DEFAULT = 30
+HOME_AFTER_MINUTES_MIN = 5
+HOME_AFTER_MINUTES_MAX = 1440
 
 
 class UserProfile(Base, TimestampMixin):
@@ -37,6 +42,7 @@ class UserProfile(Base, TimestampMixin):
     # Whether the owner records the time an Action took: the button on an Action, a
     # Sprint's time in its retro, and the question after Done follow it.
     time_tracking: Mapped[bool] = mapped_column(Boolean, default=False)
+    home_after_minutes: Mapped[int] = mapped_column(Integer, default=HOME_AFTER_MINUTES_DEFAULT)
     # The automatic reactions the owner turned off, by hook name. A hook that is not
     # here is on, so a new hook needs no column of its own.
     disabled_hooks: Mapped[list[str]] = mapped_column(JSON, default=list)
@@ -57,3 +63,4 @@ class ProfileField(StrEnum):
     SUMMARY_TIME = "summary_time"
     MORNING_TIME = "morning_time"
     TIME_TRACKING = "time_tracking"
+    HOME_AFTER_MINUTES = "home_after_minutes"

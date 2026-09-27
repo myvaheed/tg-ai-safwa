@@ -10,13 +10,16 @@ import html
 import logging
 import secrets
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 from aiogram import Bot
 from aiogram.types import (
+    Chat,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
+    User,
 )
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from telegram_llm import Note
 
 from ..foundation.kinds import MessageKind
+from ..history import CONVERSATION_KINDS
 from ..proposals.model import BatchDecision
 from ..proposals.render import proposal_outcome_text
 from ..proposals.store import PROPOSAL_REVIEW_MINUTES
@@ -296,6 +300,44 @@ async def send_toast(message: Message, services: Services, text: str) -> None:
 
 async def discard_toast(message: Message, services: Services) -> None:
     await services.chat.discard_toast(message)
+
+
+def owner_anchor(bot: Bot, owner_id: int) -> Message:
+    """A stand-in for the owner's message, for what the bot says on its own.
+
+    `from_user` is the owner, which is what makes a send post a new message instead of
+    trying to edit a message id that does not exist.
+    """
+    return Message(
+        message_id=0,
+        date=datetime.now(UTC),
+        chat=Chat(id=owner_id, type="private"),
+        from_user=User(id=owner_id, is_bot=False, first_name="Owner"),
+    ).as_(bot)
+
+
+async def draw_home(message: Message, services: Services, text: str) -> None:
+    """Clear the chat down to one new message: `text`, drawn without a sound.
+
+    Everything from the previous one down, the owner's messages included, leaves the
+    chat. What was said stays kept, and the conversation starts over after this message.
+    """
+    chat_id = message.chat.id
+    homes = await services.chat.notes.outgoing(chat_id, kinds={MessageKind.HOME.value})
+    sent = await services.chat.send(
+        message, text, kind=MessageKind.HOME.value, replace=False, silent=True
+    )
+    await services.chat.clear(
+        message.bot,
+        chat_id,
+        sent.message_id - 1,
+        keep=CONVERSATION_KINDS,
+        first=homes[0].message_id if homes else 0,
+    )
+    await services.chat.discard_toast(message)
+    async with services.sessions() as session:
+        await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
+        await session.commit()
 
 
 async def discard_stale_status(bot: Bot, services: Services, chat_id: int) -> None:

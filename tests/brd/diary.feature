@@ -93,11 +93,11 @@ Feature: Diary
     When a day is read without naming one
     Then it is the owner's day, from their midnight to the next
 
-  Scenario: DI-READ-013 — A day is written from what was said that day and what is already written
+  Scenario: DI-READ-013 — The Diary reads a day's entry and what was said that day apart
     Given the Diary is asked to write a day
-    When it reads that day
-    Then it is handed that day's conversation, and the entry already saved for it if there is one
-    And the photos on that day, each by its words and its number
+    Then it can read two things, each on its own: the entry saved for that day, and what was said that day
+    And the entry comes with its words, its rating and its photos, each photo by its words and its number
+    And it reads what was said that day only when this conversation does not say what to write
     And it is given nothing else to read
 
   Scenario: DI-MOOD-014 — Rewriting a day without naming a rating keeps the rating it had
@@ -108,12 +108,12 @@ Feature: Diary
 
   Scenario: DI-READ-015 — A day nobody talked about reads as empty, not as a failure
     Given the owner said nothing to Safwa on a day
-    When the Diary reads that day
-    Then it comes back saying that day's conversation holds nothing
+    When the Diary reads what was said that day
+    Then it comes back saying nothing was said that day
     And it does not fail, so the day can still be written from what the owner asks for
 
-  Scenario: DI-READ-016 — Reading one named day reads the whole day
-    Given the Diary is asked to read one day, named by its date
+  Scenario: DI-READ-016 — Reading what was said on a named day reads the whole day
+    Given the Diary reads what was said on one day, named by its date
     When a Summary was written in the middle of that day
     Then the whole day is read as it was spoken, and the Summary is not read at all
     And the day runs from midnight to midnight in the owner's timezone
@@ -156,8 +156,8 @@ Feature: Diary
     Then the 3 photos come as one album, with the date, the rating and the words below it
     And the album goes when the next screen comes
 
-  Scenario: DI-READ-023 — A day's words are rewritten only after that day was read
-    Given the Diary sends new words for 26.09.2026 without having read that day
+  Scenario: DI-READ-023 — A day's words are rewritten only after what is saved for it was read
+    Given the Diary sends new words for 26.09.2026 without having read what is saved for that day
     When Safwa checks them
     Then they go back to the Diary, asking it to read that day first
     And nothing is put up for the owner until it has read that day and sent them again

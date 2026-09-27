@@ -14,6 +14,7 @@ from tg_agent_shell.telegram import Page, paginate, short_citation_title, with_c
 
 from ....foundation.marks import REPEAT_TODAY_MARKER, title_marks
 from ....foundation.workspace import Workspace
+from ..api import list_order
 from ..hierarchy import card_progress
 from ..model import (
     Card,
@@ -22,7 +23,6 @@ from ..model import (
     CardKind,
     Category,
     EnergyType,
-    Priority,
     effort_label,
     minutes_label,
 )
@@ -93,22 +93,8 @@ def energy_expression(values: Any) -> str:
     return _typed_expression(values, ENERGY_EMOJIS)
 
 
-_PRIORITY_ORDER = {Priority.CRITICAL.value: 0, Priority.MEDIUM.value: 1, Priority.LOW.value: 2}
-
-
-def _live_card_order(card: Card) -> tuple[bool, datetime, int, datetime]:
-    """Hard Time first and the sooner one before, then priority, then oldest — one
-    ordering for every Card list."""
-    return (
-        card.hard_time_at is None,
-        card.hard_time_at or card.created_at,
-        _PRIORITY_ORDER[card.priority],
-        card.created_at,
-    )
-
-
 def paginate_cards(cards: list[Card], page: int) -> Page:
-    return paginate(sorted(cards, key=_live_card_order), page)
+    return paginate(sorted(cards, key=list_order), page)
 
 
 def card_overview_text(

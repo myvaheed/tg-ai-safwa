@@ -126,8 +126,10 @@ class FakeMessage:
         self.edits.append((text if rich_message is None else rich_message.html, reply_markup))
         return self
 
-    async def answer(self, text: str, *, reply_markup=None, parse_mode=None):
-        del parse_mode
+    async def answer(
+        self, text: str, *, reply_markup=None, parse_mode=None, disable_notification=False
+    ):
+        del parse_mode, disable_notification
         self.answers.append(text)
         self.answer_markups.append(reply_markup)
         if self.answer_as_new:

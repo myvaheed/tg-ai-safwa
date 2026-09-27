@@ -35,7 +35,12 @@ from ....features.cards.api import effort_label
 from ....foundation.workspace import Workspace
 from ...reminders.api import parse_clock
 from ..api import TIME_TRACKING_REMINDER, set_hook_switch
-from ..model import ProfileField, UserProfile
+from ..model import (
+    HOME_AFTER_MINUTES_MAX,
+    HOME_AFTER_MINUTES_MIN,
+    ProfileField,
+    UserProfile,
+)
 from ..use_cases import profile_field, set_profile_field
 
 
@@ -54,6 +59,15 @@ def _parse_sprint_length(raw: str) -> int:
     if not raw.isdigit() or not SPRINT_LENGTH_MIN_DAYS <= int(raw) <= SPRINT_LENGTH_MAX_DAYS:
         raise ValueError(
             f"Send a whole number between {SPRINT_LENGTH_MIN_DAYS} and {SPRINT_LENGTH_MAX_DAYS}."
+        )
+    return int(raw)
+
+
+def _parse_home_after(raw: str) -> int:
+    if not raw.isdigit() or not HOME_AFTER_MINUTES_MIN <= int(raw) <= HOME_AFTER_MINUTES_MAX:
+        raise ValueError(
+            f"Send a whole number of minutes between {HOME_AFTER_MINUTES_MIN} and "
+            f"{HOME_AFTER_MINUTES_MAX}."
         )
     return int(raw)
 
@@ -152,6 +166,16 @@ PROFILE_FIELDS: dict[str, EditableField] = {
         ),
         parse=_parse_clock,
         show=_clock,
+    ),
+    "home_after_minutes": EditableField(
+        title="Home after",
+        label="🏠 Home after",
+        instruction=(
+            f"Send how many minutes you may leave the chat, from {HOME_AFTER_MINUTES_MIN} to "
+            f"{HOME_AFTER_MINUTES_MAX}, before Safwa clears it down to the Home dashboard."
+        ),
+        parse=_parse_home_after,
+        show=lambda value: f"{value} min",
     ),
 }
 

@@ -1,11 +1,11 @@
 Feature: Profile
   Profile is where the owner tells Safwa things outright, rather than leaving Safwa to infer them.
-  There are nine of them, each edited on its own, each checked before it is stored.
+  There are ten of them, each edited on its own, each checked before it is stored.
 
   Numbers below name the constant they come from; the tests read the constant.
 
   Background:
-    Given a workspace whose Profile holds the nine things the owner can tell Safwa outright
+    Given a workspace whose Profile holds the ten things the owner can tell Safwa outright
 
   Scenario: PS-CONTEXT-001 — What the owner said outright outranks what Safwa remembered
     Given what Safwa remembered and the Profile say different things about the owner
@@ -105,3 +105,10 @@ Feature: Profile
     And the full editing of an Action offers its time (CD-TIME-039), and the Time tracking reminder is on the Profile screen with a switch of its own, on until the owner turns it off (CD-TIME-041)
     And the Profile says the active day it measures runs from the Morning time to the Diary time, 09:00 to 22:00 in a new workspace (MORNING_TIME_DEFAULT = "09:00", DIARY_TIME_DEFAULT = "22:00")
     And pressing it again turns it off
+
+  Scenario: PS-HOME-018 — The quiet time before the Home dashboard is set in the Profile
+    Given a new workspace, whose quiet time is 30 minutes (HOME_AFTER_MINUTES_DEFAULT = 30)
+    Then it is on the Profile, edited as a whole number of minutes from 5 through 1440 (HOME_AFTER_MINUTES_MIN = 5, HOME_AFTER_MINUTES_MAX = 1440)
+    But anything else is refused, and the field keeps what it had
+    When it changes
+    Then the next quiet period is measured by it, without a restart

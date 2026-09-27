@@ -256,7 +256,7 @@ async def test_a_routed_subagent_is_offered_only_its_own_tools(e2e_harness):
     await advisor.handle("Запиши сегодняшний день")
 
     offered = {tool["function"]["name"] for tool in provider.options[1]["tools"]}
-    assert offered == {"read_day", "diary"}
+    assert offered == {"read_day", "read_conversation", "diary"}
     # No recursion, and no reach into the workspace.
     assert "route" not in offered
     assert "card" not in offered
@@ -407,7 +407,11 @@ async def test_a_subagent_that_runs_too_long_is_stopped_by_the_clock(e2e_harness
 
     slow = e2e_harness.subagent("diary", history=SlowReader())
     advisor, provider = e2e_harness.advisor(
-        [turn(("route", {"name": "diary"})), turn(("read_day", {}), prefix="diary"), "Готово."],
+        [
+            turn(("route", {"name": "diary"})),
+            turn(("read_conversation", {}), prefix="diary"),
+            "Готово.",
+        ],
         subagents=(slow,),
     )
 
@@ -510,7 +514,7 @@ async def test_a_failed_subagent_comes_back_as_an_error_the_advisor_reports(e2e_
     advisor, provider = e2e_harness.advisor(
         [
             turn(("route", {"name": "diary"})),
-            turn(("read_day", {}), prefix="diary"),
+            turn(("read_conversation", {}), prefix="diary"),
             "Не смог прочитать день.",
         ],
         subagents=(diary,),

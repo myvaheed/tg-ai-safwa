@@ -18,6 +18,7 @@ from tg_agent_shell.foundation.errors import DomainError
 
 from .model import (
     DIARY_TIME_DEFAULT,
+    HOME_AFTER_MINUTES_DEFAULT,
     MORNING_TIME_DEFAULT,
     SPRINT_LENGTH_DAYS,
     SUMMARY_TIME_DEFAULT,
@@ -70,6 +71,18 @@ async def time_tracking_on(session: AsyncSession) -> bool:
     """Whether the owner records the time an Action took."""
     profile = await session.get(UserProfile, 1)
     return profile is not None and profile.time_tracking
+
+
+async def about_me(session: AsyncSession) -> str:
+    """What the owner wrote about themselves, or nothing."""
+    profile = await session.get(UserProfile, 1)
+    return profile.about_me if profile is not None else ""
+
+
+async def home_after_minutes(session: AsyncSession) -> int:
+    """How long the owner may leave the chat before it is cleared down to the Home dashboard."""
+    profile = await session.get(UserProfile, 1)
+    return profile.home_after_minutes if profile is not None else HOME_AFTER_MINUTES_DEFAULT
 
 
 async def active_day_minutes(session: AsyncSession) -> int:

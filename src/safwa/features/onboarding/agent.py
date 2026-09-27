@@ -100,7 +100,7 @@ MANUAL = """# Safwa
 - "Time tracking reminder" is in the Profile only while Time tracking is on, and asks nothing while it is off.
 
 # Profile
-- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Sprint length, Sprint capacity, Morning time, Diary time, Diary instruction, Daily summary, Time tracking, and the switches.
+- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Sprint length, Sprint capacity, Morning time, Diary time, Diary instruction, Daily summary, Home after, Time tracking, and the switches.
 - "⌛ Time tracking" is off until pressed. On, it offers "⌛ Time spent" on an Action, keeps a Sprint's time for its retro and turns on "Time tracking reminder". The active day it measures runs from the Morning time to the Diary time.
 - Buttons only. The Advisor cannot change the Profile. Onboarding alone may be turned off in words.
 
@@ -109,7 +109,12 @@ MANUAL = """# Safwa
 - Commands: /start, /today, /sprint, /values, /tags, /reminders, /requests, /memory, /status for the workspace mode, /summarize to fold the conversation into a Summary now, /cancel to stop an answer being written.
 - A voice message is transcribed and answered like text.
 - A photo is read as a few words when it arrives, when image input is on. Asked what a photo shows, Safwa looks at it again. A link to a photo opens it.
-- A link in an answer opens its item."""
+- A link in an answer opens its item.
+
+# Home dashboard
+- When the user does nothing in the chat for the Profile's "🏠 Home after" minutes, 30 at first, Safwa clears the chat down to the Home dashboard, without a sound: the next Actions under their Goals, the Values in focus with a few words each, the time tracked today while Time tracking is on, and the last 10 changes.
+- It is drawn again after midnight. Each item on it is a link. It has no buttons: /start opens the menu.
+- After a clear the conversation starts over. The Diary still reads the whole day."""
 
 ONBOARDING_PROMPT = f"""You explain Safwa to the user from the manual below. You read no data.
 

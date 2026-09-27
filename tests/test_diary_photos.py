@@ -44,11 +44,6 @@ from tg_agent_shell.telegram import dismiss_prior_ui
 DAY = date(2026, 9, 26)
 
 
-class SilentDay:
-    async def day_transcript(self, chat_id: int, *, start, end, token_budget: int) -> str:
-        return ""
-
-
 async def keep_photos(sessions, *metas: str) -> list[int]:
     """Photos the owner sent, kept by the shell the way a photo arriving is kept."""
     return await MediaLibrary(sessions, None).keep(  # type: ignore[arg-type]
@@ -248,7 +243,7 @@ async def test_di_read_013_a_day_is_read_with_its_photos(sessions) -> None:
             session, entry_date=DAY, body="День.", feeling_score=6, media=[(cat, "Рыжий кот")]
         )
         await session.commit()
-    tool = day_read_tool(SilentDay(), sessions, chat_id=42, timezone="UTC")
+    tool = day_read_tool(sessions, timezone="UTC")
 
     read = await tool.run(ToolCall(id="1", name="read_day", arguments_json='{"date":"2026-09-26"}'))
 
@@ -325,7 +320,7 @@ def diary_call(**values: Any) -> ProposedCall:
 
 
 def day_read(day: str) -> SessionRead:
-    return SessionRead(tool="read_day", result=json.dumps({"date": day, "conversation": "..."}))
+    return SessionRead(tool="read_day", result=json.dumps({"date": day, "saved": "..."}))
 
 
 async def test_di_read_023_new_words_come_only_after_the_day_was_read() -> None:

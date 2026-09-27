@@ -154,6 +154,7 @@ flowchart TB
         TICK[hook-ticks]
         REM[reminder-scheduler]
         MEMR[memory-retro]
+        HOME[home-dashboard]
     end
     HIST[(telegram_messages · the kept chat)]
     DB[(SQLite · ai_* views)]
@@ -172,6 +173,7 @@ flowchart TB
     TICK --> CUE
     REM --> CUE
     MEMR -->|memory_observation| DB
+    HOME -->|clears down to the dashboard| HIST
 ```
 
 Only the Advisor writes to the chat. Everything else either hands it words or opens a screen,
@@ -758,6 +760,7 @@ stateDiagram-v2
 | `hook-ticks` | `SCHEDULER_POLL_SECONDS = 30` | `cues/initiatives.py` |
 | `reminder-scheduler` | `SCHEDULER_POLL_SECONDS = 30` | `features/reminders/background.py` |
 | `memory-retro` | `MEMORY_RETRO_INTERVAL_SECONDS = 60` | `features/memory/background.py` |
+| `home-dashboard` | `SCHEDULER_POLL_SECONDS = 30` | `features/home/background.py` |
 
 Each is a `BackgroundTask`. All but the Cue poll and the hook tick poll are declared in a
 feature's `module.py`; those two belong to no feature, so the registry puts them in front of

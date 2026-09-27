@@ -11,6 +11,13 @@ from .model import CardValue, Value
 from .model import CheckValue as CheckValue
 
 
+async def values_in_focus(session: AsyncSession) -> list[Value]:
+    """The Values the owner put in focus, by name."""
+    return list(
+        await session.scalars(select(Value).where(Value.active.is_(True)).order_by(Value.name))
+    )
+
+
 async def unlinkable_value_id(session: AsyncSession, value_ids: Iterable[int]) -> int | None:
     """The first id that cannot be linked, because no live Value has it."""
     wanted = set(value_ids)

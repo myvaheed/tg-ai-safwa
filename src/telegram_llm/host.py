@@ -16,6 +16,7 @@ import logging
 from collections.abc import Awaitable, Callable, Collection, Coroutine, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -32,11 +33,17 @@ from aiogram.types import (
 
 from .notes import Note, NoteStore
 from .text import split_telegram_text
+from .window import SCAN_LIMIT
 
 logger = logging.getLogger(__name__)
 
 # The most photos Telegram puts in one album.
 TELEGRAM_ALBUM_LIMIT = 10
+
+# The most messages one `deleteMessages` call takes, and how long after it was sent a bot
+# may still delete one.
+TELEGRAM_DELETE_BATCH = 100
+TELEGRAM_DELETE_WINDOW = timedelta(hours=48)
 
 # What becomes of a screen that is not the live one: the text to freeze it into and the kind
 # it is from then on, or None to take it out of the chat.
@@ -45,6 +52,11 @@ Freeze = Callable[[Note], Awaitable[tuple[str, str] | None]]
 # How a Toast's timer is started.  The package never starts one itself: a timer it started
 # would outlive the host's shutdown, because nothing outside would know it exists.
 Spawn = Callable[[Coroutine[None, None, None], str], "asyncio.Task[None]"]
+
+
+def _utc(moment: datetime) -> datetime:
+    """A store may hand back a naive moment; it is UTC."""
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
 
 
 async def clear_markup(message: Message, message_id: int) -> None:
@@ -85,6 +97,7 @@ class ChatHost:
         event_id: str | None = None,
         replace: bool | None = None,
         rich: bool = False,
+        silent: bool = False,
     ) -> Message:
         """Draw one state, replacing the screen this event came from when there is one.
 
@@ -93,10 +106,17 @@ class ChatHost:
         the caller means a message to be added rather than a state to be redrawn.
 
         `rich` reads `text` as Rich HTML — a block dialect with tables, sent as a rich
-        message instead of a parse-mode one. The note is the same for both.
+        message instead of a parse-mode one. The note is the same for both. `silent` sends
+        a new parse-mode message without a notification.
         """
         sent, event_id = await self._draw(
-            message, text, markup=markup, event_id=event_id, replace=replace, rich=rich
+            message,
+            text,
+            markup=markup,
+            event_id=event_id,
+            replace=replace,
+            rich=rich,
+            silent=silent,
         )
         await self._note(sent, kind, event_id, text=text, related_id=related_id)
         return sent
@@ -110,6 +130,7 @@ class ChatHost:
         event_id: str | None = None,
         replace: bool | None = None,
         rich: bool = False,
+        silent: bool = False,
     ) -> tuple[Message, str]:
         """Put one message in the chat, and say which it is and under which delivery."""
         should_replace = (
@@ -135,7 +156,12 @@ class ChatHost:
                 return await message.answer_rich(
                     rich_message=InputRichMessage(html=body), reply_markup=markup
                 )
-            return await message.answer(body, reply_markup=markup, parse_mode=ParseMode.HTML)
+            return await message.answer(
+                body,
+                reply_markup=markup,
+                parse_mode=ParseMode.HTML,
+                disable_notification=silent,
+            )
 
         if not should_replace:
             return await deliver_new(text), event_id
@@ -424,6 +450,42 @@ class ChatHost:
                 await self.remove_screen(message, screen.message_id)
                 continue
             await self.freeze_screen(message, screen, *frozen)
+
+    async def clear(
+        self,
+        bot: Bot,
+        chat_id: int,
+        last: int,
+        *,
+        keep: Collection[str],
+        first: int = 0,
+    ) -> None:
+        """Take every message from `first` to `last` out of the chat, whoever sent it.
+
+        In a private chat both sides share one sequence of ids, so a range is everything
+        in it, the person's messages and commands included; an id that is gone is skipped.
+        It starts no earlier than the oldest kept message a bot may still delete. The bot's
+        notes of the kinds in `keep` stay, because what was said is still read for a period
+        after it left the chat. Every other one goes with its message; the person's own
+        notes are their words, or of a message already taken out.
+        """
+        since = datetime.now(UTC) - TELEGRAM_DELETE_WINDOW
+        deletable = [
+            note.message_id
+            for note in await self.notes.messages(chat_id, limit=SCAN_LIMIT)
+            if note.at is not None and _utc(note.at) >= since
+        ]
+        ids = list(range(max(first, min(deletable, default=last + 1)), last + 1))
+        for start in range(0, len(ids), TELEGRAM_DELETE_BATCH):
+            try:
+                await bot.delete_messages(
+                    chat_id=chat_id, message_ids=ids[start : start + TELEGRAM_DELETE_BATCH]
+                )
+            except TelegramAPIError as error:
+                logger.warning("Could not clear messages from %s: %s", ids[start], error)
+        for note in await self.notes.outgoing(chat_id):
+            if first <= note.message_id <= last and note.kind not in keep:
+                await self.notes.forget(chat_id, note.message_id)
 
     async def freeze_screen(self, message: Message, screen: Note, text: str, kind: str) -> None:
         """Leave a screen standing as what became of it: these words, this kind, no buttons."""

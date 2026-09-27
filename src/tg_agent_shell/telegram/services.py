@@ -12,6 +12,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from aiogram import BaseMiddleware
@@ -21,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from telegram_llm import ChatHost, Transcriber
 
+from ..foundation.clock import utcnow
 from ..foundation.screens import ScreenCatalogue
 from ..history import TelegramHistorySource
 from ..hooks.registry import HookRegistry
@@ -93,6 +95,8 @@ class Services:
     # None, and a photo is refused with a line saying image input is off.
     media: MediaLibrary | None = None
     albums: AlbumGatherer = field(default_factory=AlbumGatherer)
+    # The owner's last message or press, in this process: starting counts as one.
+    owner_acted_at: datetime = field(default_factory=utcnow)
 
 
 class OwnerAndWritingMiddleware(BaseMiddleware):
@@ -109,6 +113,7 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
         )
         if user is None or user.id != services.owner_id or (chat and chat.type != "private"):
             return None
+        services.owner_acted_at = utcnow()
         album: list[Message] | None = None
         if isinstance(event, Message) and event.media_group_id is not None:
             album = await services.albums.gather(event)

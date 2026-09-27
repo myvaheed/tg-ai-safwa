@@ -31,6 +31,7 @@ from .foundation.kinds import MessageKind
 from .foundation.models import Base, UtcDateTime
 
 __all__ = [
+    "CONVERSATION_KINDS",
     "TelegramHistorySource",
     "TelegramMessage",
     "TelegramNotes",
@@ -38,6 +39,18 @@ __all__ = [
 ]
 
 EDGE_CONTEXT_MESSAGE_LIMIT = 20
+
+# What was said, in every kind it is kept under: what a clear keeps of the chat, because a
+# period is still read after it left the chat.
+CONVERSATION_KINDS = frozenset(
+    {
+        MessageKind.DIALOGUE_USER.value,
+        MessageKind.DIALOGUE_ASSISTANT.value,
+        MessageKind.CUE.value,
+        MessageKind.EVENT.value,
+        MessageKind.SUMMARY.value,
+    }
+)
 
 
 class TelegramMessage(Base):
@@ -64,6 +77,7 @@ def vocabulary(citation_types: tuple[str, ...]) -> ChatVocabulary:
         assistant=frozenset({MessageKind.DIALOGUE_ASSISTANT.value, MessageKind.CUE.value}),
         events=frozenset({MessageKind.EVENT.value}),
         citation_types=citation_types,
+        resets=frozenset({MessageKind.HOME.value}),
     )
 
 

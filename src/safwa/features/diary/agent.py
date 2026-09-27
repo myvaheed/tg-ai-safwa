@@ -96,11 +96,12 @@ class DiaryToolInput(ToolInput):
 DIARY_PROMPT = f"""You keep the user's Diary. One day, one entry, in their own voice.
 
 1. Pick the day: today, unless the user names another.
-2. Read it with `read_day(date)`: that day's conversation, and the words and photos already
-   saved for it.
-3. In the response with the `diary` tool, write your plan as text: what you will write or
+2. Read what is saved for it with `read_day(date)`: its words, rating and photos.
+3. If this conversation does not say what to write for that day, read what was said that day
+   with `read_conversation(date)`.
+4. In the response with the `diary` tool, write your plan as text: what you will write or
    remove.
-4. The `diary` tool, in that same response:
+5. The `diary` tool, in that same response:
    - `diary(mode="update", date=…, pov=…, remark=…, feeling_score=…)` — whether or not that day
      is written already. Fold in the saved words: your `pov` replaces them, so what you leave out
      of `pov` is lost. `feeling_score` is the one exception — see below.
@@ -140,24 +141,32 @@ all of how it felt; a score already saved for that day then stays as it is.
 Send 0 only when the user asks for it in words. Never choose 0 yourself.
 """
 
+_DATE_PARAMETERS: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "date": {
+            "type": "string",
+            "description": "Local date as YYYY-MM-DD. Defaults to today.",
+        }
+    },
+    "required": [],
+}
+
 READ_DAY_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
         "name": "read_day",
-        "description": (
-            "One day: the user's conversation with Safwa, oldest first, and the Diary words "
-            "and photos already saved for it."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "date": {
-                    "type": "string",
-                    "description": "Local date as YYYY-MM-DD. Defaults to today.",
-                }
-            },
-            "required": [],
-        },
+        "description": "One day of the Diary: the words, rating and photos already saved for it.",
+        "parameters": _DATE_PARAMETERS,
+    },
+}
+
+READ_CONVERSATION_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "read_conversation",
+        "description": "What the user and Safwa said on one day, oldest first.",
+        "parameters": _DATE_PARAMETERS,
     },
 }
 
@@ -170,34 +179,39 @@ class DayReader(Protocol):
     ) -> str: ...
 
 
-def day_read_tool(
+def _read_date(call: ToolCall, tz: ZoneInfo, clock: Clock) -> date | dict[str, Any]:
+    """The local date a read names, today when it names none, or the error to hand back."""
+    arguments = json.loads(call.arguments_json or "{}")
+    raw = str(arguments.get("date") or "").strip()
+    try:
+        return date.fromisoformat(raw) if raw else clock.now().astimezone(tz).date()
+    except ValueError:
+        return {
+            "status": ToolResultStatus.ERROR.value,
+            "code": "invalid_arguments",
+            "error": f"{raw!r} is not a calendar date.",
+            "hint": f'Retry {call.name} with {{"date": "YYYY-MM-DD"}}, or no arguments.',
+            "retryable": True,
+        }
+
+
+def conversation_read_tool(
     history: DayReader,
-    sessions: async_sessionmaker[AsyncSession],
     *,
     chat_id: int,
     timezone: str = "UTC",
     day_token_budget: int = DIARY_DAY_TOKEN_BUDGET,
     clock: Clock | None = None,
 ) -> ReadToolSpec:
-    """`read_day` bound to one chat: the day as the owner and Safwa actually spoke it, and
-    what is saved for it — the words a rewrite replaces whole, and the photos by their labels
-    (DI-READ-013)."""
+    """`read_conversation` bound to one chat: the day as the owner and Safwa actually spoke
+    it, from local midnight to local midnight (DI-READ-016)."""
     tz = ZoneInfo(timezone)
     current_clock = clock or SystemClock()
 
-    async def read_day(call: ToolCall) -> dict[str, Any]:
-        arguments = json.loads(call.arguments_json or "{}")
-        raw = str(arguments.get("date") or "").strip()
-        try:
-            day = date.fromisoformat(raw) if raw else current_clock.now().astimezone(tz).date()
-        except ValueError:
-            return {
-                "status": ToolResultStatus.ERROR.value,
-                "code": "invalid_arguments",
-                "error": f"{raw!r} is not a calendar date.",
-                "hint": 'Retry read_day with {"date": "YYYY-MM-DD"}, or no arguments.',
-                "retryable": True,
-            }
+    async def read_conversation(call: ToolCall) -> dict[str, Any]:
+        day = _read_date(call, tz, current_clock)
+        if isinstance(day, dict):
+            return day
         midnight = datetime.combine(day, time.min, tzinfo=tz)
         transcript = await history.day_transcript(
             chat_id,
@@ -205,6 +219,29 @@ def day_read_tool(
             end=(midnight + timedelta(days=1)).astimezone(UTC),
             token_budget=day_token_budget,
         )
+        return {
+            "date": day.isoformat(),
+            "conversation": transcript or "The user said nothing to Safwa that day.",
+        }
+
+    return ReadToolSpec(READ_CONVERSATION_TOOL, read_conversation)
+
+
+def day_read_tool(
+    sessions: async_sessionmaker[AsyncSession],
+    *,
+    timezone: str = "UTC",
+    clock: Clock | None = None,
+) -> ReadToolSpec:
+    """`read_day`: what is saved for one day — the words a rewrite replaces whole, and the
+    photos by their labels (DI-READ-013)."""
+    tz = ZoneInfo(timezone)
+    current_clock = clock or SystemClock()
+
+    async def read_day(call: ToolCall) -> dict[str, Any]:
+        day = _read_date(call, tz, current_clock)
+        if isinstance(day, dict):
+            return day
         async with sessions() as session:
             entry = await session.scalar(
                 select(DiaryEntry).where(DiaryEntry.entry_date == day)
@@ -226,11 +263,7 @@ def day_read_tool(
             saved = {"body": entry.body, "feeling_score": entry.feeling_score}
             if photos:
                 saved["media"] = photos
-        return {
-            "date": day.isoformat(),
-            "conversation": transcript or "The user said nothing to Safwa that day.",
-            "saved": saved,
-        }
+        return {"date": day.isoformat(), "saved": saved}
 
     return ReadToolSpec(READ_DAY_TOOL, read_day)
 
@@ -246,18 +279,16 @@ def diary_clock(timezone: str, clock: Clock | None = None) -> str:
 
 def _diary_read_tools(context: AgentContext) -> tuple[ReadToolSpec, ...]:
     return (
-        day_read_tool(
-            context.history,
-            context.sessions,
-            chat_id=context.owner_id,
-            timezone=context.timezone,
+        day_read_tool(context.sessions, timezone=context.timezone),
+        conversation_read_tool(
+            context.history, chat_id=context.owner_id, timezone=context.timezone
         ),
     )
 
 
 def _diary_clock(context: AgentContext) -> Callable[[], str]:
     # Enough to be told what to change about the day it just proposed; the day itself it
-    # reads with `read_day`.
+    # reads with `read_day` and `read_conversation`.
     return lambda: diary_clock(context.timezone)
 
 
