@@ -16,12 +16,13 @@ from safwa.features.cards.use_cases import archive_subtree, create_card, finish_
 from safwa.features.checks.model import CheckOutcome
 from safwa.features.checks.use_cases import archive_check, create_check, resolve_check
 from safwa.features.planning.use_cases import expire_due_sprint, start_sprint
-from tg_agent_shell.ai.autoapproval import AutoApprovalCandidate, AutoApprovalVerdict
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
 from tg_agent_shell.ai.runs import AgentRun
 from tg_agent_shell.foundation.errors import StaleStateError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramMessage
+from tg_agent_shell.hooks.contracts import BeforeReview, HookSpec, OnBeforeReview, SaveProposal
+from tg_agent_shell.hooks.registry import HookRegistry
 from tg_agent_shell.proposals.api import ToolPreparationError
 from tg_agent_shell.proposals.materialize import ProposalMaterializer
 from tg_agent_shell.proposals.model import ChangeProposal, QueueItem
@@ -223,11 +224,31 @@ async def test_pr_fail_014_a_commit_that_fails_leaves_a_review_the_owner_can_sti
         assert (await session.get(Card, card_id)).title == "Walk"
 
 
-class _ApprovesEverything:
-    """An autoapproval reviewer that always says yes, so the Save itself is under test."""
+async def _every_proposal(event: BeforeReview) -> tuple[BeforeReview, ...]:
+    return (event,)
 
-    async def review(self, candidate: AutoApprovalCandidate) -> AutoApprovalVerdict:
-        return AutoApprovalVerdict(approved=True, reason="Exactly what was asked for.")
+
+async def _exactly_asked(_event: BeforeReview, _provider: object) -> str:
+    return "Exactly what was asked for."
+
+
+class _SavesEverything:
+    """Tool adapters whose only hook saves every proposal unseen, so the Save is under test."""
+
+    hooks = HookRegistry.of(
+        (
+            HookSpec(
+                name="test.saves_everything",
+                owner="proposals",
+                on=(OnBeforeReview(),),
+                evaluate=_every_proposal,
+                effect=SaveProposal(_exactly_asked),
+                title="Saves everything",
+                description="Saves every proposal with no screen.",
+            ),
+        ),
+        owners=frozenset({"proposals"}),
+    )
 
 
 def _autoapproving(sessions, reviews: ProposalStore) -> ProposalMaterializer:
@@ -259,10 +280,9 @@ def _autoapproving(sessions, reviews: ProposalStore) -> ProposalMaterializer:
         PROPOSALS,
         ProposalRenderer(reviews, PROPOSALS),
         None,  # type: ignore[arg-type]
-        None,  # type: ignore[arg-type]
+        _SavesEverything(),  # type: ignore[arg-type]
         provider=None,  # type: ignore[arg-type]
         resolve=resolve,
-        autoapproval=_ApprovesEverything(),
     )
 
 
@@ -296,7 +316,7 @@ async def test_pr_auto_026_a_refused_automatic_save_never_offers_a_review_that_i
         )
     )
 
-    outcome = await _autoapproving(sessions, reviews).advance_autoapprovals(
+    outcome = await _autoapproving(sessions, reviews).before_review(
         AIOutcome(AIOutcomeKind.PROPOSAL, "Review this.", proposal_id=proposal.id)
     )
 

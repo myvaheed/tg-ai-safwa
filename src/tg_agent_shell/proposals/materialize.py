@@ -6,8 +6,9 @@ that could not be prepared, or that a check sent back, goes back to the model as
 corrected tool result, and the session runs again — `None` from `materialize` is what asks
 the runtime for that. An answer a check held back runs the session again the same way.
 
-The checks are hooks: `BeforeProposals` before any call of a response is prepared, and
-`AfterRequest` before the answer to the owner's message is sent.
+The checks are hooks: `BeforeProposals` before any call of a response is prepared,
+`BeforeReview` before a proposal's screen is drawn, and `AfterRequest` before the answer to
+the owner's message is sent.
 """
 
 from __future__ import annotations
@@ -29,7 +30,6 @@ from agent_runtime import (
 )
 from llm_gateway import LlmProvider
 
-from ..ai.autoapproval import AutoApprovalCandidate, AutoApprovalChange, AutoApprovalReviewer
 from ..ai.contracts import ToolResultStatus
 from ..ai.conversation import kept_turn
 from ..ai.outcome import AIOutcome, AIOutcomeKind, as_turn
@@ -44,8 +44,11 @@ from ..foundation.errors import DomainError
 from ..hooks.contracts import (
     AfterRequest,
     BeforeProposals,
+    BeforeReview,
     HoldAnswer,
     ProposedCall,
+    ReviewedChange,
+    SaveProposal,
     SessionRead,
 )
 from .api import ProposalRegistry, ToolPreparationError
@@ -93,7 +96,6 @@ class ProposalMaterializer:
         *,
         provider: LlmProvider,
         resolve: ResolveApproval,
-        autoapproval: AutoApprovalReviewer | None = None,
     ) -> None:
         self.sessions = sessions
         self.reviews = reviews
@@ -102,8 +104,7 @@ class ProposalMaterializer:
         self.preparer = preparer
         self.adapters = adapters
         self.resolve = resolve
-        self.autoapproval = autoapproval
-        # What a check that holds an answer reads it with.
+        # What a check that holds an answer or saves a proposal reads it with.
         self.provider = provider
 
     def answer(self, agent: AgentSession, message: str) -> TurnOutcome:
@@ -335,13 +336,17 @@ class ProposalMaterializer:
             and agent.host_state.pop(OWNER_REQUEST, False)
             and message.strip()
         ):
-            words = await self._held(
+            words = await self._reviewed(
                 AfterRequest(
                     run_id=agent.run_id,
                     conversation=conversation_for(agent.dialogue),
                     done=tuple(agent.display_result_summaries),
                     answer=message,
-                )
+                ),
+                HoldAnswer,
+                # A check that cannot decide lets the answer through: the owner still reads
+                # it, and decides every screen.
+                failed="The hook %s failed; the answer goes out: %s",
             )
             if words is not None:
                 agent.messages.append({"role": "assistant", "content": message})
@@ -349,12 +354,21 @@ class ProposalMaterializer:
                 return None
         return self.answer(agent, message)
 
-    async def _held(self, event: AfterRequest) -> str | None:
-        """The words of the first check that holds this answer, or None to send it."""
+    async def _reviewed(
+        self,
+        event: AfterRequest | BeforeReview,
+        effect_type: type[HoldAnswer] | type[SaveProposal],
+        *,
+        failed: str,
+    ) -> str | None:
+        """The words of the first check whose review answers this event, or None.
+
+        A check that fails is logged with `failed` and counts as no answer.
+        """
         async for checked in self.adapters.hooks.evaluate(event, self.sessions):
             effect = checked.spec.effect
             error = checked.error
-            if error is None and isinstance(effect, HoldAnswer):
+            if error is None and isinstance(effect, effect_type):
                 try:
                     for payload in checked.payloads:
                         words = await effect.review(payload, self.provider)
@@ -363,24 +377,28 @@ class ProposalMaterializer:
                 except Exception as failure:
                     error = failure
             if error is not None:
-                # A check that cannot decide lets the answer through: the owner still
-                # reads it, and decides every screen.
-                logger.error("The hook %s failed; the answer goes out: %s", checked.spec.name, error)
+                logger.error(failed, checked.spec.name, error)
         return None
 
-    async def advance_autoapprovals(self, outcome: AIOutcome) -> AIOutcome:
-        """Auto-save one eligible head; resolving it advances and checks the next head."""
+    async def before_review(self, outcome: AIOutcome) -> AIOutcome:
+        """The head of a queue, before its screen is drawn: a check may save it unseen, and
+        resolving it moves on to the next head, which is read the same way."""
         if (
-            self.autoapproval is None
-            or outcome.kind is not AIOutcomeKind.PROPOSAL
+            outcome.kind is not AIOutcomeKind.PROPOSAL
             or outcome.proposal_id is None
+            or not self.adapters.hooks.listens(BeforeReview)
         ):
             return outcome
-        candidate = await self._candidate(outcome.proposal_id)
-        if candidate is None:
+        event = await self._head(outcome.proposal_id)
+        if event is None:
             return outcome
-        verdict = await self.autoapproval.review(candidate)
-        if not verdict.approved:
+        reason = await self._reviewed(
+            event,
+            SaveProposal,
+            # A check that cannot decide shows the screen: the owner decides it after all.
+            failed="The hook %s failed; the screen is shown: %s",
+        )
+        if reason is None:
             return outcome
         try:
             advanced = await self.resolve(
@@ -388,7 +406,7 @@ class ProposalMaterializer:
                 decision=BatchDecision.APPROVED,
                 result={
                     "approval_source": AUTOAPPROVED,
-                    "autoapproval_reason": verdict.reason,
+                    "autoapproval_reason": reason,
                 },
                 apply_proposal=True,
             )
@@ -416,8 +434,9 @@ class ProposalMaterializer:
             AIOutcomeKind.ANSWER, f"{AUTO_SAVED_RECEIPT} the proposed change."
         )
 
-    async def _candidate(self, proposal_id: int) -> AutoApprovalCandidate | None:
-        """Build the reviewer's request-only view for the active head of one batch."""
+    async def _head(self, proposal_id: int) -> BeforeReview | None:
+        """The active head of one batch, as a check reads it: the owner's words and the
+        proposal, never the conversation around them."""
         async with self.sessions() as session:
             batch = self.reviews.batch_for_proposal(proposal_id)
             if batch is None:
@@ -427,14 +446,16 @@ class ProposalMaterializer:
             if head is None or head.proposal_id != proposal_id or proposal is None:
                 return None
             description = await self.renderer.describe(session, proposal_id)
-            return AutoApprovalCandidate(
-                user_request=batch.request,
+            return BeforeReview(
+                proposal_id=proposal_id,
+                request=batch.request,
                 changes=tuple(
-                    AutoApprovalChange(
+                    ReviewedChange(
                         entity=change.entity,
-                        action=change.action,
+                        action=change.action.value,
                         entity_id=change.entity_id,
                         values=dict(change.values),
+                        criterion=self.proposals.criterion(change),
                     )
                     for change in proposal.changes
                 ),

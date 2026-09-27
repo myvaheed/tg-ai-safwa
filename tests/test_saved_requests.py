@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import select, text
 
-from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, AUTOAPPROVALS
+from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS
 from safwa.features.cards.api import CardQueryError
 from safwa.features.cards.model import Card
 from safwa.features.saved_requests.api import request_cards
@@ -16,9 +16,9 @@ from safwa.features.saved_requests.use_cases import (
 )
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.workspace_mutator.remove import RemoveToolInput
-from tg_agent_shell.ai.autoapproval import AutoApprovalChange, AutoApprovalReviewer
 from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.proposals.model import ChangeAction, ProposalChange
 
 
 async def test_saved_request_runs_a_safe_card_query(sessions):
@@ -207,17 +207,18 @@ async def test_a_request_name_is_taken_whatever_its_case(sessions):
 
 def test_a_request_query_is_never_allowlisted_for_autoapproval():
     """SR-AI-010 — tests/brd/saved_requests.feature"""
-    reviewer = AutoApprovalReviewer(provider=None, rules=AUTOAPPROVALS)
 
-    def change(action: str, values: dict[str, object]) -> AutoApprovalChange:
-        return AutoApprovalChange(entity="request", action=action, entity_id=7, values=values)
+    def change(action: str, values: dict[str, object]) -> ProposalChange:
+        return ProposalChange(
+            entity="request", action=ChangeAction(action), entity_id=7, values=values
+        )
 
-    assert reviewer.rule_for(change("update", {"name": "Every goal"})) is not None
+    assert PROPOSALS.criterion(change("update", {"name": "Every goal"})) is not None
     # `prepare` stores the normalized statement as `query_sql`, so re-aiming a Request never
     # matches the allowlisted field set and never reaches the reviewer at all.
-    assert reviewer.rule_for(change("update", {"query_sql": "SELECT id FROM ai_cards"})) is None
-    assert reviewer.rule_for(change("update", {"name": "X", "query_sql": "SELECT id"})) is None
-    assert reviewer.rule_for(change("create", {"name": "X"})) is None
+    assert PROPOSALS.criterion(change("update", {"query_sql": "SELECT id FROM ai_cards"})) is None
+    assert PROPOSALS.criterion(change("update", {"name": "X", "query_sql": "SELECT id"})) is None
+    assert PROPOSALS.criterion(change("create", {"name": "X"})) is None
 
 
 async def test_a_request_is_deleted_not_archived(sessions):

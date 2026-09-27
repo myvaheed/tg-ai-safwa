@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, time
 from enum import StrEnum
 
-from sqlalchemy import JSON, Boolean, Integer, String, Text, Time
+from sqlalchemy import JSON, Integer, String, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...foundation.models import Base, TimestampMixin, UtcDateTime
@@ -35,12 +35,6 @@ class Reminder(Base, TimestampMixin):
     __tablename__ = "reminders"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     instruction: Mapped[str] = mapped_column(Text)
-    # A Reminder no owner set — a Sprint's end warnings: hidden from `/reminders` and from
-    # `ai_reminders`, and refused by the edit and delete paths.
-    system: Mapped[bool] = mapped_column(Boolean, default=False)
-    # Whose system Reminder it is, so whatever set it up can find it again. One Sprint runs
-    # at a time, so its warnings share one key. Owner-created Reminders carry none.
-    system_key: Mapped[str | None] = mapped_column(String(40))
 
     schedule_kind: Mapped[str] = mapped_column(String(20))
     weekdays: Mapped[list[str]] = mapped_column(JSON, default=list)

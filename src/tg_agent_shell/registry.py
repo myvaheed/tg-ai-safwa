@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from llm_gateway import LlmProvider
 
-from .ai.autoapproval import AutoApprovalReviewer, AutoApprovalRule
+from .ai.autoapproval import AutoApprovalRule
 from .ai.messages import Memory, StateBlocks
 from .ai.mini import ReadToolSpec
 from .ai.sql import ReadOnlyQueryRunner, SqlView, view_catalogue
@@ -94,7 +94,6 @@ class Registry:
     start_links: tuple[StartLink, ...]
 
     proposals: ProposalRegistry
-    autoapprovals: Mapping[tuple[str, str], AutoApprovalRule]
     agents: tuple[AgentSpec, ...]
     helpers: Mapping[str, HelperSpec]
     before_tool: tuple[BeforeTool, ...]
@@ -118,7 +117,7 @@ class Registry:
         """
         views = _views(modules, views)
         allowed = frozenset(view.name for view in views)
-        proposals, autoapprovals = _proposals(modules, allowed, world)
+        proposals = _proposals(modules, allowed, world)
         helpers = _helpers(modules, views)
         return cls(
             modules=modules,
@@ -131,7 +130,6 @@ class Registry:
             # Tried in registration order; a payload none of them claims opens the item it cites.
             start_links=tuple(link for module in modules for link in module.start_links),
             proposals=proposals,
-            autoapprovals=autoapprovals,
             agents=tuple(
                 _with_catalogue(agent, views) for module in modules for agent in module.agents
             ),
@@ -206,7 +204,6 @@ class Registry:
         provider_name: str = "openai-compatible",
         subagents: tuple[RoutedSubagent, ...] = (),
         helpers: Mapping[str, HelperPort] | None = None,
-        autoapprove: bool = True,
         reviews: ProposalStore | None = None,
         media: MediaLibrary | None = None,
         read_tools: tuple[ReadToolSpec, ...] = (),
@@ -230,9 +227,6 @@ class Registry:
             system_prompt=system_prompt,
             model_name=model_name,
             provider_name=provider_name,
-            autoapproval=(
-                AutoApprovalReviewer(provider, self.autoapprovals) if autoapprove else None
-            ),
             subagents=subagents,
             helpers=helpers,
             before_tool=self.before_tool,
@@ -303,7 +297,7 @@ def _text_inputs(modules: tuple[FeatureModule, ...]) -> dict[str, TextInputFlow]
 
 def _proposals(
     modules: tuple[FeatureModule, ...], views: frozenset[str], world: WorldReader
-) -> tuple[ProposalRegistry, dict[tuple[str, str], AutoApprovalRule]]:
+) -> ProposalRegistry:
     handlers: dict[str, ProposalHandler] = {}
     presenters: dict[str, ProposalPresenter] = {}
     tools: dict[str, MutationToolSpec] = {}
@@ -338,11 +332,10 @@ def _proposals(
             )
         for tool in module.mutation_tools:
             register_tool(tool)
-    registry = ProposalRegistry(
+    return ProposalRegistry(
         handlers=handlers, presenters=presenters, tools=tools, views=views, world=world,
-        similar=similar,
+        similar=similar, autoapprovals=rules,
     )
-    return registry, rules
 
 
 def _helpers(

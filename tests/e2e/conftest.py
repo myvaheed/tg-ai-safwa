@@ -33,7 +33,7 @@ from tg_agent_shell.foundation.database import Database, upgrade_database
 from tg_agent_shell.hooks.contracts import HookSpec
 from tg_agent_shell.hooks.registry import HookRegistry
 from tg_agent_shell.media.library import MediaLibrary
-from tg_agent_shell.proposals.hooks import PLAN_HOOK, REQUEST_REVIEW_HOOK
+from tg_agent_shell.proposals.hooks import AUTOAPPROVAL_HOOK, PLAN_HOOK, REQUEST_REVIEW_HOOK
 from tg_agent_shell.proposals.store import ProposalStore
 from tg_agent_shell.registry import Registry
 from tg_agent_shell.session import RootSession
@@ -44,14 +44,14 @@ from tg_agent_shell.telegram.manifest import AgentContext
 def registry_with(checks: tuple[HookSpec, ...]) -> Registry:
     """Safwa's registry, with the checks on the model's work a test wants in place of its own.
 
-    The feature toggles decide them for the running bot; a test decides them for itself, the
-    way it decides autoapproval, because a script would otherwise answer a review in every
-    turn it plays.
+    The feature toggles decide them for the running bot; a test decides them for itself,
+    because a script would otherwise answer a review in every turn it plays.
     """
+    model_checks = (PLAN_HOOK, REQUEST_REVIEW_HOOK, AUTOAPPROVAL_HOOK)
     return replace(
         REGISTRY,
         hooks=HookRegistry.of(
-            (*(spec for spec in HOOKS if spec not in (PLAN_HOOK, REQUEST_REVIEW_HOOK)), *checks),
+            (*(spec for spec in HOOKS if spec not in model_checks), *checks),
             owners=frozenset(module.name for module in MODULES),
             helpers=frozenset(HELPERS),
             tools=IMMEDIATE_TOOLS - {"route"},
@@ -150,7 +150,11 @@ class E2EHarness:
         # One harness is one running bot, so every advisor it builds shares its reviews,
         # and it is assembled through the same registry the composition root uses.
         if checks is None:
-            checks = (PLAN_HOOK,) * plan_required + (REQUEST_REVIEW_HOOK,) * request_review
+            checks = (
+                (PLAN_HOOK,) * plan_required
+                + (REQUEST_REVIEW_HOOK,) * request_review
+                + (AUTOAPPROVAL_HOOK,) * autoapprove
+            )
         registry = registry_with(checks)
         advisor = registry.root_session(
             self.sessions,
@@ -162,7 +166,6 @@ class E2EHarness:
             workspace_state=workspace_context,
             system_prompt=SYSTEM_PROMPT,
             model_name="e2e-scripted-model",
-            autoapprove=autoapprove,
             subagents=subagents,
             # A test replaces what a helper does, never how the feature declared it.
             helpers={

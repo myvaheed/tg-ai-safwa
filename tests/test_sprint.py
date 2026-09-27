@@ -46,11 +46,14 @@ from safwa.features.planning.hooks import (
     KEY_ACTIONS_HOOK,
     KEY_CHECK,
     KEY_WARNING_HOOK,
+    SPRINT_END_HOOK,
     SPRINT_EXPIRY_HOOK,
     SPRINT_SUMMARY_HOOK,
     key_warning_request,
     mark_key_actions,
     midnight,
+    sprint_clock,
+    sprint_end_request,
     sprint_summary_request,
 )
 from safwa.features.planning.key_actions import (
@@ -71,7 +74,6 @@ from safwa.features.profile.api import morning_time
 from safwa.features.profile.model import SPRINT_LENGTH_DAYS, ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.reminders.model import Reminder
-from safwa.features.reminders.use_cases import SPRINT_KEY, delete_reminder
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.workspace import Workspace
 from tg_agent_shell.cues.initiatives import bind_committed, queue_advice
@@ -218,26 +220,36 @@ async def test_pl_scope_006_a_sprint_commits_to_what_is_planned_at_the_effort_it
         assert (await sprint_metrics(session, sprint.id))["committed"] == 8
 
 
+def _at(day: date, clock: time) -> datetime:
+    return datetime.combine(day, clock, tzinfo=ZoneInfo("Europe/Istanbul"))
+
+
 async def test_pl_warn_011_a_sprint_warns_the_owner_before_it_ends(sessions):
     """PL-WARN-011 — tests/brd/planning.feature"""
     async with sessions() as session:
+        assert await sprint_clock(session) == time(0, 0)
         await plan_one(session)
         sprint = await start_sprint(session, success_criteria="Ship v2")
-        reminders = list(await session.scalars(select(Reminder).order_by(Reminder.next_fire_at)))
+        started = _at(sprint.planned_start_date, time(18, 32))
+        sprint.actual_started_at = started
+        end = sprint.planned_end_date
 
-        assert [reminder.system_key for reminder in reminders] == [SPRINT_KEY, SPRINT_KEY]
-        # Both fire at the clock the Sprint started at, one day apart.
-        assert reminders[1].next_fire_at - reminders[0].next_fire_at == timedelta(days=1)
-        assert reminders[0].next_fire_at.timetz() == sprint.actual_started_at.timetz()
-        assert "ends tomorrow" in reminders[0].instruction
-        assert "ends today" in reminders[1].instruction
+        # The daily check runs at the clock the Sprint started at.
+        assert await sprint_clock(session) == time(18, 32)
+        tomorrow = await sprint_end_request(
+            session, ["end"], now=_at(end - timedelta(days=1), time(18, 32))
+        )
+        today = await sprint_end_request(session, ["end"], now=_at(end, time(18, 32)))
+        assert tomorrow is not None and f"Sprint {sprint.number} ends tomorrow" in tomorrow
+        assert today is not None and f"Sprint {sprint.number} ends today" in today
+        for day in (sprint.planned_start_date, end - timedelta(days=2), end + timedelta(days=1)):
+            assert await sprint_end_request(session, ["end"], now=_at(day, time(18, 32))) is None
 
         take_changes(session.info)
         await finish_sprint(session, reason="finished_early")
 
-        # Both warnings went with it, and the hand-over is the Sprint summary hook's, not a
-        # Reminder's.
-        assert list(await session.scalars(select(Reminder))) == []
+        # Both warnings went with it, and the hand-over is the Sprint summary hook's.
+        assert await sprint_end_request(session, ["end"], now=_at(end, time(18, 32))) is None
         assert take_changes(session.info) == [Committed(SPRINT_ENDED, sprint.id)]
 
 
@@ -246,30 +258,23 @@ async def test_pl_warn_011_a_two_day_sprint_only_warns_on_its_last_day(sessions)
     async with sessions() as session:
         await plan_one(session)
         await set_profile_field(session, ProfileField.SPRINT_LENGTH_DAYS, 2)
-        await start_sprint(session, success_criteria="Ship v2")
-        reminders = list(await session.scalars(select(Reminder)))
+        sprint = await start_sprint(session, success_criteria="Ship v2")
+        sprint.actual_started_at = _at(sprint.planned_start_date, time(18, 32))
+        end = sprint.planned_end_date
 
-        assert len(reminders) == 1
-        assert "ends today" in reminders[0].instruction
+        # The day before its last is the day it started, and the clock it started at has not
+        # come round since.
+        assert end - timedelta(days=1) == sprint.planned_start_date
+        assert await sprint_end_request(session, ["end"], now=_at(end - timedelta(days=1), time(23, 0))) is None
+        today = await sprint_end_request(session, ["end"], now=_at(end, time(18, 32)))
+        assert today is not None and "ends today" in today
 
 
-async def test_a_sprints_end_warnings_belong_to_safwa(sessions):
-    """RM-SYSTEM-022 — tests/brd/reminders.feature"""
-    async with sessions() as session:
-        await plan_one(session)
-        await start_sprint(session, success_criteria="Ship v2")
-        reminders = list(await session.scalars(select(Reminder)))
-
-        assert reminders and all(reminder.system for reminder in reminders)
-        # So the owner never sees a trigger they cannot own, and the model never reads one
-        # it cannot name: the Sprint that authored them is what removes them.
-        for reminder in reminders:
-            with pytest.raises(DomainError, match="change it in the Profile"):
-                await delete_reminder(session, reminder.id)
-
-        await finish_sprint(session, reason="finished_early")
-        left = list(await session.scalars(select(Reminder)))
-        assert all(reminder.system for reminder in left)
+def test_pl_warn_011_the_warnings_are_a_daily_check_with_a_switch_in_the_profile():
+    """PL-WARN-011 — tests/brd/planning.feature"""
+    assert SPRINT_END_HOOK.on == (OnTick(at=sprint_clock),)
+    assert isinstance(SPRINT_END_HOOK.effect, Advise)
+    assert SPRINT_END_HOOK.agent_related
 
 
 async def test_pl_end_013_a_sprint_expires_only_after_local_midnight_past_its_end(sessions):
@@ -360,7 +365,7 @@ async def test_pl_end_015_an_ended_sprint_is_handed_to_safwa(sessions):
         await finish_action(session, done.id)
         take_changes(session.info)
         await finish_sprint(session, reason="finished_early")
-        # Its own end warnings went with it; the hand-over is no Reminder of any kind.
+        # The hand-over is no Reminder of any kind.
         assert list(await session.scalars(select(Reminder))) == []
         assert take_changes(session.info) == [Committed(SPRINT_ENDED, sprint.id)]
         assert SPRINT_SUMMARY_HOOK.agent_related

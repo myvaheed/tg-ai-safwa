@@ -80,18 +80,6 @@ async def test_nothing_is_written_while_something_is_still_waiting(sessions):
     assert reminder.next_fire_at == NOW  # still due, so a later tick takes it
 
 
-async def test_a_system_reminder_fires_like_any_other(sessions):
-    """RM-SYSTEM-022 — tests/brd/reminders.feature"""
-    # It is hidden from the UI and from the model, never from the poll.
-    reminder_id = await make_reminder(sessions)
-    async with sessions() as session:
-        (await session.get(Reminder, reminder_id)).system = True
-        await session.commit()
-
-    assert await tick(sessions, tz=TZ, now=NOW) is True
-    assert await said(sessions)
-
-
 # --- batching -------------------------------------------------------------
 
 

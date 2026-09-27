@@ -21,7 +21,7 @@ from tg_agent_shell.cues.queue import add_hook_cue
 from tg_agent_shell.foundation.changes import Committed
 from tg_agent_shell.hooks.contracts import Advise, BeforeTool, HookSpec, OnCommitted
 from tg_agent_shell.hooks.registry import HookRegistry
-from tg_agent_shell.proposals.hooks import PLAN_HOOK, REQUEST_REVIEW_HOOK
+from tg_agent_shell.proposals.hooks import AUTOAPPROVAL_HOOK, PLAN_HOOK, REQUEST_REVIEW_HOOK
 from tg_agent_shell.telegram import callback_token_handler
 from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import UiSession
@@ -164,6 +164,7 @@ async def test_ps_hooks_015_a_check_on_the_models_work_is_on_or_off_in_the_featu
     """PS-HOOKS-015 — tests/brd/profile.feature"""
     assert (PLAN_HOOK in HOOKS) is featuretoggles.PLAN_REQUIRED
     assert (REQUEST_REVIEW_HOOK in HOOKS) is featuretoggles.REQUEST_REVIEW
+    assert (AUTOAPPROVAL_HOOK in HOOKS) is featuretoggles.AUTOAPPROVAL
     services = services_for(sessions)
     services.hooks = REGISTRY.hooks
     message = FakeMessage(941, bot_message=True, answer_as_new=True)
@@ -171,7 +172,7 @@ async def test_ps_hooks_015_a_check_on_the_models_work_is_on_or_off_in_the_featu
     await command_profile(message, services)
 
     rendered, markup = message.edits[-1]
-    for check in (PLAN_HOOK, REQUEST_REVIEW_HOOK):
+    for check in (PLAN_HOOK, REQUEST_REVIEW_HOOK, AUTOAPPROVAL_HOOK):
         assert not check.agent_related
         assert check.title not in rendered
         assert not any(check.title in label for label in button_texts(markup))

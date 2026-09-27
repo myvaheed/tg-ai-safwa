@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.ai.sql import view_catalogue
 from tg_agent_shell.media.module import MODULE as MEDIA_FEATURE
 from tg_agent_shell.proposals.api import World
-from tg_agent_shell.proposals.hooks import PLAN_HOOK, REQUEST_REVIEW_HOOK
+from tg_agent_shell.proposals.hooks import AUTOAPPROVAL_HOOK, PLAN_HOOK, REQUEST_REVIEW_HOOK
 from tg_agent_shell.proposals.module import MODULE as PROPOSALS_FEATURE
 from tg_agent_shell.registry import Registry
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec, FeatureModule
@@ -56,6 +56,7 @@ from ..features.onboarding.module import (
 from ..features.planning.module import (
     KEY_ACTIONS_HOOK,
     KEY_WARNING_HOOK,
+    SPRINT_END_HOOK,
     SPRINT_EXPIRY_HOOK,
     SPRINT_SUMMARY_HOOK,
 )
@@ -75,9 +76,7 @@ from ..foundation.log_events import AI_LOG_EVENTS
 from ..foundation.workspace import require_workspace
 
 # Order is what the routing rules and the recovery hooks follow, so it is fixed rather than
-# incidental: Planning closes the Sprint whose midnight Safwa slept through — its end
-# reminders go with it — before Reminders reconcile the table, and the Advisor's prompt
-# lists the subagents in this order every run.
+# incidental: the Advisor's prompt lists the subagents in this order every run.
 MODULES: tuple[FeatureModule, ...] = (
     HOME,
     WORKSPACE_MUTATOR,
@@ -126,6 +125,7 @@ HOOKS = (
     MISSED_RUN_HOOK,
     DIARY_HOOK,
     DAILY_SUMMARY_HOOK,
+    SPRINT_END_HOOK,
     SPRINT_SUMMARY_HOOK,
     SPRINT_EXPIRY_HOOK,
     KEY_ACTIONS_HOOK,
@@ -138,6 +138,7 @@ HOOKS = (
     *((PLAN_HOOK,) if featuretoggles.PLAN_REQUIRED else ()),
     *((REQUEST_REVIEW_HOOK,) if featuretoggles.REQUEST_REVIEW else ()),
     *((DIARY_READ_HOOK,) if featuretoggles.DAY_READ_REQUIRED else ()),
+    *((AUTOAPPROVAL_HOOK,) if featuretoggles.AUTOAPPROVAL else ()),
 )
 
 # The log of changes is written by every feature that keeps an item, so it is Safwa's own
@@ -153,7 +154,7 @@ REGISTRY: Registry = Registry.of(
 )
 
 # What each part of the application reads off the registry, under the names it reads them
-# by. The registry is one object; these are the eleven views of it that are actually used.
+# by. The registry is one object; these are the views of it that are actually used.
 AI_VIEWS = REGISTRY.views
 ALLOWED_VIEWS = REGISTRY.allowed_views
 # What can be opened and what can be cited are the same list, so the deep-link payload
@@ -166,7 +167,6 @@ FEATURE_CALLBACK_ACTIONS = REGISTRY.callback_actions
 FEATURE_TEXT_INPUTS = REGISTRY.text_inputs
 FEATURE_START_LINKS = REGISTRY.start_links
 PROPOSALS = REGISTRY.proposals
-AUTOAPPROVALS = REGISTRY.autoapprovals
 AGENTS = REGISTRY.agents
 HELPERS = REGISTRY.helpers
 BEFORE_TOOL = REGISTRY.before_tool

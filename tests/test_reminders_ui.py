@@ -7,9 +7,6 @@ from zoneinfo import ZoneInfo
 
 from ui_harness import FakeCallback, FakeMessage, button_texts, services_for
 
-from safwa.features.cards.use_cases import create_card
-from safwa.features.planning.use_cases import start_sprint
-from safwa.features.profile.telegram import command_profile
 from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import resolve
 from safwa.features.reminders.telegram import render_reminder, render_reminders
@@ -103,29 +100,3 @@ async def test_the_reminders_screen_lists_opens_and_confirms_a_delete(sessions) 
     assert button_texts(prompt_markup) == ["Delete Reminder", "↩️ Back"]
     async with sessions() as session:
         assert await session.get(Reminder, soon_id) is not None  # one confirmation, not none
-
-
-async def test_the_reminders_screen_and_profile_hide_safwas_own_reminder(sessions) -> None:
-    """RM-SYSTEM-022 — tests/brd/reminders.feature"""
-    # A Sprint sets its own end warnings; the Reminders behind them are not the owner's to see.
-    async with sessions() as session:
-        await create_card(session, title="Planned", kind="action", stage="sprint", effort_points=3)
-        await start_sprint(session, success_criteria="Ship v2")
-        await create_reminder(
-            session,
-            instruction="Check my posture.",
-            schedule=resolve(interval_minutes=120, now=datetime.now(UTC), tz=ZoneInfo("UTC")),
-            tz=ZoneInfo("UTC"),
-        )
-        await session.commit()
-
-    listing = FakeMessage(910, bot_message=True)
-    await render_reminders(listing, services_for(sessions))
-    settings = FakeMessage(911, bot_message=True)
-    await command_profile(settings, services_for(sessions))
-
-    labels = button_texts(listing.edits[-1][1])
-    assert any("Check my posture" in label for label in labels)
-    assert not any("ends" in label for label in labels)
-    assert "Diary: 22:00" in settings.edits[-1][0]
-    assert "Daily summary: 20:00" in settings.edits[-1][0]

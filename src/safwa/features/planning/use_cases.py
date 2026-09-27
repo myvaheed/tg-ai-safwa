@@ -9,7 +9,7 @@ sweep what has waited long enough.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -25,7 +25,6 @@ from ..cards.api import CardStage, action_titles, effort_label, planned_actions
 from ..cards.use_cases import archive_settled_cards
 from ..checks.use_cases import archive_settled_checks
 from ..profile.api import sprint_length_days as _profile_sprint_length_days
-from ..reminders.use_cases import create_sprint_reminder, delete_sprint_reminders
 from .api import SPRINT_ENDED, SPRINT_STARTED, sprint_metrics
 from .closing import sprint_closing
 from .model import Sprint, SprintCommitment, SprintStatus, next_sprint_number
@@ -34,16 +33,6 @@ from .model import Sprint, SprintCommitment, SprintStatus, next_sprint_number
 ARCHIVE_AFTER_SPRINTS = 2
 # How many unfinished Actions the end-of-Sprint summary names before it counts the rest.
 SUMMARY_OPEN_TITLES = 5
-
-_SPRINT_ENDS_TOMORROW = (
-    "Sprint {number} ends tomorrow, {end_date}. Check what is still open in Sprint and Today, "
-    "and help the owner finalize the status of each of those Actions."
-)
-_SPRINT_ENDS_TODAY = (
-    "Sprint {number} ends today, {end_date}. Tell the owner to close it from the 🏃 Sprint "
-    "screen; if they do not, Safwa closes it automatically at midnight and whatever is still "
-    "open keeps its stage."
-)
 
 
 async def set_sprint_success_criteria(session: AsyncSession, criteria: str) -> Workspace:
@@ -98,7 +87,6 @@ async def start_sprint(
     )
     session.add(sprint)
     await session.flush()
-    await _schedule_sprint_reminders(session, sprint, started_at=started_at, tz=tz)
     for card in cards:
         session.add(
             SprintCommitment(
@@ -113,35 +101,6 @@ async def start_sprint(
     workspace.revision += 1
     record_change(session, SPRINT_STARTED, sprint.id)
     return sprint
-
-
-async def _schedule_sprint_reminders(
-    session: AsyncSession, sprint: Sprint, *, started_at: datetime, tz: ZoneInfo
-) -> None:
-    """Warn the owner the day before the Sprint ends, then on its last day.
-
-    Both fire at the clock the Sprint was started at, so a Sprint started at 18:32 keeps
-    saying 18:32.  The first one is skipped when the Sprint is too short to have a day
-    before its last one.
-    """
-    clock = started_at.astimezone(tz).time()
-    schedule_dates = (
-        (sprint.planned_end_date - timedelta(days=1), _SPRINT_ENDS_TOMORROW),
-        (sprint.planned_end_date, _SPRINT_ENDS_TODAY),
-    )
-    for day, template in schedule_dates:
-        moment = datetime.combine(day, clock, tzinfo=tz).astimezone(UTC)
-        if moment <= started_at:
-            continue
-        await create_sprint_reminder(
-            session,
-            instruction=template.format(
-                number=sprint.number, end_date=sprint.planned_end_date.isoformat()
-            ),
-            at_time=clock,
-            anchor_at=moment,
-            tz=tz,
-        )
 
 
 async def settled_cutoff(session: AsyncSession) -> datetime | None:
@@ -192,8 +151,6 @@ async def finish_sprint(session: AsyncSession, *, reason: str = "finished") -> S
     sprint = await session.get(Sprint, workspace.active_sprint_id)
     if sprint is None:
         raise DomainError("Active Sprint is missing")
-    # Its own end reminders have nothing left to announce.
-    await delete_sprint_reminders(session)
     sprint.status = SprintStatus.FINISHED.value
     sprint.finish_reason = reason
     sprint.actual_ended_at = utcnow()

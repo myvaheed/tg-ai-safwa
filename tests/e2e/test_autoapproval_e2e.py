@@ -8,14 +8,13 @@ from sqlalchemy import func, select
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.bootstrap.modules import AUTOAPPROVALS, PROPOSALS
+from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.model import Card
 from safwa.features.cards.use_cases import create_card
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import Value
 from safwa.features.values.use_cases import create_value
-from tg_agent_shell.ai.autoapproval import AutoApprovalReviewer
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.proposals.model import (
     BatchDecision,
@@ -368,9 +367,7 @@ async def test_autoapproval_that_cannot_decide_leaves_the_screen_standing(e2e_ha
         async def complete(self, _request):
             raise RuntimeError("the reviewer is unreachable")
 
-    advisor.materializer.autoapproval = AutoApprovalReviewer(
-        UnreachableProvider(), AUTOAPPROVALS
-    )
+    advisor.materializer.provider = UnreachableProvider()
 
     outcome = await advisor.handle("Rename Buy milk to Buy oat milk")
 

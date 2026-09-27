@@ -85,10 +85,11 @@ A hook whose effect reaches the agent — `OfferTool`, `RefuseTool` or `Advise`,
 `agent_related` — is the owner's to turn off in the Profile, and `HookRegistry` asks the
 application's policy — `hook_switched_on`, read live — before running its condition or wording
 its request; a hook that runs work of its own, `Run`, is always on, and so is a check on the
-model's own work, `ReturnProposals` or `HoldAnswer`, which Safwa registers or leaves out by
-`featuretoggles.py`. The tool adapter emits `BeforeTool` before a call and `AfterTool` after it;
-the materializer emits `BeforeProposals` before a subagent response's calls are prepared and
-`AfterRequest` before the answer to the owner's message; the dialogue adapter emits `BeforeTurn`
+model's own work, `ReturnProposals`, `HoldAnswer` or `SaveProposal`, which Safwa registers or
+leaves out by `featuretoggles.py`. The tool adapter emits `BeforeTool` before a call and
+`AfterTool` after it; the materializer emits `BeforeProposals` before a subagent response's calls
+are prepared, `BeforeReview` before a proposal's screen is drawn and `AfterRequest` before the
+answer to the owner's message; the dialogue adapter emits `BeforeTurn`
 inside a turn, once the dialogue is read and before the model is asked — the owner's turn and a
 Cue's alike — and `AfterTurn` after releasing the owner's turn.
 A `Run` after a turn uses one background lease and a publication port that checks currentness;
@@ -149,7 +150,7 @@ flowchart TB
         SUB[Routed subagent session]
         MINI[Mini session]
         PREP[ChangePreparer]
-        AUTO[AutoApprovalReviewer]
+        AUTO[autoapproval · a BeforeReview hook]
         SQL[ReadOnlyQueryRunner]
     end
     subgraph BG[background loops]
@@ -406,8 +407,8 @@ flowchart LR
     BP --> P[ChangePreparer.prepare against live data]
     P -->|refused| ERR
     P --> R[open review in ProposalStore · calls in a row for one item share one]
-    R --> AUTO{autoapproval?}
-    AUTO -->|allowlisted and approved| APPLY
+    R --> AUTO{BeforeReview hooks}
+    AUTO -->|listed and saved unseen| APPLY
     AUTO -->|no, or any doubt| SCREEN[review screen · Save / Discard]
     SCREEN -->|Save| APPLY[approve_proposal]
     SCREEN -->|Discard| REJ[end the review]
@@ -415,14 +416,16 @@ flowchart LR
 ```
 
 - The model never mutates and never writes mutation SQL.
-- **Checks on the model's own work are hooks on two boundaries `ProposalMaterializer`
+- **Checks on the model's own work are hooks on three boundaries `ProposalMaterializer`
   raises**, the seam where a `None` already means "run the session again". `BeforeProposals`
   is read once per subagent response, before any of its calls is prepared — preparing a
   Reminder already asks the model — and a `ReturnProposals` hook sends every call back with
-  its code (`AG-HOOK-046`). `AfterRequest` is read once per request started by the owner's
+  its code (`AG-HOOK-046`). `BeforeReview` is read once per proposal that reaches the head of
+  its queue, before its screen is drawn, and a `SaveProposal` hook saves it unseen; one that
+  fails draws the screen. `AfterRequest` is read once per request started by the owner's
   message, before its answer in words is sent, and a `HoldAnswer` hook holds that answer and
   hands its words to the Advisor (`AG-HOOK-047`); one that fails lets the answer through.
-  Neither kind is on the Profile: the application registers it or leaves it out, and Safwa
+  None of them is on the Profile: the application registers it or leaves it out, and Safwa
   decides that in `featuretoggles.py`.
 - **A response that carries mutation calls carries the subagent's plan as its text**
   (`PR-PLAN-028`): what it will change, in order. `PLAN_HOOK` sends a response with no text
@@ -444,12 +447,13 @@ flowchart LR
   once it failed, the screen goes without the list. The list is the owner's alone: the model
   never reads it, and nothing is refused because of it.
 - **Autoapproval is the one exception to `PR-WRITE-002`, and `PR-AUTO-024` is where it is
-  approved.** It decides only whether a screen is shown: it never bypasses preparation or the
-  stored proposal, and any doubt leaves the pending screen untouched. A Save it asked for that is
-  refused because the workspace moved on ends the review with it, and the queue moves on the way a
-  failed manual Save moves it. Which actions are eligible is each feature's
-  `ProposalContribution.autoapprovals`; a create is never one of them. A review holding several
-  changes to one item is read in one call, and only when every change is eligible.
+  approved.** It is `AUTOAPPROVAL_HOOK`, and it decides only whether a screen is shown: it never
+  bypasses preparation or the stored proposal, and any doubt leaves the pending screen untouched.
+  A Save it asked for that is refused because the workspace moved on ends the review with it, and
+  the queue moves on the way a failed manual Save moves it. Which actions are eligible is each
+  feature's `ProposalContribution.autoapprovals`, which `BeforeReview` carries as each change's
+  `criterion`; a create is never one of them. A review holding several changes to one item is
+  read in one call, and only when every change is eligible.
 - **`PR-TARGET-001` is a shell rule the feature keeps.** The generic walk carries no entity, so
   loading the target, `archived_at` and the closed repeat are the owning feature's
   `ProposalHandler.prepare`, and `target_not_found` is the one refusal `proposals/` raises itself.

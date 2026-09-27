@@ -89,6 +89,9 @@ Feature: Planning — the Sprint, and the mode without one
     Given the owner starts a 14-day Sprint at 18:32
     Then Safwa warns them the day before the end date at 18:32, and again on the end date at 18:32
     And a 2-day Sprint is warned only on its end date (SPRINT_LENGTH_MIN_DAYS = 2)
+    And the warnings are a daily check at the time the Sprint started, by AG-HOOK-039: a
+      warning time that passed while Safwa was not running is not made up
+    And they are an automatic reaction with a switch of its own in the Profile (PS-HOOKS-015)
     When the Sprint ends
     Then both warnings are gone
 

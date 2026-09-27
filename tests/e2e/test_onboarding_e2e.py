@@ -14,7 +14,7 @@ from sqlalchemy import select
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.bootstrap.modules import AUTOAPPROVALS, PROPOSALS, REGISTRY
+from safwa.bootstrap.modules import PROPOSALS, REGISTRY
 from safwa.features.cards.hooks import BLOCKER_HOOK
 from safwa.features.cards.use_cases import create_card
 from safwa.features.onboarding.hooks import ONBOARDING_HOOK
@@ -22,7 +22,6 @@ from safwa.features.profile.api import hook_switched_on, set_hook_switch
 from safwa.features.values.use_cases import create_value
 from safwa.foundation.workspace import Workspace
 from telegram_llm import DialogueMessage
-from tg_agent_shell.ai.autoapproval import AutoApprovalReviewer
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.cues.queue import add_hook_cue
@@ -234,7 +233,7 @@ async def test_ob_stop_005_doubt_or_no_reviewer_takes_the_screen(e2e_harness, re
             async def complete(self, _request):
                 raise RuntimeError("the reviewer is unreachable")
 
-        advisor.materializer.autoapproval = AutoApprovalReviewer(Unreachable(), AUTOAPPROVALS)
+        advisor.materializer.provider = Unreachable()
 
     outcome = await advisor.handle("Enough for today")
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from ui_harness import FakeMessage, services_for
@@ -12,7 +12,7 @@ from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS
 from safwa.features.cards.use_cases import archive_subtree, create_card, finish_action
 from safwa.features.checks.use_cases import archive_check, create_check, resolve_check
 from safwa.features.reminders.schedule import resolve
-from safwa.features.reminders.use_cases import create_reminder, create_sprint_reminder
+from safwa.features.reminders.use_cases import create_reminder
 from safwa.features.saved_requests.use_cases import create_saved_request
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.use_cases import create_value
@@ -195,10 +195,6 @@ async def test_pr_similar_030_only_open_items_of_each_type_are_compared(sessions
             session,
             instruction="Take a walk.",
             schedule=resolve(interval_minutes=120, now=now, tz=TZ),
-            tz=TZ,
-        )
-        await create_sprint_reminder(
-            session, instruction="The Sprint ends tomorrow.", at_time=time(9), anchor_at=now,
             tz=TZ,
         )
         await session.commit()

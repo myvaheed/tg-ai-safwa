@@ -167,7 +167,7 @@ Feature: Proposals
       once it is shown
 
   Scenario: PR-AUTO-024 — Autoapproval saves a change with no screen when it is exactly what was asked for
-    Given autoapproval is switched on
+    Given autoapproval is on in the feature toggles
     And the owner asked for a change to an item they already have
     When Safwa proposes that change, and both the operation and every field it sets are ones
       autoapproval is allowed to save
@@ -180,7 +180,7 @@ Feature: Proposals
       together, and saved whole or shown whole
 
   Scenario: PR-AUTO-025 — Autoapproval never covers a new item, and never an unlisted change
-    Given autoapproval is switched on
+    Given autoapproval is on in the feature toggles
     When Safwa proposes to create an item the owner does not have yet
     Then its review screen is shown, and the proposal is never read against their words
     When Safwa proposes an operation that is not on the list, or one that sets a field outside what

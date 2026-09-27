@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_gateway import LlmProvider
 
+from ..ai.autoapproval import AutoApprovalRule
 from ..ai.contracts import (
     AgentChange,
     MutationToolSpec,
@@ -249,6 +250,9 @@ class ProposalRegistry:
     world: WorldReader
     # By entity; one absent here is created with no similar items listed.
     similar: Mapping[str, SimilarItems] = field(default_factory=dict)
+    # The whole of what may be saved without the owner seeing it, by entity and action. A
+    # feature that declares nothing has nothing here, and every other change takes a screen.
+    autoapprovals: Mapping[tuple[str, str], AutoApprovalRule] = field(default_factory=dict)
 
     def handler(self, entity: str) -> ProposalHandler:
         found = self.handlers.get(entity)
@@ -267,6 +271,11 @@ class ProposalRegistry:
         return getattr(handler, "destructive_warning", "") or (
             f"This permanently removes the {change.entity} it names."
         )
+
+    def criterion(self, change: ProposalChange) -> str | None:
+        """How the owning feature judges this change saved unseen; None when it is not listed."""
+        rule = self.autoapprovals.get((change.entity, change.action.value))
+        return rule.criteria if rule is not None and rule.accepts(change.values) else None
 
     def change_from_tool(self, name: str, arguments: dict[str, Any]) -> AgentChange:
         """Validate a model tool call and convert it into an application command intent."""

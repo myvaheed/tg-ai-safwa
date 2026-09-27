@@ -593,32 +593,6 @@ async def test_an_open_question_of_any_shape_closes_the_gate(sessions):
         await session.commit()
     assert await runtime.can_speak() is False
 
-
-# --- Safwa's own Reminders ------------------------------------------------
-
-
-async def test_every_write_path_refuses_a_reminder_safwa_derived(sessions):
-    """RM-SYSTEM-022 — tests/brd/reminders.feature"""
-    schedule = resolve(interval_minutes=120, now=NOW, tz=TZ)
-    async with sessions() as session:
-        reminder = await create_reminder(
-            session, instruction="Safwa's own.", schedule=schedule, tz=TZ
-        )
-        reminder.system = True
-        await session.commit()
-        reminder_id = reminder.id
-
-    async with sessions() as session:
-        for attempt in (
-            update_reminder_text(session, reminder_id, "Mine now."),
-            reschedule_reminder(session, reminder_id, schedule=schedule, tz=TZ),
-            delete_reminder(session, reminder_id),
-        ):
-            with pytest.raises(DomainError, match="change it in the Profile"):
-                await attempt
-        assert await session.get(Reminder, reminder_id) is not None
-
-
 async def test_no_reminder_reaches_the_cacheable_board_context(sessions):
     """RM-READ-024 — tests/brd/reminders.feature"""
     # `next_fire_at` moves on every fire, and this block is the prefix a remote provider

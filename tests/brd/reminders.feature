@@ -168,14 +168,6 @@ Feature: Reminders
     Then it runs, by AG-POLL-030
     And Reminders do not quietly stop firing for the rest of the day
 
-  Scenario: RM-SYSTEM-022 — A Reminder the owner did not set belongs to Safwa
-    Given a Reminder Safwa set up rather than the owner — a Sprint's own warning that it is ending
-    When the owner opens /reminders, or Safwa looks at the Reminders
-    Then it is not in the list
-    And every way of editing, rescheduling or deleting it refuses, and says where to change it
-    And it fires exactly like any other Reminder
-    And finishing the Sprint is what takes it away
-
   Scenario: RM-UI-023 — /reminders is a list, a Reminder, and two things to do with it
     Given the owner opens /reminders
     Then each line is when it fires and the start of its words, soonest first

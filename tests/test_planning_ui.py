@@ -27,7 +27,6 @@ from safwa.features.planning.telegram.plan import PLAN_LINK_BURST_TAPS, claims_p
 from safwa.features.planning.use_cases import set_sprint_success_criteria, start_sprint
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
-from safwa.features.reminders.model import Reminder
 from safwa.features.saved_requests.use_cases import create_saved_request
 from safwa.foundation.workspace import Workspace
 from tg_agent_shell.ai.sql import create_ai_views
@@ -176,7 +175,6 @@ async def test_pl_criteria_003_starting_a_sprint_needs_criteria_and_a_plan(sessi
         assert workspace.active_sprint_id is not None
         sprint = await session.get(Sprint, workspace.active_sprint_id)
         assert sprint.success_criteria == "Ship v2 to production"
-        assert len(list(await session.scalars(select(Reminder)))) == 2
 
     finish = next(
         button
@@ -190,8 +188,6 @@ async def test_pl_criteria_003_starting_a_sprint_needs_criteria_and_a_plan(sessi
 
     async with sessions() as session:
         assert (await session.get(Workspace, 1)).active_sprint_id is None
-        # Both end warnings are gone; the hand-over is the Sprint summary hook's (PL-END-015).
-        assert list(await session.scalars(select(Reminder))) == []
 
 
 async def test_pl_criteria_003_the_planning_screen_refuses_an_empty_plan(sessions) -> None:

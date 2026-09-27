@@ -126,7 +126,5 @@ class ReminderProposalHandler:
 
 async def owner_reminders(session: AsyncSession) -> list[tuple[int, str]]:
     """Every Reminder the owner set, by its instruction (PR-SIMILAR-030)."""
-    rows = await session.execute(
-        select(Reminder.id, Reminder.instruction).where(Reminder.system.is_(False))
-    )
+    rows = await session.execute(select(Reminder.id, Reminder.instruction))
     return [(reminder_id, instruction) for reminder_id, instruction in rows]

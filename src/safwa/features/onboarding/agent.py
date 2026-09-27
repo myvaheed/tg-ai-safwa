@@ -96,7 +96,7 @@ MANUAL = """# Safwa
 # Automatic reactions
 - Safwa speaks first on its own: about a blocked Action, an Action finished without its time, a day holding too much, Goals with no Action, Hard Times outside the plan, energy and rest in the Sprint, an Action stuck in Today, a Check Missed again and again, the Diary, the day's summary, a Sprint's end, a Success criterion out of reach, a read too heavy for the Advisor, what stands in Today and the Sprint when the user writes after 14 days or more away, and these onboarding tips.
 - Each is switched off and on in "⚙️ Profile", by its title.
-- Switches in the Profile: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Today overload", "Goals without Actions", "Hard Time outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Diary nudge", "Daily summary", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
+- Switches in the Profile: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Today overload", "Goals without Actions", "Hard Time outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
 - "Time tracking reminder" is in the Profile only while Time tracking is on, and asks nothing while it is off.
 
 # Profile

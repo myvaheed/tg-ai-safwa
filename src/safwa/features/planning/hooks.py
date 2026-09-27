@@ -1,16 +1,19 @@
-"""The Sprint's own clockwork: the midnight that ends it, the summary said once it has,
-the marks on the Actions its Success criterion rests on, and the word when none is left."""
+"""The Sprint's own clockwork: the warnings that it is ending, the midnight that ends it, the
+summary said once it has, the marks on the Actions its Success criterion rests on, and the
+word when none is left."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import time
+from datetime import datetime, time, timedelta
 from typing import Protocol
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.changes import Committed
+from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.hooks.contracts import (
     Advise,
     HookSpec,
@@ -28,8 +31,20 @@ from .key_actions import KeyActions
 from .model import Sprint, SprintCommitment
 from .use_cases import expire_due_sprint, sprint_summary
 
-# What the key check keeps as its one pending item: it is about the running Sprint.
+# What the key check and the end warning keep as their one pending item: each is about the
+# running Sprint.
 KEY_CHECK = "keys"
+END_CHECK = "end"
+
+SPRINT_ENDS_TOMORROW = (
+    "Sprint {number} ends tomorrow, {end_date}. Check what is still open in Sprint and Today, "
+    "and help the user finalize the status of each of those Actions."
+)
+SPRINT_ENDS_TODAY = (
+    "Sprint {number} ends today, {end_date}. Tell the user to close it from the 🏃 Sprint "
+    "screen; if they do not, Safwa closes it automatically at midnight and whatever is still "
+    "open keeps its stage."
+)
 
 KEY_WARNING_REQUEST = (
     "Sprint {number}, Success criterion: {criterion}\n"
@@ -37,6 +52,61 @@ KEY_WARNING_REQUEST = (
     "been finished.\n"
     "Tell the user in one message that the Success criterion does not look reachable with "
     "what is planned. Propose nothing and ask nothing."
+)
+
+
+async def _running(session: AsyncSession) -> tuple[Sprint, ZoneInfo] | None:
+    workspace = await session.get(Workspace, 1)
+    if workspace is None or not workspace.active_sprint_id:
+        return None
+    sprint = await session.get(Sprint, workspace.active_sprint_id)
+    return (sprint, ZoneInfo(workspace.timezone)) if sprint is not None else None
+
+
+async def sprint_clock(session: AsyncSession) -> time:
+    """The local time the running Sprint was started at, which its warnings keep; midnight
+    while none runs, when the warning finds nothing to say."""
+    running = await _running(session)
+    if running is None:
+        return time(0, 0)
+    sprint, tz = running
+    return sprint.actual_started_at.astimezone(tz).time()
+
+
+async def end_check(event: Tick) -> tuple[str, ...]:
+    return (END_CHECK,)
+
+
+async def sprint_end_request(
+    session: AsyncSession, items: Sequence[str], *, now: datetime | None = None
+) -> str | None:
+    """The warning on the day before the running Sprint's last day and on that day, or
+    nothing. The day it started says nothing: its clock has not come round since."""
+    running = await _running(session)
+    if running is None:
+        return None
+    sprint, tz = running
+    today = (now or utcnow()).astimezone(tz).date()
+    end = sprint.planned_end_date
+    if today == sprint.actual_started_at.astimezone(tz).date():
+        return None
+    template = {end - timedelta(days=1): SPRINT_ENDS_TOMORROW, end: SPRINT_ENDS_TODAY}.get(today)
+    if template is None:
+        return None
+    return template.format(number=sprint.number, end_date=end.isoformat())
+
+
+SPRINT_END_HOOK = HookSpec(
+    name="planning.sprint_end",
+    owner="planning",
+    on=(OnTick(at=sprint_clock),),
+    evaluate=end_check,
+    effect=Advise(prepare=sprint_end_request),
+    title="Sprint end warning",
+    description=(
+        "The day before a Sprint's last day and on that day, at the time it started, says "
+        "that it is ending."
+    ),
 )
 
 

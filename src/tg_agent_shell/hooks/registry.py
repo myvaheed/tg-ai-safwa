@@ -19,6 +19,7 @@ from .contracts import (
     AfterTool,
     AfterTurn,
     BeforeProposals,
+    BeforeReview,
     BeforeTool,
     BeforeTurn,
     HoldAnswer,
@@ -29,6 +30,7 @@ from .contracts import (
     OnAfterTool,
     OnAfterTurn,
     OnBeforeProposals,
+    OnBeforeReview,
     OnBeforeTool,
     OnBeforeTurn,
     OnCommitted,
@@ -36,6 +38,7 @@ from .contracts import (
     RefuseTool,
     ReturnProposals,
     Run,
+    SaveProposal,
     Shown,
     Tick,
     TickTime,
@@ -49,6 +52,7 @@ HookEvent = (
     | BeforeTool
     | BeforeProposals
     | AfterRequest
+    | BeforeReview
     | Committed
     | Tick
 )
@@ -57,7 +61,8 @@ HookEvent = (
 _SUBSCRIPTION_FOR: Mapping[type, type] = MappingProxyType({
     BeforeTurn: OnBeforeTurn, AfterTurn: OnAfterTurn, AfterTool: OnAfterTool,
     BeforeTool: OnBeforeTool, BeforeProposals: OnBeforeProposals,
-    AfterRequest: OnAfterRequest, Committed: OnCommitted, Tick: OnTick,
+    AfterRequest: OnAfterRequest, BeforeReview: OnBeforeReview, Committed: OnCommitted,
+    Tick: OnTick,
 })
 
 
@@ -119,6 +124,8 @@ class HookRegistry:
                         event_type = BeforeProposals
                     case OnAfterRequest(), HoldAnswer():
                         event_type = AfterRequest
+                    case OnBeforeReview(), SaveProposal():
+                        event_type = BeforeReview
                     case OnCommitted(kind=kind), Advise() | Run() if kind.strip():
                         event_type = Committed
                     case OnTick(at=at, every=every), Advise() | Run() if callable(at) != (

@@ -27,7 +27,6 @@ from agent_runtime import (
 from llm_gateway import LlmProvider
 from telegram_llm import DialogueMessage
 
-from .ai.autoapproval import AutoApprovalReviewer
 from .ai.messages import ContextBuilder, Memory, StateBlocks
 from .ai.mini import ReadToolSpec
 from .ai.outcome import AIOutcome, AIOutcomeKind
@@ -100,7 +99,6 @@ class RootSession:
         before_tool: tuple[BeforeTool, ...] = (),
         after_tool: tuple[AfterTool, ...] = (),
         hooks: HookRegistry | None = None,
-        autoapproval: AutoApprovalReviewer | None = None,
         reviews: ProposalStore | None = None,
         read_tools: tuple[ReadToolSpec, ...] = (),
     ) -> None:
@@ -147,7 +145,6 @@ class RootSession:
             self.adapters,
             provider=provider,
             resolve=self.resolve_approval,
-            autoapproval=autoapproval,
         )
         self.runtime = AgentManager(
             self.store,
@@ -195,7 +192,7 @@ class RootSession:
         return await self._decide_or_show(outcome)
 
     async def _decide_or_show(self, outcome: TurnOutcome) -> AIOutcome:
-        """A turn that stopped on the owner is offered to autoapproval before it is drawn.
+        """A turn that stopped on the owner is offered to the checks before it is drawn.
 
         The turn is over by the time this runs: its session is stored and released, so an
         automatic Save resumes it exactly the way the owner's press would.
@@ -206,9 +203,9 @@ class RootSession:
         # The screens this turn opened are answered by naming the session it suspended.
         self.reviews.wait_on(outcome.ref.run_id, outcome.ref.token)
         try:
-            return await self.materializer.advance_autoapprovals(answer)
+            return await self.materializer.before_review(answer)
         except asyncio.CancelledError:
-            # The turn was stopped while autoapproval was deciding. Its review is its own,
+            # The turn was stopped while a check was deciding. Its review is its own,
             # and no screen for it ever reached the chat, so it ends with the turn instead
             # of standing open for a decision nobody can make.
             if answer.proposal_id is not None:
@@ -254,7 +251,7 @@ class RootSession:
         tools = decided.tool_calls
         head = decided.state.head
         if head is not None:
-            return await self.materializer.advance_autoapprovals(
+            return await self.materializer.before_review(
                 AIOutcome(
                     AIOutcomeKind.PROPOSAL,
                     "Review the next proposed change.",

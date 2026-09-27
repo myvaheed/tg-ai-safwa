@@ -13,8 +13,8 @@ A hook whose effect reaches the agent — a helper offered to its session, a cal
 request handed to the Advisor — is the owner's to turn off; whether it is on is the application's policy,
 read where the hook is about to work. A hook that runs work of its own is always on, unless it
 names another hook as its switch: then it is on exactly when that one is. A check on the
-model's own work — a response sent back, an answer held — has no switch either: the
-application registers it or leaves it out.
+model's own work — a response sent back, an answer held, a proposal saved unseen — has no
+switch either: the application registers it or leaves it out.
 """
 
 from __future__ import annotations
@@ -121,6 +121,34 @@ class AfterRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class ReviewedChange:
+    """One change of a proposal waiting for its screen.
+
+    `criterion` is how the owning feature said a change of this action is to be judged when it
+    is saved unseen; None when the feature lists no such action, or the change sets a field
+    that action may not.
+    """
+
+    entity: str
+    action: str
+    entity_id: int | None
+    values: Mapping[str, Any]
+    criterion: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class BeforeReview:
+    """A proposal is at the head of its queue, and its screen is not drawn yet. `request` is
+    the owner's words that started it; `summary` and `fields` are how its screen reads."""
+
+    proposal_id: int
+    request: str
+    changes: tuple[ReviewedChange, ...]
+    summary: str
+    fields: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class OnBeforeProposals:
     """Every subagent response that carries calls."""
 
@@ -133,6 +161,14 @@ class OnAfterRequest:
     """Every answer to a message of the owner's, once per request."""
 
     def matches(self, event: AfterRequest) -> bool:
+        return True
+
+
+@dataclass(frozen=True, slots=True)
+class OnBeforeReview:
+    """Every proposal that reaches the head of its queue, before its screen is drawn."""
+
+    def matches(self, event: BeforeReview) -> bool:
         return True
 
 
@@ -316,6 +352,16 @@ class HoldAnswer[Payload]:
 
 
 @dataclass(frozen=True, slots=True)
+class SaveProposal[Payload]:
+    """Before a proposal's screen is drawn: `review` reads what the check returned, with the
+    model to read it by, and gives the reason to save it or None. A reason saves it with no
+    screen, the way the owner's Save would, and the next in the queue is read the same way.
+    None, or a review that fails, draws the screen."""
+
+    review: Callable[[Payload, LlmProvider], Awaitable[str | None]]
+
+
+@dataclass(frozen=True, slots=True)
 class HookSpec[Event, Payload]:
     name: str
     owner: str
@@ -326,14 +372,15 @@ class HookSpec[Event, Payload]:
         | OnBeforeTool
         | OnBeforeProposals
         | OnAfterRequest
+        | OnBeforeReview
         | OnCommitted
         | OnTick,
         ...,
     ]
     evaluate: Callable[[Event], Awaitable[Sequence[Payload]]]
     # OfferTool, RefuseTool and ReturnProposals checks return the words the model reads. Run
-    # checks return operation data, HoldAnswer checks what its review reads. Advise checks
-    # return the items the request will be about.
+    # checks return operation data, HoldAnswer and SaveProposal checks what their review
+    # reads. Advise checks return the items the request will be about.
     effect: (
         Run[Payload]
         | OfferTool
@@ -341,6 +388,7 @@ class HookSpec[Event, Payload]:
         | Advise[Payload]
         | ReturnProposals
         | HoldAnswer[Payload]
+        | SaveProposal[Payload]
     )
     # What the owner reads about the hook: on the settings screen when it is theirs to
     # switch, and in the feature map either way.
