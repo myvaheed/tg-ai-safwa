@@ -1,6 +1,6 @@
-"""The Reminder poll: the alarm clock, and what one tick is allowed to change.
+"""Firing Reminders: the alarm clock, and what one tick is allowed to change.
 
-The poll *is* the alarm clock — there is no scheduling library and no in-memory timer set.
+The tick *is* the alarm clock — there is no scheduling library and no in-memory timer set.
 ``Reminder.next_fire_at`` says **when**, and nothing else: a tick writes the words down as a
 Cue and moves the Reminder on in the same transaction.  What guarantees the owner gets them
 is the Cue row, which is deleted only once the turn landed — so this module holds no gate,
@@ -11,7 +11,7 @@ waiting writes nothing, and the due Reminders it would have carried stay due for
 after that.  A hook's request waiting is no reason to hold them: the Cue poll says everything
 waiting in one turn.
 
-Do not confuse the two intervals.  The poll is ``SCHEDULER_POLL_SECONDS`` and is the
+Do not confuse the two intervals.  The tick is ``SCHEDULER_POLL_SECONDS`` and is the
 system's clock; a Reminder's own ``interval_minutes`` is a property of its row.  A deferred
 Reminder waits seconds for a quiet moment, never one of its own cycles.
 """
@@ -26,9 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tg_agent_shell.cues.queue import add_cue, words_waiting
-from tg_agent_shell.foundation.poll import run_poll
 
-from ...constants import SCHEDULER_POLL_SECONDS
 from .model import Reminder
 from .schedule import (
     REMINDER_CATCHUP_GRACE_MINUTES,
@@ -37,7 +35,7 @@ from .schedule import (
     schedule_of,
 )
 
-# How many due Reminders one Cue may carry.  Everything the poll found goes over
+# How many due Reminders one Cue may carry.  Everything the tick found goes over
 # in a single advisor turn; the rest stay overdue and the next tick takes them.
 REMINDER_FIRE_BATCH = 3
 
@@ -129,7 +127,7 @@ async def tick(
     tz: ZoneInfo,
     now: datetime | None = None,
 ) -> bool:
-    """One poll. Returns whether a Cue was written."""
+    """One tick. Returns whether a Cue was written."""
     moment = now or datetime.now(UTC)
     async with sessions() as session:
         if await words_waiting(session):
@@ -148,20 +146,6 @@ async def tick(
         await settle(session, firings, now=moment, tz=tz)
         await session.commit()
         return True
-
-
-async def run_scheduler(
-    sessions: async_sessionmaker[AsyncSession],
-    *,
-    timezone: str,
-    poll_seconds: float = SCHEDULER_POLL_SECONDS,
-) -> None:
-    tz = ZoneInfo(timezone)
-    await run_poll(
-        lambda: tick(sessions, tz=tz),
-        poll_seconds=poll_seconds,
-        name="The Reminder poll",
-    )
 
 
 def format_cue(firings: list[Firing], *, now: datetime) -> str:

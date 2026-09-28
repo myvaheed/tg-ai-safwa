@@ -4,7 +4,8 @@ Only the event boundaries with real consumers are implemented. Checks receive no
 or delivery objects. Run handlers receive the application's resources and a session
 factory, and around a turn and on a tick a publication port too: around a turn under the
 lease the event adapter owns, on a tick while the chat is free and the owner has not acted
-since the look. On a commit there is no chat, and words go through an Advise hook.
+since the look. On a commit and at the start there is no chat, and words go through an
+Advise hook.
 Advise keeps what a check returned as
 the hook's one pending request and asks the feature for the words just before they are
 said, so what is said is what is still there.
@@ -272,6 +273,18 @@ class OnTick:
 
 
 @dataclass(frozen=True, slots=True)
+class Started:
+    """The application has started: the shell has reconciled what the restart left, and no
+    message has been taken yet."""
+
+
+@dataclass(frozen=True, slots=True)
+class OnStarted:
+    def matches(self, event: Started) -> bool:
+        return True
+
+
+@dataclass(frozen=True, slots=True)
 class RunContext[Resources]:
     resources: Resources
     still_current: Callable[[], bool]
@@ -374,7 +387,8 @@ class HookSpec[Event, Payload]:
         | OnAfterRequest
         | OnBeforeReview
         | OnCommitted
-        | OnTick,
+        | OnTick
+        | OnStarted,
         ...,
     ]
     evaluate: Callable[[Event], Awaitable[Sequence[Payload]]]

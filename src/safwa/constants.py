@@ -21,5 +21,5 @@ SELECTOR_PAGE_SIZE = 10
 # Summary writes it; the shell's history source sizes the window.
 SUMMARY_TOKEN_CEILING = 2_000
 SUMMARY_TRIGGER_TOKENS = 6_000
-# The tick of both the Cue queue and the Reminder poll.
+# How often the Cue queue and the hook tick poll look, and how often Reminders are checked.
 SCHEDULER_POLL_SECONDS = 30.0

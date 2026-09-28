@@ -1,17 +1,42 @@
-"""Binding the Cue poll and the hook tick poll to this application.
+"""The two loops an application with hooks runs: the Cue poll and the hook tick poll.
 
-Cues are not a feature — no business rule is written here — so these tasks are started
-alongside the feature tasks rather than through a `FeatureModule` of their own.
+They belong to no feature, and a feature has no loop of its own: its work on a timer is a hook
+on a tick. The composition root starts them and cancels them with the polling loop.
 """
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+
+from aiogram import Bot
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
 from ..hooks.contracts import Tick
 from ..telegram import owner_anchor
-from ..telegram.manifest import BackgroundContext, BackgroundTask
+from ..telegram.services import Services
 from .background import run_cue_queue
 from .initiatives import run_ticks
 from .runtime import CueRuntime, tick_chat
+
+
+@dataclass(frozen=True, slots=True)
+class BackgroundContext:
+    """What a loop is given once the application is built."""
+
+    owner_id: int
+    timezone: str
+    scheduler_enabled: bool
+    poll_seconds: float
+    sessions: async_sessionmaker[AsyncSession]
+    bot: Bot
+    services: Services
+
+
+@dataclass(frozen=True, slots=True)
+class BackgroundTask:
+    name: str
+    run: Callable[[BackgroundContext], Awaitable[None]]
 
 
 async def _poll_cues(context: BackgroundContext) -> None:
@@ -47,3 +72,4 @@ async def _tick_hooks(context: BackgroundContext) -> None:
 
 CUE_QUEUE = BackgroundTask("cue-queue", _poll_cues)
 HOOK_TICKS = BackgroundTask("hook-ticks", _tick_hooks)
+BACKGROUND_TASKS = (CUE_QUEUE, HOOK_TICKS)

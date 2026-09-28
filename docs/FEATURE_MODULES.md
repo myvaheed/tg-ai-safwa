@@ -35,16 +35,12 @@ and SQLAlchemy; nothing that expresses a business rule imports it.
 | `helpers` | a `HelperSpec` — the mini session `call_helper(name)` runs, its instructions, builder and allowed views; its automatic offer is a separate hook |
 | `proposals` | a `ProposalContribution` per entity: handler, mutation tool, presenter, and which of its actions save without a screen |
 | `mutation_tools` | a mutation tool whose change lands on an entity another feature owns (`remove`) |
-| `before_tool` | a watcher given each tool call before it runs; a result it returns refuses the call |
-| `after_tool` | a watcher given each call and the result it produced, to write on the session or add to that result |
 | `views` | the `ai_*` views this feature publishes |
 | `screens` | a `ScreenSpec` per item type the owner can be taken to, and how it reads when cited |
 | `commands` | a `ScreenCommand` per screen the owner opens by name: a slash command, a menu button, or both |
 | `callback_actions` | the inline-button actions this feature's screens draw |
 | `text_inputs` | a `TextInputFlow` per editor field the owner types a value into |
 | `start_links` | a `StartLink` — a `/start <payload>` this feature answers instead of it opening a cited item |
-| `recover` | one hook `recover_startup` runs before the run machinery is reconciled |
-| `background` | tasks the polling loop starts and cancels |
 
 A capability does not get a field here by default. It first gets its own mechanism, and only a
 capability several features plug into earns a contribution.
@@ -54,8 +50,9 @@ Automatic reactions have their own explicit `HOOKS` list beside `MODULES`, passe
 from `module.py`; it does not register it there a second time. The registry checks the owner,
 name, subscription, effect and helper reference whether or not the owner has the hook switched
 off; whether it is on is the application's policy, which Safwa reads from the Profile. See
-[HOOK_ARCH.md](HOOK_ARCH.md) for the contract and each hook on it. Recovery callbacks and
-background tasks keep their existing lifecycle contracts.
+[HOOK_ARCH.md](HOOK_ARCH.md) for the contract and each hook on it. A feature has no loop and no
+recovery of its own: its work on a timer is a hook on a tick, and what it reconciles after a
+restart is a hook on `Started`.
 
 ## The three proposal responsibilities
 
@@ -92,7 +89,6 @@ deriving is the shell's, so a second application gets the same registries from i
 - `SYSTEM_PROMPT` — the template in `features/advisor/agent.py` with the routing rules generated
   from the roster. `MODULES` is a constant of import time, so the cacheable prompt prefix stays
   byte-stable.
-- `RECOVERY_HOOKS` and `BACKGROUND_TASKS` — in `MODULES` order.
 
 ## Adding an entity the model may change
 
@@ -109,7 +105,6 @@ safwa/features/<feature>/
   agent.py      # MutationToolSpec, and an AgentSpec if it owns a subagent
   proposal.py   # ProposalHandler
   telegram.py   # the Telegram adapter: screens, editors, the review screen, the citation label
-  background.py # BackgroundTask per loop the polling loop starts and cancels
   hooks.py      # automatic conditions and effects, exported by module.py; assembly layer
   <thing>.py    # a long-lived collaborator the composition root builds, named for what it is
 ```
@@ -223,9 +218,9 @@ import for a distinction the namespace already makes.
 One rule, because the alternative is a reentrancy question with no good answer:
 
 - A **use case takes an `AsyncSession` and never commits.** It is composable, which is what lets
-  `ProposalHandler.apply`, a recovery hook and a Telegram handler all run the same operation.
+  `ProposalHandler.apply`, a hook's work and a Telegram handler all run the same operation.
 - The **caller owns the transaction.** Whoever opened the session commits it: a Telegram handler
-  around `sessions()`, a background tick, `approve_proposal` around the operations one Save
+  around `sessions()`, a hook's work, `approve_proposal` around the operations one Save
   applies. Nothing opens a second boundary inside one — an operation a use case has to call takes
   the session it was given, and a nested block would have no savepoint to roll a caught inner
   failure back to.
@@ -247,7 +242,7 @@ edits that come up, and everywhere each one lands.
 a test citing each of its scenarios — Rule R fails on a package the registry leaves out, and
 `tests/test_brd_traceability.py` fails on a package with no scenario file. Everything else is
 derived from the declaration: the view and its allowlist entry, the proposal capability, the
-routing line, the command, the recovery hook and the background task. If it declares a subagent
+routing line and the command. If it declares a subagent
 or a mutation tool, `tests/snapshots/prompt_prefix.json` gains an entry, which is part of that
 batch.
 

@@ -1,9 +1,9 @@
 """Memory operations: what is remembered, and the one that takes a Sprint's analysis in.
 
 An analysis is owed to memory until `Sprint.memory_at` says it was taken in, and the
-poll finds the oldest one owed. The stamp is written in the transaction that writes the
+`memory.retro` hook's tick finds the oldest one owed. The stamp is written in the transaction that writes the
 Sprint's observations, so whatever ends the work before that — a failed call, the owner's
-message, a restart — leaves the Sprint owed and the next poll does the same work again.
+message, a restart — leaves the Sprint owed and the next tick does the same work again.
 """
 
 from __future__ import annotations

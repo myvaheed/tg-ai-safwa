@@ -1,4 +1,5 @@
-"""From a committed change, or a time of day, to a hook's pending request or its work.
+"""From a committed change, a time of day or the start, to a hook's pending request or its
+work.
 
 An operation records what it changed beside its transaction (`foundation/changes.py`).
 After the commit, the one listener below hands those facts to the hooks that subscribe to
@@ -8,7 +9,7 @@ the daily hooks when the time of day their reader names passes, and to the hooks
 every so long when their interval runs out, by the same path. A Run hook does its work there
 and then: on a tick inside the poll, with the owner's chat to publish to while it is free; on
 a commit once that commit's facts are handed on, outside the order they are kept in, with no
-chat.
+chat; at the start before the first message is taken, with no chat either.
 
 The facts are handed on outside the transaction that made them: a process that dies in
 between loses one request, never the change itself.
@@ -32,7 +33,7 @@ from sqlalchemy.orm import Session
 from ..foundation.changes import CHANGES, Committed, take_changes
 from ..foundation.clock import utcnow
 from ..foundation.poll import run_poll
-from ..hooks.contracts import Advise, ChatState, OnTick, Run, RunContext, Tick
+from ..hooks.contracts import Advise, ChatState, OnTick, Run, RunContext, Started, Tick
 from ..hooks.registry import HookEvent, HookRegistry
 from ..hooks.ticks import TickSchedule
 from .queue import add_hook_cue, forget_before
@@ -97,6 +98,18 @@ async def queue_advice(
 
 async def _no_chat(text: str, kind: str) -> None:
     raise RuntimeError("A hook off the dialogue has no chat to publish to: record a change, and let an Advise hook say it")
+
+
+async def hand_on_start(
+    hooks: HookRegistry, sessions: async_sessionmaker[AsyncSession], *, resources: Any
+) -> None:
+    """Hand `Started` to the hooks once, before the first message is taken, and do their work
+    there and then. Work that fails stops the start: what a restart owes is not optional."""
+    work = RunContext(
+        resources=resources, still_current=lambda: True, publish=_no_chat, sessions=sessions
+    )
+    if await queue_advice(hooks, sessions, Started(), work=work):
+        raise RuntimeError("The work of a hook on start failed; the log above says which")
 
 
 @dataclass(frozen=True, slots=True)

@@ -13,7 +13,7 @@ from sqlalchemy import select
 from ui_harness import FakeMessage, services_for
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
-from safwa.bootstrap.modules import MODULES, RECOVERY_HOOKS, REGISTRY
+from safwa.bootstrap.modules import MODULES, REGISTRY
 from safwa.features.cards.api import HARD_TIME_NOTICE_DAYS
 from safwa.features.cards.hard_time import typed_hard_time
 from safwa.features.cards.hooks import (
@@ -76,7 +76,7 @@ from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.reminders.model import Reminder
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.workspace import Workspace
-from tg_agent_shell.cues.initiatives import bind_committed, queue_advice
+from tg_agent_shell.cues.initiatives import bind_committed, hand_on_start, queue_advice
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.foundation.changes import Committed, take_changes
 from tg_agent_shell.foundation.clock import utcnow
@@ -85,13 +85,13 @@ from tg_agent_shell.hooks.contracts import (
     Advise,
     HookSpec,
     OnCommitted,
+    OnStarted,
     OnTick,
     Run,
     RunContext,
     Tick,
 )
 from tg_agent_shell.hooks.registry import HookRegistry
-from tg_agent_shell.recovery import recover_startup
 
 
 async def create_card(session, **overrides):
@@ -302,7 +302,7 @@ async def test_pl_end_013_a_sprint_expires_only_after_local_midnight_past_its_en
 
 async def test_pl_end_013_the_midnight_check_is_a_daily_hook_that_runs_work_of_its_own(sessions):
     """PL-END-013 — tests/brd/planning.feature"""
-    assert SPRINT_EXPIRY_HOOK.on == (OnTick(at=midnight),)
+    assert SPRINT_EXPIRY_HOOK.on == (OnTick(at=midnight), OnStarted())
     assert isinstance(SPRINT_EXPIRY_HOOK.effect, Run) and not SPRINT_EXPIRY_HOOK.agent_related
     assert midnight in REGISTRY.hooks.daily_clocks
     async with sessions() as session:
@@ -337,9 +337,7 @@ async def test_pl_end_013_a_midnight_safwa_slept_through_is_made_up_at_startup(s
         await session.commit()
         sprint_id = sprint.id
 
-    async with sessions() as session:
-        await recover_startup(session, RECOVERY_HOOKS)
-        await session.commit()
+    await hand_on_start(REGISTRY.hooks, sessions, resources=None)
 
     async with sessions() as session:
         assert (await session.get(Workspace, 1)).active_sprint_id is None
@@ -349,8 +347,8 @@ async def test_pl_end_013_a_midnight_safwa_slept_through_is_made_up_at_startup(s
         running = await start_sprint(session, success_criteria="Ship v3")
         await session.commit()
         running_id = running.id
+    await hand_on_start(REGISTRY.hooks, sessions, resources=None)
     async with sessions() as session:
-        await recover_startup(session, RECOVERY_HOOKS)
         assert (await session.get(Workspace, 1)).active_sprint_id == running_id
 
 

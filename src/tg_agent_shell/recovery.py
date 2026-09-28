@@ -1,13 +1,12 @@
 """What a restart has to reconcile before the first message is taken.
 
 Everything here is the shell's own: the run rows, the buttons and the screens it wrote.
-A feature that has interrupted work of its own says so with `FeatureModule.recover`, and
-those hooks run first, in registration order.
+A feature that has interrupted work of its own reconciles it in a hook on `Started`, which
+`hand_on_start` runs once this is committed.
 """
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterable
 from datetime import UTC, datetime
 
 from sqlalchemy import delete, update
@@ -21,17 +20,9 @@ from .history import TelegramMessage
 from .telegram.model import CallbackToken, UiSession
 
 
-async def recover_startup(
-    session: AsyncSession, hooks: Iterable[Callable[[AsyncSession], Awaitable[None]]] = ()
-) -> None:
-    """Reconcile interrupted work: each feature's own hook first, then the run machinery.
-
-    The hooks run in registration order, so a feature that settles another one's row is
-    registered before the feature that walks the whole table.
-    """
+async def recover_startup(session: AsyncSession) -> None:
+    """Reconcile the run machinery's interrupted work."""
     now = datetime.now(UTC)
-    for hook in hooks:
-        await hook(session)
     # Both end the same way, so both are recorded the same way.  `interrupted` is the one
     # a later turn may pick up, and nothing after a restart can be its caller.
     await session.execute(

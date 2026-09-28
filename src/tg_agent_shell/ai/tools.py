@@ -75,24 +75,12 @@ class HelperPort:
     run: Helper
 
 
-# What a feature is given when the model calls a tool. `BeforeTool` answers with a result
-# to refuse the call, or with nothing to let it run. `AfterTool` is given what the call
-# produced, and writes on the session or that result rather than replacing it.
-BeforeTool = Callable[[AgentSession, ToolCall], Awaitable[dict[str, Any] | None]]
-AfterTool = Callable[[AgentSession, ToolCall, Any], Awaitable[None]]
-
-
 class WatcherFailed(RuntimeError):
-    """A feature watching a tool call raised.
+    """A hook watching the model's calls failed, or answered with something that is not words.
 
     The turn ends either way. What this adds is the half the owner cannot work out from
-    the exception alone: which feature's watcher it was, and which call it fell over on.
+    the exception alone: which hook it was, and which call it fell over on.
     """
-
-
-def watcher_name(watch: object) -> str:
-    """What to call a watcher in a message. A lambda has no name worth reading."""
-    return getattr(watch, "__qualname__", None) or repr(watch)
 
 
 # The tools the adapters answer themselves, and the ones that run during the turn instead
@@ -188,8 +176,6 @@ class ToolAdapters:
         screens: ScreenCatalogue,
         helpers: Mapping[str, HelperPort] | None = None,
         subagents: Mapping[str, RoutedSubagent] | None = None,
-        before_tool: tuple[BeforeTool, ...] = (),
-        after_tool: tuple[AfterTool, ...] = (),
         hooks: HookRegistry | None = None,
         read_tools: tuple[ReadToolSpec, ...] = (),
     ) -> None:
@@ -201,9 +187,6 @@ class ToolAdapters:
         # The same trail the runtime writes `route` to: one record of what a session did.
         self.trail = trail
         self.subagents = dict(subagents or {})
-        # Watched in the order the features were declared.
-        self.before_tool = before_tool
-        self.after_tool = after_tool
         self.hooks = hooks if hooks is not None else HookRegistry.of()
         # The root session reads and routes. Every mutation tool belongs to the
         # subagent that owns that feature, so judging *which* change to propose
@@ -253,42 +236,20 @@ class ToolAdapters:
         return name in IMMEDIATE_TOOLS or name in agent.read_specs
 
     async def run(self, agent: AgentSession, call: ToolCall) -> ToolOutcome:
-        """Run one call, in front of the features watching for it.
+        """Run one call, in front of the hooks watching for it.
 
-        A `BeforeTool` that answers refuses the call: the tool does not run, and what the
-        watcher wrote is what the model reads in its place. A watcher that raises ends the
-        turn rather than being stepped over, because a refusal that failed is not a pass.
-        A RefuseTool hook refuses the same way, with its notice as the result and its
-        helper granted. `route` is not seen here at all — the runtime answers it before the
-        adapters are reached.
+        A RefuseTool hook that answers refuses the call: the tool does not run, its notice is
+        what the model reads in its place, and its helper is granted. A check that fails ends
+        the turn rather than being stepped over, because a refusal that failed is not a pass.
+        `route` is not seen here at all — the runtime answers it before the adapters are
+        reached.
         """
-        for watch in self.before_tool:
-            refusal = await self._watched(watch(agent, call), watch, call, "before")
-            if refusal is not None:
-                return ToolOutcome(result=refusal, succeeded=False)
         refusal = await self._refuse(agent, call)
         if refusal is not None:
             return ToolOutcome(result=refusal, succeeded=False)
         outcome = await self._dispatch(agent, call)
         await self._offer_tools(agent, call, outcome)
-        for watch in self.after_tool:
-            await self._watched(
-                watch(agent, call, outcome.result), watch, call, "after"
-            )
         return outcome
-
-    @staticmethod
-    async def _watched(
-        work: Awaitable[Any], watch: object, call: ToolCall, when: str
-    ) -> Any:
-        """Run one watcher, and name it if it raises."""
-        try:
-            return await work
-        except Exception as error:
-            raise WatcherFailed(
-                f"The watcher {watcher_name(watch)}, which runs {when} the {call.name} "
-                f"tool call, failed: {error}"
-            ) from error
 
     async def _dispatch(self, agent: AgentSession, call: ToolCall) -> ToolOutcome:
         """Anything that is not a read is a change waiting for the owner."""

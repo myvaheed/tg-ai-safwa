@@ -1,20 +1,19 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-import pytest
 from sqlalchemy import select
 
-from safwa.features.reminders import background
-from safwa.features.reminders.background import (
+from safwa.constants import SCHEDULER_POLL_SECONDS
+from safwa.features.reminders import firing
+from safwa.features.reminders.firing import (
     REMINDER_FIRE_BATCH,
     prepare,
-    run_scheduler,
     settle,
     tick,
 )
+from safwa.features.reminders.hooks import REMINDER_FIRE_HOOK
 from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.schedule import (
     REMINDER_CATCHUP_GRACE_MINUTES,
@@ -23,8 +22,11 @@ from safwa.features.reminders.schedule import (
     schedule_columns,
 )
 from safwa.foundation.workspace import Workspace
+from tg_agent_shell.cues.initiatives import TickPoll
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.cues.queue import add_cue
+from tg_agent_shell.hooks.contracts import OnTick, Run
+from tg_agent_shell.hooks.registry import HookRegistry
 
 TZ = ZoneInfo("Europe/Istanbul")
 NOW = datetime(2026, 8, 13, 9, 0, tzinfo=UTC)  # a Thursday
@@ -228,12 +230,14 @@ async def test_settle_advances_a_repeat(sessions):
     assert reminder.next_fire_at > NOW
 
 
-# --- the poll loop --------------------------------------------------------
+# --- the tick -------------------------------------------------------------
 
 
-async def test_the_loop_survives_a_failing_tick(sessions, monkeypatch):
+async def test_rm_poll_021_the_next_check_runs_after_one_fell_over(sessions, monkeypatch):
     """RM-POLL-021 — tests/brd/reminders.feature"""
-    # A broken tick must not end the loop; reminders have to keep running.
+    assert SCHEDULER_POLL_SECONDS == 30
+    assert REMINDER_FIRE_HOOK.on == (OnTick(every=timedelta(seconds=SCHEDULER_POLL_SECONDS)),)
+    assert isinstance(REMINDER_FIRE_HOOK.effect, Run)
     await make_reminder(sessions)
     calls = {"count": 0}
 
@@ -241,15 +245,11 @@ async def test_the_loop_survives_a_failing_tick(sessions, monkeypatch):
         calls["count"] += 1
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(background, "words_waiting", exploding_words_waiting)
-    task = asyncio.create_task(
-        run_scheduler(sessions, timezone="Europe/Istanbul", poll_seconds=0.01)
+    monkeypatch.setattr(firing, "words_waiting", exploding_words_waiting)
+    poll = TickPoll(
+        HookRegistry.of((REMINDER_FIRE_HOOK,), owners=frozenset({"reminders"})),
+        sessions, resources=None, timezone="Europe/Istanbul", now=NOW,
     )
-    for _ in range(200):
-        await asyncio.sleep(0.01)
-        if calls["count"] >= 2:
-            break
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    assert calls["count"] >= 2
+    await poll.look(NOW + timedelta(seconds=30))
+    await poll.look(NOW + timedelta(seconds=60))
+    assert calls["count"] == 2

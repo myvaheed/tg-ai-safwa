@@ -136,7 +136,7 @@ async def reconcile_reminders(session: AsyncSession, now: datetime | None = None
     time, so after a timezone change "08:30" is a different UTC instant and every stored
     fire time is wrong at once; those are rebuilt. A schedule that came due meanwhile is
     rolled forward, but only once it is past the catch-up grace — inside the grace the row
-    stays overdue, because the first poll firing it is the catch-up.
+    stays overdue, because the first tick firing it is the catch-up.
 
     A one-shot is never moved: it always fires, however late.
     """

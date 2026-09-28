@@ -45,6 +45,7 @@ from ..features.heavy_analyzer.module import HEAVY_ANALYZER_HOOK
 from ..features.heavy_analyzer.module import MODULE as HEAVY_ANALYZER
 from ..features.home.module import HOME_HOOK
 from ..features.home.module import MODULE as HOME
+from ..features.memory.module import MEMORY_RETRO_HOOK
 from ..features.memory.module import MODULE as MEMORY
 from ..features.onboarding.module import MODULE as ONBOARDING
 from ..features.onboarding.module import (
@@ -65,6 +66,7 @@ from ..features.profile.api import hook_switched_on
 from ..features.profile.module import DAILY_SUMMARY_HOOK
 from ..features.profile.module import MODULE as PROFILE
 from ..features.reminders.module import MODULE as REMINDERS
+from ..features.reminders.module import REMINDER_FIRE_HOOK, REMINDER_START_HOOK
 from ..features.retro.module import MODULE as RETRO
 from ..features.saved_requests.module import MODULE as SAVED_REQUESTS
 from ..features.summary.module import MODULE as SUMMARY
@@ -75,8 +77,8 @@ from ..features.workspace_mutator.module import MODULE as WORKSPACE_MUTATOR
 from ..foundation.log_events import AI_LOG_EVENTS
 from ..foundation.workspace import require_workspace
 
-# Order is what the routing rules and the recovery hooks follow, so it is fixed rather than
-# incidental: the Advisor's prompt lists the subagents in this order every run.
+# Order is what the routing rules follow, so it is fixed rather than incidental: the
+# Advisor's prompt lists the subagents in this order every run.
 MODULES: tuple[FeatureModule, ...] = (
     HOME,
     WORKSPACE_MUTATOR,
@@ -110,6 +112,8 @@ async def _world(session: AsyncSession) -> World:
 # in the Profile, which is what `hook_switched_on` reads; one that follows another's switch
 # goes with it; one with neither is always on. The daily ones run at the Profile's Morning
 # time. The checks on the model's own work are here only while `featuretoggles` has them on.
+# A look does the work of its ticks in this order, so the Reminders come before the Home
+# dashboard and memory, whose work waits for the model.
 HOOKS = (
     SUMMARY_HOOK,
     HEAVY_ANALYZER_HOOK,
@@ -134,7 +138,10 @@ HOOKS = (
     NOTICE_HOOK,
     PRESENCE_HOOK,
     RETURN_HOOK,
+    REMINDER_START_HOOK,
+    REMINDER_FIRE_HOOK,
     HOME_HOOK,
+    MEMORY_RETRO_HOOK,
     *((PLAN_HOOK,) if featuretoggles.PLAN_REQUIRED else ()),
     *((REQUEST_REVIEW_HOOK,) if featuretoggles.REQUEST_REVIEW else ()),
     *((DIARY_READ_HOOK,) if featuretoggles.DAY_READ_REQUIRED else ()),
@@ -169,10 +176,6 @@ FEATURE_START_LINKS = REGISTRY.start_links
 PROPOSALS = REGISTRY.proposals
 AGENTS = REGISTRY.agents
 HELPERS = REGISTRY.helpers
-BEFORE_TOOL = REGISTRY.before_tool
-AFTER_TOOL = REGISTRY.after_tool
-RECOVERY_HOOKS = REGISTRY.recovery
-BACKGROUND_TASKS = REGISTRY.background
 
 # The routing rules are prose in the prompt, so a subagent they omit is never routed to,
 # and so is a view the Advisor's own list leaves out.

@@ -2,7 +2,7 @@
 
 An application says which features exist and what its root session says; this says what follows
 from that list — the view catalogue and its allowlist, the screens, the commands, the
-proposal capabilities, the subagent roster, the hooks and the background tasks. Nothing
+proposal capabilities, the subagent roster and the hooks. Nothing
 product-specific is decided here: what a world is, what the persona says and which
 features are in the list are all handed in.
 
@@ -25,8 +25,7 @@ from .ai.messages import Memory, StateBlocks
 from .ai.mini import ReadToolSpec
 from .ai.sql import ReadOnlyQueryRunner, SqlView, view_catalogue
 from .ai.subagents import RoutedSubagent
-from .ai.tools import IMMEDIATE_TOOLS, AfterTool, BeforeTool, HelperPort
-from .cues.module import CUE_QUEUE, HOOK_TICKS
+from .ai.tools import IMMEDIATE_TOOLS, HelperPort
 from .foundation.screens import ScreenCatalogue, ScreenSpec
 from .hooks.contracts import HookPolicy, HookSpec, every_switch_on
 from .hooks.registry import HookRegistry
@@ -50,13 +49,10 @@ from .telegram.contributions import (
 from .telegram.manifest import (
     AgentContext,
     AgentSpec,
-    BackgroundTask,
     FeatureModule,
     HelperSpec,
 )
 from .telegram.services import CallbackHandler
-
-RecoveryHook = Callable[[AsyncSession], Awaitable[None]]
 
 
 def _with_catalogue[Spec: (AgentSpec, HelperSpec)](
@@ -96,12 +92,8 @@ class Registry:
     proposals: ProposalRegistry
     agents: tuple[AgentSpec, ...]
     helpers: Mapping[str, HelperSpec]
-    before_tool: tuple[BeforeTool, ...]
-    after_tool: tuple[AfterTool, ...]
 
     hooks: HookRegistry
-    recovery: tuple[RecoveryHook, ...]
-    background: tuple[BackgroundTask, ...]
 
     @classmethod
     def of(
@@ -134,8 +126,6 @@ class Registry:
                 _with_catalogue(agent, views) for module in modules for agent in module.agents
             ),
             helpers=helpers,
-            before_tool=tuple(watch for module in modules for watch in module.before_tool),
-            after_tool=tuple(watch for module in modules for watch in module.after_tool),
             hooks=HookRegistry.of(
                 hooks,
                 owners=frozenset(module.name for module in modules),
@@ -143,14 +133,6 @@ class Registry:
                 # route is answered by agent_runtime before ToolAdapters is reached.
                 tools=IMMEDIATE_TOOLS - {"route"},
                 policy=hook_policy,
-            ),
-            recovery=tuple(
-                module.recover for module in modules if module.recover is not None
-            ),
-            # The Cue poll is not a feature's: it delivers whatever any of them wrote. Nor
-            # is the tick poll: it hands the hour to whichever hook declared it.
-            background=(
-                CUE_QUEUE, HOOK_TICKS, *(task for module in modules for task in module.background)
             ),
         )
 
@@ -229,8 +211,6 @@ class Registry:
             provider_name=provider_name,
             subagents=subagents,
             helpers=helpers,
-            before_tool=self.before_tool,
-            after_tool=self.after_tool,
             hooks=self.hooks,
             reviews=reviews,
             read_tools=(*((relook_tool(media),) if media is not None else ()), *read_tools),

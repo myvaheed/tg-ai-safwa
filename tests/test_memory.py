@@ -1,14 +1,16 @@
-"""Memory: what the retro leaves, how it accumulates, and the poll that writes it."""
+"""Memory: what the retro leaves, how it accumulates, and the hook that writes it."""
 
 from __future__ import annotations
 
 import html
 from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
+from types import SimpleNamespace
 
 from sqlalchemy import select
 from ui_harness import FakeMessage, kind_of, services_for
 
+from safwa.bootstrap.modules import HOOKS
 from safwa.features.cards.use_cases import create_card
 from safwa.features.memory.absorb import (
     MEMORY_PATTERNS_MAX,
@@ -22,7 +24,7 @@ from safwa.features.memory.absorb import (
     review_text,
 )
 from safwa.features.memory.agent import PATTERN_PROMPT, Pair, PatternReview
-from safwa.features.memory.background import MEMORY_RETRO_INTERVAL_SECONDS
+from safwa.features.memory.hooks import MEMORY_RETRO_HOOK, MEMORY_RETRO_INTERVAL_SECONDS
 from safwa.features.memory.model import MemoryObservation, MemoryPattern
 from safwa.features.memory.render import NOTHING_YET, memory_text
 from safwa.features.memory.telegram import command_memory
@@ -40,8 +42,11 @@ from safwa.features.retro.analysis import ITEM_CHARS, SENTENCE_CHARS
 from safwa.features.retro.api import AnalysedSprint, analysed_sprints
 from safwa.features.retro.use_cases import record_analysis
 from telegram_llm.text import TELEGRAM_TEXT_LIMIT
+from tg_agent_shell.cues.initiatives import TickPoll
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.kinds import MessageKind
+from tg_agent_shell.hooks.contracts import OnTick, Run
+from tg_agent_shell.hooks.registry import HookRegistry
 from tg_agent_shell.turn import TurnManager
 
 WALK = "утренняя прогулка поднимает день"
@@ -365,6 +370,30 @@ async def _rows(sessions) -> list[tuple[int, int, str, bool]]:
 async def _patterns(sessions) -> list[Pattern]:
     async with sessions() as session:
         return active(await read_observations(session), taken_in(await analysed_sprints(session)))
+
+
+async def test_mem_retro_011_the_check_is_a_tick_every_60_seconds(sessions) -> None:
+    """MEM-RETRO-011 — tests/brd/memory.feature"""
+    assert MEMORY_RETRO_HOOK in HOOKS
+    assert MEMORY_RETRO_HOOK.on == (OnTick(every=timedelta(seconds=60)),)
+    assert isinstance(MEMORY_RETRO_HOOK.effect, Run) and not MEMORY_RETRO_HOOK.agent_related
+    sprint_id = await _ended(sessions, "First", ended_days_ago=2)
+    await _analysed(sessions, sprint_id, _analysis(helped=[WALK]))
+    start = datetime(2026, 9, 19, 10, 0, tzinfo=UTC)
+    poll = TickPoll(
+        HookRegistry.of((MEMORY_RETRO_HOOK,), owners=frozenset({"memory"})),
+        sessions,
+        resources=SimpleNamespace(
+            memory_reviewer=_match_none, run_background=_runner(TurnManager())
+        ),
+        timezone="UTC",
+        now=start,
+    )
+
+    await poll.look(start + timedelta(seconds=59))
+    assert await _rows(sessions) == []
+    await poll.look(start + timedelta(seconds=60))
+    assert await _rows(sessions) == [(sprint_id, 1, WALK, True)]
 
 
 async def test_mem_retro_011_an_analysed_sprint_reaches_memory_on_its_own(sessions) -> None:

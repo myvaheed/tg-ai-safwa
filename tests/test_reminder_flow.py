@@ -7,7 +7,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from safwa.features.reminders.background import Firing, format_cue
+from safwa.bootstrap.modules import HOOKS
+from safwa.features.reminders.firing import Firing, format_cue
+from safwa.features.reminders.hooks import REMINDER_START_HOOK
 from safwa.features.reminders.model import Reminder, ScheduleKind
 from safwa.features.reminders.schedule import (
     REMINDER_CATCHUP_GRACE_MINUTES,
@@ -29,10 +31,12 @@ from safwa.foundation.workspace import Workspace
 from telegram_llm import DialogueMessage
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
 from tg_agent_shell.ai.runs import AgentRun
+from tg_agent_shell.cues.initiatives import hand_on_start
 from tg_agent_shell.cues.runtime import CueRuntime
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramMessage
+from tg_agent_shell.hooks.contracts import OnStarted
 from tg_agent_shell.hooks.registry import HookRegistry
 from tg_agent_shell.proposals.store import ProposalStore
 from tg_agent_shell.proposals.use_cases import open_batch
@@ -171,6 +175,21 @@ async def _add(sessions, *, due, **kwargs) -> int:
         session.add(reminder)
         await session.commit()
         return reminder.id
+
+
+async def test_rm_start_020_the_start_hook_reconciles_the_reminders(sessions):
+    """RM-START-020 — tests/brd/reminders.feature"""
+    assert REMINDER_START_HOOK in HOOKS
+    assert REMINDER_START_HOOK.on == (OnStarted(),)
+    now = datetime.now(UTC)
+    reminder_id = await _add(sessions, due=now - timedelta(days=3), interval_minutes=120)
+    await hand_on_start(
+        HookRegistry.of((REMINDER_START_HOOK,), owners=frozenset({"reminders"})),
+        sessions,
+        resources=None,
+    )
+    async with sessions() as session:
+        assert (await session.get(Reminder, reminder_id)).next_fire_at > now
 
 
 async def test_reconcile_leaves_an_in_grace_overdue_repeat_for_the_poll(sessions):

@@ -67,7 +67,7 @@ flowchart LR
     BOOT --> INFRA["provider · memory<br/>query_runner · history"]
     INFRA --> ADV["the root session<br/>+ routed subagents"]
     ADV --> SV["Services"]
-    SV --> BIND["bind_committed<br/>recover_startup"]
+    SV --> BIND["bind_committed<br/>recover_startup<br/>hand_on_start"]
     BIND --> DP["Dispatcher"]
     DP --> POLL["long polling"]
     BIND --> BG["background tasks<br/>cancelled in finally"]
@@ -77,8 +77,8 @@ All of it is [bootstrap/main.py](../src/safwa/bootstrap/main.py). Which features
 [bootstrap/modules.py](../src/safwa/bootstrap/modules.py) knows — and nobody else. Everything
 that *follows* from that list is [registry.py](../src/tg_agent_shell/registry.py), which is the
 shell's: `Registry.of(MODULES, world=…, hooks=HOOKS)` derives the view catalogue and its allowlist, the screens,
-the commands, the callbacks, the text inputs, the proposal capabilities, the subagent roster, the
-hooks and the background tasks, refusing each collision where it happens.
+the commands, the callbacks, the text inputs, the proposal capabilities, the subagent roster and
+the hooks, refusing each collision where it happens.
 
 `HOOKS` is the explicit list of automatic reactions, independent of the features themselves.
 A hook whose effect reaches the agent — `OfferTool`, `RefuseTool` or `Advise`, its
@@ -91,12 +91,15 @@ leaves out by `featuretoggles.py`. The tool adapter emits `BeforeTool` before a 
 are prepared, `BeforeReview` before a proposal's screen is drawn and `AfterRequest` before the
 answer to the owner's message; the dialogue adapter emits `BeforeTurn`
 inside a turn, once the dialogue is read and before the model is asked — the owner's turn and a
-Cue's alike — and `AfterTurn` after releasing the owner's turn.
+Cue's alike — and `AfterTurn` after releasing the owner's turn; the composition root hands
+`Started` on once, after `recover_startup` and before polling starts.
 A `Run` after a turn uses one background lease and a publication port that checks currentness;
 a `Run` on a tick has a publication port too, which sends only while the chat is free and the
 owner has not acted since the look that ran it, taking the lease for the sending alone
-(`speak_on_schedule`); a `Run` on a commit has the session factory and no chat, and says anything
-it has to say through a recorded fact and an Advise hook. Summary retains its own window threshold and
+(`speak_on_schedule`), and work on a tick that must wait for the chat takes the lease itself;
+a `Run` on a commit or at the start has the session factory and no chat, and says anything
+it has to say through a recorded fact and an Advise hook. Work at the start that fails stops
+the start. Summary retains its own window threshold and
 history comparison; its manual command calls the same writer directly. The whole of it, batch by
 batch, is [HOOK_ARCH.md](HOOK_ARCH.md).
 
@@ -117,10 +120,11 @@ wallets and entries, with none of Safwa's nouns in it.
 | what the model is told it is | one system prompt, with `Registry.routes` filling the routes in | `SYSTEM_PROMPT` |
 | the container every handler reads | `Services`, filled from the registry | `bootstrap/main.py` |
 | the home screen | exactly one `ScreenCommand` with `nav=HOME_NAV` | the `home` feature |
-| a restart | `recover_startup(session, registry.recovery)` | called once the hooks are bound, before polling starts, so what recovery ends is handed on |
+| a restart | `recover_startup(session)` | called once, before polling starts |
+| hooks, if it has any | `Registry.of(…, hooks=…)`; `bind_committed`; `hand_on_start(registry.hooks, …)` after `recover_startup`, where a `Run` on `OnStarted()` reconciles what a feature owns; and the Cue poll and the tick poll, `BACKGROUND_TASKS` in `cues/module.py` — whose import declares the `cues` table | `HOOKS`; `hand_on_start` once the commits are bound, so what the start ends is handed on: `planning.sprint_expiry` and `reminders.start` |
 | a Home message, if it wants one | a `Run` on `OnTick(every=…)` that publishes text of kind `home`: the chat is cleared down to it and the conversation starts after it (`TG-HOME-023`) | `home.dashboard`, after the Profile's quiet time |
 | photos, if it takes them | a `MediaLibrary` on `Services.media`, `AgentContext.media` and `root_session(media=…)`, and the media `MODULE` among its features | none yet |
-| a shutdown | cancel the background tasks, close the provider and the bot | the polling `finally` |
+| a shutdown | cancel the loops it started, close the provider and the bot | the polling `finally` |
 
 Everything else is the application's own: the persona, the provider, the product dependencies,
 and the startup itself — Safwa's carries ASR, the similar items model and its attribution headers,
@@ -156,8 +160,6 @@ flowchart TB
     subgraph BG[background loops]
         CUE[cue-queue]
         TICK[hook-ticks]
-        REM[reminder-scheduler]
-        MEMR[memory-retro]
     end
     HIST[(telegram_messages · the kept chat)]
     DB[(SQLite · ai_* views)]
@@ -268,12 +270,6 @@ A name that is not on the session's own tool list is refused before any dispatch
 to the model are exactly the tools it can reach: the Advisor cannot prepare a change and a subagent
 cannot `route`. Every call is charged to `MAX_TOOL_CALLS`, a refused one included — a session that
 only ever sends malformed responses is stopped by the budget rather than running on.
-
-A feature may watch what the model calls: `before_tool` is given the call and refuses it by
-answering with a result, `after_tool` is given the call and what it produced. `route` reaches
-neither, because the runtime answers it before the adapters are reached. A watcher that raises
-ends the turn as `WatcherFailed`, which names it and the call. No feature declares one yet
-(`AG-TOOL-031`, `AG-TOOL-032`).
 
 ## Context, and why its order is fixed
 
@@ -485,12 +481,12 @@ flowchart LR
 
 Only the Advisor writes to the chat, so anything the system wants said reaches the owner as one
 ordinary Advisor turn. A **Cue** is the request for that turn: a Reminder's words written down by
-its poll, or a hook's finding its feature words just before it is said. Either way whoever had the
+its tick, or a hook's finding its feature words just before it is said. Either way whoever had the
 facts supplies them, so the Advisor relays rather than goes looking.
 
 ```mermaid
 flowchart TB
-    RM[the Reminder poll<br/>next_fire_at says when] --> ROW[(cues — one row, the words)]
+    RM[reminders.fire, a tick<br/>next_fire_at says when] --> ROW[(cues — one row, the words)]
     HK[a hook's Advise, after a commit — a blocker,<br/>a Sprint's end — or at its time of day] --> HROW[(cues — one row per hook:<br/>its name and what it refers to)]
     ROW --> CQ[the Cue poll, every 30s]
     HROW --> CQ
@@ -543,11 +539,11 @@ interrupts mid-turn all lose nothing: the row is still there, and the next poll 
   own would be. A fired Reminder is the one that names items: the prompt tells the Advisor to read
   their current state with `query_data` before repeating an instruction that may no longer apply.
 
-### Reminders — the poll is the alarm clock and nothing else
+### Reminders — the tick is the alarm clock and nothing else
 
 ```mermaid
 flowchart TB
-    TICK[tick every SCHEDULER_POLL_SECONDS = 30] --> PEND{Reminders' words still waiting?}
+    TICK[reminders.fire: OnTick every SCHEDULER_POLL_SECONDS = 30] --> PEND{Reminders' words still waiting?}
     PEND -->|yes| TICK
     PEND -->|no| DUE{next_fire_at <= now?}
     DUE -->|no| TICK
@@ -557,8 +553,8 @@ flowchart TB
     SETTLE --> TICK
 ```
 
-There is no scheduling library and no in-memory timer. `Reminder.next_fire_at` says **when**, and
-nothing more: the tick writes the words down and moves the row on in the **same transaction**. It
+There is no scheduling library and no timer of its own: `reminders.fire` is a `Run` on the hook
+tick poll. `Reminder.next_fire_at` says **when**, and nothing more: the tick writes the words down and moves the row on in the **same transaction**. It
 holds no gate, takes no lease and runs no Advisor turn — what guarantees the owner gets the words is
 the Cue row, exactly as for anything else Safwa says first.
 
@@ -572,8 +568,10 @@ the Cue row, exactly as for anything else Safwa says first.
   always fires, however late, and the Cue says how late.
 - A repeat advances from its **scheduled** moment, not from the tick that took it, so a late check
   does not push every later fire late with it.
-- Reminders are deterministic first — the poll only does schedule arithmetic, and the Advisor
+- Reminders are deterministic first — the tick only does schedule arithmetic, and the Advisor
   composes the message.
+- `reminders.start`, a `Run` on `OnStarted()`, works out again a time-of-day Reminder a timezone
+  move left on the wrong moment and rolls on a repeat overdue past the grace (`RM-START-020`).
 
 ### A committed change, or a time of day, writes a hook's Cue
 
@@ -608,11 +606,14 @@ hooks that name the same interval share its `Tick`. Its work that failed is not 
 next time is its next try. Every `Tick` a look hands on carries the owner's chat as that look saw
 it (`ChatState`: when the owner last acted, whether the chat is free, the kind and time of the
 newest message kept) — the Home dashboard's `home.dashboard` is the one that reads it.
+Safwa's are `reminders.fire` every 30 seconds, `home.dashboard` every 30 and `memory.retro`
+every 60. A look does the work of its ticks one after another in `HOOKS` order, so work that
+waits for the model holds the next look back: the Reminders come first in `HOOKS`.
 
 ### A Sprint's end is a fact, and its summary is a hook's words
 
 `finish_sprint` — by hand, or by the Sprint expiry hook at the local midnight after the planned
-last day, a `Run` on a tick whose missed midnight `recover_startup` makes up for — records
+last day, a `Run` on a tick and on `OnStarted()`, which makes up a missed midnight — records
 `sprint.ended` beside its transaction and says nothing itself. The Sprint summary hook keeps
 that as its one pending row, and at delivery `sprint_summary` writes six lines from the Sprint's
 own record — which Sprint and when, how it ended, its Success criteria, the four effort figures,
@@ -672,13 +673,13 @@ Telegram no longer knows it (`SC-ALBUM-010`). The root session's own reads besid
 
 ## Memory
 
-Memory is what the retro analysis of each Sprint left, and only its poll writes it: patterns —
+Memory is what the retro analysis of each Sprint left, and only its hook writes it: patterns —
 what the Sprints observed of one thing, one `memory_observation` row per Sprint and claim,
 counted by the Sprints on either side and left out of the reading when no Sprint confirms it —
 and the last analysed Sprint whole. What the Advisor is given before every answer, and what
 `/memory` shows, is selected at that moment from the observations of the Sprints taken in and
 the last analysed Sprint's row (`MemoryReader`). How a Sprint is taken in, why its own rows are
-the only ones it replaces, and why the poll over `Sprint.memory_at` is the whole of its
+the only ones it replaces, and why a tick over `Sprint.memory_at` is the whole of its
 reliability, is the second half of
 [SPRINT_ANALYSE_TO_RETRO_AND_MEM.md](SPRINT_ANALYSE_TO_RETRO_AND_MEM.md).
 
@@ -772,20 +773,16 @@ stateDiagram-v2
 |---|---|---|
 | `cue-queue` | `SCHEDULER_POLL_SECONDS = 30` | `cues/background.py` |
 | `hook-ticks` | `SCHEDULER_POLL_SECONDS = 30` | `cues/initiatives.py` |
-| `reminder-scheduler` | `SCHEDULER_POLL_SECONDS = 30` | `features/reminders/background.py` |
-| `memory-retro` | `MEMORY_RETRO_INTERVAL_SECONDS = 60` | `features/memory/background.py` |
 
-Each is a `BackgroundTask`. All but the Cue poll and the hook tick poll are declared in a
-feature's `module.py`; those two belong to no feature, so the registry puts them in front of
-theirs. The composition
-root starts them and cancels them in the polling `finally`. A feature that needs its own objects takes them off
-`services`, the container the whole application already shares.
+Each is a `BackgroundTask` in `BACKGROUND_TASKS`, and both are the shell's: a feature has no loop
+of its own, and its work on a timer is a hook on a tick. The composition root starts them and
+cancels them in the polling `finally`; an application with no hook needs neither.
 
 ## Recovery
 
-[`recover_startup`](../src/tg_agent_shell/recovery.py) reconciles interrupted work on every
-boot: each feature contributes a `recover` callable through its `FeatureModule`, and everything
-after those hooks is the shell's own — the run rows, the buttons and the screens it wrote.
+[`recover_startup`](../src/tg_agent_shell/recovery.py) reconciles the shell's own interrupted
+work on every boot — the run rows, the buttons and the screens it wrote — and `hand_on_start` then
+hands `Started` to the hooks, where a feature reconciles what it owns.
 
 **A restart ends every session.** One left `running` and one left `awaiting_approval` are both
 recorded `abandoned`, and their claims are released. Nothing picks either up: a screen is process

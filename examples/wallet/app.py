@@ -129,7 +129,7 @@ async def open_database(file: DatabaseFile, *, owner_id: int, timezone: str) -> 
     database = Database(file)
     async with database.sessions() as session:
         await bootstrap_ledger(session, owner_id, timezone)
-        await recover_startup(session, REGISTRY.recovery)
+        await recover_startup(session)
         await session.run_sync(
             lambda sync_session: create_ai_views(sync_session.connection(), REGISTRY.views)
         )

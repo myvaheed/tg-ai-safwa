@@ -71,7 +71,8 @@ class Settings(BaseSettings):
     timezone: str = "Europe/Istanbul"
     summary_trigger_tokens: int = SUMMARY_TRIGGER_TOKENS
     token_chars_estimate: float = TOKEN_CHARS_ESTIMATE
-    # The Reminder poll. Off means Reminders can be created and scheduled but never fire.
+    # The Cue queue and the hook ticks. Off means Reminders can be created but never fire, and
+    # nothing Safwa does on a timer runs.
     scheduler_enabled: bool = True
     scheduler_poll_seconds: float = SCHEDULER_POLL_SECONDS
     log_level: str = Field(default="INFO", pattern=r"^(?i:DEBUG|INFO|WARNING|ERROR|CRITICAL)$")

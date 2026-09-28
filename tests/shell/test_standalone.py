@@ -2,7 +2,8 @@
 
 An import graph shows that the shell imports no Safwa. This shows the other direction: a
 process that cannot import Safwa at all still runs the whole path and builds a database
-holding the shell's tables and this application's, and nothing else.
+holding the tables of the shell parts it uses and this application's, and nothing else: with no
+hook it runs no Cue, so it has no `cues` table.
 """
 
 from __future__ import annotations
@@ -17,7 +18,6 @@ SHELL_TABLES = {
     "agent_steps",
     "callback_tokens",
     "chat_media",
-    "cues",
     "telegram_messages",
     "ui_sessions",
 }

@@ -107,8 +107,8 @@ meaning anything, so change the mechanism instead.
   `views.py`, never migrated.
 - **The prompt prefix is byte-stable.** New volatile context goes after the dialogue, never into a
   system block — one timestamp in `messages[0]` costs every cache hit.
-- **Memory is what the retro left, and only its poll writes it.** `memory_observation` rows are
-  written by the absorb poll alone, from a Sprint's analysis, and a Sprint replaces its own rows
+- **Memory is what the retro left, and only its hook writes it.** `memory_observation` rows are
+  written by the `memory.retro` hook alone, from a Sprint's analysis, and a Sprint replaces its own rows
   only; the last analysed Sprint is read off its row. No command, file or turn adds a fact.
 - **One lease, and the owner always wins.** `TurnManager` is the single foreground/background lease;
   background work verifies the revision before it publishes or commits.

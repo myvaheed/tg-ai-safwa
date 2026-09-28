@@ -13,14 +13,13 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 
-from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..ai.autoapproval import AutoApprovalRule
 from ..ai.mini import ReadToolSpec
 from ..ai.sql import ReadOnlyQueryRunner, SqlView
 from ..ai.subagents import SUBAGENT_HISTORY_LAST_MESSAGES, RoutedSubagent
-from ..ai.tools import AfterTool, BeforeTool, Helper
+from ..ai.tools import Helper
 from ..foundation.screens import ScreenSpec
 from ..history import TelegramHistorySource
 from ..media.library import MediaLibrary
@@ -31,7 +30,6 @@ from ..proposals.api import (
     SimilarItems,
 )
 from .contributions import ScreenCommand, StartLink, TextInputFlow
-from .services import Services
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,32 +95,6 @@ class HelperSpec:
 
 
 @dataclass(frozen=True, slots=True)
-class BackgroundContext:
-    """What a long-running feature task is given once the application is built.
-
-    Nothing here names one feature: a task that needs its feature's own objects takes
-    them off `services`, the container the whole application already shares. A field per
-    feature would rebuild the registry `MODULES` exists to remove.
-    """
-
-    owner_id: int
-    timezone: str
-    scheduler_enabled: bool
-    poll_seconds: float
-    sessions: async_sessionmaker[AsyncSession]
-    bot: Bot
-    services: Services
-
-
-@dataclass(frozen=True, slots=True)
-class BackgroundTask:
-    """One task the composition root starts and cancels with the polling loop."""
-
-    name: str
-    run: Callable[[BackgroundContext], Awaitable[None]]
-
-
-@dataclass(frozen=True, slots=True)
 class ProposalContribution:
     """Binds the proposal responsibilities of one entity, only here."""
 
@@ -149,10 +121,6 @@ class FeatureModule:
     proposals: tuple[ProposalContribution, ...] = ()
     # A mutation tool whose change lands on an entity another feature owns.
     mutation_tools: tuple[MutationToolSpec, ...] = ()
-    # Watching the calls the model makes: before one runs, to refuse it, and after one
-    # ran, to write on the session or add to what the model reads.
-    before_tool: tuple[BeforeTool, ...] = ()
-    after_tool: tuple[AfterTool, ...] = ()
 
     # Data
     views: tuple[SqlView, ...] = ()
@@ -166,7 +134,3 @@ class FeatureModule:
     )
     text_inputs: tuple[TextInputFlow, ...] = ()
     start_links: tuple[StartLink, ...] = ()
-
-    # Lifecycle
-    recover: Callable[[AsyncSession], Awaitable[None]] | None = None
-    background: tuple[BackgroundTask, ...] = ()

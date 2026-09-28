@@ -1,6 +1,6 @@
 """Safwa's own schema root.
 
-The shell declares its six tables on a `Base` of its own, and an application declares its
+The shell declares its tables on a `Base` of its own, and an application declares its
 tables on this one. Two applications can then run in one process without either one's
 `create_all` reaching the other's tables — which is what `tests/shell/` checks by building
 a second application and counting what a fresh database gets.

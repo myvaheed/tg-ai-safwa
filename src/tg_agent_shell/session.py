@@ -33,7 +33,7 @@ from .ai.outcome import AIOutcome, AIOutcomeKind
 from .ai.runs import AgentRunStore, AgentStepTrail
 from .ai.sql import ReadOnlyQueryRunner
 from .ai.subagents import RoutedSubagent
-from .ai.tools import AfterTool, BeforeTool, HelperPort, ToolAdapters
+from .ai.tools import HelperPort, ToolAdapters
 from .foundation.errors import failure_reason
 from .foundation.screens import ScreenCatalogue
 from .hooks.registry import HookRegistry
@@ -96,8 +96,6 @@ class RootSession:
         provider_name: str = "openai-compatible",
         subagents: tuple[RoutedSubagent, ...] = (),
         helpers: Mapping[str, HelperPort] | None = None,
-        before_tool: tuple[BeforeTool, ...] = (),
-        after_tool: tuple[AfterTool, ...] = (),
         hooks: HookRegistry | None = None,
         reviews: ProposalStore | None = None,
         read_tools: tuple[ReadToolSpec, ...] = (),
@@ -123,8 +121,6 @@ class RootSession:
             screens,
             helpers,
             subagents=self.subagents,
-            before_tool=before_tool,
-            after_tool=after_tool,
             hooks=hooks,
             read_tools=read_tools,
         )

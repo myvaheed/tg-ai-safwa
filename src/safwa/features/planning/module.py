@@ -11,14 +11,11 @@ from .hooks import KEY_WARNING_HOOK as KEY_WARNING_HOOK
 from .hooks import SPRINT_END_HOOK as SPRINT_END_HOOK
 from .hooks import SPRINT_EXPIRY_HOOK as SPRINT_EXPIRY_HOOK
 from .hooks import SPRINT_SUMMARY_HOOK as SPRINT_SUMMARY_HOOK
-from .hooks import expire_due_sprint_now
 from .telegram import PLANNING_CALLBACK_ACTIONS, render_sprint
 
 MODULE = FeatureModule(
     name="planning",
     views=views.VIEWS,
-    # A midnight Safwa was not running for is made up here, on the next start.
-    recover=expire_due_sprint_now,
     commands=(
         ScreenCommand(
             handler=render_sprint,

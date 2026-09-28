@@ -18,9 +18,11 @@ from tg_agent_shell.hooks.contracts import (
     Advise,
     HookSpec,
     OnCommitted,
+    OnStarted,
     OnTick,
     Run,
     RunContext,
+    Started,
     Tick,
 )
 
@@ -31,10 +33,11 @@ from .key_actions import KeyActions
 from .model import Sprint, SprintCommitment
 from .use_cases import expire_due_sprint, sprint_summary
 
-# What the key check and the end warning keep as their one pending item: each is about the
-# running Sprint.
+# What the key check, the end warning and the expiry keep as their one item: each is about
+# the running Sprint.
 KEY_CHECK = "keys"
 END_CHECK = "end"
+EXPIRY_CHECK = "expiry"
 
 SPRINT_ENDS_TOMORROW = (
     "Sprint {number} ends tomorrow, {end_date}. Check what is still open in Sprint and Today, "
@@ -115,29 +118,26 @@ async def midnight(session: AsyncSession) -> time:
     return time(0, 0)
 
 
-async def passed_midnight(event: Tick) -> tuple[str, ...]:
-    return (event.at,)
-
-
-async def expire_due_sprint_now(session: AsyncSession) -> None:
-    """Close the running Sprint if the midnight after its last day has passed."""
-    await expire_due_sprint(session)
+async def expiry_check(event: Tick | Started) -> tuple[str, ...]:
+    return (EXPIRY_CHECK,)
 
 
 async def expire_sprint(marker: str, context: RunContext) -> None:
+    """Close the running Sprint if the midnight after its last day has passed."""
     async with context.sessions() as session:
-        await expire_due_sprint_now(session)
+        await expire_due_sprint(session)
         await session.commit()
 
 
 SPRINT_EXPIRY_HOOK = HookSpec(
     name="planning.sprint_expiry",
     owner="planning",
-    on=(OnTick(at=midnight),),
-    evaluate=passed_midnight,
+    # A midnight Safwa was not running for is made up at the start.
+    on=(OnTick(at=midnight), OnStarted()),
+    evaluate=expiry_check,
     effect=Run(expire_sprint),
     title="Sprint expiry",
-    description="At the midnight after a Sprint's last day, ends it.",
+    description="At the midnight after a Sprint's last day, or at the next start, ends it.",
 )
 
 

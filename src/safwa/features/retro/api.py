@@ -60,7 +60,7 @@ async def analysed_sprints(session: AsyncSession) -> list[AnalysedSprint]:
 
 
 async def mark_absorbed(session: AsyncSession, sprint_id: int, at: datetime) -> None:
-    """Memory took this Sprint's analysis in: the poll stops finding it."""
+    """Memory took this Sprint's analysis in: the memory.retro hook stops finding it."""
     sprint = await session.get(Sprint, sprint_id)
     if sprint is not None:
         sprint.memory_at = at

@@ -15,7 +15,8 @@ from llm_gateway import OpenAICompatibleProvider
 from telegram_llm import ChatHost
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from tg_agent_shell.asr import build_transcriber
-from tg_agent_shell.cues.initiatives import bind_committed
+from tg_agent_shell.cues.initiatives import bind_committed, hand_on_start
+from tg_agent_shell.cues.module import BACKGROUND_TASKS, BackgroundContext
 from tg_agent_shell.foundation.database import Database, DatabaseFile, upgrade_database
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.history import TelegramHistorySource, TelegramNotes
@@ -28,7 +29,7 @@ from tg_agent_shell.telegram import (
     discard_stale_status,
     sync_bot_commands,
 )
-from tg_agent_shell.telegram.manifest import AgentContext, BackgroundContext
+from tg_agent_shell.telegram.manifest import AgentContext
 from tg_agent_shell.telegram.routing import build_router
 from tg_agent_shell.turn import TurnManager
 
@@ -37,7 +38,7 @@ from ..config import Settings
 from ..features.advisor.agent import ADVISOR_ROW_LIMITS, ADVISOR_VIEWS
 from ..features.home.motivation import Motivator
 from ..features.memory.absorb import PatternReviewer
-from ..features.memory.use_cases import MemoryReader
+from ..features.memory.use_cases import BackgroundRunner, MemoryReader
 from ..features.planning.key_actions import KeyActions
 from ..features.profile.model import UserProfile
 from ..features.retro.analysis import SprintAnalyst
@@ -52,12 +53,10 @@ from ..security import held, unlock
 from .modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
-    BACKGROUND_TASKS,
     FEATURE_CALLBACK_ACTIONS,
     FEATURE_COMMANDS,
     FEATURE_START_LINKS,
     FEATURE_TEXT_INPUTS,
-    RECOVERY_HOOKS,
     REGISTRY,
     SCREENS,
     SYSTEM_PROMPT,
@@ -81,6 +80,9 @@ class SafwaFeatures:
     key_actions: KeyActions
     analyst: SprintAnalyst
     motivator: Motivator
+    # The turn's lease, for work on a tick that must wait for the chat to be free: a tick's
+    # work runs on whatever the owner does unless it takes the lease itself.
+    run_background: BackgroundRunner
 
 
 def configure_logging(level_name: str) -> None:
@@ -128,10 +130,10 @@ async def bootstrap_workspace(
 
 
 def _report_background_exit(task: asyncio.Task[None]) -> None:
-    """A background loop that ends before shutdown has stopped its feature for good.
+    """A background loop that ends before shutdown has stopped for good.
 
     Nothing awaits these tasks while polling runs, so an exception inside one is
-    swallowed by asyncio and the feature simply stops working until the next restart.
+    swallowed by asyncio and the loop simply stops working until the next restart.
     """
     if task.cancelled():
         return
@@ -271,6 +273,7 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
             key_actions=KeyActions(provider),
             analyst=SprintAnalyst(provider),
             motivator=Motivator(provider),
+            run_background=turn.run_background,
         ),
         views=ALLOWED_VIEWS,
         bot_username=settings.telegram_bot_username,
@@ -279,11 +282,12 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
         media=media,
     )
     # A commit's facts reach the hooks from here on, with the features a Run reaches for;
-    # what recovery ends — a Sprint whose midnight Safwa slept through — is handed on too.
+    # what the start ends — a Sprint whose midnight Safwa slept through — is handed on too.
     committed = bind_committed(database.sessions, REGISTRY.hooks, resources=services.features)
     async with database.sessions() as session:
-        await recover_startup(session, RECOVERY_HOOKS)
+        await recover_startup(session)
         await session.commit()
+    await hand_on_start(REGISTRY.hooks, database.sessions, resources=services.features)
     dispatcher = Dispatcher()
     dispatcher.include_router(build_router(commands))
     dispatcher["services"] = services

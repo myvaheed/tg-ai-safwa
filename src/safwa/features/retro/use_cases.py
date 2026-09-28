@@ -77,7 +77,8 @@ async def mark_criterion(session: AsyncSession, sprint_id: int, met: bool | None
 async def record_analysis(session: AsyncSession, sprint_id: int, record: dict[str, Any]) -> Sprint:
     """Keep what a run made of the Sprint, in place of whatever an earlier run left, with
     the owner's mark as the run read it: a mark changed since is not what was analysed.
-    The analysis is owed to memory again from here: the poll finds a Sprint by that."""
+    The analysis is owed to memory again from here: the memory.retro hook finds a Sprint by
+    that."""
     sprint = await require_ended_sprint(session, sprint_id)
     sprint.analysis = {
         **record,

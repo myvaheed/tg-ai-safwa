@@ -834,8 +834,6 @@ def wiring(name: str) -> list[str]:
         ("helpers", [helper.name for helper in module.helpers]),
         ("proposals", [item.handler.entity for item in module.proposals]),
         ("mutation_tools", [tool.name for tool in module.mutation_tools]),
-        ("before_tool", [f"{len(module.before_tool)} watchers"] if module.before_tool else []),
-        ("after_tool", [f"{len(module.after_tool)} watchers"] if module.after_tool else []),
         ("views", [view.name for view in module.views]),
         ("screens", [spec.item_type for spec in module.screens]),
         ("commands", [_command_name(command) for command in module.commands]),
@@ -851,8 +849,6 @@ def wiring(name: str) -> list[str]:
             f"{item.name} ({_switch(item)})"
             for item in REGISTRY.hooks.specs if item.owner == module.name
         ]),
-        ("recover", ["recover_startup"] if module.recover else []),
-        ("background", [task.name for task in module.background]),
     ]
     return [f"  {field:<17}{', '.join(values)}" for field, values in declared if values]
 

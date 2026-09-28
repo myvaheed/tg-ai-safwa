@@ -189,7 +189,7 @@ which comes after memory in the Advisor's context and outranks it (PS-CONTEXT-00
 flowchart LR
     UC["retro/use_cases.py<br/><i>record_analysis: memory_at = None</i>"]
     API["retro/api.py<br/><i>analysed_sprints · mark_absorbed</i>"]
-    BG["memory/background.py<br/><i>memory-retro, every 60 s</i>"]
+    BG["memory/hooks.py<br/><i>memory.retro, a tick every 60 s</i>"]
     MU["memory/use_cases.py<br/><i>absorb_due, under the lease</i>"]
     AB["memory/absorb.py<br/><i>the one question, the selection, and the rest</i>"]
     MI["tg_agent_shell/ai/mini.py<br/><i>pattern_review, one call</i>"]
@@ -257,14 +257,14 @@ taken in before, count for nothing until it is taken in again.
 
 `record_analysis` writes the record and sets `Sprint.memory_at` back to `None`. That is the
 whole of the trigger: an analysis is *owed* to memory until the stamp says it was taken in, and
-`memory-retro` (`MEMORY_RETRO_INTERVAL_SECONDS = 60`) looks for the one owed whose Sprint ended
-first. A Sprint analysed after a newer one was already taken in is taken in then: the order is
+the `memory.retro` hook, a `Run` on a tick every `MEMORY_RETRO_INTERVAL_SECONDS = 60`, looks for
+the one owed whose Sprint ended first. A Sprint analysed after a newer one was already taken in is taken in then: the order is
 the order of the Sprints' ends among what is owed, not a promise that no older analysis ever
 comes after a newer one.
 
 ```mermaid
 flowchart TD
-    P["memory-retro poll, every 60 s"] --> Q{"a Sprint with analysis<br/>and memory_at = None?"}
+    P["memory.retro, a tick every 60 s"] --> Q{"a Sprint with analysis<br/>and memory_at = None?"}
     Q -- no --> P
     Q -- yes --> L["turn.run_background<br/>the lease the Advisor and the analysis share"]
     L -- held by someone --> P
@@ -303,16 +303,17 @@ touched, which is what makes the rest true:
 
 **Why it is reliable.** The debt is in the row, not in an event: whatever ends one attempt — a
 failed call, the owner's message revoking the lease, a restart — leaves `memory_at` empty, and
-the next poll does the same work again. The stamp is written in the transaction that writes the
+the next tick does the same work again. The stamp is written in the transaction that writes the
 rows, so there is no state between "written" and "stamped". That promises delivery and the same
 rows for the same analysis (MEM-RETRO-012, MEM-RETRO-015); it does not promise that the model's
 matching is right, or the same for every order the Sprints come in — a pattern the selection
 left out is one a later candidate cannot match. An answer the model gives that cannot be read
 raises out of the attempt and changes nothing.
 
-**Why no hook.** A `Run` on a committed fact is awaited once and dies with the process; a poll
-over a durable mark is the shape the Cue queue already has, and one mechanism covers every way
-an attempt can end.
+**Why a tick and not a commit.** A `Run` on a committed fact is awaited once and dies with the
+process; a `Run` on a tick over a durable mark is tried again at every tick, the shape the Cue
+queue already has, and one mechanism covers every way an attempt can end. A tick's work runs on
+whatever the owner does, so this one takes the lease itself, off `SafwaFeatures.run_background`.
 
 ## What it is not
 

@@ -71,7 +71,7 @@ class Sprint(Base, TimestampMixin):
     # ran to the end.
     analysis: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     # When memory took the analysis in; None while an analysis is still owed to it, so a
-    # run that wrote a new one sets it back and the memory poll finds the Sprint again.
+    # run that wrote a new one sets it back and the memory.retro hook finds the Sprint again.
     memory_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
 
 

@@ -34,12 +34,14 @@ from .contracts import (
     OnBeforeTool,
     OnBeforeTurn,
     OnCommitted,
+    OnStarted,
     OnTick,
     RefuseTool,
     ReturnProposals,
     Run,
     SaveProposal,
     Shown,
+    Started,
     Tick,
     TickTime,
     every_switch_on,
@@ -55,6 +57,7 @@ HookEvent = (
     | BeforeReview
     | Committed
     | Tick
+    | Started
 )
 
 # Which subscription reads which event; the registry's compatibility rules are below.
@@ -62,7 +65,7 @@ _SUBSCRIPTION_FOR: Mapping[type, type] = MappingProxyType({
     BeforeTurn: OnBeforeTurn, AfterTurn: OnAfterTurn, AfterTool: OnAfterTool,
     BeforeTool: OnBeforeTool, BeforeProposals: OnBeforeProposals,
     AfterRequest: OnAfterRequest, BeforeReview: OnBeforeReview, Committed: OnCommitted,
-    Tick: OnTick,
+    Tick: OnTick, Started: OnStarted,
 })
 
 
@@ -132,6 +135,8 @@ class HookRegistry:
                         every is not None
                     ):
                         event_type = Tick
+                    case OnStarted(), Run():
+                        event_type = Started
                     case _:
                         raise RuntimeError(f"Hook {spec.name} has an incompatible subscription/effect")
                 bucket = index.setdefault(event_type, [])

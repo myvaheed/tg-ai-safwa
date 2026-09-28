@@ -5,12 +5,11 @@ from __future__ import annotations
 from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import FeatureModule
 
-from .background import MEMORY_RETRO
+from .hooks import MEMORY_RETRO_HOOK as MEMORY_RETRO_HOOK
 from .telegram import command_memory
 
 MODULE = FeatureModule(
     name="memory",
-    background=(MEMORY_RETRO,),
     commands=(
         ScreenCommand(
             handler=command_memory,
