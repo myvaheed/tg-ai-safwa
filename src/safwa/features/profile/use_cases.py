@@ -1,9 +1,9 @@
 """How the owner profile is written.
 
 Every write names one declared field, because that is what the Profile screen does and
-nothing else writes the Profile at all: the AI holds no profile tool.  A single field also
-makes the value's type the field's own business instead of a bag of optional keyword
-arguments that each caller has to be trusted to fill correctly.
+what a saved profile proposal does once per field it carries. A single field also makes the
+value's type the field's own business instead of a bag of optional keyword arguments that
+each caller has to be trusted to fill correctly.
 """
 
 from __future__ import annotations
@@ -32,7 +32,8 @@ def profile_field(name: str) -> ProfileField:
         raise DomainError(f"Unsupported profile field: {name}") from None
 
 
-def _validated(field: ProfileField, value: ProfileValue) -> ProfileValue:
+def validated_profile_value(field: ProfileField, value: ProfileValue) -> ProfileValue:
+    """The value as the field stores it, or the DomainError that refuses it."""
     match field:
         case ProfileField.SPRINT_LENGTH_DAYS:
             if (
@@ -84,7 +85,7 @@ async def set_profile_field(
     session: AsyncSession, field: ProfileField, value: ProfileValue
 ) -> UserProfile:
     """Store one validated profile value. Whatever reads it reads it live."""
-    validated = _validated(field, value)
+    validated = validated_profile_value(field, value)
     profile = await require_profile(session)
     setattr(profile, field.value, validated)
     await bump_workspace(session)

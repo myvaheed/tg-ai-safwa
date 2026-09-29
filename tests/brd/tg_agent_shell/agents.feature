@@ -74,6 +74,11 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then what it knows about the workspace and the time of day is read fresh, not replayed from when it
       stopped
 
+  Scenario: AG-SESSION-051 — A subagent's own current values follow the conversation, read at every step
+    Given a subagent declares a block of its own current values
+    Then that block comes after the conversation, never inside the part of the prompt that stays the same
+    And it is read again at every step, so a value saved in the same request is seen
+
   Scenario: AG-SESSION-009 — A restart ends every piece of work that was waiting
     Given work was paused on a screen, or was running when the process stopped
     When Safwa starts again
@@ -416,3 +421,10 @@ Feature: Agents — the session, the hand-over, and what comes back
     And the message goes only while the chat is free and the owner has not acted since the look that ran it
     And the owner acting while it goes stops it
     And work that puts nothing in the chat runs on whatever the owner does
+
+  Scenario: AG-OPEN-052 — A subagent opens only the kinds of screen it declared
+    Given a subagent declares that it may open one kind of screen
+    When it opens an item of that kind
+    Then the screen arrives after Safwa's message, as if Safwa had opened it
+    And a subagent that declared no kind is not given the tool
+    And a kind it did not declare is refused (SC-OPEN-006)

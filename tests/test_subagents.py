@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -63,8 +64,12 @@ def diary_routed(history: StubDayReader, timezone: str = "Europe/Istanbul") -> R
             conversation_read_tool(history, chat_id=42, timezone=timezone),
         ),
         mutation_tools=("diary",),
-        clock=lambda: diary_clock(timezone),
+        current=partial(_now, timezone),
     )
+
+
+async def _now(timezone: str) -> str:
+    return diary_clock(timezone)
 
 
 def test_the_routing_rules_name_every_subagent_that_can_be_routed_to() -> None:

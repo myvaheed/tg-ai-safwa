@@ -59,6 +59,9 @@ class Sprint(Base, TimestampMixin):
     actual_started_at: Mapped[datetime] = mapped_column(UtcDateTime)
     actual_ended_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     success_criteria: Mapped[str] = mapped_column(Text, default="")
+    # The Profile's Sprint capacity as the Sprint started, in effort points; None when it
+    # was off. The Profile may change it afterwards, and this Sprint keeps what it had.
+    capacity_effort_points: Mapped[float | None] = mapped_column(Float)
     status: Mapped[str] = mapped_column(String(20), default=SprintStatus.ACTIVE.value)
     finish_reason: Mapped[str | None] = mapped_column(String(100))
     # What the Sprint added up to as it ended (`closing.RetroStatistics.as_record`); None

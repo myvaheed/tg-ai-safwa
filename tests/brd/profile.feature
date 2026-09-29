@@ -14,7 +14,7 @@ Feature: Profile
     And About me and Advisor instructions come after it, so they are what it goes by
 
   Scenario: PS-FIELD-002 — Profile writes only the fields it has
-    Given the nine fields
+    Given the ten fields
     When anything tries to write a name that is not one of them
     Then it is refused, no field changes, and nothing is recorded as having changed
 
@@ -113,3 +113,15 @@ Feature: Profile
     But anything else is refused, and the field keeps what it had
     When it changes
     Then the next quiet period is measured by it, without a restart
+
+  Scenario: PS-AI-019 — A Profile field is set in words too, through the same check
+    Given the owner asks Safwa to set the Sprint length to 10 days and the Morning time to 08:00
+    Then one review screen shows both fields, each with what it was and what it becomes
+    And Save stores each the way the Profile screen does, one change per field
+    When the owner asks for a Sprint of 61 days
+    Then it is refused before any screen, with the range (PS-SPRINT-LENGTH-003)
+
+  Scenario: PS-AI-020 — The switches stay on the Profile screen
+    When the owner asks Safwa to turn an automatic reaction off or on
+    Then Safwa says whether it is on now and that its switch is in the Profile
+    And nothing is proposed, except turning the onboarding off (OB-STOP-005)

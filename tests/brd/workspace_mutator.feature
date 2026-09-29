@@ -11,8 +11,8 @@ Feature: The workspace
       Tag, a Request or a Reminder
     Then all of it is handed to the same part, however many kinds it touches
     And the Diary is not part of the workspace: a day is written by the part that owns days
-    And every way Safwa has of changing anything belongs to one of those two, so a way that
-      reaches neither reaches nothing
+    And every way Safwa has of changing anything belongs to the part that owns what it changes,
+      so a way that reaches no part reaches nothing
 
   Scenario: WS-JUDGE-002 — It is told what the workspace is before it changes it
     Given a Sprint is running with Success criteria, and the owner has Values in focus

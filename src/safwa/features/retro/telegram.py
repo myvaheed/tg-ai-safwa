@@ -1,9 +1,11 @@
-"""The retro screen: the same Sprint, read after it closed.
+"""The retro screens: every Sprint that ended, and one of them, read after it closed.
 
-It is what a `retro:` citation opens: what the Sprint added up to, as written down when it
-ended, with the owner's word on whether its Success criteria were met. From it the owner
-starts the analysis — one run, watched on one progress message — and reads what the last
-run made of the Sprint on a screen of its own.
+The list is the menu's Retro, newest first. One Sprint's retro is what the list and a
+`retro:` citation open: what the Sprint added up to, as written down when it ended, with
+the owner's word on whether its Success criteria were met. From it the owner starts the
+analysis — one run, watched on one progress message — and reads what the last run made of
+the Sprint on a screen of its own. Opened from the list, both lead back to the page it was
+opened from.
 """
 
 from __future__ import annotations
@@ -26,6 +28,8 @@ from tg_agent_shell.telegram import (
     Progress,
     Services,
     menu_row,
+    paginate,
+    paging_row,
     send_registered,
     token_button,
 )
@@ -34,11 +38,16 @@ from ...foundation.workspace import Workspace
 from ..cards.api import effort_label, minutes_label
 from ..planning.closing import Bucket, RetroStatistics
 from ..planning.model import Sprint
+from .records import ended_sprints
 from .use_cases import analysis_input, mark_criterion, record_analysis, require_ended_sprint
 
 logger = logging.getLogger(__name__)
 
+# How many ended Sprints one page of the Retro list holds.
+RETRO_LIST_PAGE_SIZE = 10
+
 _MET = {None: "not marked yet", True: "yes", False: "no"}
+_MARK = {None: "—", True: "✅", False: "❌"}
 _THEN = {None: "not marked", True: "met", False: "not met"}
 _TREND = {"up": "▲", "down": "▼", "flat": "●", "unclear": "◌"}
 
@@ -126,15 +135,76 @@ def time_lines(statistics: RetroStatistics) -> list[str]:
     return lines
 
 
+def _list_label(sprint: Sprint) -> str:
+    """One ended Sprint in the list: its number, its dates, the mark, and 🔎 once analysed."""
+    return (
+        f"{sprint.number} · {sprint.planned_start_date:%d.%m}–{sprint.planned_end_date:%d.%m} "
+        f"· {_MARK[sprint.criterion_met]}" + (" 🔎" if sprint.analysis else "")
+    )
+
+
+async def render_retro_list(message: Message, services: Services, *, page: int = 0) -> None:
+    """Every Sprint that ended, newest first, a page at a time. The running one has no
+    retro yet, so it is not here."""
+    async with services.sessions() as session:
+        window = paginate(await ended_sprints(session), page, RETRO_LIST_PAGE_SIZE)
+        rows = [
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    _list_label(sprint),
+                    "retro_open",
+                    {"id": sprint.id, "page": window.index},
+                )
+            ]
+            for sprint in window.items
+        ]
+        rows.extend(await paging_row(session, services.owner_id, window, "retro_list", {}))
+        await session.commit()
+    text = (
+        f"<b>Retro</b> · {window.label}\nEvery Sprint that ended, the newest first."
+        if window.items
+        else "<b>Retro</b>\nNo Sprint has ended yet. A retro is written when a Sprint ends."
+    )
+    await send_registered(
+        message,
+        services,
+        text,
+        kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(inline_keyboard=rows + [menu_row()]),
+    )
+
+
+async def _back_rows(
+    session: AsyncSession, services: Services, page: int | None
+) -> list[list[InlineKeyboardButton]]:
+    """The way back to the list page the screen was opened from, then the menu."""
+    rows = []
+    if page is not None:
+        rows.append(
+            [
+                await token_button(
+                    session, services.owner_id, "↩️ Back", "retro_list", {"page": page}
+                )
+            ]
+        )
+    return [*rows, menu_row()]
+
+
 async def _retro_buttons(
-    session: AsyncSession, services: Services, sprint: Sprint
+    session: AsyncSession, services: Services, sprint: Sprint, page: int | None
 ) -> list[list[InlineKeyboardButton]]:
     """The owner's word on the criteria — the two states it is not in — and the analysis."""
     marks = [("✅ Met", True), ("❌ Not met", False), ("❓ Unmark", None)]
     rows = [
         [
             await token_button(
-                session, services.owner_id, text, "retro_mark", {"id": sprint.id, "met": met}
+                session,
+                services.owner_id,
+                text,
+                "retro_mark",
+                {"id": sprint.id, "met": met, "page": page},
             )
             for text, met in marks
             if met is not sprint.criterion_met
@@ -146,29 +216,37 @@ async def _retro_buttons(
             services.owner_id,
             "🔁 Analyse again" if sprint.analysis else "🔎 Analyse with AI",
             "retro_analyse",
-            {"id": sprint.id},
+            {"id": sprint.id, "page": page},
         )
     ]
     if sprint.analysis:
         analysis.append(
             await token_button(
-                session, services.owner_id, "📊 Analysis", "retro_analysis", {"id": sprint.id}
+                session,
+                services.owner_id,
+                "📊 Analysis",
+                "retro_analysis",
+                {"id": sprint.id, "page": page},
             )
         )
     rows.append(analysis)
-    rows.append(menu_row())
-    return rows
+    return rows + await _back_rows(session, services, page)
 
 
 async def render_retro(
-    message: Message, services: Services, sprint_id: int, *, buttons: bool = True
+    message: Message,
+    services: Services,
+    sprint_id: int,
+    *,
+    buttons: bool = True,
+    page: int | None = None,
 ) -> None:
     """The retro screen; while the analysis runs it stands without its buttons, so there
-    is nothing on it to tap."""
+    is nothing on it to tap. `page` is the list page it was opened from, if it was."""
     async with services.sessions() as session:
         sprint = await require_ended_sprint(session, sprint_id)
         text = retro_text(sprint, RetroStatistics.from_record(sprint.retro))
-        rows = await _retro_buttons(session, services, sprint) if buttons else []
+        rows = await _retro_buttons(session, services, sprint, page) if buttons else []
         await session.commit()
     await send_registered(
         message,
@@ -242,7 +320,9 @@ def analysis_text(
     return "\n".join(lines)
 
 
-async def render_analysis(message: Message, services: Services, sprint_id: int) -> None:
+async def render_analysis(
+    message: Message, services: Services, sprint_id: int, *, page: int | None = None
+) -> None:
     async with services.sessions() as session:
         sprint = await require_ended_sprint(session, sprint_id)
         if sprint.analysis is None:
@@ -259,10 +339,14 @@ async def render_analysis(message: Message, services: Services, sprint_id: int) 
                     services.owner_id,
                     "🔁 Analyse again",
                     "retro_analyse",
-                    {"id": sprint.id},
+                    {"id": sprint.id, "page": page},
                 ),
                 await token_button(
-                    session, services.owner_id, "📊 Retro", "retro_open", {"id": sprint.id}
+                    session,
+                    services.owner_id,
+                    "📊 Retro",
+                    "retro_open",
+                    {"id": sprint.id, "page": page},
                 ),
             ],
             menu_row(),
@@ -277,12 +361,28 @@ async def render_analysis(message: Message, services: Services, sprint_id: int) 
     )
 
 
+async def _on_list(context: CallbackContext) -> None:
+    await render_retro_list(
+        context.message, context.services, page=int(context.payload.get("page", 0))
+    )
+
+
 async def _on_open(context: CallbackContext) -> None:
-    await render_retro(context.message, context.services, int(context.payload["id"]))
+    await render_retro(
+        context.message,
+        context.services,
+        int(context.payload["id"]),
+        page=context.payload.get("page"),
+    )
 
 
 async def _on_analysis(context: CallbackContext) -> None:
-    await render_analysis(context.message, context.services, int(context.payload["id"]))
+    await render_analysis(
+        context.message,
+        context.services,
+        int(context.payload["id"]),
+        page=context.payload.get("page"),
+    )
 
 
 async def _on_mark(context: CallbackContext) -> None:
@@ -290,7 +390,9 @@ async def _on_mark(context: CallbackContext) -> None:
     async with context.sessions() as session:
         await mark_criterion(session, sprint_id, context.payload.get("met"))
         await session.commit()
-    await render_retro(context.message, context.services, sprint_id)
+    await render_retro(
+        context.message, context.services, sprint_id, page=context.payload.get("page")
+    )
 
 
 async def _on_analyse(context: CallbackContext) -> None:
@@ -299,6 +401,7 @@ async def _on_analyse(context: CallbackContext) -> None:
     it, and nothing of a run that did not reach its last call is kept. A run ended that
     way leaves the screen as it stands: the owner's message takes the screen down anyway."""
     sprint_id = int(context.payload["id"])
+    page = context.payload.get("page")
     services = context.services
     async with context.sessions() as session:
         number = (await require_ended_sprint(session, sprint_id)).number
@@ -306,7 +409,7 @@ async def _on_analyse(context: CallbackContext) -> None:
 
     async def run(still_current: Callable[[], bool]) -> None:
         try:
-            await render_retro(context.message, services, sprint_id, buttons=False)
+            await render_retro(context.message, services, sprint_id, buttons=False, page=page)
             async with context.sessions() as session:
                 given = await analysis_input(session, sprint_id)
             record = await services.features.analyst.analyse(given, report=progress.report)
@@ -316,7 +419,7 @@ async def _on_analyse(context: CallbackContext) -> None:
             async with context.sessions() as session:
                 await record_analysis(session, sprint_id, record)
                 await session.commit()
-            await render_analysis(context.message, services, sprint_id)
+            await render_analysis(context.message, services, sprint_id, page=page)
         finally:
             await progress.clear()
 
@@ -332,10 +435,11 @@ async def _on_analyse(context: CallbackContext) -> None:
             kind=MessageKind.ERROR,
             replace=False,
         )
-        await render_retro(context.message, services, sprint_id)
+        await render_retro(context.message, services, sprint_id, page=page)
 
 
 RETRO_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
+    "retro_list": _on_list,
     "retro_open": _on_open,
     "retro_mark": _on_mark,
     "retro_analyse": _on_analyse,

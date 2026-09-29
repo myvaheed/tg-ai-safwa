@@ -208,6 +208,7 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
                 history=history,
                 sessions=database.sessions,
                 media=media,
+                switches=REGISTRY.hooks.agent_related,
             )
         ),
         helpers=REGISTRY.helper_ports(provider, query_runner),

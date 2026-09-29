@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import date, datetime
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -97,8 +96,8 @@ def bookkeeper_clock(timezone: str) -> str:
     return f"Today is {now.date().isoformat()}, local time now {now:%H:%M}, timezone {timezone}"
 
 
-def _clock(context: AgentContext) -> Callable[[], str]:
-    return lambda: bookkeeper_clock(context.timezone)
+async def _now(context: AgentContext) -> str:
+    return bookkeeper_clock(context.timezone)
 
 
 def _read_tools(context: AgentContext) -> tuple[ReadToolSpec, ...]:
@@ -125,7 +124,7 @@ BOOKKEEPER = AgentSpec(
     views=("ai_wallets", "ai_categories", "ai_entries", "ai_wallet_balances"),
     mutation_tools=("entry",),
     read_tools=_read_tools,
-    clock=_clock,
+    current=_now,
 )
 
 ENTRY_TOOL = MutationToolSpec(

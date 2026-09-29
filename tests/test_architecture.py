@@ -381,13 +381,18 @@ async def test_rule_i_the_clock_never_reaches_the_advisor_prefix():
 
 
 async def test_rule_i_neither_the_clock_nor_a_receipt_reaches_a_routed_prefix():
+    """AG-SESSION-051 — tests/brd/tg_agent_shell/agents.feature"""
     # A routed subagent breaks the cache after the prompt, so its prefix is `messages[0]`
-    # alone: the conversation, what this turn already saved, and the clock all follow it.
+    # alone: the conversation, what this turn already saved, and its own current values all
+    # follow it.
     def subagent(clock: str) -> RoutedSubagent:
+        async def current() -> str:
+            return clock
+
         return RoutedSubagent(
             name="cards",
             prompt="Save what the owner asked for.",
-            clock=lambda: clock,
+            current=current,
         )
 
     builder = _builder("unread: this subagent asks for no workspace state")

@@ -260,7 +260,10 @@ sequenceDiagram
 `IMMEDIATE_TOOLS` are `query_data`, `route`, `open` and `call_helper` — the tools `ToolAdapters`
 answers itself, and they run inside the turn. `query_data` is published to every session it runs
 that has a view to read, the Advisor's and a subagent's alike, so a feature declares only its own
-readers; a subagent that declares no view is not handed it.
+readers; a subagent that declares no view is not handed it. `open` is the same: the Advisor opens
+every published type, and a subagent only the types in its `AgentSpec.opens`, or is not handed the
+tool. A finished subagent's `host_state` becomes its caller's, so the item it opened follows the
+Advisor's message as if the Advisor had opened it (`AG-OPEN-052`).
 The Advisor holds no mutation tool: every write is a proposal authored by a subagent.
 
 An immediate tool and mutation tools must not arrive in one provider response; the runtime rejects
@@ -295,7 +298,11 @@ system message.
 `tests/snapshots/prompt_prefix.json` is what notices if it moves.
 
 A routed subagent's context is the same order under its own prompt: prompt → workspace state →
-`<Conversation>` → this turn's receipts → clock.
+`<Conversation>` → this turn's receipts → its own current values. Those are `AgentSpec.current`,
+an async read the feature writes — the Diary's day and hour, the Sprint as it stands, the Profile's
+fields — and it is read again at every step, so a value a Save wrote in the same request is the one
+the next step sees (`AG-SESSION-051`). Putting them in the prompt would break the byte-stable
+prefix.
 
 ## `route` — one turn handed to a subagent
 

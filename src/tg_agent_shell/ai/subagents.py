@@ -7,7 +7,7 @@ message, and what it proposes is the review screen, with nothing relayed in betw
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from .mini import ReadToolSpec
@@ -37,5 +37,8 @@ class RoutedSubagent:
     # Its words are the work: they reach the owner as they are, inside the Advisor's own
     # message, instead of being retold.
     shown_as_is: bool = False
-    # The volatile line that goes after the dialogue, never into the cached prefix.
-    clock: Callable[[], str] | None = field(default=None)
+    # Its own current values, read again at every step and put after the dialogue, never
+    # into the cached prefix.
+    current: Callable[[], Awaitable[str]] | None = field(default=None)
+    # The item types its `open` may put on the screen. Declaring none withholds the tool.
+    opens: tuple[str, ...] = ()

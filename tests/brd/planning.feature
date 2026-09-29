@@ -4,7 +4,7 @@ Feature: Planning — the Sprint, and the mode without one
   per Action it ever had in scope. Everything counted about a Sprint is effort points, never a
   count of Cards.
 
-  The Sprint is run by hand. Safwa reads it, and says where the owner does the rest themselves.
+  The Sprint is run on its screen or in words, and both go through the same operations.
 
   Numbers below name the constant they come from; the tests read the constant.
 
@@ -18,12 +18,18 @@ Feature: Planning — the Sprint, and the mode without one
     When a Sprint starts
     Then the workspace is in Sprint and Today is a screen again
 
-  Scenario: PL-MODE-002 — The Sprint is the owner's to run, and Safwa only reads it
+  Scenario: PL-MODE-002 — The Sprint is run on its screen or in words, through the same operations
     Given the owner is talking to Safwa
-    When they ask it to start the Sprint, finish it, or change its dates, its length or its Success criteria
-    Then Safwa has no way to do any of it and says where the owner does it themselves
-    And no proposal is ever written about a Sprint
-    And starting and finishing happen on the Sprint screen, and the length and the capacity in the Profile
+    When they ask it to start the Sprint, finish it, or write the next Sprint's Success criteria
+    Then Safwa shows that change on a review screen with Save and Discard
+    And a Sprint about to start is shown with its Success criteria, its first and last day and
+      its length in days, which is the Profile's Sprint length (PL-START-005)
+    And Save does what the Sprint screen's button does, with the same refusals
+    When a Sprint is running and they ask to change its Success criteria
+    Then it is refused with that reason, and nothing is proposed
+    When they ask it to change a Sprint's dates, pause it, extend it or bring a finished one back
+    Then Safwa says there is no way to, in words or on a screen (PL-END-012)
+    And the length and the capacity are the Profile's
 
   Scenario: PL-CRITERIA-003 — A Sprint starts with words and with work
     Given the next Sprint has no Success criteria and nothing planned
@@ -206,3 +212,17 @@ Feature: Planning — the Sprint, and the mode without one
     Then the Today screen and the Today list the Advisor reads put first the ones whose Hard Time is today or tomorrow (HARD_TIME_NOTICE_DAYS = 1), then Critical ones, then key ones, then the rest
     And within each group a Card with a Hard Time comes first, then the more important one, then the one written earlier
     And a day is the workspace's local day
+
+  Scenario: PL-ASK-026 — A question about the Sprint is answered from the Sprint as it stands
+    Given a Sprint is running on its 5th day of 14
+    When the owner asks how long the Sprint is or how many days are left
+    Then Safwa answers from the Sprint's own dates, read at that moment
+    And in Planning it answers with the length a Sprint started today would have, and its dates
+
+  Scenario: PL-CAPACITY-027 — A Sprint keeps the capacity it started with
+    Given the Sprint capacity in the Profile is 20 points
+    When a Sprint starts, by the button or by Save
+    Then the Sprint keeps 20 points as its capacity
+    When the owner later sets the Profile's capacity to 30
+    Then that Sprint still says 20
+    And a Sprint started with capacity off keeps none, and an average over capacity leaves it out

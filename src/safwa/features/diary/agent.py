@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Literal, Protocol
 from zoneinfo import ZoneInfo
@@ -286,10 +285,10 @@ def _diary_read_tools(context: AgentContext) -> tuple[ReadToolSpec, ...]:
     )
 
 
-def _diary_clock(context: AgentContext) -> Callable[[], str]:
+async def _diary_now(context: AgentContext) -> str:
     # Enough to be told what to change about the day it just proposed; the day itself it
     # reads with `read_day` and `read_conversation`.
-    return lambda: diary_clock(context.timezone)
+    return diary_clock(context.timezone)
 
 
 DIARY_AGENT = AgentSpec(
@@ -298,7 +297,7 @@ DIARY_AGENT = AgentSpec(
     instructions=DIARY_PROMPT,
     mutation_tools=("diary",),
     read_tools=_diary_read_tools,
-    clock=_diary_clock,
+    current=_diary_now,
 )
 
 DIARY_TOOL = MutationToolSpec(

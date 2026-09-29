@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, time
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
 
-from safwa.bootstrap.modules import REGISTRY
+from safwa.bootstrap.modules import PROPOSALS, REGISTRY
 from safwa.features.diary.hooks import DIARY_HOOK, DIARY_REQUEST, diary_request
 from safwa.features.profile.api import diary_time, morning_time, set_hook_switch, summary_time
 from safwa.features.profile.hooks import (
@@ -20,6 +21,7 @@ from safwa.features.profile.model import (
     ProfileField,
     UserProfile,
 )
+from safwa.features.profile.proposal import ProfileProposalHandler
 from safwa.features.profile.telegram.screens import PROFILE_FIELDS
 from safwa.features.profile.use_cases import profile_field, set_profile_field
 from safwa.features.reminders.model import Reminder
@@ -32,6 +34,8 @@ from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.cues.queue import add_hook_cue
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.hooks.contracts import OnTick, Tick
+from tg_agent_shell.proposals.api import ToolPreparationError
+from tg_agent_shell.proposals.model import ProposalChange
 
 
 class FrozenClock:
@@ -281,3 +285,58 @@ async def test_ag_hook_038_switching_a_hook_off_drops_its_pending_request_for_go
         await session.commit()
     async with sessions() as session:
         assert sorted(cue.hook for cue in await session.scalars(select(Cue))) == ["cards.blocker", "other.hook"]
+
+
+@pytest.mark.parametrize(
+    ("name", "sent", "stored"),
+    [
+        ("about_me", "I run in the mornings", "I run in the mornings"),
+        ("advisor_instructions", "Be brief", "Be brief"),
+        ("capacity_effort_points", 12.5, 12.5),
+        ("capacity_effort_points", None, None),
+        ("sprint_length_days", 10, 10),
+        ("diary_time", "21:30", time(21, 30)),
+        ("diary_instructions", "Note how I slept", "Note how I slept"),
+        ("summary_time", "19:00", time(19, 0)),
+        ("morning_time", "08:00", time(8, 0)),
+        ("time_tracking", True, True),
+        ("home_after_minutes", 45, 45),
+    ],
+)
+async def test_ps_ai_019_every_field_is_set_in_words_through_the_screens_check(
+    sessions, name, sent, stored
+):
+    """PS-AI-019 — tests/brd/profile.feature"""
+    handler = ProfileProposalHandler()
+    change = PROPOSALS.change_from_tool("profile", {"mode": "update", name: sent})
+    async with sessions() as session:
+        if name == "capacity_effort_points" and sent is None:
+            await set_profile_field(session, ProfileField.CAPACITY_EFFORT_POINTS, 20)
+        revision = (await session.get(Workspace, 1)).revision
+        prepared = await handler.prepare(SimpleNamespace(session=session), change)
+        await handler.apply(
+            SimpleNamespace(session=session),
+            ProposalChange(entity="profile", action=change.action, values=prepared.values),
+        )
+        await session.commit()
+        assert getattr(await session.get(UserProfile, 1), name) == stored
+        assert (await session.get(Workspace, 1)).revision == revision + 1
+
+
+@pytest.mark.parametrize(
+    ("name", "sent"),
+    [
+        ("sprint_length_days", 61),
+        ("capacity_effort_points", 0),
+        ("diary_time", "25:00"),
+        ("home_after_minutes", 2),
+    ],
+)
+async def test_ps_ai_019_a_value_the_screen_refuses_is_refused_before_any_screen(
+    sessions, name, sent
+):
+    """PS-AI-019 — tests/brd/profile.feature"""
+    change = PROPOSALS.change_from_tool("profile", {"mode": "update", name: sent})
+    async with sessions() as session:
+        with pytest.raises(ToolPreparationError, match=name):
+            await ProfileProposalHandler().prepare(SimpleNamespace(session=session), change)

@@ -69,15 +69,18 @@ MANUAL = """# Safwa
 - Planning is the mode with no Sprint. The user writes the Success criteria, what the next Sprint must achieve, and plans Actions into it. There is no Today then.
 - A Sprint runs for the Sprint length set in the Profile. Every plan is judged against its Success criteria. "☀️ Today" is the day's work, and it exists only while a Sprint runs.
 - Safwa warns the day before the last day and on the last day. The Sprint closes itself at midnight after its last day.
-- With buttons only: "🏃 Sprint" or /sprint: "🎯 Set Success criteria", the plan with "📥 Into Sprint", "▶️ Start N-day Sprint", "⏹ Finish early" or "⏹ Finish Sprint".
-- Not in words: starting or finishing a Sprint, or changing its dates, length or Success criteria. The Advisor cannot do it.
+- With buttons: "🏃 Sprint" or /sprint: "🎯 Set Success criteria", the plan with "📥 Into Sprint", "▶️ Start N-day Sprint", "⏹ Finish early" or "⏹ Finish Sprint".
+- In words: start the next Sprint, finish the running one, write the next Sprint's Success criteria, or ask its dates, its length and the days left. A Sprint to start is shown with its Success criteria, its first and last day and its length, for Save.
 - In words: moving Actions into Sprint or Today, or back to Backlog.
+- Not at all: changing a running Sprint's Success criteria or its dates, pausing or extending it, or bringing a finished one back. The length and the capacity are in the Profile.
 
 # Retro and memory
 - When a Sprint ends, Safwa says how it went and links its retro: "📊 Sprint … retro". The retro screen shows what the Sprint added up to, and its time when Time tracking was on as it ended.
+- "📊 Retro" or /retro lists every Sprint that ended, newest first: its number, its dates, the mark on its Success criteria, and 🔎 once analysed. Tap one for its retro.
 - On the retro screen: "✅ Met" or "❌ Not met" for the Success criteria, and "🔎 Analyse with AI" for what raised and lowered the days, with one experiment for the next Sprint.
 - Memory is what the analyses left: patterns seen across Sprints, and the last analysed Sprint. /memory shows it. Nothing else writes it.
-- Buttons only. The Advisor cannot analyse a Sprint or change memory.
+- In words: ask about the Sprints that ended — one of them, or a total or an average over several — or ask to see one's retro, by its number or a date in it.
+- Buttons only: the mark on the Success criteria and the analysis. Nothing changes memory.
 
 # Diary
 - The Diary keeps one entry per day, in the user's own voice: how the day went and how it felt, with a rating from 0 to 10.
@@ -102,11 +105,12 @@ MANUAL = """# Safwa
 # Profile
 - "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Sprint length, Sprint capacity, Morning time, Diary time, Diary instruction, Daily summary, Home after, Time tracking, and the switches.
 - "⌛ Time tracking" is off until pressed. On, it offers "⌛ Time spent" on an Action, keeps a Sprint's time for its retro and turns on "Time tracking reminder". The active day it measures runs from the Morning time to the Diary time.
-- Buttons only. The Advisor cannot change the Profile. Onboarding alone may be turned off in words.
+- In words too: any of its fields, shown for Save with what it was and what it becomes.
+- The switches are buttons only. Onboarding alone may be turned off in words.
 
 # Screens and commands
-- The menu, /start: "☀️ Today", "🏃 Sprint", "📚 Backlog", "➕ Add", "💎 Values", "🏷 Tags", "⚙️ Profile", "⏰ Reminders", "🔎 Requests".
-- Commands: /start, /today, /sprint, /values, /tags, /reminders, /requests, /memory, /status for the workspace mode, /summarize to fold the conversation into a Summary now, /cancel to stop an answer being written.
+- The menu, /start: "☀️ Today", "🏃 Sprint", "📊 Retro", "📚 Backlog", "➕ Add", "💎 Values", "🏷 Tags", "⚙️ Profile", "⏰ Reminders", "🔎 Requests".
+- Commands: /start, /today, /sprint, /retro, /values, /tags, /reminders, /requests, /memory, /status for the workspace mode, /summarize to fold the conversation into a Summary now, /cancel to stop an answer being written.
 - A voice message is transcribed and answered like text.
 - A photo is read as a few words when it arrives, when image input is on. Asked what a photo shows, Safwa looks at it again. A link to a photo opens it.
 - A link in an answer opens its item.

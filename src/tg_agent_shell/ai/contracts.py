@@ -185,15 +185,17 @@ def _enum_type(values: list[Any]) -> str:
 def _portable(node: Any) -> Any:
     """Say a bound and a choice in the keywords every provider reads.
 
-    Gemini refuses `exclusiveMinimum` and reads `enum` only beside a `type`, so `gt=0` on an
-    integer becomes `minimum: 1` and an enum names its type. The tool owner's validator still
-    holds the exact bound.
+    Gemini refuses `exclusiveMinimum` and `const`, and reads `enum` only beside a `type`, so
+    `gt=0` on an integer becomes `minimum: 1`, a choice of one is an enum of one, and an enum
+    names its type. The tool owner's validator still holds the exact bound.
     """
     if isinstance(node, list):
         return [_portable(item) for item in node]
     if not isinstance(node, dict):
         return node
     portable = {key: _portable(value) for key, value in node.items()}
+    if "const" in portable:
+        portable["enum"] = [portable.pop("const")]
     for exclusive, inclusive, step in (
         ("exclusiveMinimum", "minimum", 1),
         ("exclusiveMaximum", "maximum", -1),
@@ -366,15 +368,16 @@ class OpenInput(ToolInput):
     id: int = Field(description="Its numeric id.")
 
 
-def open_tool(screens: ScreenCatalogue) -> dict[str, Any]:
+def open_tool(screens: ScreenCatalogue, types: tuple[str, ...] = ()) -> dict[str, Any]:
     """`open` as the model reads it, over the item types the features publish.
 
     A tool's enum is prompt text, and this one is built from the same catalogue the
     call is resolved against, so a feature that publishes a screen is offered by
-    name and one that publishes none is spelled out nowhere.
+    name and one that publishes none is spelled out nowhere. `types` narrows it to the
+    ones a subagent declared.
     """
     schema = tool_json_schema(OpenInput)
-    schema["properties"]["item_type"]["enum"] = list(screens.types)
+    schema["properties"]["item_type"]["enum"] = list(types or screens.types)
     return {
         "type": "function",
         "function": {

@@ -24,8 +24,15 @@ from ...foundation.workspace import Workspace, WorkspaceMode, require_workspace
 from ..cards.api import CardStage, action_titles, effort_label, planned_actions
 from ..cards.use_cases import archive_settled_cards
 from ..checks.use_cases import archive_settled_checks
+from ..profile.api import capacity_effort_points
 from ..profile.api import sprint_length_days as _profile_sprint_length_days
-from .api import SPRINT_ENDED, SPRINT_STARTED, sprint_metrics
+from .api import (
+    SPRINT_ENDED,
+    SPRINT_STARTED,
+    criteria_refusal,
+    sprint_metrics,
+    start_refusal,
+)
 from .closing import sprint_closing
 from .model import Sprint, SprintCommitment, SprintStatus, next_sprint_number
 
@@ -33,15 +40,16 @@ from .model import Sprint, SprintCommitment, SprintStatus, next_sprint_number
 ARCHIVE_AFTER_SPRINTS = 2
 # How many unfinished Actions the end-of-Sprint summary names before it counts the rest.
 SUMMARY_OPEN_TITLES = 5
+# Why a Sprint ended when the owner finished it, by the button or by Save, on any day.
+FINISHED_BY_HAND = "finished_early"
 
 
 async def set_sprint_success_criteria(session: AsyncSession, criteria: str) -> Workspace:
     """Store what the next Sprint must achieve. Kept after a Sprint ends, to edit or reuse."""
+    if (refusal := await criteria_refusal(session, criteria)) is not None:
+        raise DomainError(refusal)
     workspace = await require_workspace(session)
-    clean = criteria.strip()
-    if not clean:
-        raise DomainError("Success criteria cannot be empty")
-    workspace.sprint_success_criteria = clean
+    workspace.sprint_success_criteria = criteria.strip()
     workspace.revision += 1
     return workspace
 
@@ -57,15 +65,11 @@ async def start_sprint(
     start_date: date | None = None,
     length_days: int | None = None,
 ) -> Sprint:
+    if (refusal := await start_refusal(session, success_criteria)) is not None:
+        raise DomainError(refusal)
     workspace = await require_workspace(session)
-    if WorkspaceMode(workspace.mode) is not WorkspaceMode.PLANNING or workspace.active_sprint_id:
-        raise DomainError("A Sprint can start only from Planning")
     criteria = success_criteria.strip()
-    if not criteria:
-        raise DomainError("A Sprint needs Success criteria before it starts")
     cards = await planned_actions(session)
-    if not cards:
-        raise DomainError("A Sprint needs at least one Action in Sprint or Today before it starts")
     length = length_days if length_days is not None else await sprint_length_days(session)
     if not SPRINT_LENGTH_MIN_DAYS <= length <= SPRINT_LENGTH_MAX_DAYS:
         raise DomainError(
@@ -84,6 +88,7 @@ async def start_sprint(
         planned_end_date=start + timedelta(days=length - 1),
         actual_started_at=started_at,
         success_criteria=criteria,
+        capacity_effort_points=await capacity_effort_points(session),
     )
     session.add(sprint)
     await session.flush()

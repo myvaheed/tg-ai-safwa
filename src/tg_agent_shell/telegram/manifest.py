@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from functools import partial
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -22,6 +23,7 @@ from ..ai.subagents import SUBAGENT_HISTORY_LAST_MESSAGES, RoutedSubagent
 from ..ai.tools import Helper
 from ..foundation.screens import ScreenSpec
 from ..history import TelegramHistorySource
+from ..hooks.contracts import HookSpec
 from ..media.library import MediaLibrary
 from ..proposals.api import (
     MutationToolSpec,
@@ -43,6 +45,8 @@ class AgentContext:
     sessions: async_sessionmaker[AsyncSession]
     # None where the application takes no photos: a tool that reads one is not handed out.
     media: MediaLibrary | None = None
+    # The automatic reactions the owner switches, as the application's registry lists them.
+    switches: tuple[HookSpec, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,14 +65,19 @@ class AgentSpec:
     views: tuple[str, ...] = ()
     workspace_state: bool = False
     read_tools: Callable[[AgentContext], tuple[ReadToolSpec, ...]] | None = None
-    clock: Callable[[AgentContext], Callable[[], str]] | None = None
+    # Its own current values, read again at every step: they follow the dialogue, so the
+    # prompt above it stays byte-stable.
+    current: Callable[[AgentContext], Awaitable[str]] | None = None
+    # The item types it may put on the screen with `open`; none, and it is not handed the tool.
+    opens: tuple[str, ...] = ()
     # How many of the conversation's newest messages it reads.
     history_messages: int = SUBAGENT_HISTORY_LAST_MESSAGES
     # Its final words reach the owner as they are, as a block of the Advisor's message.
     shown_as_is: bool = False
 
     def bind(self, context: AgentContext, *, prompt: str) -> RoutedSubagent:
-        """The session this declaration runs as here: its reads, its scope and its clock."""
+        """The session this declaration runs as here: its reads, its scope and its current
+        values."""
         return RoutedSubagent(
             name=self.name,
             prompt=prompt,
@@ -76,7 +85,8 @@ class AgentSpec:
             read_tools=self.read_tools(context) if self.read_tools else (),
             mutation_tools=self.mutation_tools,
             workspace_state=self.workspace_state,
-            clock=self.clock(context) if self.clock else None,
+            current=partial(self.current, context) if self.current else None,
+            opens=self.opens,
             history_messages=self.history_messages,
             shown_as_is=self.shown_as_is,
         )

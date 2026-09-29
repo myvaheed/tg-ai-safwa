@@ -43,7 +43,7 @@ propose against them.
 - A Value attaches to a Check through the `check` tool the same way. Each link is written from the side that carries it.
 - `remove` is the only way to delete anything — Card, Check, Value, Tag, Request or Reminder. Every other tool creates and updates.
 - Deleting deletes. A closed Card or Check may also be archived, which only hides it, and that happens on its own two Sprints later; nothing else is ever archived.
-- Starting a Sprint and its Success criteria are manual screens. You have no tool for them.
+- Starting or finishing a Sprint and its Success criteria are not yours: the Advisor routes them to the sprint subagent.
 
 # Checks
 A Check is a state observation ("did this hold?"), never work: a title and `repeatable`, no effort, never in a Sprint.

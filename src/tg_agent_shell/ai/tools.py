@@ -204,7 +204,8 @@ class ToolAdapters:
 
     def definition(self, kind: str) -> AgentDefinition:
         """What a session of this kind may call. The root session reads and routes; a
-        subagent gets its own reads and the mutation tools of the features it owns.
+        subagent gets its own reads, `open` over the item types it declared, and the
+        mutation tools of the features it owns.
 
         `query_data` is the one read door rather than any feature's read tool, so it is
         published here to every session that has a view to read: a subagent scoped to none
@@ -226,6 +227,7 @@ class ToolAdapters:
             kind=kind,
             tools=(
                 *((QUERY_TOOL,) if reads_views else ()),
+                *((open_tool(self.screens, routed.opens),) if routed.opens else ()),
                 *(spec.schema for spec in routed.read_tools),
                 *(self.proposals.tools[name].schema() for name in routed.mutation_tools),
             ),
@@ -515,13 +517,16 @@ class ToolAdapters:
                 "hint": 'Send {"item_type": "card", "id": 12}.',
                 "retryable": True,
             }
+        # A subagent opens only what it declared; the root, every published type.
+        routed = self.subagents.get(agent.kind)
+        types = routed.opens if routed is not None else self.screens.types
         spec = self.screens.by_type.get(request.item_type)
-        if spec is None:
+        if spec is None or request.item_type not in types:
             return {
                 "status": ToolResultStatus.ERROR.value,
                 "code": "invalid_arguments",
                 "error": f"There is no item type named {request.item_type}.",
-                "hint": "Use one of: " + ", ".join(self.screens.types) + ".",
+                "hint": "Use one of: " + ", ".join(types) + ".",
                 "retryable": True,
             }
         async with self.sessions() as session:
@@ -531,7 +536,7 @@ class ToolAdapters:
                     "status": ToolResultStatus.ERROR.value,
                     "code": "not_found",
                     "error": f"There is no {request.item_type} #{request.id}.",
-                    "hint": "Find the id with query_data, then call open again.",
+                    "hint": "Find the id with your read tools, then call open again.",
                     "retryable": True,
                 }
             item_id = item.id

@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.clock import utcnow
 
-from ...foundation.workspace import Workspace, require_workspace
+from ...foundation.workspace import Workspace, WorkspaceMode, require_workspace
 from ..cards.api import (
     HARD_TIME_NOTICE_DAYS,
     PLANNED_STAGES,
@@ -24,6 +24,7 @@ from ..cards.api import (
     Card,
     CardStage,
     actions_on_stages,
+    planned_actions,
 )
 from ..cards.model import CardKind, Priority
 from .model import Sprint, SprintCommitment
@@ -45,6 +46,37 @@ async def sprint_is_active(session: AsyncSession) -> bool:
     """Whether a Sprint is running."""
     workspace = await session.get(Workspace, 1)
     return bool(workspace and workspace.active_sprint_id)
+
+
+async def criteria_refusal(session: AsyncSession, criteria: str) -> str | None:
+    """Why these Success criteria cannot be written now, or None when they can. A running
+    Sprint's were fixed when it started, so only the next one's are written, in Planning."""
+    workspace = await require_workspace(session)
+    if workspace.active_sprint_id:
+        return "A Sprint is running: its Success criteria were fixed when it started"
+    if not criteria.strip():
+        return "Success criteria cannot be empty"
+    return None
+
+
+async def start_refusal(session: AsyncSession, criteria: str) -> str | None:
+    """Why a Sprint cannot start now with these Success criteria, or None when it can."""
+    workspace = await require_workspace(session)
+    if WorkspaceMode(workspace.mode) is not WorkspaceMode.PLANNING or workspace.active_sprint_id:
+        return "A Sprint can start only from Planning"
+    if not criteria.strip():
+        return "A Sprint needs Success criteria before it starts"
+    if not await planned_actions(session):
+        return "A Sprint needs at least one Action in Sprint or Today before it starts"
+    return None
+
+
+def sprint_day(sprint: Sprint, today: date) -> tuple[int, int]:
+    """Which day of how many the Sprint is on, its first day being day 1."""
+    return (
+        (today - sprint.planned_start_date).days + 1,
+        (sprint.planned_end_date - sprint.planned_start_date).days + 1,
+    )
 
 
 async def active_sprint_end_date(session: AsyncSession) -> date | None:

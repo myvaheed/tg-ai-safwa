@@ -123,7 +123,8 @@ class AgentSession:
     # What this turn had already saved when the caller routed here.
     prior_receipts: list[str] = field(default_factory=list)
     # Whatever the application needs this session to still know after a suspension. The
-    # runtime carries it and never reads it.
+    # runtime carries it and never reads it; a subagent's is handed to its caller when it
+    # finishes, so what it left reaches the session that ends the turn.
     host_state: dict[str, Any] = field(default_factory=dict)
     # Set while this session is stopped on a person: the token half of its `InteractionRef`.
     interaction_token: str | None = None

@@ -37,7 +37,7 @@ from tg_agent_shell.ai.messages import ContextBuilder, StateBlocks
 from tg_agent_shell.ai.subagents import RoutedSubagent
 
 
-def test_every_mutation_tool_belongs_to_the_board_the_diary_or_the_onboarding():
+def test_every_mutation_tool_belongs_to_the_part_that_owns_what_it_changes():
     """WS-SCOPE-001 — tests/brd/workspace_mutator.feature"""
     # CLAUDE.md: the Advisor holds no mutation tool at all, and preparation runs where the
     # change was authored.  A new tool that reaches no subagent is unreachable.
@@ -45,7 +45,7 @@ def test_every_mutation_tool_belongs_to_the_board_the_diary_or_the_onboarding():
 
     assert routed == set(PROPOSALS.tools)
     assert set(PROPOSALS.tools) - set(MUTATOR_AGENT.mutation_tools) == {
-        "diary", "stop_onboarding",
+        "diary", "stop_onboarding", "sprint", "profile",
     }
 
 

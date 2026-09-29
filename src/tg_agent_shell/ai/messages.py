@@ -107,9 +107,9 @@ class ContextBuilder:
         """A routed subagent reads the conversation as data, under its own prompt.
 
         Same order as the Advisor's: prompt, then state, then conversation, then what this
-        turn has already saved, then the clock — so the stable part stays byte-identical
-        and the volatile part stays last.  The receipts sit outside the conversation, so
-        the window the subagent declared never trims them away.
+        turn has already saved, then its own current values — so the stable part stays
+        byte-identical and the volatile part stays last.  The receipts sit outside the
+        conversation, so the window the subagent declared never trims them away.
         """
         messages: list[dict[str, Any]] = [{"role": "system", "content": routed.prompt}]
         if routed.workspace_state:
@@ -128,6 +128,6 @@ class ContextBuilder:
             append_user_message(
                 messages, "[System]: Already saved in this request:\n" + "\n".join(lines)
             )
-        if routed.clock is not None:
-            append_user_message(messages, f"[System]: {routed.clock()}")
+        if routed.current is not None:
+            append_user_message(messages, f"[System]: {await routed.current()}")
         return messages

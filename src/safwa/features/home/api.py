@@ -12,7 +12,7 @@ from tg_agent_shell.telegram.contributions import ScreenCommand
 
 # One row per line, each naming the `nav` action of a screen that declared a title.
 MENU_LAYOUT: tuple[tuple[str, ...], ...] = (
-    ("today", "sprint"),
+    ("today", "sprint", "retro"),
     ("backlog", "add"),
     ("values", "tags"),
     ("profile", "reminders", "requests"),

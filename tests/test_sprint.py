@@ -13,7 +13,7 @@ from sqlalchemy import select
 from ui_harness import FakeMessage, services_for
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
-from safwa.bootstrap.modules import MODULES, REGISTRY
+from safwa.bootstrap.modules import REGISTRY
 from safwa.features.cards.api import HARD_TIME_NOTICE_DAYS
 from safwa.features.cards.hard_time import typed_hard_time
 from safwa.features.cards.hooks import (
@@ -34,6 +34,7 @@ from safwa.features.cards.use_cases import (
     update_card_fields,
 )
 from safwa.features.cards.use_cases import create_card as create_domain_card
+from safwa.features.planning.agent import sprint_now
 from safwa.features.planning.api import (
     SPRINT_ENDED,
     SPRINT_JOINED,
@@ -74,6 +75,7 @@ from safwa.features.profile.api import morning_time
 from safwa.features.profile.model import SPRINT_LENGTH_DAYS, ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.reminders.model import Reminder
+from safwa.features.retro.records import aggregate, records_by_number
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.workspace import Workspace
 from tg_agent_shell.cues.initiatives import bind_committed, hand_on_start, queue_advice
@@ -92,6 +94,7 @@ from tg_agent_shell.hooks.contracts import (
     Tick,
 )
 from tg_agent_shell.hooks.registry import HookRegistry
+from tg_agent_shell.telegram.manifest import AgentContext
 
 
 async def create_card(session, **overrides):
@@ -402,19 +405,68 @@ async def test_pl_end_015_a_sprint_that_closed_itself_says_so(sessions):
     assert words is not None and "its end date passed" in words
 
 
-async def test_pl_mode_002_no_tool_anywhere_writes_a_sprint(sessions):
-    """PL-MODE-002 — tests/brd/planning.feature"""
-    tools = {
-        contribution.tool.name for module in MODULES for contribution in module.proposals
-    }
-    entities = {
-        contribution.handler.entity for module in MODULES for contribution in module.proposals
-    }
+async def test_pl_ask_026_the_sprint_is_read_as_it_stands(sessions):
+    """PL-ASK-026 — tests/brd/planning.feature"""
+    context = AgentContext(
+        owner_id=42,
+        timezone="Europe/Istanbul",
+        query_runner=None,  # type: ignore[arg-type]
+        history=None,  # type: ignore[arg-type]
+        sessions=sessions,
+    )
+    today = utcnow().astimezone(ZoneInfo("Europe/Istanbul")).date()
+    async with sessions() as session:
+        await plan_one(session)
+        await set_sprint_success_criteria(session, "Ship v2")
+        await session.commit()
 
-    assert "sprint" not in tools
-    assert "sprint" not in entities
-    # The Sprint is not proposable at all: nothing the model can call reaches one.
-    assert not any("sprint" in name for name in tools)
+    planning = await sprint_now(context)
+
+    last = today + timedelta(days=SPRINT_LENGTH_DAYS - 1)
+    assert "Mode: Planning. No Sprint is running." in planning
+    assert "Next Sprint's Success criteria: Ship v2" in planning
+    assert (
+        f"Sprint length in the Profile: {SPRINT_LENGTH_DAYS} days. Started today, the Sprint "
+        f"runs {today} – {last}." in planning
+    )
+    assert "It can start now." in planning
+
+    async with sessions() as session:
+        sprint = await start_sprint(session, success_criteria="Ship v2")
+        sprint.planned_start_date = today - timedelta(days=4)
+        sprint.planned_end_date = sprint.planned_start_date + timedelta(days=13)
+        await session.commit()
+
+    running = await sprint_now(context)
+
+    assert f"Sprint {sprint.number} runs {today - timedelta(days=4)}" in running
+    assert "Today is day 5 of 14. Days left after today: 9." in running
+    assert "last day" not in running
+
+
+async def test_pl_capacity_027_a_sprint_keeps_the_capacity_it_started_with(sessions):
+    """PL-CAPACITY-027 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        await plan_one(session)
+        await set_profile_field(session, ProfileField.CAPACITY_EFFORT_POINTS, 20)
+        kept = await start_sprint(session, success_criteria="Ship v2")
+        await set_profile_field(session, ProfileField.CAPACITY_EFFORT_POINTS, 30)
+        await finish_sprint(session)
+        await set_profile_field(session, ProfileField.CAPACITY_EFFORT_POINTS, None)
+        # The planned Action keeps its stage, so the next Sprint has work to start with.
+        none = await start_sprint(session, success_criteria="Ship v3")
+        await finish_sprint(session)
+        await session.commit()
+
+        assert (await session.get(Sprint, kept.id)).capacity_effort_points == 20
+        assert (await session.get(Sprint, none.id)).capacity_effort_points is None
+        records = await records_by_number(session, [kept.number, none.number])
+
+    assert records[kept.number]["capacity"] == 20
+    assert records[none.number]["capacity"] == "off"
+    mean = aggregate(records, "mean")
+    assert mean["values"]["capacity"] == 20
+    assert mean["counted_over"]["capacity"] == 1
 
 
 async def test_pl_context_010_safwa_is_handed_the_sprint_and_todays_actions(sessions):

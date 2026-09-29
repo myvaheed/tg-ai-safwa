@@ -133,3 +133,38 @@ Feature: Retro
     And the model is asked to set that share beside how each Sprint went
     And with no compared Sprint tracked, the question says nothing of time
     And no other number of time reaches the analysis
+
+  Scenario: RT-LIST-012 — Every Sprint that ended is one tap from the menu
+    Given three Sprints have ended and one is running
+    When the owner opens Retro from the menu or with /retro
+    Then the three are listed newest first, ten to a page (RETRO_LIST_PAGE_SIZE = 10)
+    And each shows its number, its dates, its Success criteria mark and whether it was analysed
+    And the running Sprint is not listed
+    When the owner taps one
+    Then its retro screen replaces the list, with a way back to the same page
+    When no Sprint has ended yet
+    Then Retro says so, and that a retro is written when a Sprint ends
+
+  Scenario: RT-ASK-013 — A question over several ended Sprints is answered from their records
+    Given three Sprints have ended
+    When the owner asks for an average over the last three, such as the capacity they started
+      with or the effort they finished
+    Then Safwa answers with the average the code worked out over the three records
+    When the owner asks for a total over them, such as the Actions they finished
+    Then Safwa answers with the sum the code worked out, and no number is added up by the model
+    And a Sprint with no capacity, no tracked time or no mark is left out of that one number,
+      and the answer says over how many Sprints it is
+    And each Sprint is named by its number with a link to its retro
+    And a running Sprint is never in the answer, since it has no record yet (RT-OPEN-001)
+
+  Scenario: RT-ASK-014 — A date finds the Sprint whose days it falls in
+    Given a Sprint ran from 01.09 to 14.09 and ended on 12.09
+    When the owner asks about the Sprint of 10.09
+    Then Safwa finds that Sprint
+    When the owner asks about 13.09
+    Then Safwa says no Sprint was running that day
+
+  Scenario: RT-OPEN-015 — Asked to show a retro, Safwa puts it on screen
+    Given the owner names an ended Sprint by its number or by a date in it
+    When they ask to see its retro
+    Then its retro screen arrives after Safwa's words, as it does from the link (RT-OPEN-002)

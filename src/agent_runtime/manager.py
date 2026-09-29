@@ -528,6 +528,7 @@ class AgentManager:
             outcome = await self._bounded(agent, self._run_to_outcome(agent, started))
             if outcome.waiting:
                 return outcome, None
+            parent.host_state.update(agent.host_state)
             # The materialized outcome, not the raw loop result: a repair round answers again.
             return outcome, self._receipt(
                 name, outcome.message, agent.display_result_summaries, shown=agent.shown_blocks
@@ -561,6 +562,7 @@ class AgentManager:
             parent, transcript = self._restore(record)
             waiting = dict(parent.awaiting_route or {})
             parent.awaiting_route = None
+            parent.host_state.update(agent.host_state)
             parent.display_result_summaries.extend(
                 str(line) for line in receipt.get("did") or []
             )

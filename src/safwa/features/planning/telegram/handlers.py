@@ -8,7 +8,7 @@ from tg_agent_shell.telegram import CallbackContext, CallbackHandler
 from tg_agent_shell.telegram.model import UiSession
 
 from ....foundation.workspace import Workspace
-from ..use_cases import finish_sprint, start_sprint
+from ..use_cases import FINISHED_BY_HAND, finish_sprint, start_sprint
 from .plan import (
     on_plan_card,
     on_plan_filter_toggle,
@@ -63,7 +63,7 @@ async def _on_start(context: CallbackContext) -> None:
 
 async def _on_finish(context: CallbackContext) -> None:
     async with context.sessions() as session:
-        sprint = await finish_sprint(session, reason="finished_early")
+        sprint = await finish_sprint(session, reason=FINISHED_BY_HAND)
         await session.commit()
         number = sprint.number
     await render_sprint(
