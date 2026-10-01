@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from telegram_llm import AudioClip, TranscriptionError
 
+from ..ai.steps import listening
 from ..foundation.kinds import MessageKind
 from ..hooks.contracts import AfterTurn, BeforeTurn, Run, RunContext
 from ..proposals.telegram import render_ai_outcome
@@ -244,7 +245,7 @@ async def run_dialogue_turn(
     dialogue_revision = services.turn.dialogue_revision
     try:
         services.turn.begin(message.message_id)
-        await open_turn_notice(message, services)
+        notice = await open_turn_notice(message, services)
         await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
         dialogue = await services.history.dialogue(message.chat.id)
         await run_before_turn(
@@ -255,11 +256,12 @@ async def run_dialogue_turn(
             ),
             lambda: services.turn.dialogue_revision == dialogue_revision,
         )
-        outcome = await services.root.handle(
-            request,
-            source_message_id=source_message_id,
-            dialogue=dialogue,
-        )
+        with listening(notice.step):
+            outcome = await services.root.handle(
+                request,
+                source_message_id=source_message_id,
+                dialogue=dialogue,
+            )
         # Only the owner invalidates their own answer. The workspace revision does not:
         # an autoapproved change bumps it from inside this very turn.
         if services.turn.dialogue_revision != dialogue_revision:

@@ -1,8 +1,7 @@
 """Writing a Value.
 
-A Value is named once and never twice, it comes back when its archived name is written
-again, and it is archived rather than deleted. Archiving takes it off every Card and every
-Check in the same transaction, so nothing is left pointing at a Value that is not live.
+A Value's name is unique without regard to Unicode case. A Value is deleted, never archived:
+deleting it takes it off every Card and Check and frees its name in the same transaction.
 """
 
 from __future__ import annotations
@@ -35,7 +34,7 @@ async def create_value(
     normalized = name.strip()
     if not normalized:
         raise DomainError("Value name cannot be empty")
-    existing = await session.scalar(select(Value).where(Value.name.collate("NOCASE") == normalized))
+    existing = await session.scalar(select(Value).where(Value.name == normalized))
     if existing is not None:
         raise DomainError("A Value with this name already exists")
     value = Value(
@@ -70,7 +69,7 @@ async def update_value_fields(
             raise DomainError("Value name cannot be empty")
         duplicate = await session.scalar(
             select(Value).where(
-                Value.name.collate("NOCASE") == normalized,
+                Value.name == normalized,
                 Value.id != value.id,
             )
         )

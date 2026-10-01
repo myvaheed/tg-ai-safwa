@@ -1,54 +1,46 @@
-# CLAUDE.md
+# Repository guidance
 
-Guidance for Claude Code (claude.ai/code) in this repository. It carries the principles; every
-mechanism has a document that owns it, and this file points there instead of keeping a second copy.
+Shared guidance for coding agents. Read the documents the task needs; each contract has one
+home. `tests/brd/` holds approved behavior, and [tests/brd/README.md](tests/brd/README.md) explains
+scenario wording and identifiers.
 
-## Read what the task needs
+## Start with the task
 
-`tests/brd/` is what Safwa does, one approved rule per `Scenario`. Read the scenarios for the
-feature you are changing before you change it, and [tests/brd/README.md](tests/brd/README.md) for
-what a scenario is. Nothing here asks you to read the whole architecture for one task.
-
-| Task | First reading | The check that decides |
+| Task | First reading | Verification |
 |---|---|---|
-| Change business behavior | that feature's `.feature`, its `use_cases.py` and `model.py` | the scenario's test, and the adapters the change touched |
-| Fix a screen | that feature's `.feature`, its Telegram adapter, [screens.feature](tests/brd/tg_agent_shell/screens.feature) | the UI test, and E2E when the flow crosses a turn |
-| Change the loop or routing | [tests/brd/tg_agent_shell/](tests/brd/tg_agent_shell), `agent_runtime/`, [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md) | tool availability, the budgets, suspend and resume |
-| Add a feature | [docs/FEATURE_MODULES.md](docs/FEATURE_MODULES.md), then [features/tags](src/safwa/features/tags) for an entity the owner also edits by hand, or [features/diary](src/safwa/features/diary) for one only the model proposes | registration, one scenario, one whole path |
-| Remove a feature | its `.feature`, `MODULES`, and whoever calls its `api.py` | no command, view, route or test reference left dangling |
-| Build another bot on the shell | "What an application gives the shell" in [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md), and [examples/wallet](examples/wallet/app.py) | `uv run pytest tests\shell -q`, which runs that example with `safwa` unimportable |
+| Change domain behavior | the feature's `.feature`, `use_cases.py`, `model.py` | scenario tests and affected adapters |
+| Fix a screen | the feature's `.feature`, Telegram adapter, [screens.feature](tests/brd/tg_agent_shell/screens.feature) | UI tests; E2E when the flow crosses a turn |
+| Change execution or routing | [shell scenarios](tests/brd/tg_agent_shell), `agent_runtime/`, [AGENT_ARCH.md](docs/AGENT_ARCH.md) | budgets, cancellation, suspend/resume and claims |
+| Add a feature | [FEATURE_MODULES.md](docs/FEATURE_MODULES.md); [Tags](src/safwa/features/tags) for manual and AI editing, [Diary](src/safwa/features/diary) for proposal-only writes | registration, scenario tests, one whole path |
+| Remove a feature | its scenarios and feature map; callers, reader views, tools, menu and foreign keys | no dangling registrations, imports, schema or test references |
+| Build another bot | application contract in [AGENT_ARCH.md](docs/AGENT_ARCH.md), [wallet example](examples/wallet/app.py) | `tests/shell/`, including the example with Safwa unimportable |
+| Change hooks | [HOOK_ARCH.md](docs/HOOK_ARCH.md) and the owning feature's scenarios | registration, effect and affected event path |
 
-[docs/DOMAIN.md](docs/DOMAIN.md) is what a Card, a Check and a Sprint are. `uv run python
-scripts/architecture_metrics.py` prints the module graph and the Definition of Done counts, and
-naming a feature prints that feature's map instead — no document is kept in step with either.
+## Package boundaries
 
-## Commands
+- `llm_gateway`: provider boundary. `agent_runtime`: sessions and execution, independent of Telegram.
+- `telegram_llm`: chat, screens and history. `tg_agent_shell`: storage, review, hooks and Telegram integration.
+- `safwa`: this bot's domain, persona and composition. Shared packages import no application.
+- Safwa's [MODULES](src/safwa/bootstrap/modules.py) declares features; `HOOKS` declares reactions.
+  Registration is derived. Domain features can depend on each other through the documented doors;
+  removing registration alone does not remove those dependencies.
+- Layer and transaction rules, including why `api.py` defines lower-layer operations rather than
+  re-exporting `use_cases.py`, belong to [FEATURE_MODULES.md](docs/FEATURE_MODULES.md).
 
-Windows / PowerShell, `uv`-managed, Python pinned to `>=3.12,<3.13`. Setup and the voice extras are
-[README.md](README.md); here is what a change is checked with.
+## Invariants
 
-```powershell
-uv run pytest -q
-uv run pytest tests\e2e -q
-uv run pytest tests\shell -q            # the example bot on the shell, with no Safwa imported
-uv run ruff check .
-uv run python scripts/architecture_metrics.py
-uv run python scripts/architecture_metrics.py cards   # one feature: its sources, scenarios, tests, views and wiring
-uv run pytest tests\test_cards.py::test_parent_stage_propagation_and_reopen -q
-uv run pytest --brd=DI-DAY-001 -q       # every test citing one scenario; -m brd runs them all
-```
-
-`asyncio_mode = "auto"`, so async tests need no marker. `tests/test_architecture.py` fails on any
-architecture-rule violation and on a change to the prompt-prefix, schema or marker-code snapshot
-under `tests/snapshots/`. Rewrite one by naming its own test — never the whole file, which
-re-baselines the two the batch did not change:
-
-```powershell
-uv run pytest tests/test_architecture.py::test_rule_i_prompt_prefix_is_byte_stable --snapshot-update
-```
-
-Live Telegram tests are opt-in and skipped without `--live-telegram`. `telegram-bot-exampler/` is an untracked local reference project,
-excluded from ruff — never edit it.
+- Send bot messages through `ChatHost` and give them the correct `MessageKind`; kept chat is dialogue.
+- The model proposes changes; mutation tools belong to subagents, never the root Advisor.
+  Save and manual UI call the same domain operations. Use cases take the caller's session and
+  never commit; the caller owns the transaction.
+- Each agent session owns its budget and transcript. New sessions get new counters; resume keeps
+  the same counter. A screen suspends the chain. Cancellation ends all its unfinished sessions.
+- The root model supplies the dialogue answer. Adapters and hooks may publish system messages and
+  screens through the host.
+- A reader reaches only its declared views. Publishing a view does not grant access to it.
+- Keep the system prompt prefix byte-stable; volatile context follows the dialogue.
+- `TurnManager` owns foreground/background access. Background work checks currentness before
+  publication or commit; the owner's action takes precedence.
 
 ## Designing and coding
 
@@ -66,124 +58,76 @@ wrong solution. Several mechanisms that all compensate for one missing property 
   scenario that fails without the change, a scanner count that moves.
 - Say what you assumed. Ask when the answer changes what you build; otherwise assume and keep going.
 
-## Architecture
+## Implement the requested change
 
-Single-owner Telegram bot (aiogram 3) + an OpenAI-compatible LLM (`SAFWA_AI_PROVIDER`, a local server
-such as LM Studio by default, OpenRouter for `openai/gpt-5.6-luna`) + SQLite/SQLAlchemy 2 async. The five packages and
-what each owns are [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md). Three facts that decide where an edit
-goes:
+Match existing style. All Python modules use `from __future__ import annotations`.
+A bug fix gets a reproducing test; other changes get checks proportionate to their effect.
+Choose implementation and test structure independently, preserving approved coverage:
+a batch that removes a test names what still covers its scenario.
+Ask only when new user-visible behavior has materially different reasonable interpretations.
+Explicit user instructions authorize that change; restoring an approved contract needs no
+repeated approval. Approved scenarios outrank code, tests and documents, subject to the user's
+current instruction. Reword scenarios without changing their identifiers, covered cases or
+outcomes; changes to those cases or outcomes require the owner's instruction.
 
-- Which features exist is [bootstrap/modules.py](src/safwa/bootstrap/modules.py), and nothing else.
-  A feature owns its model, use cases, agent contract and Telegram adapter. Where the owner edits
-  the entity by hand too, the AI and UI paths call the **same** operations —
-  [features/tags](src/safwa/features/tags) is that shape; the Diary is the other one, written
-  through proposals alone. A feature is where a change goes, **not a plugin that can be pulled
-  out**: Cards, Checks, Values, Tags and Planning read each other through their doors.
-- Where a shared thing goes is decided by how many features read it. Cross-feature tuning is
-  [constants.py](src/safwa/constants.py), which imports nothing from Safwa; a limit one module owns
-  is a constant at the top of that module, and [config.py](src/safwa/config.py) takes its default
-  from wherever the limit lives. [enums.py](src/safwa/enums.py) splits the same way.
-- [telegram/routing.py](src/tg_agent_shell/telegram/routing.py) registers every handler by name, so
-  a handler it does not name is one nothing reaches.
+Code comments stay sparse and explain a non-obvious why, such as an ordering constraint.
+Developer prose may explain a decision's rationale.
+Replace false documentation in place; do not leave an old statement beside its correction.
+New documentation goes in `docs/`; diagrams stay beside the prose they explain.
 
-## The rules that outrank a convenient design
+## Verify
 
-Each is a property some mechanism exists to hold. Break one and the mechanism around it stops
-meaning anything, so change the mechanism instead.
+Windows / PowerShell; prefix terminal commands with `rtk`. Setup is in [README.md](README.md).
+Run affected tests first. A broad change runs the complete local suite and Ruff; E2E and shell
+tests are already included in that suite.
 
-- **The chat is kept as it passes, and the kept chat is the dialogue.** Every bot message is sent
-  through `ChatHost`, which keeps it with a `MessageKind`, and the owner's words are kept as they
-  arrive; the kind is the only thing that decides whether the model ever sees a message. An
-  unkept or wrongly-kinded message is a silent bug weeks wide. Rule P keeps the send path single.
-- **The model proposes; it never writes.** Every mutation tool belongs to a subagent, never to the
-  Advisor, and Save calls the *same* use cases the manual UI calls. A proposal screen is exactly
-  Save/Discard: a screen that needs a field control is the wrong screen.
-- **A session is the unit, and only the Advisor writes to the chat.** `route` hands one turn to a
-  subagent and gets a receipt back; a screen suspends the whole chain and a Save resumes it. A
-  session runs until it answers in words.
-- **A reader is scoped by the view list it declares.** One declaration fills the `{views}` block in
-  its prompt and scopes its own `query_data`, so a view no list names is one that reader is refused,
-  not merely one it was not told about. Views are rebuilt every startup from the owning feature's
-  `views.py`, never migrated.
-- **The prompt prefix is byte-stable.** New volatile context goes after the dialogue, never into a
-  system block — one timestamp in `messages[0]` costs every cache hit.
-- **Memory is what the retro left, and only its hook writes it.** `memory_observation` rows are
-  written by the `memory.retro` hook alone, from a Sprint's analysis, and a Sprint replaces its own rows
-  only; the last analysed Sprint is read off its row. No command, file or turn adds a fact.
-- **One lease, and the owner always wins.** `TurnManager` is the single foreground/background lease;
-  background work verifies the revision before it publishes or commits.
+```powershell
+rtk proxy uv run pytest -q
+rtk proxy uv run ruff check .
+rtk proxy uv run python scripts/architecture_metrics.py
+rtk proxy uv run python scripts/architecture_metrics.py cards
+rtk proxy uv run pytest --brd=DI-DAY-001 -q
+```
 
-## What may change, and what is the owner's
+The feature map shows sources, callers, views, scenarios and tests. The scanner checks structural
+rules; documentation tests check links and spelled names, not semantic agreement with the code.
+Live Telegram/provider checks are opt-in and use QA configuration, never production state;
+[resolve_qa_config](src/safwa/qa.py) rejects reuse of the production bot token.
+E2E tests use real storage and services, replacing remote boundaries.
+Never edit `telegram-bot-exampler/`, the local reference.
 
-- **Implementation is yours.** So is the shape of the tests, as long as the approved coverage
-  survives: a batch that drops a test names what still covers its scenario.
-- **Product behavior is the owner's, and so is what an approved `Scenario` means.** An approved
-  scenario outranks the code, the tests and every document. A behavior no scenario covers is a
-  question to ask, not permission to decide it yourself.
-- **Rewording a scenario without changing what it says is editorial, and yours.** The identifier
-  never changes; the title after the em dash and the Given/When/Then lines may be made clearer, and
-  [tests/brd/README.md](tests/brd/README.md) is what clearer means. Changing which cases a scenario
-  covers, or what happens in one, is the owner's.
-- **The prompt snapshot travels with the prompt.** A changed system prompt, tool description or
-  reader view list updates `tests/snapshots/prompt_prefix.json` in the same batch; no separate
-  permission is needed, and the update names that one test.
-- **The schema snapshot travels with the model that changed it.** A changed column or table
-  updates `tests/snapshots/schema.json` in the same batch, and the batch names the table; during
-  the alpha nothing else is owed (see Schema).
+Prompt, tool-description and reader-view-list changes update the prompt snapshot in the same
+batch. Schema changes update the schema snapshot and name the affected tables.
+Update only the affected snapshot, by naming its test; no extra approval is needed:
 
-## Schema
+```powershell
+rtk proxy uv run pytest tests/test_architecture.py::test_rule_i_prompt_prefix_is_byte_stable --snapshot-update
+rtk proxy uv run pytest tests/test_architecture.py::test_rule_j_schema_is_unchanged_outside_a_schema_batch --snapshot-update
+```
 
-There are no migrations and no Alembic. The ORM model modules are the schema source, and
-`upgrade_database` ([foundation/database.py](src/tg_agent_shell/foundation/database.py)) adds
-missing tables and indexes at startup but **never alters an existing one** — so a fresh database
-always matches the declared models while a changed column never reaches an existing
-`data/safwa.db`. A schema change means editing the owning model and rebuilding the database.
+## Safwa-specific rules
 
-**Alpha: breaking the database costs nothing.** Until the owner says the alpha is over, the owner
-wipes the database and the chat at will. Design a schema on its merits alone: change the column the
-design wants instead of adding a table to avoid a rebuild, and never name a rebuild, lost rows or a
-backup as a cost, a step or a reminder. Delete this paragraph when the owner declares the alpha
-finished.
+Safwa's domain is [DOMAIN.md](docs/DOMAIN.md). Only the retro hook writes its memory observations;
+the current contract is [SPRINT_ANALYSE_TO_RETRO_AND_MEM.md](docs/SPRINT_ANALYSE_TO_RETRO_AND_MEM.md).
+Update the [onboarding manual](src/safwa/features/onboarding/agent.py) in the same batch when
+changing or adding a screen, command, rule or reaction the owner should meet.
+These product rules do not apply to another bot using the shell.
 
-**Do not add Alembic or write migrations before the first release.** The owner recreates the
-pre-release database; migration support starts after v1, from the ORM metadata at that point.
+Cross-feature constants live in [constants.py](src/safwa/constants.py), which imports nothing
+from Safwa. A constant used by one module stays at its top; [config.py](src/safwa/config.py)
+gets defaults from that owner. [enums.py](src/safwa/enums.py) follows the same ownership rule.
 
-## Conventions
+Safwa is in alpha: change the ORM schema directly, update its snapshot, and do not add migrations
+or compatibility layers before the first release. `upgrade_database` adds missing tables and
+indexes but never alters existing columns; the owner recreates the pre-release database.
+Until the owner ends alpha, preserving its data is not a design constraint; do not add rebuild
+or backup steps and warnings to ordinary schema work.
 
-- ruff `select = ["E","F","I","UP","B"]`, line length 100, `E501` ignored, target py312. All modules
-  start with `from __future__ import annotations`.
-- **Everything the model reads is written for a small local model — 4B to 12B.** System prompts,
-  tool descriptions, field descriptions, `hint` and `next` are short, imperative and concrete: one
-  instruction per line, the exact tool and field names, no rationale and no restating a rule twice.
-- **The onboarding subagent's manual names screens, commands, rules and reactions**
-  ([features/onboarding/agent.py](src/safwa/features/onboarding/agent.py)). A batch that changes
-  one it names, or adds something the owner should meet, updates the manual in the same batch.
-- **Prose for a developer is not held to that.** A non-obvious decision earns the sentence that says
-  why. Code comments stay sparse and explain only a non-obvious *why* — a Telegram or aiogram
-  quirk, an ordering constraint.
-- Docs are kept current by deleting: a line that stopped being true is removed or replaced in place,
-  never left standing next to its correction. One explanation has one home, and a diagram lives
-  beside the prose it explains rather than in a gallery of its own. `tests/test_docs.py` checks
-  that each link resolves and each code name a document spells still exists — which keeps a
-  document readable and says nothing about whether its content is approved.
-- User-facing strings are complete sentences and product-specific ("Card", "Sprint", "Value", "Tag",
-  "Request" are capitalized domain nouns). Bot messages are HTML — escape any user or model text.
-- Enums are `StrEnum` but columns store plain strings — always compare and assign `.value`. Commit
-  subjects follow `vX.Y <short summary>`.
-- E2E tests use the real SQLite database and real services, replacing only Telegram and the provider
-  at their network boundaries — keep new tests on that pattern rather than mocking domain functions.
-  QA and live test config never touch production state: `resolve_qa_config`
-  ([qa.py](src/safwa/qa.py)) hard-fails on a reused bot token.
-
-## The rest of `docs/`
-
-Beyond what the table above points at, and none of it required reading for an ordinary task:
-[LLM_GATEWAY.md](docs/LLM_GATEWAY.md) is the provider boundary,
-[LLM_HISTORY.md](docs/LLM_HISTORY.md) what the model reads as the conversation and why, and
-[SPRINT_ANALYSE_TO_RETRO_AND_MEM.md](docs/SPRINT_ANALYSE_TO_RETRO_AND_MEM.md) the retro analysis — what it reads, asks and writes — and how memory is written from it,
-[HOME_DASHBOARD.md](docs/HOME_DASHBOARD.md) how a quiet chat is cleared down to the Home
-dashboard and what it shows, and [SECURITY.md](docs/SECURITY.md) how the database is encrypted,
-where its key lives, and how to back it up and restore it.
-A feature's own package is a pointer like any other: its `.feature`
-file is the rule, and the package is what keeps it. `docs/` is where anything written from now on
-goes.
+System prompts, tool/field descriptions, `hint` and `next` target small local models: short,
+imperative, concrete instructions, one per line, with exact names, no rationale or repeated rules.
+This does not restrict developer explanations or substantive answers.
+User-facing strings are complete sentences with Safwa's capitalized domain nouns.
+Bot messages are HTML; escape user/model text. Enums store plain `.value` strings.
+Commit subjects follow `vX.Y <short summary>`.
+Other contracts: [LLM_HISTORY.md](docs/LLM_HISTORY.md), [LLM_GATEWAY.md](docs/LLM_GATEWAY.md),
+[HOME_DASHBOARD.md](docs/HOME_DASHBOARD.md), [SECURITY.md](docs/SECURITY.md).

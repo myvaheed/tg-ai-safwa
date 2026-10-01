@@ -96,6 +96,7 @@ class AgentManager:
             routed_kinds=self.routed_kinds,
             max_tool_calls=self.max_tool_calls,
             max_repair_rounds=self.max_repair_rounds,
+            observer=self.observer,
         )
 
     async def _run_to_outcome(self, agent: AgentSession, started: float) -> TurnOutcome:
@@ -213,6 +214,15 @@ class AgentManager:
         )
         await self._close_unfinished_children(run_id)
 
+    async def _cancel(self, run_id: int, started: float) -> None:
+        """Cancellation ends the request, including callers and unfinished siblings."""
+        record = await self.store.get(run_id)
+        while record is not None and record.parent_run_id is not None:
+            run_id = record.parent_run_id
+            record = await self.store.get(run_id)
+        await self._finish(run_id, RunStatus.ABANDONED, started)
+        await self._close_unfinished_children(run_id)
+
     async def _close_unfinished_children(self, run_id: int) -> None:
         """End everything this session started and never finished.
 
@@ -270,6 +280,9 @@ class AgentManager:
             agent.prefix_len = len(messages)
             result = await self.run(agent)
             return await self._complete(agent, result, started)
+        except asyncio.CancelledError:
+            await self._cancel(record.id, started)
+            raise
         except Exception as error:
             logger.exception("Session %s failed", kind)
             await self._fail(record.id, started, error)
@@ -302,6 +315,9 @@ class AgentManager:
             await self._replay(agent, transcript, receipt, str(waiting.get("call_id", "")))
             result = await self.run(agent)
             return await self._complete(agent, result, started)
+        except asyncio.CancelledError:
+            await self._cancel(agent.run_id, started)
+            raise
         except Exception as error:
             logger.exception("The interrupted request could not be resumed")
             await self._fail(agent.run_id, started, error)
@@ -331,10 +347,10 @@ class AgentManager:
         agent.interaction_token = None
         # Taking the reference is durable, so a second answer to the same screen resumes
         # nothing even after this turn has ended and released its claim.
-        await self.store.save_state(ref.run_id, {**record.state, "interaction_token": None})
         agent.result_summaries.extend(value.notes)
         agent.display_result_summaries.extend(value.display_notes)
         try:
+            await self.store.save_state(ref.run_id, {**record.state, "interaction_token": None})
             # The host already knows what is left to say when it hands an answer over, so
             # the session is ended with those words rather than being asked for its own.
             work = (
@@ -348,13 +364,20 @@ class AgentManager:
             if outcome.waiting:
                 return outcome
             return await self._hand_up(agent, outcome)
+        except asyncio.CancelledError:
+            await self._cancel(agent.run_id, started)
+            raise
         except TimeoutError:
             # A subagent the clock stopped still owes its caller a receipt: losing the turn
             # would leave the owner with a saved change and no answer about it.
             await self._fail(agent.run_id, started, "timeout")
             if agent.parent_run_id is None:
                 raise
-            return await self._deliver_to_parent(agent, self._timed_out(agent.kind))
+            try:
+                return await self._deliver_to_parent(agent, self._timed_out(agent.kind))
+            except asyncio.CancelledError:
+                await self._cancel(agent.run_id, started)
+                raise
         except Exception as error:
             logger.exception("Session %s could not be resumed", agent.kind)
             await self._fail(agent.run_id, started, error)

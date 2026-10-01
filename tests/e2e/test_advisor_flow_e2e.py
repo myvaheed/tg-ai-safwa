@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+from types import SimpleNamespace
 
 import pytest
 from advisor_e2e_helpers import create_manual_card, mutation_turn, route_turn
@@ -22,11 +24,13 @@ from safwa.foundation.workspace import Workspace
 from telegram_llm import DialogueMessage
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
 from tg_agent_shell.ai.runs import AgentRun, AgentStep
+from tg_agent_shell.cues.runtime import chat_is_free
 from tg_agent_shell.proposals.model import (
     BatchDecision,
 )
 from tg_agent_shell.proposals.use_cases import approve_proposal
 from tg_agent_shell.session import MAX_TOOL_CALLS
+from tg_agent_shell.turn import TurnManager
 
 pytestmark = pytest.mark.e2e
 
@@ -701,6 +705,68 @@ async def test_the_tool_call_budget_is_carried_across_an_approval(e2e_harness):
         assert run.status == "failed"
         # The claim is released whichever way the turn ends, or the session is stuck.
         assert run.claimed_at is None
+
+
+@pytest.mark.parametrize("phase", ["child", "parent", "checkpoint", "review"])
+async def test_ag_turn_010_cancellation_releases_the_database_claims_and_cue_gate(
+    e2e_harness, phase, monkeypatch,
+):
+    """AG-TURN-010 — tests/brd/tg_agent_shell/agents.feature"""
+    advisor, provider = e2e_harness.advisor([
+        route_turn("workspace_mutator"),
+        mutation_turn(("tag", {"mode": "create", "name": "Cancelled"})),
+        "The change was saved.",
+    ])
+    blocked = asyncio.Event()
+    complete = provider.complete
+    stop_after = 1 if phase == "child" else 3 if phase == "parent" else -1
+
+    async def hold(request):
+        if len(provider.calls) == stop_after:
+            blocked.set()
+            await asyncio.Event().wait()
+        return await complete(request)
+
+    provider.complete = hold
+    if phase == "checkpoint":
+        save_state = advisor.store.save_state
+        async def hold_checkpoint(run_id, state):
+            if state.get("interaction_token") is not None:
+                blocked.set()
+                await asyncio.Event().wait()
+            return await save_state(run_id, state)
+        monkeypatch.setattr(advisor.store, "save_state", hold_checkpoint)
+    elif phase == "review":
+        async def hold_review(*args):
+            blocked.set()
+            await asyncio.Event().wait()
+        monkeypatch.setattr(advisor.materializer, "before_review", hold_review)
+    if phase == "parent":
+        waiting = await advisor.handle("Prepare a Tag")
+        work = advisor.resolve_approval(
+            waiting.proposal_id, decision=BatchDecision.APPROVED, result={}, apply_proposal=True,
+        )
+    else:
+        work = advisor.handle("Prepare a Tag")
+    task = asyncio.create_task(work)
+    await asyncio.wait_for(blocked.wait(), timeout=2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    async with e2e_harness.sessions() as session:
+        runs = list(await session.scalars(select(AgentRun).order_by(AgentRun.id)))
+        assert [run.status for run in runs] == [
+            "abandoned", "completed" if phase == "parent" else "abandoned",
+        ]
+        assert all(run.claimed_at is None for run in runs)
+        assert bool(await session.scalar(select(Tag.id).where(Tag.name == "Cancelled"))) is (
+            phase == "parent"
+        )
+    for run in runs:
+        assert await advisor.store.claim(run.id) is None
+    services = SimpleNamespace(sessions=e2e_harness.sessions, root=advisor, turn=TurnManager())
+    assert await chat_is_free(services)
 
 
 async def test_a_session_can_only_be_claimed_once(e2e_harness):

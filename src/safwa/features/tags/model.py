@@ -11,7 +11,7 @@ from ...foundation.models import Base, TimestampMixin
 class Tag(Base, TimestampMixin):
     __tablename__ = "tags"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(200), unique=True)
+    name: Mapped[str] = mapped_column(String(200, collation="UNICODE_NOCASE"), unique=True)
     description: Mapped[str] = mapped_column(Text, default="")
     version: Mapped[int] = mapped_column(Integer, default=1)
 

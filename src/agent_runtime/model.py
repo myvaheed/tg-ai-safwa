@@ -27,7 +27,7 @@ class RunStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     # Ended without finishing: interrupted and never come back to, or waiting on a person
-    # who never answered.
+    # who never answered, or cancelled by the person.
     ABANDONED = "abandoned"
 
 

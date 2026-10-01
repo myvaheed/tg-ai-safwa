@@ -105,7 +105,7 @@ async def _proposal_for(
     )
 
 
-async def test_a_sprint_closing_itself_overnight_refuses_the_waiting_proposal(sessions, reviews):
+async def test_a_sprint_closing_refuses_a_proposal_whose_review_is_still_open(sessions, reviews):
     """PR-STALE-012 — tests/brd/tg_agent_shell/proposals.feature"""
     async with sessions() as session:
         card = await create_card(
@@ -136,7 +136,7 @@ async def test_a_sprint_closing_itself_overnight_refuses_the_waiting_proposal(se
         assert (await session.get(Card, card.id)).title == "Walk"
 
 
-async def test_a_proposal_does_not_expire_while_its_process_is_running(sessions, reviews):
+async def test_process_uptime_does_not_expire_a_proposal_whose_review_is_still_open(sessions, reviews):
     """PR-STALE-013 — tests/brd/tg_agent_shell/proposals.feature"""
     async with sessions() as session:
         card = await create_card(
@@ -147,7 +147,7 @@ async def test_a_proposal_does_not_expire_while_its_process_is_running(sessions,
         )
         await session.commit()
 
-        # A review carries no age at all: the row is the pending state, nothing more.
+        # Process uptime is not proposal age; the shown review's own timer is PR-EXPIRE-029.
         assert not hasattr(proposal, "created_at")
         await approve_proposal(session, reviews, PROPOSALS, proposal.id)
         await session.commit()

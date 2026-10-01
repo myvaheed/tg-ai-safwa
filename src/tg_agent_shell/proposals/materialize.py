@@ -33,6 +33,7 @@ from llm_gateway import LlmProvider
 from ..ai.contracts import ToolResultStatus
 from ..ai.conversation import kept_turn
 from ..ai.outcome import AIOutcome, AIOutcomeKind, as_turn
+from ..ai.steps import announce, checking_line, preparing_line
 from ..ai.tools import (
     REPAIR_EXHAUSTED,
     ToolAdapters,
@@ -114,7 +115,7 @@ class ProposalMaterializer:
         A subagent's words go to whoever routed to it, so they are handed over untouched —
         unless it is declared shown as is: then they are a block for the owner to read, and
         its caller is told they were shown instead of being handed them to retell. The root
-        is the only participant that writes to the chat, which makes it the one place that
+        supplies the model's dialogue answer, which makes it the one place that
         has to guarantee the owner is never left with nothing.
         """
         if agent.parent_run_id is not None:
@@ -151,6 +152,8 @@ class ProposalMaterializer:
         if not result.pending_tools:
             return await self._answer_unless_held(agent, result.message)
         mutation_tools = [tool for tool in result.pending_tools if tool.change is not None]
+        if mutation_tools:
+            await announce(preparing_line(agent.kind, len(mutation_tools)))
         preparation_results = {
             tool.call.id: json_safe(tool.result) for tool in result.pending_tools
         }
@@ -369,6 +372,7 @@ class ProposalMaterializer:
             effect = checked.spec.effect
             error = checked.error
             if error is None and isinstance(effect, effect_type):
+                await announce(checking_line(checked.spec.title))
                 try:
                     for payload in checked.payloads:
                         words = await effect.review(payload, self.provider)

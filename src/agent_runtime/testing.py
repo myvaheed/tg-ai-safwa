@@ -45,7 +45,9 @@ class InMemorySessionStore:
             record.state = state
 
     async def claim(self, run_id: int) -> RunRecord | None:
-        if run_id in self._claimed:
+        if run_id in self._claimed or self._status.get(run_id) not in {
+            RunStatus.RUNNING, RunStatus.AWAITING_APPROVAL, RunStatus.INTERRUPTED,
+        }:
             return None
         self._claimed.add(run_id)
         self._status[run_id] = RunStatus.RUNNING
@@ -142,7 +144,9 @@ class InMemorySessionStore:
             branch.add(child_id)
         closed = 0
         for child_id in branch - {run_id}:
-            if self._status.get(child_id) is RunStatus.INTERRUPTED:
+            if self._status.get(child_id) in {
+                RunStatus.RUNNING, RunStatus.AWAITING_APPROVAL, RunStatus.INTERRUPTED,
+            }:
                 self._status[child_id] = RunStatus.ABANDONED
                 self._claimed.discard(child_id)
                 closed += 1

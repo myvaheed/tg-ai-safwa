@@ -1,8 +1,7 @@
 """Writing a Tag.
 
-A Tag is named once and never twice, it comes back when its archived name is written
-again, and it is archived rather than deleted. Archiving takes it off every Card in the
-same transaction.
+A Tag's name is unique without regard to Unicode case. A Tag is deleted, never archived:
+deleting it takes it off every Card and frees its name in the same transaction.
 """
 
 from __future__ import annotations
@@ -34,7 +33,7 @@ async def create_tag(
     normalized = name.strip()
     if not normalized:
         raise DomainError("Tag name cannot be empty")
-    existing = await session.scalar(select(Tag).where(Tag.name.collate("NOCASE") == normalized))
+    existing = await session.scalar(select(Tag).where(Tag.name == normalized))
     if existing is not None:
         raise DomainError("A Tag with this name already exists")
     tag = Tag(name=normalized, description=(description or "").strip())
@@ -64,7 +63,7 @@ async def update_tag_fields(
             raise DomainError("Tag name cannot be empty")
         duplicate = await session.scalar(
             select(Tag).where(
-                Tag.name.collate("NOCASE") == normalized,
+                Tag.name == normalized,
                 Tag.id != tag.id,
             )
         )

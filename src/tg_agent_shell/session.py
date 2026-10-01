@@ -1,4 +1,4 @@
-"""The root session: the one that writes to the chat, and what the interface calls.
+"""The root session: the model's dialogue answer, and what the interface calls.
 
 It owns no mutation tool. It reads, it routes, and it answers. The loop and the routed
 chain belong to `agent_runtime`; what is here is the wiring — which store, which tools,
@@ -44,7 +44,7 @@ from .proposals.materialize import (
     OWNER_REQUEST,
     ProposalMaterializer,
 )
-from .proposals.model import RECEIPT_PREFIXES, BatchDecision
+from .proposals.model import RECEIPT_PREFIXES, ApprovalBatch, BatchDecision
 from .proposals.prepare import ChangePreparer
 from .proposals.reducer import EXPIRED, INTERRUPTED
 from .proposals.render import (
@@ -177,15 +177,26 @@ class RootSession:
         # Words typed over a screen are an answer to the request that opened it, so that
         # request continues rather than being replaced by a second one. A turn with a source
         # message answers the owner; a Cue's turn has none, and no AfterRequest is about it.
-        outcome = await self.runtime.handle(
-            turn_dialogue,
-            source_message_id=source_message_id,
-            host_state=(
-                {OWNER_REQUEST: True} if source_message_id is not None else {CUE_REQUEST: text}
-            ),
-            shown=shown,
-        )
-        return await self._decide_or_show(outcome)
+        existing = self.reviews.open_batches
+        try:
+            outcome = await self.runtime.handle(
+                turn_dialogue,
+                source_message_id=source_message_id,
+                host_state=(
+                    {OWNER_REQUEST: True} if source_message_id is not None else {CUE_REQUEST: text}
+                ),
+                shown=shown,
+            )
+            return await self._decide_or_show(outcome)
+        except asyncio.CancelledError:
+            self._discard_opened_reviews(existing)
+            raise
+
+    def _discard_opened_reviews(self, existing: tuple[ApprovalBatch, ...]) -> None:
+        """End reviews made by a cancelled call before their screen reached the owner."""
+        for batch in self.reviews.open_batches:
+            if batch not in existing and batch.state.head is not None:
+                interrupt_batch(self.reviews, batch.state.head.proposal_id, reason="cancelled")
 
     async def _decide_or_show(self, outcome: TurnOutcome) -> AIOutcome:
         """A turn that stopped on the owner is offered to the checks before it is drawn.
@@ -205,7 +216,9 @@ class RootSession:
             # and no screen for it ever reached the chat, so it ends with the turn instead
             # of standing open for a decision nobody can make.
             if answer.proposal_id is not None:
-                await self.cancel_approval_for_proposal(answer.proposal_id)
+                stopped = interrupt_batch(self.reviews, answer.proposal_id, reason="cancelled")
+                if stopped is not None:
+                    await self.runtime.close(outcome.ref, _call_results(stopped.tool_calls))
             raise
 
     async def describe_proposal(
@@ -259,6 +272,7 @@ class RootSession:
         display_summary = results_summary(
             tools, include_preparation_errors=False, for_display=True
         )
+        existing = self.reviews.open_batches
         try:
             outcome = await self.runtime.resume(
                 InteractionRef(decided.run_id, decided.interaction_token),
@@ -273,6 +287,9 @@ class RootSession:
                     ),
                 ),
             )
+        except asyncio.CancelledError:
+            self._discard_opened_reviews(existing)
+            raise
         except Exception as error:
             logger.exception("AI continuation failed after the approval queue was resolved")
             result_summary = results_summary(tools, for_display=True)

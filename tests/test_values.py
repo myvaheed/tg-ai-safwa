@@ -3,9 +3,11 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 
 from safwa.bootstrap.modules import AI_VIEWS
 from safwa.features.cards.model import Card, CardCheck
+from safwa.features.cards.references import VALUE_REFERENCE
 from safwa.features.cards.use_cases import (
     archive_subtree,
     create_card,
@@ -32,6 +34,7 @@ from safwa.features.workspace_mutator.state import (
 )
 from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.foundation.references import resolve_references
 
 
 async def _action(session, title: str, **overrides):
@@ -57,21 +60,36 @@ async def value_card_ids(session, value_id: int) -> list[int]:
 
 
 
-async def test_a_value_name_is_taken_whatever_the_capitals(sessions):
+@pytest.mark.parametrize("name, duplicate", [("Fitness", "FITNESS"), ("Здоровье", "ЗДОРОВЬЕ"), ("Straße", "STRASSE")])
+async def test_a_value_name_is_taken_whatever_the_capitals(sessions, name, duplicate):
     """VL-NAME-005 — tests/brd/values.feature"""
     async with sessions() as session:
-        await create_value(session, "Fitness")
+        await create_value(session, name)
         other = await create_value(session, "Tidiness")
         await session.commit()
 
         with pytest.raises(DomainError, match="already exists"):
-            await create_value(session, "FITNESS")
+            await create_value(session, duplicate)
         with pytest.raises(DomainError, match="already exists"):
-            await update_value_fields(session, other.id, name="fitness")
+            await update_value_fields(session, other.id, name=duplicate)
         with pytest.raises(DomainError, match="cannot be empty"):
             await update_value_fields(session, other.id, name="   ")
         with pytest.raises(DomainError, match="cannot be empty"):
             await create_value(session, "  ")
+
+
+async def test_a_value_unicode_name_is_unique_in_storage_and_resolves_in_proposals(sessions):
+    """VL-NAME-005 — tests/brd/values.feature"""
+    async with sessions() as session:
+        value = await create_value(session, "Здоровье")
+        await update_value_fields(session, value.id, name="СЕМЬЯ")
+        await session.commit()
+        resolved = await resolve_references(session, VALUE_REFERENCE, {"value_query": "семья"})
+        assert resolved.ids == {value.id}
+        session.add(Value(name="Семья"))
+        with pytest.raises(IntegrityError):
+            await session.flush()
+        await session.rollback()
 
 
 async def test_a_check_can_carry_a_value_of_its_own(sessions):

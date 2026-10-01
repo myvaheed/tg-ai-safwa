@@ -14,10 +14,11 @@ from sqlalchemy import JSON, ForeignKey, Integer, String, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, aliased, mapped_column
 
-from agent_runtime import RunRecord, RunStatus
+from agent_runtime import AgentSession, RunRecord, RunStatus
 
 from ..foundation.clock import utcnow
 from ..foundation.models import Base, TimestampMixin, UtcDateTime
+from .steps import announce, asking_line
 
 
 class AgentRun(Base, TimestampMixin):
@@ -124,7 +125,14 @@ class AgentRunStore:
         """Take a suspended session for this resume, or report that it is already taken."""
         claimed = await session.scalar(
             update(AgentRun)
-            .where(AgentRun.id == run_id, AgentRun.claimed_at.is_(None))
+            .where(
+                AgentRun.id == run_id,
+                AgentRun.claimed_at.is_(None),
+                AgentRun.status.in_([
+                    RunStatus.RUNNING.value, RunStatus.AWAITING_APPROVAL.value,
+                    RunStatus.INTERRUPTED.value,
+                ]),
+            )
             .values(claimed_at=utcnow(), status=RunStatus.RUNNING.value)
             .returning(AgentRun.id)
         )
@@ -271,7 +279,10 @@ class AgentRunStore:
                 update(AgentRun)
                 .where(
                     AgentRun.id.in_(select(branch.c.id)),
-                    AgentRun.status == RunStatus.INTERRUPTED.value,
+                    AgentRun.status.in_([
+                        RunStatus.RUNNING.value, RunStatus.AWAITING_APPROVAL.value,
+                        RunStatus.INTERRUPTED.value,
+                    ]),
                 )
                 .values(status=RunStatus.ABANDONED.value, claimed_at=None)
                 .returning(AgentRun.id)
@@ -283,10 +294,14 @@ class AgentRunStore:
 
 
 class AgentStepTrail:
-    """The runtime's `Observer` over `agent_steps`: what a session did, in order."""
+    """The runtime's `Observer`: what a session did, in order, kept in `agent_steps`, and
+    each request it makes to the model announced to the turn."""
 
     def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
         self.sessions = sessions
+
+    async def asking(self, agent: AgentSession) -> None:
+        await announce(asking_line(agent.kind, agent.messages))
 
     async def step(
         self, run_id: int, position: int, kind: str, metadata: dict[str, Any]

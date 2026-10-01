@@ -53,8 +53,8 @@ flowchart TD
   `foundation/`; at its root `registry.py` derives an application's wiring, `recovery.py`
   reconciles a restart, and `session.py`, `history.py` and `asr.py` are the root session, the
   chat window and the voice.
-- **`safwa/features/*`** — `MODULES` lists eighteen: seventeen Safwa features, each with its rules in
-  `tests/brd/`, and the shell's own `proposals`. `advisor` is the eighteenth feature package and is
+- **`safwa/features/*`** — `MODULES` lists the Safwa features, each with its rules in
+  `tests/brd/`, and the shell's `proposals` and `media`. `advisor` is
   in no registry — it is the root session's prompt and the views it is told it may read, wired
   directly by the composition root.
 
@@ -100,8 +100,8 @@ owner has not acted since the look that ran it, taking the lease for the sending
 a `Run` on a commit or at the start has the session factory and no chat, and says anything
 it has to say through a recorded fact and an Advise hook. Work at the start that fails stops
 the start. Summary retains its own window threshold and
-history comparison; its manual command calls the same writer directly. The whole of it, batch by
-batch, is [HOOK_ARCH.md](HOOK_ARCH.md).
+history comparison; its manual command calls the same writer directly. The current hook contract
+is [HOOK_ARCH.md](HOOK_ARCH.md).
 
 ## What an application gives the shell
 
@@ -113,7 +113,7 @@ wallets and entries, with none of Safwa's nouns in it.
 |---|---|---|
 | which features exist | `tuple[FeatureModule, ...]` handed to `Registry.of` | `MODULES` |
 | what a proposal is made against | `WorldReader` → `World(revision, timezone)` | the `workspace` row |
-| the database | its own `Base`, plus `upgrade_database(url, Base.metadata)` | `safwa/foundation/models.py` |
+| the database | its own `Base`, plus `upgrade_database(file, Base.metadata)` with a `DatabaseFile` | `safwa/foundation/models.py` |
 | durable notes | `Memory` — one `sync()` returning something with `.text` | `MemoryReader`, over `memory_observation` and the last analysed Sprint |
 | the state a session reads first | `(session) -> StateBlocks(state, clock)` | `workspace_context` |
 | the chat, and where its window ends | `TelegramHistorySource` and a `WindowEdge` | `SummaryEdge` |
@@ -123,7 +123,7 @@ wallets and entries, with none of Safwa's nouns in it.
 | a restart | `recover_startup(session)` | called once, before polling starts |
 | hooks, if it has any | `Registry.of(…, hooks=…)`; `bind_committed`; `hand_on_start(registry.hooks, …)` after `recover_startup`, where a `Run` on `OnStarted()` reconciles what a feature owns; and the Cue poll and the tick poll, `BACKGROUND_TASKS` in `cues/module.py` — whose import declares the `cues` table | `HOOKS`; `hand_on_start` once the commits are bound, so what the start ends is handed on: `planning.sprint_expiry` and `reminders.start` |
 | a Home message, if it wants one | a `Run` on `OnTick(every=…)` that publishes text of kind `home`: the chat is cleared down to it and the conversation starts after it (`TG-HOME-023`) | `home.dashboard`, after the Profile's quiet time |
-| photos, if it takes them | a `MediaLibrary` on `Services.media`, `AgentContext.media` and `root_session(media=…)`, and the media `MODULE` among its features | none yet |
+| photos, if it takes them | a `MediaLibrary` on `Services.media`, `AgentContext.media` and `root_session(media=…)`, and the media `MODULE` among its features | `MEDIA_FEATURE`, enabled by `image_input`; Diary entries can carry photos |
 | a shutdown | cancel the loops it started, close the provider and the bot | the polling `finally` |
 
 Everything else is the application's own: the persona, the provider, the product dependencies,
@@ -181,7 +181,8 @@ flowchart TB
     TICK -->|clears down to the Home dashboard| HIST
 ```
 
-Only the Advisor writes to the chat. Everything else either hands it words or opens a screen,
+Only the Advisor generates the dialogue answer. Adapters and hooks may send typed system messages
+and screens through `ChatHost`. A subagent hands its words back to its caller,
 and words come back either to be retold or to be printed as they are: a subagent declared
 `shown_as_is` hands its final words over as a block of the Advisor's own message.
 
@@ -274,6 +275,12 @@ to the model are exactly the tools it can reach: the Advisor cannot prepare a ch
 cannot `route`. Every call is charged to `MAX_TOOL_CALLS`, a refused one included — a session that
 only ever sends malformed responses is stopped by the budget rather than running on.
 
+The counter belongs to each session. A new subagent session starts its own budget, separate from
+its caller's; resume and adoption of that same unfinished session retain its spent counter
+(`AG-BUDGET-011`). Cancelling a request abandons its root and every unfinished descendant and
+releases their claims; a completed session stays completed, and a terminal session cannot be
+claimed again (`AG-TURN-010`).
+
 ## Context, and why its order is fixed
 
 `ContextBuilder` builds the request in order of how often each block changes, so a remote provider
@@ -351,7 +358,8 @@ proposal. Its transcript carries one line saying the owner refused *and wrote in
 "rejected" alone it would propose the same thing again. The turn that routed there is the outer
 bound: when it answers or fails, `_close_unfinished_children` ends what it left behind.
 
-A review nobody answers ends the chain the other way. After `PROPOSAL_REVIEW_MINUTES` on
+A review nobody answers with Save, Discard or a message ends the chain the other way. Process
+uptime does not limit Save; the displayed review's unanswered time does. After `PROPOSAL_REVIEW_MINUTES` on
 screen, `AgentManager.close` answers the subagent's calls as `expired` and records it and the
 Advisor that routed there `abandoned`: nothing is regenerated, and the owner's next words are a
 new request rather than a correction to this one (`PR-EXPIRE-029`).
@@ -436,9 +444,10 @@ flowchart LR
   transcript, so a session picked up after a decision still reads what it meant to do, and it
   never reaches the chat.
 - **The answer to the owner's message is read for what was asked and nothing did**
-  (`AG-DONE-045`): `REQUEST_REVIEW_HOOK`, one mini session over the conversation, each change the
+  (`AG-DONE-045`): `REQUEST_REVIEW_HOOK`, one completion over the conversation, each change the
   request made and the answer. A missing change can be judged only there: before it, the model
-  may not have made it yet.
+  may not have made it yet. It stands between the answer and the chat, so it asks with no tools
+  and `reasoning_effort` "none", and its verdict is one line, `done` or `missing: …`.
 - **Every mutation tool belongs to a subagent**, never to the Advisor. `workspace_mutator` owns the workspace,
   `diary` owns the Diary. Preparation runs where the change was authored.
 - **Every proposal screen is exactly Save/Discard.** A screen that needs a field control is the
@@ -486,8 +495,9 @@ flowchart LR
 
 ## Cues — what Safwa is given to say when nobody asked
 
-Only the Advisor writes to the chat, so anything the system wants said reaches the owner as one
-ordinary Advisor turn. A **Cue** is the request for that turn: a Reminder's words written down by
+An automatic request for the model reaches the owner as one ordinary Advisor turn; system
+messages and screens may be sent directly through `ChatHost`. A **Cue** is the request for that
+model turn: a Reminder's words written down by
 its tick, or a hook's finding its feature words just before it is said. Either way whoever had the
 facts supplies them, so the Advisor relays rather than goes looking.
 
@@ -732,7 +742,8 @@ The model writes `[Go to the market](card:12)`. The host resolves it: `render_ci
 up, builds a `t.me` deep link from the **validated** id, and names the item itself. An item that is
 gone keeps its words and loses its link; a target that is not an id leaves the chat as plain words.
 
-Types: `card`, `check`, `tag`, `value`, `request`, `reminder`, `diary`, `retro`.
+Types come from the registered screens; Safwa includes `card`, `check`, `tag`, `value`, `request`,
+`reminder`, `diary`, `retro` and `media`.
 
 **One catalogue answers both questions.** `ScreenCatalogue.types` is what may be cited *and* the
 whole enum of the `open` tool, so a feature that publishes a screen is offered by name and a type
@@ -759,6 +770,12 @@ stateDiagram-v2
 
 - While an answer runs, callbacks are rejected and any other owner message is taken out of the chat,
   which is what makes it not something the owner said.
+- **The notice of a running answer lists its steps** (`AG-TURN-053`). The runtime calls
+  `Observer.asking` before every request to the model; that request, a response's changes and a
+  check that reads with the model are each one line, which
+  [ai/steps.py](../src/tg_agent_shell/ai/steps.py) carries in a `ContextVar` to the turn that
+  listens. That reaches every session of the chain with no parameter threaded through it, and a
+  Cue or background work, which nobody listens to, says nothing.
 - `cancel()` stops the task holding the lease and bumps `dialogue_revision`: the work ends where it
   stands, and anything that still comes back against the old revision is discarded. Only
   `dialogue_revision` invalidates an in-flight answer — the answer's own autoapproved change moves

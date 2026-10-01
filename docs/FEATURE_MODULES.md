@@ -78,7 +78,9 @@ ordered walk over the changes it holds
 ## Derived registries
 
 [`Registry.of`](../src/tg_agent_shell/registry.py) builds these from `MODULES` at import time and
-fails fast on a duplicate entity, tool or view, or on a list without exactly one home screen. The
+fails fast on a duplicate module, agent, entity, tool, view, command or navigation name, or on a
+list without exactly one home screen. Command binding checks the combined application and shell
+list too, so an application cannot replace `/cancel`. The
 deriving is the shell's, so a second application gets the same registries from its own list;
 `bootstrap/modules.py` publishes them under the names the rest of Safwa reads them by:
 
@@ -185,6 +187,12 @@ on top of it has the whole feature behind it, and two such doors facing each oth
 cycle — which is exactly what `cards/api.py` importing `cards/use_cases.py` would close, through
 `planning/api.py`.
 
+Read `api.py` as a lower-layer dependency, not a facade re-exporting the feature. For example,
+Cards' `use_cases.py` calls Planning's `api.py` to update a commitment in the same transaction;
+Planning's `api.py` may name Cards' model but cannot import Cards' `use_cases.py`. The owning
+operation such as `finish_action` stays in `use_cases.py`, and callers at that layer import it
+directly. The dependency points down throughout; no extra facade is needed.
+
 The consequence is what a door may not hold: **the entity's own operation, which is asked for at
 the operations layer.** So `checks/model.py` says what a Check is called — a name another feature
 has to type comes from `model.py`, which every layer may reach, and there is no `api.py` standing
@@ -228,8 +236,8 @@ One rule, because the alternative is a reentrancy question with no good answer:
   records when something happened does not. Profile and Reminders take a `Clock` the composition
   root binds to `SystemClock()`, because the scheduled hour and the next fire are decided against
   the owner's local midnight and timezone. Cards, Checks and Planning call `utcnow()` where they
-  stamp `archived_at`, `resolved_at` or `actual_ended_at`, and nothing reads a stamp back to decide
-  anything. `sprint_is_due` is the line between the two: it takes an optional `now`, because whether
+  stamp `archived_at`, `resolved_at` or `actual_ended_at`; later queries may use those recorded facts.
+  `sprint_is_due` is the line between the two: it takes an optional `now`, because whether
   a Sprint is over is a decision.
 
 ## Registering a feature, and integrating with one

@@ -47,6 +47,7 @@ Feature: Values
     When a second Value is written as "FITNESS"
     Then it is refused, because that name is taken
     And renaming another Value to "fitness" is refused the same way
+    And Unicode case is treated the same: "Здоровье" takes "ЗДОРОВЬЕ", and "Straße" takes "STRASSE"
     And a name that is empty, or only spaces, is refused
 
   Scenario: VL-CHECK-010 — A Check can carry a Value, because a Check shows how well it is held to

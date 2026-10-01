@@ -123,7 +123,7 @@ async def resolve_references(
         matches = list(
             await session.scalars(
                 select(spec.model).where(
-                    spec.name_column.collate("NOCASE") == name,
+                    spec.name_column.collate("UNICODE_NOCASE") == name,
                     *spec.live_filters,
                 )
             )

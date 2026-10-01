@@ -22,6 +22,7 @@ Feature: Tags
     When a second Tag is written as "FAMILY"
     Then it is refused, because that name is taken
     And renaming another Tag to "family" is refused the same way
+    And Unicode case is treated the same: "Семья" takes "СЕМЬЯ", and "Straße" takes "STRASSE"
     And a name that is empty, or only spaces, is refused
 
   Scenario: TA-PICK-007 — Choosing Tags for a Card shows them a page at a time

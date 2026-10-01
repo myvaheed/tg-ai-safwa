@@ -23,7 +23,7 @@ from .model import (
     flatten_content,
     log_preview,
 )
-from .ports import ToolRunner
+from .ports import Observer, ToolRunner
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,7 @@ async def run_loop(
     routed_kinds: frozenset[str],
     max_tool_calls: int,
     max_repair_rounds: int,
+    observer: Observer | None = None,
 ) -> AgentLoopResult:
     """Run the model until it answers in words.
 
@@ -97,6 +98,8 @@ async def run_loop(
         # A subagent was routed to for the work, so its first move is the work. Only the
         # first: the loop ends on a turn that calls no tool, and a session that must always
         # call one never ends.
+        if observer is not None:
+            await observer.asking(agent)
         turn = await provider_turn(
             agent, provider, first_call_required=agent.kind in routed_kinds
         )

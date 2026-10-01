@@ -11,7 +11,7 @@ from __future__ import annotations
 PLAN_REQUIRED = True
 # Before the answer to the owner's message is sent, one model call reads the request for
 # what was asked and nothing did (AG-DONE-045).
-REQUEST_REVIEW = True
+REQUEST_REVIEW = False
 # A Diary response that writes new words for a day it has not read is sent back
 # (DI-READ-023).
 DAY_READ_REQUIRED = True

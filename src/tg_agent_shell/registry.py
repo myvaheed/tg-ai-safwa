@@ -13,7 +13,7 @@ across turns.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -107,6 +107,9 @@ class Registry:
         `hook_policy` is the application's answer to whether a hook with a switch is on,
         read where the hook is about to work, never copied.
         """
+        _unique_names((module.name for module in modules), "module")
+        agents = tuple(agent for module in modules for agent in module.agents)
+        _unique_names((agent.name for agent in agents), "agent")
         views = _views(modules, views)
         allowed = frozenset(view.name for view in views)
         proposals = _proposals(modules, allowed, world)
@@ -123,7 +126,7 @@ class Registry:
             start_links=tuple(link for module in modules for link in module.start_links),
             proposals=proposals,
             agents=tuple(
-                _with_catalogue(agent, views) for module in modules for agent in module.agents
+                _with_catalogue(agent, views) for agent in agents
             ),
             helpers=helpers,
             hooks=HookRegistry.of(
@@ -240,6 +243,14 @@ def _screens(modules: tuple[FeatureModule, ...]) -> ScreenCatalogue:
     return ScreenCatalogue.of(tuple(collected))
 
 
+def _unique_names(names: Iterable[str], kind: str) -> None:
+    seen: set[str] = set()
+    for name in names:
+        if name in seen:
+            raise RuntimeError(f"Duplicate {kind} name: {name}")
+        seen.add(name)
+
+
 def _commands(modules: tuple[FeatureModule, ...]) -> tuple[ScreenCommand, ...]:
     """The screens reached by name, in registration order, which is Telegram's order.
 
@@ -247,6 +258,8 @@ def _commands(modules: tuple[FeatureModule, ...]) -> tuple[ScreenCommand, ...]:
     so an application without one has buttons that reach nothing.
     """
     commands = tuple(command for module in modules for command in module.commands)
+    _unique_names((item.command for item in commands if item.command is not None), "command")
+    _unique_names((item.nav for item in commands if item.nav is not None), "navigation")
     home = [command for command in commands if command.nav == HOME_NAV]
     if len(home) != 1:
         raise RuntimeError(
