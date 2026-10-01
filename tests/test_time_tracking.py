@@ -384,13 +384,26 @@ async def test_ps_time_017_time_tracking_is_off_until_the_owner_switches_it_on(s
     assert "⌛ Time tracking: off" in button_texts(markup)
     assert "Time tracking reminder" not in rendered
     assert not any("Time tracking reminder" in label for label in button_texts(markup))
+    await _press(message, services, markup, "🔔 Hooks")
+    rendered, markup = message.bot.edits[-1][1:]
+    assert not any("Time tracking reminder" in label for label in button_texts(markup))
+    await _press(message, services, markup, "↩️ Back")
+    rendered, markup = message.bot.edits[-1][1:]
 
     await _press(message, services, markup, "⌛ Time tracking: off")
     rendered, markup = message.bot.edits[-1][1:]
     assert "Time tracking switched on." in rendered
     assert "⌛ Time tracking: on" in button_texts(markup)
-    assert f"Time tracking reminder: on — {TIME_TRACKING_REMINDER_HOOK.description}" in rendered
+    assert "Time tracking reminder" not in rendered
+    await _press(message, services, markup, "🔔 Hooks")
+    rendered, markup = message.bot.edits[-1][1:]
     assert "🔔 Time tracking reminder: on" in button_texts(markup)
+    await _press(message, services, markup, "🔔 Time tracking reminder: on")
+    rendered, markup = message.bot.edits[-1][1:]
+    assert TIME_TRACKING_REMINDER_HOOK.description in rendered
+    await _press(message, services, markup, "↩️ Back")
+    await _press(message, services, message.bot.edits[-1][2], "↩️ Back")
+    rendered, markup = message.bot.edits[-1][1:]
     async with sessions() as session:
         assert await time_tracking_on(session) is True
 
@@ -398,6 +411,10 @@ async def test_ps_time_017_time_tracking_is_off_until_the_owner_switches_it_on(s
     rendered, markup = message.bot.edits[-1][1:]
     assert "Time tracking switched off." in rendered
     assert not any("Time tracking reminder" in label for label in button_texts(markup))
+    await _press(message, services, markup, "🔔 Hooks")
+    assert not any(
+        "Time tracking reminder" in label for label in button_texts(message.bot.edits[-1][2])
+    )
     async with sessions() as session:
         assert await time_tracking_on(session) is False
         with pytest.raises(DomainError, match="on or off"):

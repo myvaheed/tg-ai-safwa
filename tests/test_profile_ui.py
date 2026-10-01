@@ -27,6 +27,18 @@ from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import UiSession
 
 
+async def _press(message, services, markup, label):
+    button = next(
+        item for row in markup.inline_keyboard for item in row if item.text == label
+    )
+    await callback_token_handler(
+        FakeCallback(button.callback_data.split(":", 1)[1], message), services
+    )
+    edited_id, text, edited_markup = message.bot.edits[-1]
+    assert edited_id == message.message_id
+    return text, edited_markup
+
+
 async def test_valid_profile_input_updates_selected_field_and_auto_closes_prompt(
     sessions,
 ) -> None:
@@ -115,10 +127,26 @@ async def test_ps_hooks_015_a_reaction_with_a_switch_is_turned_off_and_on_in_the
     await command_profile(message, services)
 
     rendered, markup = message.edits[-1]
-    assert "Helper offer: on — Does not run a read past one flat scan" in rendered
+    for hook in REGISTRY.hooks.agent_related:
+        assert f"{hook.title}: on —" not in rendered
+        assert hook.description not in rendered
+        assert not any(
+            label.startswith((f"🔔 {hook.title}:", f"🔕 {hook.title}:"))
+            for label in button_texts(markup)
+        )
+    rendered, markup = await _press(message, services, markup, "🔔 Hooks")
+    assert "<b>Hooks</b>" in rendered
     assert "🔔 Helper offer: on" in button_texts(markup)
     assert not any("Automatic Summary" in label for label in button_texts(markup))
     assert "Automatic Summary" not in rendered
+    rendered, markup = await _press(message, services, markup, "🔔 Helper offer: on")
+    assert "<b>Helper offer</b>" in rendered
+    assert HEAVY_ANALYZER_HOOK.description in rendered
+    assert "Status: on." in rendered
+    assert not any(
+        hook.title in rendered
+        for hook in REGISTRY.hooks.agent_related if hook.name != HEAVY_ANALYZER_HOOK.name
+    )
     # A complex read the offer would answer, to read the switch through the registry.
     complex_read = BeforeTool(
         run_id=1, agent="root", agent_kind="advisor", tool="query_data", call_id="q1",
@@ -156,6 +184,13 @@ async def test_ps_hooks_015_a_reaction_with_a_switch_is_turned_off_and_on_in_the
     assert "🔔 Helper offer: on" in button_texts(markup)
     async with sessions() as session:
         assert (await session.get(UserProfile, 1)).disabled_hooks == []
+    rendered, markup = await _press(message, services, markup, "↩️ Back")
+    assert "<b>Hooks</b>" in rendered
+    assert "🔔 Helper offer: on" in button_texts(markup)
+    rendered, markup = await _press(message, services, markup, "↩️ Back")
+    assert "<b>Profile</b>" in rendered
+    assert "Helper offer" not in rendered
+    assert "🔔 Hooks" in button_texts(markup)
 
 
 async def test_ps_hooks_015_a_check_on_the_models_work_is_on_or_off_in_the_feature_toggles(
@@ -172,6 +207,7 @@ async def test_ps_hooks_015_a_check_on_the_models_work_is_on_or_off_in_the_featu
     await command_profile(message, services)
 
     rendered, markup = message.edits[-1]
+    rendered, markup = await _press(message, services, markup, "🔔 Hooks")
     for check in (PLAN_HOOK, REQUEST_REVIEW_HOOK, AUTOAPPROVAL_HOOK):
         assert not check.agent_related
         assert check.title not in rendered
@@ -206,8 +242,12 @@ async def test_ag_hook_043_a_follower_is_not_on_the_profile_and_goes_off_with_it
     await command_profile(message, services)
 
     rendered, markup = message.edits[-1]
-    assert "Main reaction: on" in rendered and "Follower reaction" not in rendered
+    rendered, markup = await _press(message, services, markup, "🔔 Hooks")
+    assert "🔔 Main reaction: on" in button_texts(markup)
+    assert "Follower reaction" not in rendered
     assert not any("Follower" in label for label in button_texts(markup))
+    rendered, markup = await _press(message, services, markup, "🔔 Main reaction: on")
+    assert main.description in rendered
     button = next(
         item for row in markup.inline_keyboard for item in row
         if item.text == "🔔 Main reaction: on"
