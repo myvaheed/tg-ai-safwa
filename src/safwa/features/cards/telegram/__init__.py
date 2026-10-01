@@ -16,7 +16,6 @@ from .draft import (
 )
 from .handlers import CARD_CALLBACK_ACTIONS
 from .lists import (
-    STAGE_QUICK_MOVE,
     card_list_rows,
     card_list_text,
     command_backlog,
@@ -44,7 +43,6 @@ __all__ = [
     "card_citation_label",
     "card_creation_errors",
     "card_editor_back_state",
-    "STAGE_QUICK_MOVE",
     "card_list_rows",
     "card_list_text",
     "card_overview_text",

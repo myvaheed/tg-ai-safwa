@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from sqlalchemy import select
 from ui_harness import (
     CALLBACK_ACTIONS,
@@ -34,6 +35,7 @@ from safwa.features.cards.use_cases import (
     archive_subtree,
     create_card,
     finish_action,
+    move_card,
     toggle_card_check,
     toggle_card_value,
 )
@@ -135,8 +137,7 @@ async def test_dashboard_paging_walks_between_pages(sessions) -> None:
     assert "Next ▶" not in button_texts(markup)
 
 
-async def test_one_tap_moves_an_action_one_step_along_the_stage_ladder(sessions) -> None:
-    """The three stage lists are one screen, and the button sits on the side the move goes."""
+async def test_stage_lists_offer_one_full_width_button_per_card(sessions) -> None:
     async with sessions() as session:
         for stage in ("backlog", "sprint", "today"):
             await create_card(
@@ -145,16 +146,55 @@ async def test_one_tap_moves_an_action_one_step_along_the_stage_ladder(sessions)
         await session.commit()
 
     services = services_for(sessions)
-    rows = {}
     for stage in (CardStage.BACKLOG, CardStage.SPRINT, CardStage.TODAY):
         message = FakeMessage(96, bot_message=True)
         await render_dashboard(message, services, stage, title=stage.value.title())
-        rows[stage] = [button.text for button in message.edits[-1][1].inline_keyboard[0]]
+        text, markup = message.edits[-1]
+        row = markup.inline_keyboard[0]
+        assert len(row) == 1
+        assert f"Do {stage.value}" in row[0].text
+        assert "moves an Action" not in text
+        await callback_token_handler(
+            FakeCallback(row[0].callback_data.split(":", 1)[1], message), services
+        )
+        assert f"Stage: {stage.value.title()}" in message.edits[-1][0]
 
-    # Up the ladder the button is on the right; coming back down it is on the left.
-    assert rows[CardStage.BACKLOG][1] == "🏃"
-    assert rows[CardStage.SPRINT][1] == "☀️"
-    assert rows[CardStage.TODAY][0] == "🏃"
+
+@pytest.mark.parametrize("stage", [CardStage.BACKLOG, CardStage.SPRINT, CardStage.TODAY])
+@pytest.mark.parametrize("full", [False, True])
+async def test_card_top_row_moves_to_either_other_stage_and_keeps_navigation(
+    sessions, stage, full
+) -> None:
+    async with sessions() as session:
+        card = await create_card(
+            session, kind="action", title="Move me", stage=stage.value, effort_points=1
+        )
+        await session.commit()
+        card_id = card.id
+
+    services = services_for(sessions)
+    message = FakeMessage(97, bot_message=True)
+    back = {"action": "dashboard_page", "stage": stage.value, "title": stage.value.title()}
+    for target in (CardStage.BACKLOG, CardStage.SPRINT, CardStage.TODAY):
+        if target == stage:
+            continue
+        async with sessions() as session:
+            await move_card(session, card_id, stage)
+            await session.commit()
+        await render_card(message, services, card_id, full=full, back=back)
+        row = message.edits[-1][1].inline_keyboard[0]
+        assert len(row) == 2
+        assert all(stage.value.title() not in button.text for button in row)
+        button = next(button for button in row if target.value.title() in button.text)
+        await callback_token_handler(
+            FakeCallback(button.callback_data.split(":", 1)[1], message), services
+        )
+        assert f"Stage: {target.value.title()}" in message.edits[-1][0]
+        async with sessions() as session:
+            assert (await session.get(Card, card_id)).effective_stage == target.value
+            editor = await session.scalar(select(UiSession).where(UiSession.owner_id == 42))
+            assert editor.state["back"] == back
+            assert editor.state["full"] == full
 
 
 async def test_tag_selector_pages_instead_of_truncating(sessions) -> None:
@@ -224,15 +264,6 @@ async def test_moving_a_blocked_card_shows_its_warning_on_the_card_screen(sessio
     message = FakeMessage(90, bot_message=True)
     await render_card(message, services, card_id)
 
-    stage = next(
-        button
-        for row in message.edits[-1][1].inline_keyboard
-        for button in row
-        if button.text == "📍 Stage"
-    )
-    await callback_token_handler(
-        FakeCallback(stage.callback_data.split(":", 1)[1], message), services
-    )
     backlog = next(
         button
         for row in message.edits[-1][1].inline_keyboard
@@ -663,7 +694,7 @@ async def test_no_screen_offers_a_goal_or_a_subgoal_a_stage_control(sessions) ->
     for index, card_id in enumerate(ids, start=310):
         message = FakeMessage(index, bot_message=True)
         await render_card(message, services, card_id)
-        offered = "📍 Stage" in button_texts(message.edits[-1][1])
+        offered = any("Into " in text for text in button_texts(message.edits[-1][1]))
         assert offered is (card_id == ids[2])
 
     # The creation screen offers it for an Action alone, too.
@@ -869,8 +900,9 @@ async def test_cd_view_031_a_card_opens_compact_with_full_editing_one_button_awa
     assert "Blocked:" not in text
     assert "Tags:" not in text
     assert button_texts(markup) == [
+        "🏃 Into Sprint",
+        "☀️ Into Today",
         "✅ Done",
-        "📍 Stage",
         "🌳 Parent: Health",
         "✏️ Full editing",
         "↩️ Back",

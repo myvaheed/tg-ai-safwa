@@ -13,7 +13,6 @@ from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
     TextInputScreen,
-    go_back,
     go_back_action,
     menu_row,
     render_text_input,
@@ -56,17 +55,6 @@ async def _on_dashboard_page(context: CallbackContext) -> None:
         page=int(context.payload.get("page", 0)),
         notice=context.payload.get("notice"),
     )
-
-
-async def _on_quick_move(context: CallbackContext) -> None:
-    """One tap moves an Action between Sprint and Today, then shows the same list again."""
-    async with context.sessions() as session:
-        result = await move_card(
-            session, int(context.payload["id"]), CardStage(context.payload["stage"])
-        )
-        await session.commit()
-    notice = "⚠️ " + "; ".join(result.warnings) if result.warnings else None
-    await go_back(context, context.payload.get("back"), notice=notice)
 
 
 async def _on_view(context: CallbackContext) -> None:
@@ -364,7 +352,6 @@ CARD_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "card_delete_prompt": _on_delete_prompt,
     "card_delete_confirm": _on_delete_confirm,
     "card_finish": _on_finish,
-    "card_quick_move": _on_quick_move,
     **{f"card_choose_{field}": _on_choices for field in CARD_CHOICE_FIELDS},
     **dict.fromkeys(CARD_RELATION_TOGGLES, _on_toggle_relation),
     **CARD_DRAFT_ACTIONS,

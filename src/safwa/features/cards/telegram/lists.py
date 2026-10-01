@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import html
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -28,37 +27,8 @@ from ...planning.api import today_actions
 from ..api import actions_on_stages, list_order
 from ..hard_time import workspace_zone
 from ..hierarchy import card_children
-from ..model import LIVE_STAGE_PRECEDENCE, Card, CardStage, effort_label
+from ..model import Card, CardStage, effort_label
 from .presentation import card_title_marks, kind_label, paginate_cards
-
-
-@dataclass(frozen=True, slots=True)
-class QuickMove:
-    """One tap from a stage list: where it sends an Action, and how the row reads."""
-
-    target: CardStage
-    emoji: str
-    header: str
-
-
-# One tap moves an Action one step along the ladder, and the same list is every stage
-# dashboard there is: the Backlog, the Sprint and Today differ by this line alone.
-STAGE_QUICK_MOVE = {
-    CardStage.BACKLOG: QuickMove(
-        CardStage.SPRINT, "🏃", "🏃 moves an Action into the Sprint."
-    ),
-    CardStage.SPRINT: QuickMove(
-        CardStage.TODAY, "☀️", "☀️ moves an Action into Today."
-    ),
-    CardStage.TODAY: QuickMove(
-        CardStage.SPRINT, "🏃", "🏃 moves an Action back to the Sprint."
-    ),
-}
-
-
-def moves_up(stage: CardStage, move: QuickMove) -> bool:
-    """The button sits on the side the move goes: up the ladder right, back down left."""
-    return LIVE_STAGE_PRECEDENCE[move.target] > LIVE_STAGE_PRECEDENCE[stage]
 
 
 async def card_list_rows(
@@ -68,16 +38,9 @@ async def card_list_rows(
     *,
     page: int,
     back: dict[str, Any],
-    stage: CardStage | None = None,
     prefix: Callable[[Card], str] | None = None,
 ) -> tuple[Page, list[str], list[list[InlineKeyboardButton]]]:
-    """One Card list: the page, its plain-text lines, and one button row per Card.
-
-    `cards` come in the order the list shows them.  `stage` is the list's own stage,
-    which is what decides the one-tap move: where it sends an Action, and which side of
-    the row it sits on.
-    """
-    move = STAGE_QUICK_MOVE.get(stage) if stage is not None else None
+    """One Card list: the page, its plain-text lines, and one full-width button per Card."""
     tz = await workspace_zone(session)
     current = paginate(cards, page)
     back = {**back, "page": current.index}
@@ -102,20 +65,11 @@ async def card_list_rows(
             await token_button(
                 session,
                 services.owner_id,
-                label[: 40 if move else 60],
+                label[:60],
                 "card_view",
                 {"id": card.id, "back": back},
             )
         ]
-        if move is not None:
-            button = await token_button(
-                session,
-                services.owner_id,
-                move.emoji,
-                "card_quick_move",
-                {"id": card.id, "stage": move.target.value, "back": back},
-            )
-            row.insert(1 if moves_up(stage, move) else 0, button)
         rows.append(row)
     return current, descriptions, rows
 
@@ -160,14 +114,10 @@ async def stage_list_block(
         cards,
         page=page,
         back={"action": action, **payload},
-        stage=stage,
     )
     rows.extend(await paging_row(session, services.owner_id, current, action, payload))
-    tap = STAGE_QUICK_MOVE[stage].header
     return (
-        card_list_text(
-            title, current, descriptions, header=f"{header}\n{tap}" if header else tap
-        ),
+        card_list_text(title, current, descriptions, header=header),
         rows,
     )
 

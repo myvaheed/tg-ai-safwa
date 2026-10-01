@@ -65,7 +65,7 @@ async def test_pl_mode_001_the_today_screen_is_closed_during_planning(sessions) 
     assert button_texts(markup) == ["↩️ Menu"]
 
 
-async def test_quick_move_buttons_walk_an_action_between_today_and_sprint(sessions) -> None:
+async def test_card_move_buttons_walk_an_action_between_today_and_sprint(sessions) -> None:
     async with sessions() as session:
         action = await create_card(
             session, kind="action", title="Ship it", stage="today", effort_points=2
@@ -80,10 +80,15 @@ async def test_quick_move_buttons_walk_an_action_between_today_and_sprint(sessio
 
     text, markup = message.edits[-1]
     assert "Ship it" in text
-    move_to_sprint = next(
-        button for row in markup.inline_keyboard for button in row if button.text == "🏃"
+    assert len(markup.inline_keyboard[0]) == 1
+    opener = markup.inline_keyboard[0][0]
+    await callback_token_handler(
+        FakeCallback(opener.callback_data.split(":", 1)[1], message), services
     )
-    assert markup.inline_keyboard[0][0] is move_to_sprint
+    _, markup = message.edits[-1]
+    move_to_sprint = next(
+        button for button in markup.inline_keyboard[0] if button.text == "🏃 Into Sprint"
+    )
 
     await callback_token_handler(
         FakeCallback(move_to_sprint.callback_data.split(":", 1)[1], message), services
@@ -92,12 +97,25 @@ async def test_quick_move_buttons_walk_an_action_between_today_and_sprint(sessio
     async with sessions() as session:
         assert (await session.get(Card, action_id)).effective_stage == CardStage.SPRINT.value
     text, markup = message.edits[-1]
-    assert "Ship it" not in text
+    assert "Stage: Sprint" in text
+    back = next(
+        button for row in markup.inline_keyboard for button in row if button.text == "↩️ Back"
+    )
+    await callback_token_handler(
+        FakeCallback(back.callback_data.split(":", 1)[1], message), services
+    )
+    assert "Ship it" not in message.edits[-1][0]
 
     await render_sprint(message, services)
+    _, markup = message.edits[-1]
+    assert len(markup.inline_keyboard[0]) == 1
+    opener = markup.inline_keyboard[0][0]
+    await callback_token_handler(
+        FakeCallback(opener.callback_data.split(":", 1)[1], message), services
+    )
     text, markup = message.edits[-1]
     move_to_today = next(
-        button for row in markup.inline_keyboard for button in row if button.text == "☀️"
+        button for button in markup.inline_keyboard[0] if button.text == "☀️ Into Today"
     )
     assert markup.inline_keyboard[0][-1] is move_to_today
 
@@ -219,10 +237,42 @@ async def test_pl_plan_016_the_plan_is_a_table_and_the_backlog_is_the_keyboard(s
     assert "<table bordered striped>" in body
     assert "In Sprint: 1 Actions" in body
     labels = button_texts(markup)
+    assert all(len(row) == 1 for row in markup.inline_keyboard[:2])
     assert "Pick me (1)" in labels
     assert "Skip me (2)" in labels
     assert "Ship it (3)" not in labels
     assert "Apply filter" in " ".join(labels)
+
+
+async def test_tapping_a_backlog_item_plans_it_and_preserves_filters(sessions):
+    """PL-PLAN-016 — tests/brd/planning.feature"""
+    ids = await seed_plan(sessions)
+    async with sessions() as session:
+        request = await create_saved_request(
+            session, "Only Pick me", "SELECT id FROM ai_cards WHERE title = 'Pick me'",
+            views=ALLOWED_VIEWS,
+        )
+        await session.commit()
+        request_id = request.id
+
+    services = services_for(sessions)
+    screen = FakeMessage(100, bot_message=True)
+    await render_plan(screen, services, filters=[request_id])
+    row = screen.edits[-1][1].inline_keyboard[0]
+    assert len(row) == 1
+    assert row[0].text == "Pick me (1)"
+    await callback_token_handler(
+        FakeCallback(row[0].callback_data.split(":", 1)[1], screen), services
+    )
+    body, markup = screen.edits[-1]
+    assert "<table bordered striped>" in body
+    assert f"?start=sp-{ids['pick']}" in body
+    assert "Pick me (1)" not in button_texts(markup)
+    assert "Skip me (2)" not in button_texts(markup)
+    assert await plan_filters(sessions) == [request_id]
+    async with sessions() as session:
+        assert (await session.get(Card, ids["pick"])).effective_stage == CardStage.SPRINT.value
+        assert (await session.scalar(select(UiSession))).kind == "sprint_plan"
 
 
 async def test_pl_plan_016_a_return_tap_moves_the_card_back_and_redraws_the_same_screen(sessions):
@@ -353,7 +403,7 @@ async def test_pl_plan_017_the_filter_screen_toggles_a_request_on_and_off(sessio
         FakeCallback(back.callback_data.split(":", 1)[1], screen), services
     )
     labels = button_texts(screen.edits[-1][1])
-    assert labels.count("\U0001f4e5 Into Sprint") == 1
+    assert "Into Sprint" not in " ".join(labels)
     assert "Pick me (1)" in labels
 
 
