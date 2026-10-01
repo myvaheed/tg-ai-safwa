@@ -11,7 +11,6 @@ its own: what it says it is, and what the world looks like to it, are handed in.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
@@ -44,7 +43,7 @@ from .proposals.materialize import (
     OWNER_REQUEST,
     ProposalMaterializer,
 )
-from .proposals.model import RECEIPT_PREFIXES, ApprovalBatch, BatchDecision
+from .proposals.model import RECEIPT_PREFIXES, BatchDecision
 from .proposals.prepare import ChangePreparer
 from .proposals.reducer import EXPIRED, INTERRUPTED
 from .proposals.render import (
@@ -177,7 +176,7 @@ class RootSession:
         # Words typed over a screen are an answer to the request that opened it, so that
         # request continues rather than being replaced by a second one. A turn with a source
         # message answers the owner; a Cue's turn has none, and no AfterRequest is about it.
-        existing = self.reviews.open_batches
+        answer: AIOutcome | None = None
         try:
             outcome = await self.runtime.handle(
                 turn_dialogue,
@@ -187,16 +186,34 @@ class RootSession:
                 ),
                 shown=shown,
             )
-            return await self._decide_or_show(outcome)
-        except asyncio.CancelledError:
-            self._discard_opened_reviews(existing)
-            raise
+            answer = await self._decide_or_show(outcome)
+            return answer
+        finally:
+            await self._end_unseen_reviews(answer)
 
-    def _discard_opened_reviews(self, existing: tuple[ApprovalBatch, ...]) -> None:
-        """End reviews made by a cancelled call before their screen reached the owner."""
+    async def _end_unseen_reviews(self, drawn: AIOutcome | None) -> None:
+        """End every review whose screen never reached the chat, but the one `drawn` hands
+        back to be drawn, together with the request it suspended.
+
+        Only the call that opened a review draws it. Once that call is over, however it
+        ended, a review with no screen is never answered and never runs out of time: it
+        would hold the chat busy for the life of the process.
+        """
+        keep = drawn.proposal_id if drawn is not None else None
         for batch in self.reviews.open_batches:
-            if batch not in existing and batch.state.head is not None:
-                interrupt_batch(self.reviews, batch.state.head.proposal_id, reason="cancelled")
+            head = batch.state.head
+            if head is None or head.proposal_id == keep:
+                continue
+            proposal = self.reviews.proposal(head.proposal_id)
+            if proposal is None or proposal.shown_at is not None:
+                continue
+            stopped = interrupt_batch(self.reviews, head.proposal_id, reason="cancelled")
+            # A session the batch never named was already ended by the runtime.
+            if stopped is not None and stopped.interaction_token:
+                await self.runtime.close(
+                    InteractionRef(stopped.run_id, stopped.interaction_token),
+                    _call_results(stopped.tool_calls),
+                )
 
     async def _decide_or_show(self, outcome: TurnOutcome) -> AIOutcome:
         """A turn that stopped on the owner is offered to the checks before it is drawn.
@@ -209,17 +226,7 @@ class RootSession:
             return answer
         # The screens this turn opened are answered by naming the session it suspended.
         self.reviews.wait_on(outcome.ref.run_id, outcome.ref.token)
-        try:
-            return await self.materializer.before_review(answer)
-        except asyncio.CancelledError:
-            # The turn was stopped while a check was deciding. Its review is its own,
-            # and no screen for it ever reached the chat, so it ends with the turn instead
-            # of standing open for a decision nobody can make.
-            if answer.proposal_id is not None:
-                stopped = interrupt_batch(self.reviews, answer.proposal_id, reason="cancelled")
-                if stopped is not None:
-                    await self.runtime.close(outcome.ref, _call_results(stopped.tool_calls))
-            raise
+        return await self.materializer.before_review(answer)
 
     async def describe_proposal(
         self, session: AsyncSession, proposal_id: int
@@ -240,6 +247,23 @@ class RootSession:
         apply_proposal: bool = False,
     ) -> AIOutcome | None:
         """Resolve one queued screen, and resume the suspended session once the queue empties."""
+        answer: AIOutcome | None = None
+        try:
+            answer = await self._resolve(
+                proposal_id, decision=decision, result=result, apply_proposal=apply_proposal
+            )
+            return answer
+        finally:
+            await self._end_unseen_reviews(answer)
+
+    async def _resolve(
+        self,
+        proposal_id: int,
+        *,
+        decision: BatchDecision,
+        result: dict[str, Any],
+        apply_proposal: bool,
+    ) -> AIOutcome | None:
         async with self.sessions() as session:
             decided = await decide_batch_item(
                 session,
@@ -272,7 +296,6 @@ class RootSession:
         display_summary = results_summary(
             tools, include_preparation_errors=False, for_display=True
         )
-        existing = self.reviews.open_batches
         try:
             outcome = await self.runtime.resume(
                 InteractionRef(decided.run_id, decided.interaction_token),
@@ -287,9 +310,6 @@ class RootSession:
                     ),
                 ),
             )
-        except asyncio.CancelledError:
-            self._discard_opened_reviews(existing)
-            raise
         except Exception as error:
             logger.exception("AI continuation failed after the approval queue was resolved")
             result_summary = results_summary(tools, for_display=True)

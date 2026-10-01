@@ -38,6 +38,9 @@ logger = logging.getLogger(__name__)
 # one message per photo, a few milliseconds apart.
 ALBUM_GATHER_SECONDS = 1.0
 
+# What a press is told while an answer holds the turn.
+STILL_ANSWERING = "Still answering. Use /cancel to stop it."
+
 
 def audio_payload(message: Message) -> Audio | Voice | VideoNote | None:
     """The audio a message carries, whichever of the three Telegram shapes it arrived in."""
@@ -154,7 +157,7 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
                         return await handler(event, data)
                 return None
         if isinstance(event, CallbackQuery) and services.turn.active:
-            await event.answer("Still answering. Use /cancel to stop it.", show_alert=True)
+            await event.answer(STILL_ANSWERING, show_alert=True)
             return None
         taken = False
         if isinstance(event, Message) and not services.turn.active:

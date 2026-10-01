@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from aiogram.enums import ChatAction
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import Message
 
 from telegram_llm import markdown_to_telegram_html
@@ -21,7 +22,6 @@ from ...foundation.errors import failure_reason
 from ...foundation.kinds import MessageKind
 from ...telegram import (
     Services,
-    end_turn,
     open_citation,
     render_citations,
     send_prose,
@@ -80,57 +80,43 @@ async def continue_agent_approval(
     decision: BatchDecision,
     result: dict[str, Any],
 ) -> bool:
-    """Advance an open approval queue, resuming the model only after its last item."""
+    """Advance an open approval queue, resuming the model only after its last item.
+
+    The caller holds the turn, and the decision is already applied: the queue moves on
+    whatever the chat can show, or the review stays open with nothing on screen.
+    """
     if not services.root.has_pending_approval(proposal_id):
         return False
     resolved_text = f"{DECISION_RECEIPTS[decision]}."
-
-    await send_registered(
-        message,
-        services,
-        f"{resolved_text} Continuing…",
-        kind=MessageKind.RECEIPT,
-    )
     try:
-        services.turn.begin(message.message_id)
-    except Exception:
-        logger.exception(
-            "Could not acquire continuation lease after %s #%s", decision, proposal_id
+        await send_registered(
+            message,
+            services,
+            f"{resolved_text} Continuing…",
+            kind=MessageKind.RECEIPT,
         )
+        await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    except TelegramAPIError as error:
+        logger.warning("Could not say that %s #%s continues: %s", decision, proposal_id, error)
+    try:
+        outcome = await services.root.resolve_approval(
+            proposal_id,
+            decision=decision,
+            result=result,
+        )
+    except Exception as error:
+        logger.exception("AI continuation failed after %s #%s", decision, proposal_id)
         await send_registered(
             message,
             services,
             f"{resolved_text}\n"
-            "⚠️ The change is resolved, but the advisor follow-up was deferred. "
+            "⚠️ The change is resolved, but the follow-up could not be generated "
+            f"({html.escape(failure_reason(error))}). "
             "You can continue with a new message.",
             kind=MessageKind.EVENT,
         )
         return True
-    try:
-        try:
-            await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-            outcome = await services.root.resolve_approval(
-                proposal_id,
-                decision=decision,
-                result=result,
-            )
-        except Exception as error:
-            logger.exception(
-                "AI continuation failed after %s #%s", decision, proposal_id
-            )
-            await send_registered(
-                message,
-                services,
-                f"{resolved_text}\n"
-                "⚠️ The change is resolved, but the follow-up could not be generated "
-                f"({html.escape(failure_reason(error))}). "
-                "You can continue with a new message.",
-                kind=MessageKind.EVENT,
-            )
-            return True
-        if outcome is None:
-            return False
-        await render_ai_outcome(message, services, outcome)
-        return True
-    finally:
-        await end_turn(message, services)
+    if outcome is None:
+        return False
+    await render_ai_outcome(message, services, outcome)
+    return True

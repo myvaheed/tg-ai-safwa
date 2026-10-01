@@ -15,6 +15,7 @@ from safwa.features.diary.model import DiaryEntry
 from safwa.features.diary.use_cases import create_diary_entry
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.ai.runs import AgentRun
+from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.proposals.use_cases import approve_proposal
 
 pytestmark = pytest.mark.e2e
@@ -310,6 +311,8 @@ async def test_a_screen_still_open_keeps_its_session_restorable(e2e_harness):
     )
     first = await advisor.handle("Запиши день")
     assert first.proposal_id is not None
+    # Its screen is drawn: a review never drawn ends with the next call (AG-TURN-015).
+    advisor.reviews.proposal(first.proposal_id).shown_at = utcnow()
 
     # An escalation runs an ordinary Advisor turn while that screen is still standing.
     advisor, _ = e2e_harness.advisor(["Понял."], subagents=(workspace, diary))

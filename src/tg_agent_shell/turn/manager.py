@@ -69,11 +69,12 @@ class TurnManager:
         self._state = Answering(source_message_id, task=_current_task())
 
     def try_begin(self, source_message_id: int) -> bool:
-        """Take the turn if it is free, and say whether this caller now holds it."""
+        """Take the turn unless another answer holds it, and say whether this caller now
+        holds it. Work nobody asked for gives way: the owner always outranks it."""
         if isinstance(self._state, Answering):
             return self._state.source_message_id == source_message_id
         if isinstance(self._state, BackgroundWork):
-            return False
+            self.cancel()
         self._state = Answering(source_message_id, task=_current_task())
         return True
 

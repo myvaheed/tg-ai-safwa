@@ -361,9 +361,6 @@ class AgentManager:
                 )
             )
             outcome = await self._bounded(agent, work)
-            if outcome.waiting:
-                return outcome
-            return await self._hand_up(agent, outcome)
         except asyncio.CancelledError:
             await self._cancel(agent.run_id, started)
             raise
@@ -373,15 +370,14 @@ class AgentManager:
             await self._fail(agent.run_id, started, "timeout")
             if agent.parent_run_id is None:
                 raise
-            try:
-                return await self._deliver_to_parent(agent, self._timed_out(agent.kind))
-            except asyncio.CancelledError:
-                await self._cancel(agent.run_id, started)
-                raise
+            return await self._deliver_to_parent(agent, self._timed_out(agent.kind))
         except Exception as error:
             logger.exception("Session %s could not be resumed", agent.kind)
             await self._fail(agent.run_id, started, error)
             raise
+        if outcome.waiting:
+            return outcome
+        return await self._hand_up(agent, outcome)
 
     async def interrupt(
         self, ref: InteractionRef, results: Mapping[str, Any], *, summary: str
@@ -573,26 +569,37 @@ class AgentManager:
 
         The walk covers the whole chain, so the turn ends only when a session with no
         parent answers. ``None`` means a caller could not be taken because something else
-        is already resuming it.
+        is already resuming it. A caller this walk claimed and that then fails is ended
+        here, so its claim never outlives the request.
         """
         agent = child
         while agent.parent_run_id is not None:
             started = self.clock()
-            record = await self.store.claim(agent.parent_run_id)
-            if record is None:
-                logger.warning("Session #%s is already resuming", agent.parent_run_id)
-                return None
-            parent, transcript = self._restore(record)
-            waiting = dict(parent.awaiting_route or {})
-            parent.awaiting_route = None
-            parent.host_state.update(agent.host_state)
-            parent.display_result_summaries.extend(
-                str(line) for line in receipt.get("did") or []
-            )
-            parent.shown_blocks.extend(str(block) for block in receipt.get("shown") or [])
-            await self._replay(parent, transcript, receipt, str(waiting.get("call_id", "")))
-            result = await self.run(parent)
-            outcome = await self._complete(parent, result, started)
+            try:
+                record = await self.store.claim(agent.parent_run_id)
+                if record is None:
+                    logger.warning("Session #%s is already resuming", agent.parent_run_id)
+                    return None
+                parent, transcript = self._restore(record)
+                waiting = dict(parent.awaiting_route or {})
+                parent.awaiting_route = None
+                parent.host_state.update(agent.host_state)
+                parent.display_result_summaries.extend(
+                    str(line) for line in receipt.get("did") or []
+                )
+                parent.shown_blocks.extend(str(block) for block in receipt.get("shown") or [])
+                await self._replay(parent, transcript, receipt, str(waiting.get("call_id", "")))
+                result = await self.run(parent)
+                outcome = await self._complete(parent, result, started)
+            except asyncio.CancelledError:
+                await self._cancel(agent.parent_run_id, started)
+                raise
+            except Exception as error:
+                logger.exception(
+                    "Session #%s failed after its subagent answered", agent.parent_run_id
+                )
+                await self._fail(agent.parent_run_id, started, error)
+                raise
             if outcome.waiting or parent.parent_run_id is None:
                 return outcome
             receipt = self._receipt(
