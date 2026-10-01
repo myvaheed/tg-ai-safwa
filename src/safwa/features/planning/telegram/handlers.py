@@ -30,6 +30,7 @@ async def _on_sprint_page(context: CallbackContext) -> None:
         context.message,
         context.services,
         page=int(context.payload.get("page", 0)),
+        view=str(context.payload.get("view", "remaining")),
         notice=context.payload.get("notice"),
     )
 

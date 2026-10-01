@@ -1,8 +1,8 @@
 Feature: Planning — the Sprint, and the mode without one
   Planning is what the workspace is in while no Sprint runs; there is no Today then. A Sprint is a
   fixed stretch of days with Success criteria that say what it must achieve, and it keeps one row
-  per Action it ever had in scope. Everything counted about a Sprint is effort points, never a
-  count of Cards.
+  per Action it ever had in scope. Sprint effort totals are effort points; the screen's list
+  selectors count Actions in each list.
 
   The Sprint is run on its screen or in words, and both go through the same operations.
 
@@ -229,3 +229,23 @@ Feature: Planning — the Sprint, and the mode without one
     When the owner later sets the Profile's capacity to 30
     Then that Sprint still says 20
     And a Sprint started with capacity off keeps none, and an average over capacity leaves it out
+
+  Scenario: PL-SCREEN-028 — The running Sprint shows one chosen list without duplicate Action buttons
+    Given a running Sprint with Actions in Sprint and Today, completed Actions, and blocked Actions
+    When the owner opens Sprint
+    Then it shows its number, dates, local day of its length, Success criteria, and taken and done EP
+    And Remaining lists only Actions still in Sprint
+    And Today lists today's Actions in Today's order
+    And Done lists only Actions completed in this Sprint
+    And Blocked lists open blocked Actions in Sprint and Today with their reasons
+    And the selectors show each list's Action count and mark the selected list
+    When the owner selects a list
+    Then the same message shows that list, with no separate button for each Action
+    And an empty list explains that it is empty without saying the Sprint has ended
+
+  Scenario: PL-SCREEN-029 — Turning a Sprint list's page keeps the selected list
+    Given a running Sprint whose selected list has more than 5 Actions (PAGE_SIZE = 5)
+    When the owner turns its page
+    Then the same message shows the next page of that list and its page number
+    When the owner selects another list
+    Then it opens at its first page

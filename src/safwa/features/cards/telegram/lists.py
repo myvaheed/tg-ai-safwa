@@ -96,9 +96,8 @@ async def stage_list_block(
 ) -> tuple[str, list[list[InlineKeyboardButton]]]:
     """One stage's Actions as a block: its text and its rows, with nothing sent.
 
-    Every stage list is this block.  What a screen puts above it is `header` — the
-    Sprint's dates and metrics, nothing on a plain list — and what it puts under it is
-    its own rows.  `action` is where paging and `back` come back to, so a screen redraws
+    Every plain stage dashboard is this block. What a screen puts above it is `header`,
+    and what it puts under it is its own rows. `action` is where paging and `back` come back to, so a screen redraws
     itself rather than another one showing the same stage.
     """
     payload = payload or {}

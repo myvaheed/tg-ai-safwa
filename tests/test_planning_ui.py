@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, date, datetime
+
 from sqlalchemy import select
 from ui_harness import (
     FakeCallback,
@@ -14,8 +16,8 @@ from ui_harness import (
 
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
 from safwa.features.cards.model import Card, CardStage
-from safwa.features.cards.telegram import command_today
-from safwa.features.cards.use_cases import create_card
+from safwa.features.cards.telegram import command_today, render_card
+from safwa.features.cards.use_cases import create_card, finish_action, move_card
 from safwa.features.home.telegram import render_home
 from safwa.features.planning.model import Sprint
 from safwa.features.planning.telegram import (
@@ -33,6 +35,129 @@ from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.telegram import callback_token_handler
 from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import UiSession
+
+
+async def test_pl_screen_028_sprint_selectors_redraw_only_the_chosen_list(sessions, monkeypatch):
+    """PL-SCREEN-028 — tests/brd/planning.feature"""
+    monkeypatch.setattr(
+        "safwa.features.planning.telegram.sprint.utcnow",
+        lambda: datetime(2026, 10, 1, 21, 30, tzinfo=UTC),
+    )
+    async with sessions() as session:
+        old = await create_card(session, kind="action", title="Previous result", effort_points=1)
+        await finish_action(session, old.id)
+        await create_card(
+            session, kind="action", title="Blocked Backlog", effort_points=1,
+            blocked=True, blocked_description="Not selected",
+        )
+        remaining = await create_card(
+            session, kind="action", title="Review <draft>", stage="sprint", effort_points=3,
+            blocked=True, blocked_description="Waiting for <approval>",
+        )
+        await create_card(
+            session, kind="action", title="Today work", stage="today", effort_points=2,
+            blocked=True, blocked_description="Waiting for feedback",
+        )
+        done = await create_card(
+            session, kind="action", title="Current result", stage="sprint", effort_points=1,
+        )
+        sprint = await start_sprint(
+            session, success_criteria="Ship <v2>", start_date=date(2026, 9, 27),
+        )
+        await finish_action(session, done.id)
+        await session.commit()
+        sprint_number = sprint.number
+
+    services = services_for(sessions)
+    screen = FakeMessage(130, bot_message=True, answer_as_new=True)
+    await render_sprint(screen, services)
+    text, markup = screen.edits[-1]
+    assert text.startswith(f"<b>Sprint {sprint_number}</b>\n27.09 – 10.10 · Day 6 of 14")
+    assert "<b>Success criteria:</b> Ship &lt;v2&gt;" in text
+    assert "Taken <b>6 EP</b> · Done <b>1 EP</b>" in text
+    assert "Review &lt;draft&gt;" in text and "Today work" not in text
+    assert button_texts(markup) == [
+        "Today · 1", "✓ Remaining · 1", "Done · 1", "Blocked · 2",
+        "⏹ Finish early", "↩️ Menu",
+    ]
+
+    for label, present, absent in (
+        ("Today · 1", "Today work", "Review &lt;draft&gt;"),
+        ("Done · 1", "Current result", "Previous result"),
+        ("Blocked · 2", "Waiting for &lt;approval&gt;", "Blocked Backlog"),
+        ("Remaining · 1", "Review &lt;draft&gt;", "Current result"),
+    ):
+        button = next(b for row in markup.inline_keyboard for b in row if b.text == label)
+        await callback_token_handler(FakeCallback(button.callback_data.split(":", 1)[1], screen), services)
+        text, markup = screen.edits[-1]
+        assert present in text and absent not in text
+        assert f"✓ {label}" in button_texts(markup)
+        assert screen.answers == [] and screen.sent_messages == []
+
+    async with sessions() as session:
+        await move_card(session, remaining.id, CardStage.TODAY)
+        await session.commit()
+    await render_sprint(screen, services)
+    text, markup = screen.edits[-1]
+    assert "No Actions remain in Sprint. Check Today or Done; the Sprint is still running." in text
+    assert "Today · 2" in button_texts(markup)
+    assert "✓ Remaining · 0" in button_texts(markup)
+
+
+async def test_pl_end_012_the_finish_button_keeps_its_icon_on_the_last_local_day(sessions, monkeypatch):
+    """PL-END-012 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        await create_card(session, kind="action", title="Ship", stage="sprint", effort_points=1)
+        await start_sprint(session, success_criteria="Ship v2", start_date=date(2026, 9, 27))
+        await session.commit()
+    monkeypatch.setattr(
+        "safwa.features.planning.telegram.sprint.utcnow",
+        lambda: datetime(2026, 10, 9, 21, 30, tzinfo=UTC),
+    )
+    screen = FakeMessage(132, bot_message=True)
+    await render_sprint(screen, services_for(sessions))
+    text, markup = screen.edits[-1]
+    assert "Day 14 of 14" in text
+    assert "⏹ Finish Sprint" in button_texts(markup)
+    assert "⏹ Finish early" not in button_texts(markup)
+
+
+async def test_pl_screen_029_sprint_paging_keeps_the_list_and_switching_resets_it(sessions):
+    """PL-SCREEN-029 — tests/brd/planning.feature"""
+    from tg_agent_shell.telegram.layout import PAGE_SIZE
+
+    async with sessions() as session:
+        for index in range(PAGE_SIZE + 1):
+            await create_card(
+                session, kind="action", title=f"Blocked step {index}", stage="sprint",
+                effort_points=1, blocked=True, blocked_description="Waiting",
+            )
+        await start_sprint(session, success_criteria="Ship v2")
+        await session.commit()
+    services = services_for(sessions)
+    screen = FakeMessage(131, bot_message=True)
+    await render_sprint(screen, services)
+    _, markup = screen.edits[-1]
+    blocked = next(b for row in markup.inline_keyboard for b in row if b.text == f"Blocked · {PAGE_SIZE + 1}")
+    await callback_token_handler(FakeCallback(blocked.callback_data.split(":", 1)[1], screen), services)
+    text, markup = screen.edits[-1]
+    assert "<b>Blocked" in text and "page 1/2" in text
+    next_page = next(b for row in markup.inline_keyboard for b in row if b.text == "Next ▶")
+    await callback_token_handler(FakeCallback(next_page.callback_data.split(":", 1)[1], screen), services)
+    text, markup = screen.edits[-1]
+    assert "<b>Blocked" in text and "page 2/2" in text
+    assert f"Blocked step {PAGE_SIZE}" in text and "Blocked step 0" not in text
+    remaining = next(b for row in markup.inline_keyboard for b in row if b.text == f"Remaining · {PAGE_SIZE + 1}")
+    await callback_token_handler(FakeCallback(remaining.callback_data.split(":", 1)[1], screen), services)
+    text, markup = screen.edits[-1]
+    assert "<b>Remaining" in text and "page 1/2" in text
+    assert "Blocked step 0" in text and f"Blocked step {PAGE_SIZE}" not in text
+    done = next(b for row in markup.inline_keyboard for b in row if b.text == "Done · 0")
+    await callback_token_handler(FakeCallback(done.callback_data.split(":", 1)[1], screen), services)
+    text, markup = screen.edits[-1]
+    assert "No Actions completed in this Sprint yet." in text
+    assert "⏹ Finish early" in button_texts(markup)
+    assert "Nothing here yet." not in text
 
 
 async def test_pl_mode_001_the_menu_offers_today_in_planning_too(sessions) -> None:
@@ -106,13 +231,7 @@ async def test_card_move_buttons_walk_an_action_between_today_and_sprint(session
     )
     assert "Ship it" not in message.edits[-1][0]
 
-    await render_sprint(message, services)
-    _, markup = message.edits[-1]
-    assert len(markup.inline_keyboard[0]) == 1
-    opener = markup.inline_keyboard[0][0]
-    await callback_token_handler(
-        FakeCallback(opener.callback_data.split(":", 1)[1], message), services
-    )
+    await render_card(message, services, action_id)
     text, markup = message.edits[-1]
     move_to_today = next(
         button for button in markup.inline_keyboard[0] if button.text == "☀️ Into Today"

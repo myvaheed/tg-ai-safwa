@@ -1,8 +1,7 @@
 """The Sprint screen, and the Planning screen that stands in for it.
 
-The running Sprint is a list of Actions under what the Sprint committed to, so it is
-composed here out of the Card list Cards draws.  Planning carries the Success criteria
-and the shape of the plan, and it offers Start only once it has both, because a Sprint
+The running Sprint shows one selected list without separate Action buttons. Planning carries
+the Success criteria and the shape of the plan, and it offers Start only once it has both, because a Sprint
 that begins without either is a Sprint nobody can close against anything.  The plan
 itself is built one screen further in, in `plan.py`.
 """
@@ -16,6 +15,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from aiogram.types import InlineKeyboardMarkup, Message
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.clock import utcnow
@@ -26,6 +26,8 @@ from tg_agent_shell.telegram import (
     TextInputScreen,
     edit_registered_message,
     menu_row,
+    paginate,
+    paging_row,
     render_text_input,
     required_text,
     send_registered,
@@ -35,12 +37,11 @@ from tg_agent_shell.telegram import (
 from tg_agent_shell.telegram.contributions import TextInputFlow
 
 from ....foundation.workspace import Workspace
-from ...cards.api import CardStage, actions_on_stages, effort_label
+from ...cards.api import CardStage, actions_on_stages, effort_label, list_order
 from ...cards.model import Card
-from ...cards.telegram import stage_list_block
 from ...profile.api import capacity_effort_points
-from ..api import sprint_metrics
-from ..model import Sprint
+from ..api import sprint_day, sprint_metrics, today_actions
+from ..model import Sprint, SprintCommitment
 from ..use_cases import set_sprint_success_criteria, sprint_length_days
 
 _PROMPT_TTL = timedelta(minutes=30)
@@ -52,6 +53,7 @@ async def render_sprint(
     services: Services,
     *,
     page: int = 0,
+    view: str = "remaining",
     notice: str | None = None,
     replace_message_id: int | None = None,
 ) -> None:
@@ -67,22 +69,63 @@ async def render_sprint(
     async with services.sessions() as session:
         sprint = await session.get(Sprint, active_sprint_id)
         metrics = await sprint_metrics(session, sprint.id)
-        block, rows = await stage_list_block(
-            session,
-            services,
-            CardStage.SPRINT,
-            title=f"Sprint {sprint.number}",
-            page=page,
-            action="sprint_page",
-            header=(
-                f"{sprint.planned_start_date} – {sprint.planned_end_date}\n"
-                f"Success criteria: {html.escape(sprint.success_criteria)}\n"
-                f"Committed {metrics['committed']} · Added {metrics['added']} · "
-                f"Done {metrics['completed']}"
+        remaining = sorted(await actions_on_stages(session, CardStage.SPRINT), key=list_order)
+        today = await today_actions(session)
+        done = sorted(
+            await session.scalars(
+                select(Card).join(SprintCommitment, SprintCommitment.card_id == Card.id).where(
+                    SprintCommitment.sprint_id == sprint.id,
+                    SprintCommitment.result == CardStage.DONE.value,
+                )
             ),
+            key=list_order,
         )
+        lists = {
+            "today": ("Today", today, "No Actions in Today yet."),
+            "remaining": (
+                "Remaining", remaining,
+                "No Actions remain in Sprint. Check Today or Done; the Sprint is still running.",
+            ),
+            "done": ("Done", done, "No Actions completed in this Sprint yet."),
+            "blocked": (
+                "Blocked", sorted([card for card in [*remaining, *today] if card.blocked], key=list_order),
+                "No blocked Actions in Sprint or Today.",
+            ),
+        }
+        label, cards, empty = lists[view]
+        shown = paginate(cards, page)
+        descriptions = []
+        for card in shown.items:
+            mark = "✓" if view == "done" else "⛔" if card.blocked else "•"
+            line = f"{mark} {html.escape(card.title)} · {effort_label(card.effort_points)} EP"
+            if view == "blocked":
+                line += f"\n<i>Reason: {html.escape(card.blocked_description)}</i>"
+            descriptions.append(line)
+        rows = []
+        buttons = []
+        for key, (name, items, _) in lists.items():
+            buttons.append(
+                await token_button(
+                    session, services.owner_id,
+                    f"{'✓ ' if key == view else ''}{name} · {len(items)}",
+                    "sprint_page", {"view": key},
+                )
+            )
+        rows.extend([buttons[:2], buttons[2:]])
+        rows.extend(await paging_row(session, services.owner_id, shown, "sprint_page", {"view": view}))
         # On the last day ending the Sprint is not early, and the button says so.
         local_today = utcnow().astimezone(ZoneInfo(workspace.timezone)).date()
+        day, length = sprint_day(sprint, local_today)
+        page_label = f" · {shown.label}" if shown.count > 1 else ""
+        block = (
+            f"<b>Sprint {sprint.number}</b>\n"
+            f"{sprint.planned_start_date:%d.%m} – {sprint.planned_end_date:%d.%m} · Day {day} of {length}\n\n"
+            f"<b>Success criteria:</b> {html.escape(sprint.success_criteria)}\n\n"
+            f"Taken <b>{effort_label(metrics['committed'] + metrics['added'])} EP</b> · "
+            f"Done <b>{effort_label(metrics['completed'])} EP</b>\n\n"
+            f"<b>{label} · {len(cards)}</b>{page_label}\n"
+            + ("\n".join(descriptions) or empty)
+        )
         finishing = "⏹ Finish Sprint" if local_today >= sprint.planned_end_date else "⏹ Finish early"
         rows.append([await token_button(session, services.owner_id, finishing, "sprint_finish")])
         rows.append(menu_row())

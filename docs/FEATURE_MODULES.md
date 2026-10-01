@@ -198,7 +198,7 @@ the operations layer.** So `checks/model.py` says what a Check is called — a n
 has to type comes from `model.py`, which every layer may reach, and there is no `api.py` standing
 in front of it — while closing an Action asks `checks/use_cases.py` to answer one. Screens are the
 top door because a screen is public already: `FeatureModule.screens` hands `render_card` to the
-composition root, and Planning draws its Sprint list with the rows Cards draws.
+composition root. Planning reads Cards through their API and draws the Sprint's selected list itself.
 
 `references.py` declares one [`ReferenceSpec`](../src/tg_agent_shell/foundation/references.py) per named
 relationship — a Card carries Values, Tags and Checks, a Check carries Values — so a payload key,
