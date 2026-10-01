@@ -1,7 +1,7 @@
 Feature: Home
   Home is the way in. It keeps no item of its own: it is the screen every other screen is
   offered from, the door a link Safwa wrote comes back through, and the dashboard a chat the
-  owner left quiet is cleared down to.
+  owner left quiet receives.
 
   Numbers below name the constant they come from; the tests read the constant.
 
@@ -25,11 +25,12 @@ Feature: Home
     When the link names something that is not one of Safwa's items
     Then Safwa says so
 
-  Scenario: HM-QUIET-003 — A chat the owner left quiet is cleared down to the Home dashboard
+  Scenario: HM-QUIET-003 — A quiet chat is cleared through the last message to the Advisor
     Given the owner has not written, spoken, sent a photo or pressed a button for 30 minutes (HOME_AFTER_MINUTES_DEFAULT = 30)
     And the chat is free: no answer is being written and no review is waiting
-    Then the Home dashboard is drawn, and the chat is cleared down to it (TG-HOME-023)
-    And a message Safwa sent on its own while the owner was quiet, a Reminder included, is taken out with the rest
+    Then the Home dashboard is drawn, and messages through the last message the owner sent to the Advisor are cleared (TG-HOME-023)
+    And messages after it stay, including the Advisor's reply and a Reminder Safwa sent while the owner was quiet
+    And those messages stay through later clears until the owner sends another message to the Advisor
     When a review is waiting
     Then nothing is cleared until it is answered or closes by itself
     When the owner acts while the chat is being cleared
@@ -84,6 +85,6 @@ Feature: Home
     And an item that still exists is a link that opens it
 
   Scenario: HM-HISTORY-010 — After a clear Safwa starts the conversation over
-    Given the chat was cleared down to the dashboard
+    Given the chat was cleared through the last message to the Advisor and the dashboard was drawn
     Then the conversation Safwa reads begins after the dashboard (TG-HOME-023)
     And the Diary still reads everything said that day, before the clear as much as after it (DI-READ-016)

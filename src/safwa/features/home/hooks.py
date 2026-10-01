@@ -1,4 +1,4 @@
-"""The Home dashboard's hook: a chat the owner left quiet is cleared down to it."""
+"""The Home dashboard's hook: clear older messages after the owner has been quiet."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ async def looked_at(event: Tick) -> tuple[ChatState, ...]:
 
 
 async def clear_when_quiet(chat: ChatState, context: RunContext) -> None:
-    """Draw the dashboard over everything else once the owner has been quiet long enough."""
+    """Draw the dashboard and clear older messages once the quiet time has passed."""
     now = utcnow()
     async with context.sessions() as session:
         quiet = timedelta(minutes=await home_after_minutes(session))
@@ -53,5 +53,5 @@ HOME_HOOK = HookSpec(
     evaluate=looked_at,
     effect=Run(clear_when_quiet),
     title="Home dashboard",
-    description="Clears a chat you left quiet down to the Home dashboard.",
+    description="Clears older messages and draws Home after you leave the chat quiet.",
 )

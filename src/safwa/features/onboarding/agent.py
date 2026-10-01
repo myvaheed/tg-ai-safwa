@@ -116,7 +116,7 @@ MANUAL = """# Safwa
 - A link in an answer opens its item.
 
 # Home dashboard
-- When the user does nothing in the chat for the Profile's "🏠 Home after" minutes, 30 at first, Safwa clears the chat down to the Home dashboard, without a sound: the next Actions under their Goals, the Values in focus with a few words each, the time tracked today while Time tracking is on, and the last 10 changes.
+- When the user does nothing in the chat for the Profile's "🏠 Home after" minutes, 30 at first, Safwa clears messages through the last message the user sent to the Advisor, inclusive. Messages after it stay, including the Advisor's reply and Reminders. The previous Home dashboard is removed. A new Home dashboard arrives without a sound: the next Actions under their Goals, the Values in focus with a few words each, the time tracked today while Time tracking is on, and the last 10 changes.
 - It is drawn again after midnight. Each item on it is a link. It has no buttons: /start opens the menu.
 - After a clear the conversation starts over. The Diary still reads the whole day."""
 

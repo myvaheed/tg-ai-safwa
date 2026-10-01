@@ -164,10 +164,14 @@ Feature: The conversation in Telegram
     And the photo itself does not enter the conversation
     But where images are off, Safwa has no way to look at a photo
 
-  Scenario: TG-HOME-023 — A Home message clears the chat down to itself, and the conversation starts after it
+  Scenario: TG-HOME-023 — Home clears through the last user message, and the conversation starts after Home
     Given the application puts a Home message in the chat, from a check on a schedule (AG-HOOK-050)
     Then it arrives as a new message that makes no sound
-    And every message above it, back to the previous Home message, is taken out of the chat, the owner's and Safwa's alike
+    And messages through the last message the owner sent to the Advisor are taken out, that message included
+    And messages after it stay, through repeated Home messages until the owner sends another message to the Advisor
+    And a screen that stays keeps accepting its input
+    And the previous Home message is taken out separately
+    And with no message from the owner to the Advisor, all other messages stay
     But a message older than 48 hours stays in the chat (TELEGRAM_DELETE_WINDOW = 48 hours)
     And what was said stays kept, and a day read back still reads all of it
     And a screen, a progress line or anything else that was not said is forgotten with its message
