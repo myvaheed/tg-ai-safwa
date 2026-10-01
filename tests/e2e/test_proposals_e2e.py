@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from advisor_e2e_helpers import create_manual_card, mutation_turn, route_turn
+from aiogram.exceptions import TelegramAPIError
 from review_e2e_helpers import (
     QueueTestCallback,
     QueueTestHistory,
@@ -35,6 +36,7 @@ from safwa.foundation.workspace import Workspace
 from telegram_llm import ChatHost
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.ai.runs import AgentRun
+from tg_agent_shell.cues.runtime import chat_is_free
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramMessage, TelegramNotes
@@ -48,6 +50,7 @@ from tg_agent_shell.proposals.telegram import render_proposal
 from tg_agent_shell.proposals.use_cases import approve_proposal
 from tg_agent_shell.telegram import callback_token_handler, dismiss_prior_ui, expire_review
 from tg_agent_shell.telegram.model import CallbackToken
+from tg_agent_shell.telegram.services import STILL_ANSWERING
 from tg_agent_shell.turn import TurnManager
 
 pytestmark = pytest.mark.e2e
@@ -1997,3 +2000,93 @@ async def test_a_failed_save_with_no_waiting_request_brings_the_screen_back(e2e_
         assert advisor.reviews.proposal(proposal_id) is not None
     assert "needs one relationship type" in message.rendered[-1]
     assert message.buttons() == ["✅ Save", "🗑 Discard"]
+
+class _ReceiptRefused(QueueTestMessage):
+    """A chat that refuses the receipt a decision sends before its follow-up."""
+
+    def _refuse(self, text: str) -> None:
+        if "Continuing" in text:
+            raise TelegramAPIError(method=SimpleNamespace(), message="Too Many Requests")
+
+    async def edit_text(self, text, **options):
+        self._refuse(text)
+        return await super().edit_text(text, **options)
+
+    async def answer(self, text, **options):
+        self._refuse(text)
+        return await super().answer(text, **options)
+
+
+async def _renaming_on_screen(e2e_harness, follow_up: list[str], screen: QueueTestMessage):
+    """A rename proposed by the subagent, its screen drawn, and the services that answer it."""
+    async with e2e_harness.sessions() as session:
+        card = await create_manual_card(session, title="Buy milk")
+        await session.commit()
+        card_id = card.id
+    advisor, _provider = e2e_harness.advisor(
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(("card", {"mode": "update", "id": card_id, "title": "Buy oat milk"})),
+            *follow_up,
+        ]
+    )
+    proposal = await advisor.handle("Rename it to Buy oat milk")
+    assert proposal.proposal_id is not None
+    services = review_services(e2e_harness, advisor)
+    await render_proposal(screen, services, proposal.proposal_id)
+    return services, card_id, proposal.proposal_id
+
+
+async def _title(e2e_harness, card_id: int) -> str:
+    async with e2e_harness.sessions() as session:
+        return (await session.get(Card, card_id)).title
+
+
+async def test_ag_turn_010_a_save_pressed_while_an_answer_is_written_changes_nothing(e2e_harness):
+    """AG-TURN-010 — tests/brd/tg_agent_shell/agents.feature"""
+    screen = QueueTestMessage()
+    services, card_id, proposal_id = await _renaming_on_screen(e2e_harness, [], screen)
+    # The owner's next message took the turn after the press reached the bot.
+    assert services.turn.try_begin(7)
+
+    await resolve_queued_proposal(e2e_harness, services, screen, proposal_id, "proposal_approve")
+
+    assert STILL_ANSWERING in screen.rendered[-1]
+    assert services.turn.source_message_id == 7
+    # The review is left as it was, for the owner's words to end it (PR-INTERRUPT-017).
+    assert services.root.reviews.proposal(proposal_id) is not None
+    assert await _title(e2e_harness, card_id) == "Buy milk"
+
+
+async def test_ag_turn_024_a_save_takes_the_turn_from_background_work(e2e_harness):
+    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
+    screen = QueueTestMessage()
+    services, card_id, proposal_id = await _renaming_on_screen(
+        e2e_harness, ["Renamed it.", "Renamed it."], screen
+    )
+    assert services.turn.try_begin_background()
+    lease = services.turn.dialogue_revision
+
+    await resolve_queued_proposal(e2e_harness, services, screen, proposal_id, "proposal_approve")
+
+    # The background work was told it lost, and the Save went on to its answer.
+    assert services.turn.dialogue_revision != lease
+    assert await _title(e2e_harness, card_id) == "Buy oat milk"
+    assert "Renamed it." in screen.rendered[-1]
+    assert await chat_is_free(services)
+
+
+async def test_ag_turn_015_a_save_the_chat_cannot_announce_still_moves_the_request_on(
+    e2e_harness,
+):
+    """AG-TURN-015 — tests/brd/tg_agent_shell/agents.feature"""
+    screen = _ReceiptRefused()
+    services, card_id, proposal_id = await _renaming_on_screen(
+        e2e_harness, ["Renamed it.", "Renamed it."], screen
+    )
+
+    await resolve_queued_proposal(e2e_harness, services, screen, proposal_id, "proposal_approve")
+
+    assert await _title(e2e_harness, card_id) == "Buy oat milk"
+    assert "Renamed it." in screen.rendered[-1]
+    assert await chat_is_free(services)

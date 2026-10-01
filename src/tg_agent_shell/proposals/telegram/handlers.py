@@ -16,9 +16,12 @@ from ...foundation.kinds import MessageKind
 from ...telegram import (
     CallbackContext,
     CallbackHandler,
+    end_turn,
     send_registered,
+    send_toast,
     token_button,
 )
+from ...telegram.services import STILL_ANSWERING
 from ..model import BatchDecision
 from ..render import proposal_outcome_text
 from ..use_cases import approve_proposal
@@ -167,6 +170,12 @@ async def _resume(context: CallbackContext, error: Exception) -> bool:
 
 def _recovering(handler: CallbackHandler) -> CallbackHandler:
     async def guarded(context: CallbackContext) -> None:
+        services = context.services
+        # A decision resumes the request that proposed it, so it takes the turn before it
+        # changes anything: nothing can then start between the Save and that request.
+        if not services.turn.try_begin(context.message.message_id):
+            await send_toast(context.message, services, STILL_ANSWERING)
+            return
         try:
             await handler(context)
         except StaleStateError as error:
@@ -193,6 +202,8 @@ def _recovering(handler: CallbackHandler) -> CallbackHandler:
                 ),
                 fallback="This action could not be finished. Reopen the screen and try again.",
             )
+        finally:
+            await end_turn(context.message, services)
 
     return guarded
 

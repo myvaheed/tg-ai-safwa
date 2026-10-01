@@ -279,7 +279,9 @@ The counter belongs to each session. A new subagent session starts its own budge
 its caller's; resume and adoption of that same unfinished session retain its spent counter
 (`AG-BUDGET-011`). Cancelling a request abandons its root and every unfinished descendant and
 releases their claims; a completed session stays completed, and a terminal session cannot be
-claimed again (`AG-TURN-010`).
+claimed again (`AG-TURN-010`). A failure releases the same way: whichever session raised, the
+caller a subagent's receipt ran on after a Save included, is recorded `failed` with its
+unfinished descendants `abandoned`, so no claim outlives its request and shuts the Cue gate.
 
 ## Context, and why its order is fixed
 
@@ -782,8 +784,13 @@ stateDiagram-v2
   `workspace.revision`, which is a different question.
 - A lease is named by the revision it was taken at, so work that is cancelled and finishes
   afterwards gives back its own lease and never the one handed to whatever started next.
-- Background work verifies the revision before publishing or committing, and a turn that lost the
-  chat ends the review it had already opened rather than leaving it with no screen.
+- Background work verifies the revision before publishing or committing. A review whose screen
+  never reached the chat ends with the request behind it once the call that opened it is over,
+  whether that call lost the chat, was cancelled or failed: with no screen it is never answered and
+  never runs out of time, so it would hold the Cue gate shut for the life of the process.
+- A Save, Discard or destructive confirmation takes the turn before it changes anything, because it
+  resumes the request that proposed it: nothing can start between the decision and that request.
+  Pressed while another answer holds the turn, it changes nothing.
 - `OwnerAndWritingMiddleware` drops anything that is not the owner in a private chat.
 - **An action button is a single-use `CallbackToken` row**, sent as `cb:<token>` and cleared at the
   next start: it names an item and changes something, so it is spent when it is pressed and dead
