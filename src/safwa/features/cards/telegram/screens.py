@@ -237,6 +237,27 @@ async def render_card(
                     )
                 ]
             )
+        move_row: list[InlineKeyboardButton] = []
+        if (
+            card.kind == CardKind.ACTION.value
+            and not archived
+            and card.effective_stage != CardStage.DONE.value
+        ):
+            for stage, label in (
+                (CardStage.BACKLOG, "📚 Into Backlog"),
+                (CardStage.SPRINT, "🏃 Into Sprint"),
+                (CardStage.TODAY, "☀️ Into Today"),
+            ):
+                if stage.value != card.effective_stage:
+                    move_row.append(
+                        await token_button(
+                            session,
+                            services.owner_id,
+                            label,
+                            "card_move",
+                            {"id": card.id, "stage": stage.value},
+                        )
+                    )
         primary_row: list[InlineKeyboardButton] = []
         if (
             card.kind == CardKind.ACTION.value
@@ -247,8 +268,7 @@ async def render_card(
                     session, services.owner_id, "✅ Done", "card_finish", {"id": card.id}
                 )
             )
-        if not full and card.kind == CardKind.ACTION.value and not archived:
-            # The one field the compact view still sets: where the Action stands today.
+        if not full and card.kind == CardKind.ACTION.value and not archived and not move_row:
             primary_row.append(
                 await token_button(
                     session,
@@ -258,7 +278,12 @@ async def render_card(
                     {"id": card.id},
                 )
             )
-        rows = ([primary_row] if primary_row else []) + relationship_rows + rows
+        rows = (
+            ([move_row] if move_row else [])
+            + ([primary_row] if primary_row else [])
+            + relationship_rows
+            + rows
+        )
         if full:
             # What an archived Card still offers: it leaves the archive by being
             # reopened, and a closed repeat never reopens, so the only way out is Delete.

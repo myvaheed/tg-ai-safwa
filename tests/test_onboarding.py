@@ -665,7 +665,7 @@ def test_ob_manual_006_the_manual_names_only_what_the_application_registers():
     named_commands = set(re.findall(r"(?<![\w/])/([a-z_]+)\b", MANUAL))
     menu = next(line for line in MANUAL.splitlines() if line.startswith("- The menu, /start:"))
     named_switches = next(
-        line for line in MANUAL.splitlines() if line.startswith("- Switches in the Profile:")
+        line for line in MANUAL.splitlines() if line.startswith("- Hooks:")
     )
 
     assert named_commands and named_commands <= commands

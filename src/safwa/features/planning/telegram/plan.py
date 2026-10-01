@@ -52,14 +52,13 @@ from .state import (
 
 # The Sprint plan puts both columns in one table, so a row is one Card on each side.
 SPRINT_PLAN_PAGE_SIZE = 10
-SPRINT_PLAN_TITLE_LIMIT = 24
+SPRINT_PLAN_TITLE_LIMIT = 60
 # A tap on a link starts the bot through the owner's own account, and Telegram rate limits
 # that per account for hours at a time. This many taps inside the window earns a warning.
 PLAN_LINK_BURST_TAPS = 8
 PLAN_LINK_BURST_SECONDS = 10
 
 _RETURN = "↩️ Return"
-_INTO_SPRINT = "📥 Into Sprint"
 # The state is in the `UiSession`, so a payload only has to name the Card and say whether
 # the tap was on its title or on its `↩️ Return`.
 _OPEN_PAYLOAD = re.compile(r"^sp-(\d{1,9})$")
@@ -120,7 +119,7 @@ def _table(services: Services, planned: list[Card]) -> str:
 
 
 def _button_label(card: Card) -> str:
-    """A keyboard label is half a row wide, so the title is cut. The table is not."""
+    """Keep a long title readable in a full-width keyboard row."""
     title = card.title
     if len(title) > SPRINT_PLAN_TITLE_LIMIT:
         title = f"{title[: SPRINT_PLAN_TITLE_LIMIT - 1]}…"
@@ -140,10 +139,7 @@ async def _markup(
         rows.append(
             [
                 await token_button(
-                    session, services.owner_id, _button_label(card), "plan_card", {"id": card.id}
-                ),
-                await token_button(
-                    session, services.owner_id, _INTO_SPRINT, "plan_move", {"id": card.id}
+                    session, services.owner_id, _button_label(card), "plan_move", {"id": card.id}
                 ),
             ]
         )
@@ -351,14 +347,6 @@ async def on_plan_move(context: CallbackContext) -> None:
         await move_card(session, int(context.payload["id"]), CardStage.SPRINT)
         await session.commit()
     await render_plan(context.message, context.services)
-
-
-async def on_plan_card(context: CallbackContext) -> None:
-    async with context.sessions() as session:
-        state = await load_plan_state(session, context.owner_id)
-    await render_card(
-        context.message, context.services, int(context.payload["id"]), back=plan_back(state)
-    )
 
 
 async def on_plan_filters(context: CallbackContext) -> None:

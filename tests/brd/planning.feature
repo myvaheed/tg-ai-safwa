@@ -138,7 +138,10 @@ Feature: Planning — the Sprint, and the mode without one
   Scenario: PL-PLAN-016 — The plan is the Sprint as a table and the Backlog as the keyboard
     Given one Action is planned and twelve are in the Backlog
     Then the planned one is a row with its effort, and the plan says what the whole plan costs
-    And the Backlog is buttons, ten to a page (SPRINT_PLAN_PAGE_SIZE = 10), each with a way into the Sprint
+    And the Backlog is full-width buttons, ten to a page (SPRINT_PLAN_PAGE_SIZE = 10)
+    When the owner taps a Backlog Action
+    Then it goes into the Sprint and the plan is redrawn with the same page and filters,
+      without opening the Card
     When the owner taps a planned Action's Return
     Then it goes back to the Backlog and the plan is redrawn in place, without a second screen
 

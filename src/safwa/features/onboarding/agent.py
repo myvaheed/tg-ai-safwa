@@ -69,7 +69,7 @@ MANUAL = """# Safwa
 - Planning is the mode with no Sprint. The user writes the Success criteria, what the next Sprint must achieve, and plans Actions into it. There is no Today then.
 - A Sprint runs for the Sprint length set in the Profile. Every plan is judged against its Success criteria. "☀️ Today" is the day's work, and it exists only while a Sprint runs.
 - Safwa warns the day before the last day and on the last day. The Sprint closes itself at midnight after its last day.
-- With buttons: "🏃 Sprint" or /sprint: "🎯 Set Success criteria", the plan with "📥 Into Sprint", "▶️ Start N-day Sprint", "⏹ Finish early" or "⏹ Finish Sprint".
+- With buttons: "🏃 Sprint" or /sprint: "🎯 Set Success criteria", tap a Backlog Action in the plan to add it to Sprint, "▶️ Start N-day Sprint", "⏹ Finish early" or "⏹ Finish Sprint". Open an Action from Backlog, Sprint or Today to move it with the two buttons at the top of its Card.
 - In words: start the next Sprint, finish the running one, write the next Sprint's Success criteria, or ask its dates, its length and the days left. A Sprint to start is shown with its Success criteria, its first and last day and its length, for Save.
 - In words: moving Actions into Sprint or Today, or back to Backlog.
 - Not at all: changing a running Sprint's Success criteria or its dates, pausing or extending it, or bringing a finished one back. The length and the capacity are in the Profile.
@@ -98,12 +98,12 @@ MANUAL = """# Safwa
 
 # Automatic reactions
 - Safwa speaks first on its own: about a blocked Action, an Action finished without its time, a day holding too much, Goals with no Action, Hard Times outside the plan, energy and rest in the Sprint, an Action stuck in Today, a Check Missed again and again, the Diary, the day's summary, a Sprint's end, a Success criterion out of reach, a read too heavy for the Advisor, what stands in Today and the Sprint when the user writes after 14 days or more away, and these onboarding tips.
-- Each is switched off and on in "⚙️ Profile", by its title.
-- Switches in the Profile: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Today overload", "Goals without Actions", "Hard Time outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
-- "Time tracking reminder" is in the Profile only while Time tracking is on, and asks nothing while it is off.
+- Open "⚙️ Profile" → "🔔 Hooks" to list the reactions by title and state. Choose one to read its description and switch it off or on on its own screen.
+- Hooks: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Today overload", "Goals without Actions", "Hard Time outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
+- "Time tracking reminder" is in Hooks only while Time tracking is on, and asks nothing while it is off.
 
 # Profile
-- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Sprint length, Sprint capacity, Morning time, Diary time, Diary instruction, Daily summary, Home after, Time tracking, and the switches.
+- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Sprint length, Sprint capacity, Morning time, Diary time, Diary instruction, Daily summary, Home after, Time tracking, and "🔔 Hooks".
 - "⌛ Time tracking" is off until pressed. On, it offers "⌛ Time spent" on an Action, keeps a Sprint's time for its retro and turns on "Time tracking reminder". The active day it measures runs from the Morning time to the Diary time.
 - In words too: any of its fields, shown for Save with what it was and what it becomes.
 - The switches are buttons only. Onboarding alone may be turned off in words.

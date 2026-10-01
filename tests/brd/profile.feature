@@ -77,18 +77,24 @@ Feature: Profile
   Scenario: PS-HOOKS-015 — An automatic reaction that reaches the Advisor is switched in the Profile
     Given the application registers its automatic reactions
     When Profile is drawn
-    Then each reaction that hands the Advisor a request or a helper is on the screen by its title, with its description, and is on
-    And one that runs work of its own, such as the automatic Summary, is not on the screen and is always on
-    And one that follows another reaction's switch is not on the screen either: it is on and off
+    Then it offers Hooks, without listing the reactions in its text or their switches
+    When the owner opens Hooks
+    Then each reaction that hands the Advisor a request or a helper is listed by its title and current state, and starts on
+    And one that runs work of its own, such as the automatic Summary, is not in the list and is always on
+    And one that follows another reaction's switch is not in the list either: it is on and off
       with that one, by AG-HOOK-043
     And a check on the model's own work — one that sends a subagent's calls back, holds an
       answer or saves a proposal unseen — is not on the screen: it is on or off in the feature
       toggles
-    When the owner presses one
+    When the owner chooses a reaction
+    Then its own screen shows its description, current state and switch
+    And Back returns to Hooks, whose Back returns to Profile
+    When the owner presses its switch
     Then that reaction is off from that moment, without a restart, and stays off after one
-    And pressing it again turns it back on
+    And its own screen is redrawn with the new state
+    And pressing the switch again turns it back on
     And while it is off its condition is not checked
-    And the Time tracking reminder is on the screen only while Time tracking is on (PS-TIME-017)
+    And the Time tracking reminder is in Hooks only while Time tracking is on (PS-TIME-017)
 
   Scenario: PS-MORNING-016 — The Morning time is when Safwa's morning checks run
     Given a new workspace, whose Morning time is 09:00 (MORNING_TIME_DEFAULT = "09:00")
@@ -100,10 +106,10 @@ Feature: Profile
   Scenario: PS-TIME-017 — Time tracking is off until the owner switches it on
     Given a new workspace
     Then the Profile shows Time tracking, and it is off
-    And while it is off, the full editing of an Action has no control for its time, and the Time tracking reminder is not on the Profile screen
+    And while it is off, the full editing of an Action has no control for its time, and the Time tracking reminder is not in Hooks
     When the owner presses it
     Then it is on from that moment, without a restart, and stays on after one
-    And the full editing of an Action offers its time (CD-TIME-039), and the Time tracking reminder is on the Profile screen with a switch of its own, on until the owner turns it off (CD-TIME-041)
+    And the full editing of an Action offers its time (CD-TIME-039), and the Time tracking reminder is in Hooks with a switch on its own screen, on until the owner turns it off (CD-TIME-041)
     And the Profile says the active day it measures runs from the Morning time to the Diary time, 09:00 to 22:00 in a new workspace (MORNING_TIME_DEFAULT = "09:00", DIARY_TIME_DEFAULT = "22:00")
     And pressing it again turns it off
 
@@ -121,7 +127,7 @@ Feature: Profile
     When the owner asks for a Sprint of 61 days
     Then it is refused before any screen, with the range (PS-SPRINT-LENGTH-003)
 
-  Scenario: PS-AI-020 — The switches stay on the Profile screen
+  Scenario: PS-AI-020 — The switches are reached through Profile
     When the owner asks Safwa to turn an automatic reaction off or on
-    Then Safwa says whether it is on now and that its switch is in the Profile
+    Then Safwa says whether it is on now and that its switch is reached through Profile → Hooks
     And nothing is proposed, except turning the onboarding off (OB-STOP-005)

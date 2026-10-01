@@ -113,7 +113,7 @@ async def test_ps_ai_020_a_switch_is_read_and_left_to_the_profile_screen(e2e_har
         ),
         prompt=routed_prompt(PROFILE_AGENT),
     )
-    words = "Blocker follow-up is off now. Its switch is in ⚙️ Profile."
+    words = "Blocker follow-up is off now. Open ⚙️ Profile → 🔔 Hooks → Blocker follow-up for its switch."
     advisor, provider = e2e_harness.advisor(
         [route_turn("profile"), words, "Anything else?"], subagents=(profile,)
     )

@@ -273,6 +273,9 @@ Feature: Cards
       the Values it carries
     And the buttons are the ones an ordinary day needs: finishing it, moving it between stages,
       and reaching its Checks, its children and its parent
+    And Backlog, Sprint and Today list each Action as one full-width button that opens it
+    And an open Action has two buttons at the top for moving it to the other live stages,
+      in both compact and full editing
     And "✏️ Full editing" opens the same Card with every control it has, and "🗜 Compact" is
       how the owner comes back
     And an edit made in one of the two redraws the Card in that same one

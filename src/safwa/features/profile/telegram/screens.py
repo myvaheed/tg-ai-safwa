@@ -1,4 +1,4 @@
-"""The `/settings` screen and its focused field prompts."""
+"""The Profile, its field prompts, and the automatic reaction screens."""
 
 from __future__ import annotations
 
@@ -131,8 +131,8 @@ PROFILE_FIELDS: dict[str, EditableField] = {
         title="Morning time",
         label="🌅 Morning time",
         instruction=(
-            "Send the local time Safwa's morning checks run, as HH:MM. Each check is switched "
-            "off below, not here."
+            "Send the local time Safwa's morning checks run, as HH:MM. Switch each check "
+            "off in Profile → Hooks."
         ),
         parse=_parse_clock,
         show=_clock,
@@ -142,7 +142,7 @@ PROFILE_FIELDS: dict[str, EditableField] = {
         label="📔 Diary time",
         instruction=(
             "Send the local time Safwa writes up your day, as HH:MM. The Diary nudge is "
-            "switched off below."
+            "switched off in Profile → Hooks."
         ),
         parse=_parse_clock,
         show=_clock,
@@ -162,7 +162,7 @@ PROFILE_FIELDS: dict[str, EditableField] = {
         label="🌙 Daily summary",
         instruction=(
             "Send the local time Safwa sums up your day, as HH:MM. The daily summary is "
-            "switched off below."
+            "switched off in Profile → Hooks."
         ),
         parse=_parse_clock,
         show=_clock,
@@ -202,9 +202,7 @@ def _switch_label(profile: UserProfile, hook: HookSpec) -> str:
     return f"{'🔔' if on else '🔕'} {hook.title}: {'on' if on else 'off'}"
 
 
-def profile_text(
-    profile: UserProfile, timezone: str, switches: tuple[HookSpec, ...] = ()
-) -> str:
+def profile_text(profile: UserProfile, timezone: str) -> str:
     """Render the Profile values; timezone is deliberately display-only."""
     lines = [
         "<b>Profile</b>",
@@ -219,11 +217,6 @@ def profile_text(
         f"Action took; your active day runs from the Morning time to the Diary time, "
         f"{_clock(profile.morning_time)} to {_clock(profile.diary_time)}."
     )
-    for hook in switches:
-        lines.append(
-            f"{html.escape(hook.title)}: {_switch_state(profile, hook)} — "
-            f"{html.escape(hook.description)}"
-        )
     lines.append("Tap a setting to change it.")
     return "\n".join(lines)
 
@@ -247,8 +240,7 @@ async def command_profile(
                     session, services.owner_id, field.label, "profile_edit", {"field": name}
                 )
             )
-        switches = _visible_switches(profile, services)
-        rendered = profile_text(profile, workspace.timezone, switches)
+        rendered = profile_text(profile, workspace.timezone)
         rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
         rows.append([
             await token_button(
@@ -256,14 +248,9 @@ async def command_profile(
                 "profile_time_tracking", {},
             )
         ])
-        # One row per switch: its label is the state, so the press that flips it is visible.
-        for hook in switches:
-            rows.append([
-                await token_button(
-                    session, services.owner_id, _switch_label(profile, hook),
-                    "profile_switch", {"hook": hook.name},
-                )
-            ])
+        rows.append([
+            await token_button(session, services.owner_id, "🔔 Hooks", "profile_hooks", {})
+        ])
         await session.commit()
     text = with_notice(rendered, notice)
     markup = InlineKeyboardMarkup(inline_keyboard=[*rows, menu_row()])
@@ -346,8 +333,70 @@ async def _on_edit(context: CallbackContext) -> None:
     )
 
 
+async def _on_hooks(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        profile = await session.get(UserProfile, 1)
+        if profile is None:
+            raise DomainError("Workspace is not initialized")
+        rows = [
+            [await token_button(
+                session, context.owner_id, _switch_label(profile, hook),
+                "profile_hook", {"hook": hook.name},
+            )]
+            for hook in _visible_switches(profile, context.services)
+        ]
+        rows.append([
+            await token_button(session, context.owner_id, "↩️ Back", "profile_hooks_back", {})
+        ])
+        await session.commit()
+    await edit_registered_message(
+        context.message, context.services, context.message.message_id,
+        "<b>Hooks</b>\nChoose a hook to read what it does and switch it on or off.",
+        kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(inline_keyboard=[*rows, menu_row()]),
+    )
+
+
+async def _on_hook(context: CallbackContext, *, notice: str | None = None) -> None:
+    name = str(context.payload["hook"])
+    async with context.sessions() as session:
+        profile = await session.get(UserProfile, 1)
+        if profile is None:
+            raise DomainError("Workspace is not initialized")
+        hook = next(
+            (spec for spec in _visible_switches(profile, context.services) if spec.name == name),
+            None,
+        )
+        if hook is None:
+            raise DomainError("That setting is no longer available.")
+        text = (
+            f"<b>{html.escape(hook.title)}</b>\n\n{html.escape(hook.description)}\n\n"
+            f"Status: {_switch_state(profile, hook)}."
+        )
+        rows = [
+            [await token_button(
+                session, context.owner_id, _switch_label(profile, hook),
+                "profile_switch", {"hook": name},
+            )],
+            [await token_button(session, context.owner_id, "↩️ Back", "profile_hooks", {})],
+            menu_row(),
+        ]
+        await session.commit()
+    await edit_registered_message(
+        context.message, context.services, context.message.message_id,
+        with_notice(text, notice), kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(inline_keyboard=rows),
+    )
+
+
+async def _on_hooks_back(context: CallbackContext) -> None:
+    await command_profile(
+        context.message, context.services, replace_message_id=context.message.message_id
+    )
+
+
 async def _on_switch(context: CallbackContext) -> None:
-    """Flip one automatic reaction and redraw the Profile in place."""
+    """Flip one automatic reaction and redraw its screen in place."""
     name = str(context.payload["hook"])
     async with context.sessions() as session:
         profile = await session.get(UserProfile, 1)
@@ -362,11 +411,9 @@ async def _on_switch(context: CallbackContext) -> None:
             session, name, on=on, followers=context.services.hooks.followers(name)
         )
         await session.commit()
-    await command_profile(
-        context.message,
-        context.services,
+    await _on_hook(
+        context,
         notice=f"{hook.title} switched {'on' if on else 'off'}.",
-        replace_message_id=context.message.message_id,
     )
 
 
@@ -396,6 +443,9 @@ async def _on_back(context: CallbackContext) -> None:
 
 PROFILE_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "profile_edit": _on_edit,
+    "profile_hooks": _on_hooks,
+    "profile_hook": _on_hook,
+    "profile_hooks_back": _on_hooks_back,
     "profile_switch": _on_switch,
     "profile_time_tracking": _on_time_tracking,
     "profile_back": _on_back,

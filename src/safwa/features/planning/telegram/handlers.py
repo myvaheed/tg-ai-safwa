@@ -10,7 +10,6 @@ from tg_agent_shell.telegram.model import UiSession
 from ....foundation.workspace import Workspace
 from ..use_cases import FINISHED_BY_HAND, finish_sprint, start_sprint
 from .plan import (
-    on_plan_card,
     on_plan_filter_toggle,
     on_plan_filters,
     on_plan_move,
@@ -80,7 +79,6 @@ PLANNING_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "plan_open": on_plan_open,
     "plan_page": on_plan_page,
     "plan_move": on_plan_move,
-    "plan_card": on_plan_card,
     "plan_filters": on_plan_filters,
     "plan_filter_toggle": on_plan_filter_toggle,
 }

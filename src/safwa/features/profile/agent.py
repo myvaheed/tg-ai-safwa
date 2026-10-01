@@ -3,7 +3,7 @@
 Its one tool writes any of the fields the Profile screen edits, and Save stores each through
 the same check the screen's prompts use. The switches of the automatic reactions are not
 among them: it reads them, to say whether one is on, and says they are switched on the
-Profile screen. What the Profile holds is the block after the conversation, read again at
+Profile → Hooks. What the Profile holds is the block after the conversation, read again at
 every step.
 """
 
@@ -37,7 +37,7 @@ Answer a question about the Profile from that message.
 - Write one short line naming what you propose, in the same response. The review screen shows the rest.
 
 # What you cannot do
-- Switch an automatic reaction on or off: say whether it is on now, and that its switch is in ⚙️ Profile. Propose nothing.
+- Switch an automatic reaction on or off: say whether it is on now, and that its switch is on its own screen through ⚙️ Profile → 🔔 Hooks. Propose nothing.
 - Change the timezone.
 
 # Answering
