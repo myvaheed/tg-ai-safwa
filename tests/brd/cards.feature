@@ -64,11 +64,13 @@ Feature: Cards
     And the same holds for a Subgoal, and for a change to one that already exists
     And a proposed change that was nothing but those fields is refused instead of saved empty
 
-  Scenario: CD-EFFORT-008 — An Action has to say what it costs, on the one scale
+  Scenario: CD-EFFORT-008 — An Action may say what it costs, on the one scale
     Given an Action is being written
-    When it is saved with no effort, or with a number off the scale
+    When it is saved with a number off the scale
     Then it is refused (EFFORT_POINTS = 0.5, 1, 2, 3, 5, 8, 13)
-    And the Save button is not offered while the draft still has no effort
+    And an Action saved without an estimate is accepted, by hand and in a proposal, while Effort Points are on or off
+    And an Action without an estimate can be edited, finished and repeated
+    And a valid draft with no estimate still offers Save
     And a rung says how the owner will be able to carry on afterwards, never how long the
       work takes (EFFORT_RUNGS)
     And the screens offer each rung with that wording, and the model's field description
@@ -169,6 +171,7 @@ Feature: Cards
     And the reason is on the screen the owner lands on, not in a message the next screen overwrites
 
   Scenario: CD-EFFORT-021 — A Goal shows the effort of the Actions under it
+    Given Effort Points are on in the Profile
     Given a Goal with three Actions of 5 points under it
     Then the Goal shows 15
     When one of them changes to 8
@@ -307,6 +310,7 @@ Feature: Cards
     And a check that fires again before the question is said adds no second one
 
   Scenario: CD-TODAY-036 — A day holding more than it is meant to is asked about
+    Given Effort Points are on in the Profile
     Given an Action enters Today — created there, moved there, or opened there as the next instance of a finished repeating one — by a proposal the owner saved or by hand
     When the effort in Today, the open Actions there and the Actions finished that local day together, is over 15 EP (TODAY_CAPACITY_EP = 15) and the chat is free
     Then the Advisor is asked once to say what the day holds against what it is meant to, naming each open Action still in Today with its effort, and to ask which to move back to Sprint

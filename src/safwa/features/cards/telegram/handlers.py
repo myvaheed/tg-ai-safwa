@@ -22,6 +22,7 @@ from tg_agent_shell.telegram import (
 )
 
 from ...checks.use_cases import unobserved_series
+from ...profile.api import effort_tracking_on
 from ..hard_time import HARD_TIME_INSTRUCTION, hard_time_text, workspace_zone
 from ..model import Card, CardStage, minutes_label
 from ..use_cases import (
@@ -152,6 +153,8 @@ async def _on_choices(context: CallbackContext) -> None:
 
 async def _on_set_field(context: CallbackContext) -> None:
     async with context.sessions() as session:
+        if context.payload["field"] == "effort_points" and not await effort_tracking_on(session):
+            raise DomainError("Effort Points are off. Turn them on in the Profile to estimate load.")
         await update_card_fields(
             session,
             context.payload["id"],

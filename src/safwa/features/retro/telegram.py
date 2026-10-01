@@ -38,6 +38,7 @@ from ...foundation.workspace import Workspace
 from ..cards.api import effort_label, minutes_label
 from ..planning.closing import Bucket, RetroStatistics
 from ..planning.model import Sprint
+from ..profile.api import effort_tracking_on
 from .records import ended_sprints
 from .use_cases import analysis_input, mark_criterion, record_analysis, require_ended_sprint
 
@@ -52,26 +53,36 @@ _THEN = {None: "not marked", True: "met", False: "not met"}
 _TREND = {"up": "▲", "down": "▼", "flat": "●", "unclear": "◌"}
 
 
-def retro_text(sprint: Sprint, statistics: RetroStatistics) -> str:
+def retro_text(sprint: Sprint, statistics: RetroStatistics, *, effort_tracking: bool = False) -> str:
     lines = [
         f"<b>Sprint {sprint.number} retro</b>",
         f"{sprint.planned_start_date} – {sprint.planned_end_date}",
         f"Success criteria: {html.escape(sprint.success_criteria)}",
         f"Met: {_MET[sprint.criterion_met]}",
         "",
-        "<b>Effort</b>",
-        f"Taken {effort_label(statistics.taken)} EP, finished "
-        f"{effort_label(statistics.done)} EP ({statistics.done_share}%)",
-        f"Initial plan {effort_label(statistics.initial)} EP, added "
-        f"{effort_label(statistics.added)} EP, taken out {effort_label(statistics.removed)} EP",
-        "",
+    ]
+    if effort_tracking:
+        share = f" ({statistics.done_share}%)" if not statistics.unestimated else ""
+        lines.extend([
+            "<b>Effort</b>",
+            f"Taken {effort_label(statistics.taken)} EP, finished "
+            f"{effort_label(statistics.done)} EP{share}",
+            f"Initial plan {effort_label(statistics.initial)} EP, added "
+            f"{effort_label(statistics.added)} EP, taken out {effort_label(statistics.removed)} EP",
+        ])
+        if statistics.unestimated:
+            lines.append(f"{statistics.unestimated} Actions have no estimate. These EP totals are partial.")
+        lines.append("")
+    lines.extend([
         "<b>Actions</b>",
+        f"Taken {statistics.planned} Actions",
         f"Finished {statistics.finished}, remaining {statistics.remaining}, "
         f"of them blocked {statistics.blocked}",
         "",
-        *(time_lines(statistics) if statistics.time_tracking else ()),
+        *(time_lines(statistics, effort_tracking=effort_tracking and not statistics.unestimated)
+          if statistics.time_tracking else ()),
         "<b>Checks on a Value</b>",
-    ]
+    ])
     if statistics.series:
         lines.extend(
             f"{html.escape(tally.title)} ({html.escape(', '.join(tally.values))}): "
@@ -87,22 +98,22 @@ def _per_hour(effort: float, minutes: int) -> str:
     return f"{effort / (minutes / 60):.1f}"
 
 
-def _bucket_lines(kind: str, buckets: dict[str, Bucket]) -> list[str]:
+def _bucket_lines(kind: str, buckets: dict[str, Bucket], *, effort_tracking: bool) -> list[str]:
     """Each Category or Energy type with a time, the most time first."""
     timed = sorted(
         ((name, bucket) for name, bucket in buckets.items() if bucket.timed_count),
         key=lambda pair: -pair[1].minutes,
     )
     whole = sum(bucket.minutes for _, bucket in timed)
-    return [f"By {kind}: time · share · per Action · EP an hour"] + [
+    return [f"By {kind}: time · share · per Action" + (" · EP an hour" if effort_tracking else "")] + [
         f"{name} {minutes_label(bucket.minutes)} · {round(100 * bucket.minutes / whole)}% · "
-        f"{minutes_label(round(bucket.minutes / bucket.timed_count))} · "
-        f"{_per_hour(bucket.timed_effort, bucket.minutes)}"
+        f"{minutes_label(round(bucket.minutes / bucket.timed_count))}"
+        + (f" · {_per_hour(bucket.timed_effort, bucket.minutes)}" if effort_tracking else "")
         for name, bucket in timed
     ]
 
 
-def time_lines(statistics: RetroStatistics) -> list[str]:
+def time_lines(statistics: RetroStatistics, *, effort_tracking: bool = False) -> list[str]:
     """The Time section of a Sprint closed with Time tracking on; every average is over the
     finished Actions that carry a time."""
     lines = ["<b>Time</b>"]
@@ -120,11 +131,12 @@ def time_lines(statistics: RetroStatistics) -> list[str]:
         )
     lines += [
         tracked,
-        f"{_per_hour(statistics.timed_effort, statistics.minutes)} EP an hour; recorded on "
-        f"{statistics.timed} of {statistics.finished} finished Actions "
+        (f"{_per_hour(statistics.timed_effort, statistics.minutes)} EP an hour; recorded on "
+         if effort_tracking else "Time recorded on ")
+        + f"{statistics.timed} of {statistics.finished} finished Actions "
         f"({round(100 * statistics.timed / statistics.finished)}%)",
-        *_bucket_lines("Category", statistics.by_category),
-        *_bucket_lines("Energy type", statistics.by_energy),
+        *_bucket_lines("Category", statistics.by_category, effort_tracking=effort_tracking),
+        *_bucket_lines("Energy type", statistics.by_energy, effort_tracking=effort_tracking),
         "Longest: "
         + ", ".join(
             f"«{html.escape(action.title)}» {minutes_label(action.minutes)}"
@@ -245,7 +257,10 @@ async def render_retro(
     is nothing on it to tap. `page` is the list page it was opened from, if it was."""
     async with services.sessions() as session:
         sprint = await require_ended_sprint(session, sprint_id)
-        text = retro_text(sprint, RetroStatistics.from_record(sprint.retro))
+        text = retro_text(
+            sprint, RetroStatistics.from_record(sprint.retro),
+            effort_tracking=await effort_tracking_on(session),
+        )
         rows = await _retro_buttons(session, services, sprint, page) if buttons else []
         await session.commit()
     await send_registered(

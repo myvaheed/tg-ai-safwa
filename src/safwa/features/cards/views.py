@@ -38,7 +38,9 @@ AI_CARDS = SqlView(
                  || CASE WHEN c.archived_at IS NULL THEN '' ELSE '{ARCHIVE_MARKER}' END AS title,
                c.note, c.kind, c.effective_stage AS stage, c.priority,
                c.hard_time_at, c.hard_time_description, c.blocked, c.blocked_description,
-               c.effort_points, c.tracked_mins, c.repeatable, c.parent_id,
+               CASE WHEN (SELECT effort_tracking FROM user_profile WHERE id=1)
+                    THEN c.effort_points END AS effort_points,
+               c.tracked_mins, c.repeatable, c.parent_id,
                COALESCE(c.repeat_series_id, c.id) AS series_id,
                (SELECT group_concat(cc.category, ',') FROM card_categories cc
                 WHERE cc.card_id=c.id) AS categories,
@@ -54,7 +56,7 @@ AI_CARDS = SqlView(
   - `kind` goal | subgoal | action
   - `stage` backlog | sprint | today | done
   - `priority` critical | medium | low
-  - `effort_points` 0.5 | 1 | 2 | 3 | 5 | 8 | 13, what one action costs the user
+  - `effort_points` 0.5 | 1 | 2 | 3 | 5 | 8 | 13, what one action costs the user; NULL when unestimated or Effort Points are off
   - `tracked_mins` is the minutes the user spent on an action, NULL when not recorded
   - on a goal or a subgoal, `stage`, `blocked`, `effort_points` and `tracked_mins` are what the cards under it add up to
   - to total effort or time always add `WHERE kind = 'action'`, or each action is counted again inside every parent

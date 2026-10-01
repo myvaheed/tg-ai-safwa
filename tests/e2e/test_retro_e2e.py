@@ -63,6 +63,9 @@ async def _three_ended(harness) -> list[Sprint]:
 
 async def test_rt_ask_013_totals_and_averages_come_from_the_code(e2e_harness):
     """RT-ASK-013 — tests/brd/retro.feature"""
+    async with e2e_harness.sessions() as session:
+        await set_profile_field(session, ProfileField.EFFORT_TRACKING, True)
+        await session.commit()
     *ended, running = await _three_ended(e2e_harness)
     numbers = [sprint.number for sprint in ended]
     words = (

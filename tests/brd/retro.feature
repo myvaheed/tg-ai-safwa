@@ -22,7 +22,7 @@ Feature: Retro
 
   Scenario: RT-STATS-003 — The retro adds the Sprint up from its own record
     Given the Sprint's commitments, the Actions they name, and the Checks tied to a Value
-    Then the screen shows the effort taken into the Sprint — the initial plan and what was added along the way together — and the effort finished, with the finished share in whole percent
+    Then with Effort Points on, the screen shows the effort taken into the Sprint — the initial plan and what was added along the way together — and the effort finished, with the finished share in whole percent when every Action was estimated
     And of the effort taken: the initial plan, what was added, and what was taken back out
     And how many Actions finished, how many remain in the Sprint, and how many of those are blocked; an Action taken out is in none of the three
     And for each Check series tied to a Value, answered while the Sprint ran: Passed and Missed counts, by the Check's title and its Values
@@ -121,8 +121,9 @@ Feature: Retro
     Given a Sprint that ended while Time tracking was on
     Then its retro screen has a Time section after the Actions, whether Time tracking is on or off now
     And it shows the time in all, a day on average over the Sprint's days, and that day as a share of the active day
-    And the effort points an hour, and how many of the finished Actions carry a time out of all of them
-    And for each Category and each Energy type with a time: the time, its share of the time, the time per Action and the effort points an hour
+    And with Effort Points on and all Actions estimated, the effort points an hour, and always how many of the finished Actions carry a time out of all of them
+    And for each Category and each Energy type with a time: the time, its share of the time and the time per Action
+    And with Effort Points on and all Actions estimated, those rows also show effort points an hour
     And the 3 longest Actions by title and time
     And every average and every rate is over the Actions that carry a time
     And a Sprint that ended while Time tracking was off has no Time section
@@ -168,3 +169,12 @@ Feature: Retro
     Given the owner names an ended Sprint by its number or by a date in it
     When they ask to see its retro
     Then its retro screen arrives after Safwa's words, as it does from the link (RT-OPEN-002)
+
+  Scenario: RT-EP-016 — A retro distinguishes missing estimates from zero effort
+    Given a Sprint ended with both estimated and unestimated Actions
+    Then its record keeps the estimates it had when each Action joined and counts the missing ones
+    And later estimates change neither that record nor its counts
+    With Effort Points off, the retro screen, records read in words and AI analysis use Action counts and hide EP and capacity
+    With Effort Points on, the screen names partial totals and missing estimates, with no effort percentage or EP per hour
+    And incomplete Sprints are left out of effort averages, with the number of included Sprints stated
+    And time and Action counts are available in either mode

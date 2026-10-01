@@ -24,6 +24,7 @@ from tg_agent_shell.telegram import (
 
 from ....foundation.workspace import Workspace
 from ...planning.api import today_actions
+from ...profile.api import effort_tracking_on
 from ..api import actions_on_stages, list_order
 from ..hard_time import workspace_zone
 from ..hierarchy import card_children
@@ -43,6 +44,7 @@ async def card_list_rows(
     """One Card list: the page, its plain-text lines, and one full-width button per Card."""
     tz = await workspace_zone(session)
     current = paginate(cards, page)
+    effort_tracking = await effort_tracking_on(session)
     back = {**back, "page": current.index}
     rows: list[list[InlineKeyboardButton]] = []
     descriptions: list[str] = []
@@ -50,8 +52,9 @@ async def card_list_rows(
         metadata = [
             kind_label(card.kind),
             card.priority.title(),
-            f"{effort_label(card.effort_points)} EP",
         ]
+        if effort_tracking:
+            metadata.append(f"{effort_label(card.effort_points)} EP")
         if card.hard_time_at is not None:
             metadata.append(f"⏱ {card.hard_time_at.astimezone(tz):%d.%m %H:%M}")
         if card.repeatable:

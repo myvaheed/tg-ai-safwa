@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...foundation.workspace import require_workspace
 from ..planning.closing import RetroStatistics
 from ..planning.model import Sprint
+from ..profile.api import effort_tracking_on
 
 # How many Sprints one read of whole records may name; a sum or a mean takes any number.
 RETRO_DATA_MAX = 6
@@ -59,7 +60,7 @@ async def ended_sprints(session: AsyncSession, limit: int | None = None) -> list
     return list(await session.scalars(query if limit is None else query.limit(limit)))
 
 
-def sprint_record(sprint: Sprint) -> dict[str, Any]:
+def sprint_record(sprint: Sprint, *, effort_tracking: bool = False) -> dict[str, Any]:
     """One ended Sprint as the model reads it: what its retro screen shows, without the
     rows by day."""
     statistics = RetroStatistics.from_record(sprint.retro)
@@ -74,22 +75,25 @@ def sprint_record(sprint: Sprint) -> dict[str, Any]:
         else "the user finished it",
         "success_criteria": sprint.success_criteria,
         "criteria_met": _MET[sprint.criterion_met],
-        "effort_taken": statistics.taken,
-        "effort_done": statistics.done,
-        "done_share_percent": statistics.done_share,
-        "effort_initial": statistics.initial,
-        "effort_added": statistics.added,
-        "effort_removed": statistics.removed,
         "actions_taken": statistics.planned,
         "actions_finished": statistics.finished,
         "actions_remaining": statistics.remaining,
         "actions_blocked": statistics.blocked,
         "key_actions": statistics.key_total,
         "key_actions_finished": statistics.key_finished,
-        "capacity": sprint.capacity_effort_points
-        if sprint.capacity_effort_points is not None
-        else "off",
     }
+    if effort_tracking:
+        record["unestimated_actions"] = statistics.unestimated
+        record["capacity"] = sprint.capacity_effort_points if sprint.capacity_effort_points is not None else "off"
+        if not statistics.unestimated:
+            record.update(
+                effort_taken=statistics.taken, effort_done=statistics.done,
+                done_share_percent=statistics.done_share,
+                effort_initial=statistics.initial, effort_added=statistics.added,
+                effort_removed=statistics.removed,
+            )
+        else:
+            record["effort"] = "Not fully estimated; use Action counts."
     if statistics.time_tracking:
         record["tracked_minutes"] = statistics.minutes
         record["actions_with_time"] = statistics.timed
@@ -117,6 +121,7 @@ async def records_by_number(
         for sprint in await session.scalars(select(Sprint).where(Sprint.number.in_(wanted)))
     }
     found: dict[str, dict[str, Any]] = {}
+    effort_tracking = await effort_tracking_on(session)
     for number in wanted:
         sprint = rows.get(number)
         if sprint is None:
@@ -126,7 +131,7 @@ async def records_by_number(
                 "error": f"Sprint {number} is still running: its retro is written when it ends."
             }
         else:
-            found[number] = sprint_record(sprint)
+            found[number] = sprint_record(sprint, effort_tracking=effort_tracking)
     return found
 
 
@@ -152,15 +157,19 @@ def aggregate(
         values[field] = round(total if op == "sum" else total / len(present), 2)
         if len(present) < len(included):
             counted_over[field] = len(present)
-    taken = sum(record["effort_taken"] for record in included.values())
-    done = sum(record["effort_done"] for record in included.values())
+    estimated = [record for record in included.values() if "effort_taken" in record]
+    taken = sum(record["effort_taken"] for record in estimated)
+    done = sum(record["effort_done"] for record in estimated)
     result: dict[str, Any] = {
         "op": op,
         "sprints": [record["link"] for record in included.values()],
         "sprint_count": len(included),
         "values": values,
-        "done_share_percent": round(100 * done / taken) if taken else 0,
     }
+    if estimated:
+        result["done_share_percent"] = round(100 * done / taken) if taken else 0
+        if len(estimated) < len(included):
+            counted_over["done_share_percent"] = len(estimated)
     if counted_over:
         result["counted_over"] = counted_over
     errors = {number: record["error"] for number, record in records.items() if "error" in record}

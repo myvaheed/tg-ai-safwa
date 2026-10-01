@@ -30,7 +30,7 @@ from tg_agent_shell.hooks.contracts import (
 )
 
 from ..planning.api import SPRINT_STARTED, active_sprint_end_date, sprint_is_active
-from ..profile.api import TIME_TRACKING_REMINDER, morning_time
+from ..profile.api import TIME_TRACKING_REMINDER, TODAY_OVERLOAD, effort_tracking_on, morning_time
 from .api import HARD_TIME_NOTICE_DAYS, PLANNED_STAGES, actions_on_stages
 from .hard_time import workspace_zone
 from .hierarchy import branch_actions
@@ -230,8 +230,11 @@ async def time_tracking_request(session: AsyncSession, items: Sequence[int]) -> 
     )
     if not cards:
         return None
+    effort_tracking = await effort_tracking_on(session)
     lines = "\n".join(
-        f"- #{card.id} «{card.title}» ({effort_label(card.effort_points)} EP)" for card in cards
+        f"- #{card.id} «{card.title}»"
+        + (f" ({effort_label(card.effort_points)} EP)" if effort_tracking else "")
+        for card in cards
     )
     return TIME_TRACKING_REQUEST.format(cards=lines)
 
@@ -261,6 +264,8 @@ async def today_overload_request(
     The day is the workspace's local day, and what it holds is summed now, not when an
     Action entered Today: the ones still open there, and the ones finished today.
     """
+    if not await effort_tracking_on(session):
+        return None
     day_start = await _local_day_start(session, now)
     open_today = list(
         await session.scalars(
@@ -296,7 +301,7 @@ async def today_overload_request(
 
 
 TODAY_OVERLOAD_HOOK = HookSpec(
-    name="cards.today_overload",
+    name=TODAY_OVERLOAD,
     owner="cards",
     on=(OnCommitted(kind=CARD_TODAY),),
     evaluate=entered_today,

@@ -18,6 +18,7 @@ from tg_agent_shell.foundation.errors import DomainError
 from ..diary.model import DiaryEntry
 from ..planning.closing import RetroStatistics
 from ..planning.model import Sprint
+from ..profile.api import effort_tracking_on
 
 # How many of the Sprints that ended before this one the analysis compares it with.
 RETRO_SPRINTS_BEFORE = 2
@@ -52,6 +53,7 @@ class AnalysisInput:
 
     sprints: tuple[SprintColumn, ...]
     diary: dict[date, DiaryDay]
+    effort_tracking: bool = False
 
     @property
     def sprint(self) -> SprintColumn:
@@ -99,7 +101,7 @@ async def analysis_input(session: AsyncSession, sprint_id: int) -> AnalysisInput
         day: DiaryDay(day=day, score=entry.feeling_score, body=entry.body or "")
         for day, entry in (await diary_between(session, this.first, this.last)).items()
     }
-    return AnalysisInput(sprints=columns, diary=diary)
+    return AnalysisInput(sprints=columns, diary=diary, effort_tracking=await effort_tracking_on(session))
 
 
 def _column(sprint: Sprint) -> SprintColumn:

@@ -310,11 +310,10 @@ async def test_cd_field_007_a_proposal_drops_them_and_refuses_a_change_that_was_
             )
 
 
-async def test_cd_effort_008_an_action_needs_a_size_from_the_one_scale(sessions):
+async def test_cd_effort_008_an_actions_optional_size_uses_the_one_scale(sessions):
     """CD-EFFORT-008 — tests/brd/cards.feature"""
     async with sessions() as session:
-        with pytest.raises(DomainError, match="effort points"):
-            await create_card(session, kind="action", title="Run")
+        assert (await create_card(session, kind="action", title="Run")).effort_points is None
         off_the_scale = max(EFFORT_POINTS) - 1
         assert off_the_scale not in EFFORT_POINTS
         with pytest.raises(DomainError, match="effort points"):
@@ -1303,6 +1302,7 @@ async def test_goal_progress_is_recursive_but_children_count_is_direct(sessions)
             "completed_effort": 3,
             "completed_children": 0,
             "total_children": 2,
+            "unestimated_actions": 0,
         }
         # The branch total is the Card's own effort now, so a query reads it too.
         assert (await session.get(Card, goal.id)).effort_points == 8
@@ -1519,7 +1519,7 @@ async def test_cd_today_036_entering_today_is_the_change_a_hook_follows_up(sessi
         await session.commit()
 
 
-async def test_cd_today_036_the_request_sums_the_day_as_it_is_about_to_be_said(sessions):
+async def test_cd_today_036_the_request_sums_the_day_as_it_is_about_to_be_said(sessions, effort_on):
     """CD-TODAY-036 — tests/brd/cards.feature"""
     assert TODAY_OVERLOAD_HOOK.agent_related
     assert TODAY_OVERLOAD_HOOK.on == (OnCommitted(kind=CARD_TODAY),)

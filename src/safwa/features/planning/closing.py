@@ -117,6 +117,7 @@ class RetroStatistics:
     timed: int = 0
     timed_effort: float = 0.0
     longest: tuple[TimedAction, ...] = ()
+    unestimated: int = 0
 
     @property
     def day_share(self) -> int | None:
@@ -212,7 +213,8 @@ async def sprint_closing(
         active_day_minutes=await active_day_minutes(session) if tracking else 0,
         minutes=sum(minutes.values()),
         timed=len(timed),
-        timed_effort=sum(effort_of[card_id] for card_id in minutes),
+        timed_effort=sum(effort_of[card_id] or 0 for card_id in minutes),
+        unestimated=sum(item.effort_snapshot is None for item in commitments),
         longest=tuple(TimedAction(title, spent) for _, title, spent in timed[:LONGEST_SHOWN]),
     )
 
@@ -269,11 +271,11 @@ def _buckets(
     for item in commitments:
         spent = minutes.get(item.card_id)
         for name in labelled[item.card_id]:
-            sums[name].update(effort=item.effort_snapshot, count=1)
+            sums[name].update(effort=item.effort_snapshot or 0, count=1)
             if item.result == CardStage.DONE.value:
-                sums[name].update(done_effort=item.effort_snapshot, done_count=1)
+                sums[name].update(done_effort=item.effort_snapshot or 0, done_count=1)
             if spent is not None:
-                sums[name].update(minutes=spent, timed_count=1, timed_effort=item.effort_snapshot)
+                sums[name].update(minutes=spent, timed_count=1, timed_effort=item.effort_snapshot or 0)
     return {name: Bucket(**tally) for name, tally in sums.items()}
 
 

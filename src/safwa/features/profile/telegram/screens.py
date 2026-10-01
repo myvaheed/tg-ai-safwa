@@ -34,7 +34,7 @@ from ....constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ....features.cards.api import effort_label
 from ....foundation.workspace import Workspace
 from ...reminders.api import parse_clock
-from ..api import TIME_TRACKING_REMINDER, set_hook_switch
+from ..api import EFFORT_TRACKING_HOOKS, TIME_TRACKING_REMINDER, set_hook_switch
 from ..model import (
     HOME_AFTER_MINUTES_MAX,
     HOME_AFTER_MINUTES_MIN,
@@ -181,16 +181,21 @@ PROFILE_FIELDS: dict[str, EditableField] = {
 
 
 def _visible_switches(profile: UserProfile, services: Services) -> tuple[HookSpec, ...]:
-    """The switches the screen offers: the Time tracking reminder only while Time tracking is on."""
+    """Show feature-dependent hooks only while their Profile feature is on."""
     return tuple(
         hook
         for hook in services.hooks.agent_related
         if profile.time_tracking or hook.name != TIME_TRACKING_REMINDER
+        if profile.effort_tracking or hook.name not in EFFORT_TRACKING_HOOKS
     )
 
 
 def _time_tracking_label(profile: UserProfile) -> str:
     return f"⌛ Time tracking: {'on' if profile.time_tracking else 'off'}"
+
+
+def _effort_tracking_label(profile: UserProfile) -> str:
+    return f"🔢 Effort Points: {'on' if profile.effort_tracking else 'off'}"
 
 
 def _switch_state(profile: UserProfile, hook: HookSpec) -> str:
@@ -210,8 +215,14 @@ def profile_text(profile: UserProfile, timezone: str) -> str:
         f"Advisor instructions: {html.escape(profile.advisor_instructions or '—')}",
     ]
     for name, field in PROFILE_FIELDS.items():
+        if name == "capacity_effort_points" and not profile.effort_tracking:
+            continue
         lines.append(f"{field.title}: {html.escape(field.show(getattr(profile, name)))}")
     lines.append(f"Timezone: {html.escape(timezone)}")
+    lines.append(
+        f"Effort Points: {'on' if profile.effort_tracking else 'off'} — optional estimates "
+        "of Action load, Sprint capacity and Today overload warnings."
+    )
     lines.append(
         f"Time tracking: {'on' if profile.time_tracking else 'off'} — records the time an "
         f"Action took; your active day runs from the Morning time to the Diary time, "
@@ -235,6 +246,8 @@ async def command_profile(
             raise DomainError("Workspace is not initialized")
         buttons = []
         for name, field in PROFILE_FIELDS.items():
+            if name == "capacity_effort_points" and not profile.effort_tracking:
+                continue
             buttons.append(
                 await token_button(
                     session, services.owner_id, field.label, "profile_edit", {"field": name}
@@ -246,6 +259,12 @@ async def command_profile(
             await token_button(
                 session, services.owner_id, _time_tracking_label(profile),
                 "profile_time_tracking", {},
+            )
+        ])
+        rows.append([
+            await token_button(
+                session, services.owner_id, _effort_tracking_label(profile),
+                "profile_effort_tracking", {},
             )
         ])
         rows.append([
@@ -441,6 +460,21 @@ async def _on_back(context: CallbackContext) -> None:
     await command_profile(context.message, context.services)
 
 
+async def _on_effort_tracking(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        profile = await session.get(UserProfile, 1)
+        if profile is None:
+            raise DomainError("Workspace is not initialized")
+        on = not profile.effort_tracking
+        await set_profile_field(session, ProfileField.EFFORT_TRACKING, on)
+        await session.commit()
+    await command_profile(
+        context.message, context.services,
+        notice=f"Effort Points switched {'on' if on else 'off'}.",
+        replace_message_id=context.message.message_id,
+    )
+
+
 PROFILE_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "profile_edit": _on_edit,
     "profile_hooks": _on_hooks,
@@ -448,5 +482,6 @@ PROFILE_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "profile_hooks_back": _on_hooks_back,
     "profile_switch": _on_switch,
     "profile_time_tracking": _on_time_tracking,
+    "profile_effort_tracking": _on_effort_tracking,
     "profile_back": _on_back,
 }

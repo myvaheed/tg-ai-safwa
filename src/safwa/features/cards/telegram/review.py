@@ -29,6 +29,7 @@ from tg_agent_shell.proposals.render import (
     result_value,
 )
 
+from ...profile.api import effort_tracking_on
 from ...tags.model import CardTag
 from ...values.model import CardValue
 from ..hard_time import hard_time_text, workspace_zone
@@ -433,6 +434,9 @@ class CardProposalPresenter:
         return ProposalScreen(
             mode="Create" if creating else "Edit",
             item="Card",
-            blocks=(card_overview_text(display, heading="Card overview"),),
+            blocks=(card_overview_text(
+                display, heading="Card overview",
+                effort_tracking=await effort_tracking_on(session),
+            ),),
             diffs=tuple(diffs),
         )

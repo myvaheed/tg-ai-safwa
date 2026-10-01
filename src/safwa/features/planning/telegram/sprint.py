@@ -39,8 +39,8 @@ from tg_agent_shell.telegram.contributions import TextInputFlow
 from ....foundation.workspace import Workspace
 from ...cards.api import CardStage, actions_on_stages, effort_label, list_order
 from ...cards.model import Card
-from ...profile.api import capacity_effort_points
-from ..api import sprint_day, sprint_metrics, today_actions
+from ...profile.api import capacity_effort_points, effort_tracking_on
+from ..api import sprint_counts, sprint_day, sprint_metrics, today_actions
 from ..model import Sprint, SprintCommitment
 from ..use_cases import set_sprint_success_criteria, sprint_length_days
 
@@ -69,6 +69,8 @@ async def render_sprint(
     async with services.sessions() as session:
         sprint = await session.get(Sprint, active_sprint_id)
         metrics = await sprint_metrics(session, sprint.id)
+        counts = await sprint_counts(session, sprint.id)
+        effort_tracking = await effort_tracking_on(session)
         remaining = sorted(await actions_on_stages(session, CardStage.SPRINT), key=list_order)
         today = await today_actions(session)
         done = sorted(
@@ -97,7 +99,9 @@ async def render_sprint(
         descriptions = []
         for card in shown.items:
             mark = "✓" if view == "done" else "⛔" if card.blocked else "•"
-            line = f"{mark} {html.escape(card.title)} · {effort_label(card.effort_points)} EP"
+            line = f"{mark} {html.escape(card.title)}"
+            if effort_tracking:
+                line += f" · {effort_label(card.effort_points)} EP"
             if view == "blocked":
                 line += f"\n<i>Reason: {html.escape(card.blocked_description)}</i>"
             descriptions.append(line)
@@ -117,12 +121,19 @@ async def render_sprint(
         local_today = utcnow().astimezone(ZoneInfo(workspace.timezone)).date()
         day, length = sprint_day(sprint, local_today)
         page_label = f" · {shown.label}" if shown.count > 1 else ""
+        totals = (
+            f"Taken <b>{effort_label(metrics['committed'] + metrics['added'])} EP</b> · "
+            f"Done <b>{effort_label(metrics['completed'])} EP</b>"
+            + (f"\n{counts['unestimated']} Actions have no estimate." if counts['unestimated'] else "")
+            if effort_tracking else
+            f"Taken <b>{counts['committed'] + counts['added']} Actions</b> · "
+            f"Done <b>{counts['completed']} Actions</b>"
+        )
         block = (
             f"<b>Sprint {sprint.number}</b>\n"
             f"{sprint.planned_start_date:%d.%m} – {sprint.planned_end_date:%d.%m} · Day {day} of {length}\n\n"
             f"<b>Success criteria:</b> {html.escape(sprint.success_criteria)}\n\n"
-            f"Taken <b>{effort_label(metrics['committed'] + metrics['added'])} EP</b> · "
-            f"Done <b>{effort_label(metrics['completed'])} EP</b>\n\n"
+            f"{totals}\n\n"
             f"<b>{label} · {len(cards)}</b>{page_label}\n"
             + ("\n".join(descriptions) or empty)
         )
@@ -180,6 +191,7 @@ async def _render_planning(
     async with services.sessions() as session:
         workspace = await session.get(Workspace, 1)
         capacity = await capacity_effort_points(session)
+        effort_tracking = await effort_tracking_on(session)
         length = await sprint_length_days(session)
         planned = await actions_on_stages(session, CardStage.SPRINT, CardStage.TODAY)
         criteria = (workspace.sprint_success_criteria or "").strip() if workspace else ""
@@ -207,7 +219,7 @@ async def _render_planning(
             )
         rows.append(menu_row())
         await session.commit()
-    cost, warning = plan_cost(planned, capacity)
+    cost, warning = plan_cost(planned, capacity, effort_tracking=effort_tracking)
     text = with_notice(
         "<b>Planning</b>\n"
         f"Success criteria: {html.escape(criteria) if criteria else 'not set yet'}\n"
@@ -228,17 +240,24 @@ async def _render_planning(
         await send_registered(message, services, text, kind=MessageKind.DASHBOARD, markup=markup)
 
 
-def plan_cost(planned: list[Card], capacity: float | None) -> tuple[str, str]:
+def plan_cost(
+    planned: list[Card], capacity: float | None, *, effort_tracking: bool = False
+) -> tuple[str, str]:
     """What the plan costs and, beside it, the capacity the owner set for a Sprint.
 
     Written once because both screens that show the plan's total show it against the same
     number, and the warning is advice: nothing about it stops a Sprint from starting.
     """
+    if not effort_tracking:
+        return f"{len(planned)} Actions", ""
     effort = sum(card.effort_points or 0 for card in planned)
+    unestimated = sum(card.effort_points is None for card in planned)
     line = (
         f"{len(planned)} Actions · {effort_label(effort)} EP · "
         f"capacity {effort_label(capacity)} EP"
     )
+    if unestimated:
+        line += f" · {unestimated} Actions have no estimate"
     above = (
         f"⚠️ Above configured capacity ({effort_label(capacity)} EP)."
         if capacity and effort > capacity

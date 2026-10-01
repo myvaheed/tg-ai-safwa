@@ -89,7 +89,8 @@ async def test_cd_time_041_an_action_done_by_hand_is_asked_about_and_the_answer_
         prepare=runtime.prepare,
     ) is True
     assert len(said) == 1
-    assert f"#{second_id} «Read the contract» (3 EP)" in said[0]
+    assert f"#{second_id} «Read the contract»" in said[0]
+    assert "EP" not in said[0]
     assert "Write the report" not in said[0]
     assert await _pending(e2e_harness) == []
 

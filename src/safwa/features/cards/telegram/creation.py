@@ -26,6 +26,7 @@ from tg_agent_shell.telegram import (
 from tg_agent_shell.telegram.model import UiSession
 
 from ...home.api import menu_markup
+from ...profile.api import effort_tracking_on
 from ...tags.model import Tag
 from ...values.model import Value
 from ..hard_time import (
@@ -69,12 +70,13 @@ async def card_creation_markup(
         fields.extend(
             [
                 ("🚧 Blocked", "card_create_toggle", {"field": "blocked"}),
-                ("🔢 Effort", "card_create_choose_effort", {}),
                 ("🔁 Repeat", "card_create_toggle", {"field": "repeatable"}),
                 ("🏷 Categories", "card_create_choose_categories", {}),
                 ("⚡ Energy", "card_create_choose_energy", {}),
             ]
         )
+        if await effort_tracking_on(session):
+            fields.append(("🔢 Effort", "card_create_choose_effort", {}))
         if state.get("blocked"):
             fields.append(
                 (
@@ -139,7 +141,9 @@ async def render_card_creation(
             "value_names": [value.name for value in values],
             "tag_names": [tag.name for tag in tags],
         }
-        text = card_overview_text(display, heading="Create Card")
+        text = card_overview_text(
+            display, heading="Create Card", effort_tracking=await effort_tracking_on(session)
+        )
         errors = card_creation_errors(state)
         if errors:
             text += "\n\n" + "\n".join(f"⚠️ {html.escape(error)}" for error in errors)
@@ -251,6 +255,8 @@ async def _on_chooser(context: CallbackContext) -> None:
 
 async def _on_set(context: CallbackContext) -> None:
     async with context.sessions() as session:
+        if context.payload["field"] == "effort_points" and not await effort_tracking_on(session):
+            raise DomainError("Effort Points are off. Turn them on in the Profile to estimate load.")
         draft = await require_card_draft(session, context.owner_id)
         state = dict(draft.state or {})
         state[context.payload["field"]] = context.payload["value"]

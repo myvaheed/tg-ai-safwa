@@ -355,7 +355,7 @@ async def test_pl_end_013_a_midnight_safwa_slept_through_is_made_up_at_startup(s
         assert (await session.get(Workspace, 1)).active_sprint_id == running_id
 
 
-async def test_pl_end_015_an_ended_sprint_is_handed_to_safwa(sessions):
+async def test_pl_end_015_an_ended_sprint_is_handed_to_safwa(sessions, effort_on):
     """PL-END-015 — tests/brd/planning.feature"""
     async with sessions() as session:
         done = await create_card(session, title="Shipped", stage="sprint", effort_points=5)
@@ -444,7 +444,7 @@ async def test_pl_ask_026_the_sprint_is_read_as_it_stands(sessions):
     assert "last day" not in running
 
 
-async def test_pl_capacity_027_a_sprint_keeps_the_capacity_it_started_with(sessions):
+async def test_pl_capacity_027_a_sprint_keeps_the_capacity_it_started_with(sessions, effort_on):
     """PL-CAPACITY-027 — tests/brd/planning.feature"""
     async with sessions() as session:
         await plan_one(session)
@@ -491,7 +491,7 @@ async def test_pl_context_010_safwa_is_handed_the_sprint_and_todays_actions(sess
         assert word not in context.state
 
 
-async def test_pl_context_020_todays_actions_are_handed_over_only_while_a_sprint_runs(sessions):
+async def test_pl_context_020_todays_actions_are_handed_over_only_while_a_sprint_runs(sessions, effort_on):
     """PL-CONTEXT-020 — tests/brd/planning.feature"""
     async with sessions() as session:
         today = await create_card(

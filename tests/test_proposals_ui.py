@@ -63,7 +63,7 @@ async def test_item_proposal_shows_diffs_and_only_save_discard_footer(sessions) 
     assert "↩️ Back" not in buttons
 
 
-async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions) -> None:
+async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions, effort_on) -> None:
     store = ProposalStore()
     async with sessions() as session:
         card = Card(

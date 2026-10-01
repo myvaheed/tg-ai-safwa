@@ -315,7 +315,8 @@ async def test_cd_time_041_the_request_names_what_is_still_done_and_without_a_ti
 
         request = await time_tracking_request(session, [*ids, timed.id])
         assert request is not None
-        assert f"- #{ids[0]} «Write the report» (3 EP)" in request
+        assert f"- #{ids[0]} «Write the report»" in request
+        assert "EP" not in request
         assert "not on its open repeat" in request
         for absent in ("Call the bank", "Fix the bike", "Read the contract", "Renew", "Sign"):
             assert absent not in request
@@ -503,7 +504,7 @@ async def test_rt_time_009_a_sprint_that_ends_with_time_tracking_on_keeps_its_ti
     assert RetroStatistics.from_record(older) == statistics
 
 
-async def test_rt_time_010_the_retro_shows_how_the_sprints_time_went(sessions):
+async def test_rt_time_010_the_retro_shows_how_the_sprints_time_went(sessions, effort_on):
     """RT-TIME-010 — tests/brd/retro.feature"""
     await _track_time(sessions)
     sprint_id = await _sprint(sessions, {**SPENT, "Draft <b>": (15, 1, ("work",))})

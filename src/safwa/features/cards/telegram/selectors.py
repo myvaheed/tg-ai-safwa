@@ -19,6 +19,7 @@ from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.telegram import Page, Services, choice_rows, choice_screen, paginate
 
 from ....constants import SELECTOR_PAGE_SIZE
+from ...profile.api import effort_tracking_on
 from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value
 from ..model import (
@@ -142,9 +143,14 @@ async def _choice_options(session: AsyncSession, field: str) -> list[tuple[str, 
     if field == "priority":
         return [(priority.value.title(), priority.value) for priority in Priority]
     if field == "effort":
+        if not await effort_tracking_on(session):
+            raise DomainError("Effort Points are off. Turn them on in the Profile to estimate load.")
         return [
-            (f"{effort_label(points)} · {meaning}", points)
-            for points, meaning in EFFORT_RUNGS.items()
+            ("No estimate", None),
+            *[
+                (f"{effort_label(points)} · {meaning}", points)
+                for points, meaning in EFFORT_RUNGS.items()
+            ],
         ]
     if field == "categories":
         return [(typed_label(item, CATEGORY_EMOJIS), item.value) for item in Category]

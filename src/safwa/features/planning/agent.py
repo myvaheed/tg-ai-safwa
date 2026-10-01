@@ -22,14 +22,14 @@ from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
 from ...constants import WEEKDAY_NAMES
 from ...foundation.workspace import require_workspace
 from ..cards.api import CardStage, actions_on_stages, effort_label
-from ..profile.api import capacity_effort_points, sprint_length_days
-from .api import sprint_day, sprint_metrics, start_refusal
+from ..profile.api import capacity_effort_points, effort_tracking_on, sprint_length_days
+from .api import sprint_counts, sprint_day, sprint_metrics, start_refusal
 from .model import Sprint
 
 SPRINT_PROMPT = """You run the user's Sprint: you start it, finish it, and write the next Sprint's Success criteria. You also answer questions about the Sprint.
 
 # What you know
-The last message lists the Sprint as it stands now: the mode, its days, its effort, the capacity and the Profile's Sprint length.
+The last message lists the Sprint as it stands now: the mode, its days, its Actions, its effort and capacity while Effort Points are on, and the Profile's Sprint length.
 Answer a question about the Sprint from that message: its dates, its length, which day it is, how many days are left.
 Read the Actions with `query_data` only when the question is about them.
 
@@ -65,6 +65,7 @@ async def sprint_now(context: AgentContext) -> str:
         now = utcnow().astimezone(tz)
         today = now.date()
         length = await sprint_length_days(session)
+        effort_tracking = await effort_tracking_on(session)
         lines = [
             f"Today is {today.isoformat()} ({WEEKDAY_NAMES[today.weekday()]}), local time "
             f"now {now:%H:%M}, timezone {workspace.timezone}."
@@ -83,14 +84,18 @@ async def sprint_now(context: AgentContext) -> str:
             lines += [
                 "Mode: Planning. No Sprint is running.",
                 f"Next Sprint's Success criteria: {criteria or 'not written yet'}",
-                f"Planned: {len(planned)} Actions, {effort_label(effort)} EP. "
-                f"Capacity: {_capacity(capacity)}.",
+                f"Planned: {len(planned)} Actions."
+                + (f" Estimated load: {effort_label(effort)} EP. Capacity: {_capacity(capacity)}. "
+                   f"Unestimated Actions: {sum(card.effort_points is None for card in planned)}."
+                   if effort_tracking else ""),
                 f"Sprint length in the Profile: {length} days. Started today, the Sprint "
                 f"runs {today.isoformat()} – {(today + timedelta(days=length - 1)).isoformat()}.",
                 "It can start now." if refusal is None else f"It cannot start now: {refusal}.",
             ]
             return "\n".join(lines)
-        metrics = await sprint_metrics(session, sprint.id)
+        counts = await sprint_counts(session, sprint.id)
+        metrics = await sprint_metrics(session, sprint.id) if effort_tracking else counts
+        unit = "EP" if effort_tracking else "Actions"
         day, days = sprint_day(sprint, today)
         left = days - day
         lines += [
@@ -99,9 +104,9 @@ async def sprint_now(context: AgentContext) -> str:
             f"Today is day {day} of {days}. Days left after today: {max(left, 0)}."
             + (" Today is its last day." if left == 0 else ""),
             f"Success criteria: {sprint.success_criteria}",
-            "Effort: "
+            ("Effort: " if effort_tracking else "Actions: ")
             + ", ".join(
-                f"{name} {effort_label(metrics[key])} EP"
+                f"{name} {effort_label(metrics[key])} {unit}"
                 for name, key in (
                     ("committed", "committed"),
                     ("added", "added"),
@@ -110,7 +115,8 @@ async def sprint_now(context: AgentContext) -> str:
                 )
             )
             + ".",
-            f"Capacity it started with: {_capacity(sprint.capacity_effort_points)}.",
+            *([f"Capacity it started with: {_capacity(sprint.capacity_effort_points)}.",
+               f"Unestimated Actions: {counts['unestimated']}."] if effort_tracking else []),
             f"Sprint length in the Profile, for the next Sprint: {length} days.",
         ]
         return "\n".join(lines)

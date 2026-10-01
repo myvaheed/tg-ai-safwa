@@ -33,6 +33,7 @@ Answer a question about the Profile from that message.
 - `sprint_length_days` and `home_after_minutes` are whole numbers.
 - `capacity_effort_points` is a number of effort points; null turns the capacity off.
 - `time_tracking` is true or false.
+- `effort_tracking` is true or false; it switches Effort Points and their capacity warnings.
 - A text field is replaced whole. To add to it, write the text it holds now, then the new words.
 - Write one short line naming what you propose, in the same response. The review screen shows the rest.
 
@@ -48,7 +49,7 @@ def _shown(profile: UserProfile, field: ProfileField) -> str:
     value = getattr(profile, field.value)
     if field is ProfileField.CAPACITY_EFFORT_POINTS:
         return "off" if value is None else f"{value:g}"
-    if field is ProfileField.TIME_TRACKING:
+    if field in {ProfileField.TIME_TRACKING, ProfileField.EFFORT_TRACKING}:
         return "on" if value else "off"
     if hasattr(value, "strftime"):
         return value.strftime("%H:%M")
@@ -79,7 +80,7 @@ PROFILE_AGENT = AgentSpec(
     purpose=(
         "change a Profile field or answer what it holds: About me, Advisor instructions, "
         "Sprint length and capacity, the Morning, Diary and daily summary times, the Diary "
-        "instruction, Home after, Time tracking; or asks to switch an automatic reaction."
+        "instruction, Home after, Time tracking, Effort Points; or asks to switch an automatic reaction."
     ),
     instructions=PROFILE_PROMPT,
     mutation_tools=("profile",),
@@ -125,6 +126,9 @@ class ProfileToolInput(ToolInput):
     )
     time_tracking: bool | None = Field(
         default=None, description="Whether the user records the time an Action took."
+    )
+    effort_tracking: bool | None = Field(
+        default=None, description="Whether the user uses Effort Points to estimate load."
     )
 
     @model_validator(mode="after")

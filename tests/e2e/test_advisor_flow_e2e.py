@@ -17,6 +17,8 @@ from safwa.bootstrap.modules import (
 from safwa.features.cards.model import Card, CardCategory, CardEnergyType, CardStage
 from safwa.features.cards.use_cases import finish_action, move_card
 from safwa.features.planning.use_cases import finish_sprint, sprint_metrics, start_sprint
+from safwa.features.profile.model import ProfileField
+from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.values.model import CardValue, Value
 from safwa.features.values.use_cases import create_value
@@ -222,6 +224,7 @@ async def test_ai_card_proposal_reaches_the_sprint_it_was_planned_into(e2e_harne
 
 async def test_ai_read_query_round_trip_uses_safe_view(e2e_harness):
     async with e2e_harness.sessions() as session:
+        await set_profile_field(session, ProfileField.EFFORT_TRACKING, True)
         action = await create_manual_card(
             session,
             title="Prepare release",

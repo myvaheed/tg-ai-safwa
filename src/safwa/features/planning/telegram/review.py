@@ -21,8 +21,8 @@ from tg_agent_shell.proposals.model import ChangeAction
 
 from ....foundation.workspace import Workspace, require_workspace
 from ...cards.api import CardStage, actions_on_stages
-from ...profile.api import capacity_effort_points
-from ..api import sprint_day, sprint_metrics
+from ...profile.api import capacity_effort_points, effort_tracking_on
+from ..api import sprint_counts, sprint_day, sprint_metrics
 from ..model import Sprint
 from ..use_cases import sprint_length_days
 from .sprint import plan_cost
@@ -76,7 +76,10 @@ class SprintProposalPresenter:
         if change.action is ChangeAction.CREATE:
             length = await sprint_length_days(session)
             planned = await actions_on_stages(session, CardStage.SPRINT, CardStage.TODAY)
-            cost, warning = plan_cost(planned, await capacity_effort_points(session))
+            cost, warning = plan_cost(
+                planned, await capacity_effort_points(session),
+                effort_tracking=await effort_tracking_on(session),
+            )
             last = today + timedelta(days=length - 1)
             return ProposalScreen(
                 mode="Start",
@@ -96,7 +99,13 @@ class SprintProposalPresenter:
         if sprint is None:
             return None
         day, days = sprint_day(sprint, today)
-        metrics = await sprint_metrics(session, sprint.id)
+        effort_tracking = await effort_tracking_on(session)
+        counts = await sprint_counts(session, sprint.id)
+        metrics = (await sprint_metrics(session, sprint.id) if effort_tracking
+                   else counts)
+        unit = "EP" if effort_tracking else "Actions"
+        missing = (f"\n{counts['unestimated']} Actions have no estimate. EP totals are partial."
+                   if effort_tracking and counts['unestimated'] else "")
         still_open = await actions_on_stages(session, CardStage.SPRINT, CardStage.TODAY)
         return ProposalScreen(
             mode="Finish",
@@ -104,7 +113,7 @@ class SprintProposalPresenter:
             blocks=(
                 f"{sprint.planned_start_date} – {sprint.planned_end_date}, day {day} of {days}",
                 f"Committed {metrics['committed']} · Added {metrics['added']} · "
-                f"Done {metrics['completed']}",
+                f"Done {metrics['completed']} {unit}" + missing,
                 f"{len(still_open)} Actions are still open. They keep their stage.",
             ),
         )

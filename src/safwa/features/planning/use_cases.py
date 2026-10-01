@@ -24,7 +24,7 @@ from ...foundation.workspace import Workspace, WorkspaceMode, require_workspace
 from ..cards.api import CardStage, action_titles, effort_label, planned_actions
 from ..cards.use_cases import archive_settled_cards
 from ..checks.use_cases import archive_settled_checks
-from ..profile.api import capacity_effort_points
+from ..profile.api import capacity_effort_points, effort_tracking_on
 from ..profile.api import sprint_length_days as _profile_sprint_length_days
 from .api import (
     SPRINT_ENDED,
@@ -97,7 +97,7 @@ async def start_sprint(
             SprintCommitment(
                 sprint_id=sprint.id,
                 card_id=card.id,
-                effort_snapshot=card.effort_points or 0,
+                effort_snapshot=card.effort_points,
                 scope_kind="initial",
             )
         )
@@ -188,12 +188,13 @@ async def sprint_summary(session: AsyncSession, sprint: Sprint) -> str:
     if len(open_titles) > len(shown):
         shown.append(f"and {len(open_titles) - len(shown)} more")
     ended = "the owner closed it" if sprint.finish_reason != "expired" else "its end date passed"
+    effort_tracking = await effort_tracking_on(session)
     return "\n".join(
         [
             f"Sprint {sprint.number} is over, {sprint.planned_start_date} – "
             f"{sprint.planned_end_date}; {ended}.",
             f"Success criteria: {sprint.success_criteria}",
-            "Effort: "
+            *(["Effort: "
             + ", ".join(
                 f"{name} {effort_label(metrics[key])}"
                 for name, key in (
@@ -204,6 +205,8 @@ async def sprint_summary(session: AsyncSession, sprint: Sprint) -> str:
                 )
             )
             + ".",
+            f"Unestimated Actions: {sum(item.effort_snapshot is None for item in commitments)}."]
+            if effort_tracking else []),
             f"Actions: {finished} finished, {len(open_titles)} still open.",
             "Still open: " + (", ".join(shown) if shown else "nothing"),
             "Tell the owner how the Sprint went in a few sentences. Use only the numbers "

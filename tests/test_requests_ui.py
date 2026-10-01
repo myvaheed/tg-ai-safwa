@@ -143,7 +143,7 @@ async def test_deleting_a_request_takes_it_off_every_surface(sessions) -> None:
     screen = FakeMessage(945, bot_message=True)
     await render_plan(screen, services, filters=[request_id])
     labels = button_texts(screen.edits[-1][1])
-    assert "Pick me (1)" in labels and "Skip me (2)" in labels
+    assert "Pick me" in labels and "Skip me" in labels
 
 async def test_sr_ui_013_a_new_workspace_starts_with_one_request_and_a_screen_about_it(
     sessions,

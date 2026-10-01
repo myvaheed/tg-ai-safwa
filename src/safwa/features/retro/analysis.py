@@ -236,12 +236,12 @@ class SprintAnalyst:
             return on_its_days(found, [tally.day for tally, _entry in batch])
 
         answers = await _at_once(
-            overview(overview_text(given.sprints), "the Sprints"),
+            overview(overview_text(given.sprints, effort_tracking=given.effort_tracking), "the Sprints"),
             overview(
-                shares_text(given.sprints, "Category", "Categories", "by_category"), "Categories"
+                shares_text(given.sprints, "Category", "Categories", "by_category", effort_tracking=given.effort_tracking), "Categories"
             ),
             overview(
-                shares_text(given.sprints, "Energy type", "Energy types", "by_energy"),
+                shares_text(given.sprints, "Energy type", "Energy types", "by_energy", effort_tracking=given.effort_tracking),
                 "Energy types",
             ),
             *(days(batch) for batch in batches),
@@ -349,7 +349,7 @@ def _heading(column: SprintColumn, position: int, count: int) -> str:
     )
 
 
-def overview_text(columns: Sequence[SprintColumn]) -> str:
+def overview_text(columns: Sequence[SprintColumn], *, effort_tracking: bool = False) -> str:
     lines = []
     if len(columns) == 1:
         lines.append("No Sprint ended before this one: describe this Sprint on its own.")
@@ -360,8 +360,11 @@ def overview_text(columns: Sequence[SprintColumn]) -> str:
             _heading(column, position, len(columns)),
             f"- Actions: finished {stats.finished} of {stats.planned} taken in; "
             f"{stats.remaining} still open, {stats.blocked} of them blocked",
-            f"- Effort: finished {stats.done:g} of {stats.taken:g} EP ({stats.done_share}%); "
-            f"added {stats.added:g} EP, taken out {stats.removed:g} EP",
+            *([f"- Effort: finished {stats.done:g} of {stats.taken:g} EP ({stats.done_share}%); "
+               f"added {stats.added:g} EP, taken out {stats.removed:g} EP"]
+              if effort_tracking and not stats.unestimated else []),
+            *([f"- {stats.unestimated} Actions have no estimate; compare Action counts."]
+              if effort_tracking and stats.unestimated else []),
             f'- Success criteria: "{column.criteria}" — met: {_met(column.met)}; '
             f"key Actions finished {stats.key_finished} of {stats.key_total}"
             + (
@@ -378,17 +381,24 @@ def overview_text(columns: Sequence[SprintColumn]) -> str:
     return "\n".join(lines)
 
 
-def shares_text(columns: Sequence[SprintColumn], kind: str, kinds: str, buckets: str) -> str:
+def shares_text(
+    columns: Sequence[SprintColumn], kind: str, kinds: str, buckets: str,
+    *, effort_tracking: bool = False,
+) -> str:
     lines = [
-        f"Shares of effort (EP) and of Actions (n) by {kind}: taken into the Sprint, and finished.",
+        f"Shares of {'effort (EP) and of ' if effort_tracking else ''}Actions (n) by {kind}: taken into the Sprint, and finished.",
         f"Within one Sprint the shares of one kind add up to 1.00; an Action with two {kinds} is in both.",
     ]
     for position, column in enumerate(columns):
         stats = column.statistics
         by_bucket: dict[str, Bucket] = getattr(stats, buckets)
+        estimated = effort_tracking and not stats.unestimated
         lines.append(
-            f"{_heading(column, position, len(columns))}: taken in {stats.taken:g} EP, "
-            f"{stats.planned} Actions; finished {stats.done:g} EP, {stats.finished} Actions"
+            f"{_heading(column, position, len(columns))}: taken in "
+            + (f"{stats.taken:g} EP, " if estimated else "")
+            + f"{stats.planned} Actions; finished "
+            + (f"{stats.done:g} EP, " if estimated else "")
+            + f"{stats.finished} Actions"
         )
         sums = [
             sum(bucket.effort for bucket in by_bucket.values()),
@@ -397,9 +407,10 @@ def shares_text(columns: Sequence[SprintColumn], kind: str, kinds: str, buckets:
             sum(bucket.done_count for bucket in by_bucket.values()),
         ]
         for name, bucket in by_bucket.items():
-            taken = f"EP {_share(bucket.effort, sums[0])} n {_share(bucket.count, sums[1])}"
+            taken = (f"EP {_share(bucket.effort, sums[0])} " if estimated else "") + f"n {_share(bucket.count, sums[1])}"
             done = (
-                f"EP {_share(bucket.done_effort, sums[2])} n {_share(bucket.done_count, sums[3])}"
+                (f"EP {_share(bucket.done_effort, sums[2])} " if estimated else "")
+                + f"n {_share(bucket.done_count, sums[3])}"
             )
             lines.append(f"- {name}: taken in {taken} · finished {done}")
     return "\n".join(lines)

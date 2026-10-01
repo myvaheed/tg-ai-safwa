@@ -29,6 +29,8 @@ from .model import (
 # because the Profile decides when it is silent: while Time tracking is off, whatever its
 # own switch says.
 TIME_TRACKING_REMINDER = "cards.time_tracking_reminder"
+TODAY_OVERLOAD = "cards.today_overload"
+EFFORT_TRACKING_HOOKS = frozenset({TODAY_OVERLOAD})
 
 
 async def sprint_length_days(session: AsyncSession) -> int:
@@ -40,7 +42,13 @@ async def sprint_length_days(session: AsyncSession) -> int:
 async def capacity_effort_points(session: AsyncSession) -> float | None:
     """The effort the owner means to take on in a Sprint, or None when it is off."""
     profile = await session.get(UserProfile, 1)
-    return profile.capacity_effort_points if profile is not None else None
+    return profile.capacity_effort_points if profile is not None and profile.effort_tracking else None
+
+
+async def effort_tracking_on(session: AsyncSession) -> bool:
+    """Whether the owner uses Effort Points to estimate load."""
+    profile = await session.get(UserProfile, 1)
+    return profile is not None and profile.effort_tracking
 
 
 async def morning_time(session: AsyncSession) -> time:
@@ -99,6 +107,8 @@ async def hook_switched_on(session: AsyncSession, name: str) -> bool:
     """Whether the owner left the automatic reaction of that name on: the shell's policy."""
     profile = await session.get(UserProfile, 1)
     if name == TIME_TRACKING_REMINDER and (profile is None or not profile.time_tracking):
+        return False
+    if name in EFFORT_TRACKING_HOOKS and (profile is None or not profile.effort_tracking):
         return False
     return profile is None or name not in profile.disabled_hooks
 

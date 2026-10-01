@@ -85,7 +85,7 @@ class SprintCommitment(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     sprint_id: Mapped[int] = mapped_column(ForeignKey("sprints.id", ondelete="CASCADE"), index=True)
     card_id: Mapped[int] = mapped_column(ForeignKey("cards.id", ondelete="CASCADE"), index=True)
-    effort_snapshot: Mapped[float] = mapped_column(Float)
+    effort_snapshot: Mapped[float | None] = mapped_column(Float)
     scope_kind: Mapped[str] = mapped_column(String(20), default="initial")
     added_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     removed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)

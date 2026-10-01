@@ -174,6 +174,11 @@ run; its inline buttons will be stale because the test database is temporary.
 
 ## Bot navigation
 
+Effort Points are optional and off by default. Turn **Effort Points** on in the Profile to
+estimate Action load, configure Sprint capacity and receive Today overload warnings.
+Without them, Sprint and retro use Action counts. Turning them off keeps existing
+estimates and capacity, and Time tracking has its own independent switch.
+
 Use `/start`, `/today`, `/sprint`, `/values`, `/tags`, `/requests`, `/reminders`, `/memory`,
 `/summarize`, `/status`, and `/cancel`. The Backlog and the Profile are menu buttons only.
 

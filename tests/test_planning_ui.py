@@ -37,7 +37,7 @@ from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import UiSession
 
 
-async def test_pl_screen_028_sprint_selectors_redraw_only_the_chosen_list(sessions, monkeypatch):
+async def test_pl_screen_028_sprint_selectors_redraw_only_the_chosen_list(sessions, effort_on, monkeypatch):
     """PL-SCREEN-028 — tests/brd/planning.feature"""
     monkeypatch.setattr(
         "safwa.features.planning.telegram.sprint.utcnow",
@@ -246,7 +246,7 @@ async def test_card_move_buttons_walk_an_action_between_today_and_sprint(session
         assert (await session.get(Card, action_id)).effective_stage == CardStage.TODAY.value
 
 
-async def test_pl_criteria_003_starting_a_sprint_needs_criteria_and_a_plan(sessions) -> None:
+async def test_pl_criteria_003_starting_a_sprint_needs_criteria_and_a_plan(sessions, effort_on) -> None:
     """PL-CRITERIA-003 — tests/brd/planning.feature"""
     async with sessions() as session:
         await create_card(
@@ -327,7 +327,7 @@ async def test_pl_criteria_003_starting_a_sprint_needs_criteria_and_a_plan(sessi
         assert (await session.get(Workspace, 1)).active_sprint_id is None
 
 
-async def test_pl_criteria_003_the_planning_screen_refuses_an_empty_plan(sessions) -> None:
+async def test_pl_criteria_003_the_planning_screen_refuses_an_empty_plan(sessions, effort_on) -> None:
     """PL-CRITERIA-003 — tests/brd/planning.feature"""
     async with sessions() as session:
         await set_sprint_success_criteria(session, "Ship v2")
@@ -342,7 +342,7 @@ async def test_pl_criteria_003_the_planning_screen_refuses_an_empty_plan(session
     assert "🗓 Plan" in button_texts(markup)
 
 
-async def test_pl_plan_016_the_plan_is_a_table_and_the_backlog_is_the_keyboard(sessions):
+async def test_pl_plan_016_the_plan_is_a_table_and_the_backlog_is_the_keyboard(sessions, effort_on):
     """PL-PLAN-016 — tests/brd/planning.feature"""
     ids = await seed_plan(sessions)
     services = services_for(sessions)
@@ -363,7 +363,7 @@ async def test_pl_plan_016_the_plan_is_a_table_and_the_backlog_is_the_keyboard(s
     assert "Apply filter" in " ".join(labels)
 
 
-async def test_tapping_a_backlog_item_plans_it_and_preserves_filters(sessions):
+async def test_tapping_a_backlog_item_plans_it_and_preserves_filters(sessions, effort_on):
     """PL-PLAN-016 — tests/brd/planning.feature"""
     ids = await seed_plan(sessions)
     async with sessions() as session:
@@ -413,7 +413,7 @@ async def test_pl_plan_016_a_return_tap_moves_the_card_back_and_redraws_the_same
     assert "Nothing planned yet." in screen.bot.edits[-1][1]
 
 
-async def test_opening_a_card_from_the_plan_comes_back_to_the_same_page_and_filters(sessions):
+async def test_opening_a_card_from_the_plan_comes_back_to_the_same_page_and_filters(sessions, effort_on):
     ids = await seed_plan(sessions)
     async with sessions() as session:
         request = await create_saved_request(
@@ -468,7 +468,7 @@ async def test_pl_plan_017_a_filter_that_matches_nothing_says_so_instead_of_goin
     assert "Into Sprint" not in " ".join(labels)
 
 
-async def test_pl_plan_017_the_filter_screen_toggles_a_request_on_and_off(sessions) -> None:
+async def test_pl_plan_017_the_filter_screen_toggles_a_request_on_and_off(sessions, effort_on) -> None:
     """PL-PLAN-017 — tests/brd/planning.feature"""
     await seed_plan(sessions)
     async with sessions() as session:
@@ -551,7 +551,7 @@ async def test_pl_plan_019_a_burst_of_link_taps_earns_a_warning(sessions, monkey
     await expiry
 
 
-async def test_pl_plan_018_the_plans_cost_is_shown_against_the_capacity(sessions) -> None:
+async def test_pl_plan_018_the_plans_cost_is_shown_against_the_capacity(sessions, effort_on) -> None:
     """PL-PLAN-018 — tests/brd/planning.feature"""
     async with sessions() as session:
         await (await session.connection()).run_sync(

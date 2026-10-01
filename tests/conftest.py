@@ -84,6 +84,17 @@ async def sessions(tmp_path):
 
 
 @pytest_asyncio.fixture
+async def effort_on(sessions):
+    """A workspace whose owner chose to use Effort Points."""
+    from safwa.features.profile.model import ProfileField
+    from safwa.features.profile.use_cases import set_profile_field
+
+    async with sessions() as session:
+        await set_profile_field(session, ProfileField.EFFORT_TRACKING, True)
+        await session.commit()
+
+
+@pytest_asyncio.fixture
 async def read_views(tmp_path):
     """A workspace on disk plus the `ai_*` views: what a test reads when Safwa reads.
 

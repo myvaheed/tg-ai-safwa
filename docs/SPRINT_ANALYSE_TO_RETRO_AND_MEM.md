@@ -45,6 +45,12 @@ An Action with two Categories is in both buckets whole, and one with none is in 
 share is read against the buckets' own sum and each Sprint's shares add up to 1.00. The effort
 sums are `effort_sums` in `planning/api.py`, the same four the Sprint screen shows while it runs.
 
+Effort Points are optional and off by default. The current Profile switch controls whether
+the analysis receives effort totals and shares; with it off the same questions receive
+Action counts and their shares alone. A Sprint with missing commitment estimates also
+supplies counts alone, rather than effort percentages over a partially estimated plan.
+Its frozen record keeps how many Actions had no estimate, separately from its known EP.
+
 ## The run
 
 ```mermaid

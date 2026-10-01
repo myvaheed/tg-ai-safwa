@@ -108,7 +108,7 @@ async def sync_commitment_for_stage(
             SprintCommitment(
                 sprint_id=workspace.active_sprint_id,
                 card_id=card.id,
-                effort_snapshot=card.effort_points or 0,
+                effort_snapshot=card.effort_points,
                 scope_kind="added",
                 added_at=utcnow(),
             )
@@ -151,11 +151,29 @@ def effort_sums(commitments: Iterable[SprintCommitment]) -> dict[str, float]:
     closes."""
     items = list(commitments)
     return {
-        "committed": sum(i.effort_snapshot for i in items if i.scope_kind == "initial"),
-        "added": sum(i.effort_snapshot for i in items if i.scope_kind == "added"),
-        "removed": sum(i.effort_snapshot for i in items if i.removed_at is not None),
-        "completed": sum(i.effort_snapshot for i in items if i.result == CardStage.DONE.value),
+        "committed": sum(i.effort_snapshot or 0 for i in items if i.scope_kind == "initial"),
+        "added": sum(i.effort_snapshot or 0 for i in items if i.scope_kind == "added"),
+        "removed": sum(i.effort_snapshot or 0 for i in items if i.removed_at is not None),
+        "completed": sum(i.effort_snapshot or 0 for i in items if i.result == CardStage.DONE.value),
     }
+
+
+def action_counts(commitments: Iterable[SprintCommitment]) -> dict[str, int]:
+    """Count Actions independently of whether they carry an estimate."""
+    items = list(commitments)
+    return {
+        "committed": sum(i.scope_kind == "initial" for i in items),
+        "added": sum(i.scope_kind == "added" for i in items),
+        "removed": sum(i.removed_at is not None for i in items),
+        "completed": sum(i.result == CardStage.DONE.value for i in items),
+        "unestimated": sum(i.effort_snapshot is None for i in items),
+    }
+
+
+async def sprint_counts(session: AsyncSession, sprint_id: int) -> dict[str, int]:
+    return action_counts(await session.scalars(
+        select(SprintCommitment).where(SprintCommitment.sprint_id == sprint_id)
+    ))
 
 
 async def sprint_metrics(session: AsyncSession, sprint_id: int) -> dict[str, float]:

@@ -48,12 +48,24 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
   each Action again inside every ancestor — a real total says `WHERE kind = 'action'`.
 - `manual_stage` is what the user set on an Action, or explicit Done on a parent; `effective_stage` is what
   dashboards and queries read.
-- Effort is restricted to `EFFORT_POINTS` and required for Actions; the `Literal` in
+- Effort is optional for Actions and restricted to `EFFORT_POINTS` when supplied; the `Literal` in
   [cards/agent.py](../src/safwa/features/cards/agent.py) mirrors it — change both together.
   A rung says what the Action costs the owner rather than how long it takes, and
   `EFFORT_RUNGS` is that wording, read by the effort selector and by the tool's field
   description alike. The column is a float because 0.5 is a rung; recovery does not add
   up, so a Sprint total is a load signal of the right order and never a percentage base.
+- **Effort Points** (`UserProfile.effort_tracking`) are off by default. The Profile switch
+  controls the estimate selectors, Card/list/citation displays, Sprint capacity and Today
+  overload. Off, Sprint and retro screens and AI context use Action counts; AI read views
+  hide stored effort with NULL. Explicit estimates can still be saved in words. Switching
+  off preserves estimates and configured capacity, drops pending overload questions and
+  leaves Time tracking alone. Estimates remain optional after switching on.
+- A Sprint commitment freezes the estimate as it joins, including NULL for an unestimated
+  Action. Count totals include every Action; effort totals sum known estimates and name
+  missing ones. Retro keeps the missing count. Incomplete records supply no effort
+  completion percentages or EP/hour rates; effort aggregates omit incomplete Sprints and
+  state how many records supplied each number. The current Profile switch governs both
+  past retro displays and the numbers handed to AI analysis.
 - **Time spent** (`tracked_mins`) is the minutes the owner says an Action took, 1 to
   `TRACKED_MINS_MAX`, shown as hours and minutes by `minutes_label`. It is optional and never
   written on creation. The column and the `card` tool field always exist, because the prompt

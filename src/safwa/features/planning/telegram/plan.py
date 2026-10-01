@@ -39,7 +39,7 @@ from ...cards.api import CardStage, actions_on_stages, effort_label
 from ...cards.model import Card
 from ...cards.telegram import render_card
 from ...cards.use_cases import move_card
-from ...profile.api import capacity_effort_points
+from ...profile.api import capacity_effort_points, effort_tracking_on
 from ...saved_requests.model import SavedRequest
 from .sprint import plan_cost
 from .state import (
@@ -100,30 +100,31 @@ def _link(services: Services, text: str, payload: str) -> str:
     return f'<a href="https://t.me/{services.bot_username}?start={payload}">{text}</a>'
 
 
-def _table(services: Services, planned: list[Card]) -> str:
+def _table(services: Services, planned: list[Card], *, effort_tracking: bool = False) -> str:
     rows = [
-        '<tr><th align="left">Planned in Sprint</th><th align="right">EP</th>'
-        '<th align="center"></th></tr>'
+        '<tr><th align="left">Planned in Sprint</th>'
+        + ('<th align="right">EP</th>' if effort_tracking else '')
+        + '<th align="center"></th></tr>'
     ]
     if not planned:
-        rows.append('<tr><td colspan="3" align="center">Nothing planned yet.</td></tr>')
+        rows.append(f'<tr><td colspan="{3 if effort_tracking else 2}" align="center">Nothing planned yet.</td></tr>')
     for card in planned:
         title = _link(services, html.escape(card.title), f"sp-{card.id}")
         back = _link(services, _RETURN, f"sr-{card.id}")
         rows.append(
             f'<tr><td align="left">{title}</td>'
-            f'<td align="right">{effort_label(card.effort_points or 0)}</td>'
-            f'<td align="center">{back}</td></tr>'
+            + (f'<td align="right">{effort_label(card.effort_points)}</td>' if effort_tracking else '')
+            + f'<td align="center">{back}</td></tr>'
         )
     return "<table bordered striped>" + "".join(rows) + "</table>"
 
 
-def _button_label(card: Card) -> str:
+def _button_label(card: Card, *, effort_tracking: bool = False) -> str:
     """Keep a long title readable in a full-width keyboard row."""
     title = card.title
     if len(title) > SPRINT_PLAN_TITLE_LIMIT:
         title = f"{title[: SPRINT_PLAN_TITLE_LIMIT - 1]}…"
-    return f"{title} ({effort_label(card.effort_points or 0)})"
+    return f"{title} ({effort_label(card.effort_points)})" if effort_tracking else title
 
 
 async def _markup(
@@ -135,11 +136,12 @@ async def _markup(
     backlog_total: int,
 ) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
+    effort_tracking = await effort_tracking_on(session)
     for card in shown.items:
         rows.append(
             [
                 await token_button(
-                    session, services.owner_id, _button_label(card), "plan_move", {"id": card.id}
+                    session, services.owner_id, _button_label(card, effort_tracking=effort_tracking), "plan_move", {"id": card.id}
                 ),
             ]
         )
@@ -221,13 +223,16 @@ async def render_plan(
         markup = await _markup(
             session, services, shown, filters=live, backlog_total=len(backlog)
         )
-        cost, warning = plan_cost(planned, await capacity_effort_points(session))
+        effort_tracking = await effort_tracking_on(session)
+        cost, warning = plan_cost(
+            planned, await capacity_effort_points(session), effort_tracking=effort_tracking
+        )
         await session.commit()
     body = (
         "<p><b>Sprint plan</b></p>"
         f"<p>In Sprint: {cost}</p>"
         + (f"<p>{warning}</p>" if warning else "")
-        + _table(services, planned)
+        + _table(services, planned, effort_tracking=effort_tracking)
     )
     if replace_message_id is not None:
         await edit_registered_message(

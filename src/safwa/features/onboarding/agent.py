@@ -12,11 +12,17 @@ from tg_agent_shell.ai.contracts import AgentChange, ChangeAction, ToolInput
 from tg_agent_shell.proposals.api import MutationToolSpec
 from tg_agent_shell.telegram.manifest import AgentSpec
 
+from ..cards.model import EFFORT_RUNGS, effort_label
+
 # Enough of the conversation to see its own earlier tips; what is older than the Summary is
 # gone from the conversation anyway.
 ONBOARDING_HISTORY_MESSAGES = 100
 
-MANUAL = """# Safwa
+_EFFORT_SCALE = "\n".join(
+    f"- {effort_label(points)} EP: {meaning}." for points, meaning in EFFORT_RUNGS.items()
+)
+
+MANUAL = f"""# Safwa
 - Safwa is a personal agile advisor in Telegram. The user keeps a workspace of Cards, commits to a Sprint of a fixed number of days, and learns from each Sprint in its retro.
 - The Advisor reads the workspace and advises. It saves nothing itself: it proposes, and only the user saves.
 
@@ -33,7 +39,7 @@ MANUAL = """# Safwa
 - An Action has a stage: Backlog, Sprint, Today, Done. It goes to Sprint or Today when the user takes it on; it need not pass every stage. An open Goal shows its children's live stage. Goals and Subgoals close only by an explicit Done or approved proposal after their Actions are finished; an open Action reopens them.
 - After all Actions under a Goal or Subgoal are Done, the Advisor asks whether to close it too or create a new Action. Goal completion follow-up in Profile → Hooks switches this question off or on.
 - Priority: Critical, Medium, Low.
-- Effort is what an Action costs the user, not how long it takes: 0.5, 1, 2, 3, 5, 8 or 13.
+- Effort Points (EP) are optional and off at first. An Action can be created, edited and finished without an estimate. Turn them on in the Profile to estimate load.
 - Time spent is how long an Action took, as "5h 31m". A Goal shows the time of the Actions under it. With Time tracking on in the Profile, "⌛ Time spent" in "✏️ Full editing" records it; in words it is recorded either way.
 - Categories (Self, Contribution, Work, Rest) and energy (Physical, Cognitive, Social, Values) describe an Action.
 - Hard Time is when a Card must happen, as a schedule, with a note of what fixes it.
@@ -44,6 +50,16 @@ MANUAL = """# Safwa
 - With buttons: "➕ Add" creates a Goal or an Action. "📚 Backlog" and "☀️ Today" list Cards. On a Card: "✅ Done", "📍 Stage", "☑️ Checks", and "✏️ Full editing" for every field, its Values and Tags, "Archive" and "Delete".
 - Not with buttons: placing a Card under another Card, or making a Subgoal. Ask the Advisor.
 - Not at all: moving an Action straight to Done. Finish it with "✅ Done".
+
+# Effort Points (EP)
+- "🔢 Effort Points" in the Profile switches the estimates, Sprint capacity and Today overload warnings on or off. Switching off keeps saved estimates and capacity. It does not change Time tracking.
+- With EP off, Card screens and lists hide estimates, and Sprint and retro show Action counts. The Advisor does not ask for estimates. An explicit estimate may still be saved in words.
+- EP estimate how much an Action takes out of the user and what recovery they need afterwards. They measure physical, cognitive or emotional load, not hours or importance.
+{_EFFORT_SCALE}
+- Choose the closest rung for the whole Action in the user's usual state. Today's tiredness changes how much to plan, not the Action's EP.
+- For a repeating Action, estimate one occurrence. Work that does not fit in one day is a Subgoal with smaller Actions, not a 13 EP Action.
+- EP totals help compare planned load with capacity. They do not convert to hours or predict recovery exactly.
+- With EP on, "🔢 Effort" in full editing or Card creation sets an estimate; "No estimate" clears it. Estimates are still optional. A Goal shows the total of its Actions. Partial totals name the Actions without estimates and show no completion percentage or EP per hour.
 
 # Checks
 - A Check asks whether something held: "posture straight?", or "milk" under "Go to the market". It is an observation, not a task: no effort, no stage.
@@ -71,7 +87,7 @@ MANUAL = """# Safwa
 - A Sprint runs for the Sprint length set in the Profile. Every plan is judged against its Success criteria. "☀️ Today" is the day's work, and it exists only while a Sprint runs.
 - Safwa warns the day before the last day and on the last day. The Sprint closes itself at midnight after its last day.
 - With buttons: "🏃 Sprint" or /sprint: "🎯 Set Success criteria", tap a Backlog Action in the plan to add it to Sprint, "▶️ Start N-day Sprint", "⏹ Finish early" or "⏹ Finish Sprint". Open an Action from Backlog or Today to move it with the two buttons at the top of its Card.
-- While a Sprint runs, its screen shows the dates, local day, Success criteria and taken and done EP. "Today", "Remaining", "Done" and "Blocked" select one list in the same message; their counts are Actions. "Remaining" is only the Sprint stage; "Done" is only this Sprint's completions; "Blocked" includes open Actions in Sprint and Today with their reasons. The selected button has a checkmark. Actions are text, without separate buttons.
+- While a Sprint runs, its screen shows the dates, local day, Success criteria and taken and done Actions, or EP while Effort Points are on. "Today", "Remaining", "Done" and "Blocked" select one list in the same message; their counts are Actions. "Remaining" is only the Sprint stage; "Done" is only this Sprint's completions; "Blocked" includes open Actions in Sprint and Today with their reasons. The selected button has a checkmark. Actions are text, without separate buttons.
 - In words: start the next Sprint, finish the running one, write the next Sprint's Success criteria, or ask its dates, its length and the days left. A Sprint to start is shown with its Success criteria, its first and last day and its length, for Save.
 - In words: moving Actions into Sprint or Today, or back to Backlog.
 - Not at all: changing a running Sprint's Success criteria or its dates, pausing or extending it, or bringing a finished one back. The length and the capacity are in the Profile.
@@ -103,12 +119,13 @@ MANUAL = """# Safwa
 - Open "⚙️ Profile" → "🔔 Hooks" to list the reactions by title and state. Choose one to read its description and switch it off or on on its own screen.
 - Hooks: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Goal completion follow-up", "Today overload", "Goals without Actions", "Hard Time outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
 - "Time tracking reminder" is in Hooks only while Time tracking is on, and asks nothing while it is off.
+- "Today overload" is in Hooks only while Effort Points are on, and asks nothing while they are off.
 
 # Profile
-- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Sprint length, Sprint capacity, Morning time, Diary time, Diary instruction, Daily summary, Home after, Time tracking, and "🔔 Hooks".
+- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Sprint length, Sprint capacity while Effort Points are on, Morning time, Diary time, Diary instruction, Daily summary, Home after, Time tracking, Effort Points, and "🔔 Hooks".
 - "⌛ Time tracking" is off until pressed. On, it offers "⌛ Time spent" on an Action, keeps a Sprint's time for its retro and turns on "Time tracking reminder". The active day it measures runs from the Morning time to the Diary time.
 - In words too: any of its fields, shown for Save with what it was and what it becomes.
-- The switches are buttons only. Onboarding alone may be turned off in words.
+- Time tracking and Effort Points can also be changed in words, through a Profile proposal. Hook switches are buttons only. Onboarding alone may be turned off in words.
 
 # Screens and commands
 - The menu, /start: "☀️ Today", "🏃 Sprint", "📊 Retro", "📚 Backlog", "➕ Add", "💎 Values", "🏷 Tags", "⚙️ Profile", "⏰ Reminders", "🔎 Requests".

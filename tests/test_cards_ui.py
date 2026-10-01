@@ -495,7 +495,7 @@ async def test_cd_tree_005_no_screen_can_change_a_cards_parent(sessions) -> None
         assert "set_card_parent" not in path.read_text(encoding="utf-8"), path
 
 
-async def test_cd_field_007_a_goal_draft_is_not_offered_an_actions_controls(sessions) -> None:
+async def test_cd_field_007_a_goal_draft_is_not_offered_an_actions_controls(sessions, effort_on) -> None:
     """CD-FIELD-007 — tests/brd/cards.feature"""
     action_only = {"🚧 Blocked", "🔢 Effort", "🔁 Repeat", "🏷 Categories", "⚡ Energy"}
     async with sessions() as session:
@@ -528,7 +528,7 @@ async def test_cd_field_007_a_goal_draft_is_not_offered_an_actions_controls(sess
         assert stored.state["blocked"] is False
 
 
-async def test_cd_effort_008_save_appears_only_once_the_draft_has_an_effort(sessions) -> None:
+async def test_cd_effort_008_save_accepts_no_estimate_and_refuses_an_invalid_one(sessions) -> None:
     """CD-EFFORT-008 — tests/brd/cards.feature"""
     async with sessions() as session:
         editor = UiSession(
@@ -543,8 +543,17 @@ async def test_cd_effort_008_save_appears_only_once_the_draft_has_an_effort(sess
     message = FakeMessage(55, bot_message=True)
     await render_card_creation(message, services_for(sessions))
     text, markup = message.edits[-1]
-    assert "✅ Save" not in button_texts(markup)
-    assert "An Action needs effort points" in text
+    assert "✅ Save" in button_texts(markup)
+    assert "An Action needs effort points" not in text
+
+    async with sessions() as session:
+        stored = await session.get(UiSession, editor.id)
+        stored.state = {**stored.state, "effort_points": max(EFFORT_POINTS) - 1}
+        await session.commit()
+    invalid = FakeMessage(57, bot_message=True)
+    await render_card_creation(invalid, services_for(sessions))
+    assert "✅ Save" not in button_texts(invalid.edits[-1][1])
+    assert "effort points must be one of" in invalid.edits[-1][0]
 
     async with sessions() as session:
         stored = await session.get(UiSession, editor.id)
@@ -594,7 +603,7 @@ async def test_card_creation_choosers_show_kind_category_and_energy_emojis(sessi
     )
 
 
-async def test_card_overview_uses_derived_progress_and_relationship_navigation(sessions) -> None:
+async def test_card_overview_uses_derived_progress_and_relationship_navigation(sessions, effort_on) -> None:
     async with sessions() as session:
         goal = await create_card(session, title="Ship product", kind="goal")
         subgoal = await create_card(
@@ -787,7 +796,7 @@ async def test_cd_archive_027_an_archived_card_reads_as_archived(sessions) -> No
     assert "Delete" in repeating_labels
 
 
-async def test_cd_effort_008_the_effort_selector_names_what_each_rung_costs(sessions) -> None:
+async def test_cd_effort_008_the_effort_selector_names_what_each_rung_costs(sessions, effort_on) -> None:
     """CD-EFFORT-008 — tests/brd/cards.feature"""
     async with sessions() as session:
         card = await create_card(session, kind="action", title="Run", effort_points=2)
@@ -872,7 +881,7 @@ async def test_vl_link_017_a_goal_shows_its_values_and_says_when_it_has_none(ses
     assert "<b>Value</b>" in text and "Name: Health" in text
 
 
-async def test_cd_view_031_a_card_opens_compact_with_full_editing_one_button_away(sessions) -> None:
+async def test_cd_view_031_a_card_opens_compact_with_full_editing_one_button_away(sessions, effort_on) -> None:
     """CD-VIEW-031 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")

@@ -15,7 +15,7 @@ from .model import TRACKED_MINS_MAX
 
 class CardToolInput(ToolInput):
     content_fields = frozenset({"title", "note", "blocked_description", "hard_time_description"})
-    semantic_null_fields = frozenset({"parent_id", "hard_time", "tracked_mins"})
+    semantic_null_fields = frozenset({"parent_id", "hard_time", "tracked_mins", "effort_points"})
 
     mode: Literal["create", "update", "move", "complete", "reopen", "link", "unlink"] = Field(
         description=(
@@ -47,6 +47,8 @@ class CardToolInput(ToolInput):
         default=None,
         description=(
             "How much the whole Action takes in the user's usual state. "
+            "Optional; omit while Effort Points are off unless the user asks for an estimate. "
+            "On update, null removes the estimate. "
             "0.5 done in passing. 1 the day goes on as it was. 2 a little tired, no rest needed. "
             "3 carry on only after a break. 5 after a full rest, one more serious thing. "
             "8 only light work left today. 13 nothing else today. "
@@ -110,8 +112,6 @@ class CardToolInput(ToolInput):
                 raise ValueError("a new Card must not include an id")
             if self.kind is None or not (self.title or "").strip():
                 raise ValueError("a new Card needs kind and title")
-            if self.kind == "action" and self.effort_points is None:
-                raise ValueError("a new Action needs effort_points")
             if "tracked_mins" in supplied:
                 raise ValueError("a new Card has no time spent yet; omit tracked_mins")
             if self.blocked and not (self.blocked_description or "").strip():

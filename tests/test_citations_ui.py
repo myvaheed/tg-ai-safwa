@@ -88,7 +88,7 @@ async def test_citations_become_deep_links_only_for_live_items(sessions) -> None
         rendered = await render_citations(session, services, text)
 
     assert (
-        f'<a href="https://t.me/safwa_ai_bot?start=card-{card_id}">⭐️ Pull-ups · ⚡1</a>'
+        f'<a href="https://t.me/safwa_ai_bot?start=card-{card_id}">⭐️ Pull-ups</a>'
         in rendered
     )
     # A deleted item leaves its words and loses its link, and an unknown type is not a citation.
@@ -115,7 +115,7 @@ async def test_a_citation_aimed_at_something_that_is_not_an_id_keeps_only_its_wo
     assert "Записал 📅 17 августа 2026 · 🌟5 за сегодня." in rendered
 
 
-async def test_citations_use_compact_labels_from_saved_items(sessions) -> None:
+async def test_citations_use_compact_labels_from_saved_items(sessions, effort_on) -> None:
     async with sessions() as session:
         await (await session.connection()).run_sync(
             lambda connection: create_ai_views(connection, AI_VIEWS)

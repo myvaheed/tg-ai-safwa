@@ -85,6 +85,7 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         f"Workspace mode: {workspace.mode if workspace else 'planning'}",
         f"About me: {(profile.about_me if profile else '').strip()}",
         f"Advisor instructions: {(profile.advisor_instructions if profile else '').strip()}",
+        f"Effort Points: {'on' if profile and profile.effort_tracking else 'off'}",
         "Active Values: "
         + ", ".join(citation(value.name, "value", value.id) for value in active_values),
         "Available Tags: " + ", ".join(citation(tag.name, "tag", tag.id) for tag in tags),
@@ -119,8 +120,8 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         today = await today_actions(session)
         lines.append("Today Actions:")
         lines.extend(
-            f"- {citation(card.title, 'card', card.id)} "
-            f"effort={effort_label(card.effort_points)}"
+            f"- {citation(card.title, 'card', card.id)}"
+            + (f" effort={effort_label(card.effort_points)}" if profile and profile.effort_tracking else "")
             + (
                 f" hard_time={card.hard_time_at.astimezone(timezone):%d.%m %H:%M}"
                 if card.hard_time_at

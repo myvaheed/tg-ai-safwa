@@ -493,9 +493,9 @@ def validate_action_fields(
 ) -> None:
     kind = CardKind(kind)
     if kind is CardKind.ACTION:
-        if effort_points not in EFFORT_POINTS:
+        if effort_points is not None and (isinstance(effort_points, bool) or effort_points not in EFFORT_POINTS):
             raise DomainError(
-                "An Action needs effort points: "
+                "An Action's effort points must be one of: "
                 + ", ".join(effort_label(rung) for rung in sorted(EFFORT_POINTS))
             )
         return

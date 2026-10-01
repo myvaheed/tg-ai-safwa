@@ -23,7 +23,7 @@ from tg_agent_shell.telegram.model import UiSession
 from ....foundation.marks import live_repeat_instance_id, title_marks
 from ....foundation.workspace import Workspace
 from ...checks.use_cases import card_checks
-from ...profile.api import time_tracking_on
+from ...profile.api import effort_tracking_on, time_tracking_on
 from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value
 from ..hard_time import hard_time_text
@@ -92,6 +92,7 @@ async def render_card(
             )
         )
         archived = card.archived_at is not None
+        effort_tracking = await effort_tracking_on(session)
         # An archived Card has no control to put away, so it opens whole.
         full = full or archived
         # Every control that edits a field belongs to the full view.
@@ -130,7 +131,8 @@ async def render_card(
                         {"id": card.id, "field": "blocked_description"},
                     )
                 )
-            field_specs.append(("🔢 Effort", "card_choose_effort", {"id": card.id}))
+            if effort_tracking:
+                field_specs.append(("🔢 Effort", "card_choose_effort", {"id": card.id}))
             if await time_tracking_on(session):
                 field_specs.append(
                     ("⌛ Time spent", "card_edit_text", {"id": card.id, "field": "tracked_mins"})
@@ -397,6 +399,7 @@ async def render_card(
                 **progress,
             },
             compact=not full,
+            effort_tracking=effort_tracking,
         ),
         notice,
     )

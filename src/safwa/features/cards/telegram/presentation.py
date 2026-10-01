@@ -14,6 +14,7 @@ from tg_agent_shell.telegram import Page, paginate, short_citation_title, with_c
 
 from ....foundation.marks import REPEAT_TODAY_MARKER, title_marks
 from ....foundation.workspace import Workspace
+from ...profile.api import effort_tracking_on
 from ..api import list_order
 from ..hierarchy import card_progress
 from ..model import (
@@ -98,7 +99,11 @@ def paginate_cards(cards: list[Card], page: int) -> Page:
 
 
 def card_overview_text(
-    state: dict[str, Any], *, heading: str = "Card", compact: bool = False
+    state: dict[str, Any],
+    *,
+    heading: str = "Card",
+    compact: bool = False,
+    effort_tracking: bool = False,
 ) -> str:
     """What a Card reads as: everything it holds, or the little of it a day needs.
 
@@ -146,7 +151,8 @@ def card_overview_text(
                 + html.escape(str(state.get("blocked_description") or "Required"))
             )
     if kind == CardKind.ACTION.value:
-        lines.append(f"Effort: {effort_label(state.get('effort_points'))}")
+        if effort_tracking:
+            lines.append(f"Effort: {effort_label(state.get('effort_points'))}")
         if state.get("tracked_mins"):
             lines.append(f"Time spent: {minutes_label(state['tracked_mins'])}")
         if not compact:
@@ -160,13 +166,16 @@ def card_overview_text(
                 ]
             )
     else:
-        lines.extend(
-            [
+        if effort_tracking:
+            lines.append(
                 f"Effort: {effort_label(state.get('completed_effort', 0))}"
-                f"/{effort_label(state.get('effort_points') or 0)} EP",
-                "Children: "
-                f"{state.get('completed_children', 0)}/{state.get('total_children', 0)} completed",
-            ]
+                f"/{effort_label(state.get('effort_points'))} EP"
+            )
+            if state.get("unestimated_actions"):
+                lines.append(f"{state['unestimated_actions']} Actions have no estimate.")
+        lines.append(
+            "Children: "
+            f"{state.get('completed_children', 0)}/{state.get('total_children', 0)} completed"
         )
         if state.get("tracked_mins"):
             lines.append(f"Time spent: {minutes_label(state['tracked_mins'])}")
@@ -219,14 +228,20 @@ def _emoji_group(values: list[str], emojis: dict[str, str]) -> str:
 async def card_citation_label(session: AsyncSession, services: Any, card: Card) -> str:
     """A Card is named by its own metadata, so a citation never restates what Safwa knows."""
     marker = await card_title_marks(session, card)
+    effort_tracking = await effort_tracking_on(session)
     leading = f"{kind_emoji(card.kind)} {short_citation_title(card.title)}{marker}"
     if card.kind in {CardKind.GOAL.value, CardKind.SUBGOAL.value}:
         progress = await card_progress(session, card.id)
+        if not effort_tracking:
+            return with_citation_fields(
+                leading, [f"{progress['completed_children']}/{progress['total_children']} completed"]
+            )
         return with_citation_fields(
             leading,
             [
                 f"⚡{effort_label(progress['completed_effort'])}"
-                f"/{effort_label(card.effort_points or 0)}"
+                f"/{effort_label(card.effort_points)}",
+                *([f"{progress['unestimated_actions']} unestimated"] if progress['unestimated_actions'] else []),
             ],
         )
     if card.kind != CardKind.ACTION.value:
@@ -247,7 +262,8 @@ async def card_citation_label(session: AsyncSession, services: Any, card: Card) 
         for group in (
             _emoji_group(energy_types, ENERGY_EMOJIS),
             _emoji_group(categories, CATEGORY_EMOJIS),
-            f"⚡{effort_label(card.effort_points)}" if card.effort_points is not None else "",
+            f"⚡{effort_label(card.effort_points)}"
+            if effort_tracking and card.effort_points is not None else "",
         )
         if group
     ]

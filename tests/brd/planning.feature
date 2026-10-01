@@ -1,7 +1,7 @@
 Feature: Planning — the Sprint, and the mode without one
   Planning is what the workspace is in while no Sprint runs; there is no Today then. A Sprint is a
   fixed stretch of days with Success criteria that say what it must achieve, and it keeps one row
-  per Action it ever had in scope. Sprint effort totals are effort points; the screen's list
+  per Action it ever had in scope. Sprint totals count Actions, or effort points while Effort Points are on; the screen's list
   selectors count Actions in each list.
 
   The Sprint is run on its screen or in words, and both go through the same operations.
@@ -137,7 +137,8 @@ Feature: Planning — the Sprint, and the mode without one
 
   Scenario: PL-PLAN-016 — The plan is the Sprint as a table and the Backlog as the keyboard
     Given one Action is planned and twelve are in the Backlog
-    Then the planned one is a row with its effort, and the plan says what the whole plan costs
+    Then the planned one is a row, and the plan says how many Actions are planned
+    And with Effort Points on, the row and plan also show their effort
     And the Backlog is full-width buttons, ten to a page (SPRINT_PLAN_PAGE_SIZE = 10)
     When the owner taps a Backlog Action
     Then it goes into the Sprint and the plan is redrawn with the same page and filters,
@@ -154,6 +155,7 @@ Feature: Planning — the Sprint, and the mode without one
     And a Request that was deleted since it was picked is dropped, and the rest still filter
 
   Scenario: PL-PLAN-018 — The plan's cost is shown against the capacity
+    Given Effort Points are on in the Profile
     Given the capacity in the Profile is 10 points and 13 points are planned
     Then wherever the plan's total effort is shown, the capacity is shown beside it, and the owner is told the plan is above it
     And the Sprint still starts
@@ -168,7 +170,7 @@ Feature: Planning — the Sprint, and the mode without one
 
   Scenario: PL-CONTEXT-020 — Today's Actions are handed over while a Sprint runs, and there is no Today otherwise
     Given a running Sprint
-    Then Safwa is handed every Action in Today, each with the effort it carries
+    Then Safwa is handed every Action in Today, with its effort only while Effort Points are on
     And a Card that is not an Action, or is not in Today, is not among them
     And they come in the order Today has (PL-KEY-025)
     When no Sprint is running
@@ -223,6 +225,7 @@ Feature: Planning — the Sprint, and the mode without one
     And in Planning it answers with the length a Sprint started today would have, and its dates
 
   Scenario: PL-CAPACITY-027 — A Sprint keeps the capacity it started with
+    Given Effort Points are on in the Profile
     Given the Sprint capacity in the Profile is 20 points
     When a Sprint starts, by the button or by Save
     Then the Sprint keeps 20 points as its capacity
@@ -233,7 +236,7 @@ Feature: Planning — the Sprint, and the mode without one
   Scenario: PL-SCREEN-028 — The running Sprint shows one chosen list without duplicate Action buttons
     Given a running Sprint with Actions in Sprint and Today, completed Actions, and blocked Actions
     When the owner opens Sprint
-    Then it shows its number, dates, local day of its length, Success criteria, and taken and done EP
+    Then it shows its number, dates, local day of its length, Success criteria, and taken and done Actions, or EP while Effort Points are on
     And Remaining lists only Actions still in Sprint
     And Today lists today's Actions in Today's order
     And Done lists only Actions completed in this Sprint
@@ -249,3 +252,11 @@ Feature: Planning — the Sprint, and the mode without one
     Then the same message shows the next page of that list and its page number
     When the owner selects another list
     Then it opens at its first page
+
+  Scenario: PL-EP-030 — Planning and Sprint work without effort estimates
+    Given Effort Points are off, with estimated and unestimated Actions in the workspace
+    Then the plan and Sprint show Action counts, with no EP or capacity controls or warnings
+    And the plan has no EP column, and its Action buttons show titles alone
+    And a Sprint can start, Actions can join and finish, and each Action is counted once
+    When Effort Points are switched on
+    Then missing estimates are named beside partial totals and are never presented as zero load

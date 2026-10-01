@@ -57,6 +57,7 @@ async def _save(harness, advisor, provider, proposal_id: int, words: list[str]):
 async def test_pl_mode_002_a_sprint_started_in_words_is_the_one_the_button_starts(e2e_harness):
     """PL-MODE-002 — tests/brd/planning.feature"""
     async with e2e_harness.sessions() as session:
+        await set_profile_field(session, ProfileField.EFFORT_TRACKING, True)
         card = await create_card(
             session, kind="action", title="Ship it", stage="sprint", effort_points=3
         )

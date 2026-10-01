@@ -33,7 +33,7 @@ from tg_agent_shell.telegram import callback_token_handler
 from tg_agent_shell.telegram.manifest import AgentContext
 
 
-async def test_rt_open_001_a_sprint_that_ended_keeps_a_screen_of_its_own(sessions) -> None:
+async def test_rt_open_001_a_sprint_that_ended_keeps_a_screen_of_its_own(sessions, effort_on) -> None:
     """RT-OPEN-001 — tests/brd/retro.feature"""
     async with sessions() as session:
         await create_card(
@@ -63,7 +63,7 @@ async def test_rt_open_001_a_sprint_that_ended_keeps_a_screen_of_its_own(session
     assert button_texts(markup) == ["✅ Met", "❌ Not met", "🔎 Analyse with AI", "↩️ Menu"]
 
 
-async def test_rt_stats_003_the_retro_adds_the_sprint_up_from_its_record(sessions) -> None:
+async def test_rt_stats_003_the_retro_adds_the_sprint_up_from_its_record(sessions, effort_on) -> None:
     """RT-STATS-003 — tests/brd/retro.feature"""
     async with sessions() as session:
         health = await create_value(session, "Health")

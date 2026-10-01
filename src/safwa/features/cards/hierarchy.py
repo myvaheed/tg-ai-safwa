@@ -150,6 +150,7 @@ async def card_progress(session: AsyncSession, card_id: int) -> dict[str, int]:
             child.effective_stage == CardStage.DONE.value for child in direct_children
         ),
         "total_children": len(direct_children),
+        "unestimated_actions": sum(action.effort_points is None for action in actions),
     }
 
 

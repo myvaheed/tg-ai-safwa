@@ -1,11 +1,11 @@
 Feature: Profile
   Profile is where the owner tells Safwa things outright, rather than leaving Safwa to infer them.
-  There are ten of them, each edited on its own, each checked before it is stored.
+  Each setting is edited on its own and checked before it is stored.
 
   Numbers below name the constant they come from; the tests read the constant.
 
   Background:
-    Given a workspace whose Profile holds the ten things the owner can tell Safwa outright
+    Given a workspace whose Profile holds the things the owner can tell Safwa outright
 
   Scenario: PS-CONTEXT-001 — What the owner said outright outranks what Safwa remembered
     Given what Safwa remembered and the Profile say different things about the owner
@@ -131,3 +131,16 @@ Feature: Profile
     When the owner asks Safwa to turn an automatic reaction off or on
     Then Safwa says whether it is on now and that its switch is reached through Profile → Hooks
     And nothing is proposed, except turning the onboarding off (OB-STOP-005)
+
+  Scenario: PS-EP-021 — Effort Points are off until the owner chooses to estimate load
+    Given a new workspace
+    Then Effort Points are off, and Time tracking has its own independent switch
+    And Card estimates, Sprint capacity and Today overload are hidden from screens and AI reads
+    When the owner switches Effort Points on in the Profile or saves a Profile proposal
+    Then optional estimates and Sprint capacity are available, and Today overload follows its own hook switch
+    And with Effort Points off, dependent hooks are neither evaluated nor allowed to deliver pending questions
+    And their own disabled switches are kept when Effort Points are switched on again
+    When Effort Points are switched off again
+    Then saved estimates and capacity are kept, and pending Today overload questions are dropped
+    And an estimate button from an older screen cannot change the saved estimate
+    And the setting persists when Safwa restarts

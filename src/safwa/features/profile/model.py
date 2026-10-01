@@ -42,6 +42,7 @@ class UserProfile(Base, TimestampMixin):
     # Whether the owner records the time an Action took: the button on an Action, a
     # Sprint's time in its retro, and the question after Done follow it.
     time_tracking: Mapped[bool] = mapped_column(Boolean, default=False)
+    effort_tracking: Mapped[bool] = mapped_column(Boolean, default=False)
     home_after_minutes: Mapped[int] = mapped_column(Integer, default=HOME_AFTER_MINUTES_DEFAULT)
     # The automatic reactions the owner turned off, by hook name. A hook that is not
     # here is on, so a new hook needs no column of its own.
@@ -63,4 +64,5 @@ class ProfileField(StrEnum):
     SUMMARY_TIME = "summary_time"
     MORNING_TIME = "morning_time"
     TIME_TRACKING = "time_tracking"
+    EFFORT_TRACKING = "effort_tracking"
     HOME_AFTER_MINUTES = "home_after_minutes"

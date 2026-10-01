@@ -19,7 +19,9 @@ from .screens import PROFILE_FIELDS
 
 def _title(name: str) -> str:
     field = PROFILE_FIELDS.get(name)
-    return field.title if field is not None else "Time tracking"
+    return field.title if field is not None else {
+        "time_tracking": "Time tracking", "effort_tracking": "Effort Points"
+    }[name]
 
 
 def _show(name: str, value: Any) -> str:
