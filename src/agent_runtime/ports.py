@@ -137,6 +137,9 @@ class Materializer(Protocol):
 class Observer(Protocol):
     """A trail of what a session did. Optional: a host that keeps none passes nothing."""
 
+    async def asking(self, agent: AgentSession) -> None:
+        """The session is about to ask the model, with its messages as they now stand."""
+
     async def step(
         self, run_id: int, position: int, kind: str, metadata: dict[str, Any]
     ) -> None: ...

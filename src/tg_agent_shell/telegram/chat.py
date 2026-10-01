@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import (
     Chat,
     InlineKeyboardButton,
@@ -267,16 +268,54 @@ async def delete_screen(message: Message, services: Services, message_id: int) -
     await services.chat.remove_screen(message, message_id)
 
 
+# How many of a turn's newest steps its notice lists.
+NOTICE_STEPS = 10
+
+
+def turn_notice(steps: Sequence[str] = ()) -> str:
+    """The notice, with the newest of the turn's steps numbered from its first."""
+    first = max(len(steps) - NOTICE_STEPS, 0)
+    numbered = [
+        f"{number}. {html.escape(step)}" for number, step in enumerate(steps[first:], first + 1)
+    ]
+    return "\n".join(["⏳ Writing an answer.", *numbered, "/cancel to stop it."])
+
+
 # `UI_INPUT` keeps it out of the conversation, and `/cancel` is tappable as written.
-TURN_NOTICE = "⏳ Writing an answer.\n/cancel to stop it."
+TURN_NOTICE = turn_notice()
 
 
-async def open_turn_notice(message: Message, services: Services) -> None:
+class TurnNotice:
+    """The notice standing in the chat while one answer is written, and the steps it lists."""
+
+    def __init__(self, message: Message, services: Services, message_id: int) -> None:
+        self.message = message
+        self.services = services
+        self.message_id = message_id
+        self.steps: list[str] = []
+
+    async def step(self, line: str) -> None:
+        self.steps.append(line)
+        try:
+            await edit_registered_message(
+                self.message,
+                self.services,
+                self.message_id,
+                turn_notice(self.steps),
+                kind=MessageKind.UI_INPUT,
+            )
+        except TelegramAPIError as error:
+            # A step the chat could not show is not a turn that failed.
+            logger.warning("The turn notice could not show a step: %s", error)
+
+
+async def open_turn_notice(message: Message, services: Services) -> TurnNotice:
     """Say in the chat that an answer is being written, once for the whole turn."""
     sent = await send_registered(
         message, services, TURN_NOTICE, kind=MessageKind.UI_INPUT, replace=False
     )
     services.turn.notice_shown(message.message_id, sent.message_id)
+    return TurnNotice(message, services, sent.message_id)
 
 
 async def remove_turn_notice(

@@ -78,7 +78,13 @@ class ScriptedProvider:
 
     async def complete(self, request: CompletionRequest) -> CompletionTurn:
         self.calls.append([dict(message) for message in request.messages])
-        self.options.append({"tools": list(request.tools), "tool_choice": request.tool_choice})
+        self.options.append(
+            {
+                "tools": list(request.tools),
+                "tool_choice": request.tool_choice,
+                "reasoning_effort": request.reasoning_effort,
+            }
+        )
         if not self.responses:
             raise AssertionError("The advisor made an unexpected provider call")
         response = self.responses.popleft()

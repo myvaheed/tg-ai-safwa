@@ -28,6 +28,7 @@ from safwa.features.planning.use_cases import set_sprint_success_criteria
 from safwa.foundation.workspace import Workspace
 from telegram_llm import DialogueMessage
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
+from tg_agent_shell.ai.steps import announce
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramMessage
 from tg_agent_shell.proposals.store import ProposalStore
@@ -35,6 +36,7 @@ from tg_agent_shell.telegram import (
     dismiss_prior_ui,
 )
 from tg_agent_shell.telegram.chat import (
+    NOTICE_STEPS,
     TURN_NOTICE,
     edit_registered_message,
     remove_turn_notice,
@@ -150,6 +152,61 @@ async def test_ag_turn_022_a_cancelled_turn_leaves_no_notice_and_no_answer(sessi
     assert notice.text == TURN_NOTICE
     assert notice.message_id in message.bot.deleted
     assert [item for item in message.sent_messages if "Auto-saved" in item.text] == []
+
+
+def stepping_services(sessions, steps: list[str]):
+    """A turn whose answer is preceded by `steps`, said the way the sessions say them."""
+    services = turn_services(sessions)
+    answer = services.root.handle
+
+    async def handle(request, *, source_message_id=None, dialogue=None):
+        for line in steps:
+            await announce(line)
+        return await answer(request, source_message_id=source_message_id, dialogue=dialogue)
+
+    services.root.handle = handle
+    return services
+
+
+async def test_ag_turn_053_the_notice_lists_each_step_as_it_starts(sessions) -> None:
+    """AG-TURN-053 — tests/brd/tg_agent_shell/agents.feature"""
+    steps = [f"Step <{number}>." for number in range(1, NOTICE_STEPS + 3)]
+    services = stepping_services(sessions, steps)
+    message = FakeMessage(968, text="Save it", bot_message=False, answer_as_new=True)
+
+    await run_dialogue_turn(message, services, "Save it", 968)
+
+    notice = message.sent_messages[0]
+    assert notice.text == TURN_NOTICE
+    shown = [text for edited, text, _markup in message.bot.edits if edited == notice.message_id]
+    assert len(shown) == len(steps)
+    assert shown[0] == "⏳ Writing an answer.\n1. Step &lt;1&gt;.\n/cancel to stop it."
+    assert shown[1].splitlines()[1:3] == ["1. Step &lt;1&gt;.", "2. Step &lt;2&gt;."]
+    # The newest NOTICE_STEPS, each keeping its number.
+    last = shown[-1].splitlines()
+    assert len(last) == NOTICE_STEPS + 2
+    assert last[1] == "3. Step &lt;3&gt;."
+    assert last[-2] == f"{len(steps)}. Step &lt;{len(steps)}&gt;."
+    assert notice.message_id in message.bot.deleted
+    assert any("Auto-saved" in item.text for item in message.sent_messages)
+
+
+async def test_ag_turn_053_a_step_telegram_refuses_leaves_the_answer_standing(
+    sessions,
+) -> None:
+    """AG-TURN-053 — tests/brd/tg_agent_shell/agents.feature"""
+    services = stepping_services(sessions, ["Advisor is thinking."])
+    message = FakeMessage(969, text="Save it", bot_message=False, answer_as_new=True)
+
+    async def refuse(*_args, **_kwargs) -> None:
+        raise TelegramAPIError(method=SimpleNamespace(), message="Too Many Requests")
+
+    message.bot.edit_message_text = refuse
+
+    await run_dialogue_turn(message, services, "Save it", 969)
+
+    assert any("Auto-saved" in item.text for item in message.sent_messages)
+    assert not any("could not be completed" in item.text for item in message.sent_messages)
 
 
 async def test_a_review_that_could_not_be_drawn_ends_and_the_owner_is_told(sessions) -> None:

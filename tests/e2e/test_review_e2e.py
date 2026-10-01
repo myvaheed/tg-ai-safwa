@@ -6,12 +6,9 @@ from collections.abc import Callable
 import pytest
 from advisor_e2e_helpers import PLAN, mutation_turn, route_turn
 
-from llm_gateway import CompletionTurn as ProviderTurn
-from llm_gateway import ToolCall as ProviderToolCall
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.model import Card
 from safwa.features.cards.use_cases import create_card
-from tg_agent_shell.ai.mini import MINI_SESSION_REPAIR_ROUNDS
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.ai.tools import REPAIR_EXHAUSTED
 from tg_agent_shell.hooks.contracts import (
@@ -42,19 +39,6 @@ PUSH_UPS = (
     "card",
     {"mode": "create", "kind": "action", "title": "Отжаться 30 раз", "effort_points": 1},
 )
-# What a review that never calls one of its tools says, one more time than it is asked again.
-UNDECIDED = ["I am not sure."] * (MINI_SESSION_REPAIR_ROUNDS + 1)
-
-
-def verdict(name: str, **arguments: str) -> ProviderTurn:
-    return ProviderTurn(
-        content="",
-        tool_calls=(
-            ProviderToolCall(id=f"review-{name}", name=name, arguments_json=json.dumps(arguments)),
-        ),
-    )
-
-
 def tool_results(messages: list[dict[str, object]]) -> list[dict[str, object]]:
     return [
         json.loads(str(message["content"])) for message in messages if message["role"] == "tool"
@@ -308,7 +292,7 @@ async def test_an_unfinished_request_is_not_answered_yet(e2e_harness):
     advisor, provider = e2e_harness.advisor(
         [
             "Готово, всё сделал.",
-            verdict("request_unfinished", missing="Напоминание в пятницу."),
+            "missing: Напоминание в пятницу.",
             "Напоминание я пока не создал.",
         ],
         request_review=True,
@@ -321,11 +305,13 @@ async def test_an_unfinished_request_is_not_answered_yet(e2e_harness):
     assert len(provider.calls) == 3
     system, context = provider.calls[1]
     assert system["content"] == REQUEST_REVIEW_PROMPT
+    assert provider.options[1]["tools"] == []
+    assert provider.options[1]["reasoning_effort"] == "none"
     assert "discarded, refused or taken back" in REQUEST_REVIEW_PROMPT
     assert "The answer asks the user about that change" in REQUEST_REVIEW_PROMPT
     read = json.loads(str(context["content"]))
     assert f"<User>{request}</User>" in read["conversation"]
-    assert read["done"] == []
+    assert read["changed"] == []
     assert read["answer"] == "Готово, всё сделал."
     note = provider.calls[2][-1]["content"]
     assert note == "[System]: " + REQUEST_UNFINISHED.format(missing="Напоминание в пятницу.")
@@ -333,17 +319,10 @@ async def test_an_unfinished_request_is_not_answered_yet(e2e_harness):
 
 async def test_a_done_or_undecided_review_sends_the_answer_as_it_is(e2e_harness):
     """AG-DONE-045 — tests/brd/tg_agent_shell/agents.feature"""
-    done, done_provider = e2e_harness.advisor(
-        ["Ответ.", verdict("request_done", reason="A question.")], request_review=True
-    )
-    assert (await done.handle("Как дела?", source_message_id=1)).message == "Ответ."
-    assert len(done_provider.calls) == 2
-
-    undecided, undecided_provider = e2e_harness.advisor(
-        ["Ответ.", *UNDECIDED], request_review=True
-    )
-    assert (await undecided.handle("Как дела?", source_message_id=1)).message == "Ответ."
-    assert len(undecided_provider.calls) == 1 + len(UNDECIDED)
+    for line in ("done", "- `done`", "I am not sure.", "missing:"):
+        advisor, provider = e2e_harness.advisor(["Ответ.", line], request_review=True)
+        assert (await advisor.handle("Как дела?", source_message_id=1)).message == "Ответ."
+        assert len(provider.calls) == 2
 
 
 async def test_request_review_off_reads_no_answer(e2e_harness):

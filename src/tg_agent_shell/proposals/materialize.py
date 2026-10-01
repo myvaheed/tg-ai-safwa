@@ -33,6 +33,7 @@ from llm_gateway import LlmProvider
 from ..ai.contracts import ToolResultStatus
 from ..ai.conversation import kept_turn
 from ..ai.outcome import AIOutcome, AIOutcomeKind, as_turn
+from ..ai.steps import announce, checking_line, preparing_line
 from ..ai.tools import (
     REPAIR_EXHAUSTED,
     ToolAdapters,
@@ -151,6 +152,8 @@ class ProposalMaterializer:
         if not result.pending_tools:
             return await self._answer_unless_held(agent, result.message)
         mutation_tools = [tool for tool in result.pending_tools if tool.change is not None]
+        if mutation_tools:
+            await announce(preparing_line(agent.kind, len(mutation_tools)))
         preparation_results = {
             tool.call.id: json_safe(tool.result) for tool in result.pending_tools
         }
@@ -369,6 +372,7 @@ class ProposalMaterializer:
             effect = checked.spec.effect
             error = checked.error
             if error is None and isinstance(effect, effect_type):
+                await announce(checking_line(checked.spec.title))
                 try:
                     for payload in checked.payloads:
                         words = await effect.review(payload, self.provider)

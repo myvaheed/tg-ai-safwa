@@ -96,6 +96,7 @@ class AgentManager:
             routed_kinds=self.routed_kinds,
             max_tool_calls=self.max_tool_calls,
             max_repair_rounds=self.max_repair_rounds,
+            observer=self.observer,
         )
 
     async def _run_to_outcome(self, agent: AgentSession, started: float) -> TurnOutcome:

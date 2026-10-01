@@ -444,9 +444,10 @@ flowchart LR
   transcript, so a session picked up after a decision still reads what it meant to do, and it
   never reaches the chat.
 - **The answer to the owner's message is read for what was asked and nothing did**
-  (`AG-DONE-045`): `REQUEST_REVIEW_HOOK`, one mini session over the conversation, each change the
+  (`AG-DONE-045`): `REQUEST_REVIEW_HOOK`, one completion over the conversation, each change the
   request made and the answer. A missing change can be judged only there: before it, the model
-  may not have made it yet.
+  may not have made it yet. It stands between the answer and the chat, so it asks with no tools
+  and `reasoning_effort` "none", and its verdict is one line, `done` or `missing: …`.
 - **Every mutation tool belongs to a subagent**, never to the Advisor. `workspace_mutator` owns the workspace,
   `diary` owns the Diary. Preparation runs where the change was authored.
 - **Every proposal screen is exactly Save/Discard.** A screen that needs a field control is the
@@ -769,6 +770,12 @@ stateDiagram-v2
 
 - While an answer runs, callbacks are rejected and any other owner message is taken out of the chat,
   which is what makes it not something the owner said.
+- **The notice of a running answer lists its steps** (`AG-TURN-053`). The runtime calls
+  `Observer.asking` before every request to the model; that request, a response's changes and a
+  check that reads with the model are each one line, which
+  [ai/steps.py](../src/tg_agent_shell/ai/steps.py) carries in a `ContextVar` to the turn that
+  listens. That reaches every session of the chain with no parameter threaded through it, and a
+  Cue or background work, which nobody listens to, says nothing.
 - `cancel()` stops the task holding the lease and bumps `dialogue_revision`: the work ends where it
   stands, and anything that still comes back against the old revision is discarded. Only
   `dialogue_revision` invalidates an in-flight answer — the answer's own autoapproved change moves

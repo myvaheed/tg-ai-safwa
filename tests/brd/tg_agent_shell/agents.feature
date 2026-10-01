@@ -373,11 +373,13 @@ Feature: Agents — the session, the hand-over, and what comes back
   Scenario: AG-DONE-045 — Before Safwa answers the owner's message, the request is read for what was asked and not done
     Given the request review is on in the feature toggles
     When Safwa is about to answer the owner's message, by AG-HOOK-047
-    Then one review reads it, and is told that a change the owner discarded, refused or took
-      back is not missing, and neither is one the answer asks them about
-    When it finds a change the message asked for that nothing made
+    Then one review reads it, with no tools and reasoning_effort "none", and is told that a
+      change the owner discarded, refused or took back is not missing, and neither is one the
+      answer asks them about
+    And it is told to answer one line: "done", or "missing:" and each change in the owner's words
+    When it answers "missing:" and names a change
     Then Safwa is told what is not done: to route it now, or to tell the owner it was not done
-    When it finds nothing missing, or cannot reach a decision
+    When it answers "done", or a line that is neither
     Then the answer is sent as it is
     When the request review is off in the feature toggles
     Then no answer is read before it is sent
@@ -434,3 +436,22 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then the screen arrives after Safwa's message, as if Safwa had opened it
     And a subagent that declared no kind is not given the tool
     And a kind it did not declare is refused (SC-OPEN-006)
+
+  Scenario: AG-TURN-053 — The message that says an answer is being written lists each step as it starts
+    Given the owner asked Safwa something, and the message of AG-TURN-022 stands in the chat
+    When a session is about to ask the model
+    Then that message is edited to add one numbered line under the ones before it
+    And the line names the session by its kind, capitalized, with spaces for underscores:
+      "Advisor", "Workspace mutator"
+    And it is "<session> is thinking." when nothing came back to it since its last response
+    And it is "<session> retries: <error>" when a call came back with an error, the error cut to
+      120 characters (STEP_ERROR_CHARS)
+    And it is "<session> continues after <calls>." when its calls came back, a subagent it routed
+      to named in place of route
+    When a response carries changes
+    Then the line is "<session> is preparing <n> changes."
+    When a check reads the model's work with the model
+    Then the line is "Checking: <the check's title>."
+    And the message shows the newest 10 lines (NOTICE_STEPS), each keeping its number
+    When Telegram refuses to show a line
+    Then the answer is still written
