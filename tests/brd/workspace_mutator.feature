@@ -7,8 +7,9 @@ Feature: The workspace
     Given the owner has asked Safwa for a change to something they keep
 
   Scenario: WS-SCOPE-001 — What the owner keeps is changed by one part of Safwa
-    Given a request that would create, change, archive or delete a Card, a Check, a Value, a
+    Given a request that would create, change or delete a Card, a Check, a Value, a
       Tag, a Request or a Reminder
+    Or a request that would archive a Card or Check
     Then all of it is handed to the same part, however many kinds it touches
     And the Diary is not part of the workspace: a day is written by the part that owns days
     And every way Safwa has of changing anything belongs to the part that owns what it changes,

@@ -3,14 +3,17 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from safwa.features.cards.model import Card
+from safwa.features.cards.references import TAG_REFERENCE
 from safwa.features.cards.use_cases import create_card, toggle_card_tag
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.tags.use_cases import create_tag, delete_tag, update_tag_fields
 from safwa.features.workspace_mutator.remove import RemoveToolInput
 from safwa.features.workspace_mutator.state import workspace_context
 from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.foundation.references import resolve_references
 
 
 async def _action(session, title: str, **overrides):
@@ -23,21 +26,36 @@ async def _action(session, title: str, **overrides):
     )
 
 
-async def test_a_tag_name_is_taken_whatever_the_capitals(sessions):
+@pytest.mark.parametrize("name, duplicate", [("Family", "FAMILY"), ("Семья", "СЕМЬЯ"), ("Straße", "STRASSE")])
+async def test_a_tag_name_is_taken_whatever_the_capitals(sessions, name, duplicate):
     """TA-NAME-002 — tests/brd/tags.feature"""
     async with sessions() as session:
-        await create_tag(session, "Family")
+        await create_tag(session, name)
         other = await create_tag(session, "Work")
         await session.commit()
 
         with pytest.raises(DomainError, match="already exists"):
-            await create_tag(session, "FAMILY")
+            await create_tag(session, duplicate)
         with pytest.raises(DomainError, match="already exists"):
-            await update_tag_fields(session, other.id, name="family")
+            await update_tag_fields(session, other.id, name=duplicate)
         with pytest.raises(DomainError, match="cannot be empty"):
             await update_tag_fields(session, other.id, name=" ")
         with pytest.raises(DomainError, match="cannot be empty"):
             await create_tag(session, "")
+
+
+async def test_a_tag_unicode_name_is_unique_in_storage_and_resolves_in_proposals(sessions):
+    """TA-NAME-002 — tests/brd/tags.feature"""
+    async with sessions() as session:
+        tag = await create_tag(session, "Семья")
+        await update_tag_fields(session, tag.id, name="РОДНЫЕ")
+        await session.commit()
+        resolved = await resolve_references(session, TAG_REFERENCE, {"tag_query": "родные"})
+        assert resolved.ids == {tag.id}
+        session.add(Tag(name="Родные"))
+        with pytest.raises(IntegrityError):
+            await session.flush()
+        await session.rollback()
 
 
 async def test_a_tag_is_deleted_and_its_cards_stay(sessions):

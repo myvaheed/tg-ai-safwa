@@ -63,7 +63,7 @@ Feature: Agents — the session, the hand-over, and what comes back
 
   Scenario: AG-SESSION-008 — Work paused on a screen picks up where it stopped
     Given a subagent prepared a change and its screen is waiting in the chat
-    When the owner saves it, minutes or hours later
+    When the owner saves it before its review is closed by PR-EXPIRE-029
     Then the subagent carries on from the step it stopped at, with everything it had already worked
       out
     And its result then reaches the part that handed it the work, which answers the owner
@@ -96,19 +96,25 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then it does nothing while the request is running
     When the owner runs /cancel
     Then the running request is stopped, and that is the one thing they can always do
+    And its unfinished sessions end and release every claim, so background work is not left blocked
+    And none of those sessions can be resumed by an old screen
 
-  Scenario: AG-BUDGET-011 — One request has one tool budget, however many screens it opens
-    Given a request that opens several screens before it is finished
+  Scenario: AG-BUDGET-011 — Each session has its own tool budget, preserved through screens
+    Given a session that opens several screens before it is finished
     When the owner answers each of them and the work carries on
     Then every step it has taken counts against one budget of 64 (MAX_TOOL_CALLS = 64)
-    And the budget is not refilled by a pause, so a request that never settles is stopped
+    And the budget is not refilled by a pause, so a session that never settles is stopped
+    When a caller routes to a new subagent session
+    Then that session starts its own counter and budget, separate from its caller's
+    But resuming or adopting the same unfinished session keeps the counter it already spent
 
   Scenario: AG-BUDGET-012 — A subagent that takes too long is stopped by the clock
     Given a subagent is working while the owner waits for an answer
     When it has been working for 300 seconds without finishing (SUBAGENT_DEADLINE_SECONDS = 300)
     Then it is stopped, and the owner is told it did not finish
     When instead a screen it opened is waiting for the owner
-    Then the time the owner takes to decide does not count against that, however long they take
+    Then the time the owner takes to decide does not count against the subagent's deadline
+    But an unanswered review still closes by PR-EXPIRE-029
 
   Scenario: AG-ANSWER-013 — A step that produces nothing is asked again, and the owner is never left with nothing
     Given a step ends with neither an answer nor anything to do

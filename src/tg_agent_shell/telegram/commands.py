@@ -76,6 +76,12 @@ def register_commands(target: Router, commands: tuple[ScreenCommand, ...]) -> No
     Registered before `dialogue.ordinary_text` would ever see the message, because that
     handler declines anything starting with a slash in its own filter.
     """
+    seen: set[str] = set()
+    for screen in commands:
+        if screen.command is not None:
+            if screen.command in seen:
+                raise RuntimeError(f"Duplicate command name: {screen.command}")
+            seen.add(screen.command)
     for screen in commands:
         if screen.command is not None:
             target.message.register(screen.handler, Command(screen.command))

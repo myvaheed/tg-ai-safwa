@@ -78,8 +78,8 @@ IDs are small integers. Never ask the user for one you can find yourself.
 MUTATOR_AGENT = AgentSpec(
     name="workspace_mutator",
     purpose=(
-        "any change(create, update, archive, delete) to a Card, Check, Value, Tag, "
-        "Request or Reminder."
+        "create, update or delete a Card, Check, Value, Tag, Request or Reminder; "
+        "archive a Card or Check only."
     ),
     instructions=MUTATOR_PROMPT,
     # What it changes, and what it judges a change against. The Diary is not the workspace's,

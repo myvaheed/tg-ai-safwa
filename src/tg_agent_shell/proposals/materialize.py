@@ -114,7 +114,7 @@ class ProposalMaterializer:
         A subagent's words go to whoever routed to it, so they are handed over untouched —
         unless it is declared shown as is: then they are a block for the owner to read, and
         its caller is told they were shown instead of being handed them to retell. The root
-        is the only participant that writes to the chat, which makes it the one place that
+        supplies the model's dialogue answer, which makes it the one place that
         has to guarantee the owner is never left with nothing.
         """
         if agent.parent_run_id is not None:

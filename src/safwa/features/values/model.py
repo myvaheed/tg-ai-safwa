@@ -15,7 +15,7 @@ from ...foundation.models import Base, TimestampMixin
 class Value(Base, TimestampMixin):
     __tablename__ = "values"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(200), unique=True)
+    name: Mapped[str] = mapped_column(String(200, collation="UNICODE_NOCASE"), unique=True)
     description: Mapped[str] = mapped_column(Text, default="")
     active: Mapped[bool] = mapped_column(Boolean, default=False)
     version: Mapped[int] = mapped_column(Integer, default=1)

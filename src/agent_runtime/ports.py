@@ -28,7 +28,8 @@ class SessionStore(Protocol):
     """Where a session's durable state lives, and who is allowed to resume it.
 
     `claim` is the whole guard against two resumes of one session: it must move the record
-    to `RUNNING` only if nothing holds it, and answer `None` when something does.
+    to `RUNNING` only if it is unfinished and nothing holds it, and answer `None` otherwise.
+    Completed, failed and abandoned records cannot be claimed again.
     """
 
     async def create(
@@ -82,6 +83,8 @@ class SessionStore(Protocol):
 
         The whole branch, not one level: a session is the outer bound of everything it
         started, and the store is what knows the shape of the chain.
+        Running, waiting and interrupted descendants end; completed and failed ones keep
+        their outcome. Every claim on a closed descendant is released.
         """
 
 

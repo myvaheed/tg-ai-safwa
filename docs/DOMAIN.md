@@ -73,6 +73,10 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
 - **Everything is deleted; only a Card and a Check are also archived**, two Sprints after they
   closed (`ARCHIVE_AFTER_SPRINTS`). Archived is a matter of sight: it still counts everywhere it
   counted. A Value, a Tag and a Saved Request carry no `archived_at` at all.
+  Deleting a Value or Tag removes its links and frees its name; creating that name later creates
+  a new item. Their names are unique under Unicode case folding, for both create and rename.
+  `DatabaseFile.connect` registers `UNICODE_NOCASE`, used by their name columns' unique indexes
+  and by proposal reference lookups.
 - **Only an Action is archived; a Goal and a Subgoal are derived, like everything else they show.**
   A branch leaves sight when its last Card does and comes back the moment one is reopened, so a
   parent is never stamped, never restored and never carries an `archive` event of its own.

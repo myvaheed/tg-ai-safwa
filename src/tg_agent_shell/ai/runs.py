@@ -124,7 +124,14 @@ class AgentRunStore:
         """Take a suspended session for this resume, or report that it is already taken."""
         claimed = await session.scalar(
             update(AgentRun)
-            .where(AgentRun.id == run_id, AgentRun.claimed_at.is_(None))
+            .where(
+                AgentRun.id == run_id,
+                AgentRun.claimed_at.is_(None),
+                AgentRun.status.in_([
+                    RunStatus.RUNNING.value, RunStatus.AWAITING_APPROVAL.value,
+                    RunStatus.INTERRUPTED.value,
+                ]),
+            )
             .values(claimed_at=utcnow(), status=RunStatus.RUNNING.value)
             .returning(AgentRun.id)
         )
@@ -271,7 +278,10 @@ class AgentRunStore:
                 update(AgentRun)
                 .where(
                     AgentRun.id.in_(select(branch.c.id)),
-                    AgentRun.status == RunStatus.INTERRUPTED.value,
+                    AgentRun.status.in_([
+                        RunStatus.RUNNING.value, RunStatus.AWAITING_APPROVAL.value,
+                        RunStatus.INTERRUPTED.value,
+                    ]),
                 )
                 .values(status=RunStatus.ABANDONED.value, claimed_at=None)
                 .returning(AgentRun.id)

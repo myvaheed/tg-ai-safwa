@@ -95,19 +95,21 @@ Feature: Proposals
     And for the discarded one it is told that it did not happen
 
   Scenario: PR-STALE-012 — A proposal is refused once the workspace has moved on without it
-    Given a proposal is on screen, and the owner leaves it unanswered overnight
-    When the Sprint reaches its planned end and closes itself in the night
-    And the owner presses Save in the morning
+    Given a proposal is on screen and its review has not expired by PR-EXPIRE-029
+    When the Sprint reaches its planned end and closes itself
+    And the owner presses Save before the review closes
     Then nothing at all is written
     And the owner is told the workspace has moved on since Safwa proposed this, and it has to be
       proposed again
     And the screen cannot be acted on any more
 
   Scenario: PR-STALE-013 — A proposal lives for one running process
-    Given a proposal was made in the current running process and was never answered
+    Given a proposal was made in the current running process and its review is still open
+    And the workspace has not moved on since it was proposed
     When the owner presses Save, however long that process has stayed alive
     Then the proposal is applied normally
     And the review is over
+    But a review nobody answers closes after 30 minutes by PR-EXPIRE-029, and its old Save writes nothing
     When Safwa restarts instead before the owner answers another proposal
     Then its review, its queue and its buttons are all gone
     And pressing the old Save button writes nothing and says the screen has to be reopened
@@ -160,6 +162,7 @@ Feature: Proposals
     Then neither proposal is written, and each is recorded as expired, not as discarded
     And what that request had already saved stays saved and is reported as saved
     And the screen loses its buttons and becomes an account that the system closed the request
+    And pressing its old Save writes nothing and cannot resume the closed request
     And the owner's next message starts a new request; the closed one is not resumed and nothing
       in it is proposed again
     And the Reminder is delivered after the screen is closed, on the same poll

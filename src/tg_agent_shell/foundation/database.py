@@ -34,6 +34,11 @@ BUSY_TIMEOUT_SECONDS = 5
 ITER_CHUNK_SIZE = 64
 
 
+def _unicode_nocase(left: str, right: str) -> int:
+    left, right = left.casefold(), right.casefold()
+    return (left > right) - (left < right)
+
+
 class DatabaseRefused(Exception):
     """The file was not opened, because nothing proves it is encrypted with this key."""
 
@@ -62,6 +67,8 @@ class DatabaseFile:
         else:
             connection = driver.connect(str(self.path))
         try:
+            # One comparison for Unicode name lookups and case-insensitive UNIQUE indexes.
+            connection.create_collation("UNICODE_NOCASE", _unicode_nocase)
             connection.execute(f"PRAGMA key = \"x'{self.key.hex()}'\"")
             # Before the first read, so a file another connection holds locked is waited for
             # rather than taken for one the key does not open.

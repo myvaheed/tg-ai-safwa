@@ -415,6 +415,66 @@ async def test_ag_budget_011_every_refused_response_spends_the_budget() -> None:
     assert tools.ran == []
 
 
+async def test_ag_budget_011_a_new_subagent_session_has_its_own_budget() -> None:
+    """AG-BUDGET-011 — tests/brd/tg_agent_shell/agents.feature"""
+    provider = _Provider([
+        _turn("route"), _turn("read", "read"), _turn(content="First done."),
+        _turn("route"), _turn("read", "read"), _turn(content="Second done."),
+        _turn(content="All done."),
+    ])
+    runtime, tools, store = _runtime(provider, max_tool_calls=2)
+
+    answered = await runtime.handle([{"role": "user", "content": "Read twice."}])
+
+    assert answered.message == "All done."
+    assert tools.ran == ["read"] * 4
+    assert [store.status(run_id) for run_id in (1, 2, 3)] == [RunStatus.COMPLETED] * 3
+
+
+@pytest.mark.parametrize("phase", ["start", "resume", "parent", "interrupted"])
+async def test_ag_turn_010_cancellation_ends_the_request_and_releases_every_claim(phase) -> None:
+    """AG-TURN-010 — tests/brd/tg_agent_shell/agents.feature"""
+    provider = _Provider([_turn("route"), _turn("write"), _turn(content="Saved.")])
+    runtime, _, store = _runtime(provider)
+    reference = None
+    if phase != "start":
+        waiting = await runtime.handle([{"role": "user", "content": "Change it."}])
+        reference = waiting.ref
+        assert reference is not None
+        if phase == "interrupted":
+            await runtime.interrupt(reference, {}, summary="The owner wrote instead.")
+
+    blocked = asyncio.Event()
+    complete = provider.complete
+    stop_after = 1 if phase == "start" else 3 if phase == "parent" else 2
+
+    async def hold(request):
+        if len(provider.requests) == stop_after:
+            blocked.set()
+            await asyncio.Event().wait()
+        return await complete(request)
+
+    provider.complete = hold
+    work = (
+        runtime.handle([{"role": "user", "content": "Change it."}])
+        if phase in {"start", "interrupted"}
+        else runtime.resume(reference, Resumption(results={"call-0": {"status": "saved"}}))
+    )
+    task = asyncio.create_task(work)
+    await asyncio.wait_for(blocked.wait(), timeout=1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert store.status(1) is RunStatus.ABANDONED
+    assert store.status(2) is (
+        RunStatus.COMPLETED if phase == "parent" else RunStatus.ABANDONED
+    )
+    assert not store._claimed
+    if reference is not None:
+        assert await runtime.resume(reference, Resumption()) is None
+
+
 async def test_ag_budget_012_a_subagent_resumed_after_a_screen_is_still_bound_by_the_clock() -> None:
     """AG-BUDGET-012 — tests/brd/tg_agent_shell/agents.feature"""
     provider = _Provider([_turn("route"), _turn("write"), _turn(content="It is saved.")])
