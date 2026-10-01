@@ -117,12 +117,16 @@ Feature: Cards
     And an Action anywhere in the branch counts, not the direct children only
     And a Goal with no Action anywhere under it shows Backlog
 
-  Scenario: CD-STAGE-015 — A Goal is Done only when everything under it is finished
+  Scenario: CD-STAGE-015 — Goals and Subgoals close only by explicit choice
     Given a Goal whose children have all been finished
-    Then the Goal shows Done
+    Then the Goal stays open in Backlog until the owner closes it with Done or saves a completion proposal
+    And closing a Subgoal does not close its Goal
+    And closing a Goal does not close its Subgoals
+    And a Goal or Subgoal with open Actions cannot be closed
     And a Goal with one Done Action and one live Action shows the live one's stage
     And a Subgoal with nothing in it holds the Goal above it in Backlog
-    And a Goal with nothing under it never shows Done
+    And a Goal with nothing under it stays in Backlog until explicitly closed
+    And a closed Goal or Subgoal may be reopened explicitly without reopening its Actions
 
   Scenario: CD-STAGE-016 — Done comes from finishing, not from moving
     Given an Action in Today
@@ -136,6 +140,8 @@ Feature: Cards
     Then the completion time is cleared
     And the Checks it was closed on are given back to it, by CH-REOPEN-012
     And the Goal above it shows a live stage again
+    And every closed parent is reopened, clearing its completion time and resetting its Checks
+    And a new open Action under a closed branch does the same
     Given instead an Action that repeats and has been finished
     When anything tries to reopen it
     Then it is refused
@@ -357,3 +363,15 @@ Feature: Cards
     And an Action finished with its time in the same proposal asks nothing
     And for a repeating Action the question is about the instance that was finished, not the open one after it, and its time is the one change Safwa may propose on that finished instance
     But with Time tracking off, or the reminder switched off, nothing is asked, and a question not yet said is not said
+
+  Scenario: CD-CLOSE-042 — Finished Actions prompt a choice about their open parents
+    Given a Goal or Subgoal with Actions under it and Goal completion follow-up switched on
+    When its last open Action is finished by hand or a saved proposal and the chat is free
+    Then the Advisor is asked once whether to close that Goal or Subgoal too or create a new Action under it
+    And all eligible parents, including ancestors, are named together with their IDs and titles
+    And nothing is closed or created without the owner's answer
+    And partially finished branches and repeating Actions with an open successor ask nothing
+    And a parent closed, archived, deleted or given an open Action before delivery is left out
+    And a parent with no Actions asks nothing
+    And rolling back completion asks nothing
+    And switching the hook off prevents new questions and suppresses pending ones

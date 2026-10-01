@@ -1,6 +1,6 @@
 """The Done-gate: answer every unobserved Check, or go back and leave the Card live.
 
-Finishing an Action is what opens this screen, so it belongs to Cards; the rows on it are
+Finishing a Card is what opens this screen, so it belongs to Cards; the rows on it are
 Checks, and their wording comes from the feature that owns them. Nothing is written until
 Save, so leaving here cannot half-finish the Card.
 """
@@ -36,7 +36,7 @@ from ...checks.telegram import (
 )
 from ...checks.use_cases import unobserved_series
 from ..api import live_card_title
-from ..use_cases import finish_action
+from ..use_cases import finish_card
 from .screens import render_card
 
 _GATE_TTL = timedelta(minutes=30)
@@ -177,7 +177,7 @@ async def _on_save(context: CallbackContext) -> None:
         return
     async with context.sessions() as session:
         outcomes = {int(key): value for key, value in stored.items()}
-        result = await finish_action(session, card_id, check_outcomes=outcomes)
+        result = await finish_card(session, card_id, check_outcomes=outcomes)
         await session.execute(delete(UiSession).where(UiSession.owner_id == context.owner_id))
         await session.commit()
     notice = "⚠️ " + "; ".join(result.warnings) if result.warnings else None

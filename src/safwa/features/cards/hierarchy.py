@@ -1,9 +1,8 @@
 """What a parent Card shows, and the one walk that keeps it true.
 
-A Goal and a Subgoal carry no stage, block, effort, time or archive of their own: each is added up
-from the row of children below it and written into the plain columns, so every screen and
-every view reads one column that means the same thing on every Card.  `propagate_ancestors`
-is the only writer of those columns, and every path that changes an Action ends there.
+A Goal and a Subgoal derive their live stage, block, effort, time and archive from their
+children. Done is explicit and held in manual_stage. `propagate_ancestors` keeps the plain
+columns current, and every path that changes an Action ends there.
 
 Reading a branch is here too, because the same walk answers both: what a parent is blocked
 for, and what its Actions have completed.
@@ -17,6 +16,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..checks.use_cases import reopen_checks
 from .model import (
     LIVE_STAGE_PRECEDENCE,
     TERMINAL_STAGES,
@@ -31,7 +31,7 @@ def aggregate_child_stages(children: list[Card]) -> CardStage:
     live = [stage for stage in stages if stage not in TERMINAL_STAGES]
     if live:
         return max(live, key=lambda stage: LIVE_STAGE_PRECEDENCE[stage])
-    return CardStage.DONE
+    return CardStage.BACKLOG
 
 
 async def branch_actions(session: AsyncSession, card_id: int) -> list[Card]:
@@ -56,8 +56,8 @@ def derived_from_children(
 
     Every child already carries its own derived values, so a parent adds up the row below
     it and the recursion reaches the Actions on its own. Reading the branch's Actions
-    directly would skip a Subgoal with nothing in it, and a Goal would call itself Done over
-    a child that never started.
+    directly would skip a Subgoal with nothing in it. Finished children leave an open
+    parent in Backlog; explicit completion is applied by `propagate_ancestors`.
     """
     if not children:
         return CardStage.BACKLOG, False, None, None, None
@@ -94,6 +94,17 @@ async def propagate_ancestors(session: AsyncSession, start_parent_id: int | None
         # of sight, and the effort it took is still the owner's.
         children = list(await session.scalars(select(Card).where(Card.parent_id == parent.id)))
         stage, blocked, effort, tracked, archived = derived_from_children(children)
+        if parent.manual_stage == CardStage.DONE.value:
+            actions = await branch_actions(session, parent.id)
+            if any(action.effective_stage != CardStage.DONE.value for action in actions):
+                parent.manual_stage = CardStage.BACKLOG.value
+                parent.completed_at = None
+                archived = None
+                await reopen_checks(session, parent.id)
+            else:
+                stage = CardStage.DONE
+        else:
+            archived = None
         current = (
             parent.effective_stage,
             parent.blocked,

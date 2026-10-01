@@ -30,7 +30,8 @@ MANUAL = """# Safwa
 
 # Cards
 - A Card is a Goal, a Subgoal or an Action. A Goal stands at the root. A Subgoal stands under a Goal. An Action stands under either, or alone, and is the only work.
-- An Action has a stage: Backlog, Sprint, Today, Done. It goes to Sprint or Today when the user takes it on; it need not pass every stage. A Goal shows the stage of the Actions under it.
+- An Action has a stage: Backlog, Sprint, Today, Done. It goes to Sprint or Today when the user takes it on; it need not pass every stage. An open Goal shows its children's live stage. Goals and Subgoals close only by an explicit Done or approved proposal after their Actions are finished; an open Action reopens them.
+- After all Actions under a Goal or Subgoal are Done, the Advisor asks whether to close it too or create a new Action. Goal completion follow-up in Profile → Hooks switches this question off or on.
 - Priority: Critical, Medium, Low.
 - Effort is what an Action costs the user, not how long it takes: 0.5, 1, 2, 3, 5, 8 or 13.
 - Time spent is how long an Action took, as "5h 31m". A Goal shows the time of the Actions under it. With Time tracking on in the Profile, "⌛ Time spent" in "✏️ Full editing" records it; in words it is recorded either way.
@@ -99,7 +100,7 @@ MANUAL = """# Safwa
 # Automatic reactions
 - Safwa speaks first on its own: about a blocked Action, an Action finished without its time, a day holding too much, Goals with no Action, Hard Times outside the plan, energy and rest in the Sprint, an Action stuck in Today, a Check Missed again and again, the Diary, the day's summary, a Sprint's end, a Success criterion out of reach, a read too heavy for the Advisor, what stands in Today and the Sprint when the user writes after 14 days or more away, and these onboarding tips.
 - Open "⚙️ Profile" → "🔔 Hooks" to list the reactions by title and state. Choose one to read its description and switch it off or on on its own screen.
-- Hooks: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Today overload", "Goals without Actions", "Hard Time outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
+- Hooks: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Goal completion follow-up", "Today overload", "Goals without Actions", "Hard Time outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
 - "Time tracking reminder" is in Hooks only while Time tracking is on, and asks nothing while it is off.
 
 # Profile

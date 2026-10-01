@@ -259,13 +259,17 @@ async def render_card(
                         )
                     )
         primary_row: list[InlineKeyboardButton] = []
-        if (
-            card.kind == CardKind.ACTION.value
-            and card.effective_stage != CardStage.DONE.value
-        ):
+        if not archived and card.effective_stage != CardStage.DONE.value:
             primary_row.append(
                 await token_button(
                     session, services.owner_id, "✅ Done", "card_finish", {"id": card.id}
+                )
+            )
+        if not archived and card.effective_stage == CardStage.DONE.value and not card.is_closed_repeat():
+            primary_row.append(
+                await token_button(
+                    session, services.owner_id, "♻️ Reopen", "card_move",
+                    {"id": card.id, "stage": CardStage.BACKLOG.value, "reopen": True},
                 )
             )
         if not full and card.kind == CardKind.ACTION.value and not archived and not move_row:
@@ -297,7 +301,7 @@ async def render_card(
                 )
             ]
             if archived:
-                if card.kind == CardKind.ACTION.value and not card.is_closed_repeat():
+                if not card.is_closed_repeat():
                     closing_row.insert(
                         0,
                         await token_button(
@@ -305,7 +309,7 @@ async def render_card(
                             services.owner_id,
                             "♻️ Reopen",
                             "card_move",
-                            {"id": card.id, "stage": CardStage.BACKLOG.value},
+                            {"id": card.id, "stage": CardStage.BACKLOG.value, "reopen": True},
                         ),
                     )
             else:
