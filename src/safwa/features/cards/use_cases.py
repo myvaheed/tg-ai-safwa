@@ -4,9 +4,8 @@ A Sprint commitment follows an Action's stage, and every writer of that stage is
 file: each one calls Planning's door afterwards, and no Card row here ever touches a
 commitment itself.
 
-What a Goal or a Subgoal then shows is not written here. Each operation ends at
-`propagate_ancestors` in [hierarchy.py](hierarchy.py), which is the only writer of the
-derived columns and the only walk that reads a branch.
+A Goal or Subgoal is closed explicitly here. Each operation ends at `propagate_ancestors`
+in [hierarchy.py](hierarchy.py), which keeps its live stage and derived columns current.
 """
 
 from __future__ import annotations
@@ -116,7 +115,7 @@ async def create_card(
     category_values = {Category(item).value for item in (categories or set())}
     energy_values = {EnergyType(item).value for item in (energy_types or set())}
     if card_kind is not CardKind.ACTION:
-        # A stage belongs to an Action, like effort and Blocked: a parent shows what its
+        # A live stage belongs to an Action, like effort and Blocked: a parent shows what its
         # branch is in, so anything asked for here is dropped rather than refused.
         card_stage = CardStage.BACKLOG
         effort_points = None
@@ -526,6 +525,7 @@ CARD_CREATED = "card.created"
 CARD_BLOCKED = "card.blocked"
 CARD_TODAY = "card.today"
 CARD_DONE = "card.done"
+CARD_ACTIONS_FINISHED = "card.actions_finished"
 CARD_TODAY_MORNING = "card.today_morning"
 
 
@@ -685,8 +685,92 @@ async def finish_action(
         successor = await _copy_repeat_successor(session, card, previous_live_stage)
         result.successor_ids.append(successor.id)
     result.ancestor_ids = await propagate_ancestors(session, card.parent_id)
+    parent_id = card.parent_id
+    while parent_id:
+        parent = await session.get(Card, parent_id)
+        if parent is None:
+            break
+        actions = await branch_actions(session, parent.id)
+        if any(action.effective_stage != CardStage.DONE.value for action in actions):
+            break
+        if parent.effective_stage != CardStage.DONE.value:
+            record_change(session, CARD_ACTIONS_FINISHED, parent.id)
+        parent_id = parent.parent_id
     await bump_workspace(session)
     return result
+
+
+async def require_finished_actions(session: AsyncSession, card_id: int) -> None:
+    if any(
+        action.effective_stage != CardStage.DONE.value
+        for action in await branch_actions(session, card_id)
+    ):
+        raise DomainError("Finish the open Actions before closing their Goal or Subgoal")
+
+
+async def finish_card(
+    session: AsyncSession,
+    card_id: int,
+    *,
+    actor: ActorType = ActorType.USER_UI,
+    check_outcomes: dict[int, Any] | None = None,
+    tracked_mins: int | None = None,
+) -> OperationResult:
+    """Close a Card explicitly, without closing any children."""
+    card = await session.get(Card, card_id)
+    if card is None:
+        raise DomainError("Card does not exist")
+    if card.kind == CardKind.ACTION.value:
+        return await finish_action(
+            session, card_id, actor=actor, check_outcomes=check_outcomes,
+            tracked_mins=tracked_mins,
+        )
+    if card.effective_stage == CardStage.DONE.value:
+        raise DomainError("Card is already terminal")
+    if tracked_mins is not None:
+        raise DomainError("Only an Action carries time spent")
+    await require_finished_actions(session, card.id)
+    resolutions = await require_check_answers(session, card.id, check_outcomes)
+    before = snapshot(card)
+    card.manual_stage = CardStage.DONE.value
+    card.effective_stage = CardStage.DONE.value
+    card.completed_at = utcnow()
+    card.version += 1
+    await record_card_event(session, card, CardStage.DONE.value, actor, before)
+    await settle_checks(session, card.id, resolutions, actor=actor)
+    ancestors = await propagate_ancestors(session, card.id)
+    await bump_workspace(session)
+    return OperationResult(card_ids=[card.id], ancestor_ids=ancestors)
+
+
+async def reopen_card(
+    session: AsyncSession,
+    card_id: int,
+    stage: CardStage = CardStage.BACKLOG,
+    *,
+    actor: ActorType = ActorType.USER_UI,
+) -> OperationResult:
+    """Reopen a parent independently; an Action returns to its chosen live stage."""
+    card = await session.get(Card, card_id)
+    if card is None:
+        raise DomainError("Card does not exist")
+    if card.kind == CardKind.ACTION.value:
+        return await move_card(session, card_id, stage, actor=actor)
+    if stage is not CardStage.BACKLOG:
+        raise DomainError("A reopened Goal or Subgoal derives its live stage")
+    if card.effective_stage != CardStage.DONE.value:
+        raise DomainError("Card is already open")
+    before = snapshot(card)
+    card.manual_stage = CardStage.BACKLOG.value
+    card.effective_stage = CardStage.BACKLOG.value
+    card.completed_at = None
+    card.archived_at = None
+    card.version += 1
+    await reopen_checks(session, card.id)
+    await record_card_event(session, card, "reopen", actor, before)
+    ancestors = await propagate_ancestors(session, card.id)
+    await bump_workspace(session)
+    return OperationResult(card_ids=[card.id], ancestor_ids=ancestors)
 
 
 async def archive_subtree(

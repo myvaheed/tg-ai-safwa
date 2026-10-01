@@ -55,9 +55,11 @@ from .use_cases import (
     archive_subtree,
     create_card,
     delete_subtree,
-    finish_action,
+    finish_card,
     holds_subgoals,
     move_card,
+    reopen_card,
+    require_finished_actions,
     set_card_parent,
     toggle_card_category,
     toggle_card_energy_type,
@@ -67,11 +69,6 @@ from .use_cases import (
 PARENT_HINT = (
     "Find the parent with query_data and retry with its numeric parent_id, or drop the "
     "parent. If you proposed it earlier in this same turn, wait for that result first."
-)
-
-
-STAGE_ACTIONS = frozenset(
-    {ChangeAction.MOVE, ChangeAction.COMPLETE, ChangeAction.REOPEN}
 )
 
 
@@ -258,13 +255,13 @@ async def _guard_pending_checks(
 async def _apply_stage_change(session: AsyncSession, card: Card, stage: CardStage) -> None:
     """Route one approved stage change so terminal stages keep their accounting.
 
-    ``finish_action`` owns completion timestamps, Sprint results and repeat
+    ``finish_card`` owns completion timestamps, Sprint results and repeat
     successors; ``move_card`` owns live stages and subtree propagation.  Every approved
     stage change goes through here so no path can reach Done without the completion
     bookkeeping.
     """
     if stage in TERMINAL_STAGES:
-        await finish_action(session, card.id, actor=ActorType.AI)
+        await finish_card(session, card.id, actor=ActorType.AI)
         return
     await move_card(session, card.id, stage, actor=ActorType.AI)
 
@@ -348,12 +345,16 @@ class CardProposalHandler:
             values.get("kind") if change.action is ChangeAction.CREATE else getattr(card, "kind", None)
         )
         if proposed_kind != CardKind.ACTION.value:
-            if change.action in STAGE_ACTIONS or "stage" in values:
+            if change.action is ChangeAction.COMPLETE and card is not None:
+                await require_finished_actions(context.session, card.id)
+            if "tracked_mins" in values and change.action is ChangeAction.COMPLETE:
+                raise DomainError("Only an Action carries time spent")
+            if change.action is ChangeAction.MOVE or "stage" in values:
                 raise ToolPreparationError(
                     "stage_is_action_only",
                     "A Goal and a Subgoal have no stage of their own: it shows what the Actions "
                     "under it are in.",
-                    "Move, complete or reopen the Actions in its branch instead.",
+                    "Move the Actions in its branch instead. Use complete or reopen for the parent.",
                 )
             for action_only_field in ACTION_ONLY_FIELDS:
                 values.pop(action_only_field, None)
@@ -435,15 +436,16 @@ class CardProposalHandler:
         if change.action is ChangeAction.MOVE:
             await _apply_stage_change(session, card, CardStage(change.values["stage"]))
         elif change.action is ChangeAction.COMPLETE:
-            await finish_action(
+            await finish_card(
                 session,
                 card.id,
                 actor=ActorType.AI,
                 tracked_mins=change.values.get("tracked_mins"),
             )
         elif change.action is ChangeAction.REOPEN:
-            await _apply_stage_change(
-                session, card, CardStage(change.values.get("stage", CardStage.BACKLOG.value))
+            await reopen_card(
+                session, card.id, CardStage(change.values.get("stage", CardStage.BACKLOG.value)),
+                actor=ActorType.AI,
             )
         elif change.action is ChangeAction.UPDATE:
             scalar_fields = {

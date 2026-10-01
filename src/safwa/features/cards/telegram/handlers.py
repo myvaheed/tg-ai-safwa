@@ -28,8 +28,9 @@ from ..use_cases import (
     archive_subtree,
     delete_one_card,
     delete_subtree,
-    finish_action,
+    finish_card,
     move_card,
+    reopen_card,
     update_card_fields,
 )
 from .creation import CARD_DRAFT_ACTIONS
@@ -90,7 +91,8 @@ async def _on_children(context: CallbackContext) -> None:
 
 async def _on_move(context: CallbackContext) -> None:
     async with context.sessions() as session:
-        result = await move_card(
+        operation = reopen_card if context.payload.get("reopen") else move_card
+        result = await operation(
             session, context.payload["id"], CardStage(context.payload["stage"])
         )
         await session.commit()
@@ -325,7 +327,7 @@ async def _on_finish(context: CallbackContext) -> None:
         )
         return
     async with context.sessions() as session:
-        result = await finish_action(session, card_id)
+        result = await finish_card(session, card_id)
         await session.commit()
     notice = "⚠️ " + "; ".join(result.warnings) if result.warnings else None
     await send_registered(

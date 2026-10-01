@@ -58,6 +58,7 @@ from safwa.features.cards.use_cases import (
     delete_subtree,
     edit_card_text,
     finish_action,
+    finish_card,
     move_card,
     record_today_morning,
     set_card_parent,
@@ -223,8 +224,9 @@ async def test_cd_tree_006_an_archived_or_missing_parent_is_refused(sessions):
         action = await create_card(
             session, kind="action", title="Walk", effort_points=2, parent_id=live.id
         )
-        # Only a closed Card may be archived, and a Goal closes through its Actions.
+        # A Goal must be closed explicitly before it can be archived.
         await finish_action(session, abandoned.id)
+        await finish_card(session, gone.id)
         await archive_subtree(session, gone.id)
         await session.commit()
 
@@ -482,8 +484,6 @@ async def test_cd_stage_013_only_an_action_has_a_stage(sessions):
                 session, {"mode": "move", "id": parent.id, "stage": "sprint"}
             )
             assert refused.code == "stage_is_action_only"
-            refused = await _refused_proposal(session, {"mode": "complete", "id": parent.id})
-            assert refused.code == "stage_is_action_only"
 
         # A stage asked for at creation is dropped rather than refused, like effort.
         born = await create_card(session, kind="goal", title="Fitness", stage="today")
@@ -524,7 +524,7 @@ async def test_cd_stage_014_a_goal_shows_the_stage_of_the_actions_under_it(sessi
         assert (await session.get(Card, empty.id)).effective_stage == CardStage.BACKLOG.value
 
 
-async def test_cd_stage_015_a_goal_is_done_only_when_all_its_actions_are_finished(sessions):
+async def test_cd_stage_015_a_goal_is_done_only_when_explicitly_closed(sessions):
     """CD-STAGE-015 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
@@ -542,6 +542,10 @@ async def test_cd_stage_015_a_goal_is_done_only_when_all_its_actions_are_finishe
         assert (await session.get(Card, goal.id)).effective_stage == CardStage.BACKLOG.value
 
         await finish_action(session, second.id)
+        await session.commit()
+        assert goal.effective_stage == CardStage.BACKLOG.value
+        assert goal.completed_at is None
+        await finish_card(session, goal.id)
         await session.commit()
         assert (await session.get(Card, goal.id)).effective_stage == CardStage.DONE.value
 
@@ -571,12 +575,19 @@ async def test_cd_stage_015_an_empty_subgoal_holds_its_goal_out_of_done(sessions
         )
         await finish_action(session, pillow.id)
         await session.commit()
-        assert (await session.get(Card, goal.id)).effective_stage == CardStage.DONE.value
+        assert subgoal.effective_stage == CardStage.BACKLOG.value
+        assert goal.effective_stage == CardStage.BACKLOG.value
+        await finish_card(session, subgoal.id)
+        assert goal.effective_stage == CardStage.BACKLOG.value
+        await finish_card(session, goal.id)
+        assert goal.effective_stage == CardStage.DONE.value
 
-        # A child written under a finished Goal takes it back out of Done.
-        await create_card(session, kind="subgoal", title="Nothing yet", parent_id=goal.id)
+        # A new open Action reopens its closed parents.
+        await create_card(session, kind="action", title="Read", effort_points=1, parent_id=subgoal.id)
         await session.commit()
         assert (await session.get(Card, goal.id)).effective_stage == CardStage.BACKLOG.value
+        assert subgoal.completed_at is None
+        assert goal.completed_at is None
 
 
 async def test_cd_stage_016_done_comes_from_finishing_not_from_moving(sessions):
@@ -610,6 +621,7 @@ async def test_cd_stage_017_reopening_an_action_undoes_what_closing_it_did(sessi
         await session.commit()
 
         await finish_action(session, action.id)
+        await finish_card(session, goal.id)
         await session.commit()
         assert (await session.get(Card, goal.id)).effective_stage == CardStage.DONE.value
 
@@ -856,8 +868,8 @@ async def test_cd_archive_022_a_closed_card_is_archived_two_sprints_later(sessio
         await session.commit()
 
         assert (await session.get(Card, action.id)).archived_at is not None
-        # The Goal above it went with the branch it had nothing left in.
-        assert (await session.get(Card, goal.id)).archived_at is not None
+        # Finished Actions do not archive a Goal the owner has not closed.
+        assert (await session.get(Card, goal.id)).archived_at is None
         assert (await session.get(Card, live.id)).archived_at is None
         assert (await session.get(Card, open_goal.id)).archived_at is None
 
@@ -874,6 +886,7 @@ async def test_cd_archive_023_an_archived_card_is_marked_not_left_out(sessions):
         )
         await finish_action(session, hidden.id)
         await finish_action(session, shown.id)
+        await finish_card(session, goal.id)
         await archive_subtree(session, hidden.id)
         await session.commit()
 
@@ -956,6 +969,8 @@ async def test_cd_archive_024_a_live_card_takes_its_branch_out_of_the_archive(se
         )
         await finish_action(session, walk.id)
         await finish_action(session, swim.id)
+        await finish_card(session, subgoal.id)
+        await finish_card(session, goal.id)
         await archive_subtree(session, walk.id)
         await session.commit()
         # One Action still in sight keeps the whole branch above it in sight.
@@ -1125,6 +1140,8 @@ async def test_parent_stage_propagation_and_reopen(sessions):
         await move_card(session, action.id, CardStage.TODAY)
         assert goal.effective_stage == CardStage.TODAY.value
         await finish_action(session, action.id)
+        assert goal.effective_stage == CardStage.BACKLOG.value
+        await finish_card(session, goal.id)
         assert goal.effective_stage == CardStage.DONE.value
         await move_card(session, action.id, CardStage.BACKLOG)
         assert goal.effective_stage == CardStage.BACKLOG.value
@@ -1284,12 +1301,14 @@ async def test_goal_progress_is_recursive_but_children_count_is_direct(sessions)
 
         assert progress == {
             "completed_effort": 3,
-            "completed_children": 1,
+            "completed_children": 0,
             "total_children": 2,
         }
         # The branch total is the Card's own effort now, so a query reads it too.
         assert (await session.get(Card, goal.id)).effort_points == 8
         assert (await session.get(Card, subgoal.id)).effort_points == 3
+        await finish_card(session, subgoal.id)
+        assert (await card_progress(session, goal.id))["completed_children"] == 1
 
 
 async def test_cd_context_028_only_the_critical_cards_still_to_do_are_handed_over(sessions):

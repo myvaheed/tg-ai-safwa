@@ -1,4 +1,4 @@
-"""A chat the owner left quiet, cleared down to the Home dashboard.
+"""A quiet chat cleared through the last user message, with a new Home dashboard.
 
 The real database, the real notes, the real tick poll and the real hook; Telegram is the
 queue fake and the model a script, each at its network boundary.
@@ -108,7 +108,7 @@ async def _kinds(harness) -> dict[int, str]:
 
 
 async def _a_chat(harness) -> None:
-    """What a morning leaves: the owner's words, an answer, and a screen still open."""
+    """What a morning leaves: a screen, the owner's words, and an answer."""
     async with harness.sessions() as session:
         await create_value(session, "Health", active=True)
         await session.commit()
@@ -118,10 +118,10 @@ async def _a_chat(harness) -> None:
     )
     await _keep(harness, 1100, MessageKind.DIALOGUE_USER, "What is next?")
     await _keep(harness, 1101, MessageKind.DIALOGUE_ASSISTANT, "Pay the rent.")
-    await _keep(harness, 1102, MessageKind.DASHBOARD, "<b>Today</b>")
+    await _keep(harness, 1099, MessageKind.DASHBOARD, "<b>Today</b>")
 
 
-async def test_a_quiet_chat_is_cleared_down_to_the_dashboard(e2e_harness) -> None:
+async def test_a_quiet_chat_keeps_messages_after_the_last_user_message(e2e_harness) -> None:
     """HM-QUIET-003 — tests/brd/home.feature"""
     await _a_chat(e2e_harness)
     services = _services(e2e_harness, Model())
@@ -134,7 +134,7 @@ async def test_a_quiet_chat_is_cleared_down_to_the_dashboard(e2e_harness) -> Non
     assert dashboard.message_id == 1150
     assert anchor.bot.silent == [dashboard.text]
     assert "<b>💎 Values in focus</b>" in dashboard.text and WORDS in dashboard.text
-    assert anchor.bot.deleted == list(range(1100, 1150))
+    assert anchor.bot.deleted == [1099, 1100]
     # What was said is still kept; the screen is gone with its message.
     assert await _kinds(e2e_harness) == {
         1000: MessageKind.DIALOGUE_USER.value,
@@ -147,11 +147,16 @@ async def test_a_quiet_chat_is_cleared_down_to_the_dashboard(e2e_harness) -> Non
     await looks.next()
     assert len(anchor.sent) == 1
 
-    # A Reminder said while the owner was away goes at the next look, with the rest.
+    # A Reminder said while the owner was away stays through repeated Home draws.
     await _keep(e2e_harness, 1151, MessageKind.CUE, "Time to stretch.")
+    anchor.message_id = 160
+    deleted = len(anchor.bot.deleted)
     await looks.next()
     assert len(anchor.sent) == 2
-    assert anchor.bot.deleted[50:] == list(range(1150, anchor.sent[-1].message_id))
+    assert anchor.bot.deleted[deleted:] == [1100, 1150]
+    assert (await _kinds(e2e_harness))[1151] == MessageKind.CUE.value
+    await looks.next()
+    assert len(anchor.sent) == 2
 
 
 async def test_a_waiting_review_or_a_short_quiet_clears_nothing(e2e_harness) -> None:

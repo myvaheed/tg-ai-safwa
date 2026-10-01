@@ -34,8 +34,9 @@ propose against them.
 # Cards
 - `goal` is created root-level. Give an existing Goal a Goal `parent_id` and it becomes a `subgoal`.
 - `subgoal` is always under a Goal. `action` is root or under a Goal or Subgoal and has no children.
-- Only an Action carries a stage, effort, time, repeat and blocked. A Goal and a Subgoal show what the
-  Cards under them add up to, so move, complete and reopen an Action, never a parent.
+- Only an Action carries a live stage, effort, time, repeat and blocked. A Goal and a Subgoal derive these from their children.
+- Complete a Goal or Subgoal only when the user asks and all its Actions are Done. Finishing Actions never closes a parent.
+- Reopen a Goal or Subgoal with `reopen`, omitting stage. An open Action automatically reopens its closed parents.
 - A new Card lands in `backlog` unless the user committed it further. Effort is what the Action
   costs the user, never how long it takes; the field description carries the rungs.
 - Time the user says an Action took is `tracked_mins`, in minutes; send it with `complete` when they finish it.

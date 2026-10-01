@@ -1,4 +1,5 @@
-"""What the Cards ask the Advisor to raise on their own: a blocker just set, an Action
+"""What the Cards ask the Advisor to raise on their own: a parent whose Actions are all
+finished, a blocker just set, an Action
 finished without the time it took, a day loaded past what it is meant to hold, a Sprint
 started without a kind of energy the Backlog has, an Action found in Today morning after
 morning, and — each morning, and when a Sprint starts — the Goals and Subgoals that still
@@ -47,6 +48,7 @@ from .model import (
     effort_label,
 )
 from .use_cases import (
+    CARD_ACTIONS_FINISHED,
     CARD_BLOCKED,
     CARD_DONE,
     CARD_TODAY,
@@ -165,6 +167,45 @@ BLOCKER_HOOK = HookSpec(
     effect=Advise(prepare=blocker_request),
     title="Blocker follow-up",
     description="After an Action is blocked, asks whether to set a Reminder to come back to it.",
+)
+
+
+async def finished_parents(event: Committed) -> tuple[int, ...]:
+    return (event.subject_id,)
+
+
+async def parent_completion_request(session: AsyncSession, items: Sequence[int]) -> str | None:
+    parents = await session.scalars(
+        select(Card).where(
+            Card.id.in_(items),
+            Card.kind.in_([CardKind.GOAL.value, CardKind.SUBGOAL.value]),
+            Card.effective_stage != CardStage.DONE.value,
+            Card.archived_at.is_(None),
+        ).order_by(Card.id)
+    )
+    lines = []
+    for parent in parents:
+        actions = await branch_actions(session, parent.id)
+        if actions and all(action.effective_stage == CardStage.DONE.value for action in actions):
+            lines.append(f"- #{parent.id} «{parent.title}» ({parent.kind})")
+    if not lines:
+        return None
+    return (
+        "All Actions under these Goals and Subgoals are Done:\n" + "\n".join(lines) + "\n"
+        "Ask the user in one message whether to close each too or create a new Action under it. "
+        "Wait for their choice. Do not close or create anything without their answer. "
+        "If they choose, route to workspace_mutator."
+    )
+
+
+PARENT_COMPLETION_HOOK = HookSpec(
+    name="cards.parent_completion",
+    owner="cards",
+    on=(OnCommitted(kind=CARD_ACTIONS_FINISHED),),
+    evaluate=finished_parents,
+    effect=Advise(prepare=parent_completion_request),
+    title="Goal completion follow-up",
+    description="After every Action under a Goal or Subgoal is Done, asks whether to close it too or create a new Action.",
 )
 
 

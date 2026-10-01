@@ -632,7 +632,7 @@ async def test_card_overview_uses_derived_progress_and_relationship_navigation(s
     assert "Kind: 🎯 Goal" in goal_text
     assert "Stage: Backlog" in goal_text
     assert "Effort: 3/8 EP" in goal_text
-    assert "Children: 1/2 completed" in goal_text
+    assert "Children: 0/2 completed" in goal_text
     assert "Parent:" not in goal_text
     assert "👥 Children" in button_texts(goal_markup)
     assert not any(text.startswith("🌳 Parent:") for text in button_texts(goal_markup))
