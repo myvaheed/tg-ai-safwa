@@ -53,6 +53,9 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
   A new or reopened Action reopens closed ancestors and resets their Checks. A parent has no
   `blocked_description` of its own. Summing `effort_points` or `tracked_mins` over every row counts
   each Action again inside every ancestor — a real total says `WHERE kind = 'action'`.
+- `ai_cards` exposes blocking through `blocked_description` alone: NULL means unblocked;
+  a blocked Action carries its reason, and a blocked Goal or Subgoal carries an empty string.
+  Filter blocked Cards with `blocked_description IS NOT NULL`.
 - `manual_stage` is what the user set on an Action, or explicit Done on a parent; `effective_stage` is what
   dashboards and queries read.
 - Effort is optional for Actions and restricted to `EFFORT_POINTS` when supplied; the `Literal` in

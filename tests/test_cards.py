@@ -343,8 +343,9 @@ async def test_cd_title_009_a_card_has_to_be_called_something(sessions):
         assert (await session.get(Card, card.id)).title == "Run"
 
 
-async def test_cd_blocked_010_a_blocked_action_says_why_and_unblocking_clears_it(sessions):
+async def test_cd_blocked_010_a_blocked_action_says_why_and_unblocking_clears_it(read_views):
     """CD-BLOCKED-010 — tests/brd/cards.feature"""
+    sessions, runner = read_views
     async with sessions() as session:
         with pytest.raises(DomainError, match="blocked description"):
             await create_card(session, kind="action", title="Waiting", effort_points=1, blocked=True)
@@ -357,10 +358,18 @@ async def test_cd_blocked_010_a_blocked_action_says_why_and_unblocking_clears_it
             blocked=True,
             blocked_description="Need account access",
         )
+        await session.commit()
+        row = (await runner.run(f"SELECT * FROM ai_cards WHERE id = {card.id}")).rows[0]
+        assert "blocked" not in row
+        assert row["blocked_description"] == "Need account access"
+
         await update_card_fields(session, card.id, {"blocked": False})
+        await session.commit()
 
         assert card.blocked is False
         assert card.blocked_description == ""
+        rows = (await runner.run("SELECT id FROM ai_cards WHERE blocked_description IS NULL")).rows
+        assert rows == [{"id": card.id}]
 
 
 async def test_cd_stage_011_a_new_card_starts_in_the_backlog(sessions):
@@ -668,8 +677,9 @@ async def test_cd_blocked_018_only_an_action_can_be_marked_blocked(sessions):
                 await ChangePreparer(None, None, PROPOSALS).prepare(session, change)  # type: ignore[arg-type]
 
 
-async def test_cd_blocked_019_a_goal_shows_the_blocked_actions_under_it(sessions):
+async def test_cd_blocked_019_a_goal_shows_the_blocked_actions_under_it(read_views):
     """CD-BLOCKED-019 — tests/brd/cards.feature"""
+    sessions, runner = read_views
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
         subgoal = await create_card(session, kind="subgoal", title="Sleep better", parent_id=goal.id)
@@ -693,10 +703,19 @@ async def test_cd_blocked_019_a_goal_shows_the_blocked_actions_under_it(sessions
         assert [(item.title, item.blocked_description) for item in named] == [
             ("Buy a pillow", "Shop is shut")
         ]
+        rows = (await runner.run(
+            "SELECT id, blocked_description FROM ai_cards WHERE blocked_description IS NOT NULL"
+        )).rows
+        assert {row["id"]: row["blocked_description"] for row in rows} == {
+            goal.id: "", subgoal.id: "", action.id: "Shop is shut",
+        }
 
         await update_card_fields(session, action.id, {"blocked": False})
         await session.commit()
         assert (await session.get(Card, goal.id)).blocked is False
+        assert (await runner.run(
+            "SELECT id FROM ai_cards WHERE blocked_description IS NOT NULL"
+        )).rows == []
 
         await update_card_fields(
             session, action.id, {"blocked": True, "blocked_description": "Shop is shut"}
@@ -705,6 +724,9 @@ async def test_cd_blocked_019_a_goal_shows_the_blocked_actions_under_it(sessions
         await session.commit()
         # A finished Action is not something the branch is waiting on.
         assert (await session.get(Card, goal.id)).blocked is False
+        assert (await runner.run(
+            "SELECT id FROM ai_cards WHERE blocked_description IS NOT NULL"
+        )).rows == [{"id": action.id}]
 
 
 async def test_cd_hardtime_033_schedule_supplies_the_next_appointment(sessions):

@@ -39,7 +39,8 @@ AI_CARDS = SqlView(
                          ELSE '' END
                  || CASE WHEN c.archived_at IS NULL THEN '' ELSE '{ARCHIVE_MARKER}' END AS title,
                c.note, c.kind, c.effective_stage AS stage, c.priority,
-               c.schedule, c.blocked, c.blocked_description,
+               c.schedule,
+               CASE WHEN c.blocked THEN c.blocked_description END AS blocked_description,
                CASE WHEN (SELECT effort_tracking FROM user_profile WHERE id=1)
                     THEN c.effort_points END AS effort_points,
                c.tracked_mins, c.parent_id,
@@ -54,19 +55,20 @@ AI_CARDS = SqlView(
                 JOIN tags t ON t.id=ct.tag_id WHERE ct.card_id=c.id) AS direct_tags,
                c.created_at, c.updated_at
         FROM cards c LEFT JOIN schedules s ON s.id=c.schedule_id""",
-    doc="""- `ai_cards(id, title, note, kind, stage, priority, schedule, blocked, blocked_description, effort_points, tracked_mins, parent_id, series_id, categories, energy_types, direct_values, direct_tags, created_at, updated_at)`
+    doc="""- `ai_cards(id, title, note, kind, stage, priority, schedule, blocked_description, effort_points, tracked_mins, parent_id, series_id, categories, energy_types, direct_values, direct_tags, created_at, updated_at)`
   - `kind` goal | subgoal | action
   - `stage` backlog | sprint | today | done
   - `priority` critical | medium | low
   - `effort_points` 0.5 | 1 | 2 | 3 | 5 | 8 | 13, cost of one execution; NULL when unestimated or Effort Points are off
   - `tracked_mins` is the minutes the user spent on an action, NULL when not recorded
-  - on a goal or a subgoal, `stage`, `blocked`, `effort_points` and `tracked_mins` are what the cards under it add up to
+  - on a goal or a subgoal, `stage`, `effort_points` and `tracked_mins` are what the cards under it add up to
   - to total effort or time always add `WHERE kind = 'action'`, or each action is counted again inside every parent
   - open Card rows are not planned execution counts; use `ai_current_sprint_metrics` for Sprint load and `get_scheduled` for calendar quantities
   - `categories` self | contribution | work | rest
   - `energy_types` physical | cognitive | social | values
   - `schedule` is the original timing text, not computed dates or counts; on a goal or a subgoal it is the deadline
-  - `blocked` 0 | 1
+  - `blocked_description` NULL = unblocked; non-NULL = blocked; filter with `IS NOT NULL`
+  - on a blocked goal or subgoal, `blocked_description` is an empty string; read reasons from its actions
   - `categories`, `energy_types`, `direct_values` and `direct_tags` are comma-joined names, so match one with `LIKE '%Health%'`
   - `series_id` is the whole repeat series of one card; a card that never repeated is its own series
   - the checks on a card are `ai_checks WHERE card_id = <id>`""",
